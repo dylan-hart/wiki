@@ -6,7 +6,15 @@
     pushed the field past the section and out of the card. The cap does the shrinking, and stretch
     still handles the growing.
   -->
-  <div class="w-input max-w-full min-w-0">
+  <!--
+    `inheritAttrs: false` below stops every undeclared attribute (`min`, `max`, `step`, `aria-label`,
+    ...) from decorating this wrapper, which is where they landed by default and did nothing --
+    a `<div>` has no spinner floor/ceiling to constrain. `class` and `style` are the exception:
+    both are genuinely about *this* element (sizing, margin -- callers reach for them to size the
+    whole field, not the raw control inside it), so they're bound back explicitly rather than
+    forwarded onto the inner control with everything else.
+  -->
+  <div class="w-input max-w-full min-w-0" :class="attrs.class" :style="attrs.style">
     <!-- -> Only the non-outlined variant still labels from above; see `hasFloatingLabel` -->
     <label
       v-if="label && !hasFloatingLabel"
@@ -72,6 +80,7 @@
 
       <component
         :is="type === 'textarea' ? 'textarea' : 'input'"
+        v-bind="controlAttrs"
         :id="inputId"
         ref="inputEl"
         :type="type === 'textarea' ? undefined : effectiveType"
@@ -154,7 +163,7 @@
 </template>
 
 <script setup>
-import { computed, inject, ref, useId, useSlots, watch } from 'vue'
+import { computed, inject, onMounted, ref, useAttrs, useId, useSlots, watch } from 'vue'
 
 /**
  * Text input.
@@ -162,6 +171,8 @@ import { computed, inject, ref, useId, useSlots, watch } from 'vue'
  * Validation follows the `rules` convention already in the codebase: an array of functions taking
  * the value and returning `true` when valid, or a message string when not.
  */
+defineOptions({ inheritAttrs: false })
+
 const props = defineProps({
   modelValue: {
     type: [String, Number],
@@ -240,6 +251,18 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  /**
+   * Focuses the control as soon as it mounts.
+   *
+   * Declared explicitly rather than left to the native HTML `autofocus` attribute falling through
+   * via `$attrs`: that attribute only reliably fires for an element present when the page itself
+   * loads, not one Vue mounts later -- inside a dialog or overlay opened well after the app has
+   * already started, which is exactly when a caller reaches for this.
+   */
+  autofocus: {
+    type: Boolean,
+    default: false
+  },
   autocomplete: {
     type: String,
     default: null
@@ -308,6 +331,20 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'keyup:enter', 'focus', 'blur'])
 
 const slots = useSlots()
+const attrs = useAttrs()
+
+/**
+ * Everything undeclared -- `min`, `max`, `step`, `aria-label`, `list`, `pattern`, ... -- forwarded to
+ * the real control instead of decorating the wrapper `<div>`, minus `class`/`style`: those stay
+ * bound to the wrapper explicitly (see the template), since they size and position the field as a
+ * whole rather than the raw `<input>`/`<textarea>` sitting inside it.
+ */
+const controlAttrs = computed(() => {
+  const forwarded = { ...attrs }
+  delete forwarded.class
+  delete forwarded.style
+  return forwarded
+})
 
 const inputEl = ref(null)
 const inputId = useId()
@@ -519,6 +556,12 @@ watch(
 */
 const registerWithForm = inject('wFormRegister', null)
 registerWithForm?.({ validate })
+
+onMounted(() => {
+  if (props.autofocus) {
+    inputEl.value?.focus()
+  }
+})
 
 defineExpose({
   validate,

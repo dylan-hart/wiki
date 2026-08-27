@@ -108,13 +108,16 @@
             </w-item-section>
             <w-item-section side>
               <w-input
+                ref="tabWidthInput"
                 type="number"
                 min="1"
                 max="8"
                 style="width: 100px"
                 outlined
-                v-model="state.config.tabWidth"
+                v-model.number="state.config.tabWidth"
                 dense
+                :rules="tabWidthRules"
+                lazy-rules="ondemand"
                 :aria-label="t(`admin.editors.markdown.tabWidth`)" />
             </w-item-section>
           </w-item>
@@ -201,7 +204,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 
 import { loading } from '@/composables/loading'
 import { notify } from '@/composables/notify'
@@ -261,6 +264,19 @@ const quoteStyles = [
   { value: 'swedish', label: 'Swedish' }
 ]
 
+const tabWidthInput = ref(null)
+
+/**
+ * `min`/`max` on the native control stop the spinner, not a pasted value -- and, unlike most numeric
+ * settings in this app, tab width is also stored with nothing enforcing its shape server-side:
+ * `backend/api/schemas/site.ts` types `editors.markdown.config` as `additionalProperties: true`, so
+ * a `0` or a pasted-in string genuinely persists.
+ */
+const tabWidthRules = [
+  (val) =>
+    (Number.isInteger(val) && val >= 1 && val <= 8) || t('admin.editors.markdown.tabWidthInvalid')
+]
+
 // METHODS
 
 function close() {
@@ -287,6 +303,9 @@ async function load() {
 }
 
 async function save() {
+  if (tabWidthInput.value && !tabWidthInput.value.validate()) {
+    return
+  }
   state.loading++
   try {
     // -> Only `config` is sent, so the editor's active state is left untouched by the merge

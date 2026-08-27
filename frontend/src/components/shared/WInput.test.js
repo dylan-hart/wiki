@@ -132,6 +132,59 @@ describe('WInput', () => {
     })
   })
 
+  describe('attribute forwarding', () => {
+    it('forwards undeclared attributes like min/max/step to the inner input, not the wrapper', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '', type: 'number' },
+        attrs: { min: '1', max: '3650', step: '1', 'aria-label': 'Retention days' }
+      })
+
+      const input = wrapper.find('input')
+      expect(input.attributes('min')).toBe('1')
+      expect(input.attributes('max')).toBe('3650')
+      expect(input.attributes('step')).toBe('1')
+      expect(input.attributes('aria-label')).toBe('Retention days')
+
+      const wrapperDiv = wrapper.element
+      expect(wrapperDiv.getAttribute('min')).toBeNull()
+      expect(wrapperDiv.getAttribute('max')).toBeNull()
+      expect(wrapperDiv.getAttribute('step')).toBeNull()
+      expect(wrapperDiv.getAttribute('aria-label')).toBeNull()
+    })
+
+    it('still applies a caller-supplied class to the wrapper, not the inner input', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '' },
+        attrs: { class: 'mr-2' }
+      })
+
+      expect(wrapper.classes()).toContain('mr-2')
+      expect(wrapper.find('input').classes()).not.toContain('mr-2')
+    })
+  })
+
+  describe('autofocus prop', () => {
+    it('focuses the control on mount when autofocus is set', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '', autofocus: true },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).toBe(wrapper.find('input').element)
+      wrapper.unmount()
+    })
+
+    it('does not steal focus when autofocus is left off', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '' },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).not.toBe(wrapper.find('input').element)
+      wrapper.unmount()
+    })
+  })
+
   describe('exposed methods', () => {
     it('reveal() shows a revealable password field as if the eye had been clicked', async () => {
       const wrapper = mount(WInput, {

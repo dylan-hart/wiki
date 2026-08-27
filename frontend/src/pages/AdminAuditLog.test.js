@@ -146,4 +146,19 @@ describe('AdminAuditLog', () => {
 
     wrapper.unmount()
   })
+
+  it('saveRetention() rejects an out-of-range value client-side, without hitting the API', async () => {
+    API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve(undefined) }))
+
+    const wrapper = mountPage()
+    await flush(wrapper)
+
+    wrapper.vm.state.retentionDays = 0
+    await wrapper.vm.$nextTick()
+    await wrapper.vm.saveRetention()
+
+    expect(API_CLIENT.put).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
 })
