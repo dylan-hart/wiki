@@ -27,6 +27,19 @@ export const MAX_IMPORT_SIZE = 25 * 1024 * 1024
  */
 export const MAX_IMPORT_BATCH_FILES = 20
 
+/**
+ * The most pandoc child processes allowed to run at once, across every request this instance is
+ * handling — not just within one.
+ *
+ * `MAX_IMPORT_BATCH_FILES` only bounds how many conversions ONE request can trigger; nothing bounded
+ * how many concurrent *requests* run at once (`limitApiRequests`' 300-per-5-minutes window counts
+ * requests over time, not simultaneity), so a dozen concurrent batch-import requests could still fork
+ * on the order of `MAX_IMPORT_BATCH_FILES` times that many pandoc children at once. A fixed ceiling
+ * rather than following CPU count the way `core/scheduler.ts`'s worker pool does — pandoc conversion
+ * is one occasional part of what this process does, not the whole of it.
+ */
+export const MAX_CONCURRENT_PANDOC = 4
+
 /** How much of pandoc's stderr is kept when reporting a failure, taken from the end where the error is. */
 const importErrorLength = 800
 
@@ -64,6 +77,47 @@ export type ImportFormat = (typeof SUPPORTED_IMPORT_FORMATS)[number]
 function isSupportedFormat(format: string): format is ImportFormat {
   return (SUPPORTED_IMPORT_FORMATS as readonly string[]).includes(format)
 }
+
+/**
+ * A minimal counting semaphore bounding how many callers may hold a slot at once.
+ *
+ * This is the whole shape a `p-limit`-style limiter needs for a single call site — a counter plus a
+ * queue of pending resolvers — inlined rather than taken as a dependency. `acquire()` resolves as
+ * soon as a slot is free (immediately, if one already is); `release()` frees the caller's slot and
+ * hands it straight to the next waiter, if any, so a waiter is never left behind by a slot that
+ * briefly opened and closed between polls.
+ */
+class Semaphore {
+  private available: number
+  private readonly waiters: Array<() => void> = []
+
+  constructor(concurrency: number) {
+    this.available = concurrency
+  }
+
+  acquire(): Promise<void> {
+    if (this.available > 0) {
+      this.available--
+      return Promise.resolve()
+    }
+    return new Promise((resolve) => {
+      this.waiters.push(resolve)
+    })
+  }
+
+  /** Must be called exactly once per successful `acquire()`, on every exit path — success or failure. */
+  release(): void {
+    const next = this.waiters.shift()
+    if (next) {
+      next()
+    } else {
+      this.available++
+    }
+  }
+}
+
+/** Process-wide: shared by every `Import` call in this instance, not one per request or per caller. */
+const pandocSlots = new Semaphore(MAX_CONCURRENT_PANDOC)
 
 /**
  * File extension (lowercase, no dot) -> the import format it implies.
@@ -218,15 +272,32 @@ class Import {
   }
 
   /**
+   * Gate onto the process-wide pandoc semaphore before actually spawning, and always release the slot
+   * afterwards — on a rejection from {@link spawnPandoc} exactly as much as on success — so a failed
+   * conversion never leaves a slot permanently held. This is the method `convertToMarkdown` calls; the
+   * actual `execFile` work lives in `spawnPandoc` so a test can mock either layer independently — this
+   * one to exercise the concurrency gate itself, that one to exercise conversion behavior without a
+   * real pandoc binary.
+   */
+  protected async runPandoc(format: PandocImportFormat, data: Buffer): Promise<string> {
+    await pandocSlots.acquire()
+    try {
+      return await this.spawnPandoc(format, data)
+    } finally {
+      pandocSlots.release()
+    }
+  }
+
+  /**
    * Shell out to pandoc, piping the file's bytes to stdin and reading Markdown back from stdout.
    *
    * `execFile`, never `exec`: `format` and the file's content are both user-controlled, and building
    * a shell command out of either would be injectable. Same pattern `models/extensions.ts`'s
    * `install()` uses for npm, for the same reason. A separate method (rather than inline in
-   * `convertToMarkdown`) so a test can replace it without a real pandoc binary on the machine running
-   * the test.
+   * `runPandoc`) so a test can replace it without a real pandoc binary on the machine running the
+   * test, while still exercising `runPandoc`'s own concurrency gate.
    */
-  protected runPandoc(format: PandocImportFormat, data: Buffer): Promise<string> {
+  protected spawnPandoc(format: PandocImportFormat, data: Buffer): Promise<string> {
     return new Promise((resolve, reject) => {
       const child = execFile(
         'pandoc',

@@ -3,7 +3,27 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { ExtensionDefinition } from './extensions.ts'
-import { detectImportFormat } from './import.ts'
+import { detectImportFormat, MAX_CONCURRENT_PANDOC } from './import.ts'
+
+/** Lets a promise-returning mock settle exactly when the test decides to, not before. */
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((r) => {
+    resolve = r
+  })
+  return { promise, resolve }
+}
+
+/**
+ * Fully drain the microtask queue — every currently-pending `Promise` reaction, including ones
+ * chained off ones that only resolve as part of draining. A `setImmediate` callback only runs once
+ * the whole microtask queue is empty, which is what makes this reliable where a fixed count of
+ * `await Promise.resolve()` hops would be guessing at how many links the semaphore's internal
+ * resolve-chain happens to have.
+ */
+function flushMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve))
+}
 
 const execFileAsync = promisify(execFile)
 
@@ -171,6 +191,89 @@ describe('page import (pandoc)', () => {
       assert.match(result.markdown, /\*\*bold\*\*/)
     }
   )
+
+  /**
+   * OpenProject #2209: `runPandoc` gates every call through a process-wide semaphore before it ever
+   * reaches `spawnPandoc` (the real `execFile` work), so these mock `spawnPandoc` rather than
+   * `runPandoc` itself — the gate under test lives in `runPandoc`, and mocking it away would mock away
+   * the very thing being verified.
+   */
+  describe('pandoc concurrency ceiling (OpenProject #2209)', () => {
+    test('never lets more than MAX_CONCURRENT_PANDOC callers into spawnPandoc at once', async () => {
+      let inFlight = 0
+      let maxInFlight = 0
+      const pending: Array<() => void> = []
+      const spawnPandoc = mock.method(pageImport as any, 'spawnPandoc', () => {
+        inFlight++
+        maxInFlight = Math.max(maxInFlight, inFlight)
+        const { promise, resolve } = deferred<string>()
+        pending.push(() => {
+          inFlight--
+          resolve('# ok\n')
+        })
+        return promise
+      })
+
+      try {
+        const callerCount = MAX_CONCURRENT_PANDOC + 6
+        const calls = Array.from({ length: callerCount }, () =>
+          (pageImport as any).runPandoc('mediawiki', Buffer.from('x'))
+        )
+
+        // -> Give every caller's `acquire()` a chance to resolve (or queue) before asserting.
+        await flushMicrotasks()
+
+        assert.equal(inFlight, MAX_CONCURRENT_PANDOC)
+        assert.equal(pending.length, MAX_CONCURRENT_PANDOC)
+        assert.ok(
+          maxInFlight <= MAX_CONCURRENT_PANDOC,
+          `expected at most ${MAX_CONCURRENT_PANDOC} concurrent spawnPandoc calls, saw ${maxInFlight}`
+        )
+
+        // -> Release callers one at a time; each release should admit exactly one more waiter, never
+        //    letting the in-flight count climb past the ceiling.
+        while (pending.length > 0) {
+          const release = pending.shift()!
+          release()
+          await flushMicrotasks()
+          assert.ok(
+            inFlight <= MAX_CONCURRENT_PANDOC,
+            `expected at most ${MAX_CONCURRENT_PANDOC} concurrent spawnPandoc calls, saw ${inFlight}`
+          )
+        }
+
+        const results = await Promise.all(calls)
+        assert.equal(results.length, callerCount)
+        assert.ok(results.every((r) => r === '# ok\n'))
+        assert.equal(maxInFlight, MAX_CONCURRENT_PANDOC)
+      } finally {
+        spawnPandoc.mock.restore()
+      }
+    })
+
+    test('a failed conversion releases its slot instead of holding it forever', async () => {
+      const spawnPandoc = mock.method(pageImport as any, 'spawnPandoc', async () => {
+        throw new Error('pandoc blew up')
+      })
+
+      try {
+        // -> Fill every slot with a call that is guaranteed to reject.
+        const failing = Array.from({ length: MAX_CONCURRENT_PANDOC }, () =>
+          (pageImport as any).runPandoc('mediawiki', Buffer.from('x')).catch((err: any) => err)
+        )
+        const errors = await Promise.all(failing)
+        assert.ok(errors.every((err: any) => err instanceof Error))
+
+        // -> If a failure had leaked its slot, every one of MAX_CONCURRENT_PANDOC would now be stuck
+        //    held, and this next call would hang waiting for `acquire()` to ever resolve.
+        spawnPandoc.mock.mockImplementation(async () => '# recovered\n')
+        const result = await (pageImport as any).runPandoc('mediawiki', Buffer.from('y'))
+        assert.equal(result, '# recovered\n')
+      } finally {
+        spawnPandoc.mock.restore()
+      }
+    })
+  })
 })
 
 /**
