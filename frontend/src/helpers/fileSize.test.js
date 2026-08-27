@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseFileSize } from './fileSize.js'
+import { formatFileSize, parseFileSize } from './fileSize.js'
 
 describe('parseFileSize', () => {
   it('parses a bare byte count', () => {
@@ -36,5 +36,19 @@ describe('parseFileSize', () => {
     expect(() => parseFileSize('not a size')).toThrow()
     expect(() => parseFileSize('10 XB')).toThrow()
     expect(() => parseFileSize('')).toThrow()
+  })
+})
+
+describe('formatFileSize', () => {
+  it('renders whole binary multiples with no decimal noise', () => {
+    expect(formatFileSize(5 * 1024 ** 2)).toBe('5 MB')
+    expect(formatFileSize(1024)).toBe('1 KB')
+    expect(formatFileSize(1024 ** 3)).toBe('1 GB')
+  })
+
+  it('round-trips with parseFileSize at the unit boundaries', () => {
+    for (const bytes of [0, 1023, 1024, 1024 ** 2, 1024 ** 3]) {
+      expect(parseFileSize(formatFileSize(bytes))).toBe(bytes)
+    }
   })
 })

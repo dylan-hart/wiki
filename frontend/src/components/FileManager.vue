@@ -567,13 +567,13 @@ import { useCommonStore } from '@/stores/common'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
-import { filesize } from 'filesize'
 import Fuse from 'fuse.js/basic'
 import NewMenu from './PageNewMenu.vue'
 import Tree from './TreeNav.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { assetUrl } from '@/helpers/assets'
 import fileTypes from '@/helpers/fileTypes'
+import { formatFileSize } from '@/helpers/fileSize'
 import { isHomePath, localizedPagePath } from '@/helpers/pagePaths'
 import FolderCreateDialog from '@/components/FolderCreateDialog.vue'
 import FolderDeleteDialog from '@/components/FolderDeleteDialog.vue'
@@ -801,7 +801,7 @@ const files = computed(() => {
         }
         case 'asset': {
           f.icon = fileTypes[f.fileExt]?.icon ?? ''
-          f.side = filesize(f.fileSize, { round: 0 })
+          f.side = formatFileSize(f.fileSize)
           if (fileTypes[f.fileExt]) {
             f.caption = t(`fileman.${f.fileExt}FileType`)
           } else {
@@ -862,7 +862,7 @@ const currentFileDetails = computed(() => {
       })
       items.push({
         label: t('fileman.detailsAssetSize'),
-        value: filesize(item.fileSize)
+        value: formatFileSize(item.fileSize)
       })
       break
     }

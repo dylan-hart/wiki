@@ -585,9 +585,8 @@ import { loading } from '@/composables/loading'
 
 import { useSiteStore } from '@/stores/site'
 
-import { filesize } from 'filesize'
 import { apiErrorMessage } from '@/helpers/apiError'
-import { parseFileSize } from '@/helpers/fileSize'
+import { formatFileSize, parseFileSize } from '@/helpers/fileSize'
 
 // STORES
 
@@ -674,10 +673,7 @@ async function load() {
   try {
     const resp = await API_CLIENT.get('system/security').json()
     state.config = { ...state.config, ...resp }
-    state.humanUploadMaxFileSize = filesize(state.config.uploadMaxFileSize ?? 0, {
-      base: 2,
-      standard: 'jedec'
-    })
+    state.humanUploadMaxFileSize = formatFileSize(state.config.uploadMaxFileSize)
   } catch (err) {
     notify({
       type: 'negative',
