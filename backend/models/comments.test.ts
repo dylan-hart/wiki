@@ -163,6 +163,19 @@ describe('comments model — mocked', () => {
       assert.equal(calls.inserts[0].values.content, 'hello there')
     })
 
+    it('rejects content trimmed above the maximum length', async () => {
+      await assert.rejects(
+        () => comments.create({ siteId: 's1', pageId: 'p1', content: 'a'.repeat(32769) }),
+        /at most 32768 characters/
+      )
+      assert.equal(calls.inserts.length, 0, 'must not touch the db when validation fails')
+    })
+
+    it('accepts content at exactly the maximum length', async () => {
+      await comments.create({ siteId: 's1', pageId: 'p1', content: 'a'.repeat(32768) })
+      assert.equal((calls.inserts[0].values.content as string).length, 32768)
+    })
+
     it('defaults optional fields to null and returns the stored row', async () => {
       const row = await comments.create({ siteId: 's1', pageId: 'p1', content: 'hi there' })
       assert.equal(calls.inserts[0].values.authorId, null)
@@ -209,6 +222,14 @@ describe('comments model — mocked', () => {
       assert.ok(updatedAt instanceof Date, 'updatedAt must be a Date for the timestamp column')
       assert.ok(updatedAt.getTime() >= beforeMs && updatedAt.getTime() <= afterMs)
       assert.equal(row.id, 'existing-comment-id')
+    })
+
+    it('rejects content trimmed above the maximum length and does not touch the db', async () => {
+      await assert.rejects(
+        () => comments.update('c1', { content: 'a'.repeat(32769) }),
+        /at most 32768 characters/
+      )
+      assert.equal(calls.updates.length, 0)
     })
   })
 

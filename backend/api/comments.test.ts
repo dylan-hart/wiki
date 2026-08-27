@@ -505,6 +505,17 @@ describe('page-scoped comment routes', () => {
     assert.equal(created.length, 0)
   })
 
+  test('POST create: 400 when content exceeds the schema maxLength (schema-level check, before the handler runs)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+      headers: { 'x-test-user-id': 'user-1', 'x-test-permissions': 'read:pages,write:comments' },
+      payload: { content: 'a'.repeat(32769) }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(created.length, 0)
+  })
+
   test('POST create: 200 creates a guest comment, captures req.ip, and includes the guest email', async () => {
     const res = await app.inject({
       method: 'POST',
