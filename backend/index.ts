@@ -40,6 +40,7 @@ import {
   resolveRequestSite,
   stripPageExtension
 } from './helpers/common.ts'
+import { sendNonApiError } from './helpers/errorHandler.ts'
 import { OPENAPI_SECURITY, OPENAPI_SECURITY_SCHEMES } from './helpers/openapi.ts'
 import { limitApiKey, limitApiRequests } from './helpers/rateLimit.ts'
 import { corsOptions, parseCspDirectives } from './helpers/security.ts'
@@ -905,7 +906,7 @@ async function initHTTPServer() {
         })
       }
     } else {
-      reply.send(error)
+      sendNonApiError(error, reply)
     }
   })
 
