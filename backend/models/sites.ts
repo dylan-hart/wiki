@@ -39,6 +39,23 @@ const SITE_ASSET_NORMALIZATION: Record<SiteAssetKind, ImageNormalization> = {
 }
 
 /**
+ * Default theme colours seeded for a site, shared by `createSite()`'s default config and `init()`'s
+ * first-run catch-all site so the two can never drift apart from each other. Must match the CSS
+ * defaults at `frontend/src/css/tailwind.css`'s `:root` block (`--q-secondary`, `--q-accent`) and
+ * `AdminTheme.vue`'s `resetColors()`/`defaultConfig()` -- all four are pinned to agree by
+ * `helpers/accessibility.test.js` (frontend) and this file's own `sites.test.ts`. Picked to clear
+ * 4.5:1 (WCAG AA) against white, the foreground a solid `WBtn` pairs a background this light or
+ * darker with.
+ */
+export const DEFAULT_THEME_COLORS = {
+  colorPrimary: '#1976D2',
+  colorSecondary: '#018569',
+  colorAccent: '#E81221',
+  colorHeader: '#000000',
+  colorSidebar: '#1976D2'
+}
+
+/**
  * Sites model
  */
 class Sites {
@@ -170,11 +187,7 @@ class Sites {
             theme: {
               dark: false,
               codeBlocksTheme: 'github-dark',
-              colorPrimary: '#1976D2',
-              colorSecondary: '#02C39A',
-              colorAccent: '#FF9800',
-              colorHeader: '#000000',
-              colorSidebar: '#1976D2',
+              ...DEFAULT_THEME_COLORS,
               injectCSS: '',
               injectHead: '',
               injectBody: '',
@@ -494,11 +507,7 @@ class Sites {
         theme: {
           dark: false,
           codeBlocksTheme: 'github-dark',
-          colorPrimary: '#1976D2',
-          colorSecondary: '#02C39A',
-          colorAccent: '#FF9800',
-          colorHeader: '#000000',
-          colorSidebar: '#1976D2',
+          ...DEFAULT_THEME_COLORS,
           injectCSS: '',
           injectHead: '',
           injectBody: '',

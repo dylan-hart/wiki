@@ -404,8 +404,8 @@ function defaultConfig() {
     injectHead: '',
     injectBody: '',
     colorPrimary: '#1976D2',
-    colorSecondary: '#02C39A',
-    colorAccent: '#FF9800',
+    colorSecondary: '#018569',
+    colorAccent: '#E81221',
     colorHeader: '#000000',
     colorSidebar: '#1976D2',
     codeBlocksTheme: 'github-dark',
@@ -762,8 +762,8 @@ function contrastWarningRatio(cl) {
 function resetColors() {
   state.config.dark = false
   state.config.colorPrimary = '#1976D2'
-  state.config.colorSecondary = '#02C39A'
-  state.config.colorAccent = '#FF9800'
+  state.config.colorSecondary = '#018569'
+  state.config.colorAccent = '#E81221'
   state.config.colorHeader = '#000'
   state.config.colorSidebar = '#1976D2'
 }

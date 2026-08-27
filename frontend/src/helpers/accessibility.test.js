@@ -80,3 +80,33 @@ describe('contrastRatio() / meetsWcagAA()', () => {
     expect(contrastRatio('#fff9c4', '#ffffff')).toBeLessThan(WCAG_AA_CONTRAST)
   })
 })
+
+/**
+ * Every color a solid `WBtn`/chip/header can be painted, paired with the white foreground it draws
+ * over that background (`WBtn.vue`'s `color`/`textColor` resolution, `AdminTheme.vue`'s
+ * `CHROME_TEXT_COLOR` for `header`/`sidebar`). Values mirror the CSS defaults at
+ * `frontend/src/css/tailwind.css`'s `:root` block -- `secondary`/`warning`/`accent` (and the fixed
+ * `positive`/`negative`, which reuse `secondary`'s/`accent`'s value) were darkened by Task 1682 from
+ * their original, too-light tones (#02c39a, #f99d4d, #f03a47) specifically so this pins above AA.
+ * A future edit to any of these tokens that regresses contrast fails this test rather than shipping
+ * quietly, per Task 1682/1670's "Done when".
+ */
+const SHIPPED_PALETTE_TOKENS = {
+  primary: '#1976d2',
+  secondary: '#018569',
+  accent: '#e81221',
+  positive: '#018569',
+  negative: '#e81221',
+  warning: '#ba5a06',
+  info: '#3e6990',
+  header: '#000',
+  sidebar: '#1976d2'
+}
+
+describe('shipped palette tokens (frontend/src/css/tailwind.css)', () => {
+  it('clears WCAG AA (4.5:1) against white, the foreground each is paired with', () => {
+    for (const [name, hex] of Object.entries(SHIPPED_PALETTE_TOKENS)) {
+      expect(meetsWcagAA(hex, '#ffffff'), `${name} (${hex}) vs white`).toBe(true)
+    }
+  })
+})
