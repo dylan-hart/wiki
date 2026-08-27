@@ -543,20 +543,25 @@ async function routes(app: FastifyInstance) {
               folder: { $ref: 'Folder#' }
             }
           },
-          403: { $ref: 'ApiError#' }
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
     async (req, reply) => {
       /*
         Against where the folder is going. `parentPath` is the slash-separated path when given; with
-        `parentId` the parent has to be looked up, and a missing one is left to the model to report.
+        `parentId` the parent has to be looked up and site-checked here, matching lines 474, 630 and
+        695 in this same file — a foreign-site id must not be allowed to seed this folder's path/locale.
       */
       let parentPath = req.body.parentPath ?? ''
       let parent: Awaited<ReturnType<typeof WIKI.models.tree.getFolderById>> = null
       if (req.body.parentId) {
         parent = await WIKI.models.tree.getFolderById(req.body.parentId)
-        parentPath = parent ? folderPathOf(parent) : parentPath
+        if (!parent || parent.siteId !== req.params.siteId) {
+          return reply.notFound('This folder does not exist.')
+        }
+        parentPath = folderPathOf(parent)
       }
       const target = [parentPath, req.body.pathName].filter(Boolean).join('/')
       // -> Mirrors createFolder's own parent-wins locale rule (models/tree.ts:750-751): a folder

@@ -517,16 +517,76 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
     getFolderByIdCalls = []
     uploadCalls = []
     const explicitFolderId = '77777777-7777-4777-8777-777777777777'
+    const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
+    ;(globalThis as any).WIKI.models.tree.getFolderById = async (id: string) => {
+      getFolderByIdCalls.push(id)
+      return { id, siteId: SITE_ID, fileName: 'sub', folderPath: '', locale: 'en' }
+    }
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/assets?fileName=photo.png&folderId=${explicitFolderId}&parentPath=guides%2Fsetup`,
+        headers: { ...sessionHeader(), 'content-type': 'image/png' },
+        payload: Buffer.from([1, 2, 3])
+      })
+      assert.equal(res.statusCode, 200)
+      assert.deepEqual(getFolderByIdCalls, [explicitFolderId])
+      assert.equal(getFolderCalls.length, 0)
+      assert.equal(uploadCalls[0].folderId, explicitFolderId)
+    } finally {
+      ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
+    }
+  })
+
+  /**
+   * OpenProject #1666: the upload route looked `folderId` up by bare id with no site check, unlike
+   * CREATE/RENAME/DELETE FOLDER in `tree.ts` -- a `folderId` from another site let the permission
+   * check evaluate against the wrong (site-root) destination instead of refusing the request. Also
+   * covers the missing/nonexistent-id case, which fell through the same way.
+   */
+  test('rejects a `folderId` belonging to another site (404, no upload, permission check never runs against the wrong destination)', async () => {
+    getFolderByIdCalls = []
+    checkAccessCalls = []
+    uploadCalls = []
+    const FOREIGN_SITE_ID = '99999999-9999-4999-8999-999999999999'
+    const foreignFolderId = '88888888-8888-4888-8888-888888888888'
+    const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
+    ;(globalThis as any).WIKI.models.tree.getFolderById = async (id: string) => {
+      getFolderByIdCalls.push(id)
+      return { id, siteId: FOREIGN_SITE_ID, fileName: 'sub', folderPath: '', locale: 'en' }
+    }
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/assets?fileName=photo.png&folderId=${foreignFolderId}`,
+        headers: { ...sessionHeader(), 'content-type': 'image/png' },
+        payload: Buffer.from([1, 2, 3])
+      })
+      assert.equal(res.statusCode, 404)
+      assert.deepEqual(getFolderByIdCalls, [foreignFolderId])
+      assert.equal(checkAccessCalls.length, 0, 'must be refused before the permission check runs')
+      assert.equal(uploadCalls.length, 0)
+    } finally {
+      ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
+    }
+  })
+
+  test('rejects a nonexistent `folderId` (404, no upload)', async () => {
+    getFolderByIdCalls = []
+    checkAccessCalls = []
+    uploadCalls = []
+    const missingFolderId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    // -> Default mock from `before()` returns null for any id, standing in for "no such row"
     const res = await app.inject({
       method: 'POST',
-      url: `/sites/${SITE_ID}/assets?fileName=photo.png&folderId=${explicitFolderId}&parentPath=guides%2Fsetup`,
+      url: `/sites/${SITE_ID}/assets?fileName=photo.png&folderId=${missingFolderId}`,
       headers: { ...sessionHeader(), 'content-type': 'image/png' },
       payload: Buffer.from([1, 2, 3])
     })
-    assert.equal(res.statusCode, 200)
-    assert.deepEqual(getFolderByIdCalls, [explicitFolderId])
-    assert.equal(getFolderCalls.length, 0)
-    assert.equal(uploadCalls[0].folderId, explicitFolderId)
+    assert.equal(res.statusCode, 404)
+    assert.deepEqual(getFolderByIdCalls, [missingFolderId])
+    assert.equal(checkAccessCalls.length, 0)
+    assert.equal(uploadCalls.length, 0)
   })
 
   test('a denied permission never resolves-or-creates the folder: no side effect from an unauthorized upload', async () => {
