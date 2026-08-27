@@ -11,7 +11,10 @@
         <span>{{ t('editor.blockParams.title', { name: definition.name }) }}</span>
       </w-card-section>
       <w-card-section>
-        <block-props-form :fields="definition.props ?? []" :values="state.values" />
+        <block-props-form
+          :tag="definition.block"
+          :fields="definition.props ?? []"
+          :values="state.values" />
       </w-card-section>
       <w-card-actions class="card-actions">
         <w-space />

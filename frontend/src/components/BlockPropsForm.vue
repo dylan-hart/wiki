@@ -11,25 +11,25 @@
         outlined
         dense
         options-dense
-        :label="field.label ?? field.name"
-        :aria-label="field.label ?? field.name"
+        :label="fieldLabel(field)"
+        :aria-label="fieldLabel(field)"
         :required="field.required"
-        :hint="field.hint" />
+        :hint="fieldHint(field)" />
       <w-toggle
         v-else-if="field.type === `boolean`"
         v-model="values[field.name]"
         dense
-        :label="field.label ?? field.name" />
+        :label="fieldLabel(field)" />
       <w-input
         v-else
         v-model="values[field.name]"
         outlined
         dense
         :type="field.type === `number` ? `number` : `text`"
-        :label="field.label ?? field.name"
-        :aria-label="field.label ?? field.name"
+        :label="fieldLabel(field)"
+        :aria-label="fieldLabel(field)"
         :required="field.required"
-        :hint="field.hint" />
+        :hint="fieldHint(field)" />
     </template>
   </w-form>
 </template>
@@ -52,11 +52,23 @@ import { useI18n } from 'vue-i18n'
  * `v-model` per field would be the same object, one indirection further away.
  *
  * Padding is the caller's: this sits in a panel in one and a card in the other.
+ *
+ * Labels and hints resolve through i18n before falling back to the raw string the block definition
+ * carries, at the `blocks.<tag>.props.<name>.label` / `.hint` keys minted for the 223 block metadata
+ * strings (see `backend/locales/en.json`). `tag` is optional: a caller with no block tag to give —
+ * the admin "Configure" form, whose fields are a block's site-wide config schema rather than its
+ * author-facing props, and so were never minted under this convention — gets the raw string exactly
+ * as before.
  */
 
 // PROPS
 
-defineProps({
+const props = defineProps({
+  /** The block's tag (`block.block`), used to resolve `blocks.<tag>.props.<name>.*` i18n keys. */
+  tag: {
+    type: String,
+    default: null
+  },
   /** The props the block declares, as the API describes them. */
   fields: {
     type: Array,
@@ -71,5 +83,24 @@ defineProps({
 
 // I18N
 
-const { t } = useI18n()
+const { t, te } = useI18n()
+
+/**
+ * A field's label, resolved through i18n when a minted key exists for it, falling back to the raw
+ * string the block definition carries (or the field's own name, lacking even that) otherwise.
+ *
+ * `te()` is checked first rather than trusting `t()` alone: vue-i18n's `t()` returns the dotted key
+ * path itself for an unresolved key, which would render `blocks.foo.props.bar.label` as the label
+ * text rather than falling back — exactly the "unknown key" case the sibling test locks down.
+ */
+function fieldLabel(field) {
+  const key = props.tag && `blocks.${props.tag}.props.${field.name}.label`
+  return key && te(key) ? t(key) : (field.label ?? field.name)
+}
+
+/** A field's hint, resolved the same way as `fieldLabel` above. */
+function fieldHint(field) {
+  const key = props.tag && `blocks.${props.tag}.props.${field.name}.hint`
+  return key && te(key) ? t(key) : field.hint
+}
 </script>

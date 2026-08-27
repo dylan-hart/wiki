@@ -63,7 +63,7 @@
                     <div class="text-body2">
                       <strong>{{ block.name }}</strong>
                     </div>
-                    <div class="text-caption opacity-70">{{ block.description }}</div>
+                    <div class="text-caption opacity-70">{{ blockDescription(block) }}</div>
                     <div class="text-caption font-robotomono mt-1 opacity-60">
                       &lt;block-{{ block.block }}&gt;
                     </div>
@@ -90,6 +90,7 @@
                 <div class="w-section-header">{{ state.selected.name }}</div>
                 <block-props-form
                   class="px-4 pt-4"
+                  :tag="state.selected.block"
                   :fields="state.selected.props"
                   :values="state.values" />
                 <!-- -> The markup itself, since that is what lands in the page -->
@@ -134,7 +135,17 @@ const siteStore = useSiteStore()
 
 // I18N
 
-const { t } = useI18n()
+const { t, te } = useI18n()
+
+/**
+ * A block's description, resolved through the `blocks.<tag>.description` i18n key minted for it
+ * (Task #1628) when it resolves, falling back to the raw string the block definition carries
+ * otherwise.
+ */
+function blockDescription(block) {
+  const key = `blocks.${block.block}.description`
+  return te(key) ? t(key) : block.description
+}
 
 // DATA
 
