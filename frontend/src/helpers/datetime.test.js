@@ -19,8 +19,9 @@ beforeEach(() => {
 })
 
 describe('humanizeDate', () => {
-  it('returns the placeholder for a null/empty value', () => {
+  it('returns the placeholder for a nullish or empty value', () => {
     expect(humanizeDate(fakeT, null)).toBe('---')
+    expect(humanizeDate(fakeT, undefined)).toBe('---')
     expect(humanizeDate(fakeT, '')).toBe('---')
   })
 
@@ -32,6 +33,18 @@ describe('humanizeDate', () => {
 
     // 2026-03-04T23:30:00Z is 2026-03-05 08:30 in Asia/Tokyo (UTC+9, no DST)
     expect(humanizeDate(fakeT, '2026-03-04T23:30:00Z')).toBe('05/03/2026 at 08:30')
+  })
+
+  it('renders the same instant differently for a non-UTC stored timezone', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '24h'
+    store.timezone = 'UTC'
+
+    expect(humanizeDate(fakeT, '2026-03-04T15:30:00Z')).toBe('2026-03-04 at 15:30')
+
+    store.timezone = 'Asia/Tokyo'
+    expect(humanizeDate(fakeT, '2026-03-04T15:30:00Z')).toBe('2026-03-05 at 00:30')
   })
 })
 

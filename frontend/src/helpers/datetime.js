@@ -1,11 +1,13 @@
 /**
  * Date and duration rendering for the admin tables, in the reader's own locale.
  *
- * Shared because three screens had grown their own copy of the same walk down a units table — one of
- * them under a different name — and the copies had already started to drift. What stays local to a
- * screen is ABSOLUTE formatting: the scheduler spells out seconds because a job's timing is the point,
- * where the instances table does not, and anything a user chose a pattern for goes through
- * `userStore.formatDate()` instead.
+ * Shared because several screens had grown their own copy of the same walk down a units table — some
+ * under a different name — and the copies had already started to drift. `humanizeDate` below is the
+ * same story for ABSOLUTE formatting: most screens want exactly `userStore.formatDateTime()` (the
+ * user's stored timezone, date format and time format) with a placeholder for "nothing to show", so
+ * that pairing lives here once rather than copied per screen. What stays local is precision that is
+ * genuinely the point of one particular screen — the scheduler and the webhook history spell out
+ * seconds because a job's timing IS the point, where every other absolute timestamp does not.
  *
  * `Intl` rather than a formatting library: the browser already knows how the reader's locale words
  * "3 minutes ago" and "1h 4m 32s", which is what luxon's `toRelative()` and `Duration.toHuman()` were
@@ -124,8 +126,10 @@ export function humanizeIsoDuration(value) {
  * webhook delivery attempt) wants `humanizeDateWithSeconds` instead, not this one with an extra field
  * bolted on locally.
  *
- * @param {Function} t The i18n translate function, for locale-correct date/time word order.
- * @param {string|null} value An ISO instant, as the API returns.
+ * @param {(key: string, params?: object) => string} t The active `vue-i18n` translate function,
+ *   needed to word-order the date and time parts per locale.
+ * @param {string|Date|Temporal.Instant|null} value A moment in any form `userStore.formatDateTime`
+ *   accepts.
  * @returns {string} e.g. `24/08/2026 at 2:32 PM`, or `---` for nothing at all.
  */
 export function humanizeDate(t, value) {
