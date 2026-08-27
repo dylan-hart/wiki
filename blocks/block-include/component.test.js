@@ -12,6 +12,18 @@ vi.mock('../shared/config.js', () => ({
   getBlockImportUrl: vi.fn(async (tag) => `/mock-blocks/${tag}.js`)
 }))
 
+/*
+ * OpenProject #1638: the not-found/include-failed messages resolve through `../shared/i18n.js`'s
+ * `t()`, which has its own dedicated coverage (`shared/i18n.test.js` -- resolution, English fallback,
+ * fetch failure, param interpolation). Mocked here the same way `../shared/config.js` is mocked
+ * above, and for the identical reason: this suite is about `connectedCallback`'s own branching, not
+ * about re-proving `t()` resolves correctly, and a real `t()` would mean this suite's `_error` state
+ * only lands after an actual (failing, since nothing is listening) network round trip -- unlike every
+ * other awaited step here, which is a mocked `API_CLIENT` promise resolving within a microtask.
+ */
+const i18nT = vi.hoisted(() => vi.fn(async (_key, fallback) => fallback))
+vi.mock('../shared/i18n.js', () => ({ t: i18nT }))
+
 import './component.js'
 import { getBlockImportUrl } from '../shared/config.js'
 
@@ -62,6 +74,7 @@ describe('block-include', () => {
     document.body.replaceChildren()
     delete globalThis.WIKI_STATE
     delete globalThis.API_CLIENT
+    i18nT.mockClear()
   })
 
   it('fetches the requested path/locale and renders the included page', async () => {
@@ -169,6 +182,45 @@ describe('block-include', () => {
     const el = await mountInclude({ path: 'broken-page' })
 
     expect(el.textContent).toContain('could not be included')
+  })
+
+  describe('the not-found/include-failed messages resolve through the shared i18n resolver, not a literal', () => {
+    it('asks the resolver for the not-found key, with the path as an interpolation param', async () => {
+      globalThis.API_CLIENT.get = vi.fn(() => ({
+        json: () => Promise.reject({ response: { status: 404 } })
+      }))
+      await mountInclude({ path: 'missing-page' })
+
+      expect(i18nT).toHaveBeenCalledWith(
+        'blocks.include.errors.pageNotFound',
+        'There is no page at "missing-page".',
+        { path: 'missing-page' }
+      )
+    })
+
+    it('asks the resolver for the include-failed key on any other error', async () => {
+      globalThis.API_CLIENT.get = vi.fn(() => ({
+        json: () => Promise.reject(new Error('network down'))
+      }))
+      await mountInclude({ path: 'broken-page' })
+
+      expect(i18nT).toHaveBeenCalledWith(
+        'blocks.include.errors.includeFailed',
+        'The page "broken-page" could not be included.',
+        { path: 'broken-page' }
+      )
+    })
+
+    it("renders whatever the resolver returns, not the component's own literal", async () => {
+      i18nT.mockResolvedValueOnce('Il n’y a pas de page à cette adresse.')
+      globalThis.API_CLIENT.get = vi.fn(() => ({
+        json: () => Promise.reject({ response: { status: 404 } })
+      }))
+      const el = await mountInclude({ path: 'missing-page' })
+
+      expect(el.textContent).toContain('Il n’y a pas de page à cette adresse.')
+      expect(el.textContent).not.toContain('There is no page at')
+    })
   })
 
   /*

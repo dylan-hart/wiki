@@ -1,6 +1,7 @@
 import { LitElement, html } from 'lit'
 import { unsafeHTML } from 'lit/directives/unsafe-html.js'
 import { getBlockImportUrl } from '../shared/config.js'
+import { t } from '../shared/i18n.js'
 
 /** How many includes may nest before the chain is treated as a mistake. */
 const MAX_DEPTH = 3
@@ -200,8 +201,14 @@ export class BlockIncludeElement extends LitElement {
       } catch (err) {
         this._error =
           err.response?.status === 404
-            ? `There is no page at "${path}".`
-            : `The page "${path}" could not be included.`
+            ? await t('blocks.include.errors.pageNotFound', `There is no page at "${path}".`, {
+                path
+              })
+            : await t(
+                'blocks.include.errors.includeFailed',
+                `The page "${path}" could not be included.`,
+                { path }
+              )
       }
     }
 
