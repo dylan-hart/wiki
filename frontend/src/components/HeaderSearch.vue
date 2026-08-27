@@ -40,6 +40,7 @@
             class="header-search-input"
             :placeholder="t('common.header.search')"
             :aria-label="t('common.header.search')"
+            aria-keyshortcuts="Meta+K Control+K"
             autocomplete="off"
             @keyup.enter="onSearchEnter"
             @focus="state.searchIsFocused = true"
@@ -72,7 +73,7 @@
             class="header-search-kbd"
             aria-hidden="true"
             @click="searchField.focus()">
-            Ctrl+K
+            {{ searchShortcutHint }}
           </span>
           <span
             v-else-if="
@@ -257,6 +258,7 @@ import { debounce } from 'es-toolkit/function'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { copyToClipboard } from '@/helpers/clipboard'
 import { localizedPagePath } from '@/helpers/pagePaths'
+import { isApplePlatform } from '@/helpers/platform'
 import { notify } from '@/composables/notify'
 
 /**
@@ -353,6 +355,16 @@ const popularTags = computed(() => {
 const defaultPageIcon = DEFAULT_PAGE_ICON
 
 /**
+ * `⌘K` on macOS/iOS/iPadOS, `Ctrl+K` everywhere else -- Ctrl+K is the OS-level emacs
+ * kill-to-end-of-line binding on macOS, so the hint would otherwise tell Mac users to press a
+ * combination that does something else entirely. A one-time read at mount, not a reactive watch:
+ * the platform a session is running on does not change mid-session.
+ */
+const searchShortcutHint = isApplePlatform()
+  ? t('common.header.searchShortcutMac')
+  : t('common.header.searchShortcutOther')
+
+/**
  * Whether the query is long enough for `state.previewResults` to actually mean something -- the same
  * floor the fetch watcher below is gated on, by real (operator/tag-stripped) length rather than raw
  * length. Below it, `resetPreview()` has left `previewResults` at `[]`, which is indistinguishable
@@ -397,14 +409,14 @@ watch(
 // METHODS
 
 /*
-  Ctrl+K focuses the field -- unless a full-screen overlay is up, in which case this header is behind
-  it and the shortcut belongs to whatever is in front. FileManager has a search field of its own and
-  claims it; the rest simply have nothing to focus, and pulling focus into a field the user cannot see
-  is worse than the key doing nothing.
+  Cmd+K (macOS/iOS) or Ctrl+K (everywhere else) focuses the field -- unless a full-screen overlay is
+  up, in which case this header is behind it and the shortcut belongs to whatever is in front.
+  FileManager has a search field of its own and claims it; the rest simply have nothing to focus, and
+  pulling focus into a field the user cannot see is worse than the key doing nothing.
 */
 function handleKeyPress(ev) {
   if (siteStore.features.search && !siteStore.overlayIsShown) {
-    if (ev.ctrlKey && ev.key === 'k') {
+    if ((ev.metaKey || ev.ctrlKey) && ev.key === 'k') {
       ev.preventDefault()
       searchField.value.focus()
     }

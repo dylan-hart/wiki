@@ -283,15 +283,16 @@ async function loadUnreadNotifications() {
 }
 
 /*
-  Ctrl+K below 600px, where the field is not mounted and so cannot claim the shortcut itself: this
-  opens the row, and `HeaderSearch` focuses on mount. Above the breakpoint, and while the row is
-  already down, the field's own handler is the one that answers -- see `HeaderSearch.handleKeyPress`.
+  Cmd+K (macOS/iOS) or Ctrl+K (everywhere else) below 600px, where the field is not mounted and so
+  cannot claim the shortcut itself: this opens the row, and `HeaderSearch` focuses on mount. Above the
+  breakpoint, and while the row is already down, the field's own handler is the one that answers --
+  see `HeaderSearch.handleKeyPress`.
 */
 function onKeydown(ev) {
   if (!isSearchCollapsed.value || searchRowIsOpen.value || !siteStore.features.search) {
     return
   }
-  if (ev.ctrlKey && ev.key === 'k' && !siteStore.overlayIsShown) {
+  if ((ev.metaKey || ev.ctrlKey) && ev.key === 'k' && !siteStore.overlayIsShown) {
     ev.preventDefault()
     searchRowIsOpen.value = true
   }

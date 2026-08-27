@@ -93,6 +93,33 @@ function folderItem(name) {
   }
 }
 
+/**
+ * OpenProject #2050: `handleKeyPress` only ever tested `ev.ctrlKey`, so Cmd+K did nothing on macOS
+ * while the file manager overlay was up. `mountFileManager` already attaches to `document.body`, so
+ * `.focus()` here actually moves `document.activeElement`, same as in a real browser.
+ */
+describe('FileManager keyboard shortcut (OpenProject #2050)', () => {
+  it('focuses the search field on Ctrl+K', async () => {
+    const { wrapper } = await mountFileManager()
+    const input = wrapper.find('.fileman-search-input').element
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
+    await flushPromises()
+
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('also focuses the search field on Cmd+K (metaKey) -- previously unbound entirely', async () => {
+    const { wrapper } = await mountFileManager()
+    const input = wrapper.find('.fileman-search-input').element
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
+    await flushPromises()
+
+    expect(document.activeElement).toBe(input)
+  })
+})
+
 describe('FileManager drag-and-drop upload (OpenProject #790)', () => {
   beforeEach(() => {
     notifyQueue.length = 0

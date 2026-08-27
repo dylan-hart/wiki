@@ -96,6 +96,88 @@ describe('HeaderSearch "Browse by tags" entry point (OpenProject #1218)', () => 
   })
 })
 
+/**
+ * OpenProject #2050: `handleKeyPress` only ever tested `ev.ctrlKey`, so Cmd+K did nothing on macOS --
+ * worse, Ctrl+K there is the OS's own emacs kill-to-end-of-line binding, already claimed. These
+ * assert both modifiers now focus the field, and that the hint (previously hardcoded, always
+ * "Ctrl+K") follows a stubbed `navigator.platform`.
+ */
+describe('HeaderSearch keyboard shortcut (OpenProject #2050)', () => {
+  let activeWrapper = null
+
+  afterEach(() => {
+    activeWrapper?.unmount()
+    activeWrapper = null
+    vi.restoreAllMocks()
+  })
+
+  async function mountAttached() {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.features.search = true
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    router.push('/')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(HeaderSearch, {
+      global: { plugins: [router, i18n] },
+      attachTo: document.body
+    })
+    activeWrapper = wrapper
+    return wrapper
+  }
+
+  it('focuses the field on Ctrl+K', async () => {
+    const wrapper = await mountAttached()
+    const input = wrapper.find('.header-search-input').element
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
+    await wrapper.vm.$nextTick()
+
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('also focuses the field on Cmd+K (metaKey) -- previously unbound entirely', async () => {
+    const wrapper = await mountAttached()
+    const input = wrapper.find('.header-search-input').element
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
+    await wrapper.vm.$nextTick()
+
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('marks the field aria-keyshortcuts for both modifiers', async () => {
+    const wrapper = await mountAttached()
+
+    expect(wrapper.find('.header-search-input').attributes('aria-keyshortcuts')).toBe(
+      'Meta+K Control+K'
+    )
+  })
+
+  it('renders the Ctrl+K hint on a non-Apple platform', async () => {
+    vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('Win32')
+
+    const wrapper = await mountAttached()
+
+    expect(wrapper.find('.header-search-kbd').text()).toBe('common.header.searchShortcutOther')
+  })
+
+  it('renders the platform-aware ⌘K hint on an Apple platform', async () => {
+    vi.spyOn(window.navigator, 'platform', 'get').mockReturnValue('MacIntel')
+
+    const wrapper = await mountAttached()
+
+    expect(wrapper.find('.header-search-kbd').text()).toBe('common.header.searchShortcutMac')
+  })
+})
+
 describe('HeaderSearch popularTags', () => {
   it('sorts tags by usage count descending, most-used first', async () => {
     const wrapper = await mountWithTags([
