@@ -173,6 +173,72 @@ export async function limitApiRequests(req: FastifyRequest, reply: FastifyReply)
 }
 
 /**
+ * Defaults for the root-mounted public surface's limit, used until an administrator saves their own
+ * and whenever a stored value is missing or unusable.
+ *
+ * These are the handful of routes registered outside `/_api/` that carried no throttle of any kind
+ * before this limiter existed (OpenProject #2274): `/sitemap.xml` and `/robots.txt`
+ * (`controllers/seo.ts`), `/_icons`, `/_files`, `/_thumb` and `/_site`. Looser again than
+ * {@link API_DEFAULTS}: none of these carry a session or an API key by default (a crawler, a plain
+ * `<img>` request, an Iconify-speaking client), the traffic they see is legitimately bursty — a
+ * page's whole icon batch, a folder of thumbnails — and the goal is only to stop a single client from
+ * running away, not to bound ordinary use the way the authenticated API surface is.
+ */
+const PUBLIC_DEFAULTS: RateLimitPolicy = {
+  max: 600,
+  windowSeconds: 300,
+  banSeconds: 900
+}
+
+/**
+ * Refuse a request to a root-mounted public route once its caller has made too many.
+ *
+ * Wired as a second, separately-accounted `onRequest` hook in `index.ts`, scoped to the handful of
+ * paths named above rather than to `/_api/*`. Shares {@link limitApiRequests}'s enable/disable
+ * switch (`security.apiRateLimitEnabled`) and its `manage:system` exemption, since both are facets of
+ * the same "is rate limiting on, and is this caller exempt from it" decision — but keys into its own
+ * `public:` bucket with its own, looser policy, so a burst against one surface never eats into the
+ * other's budget.
+ *
+ * No `req.apiKey` check: the API-key-auth hook only ever populates it for `/_api/*` requests, so a
+ * root-mounted public route never carries one to ask about.
+ */
+export async function limitPublicRequests(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (WIKI.config.security?.apiRateLimitEnabled === false) {
+    return
+  }
+  if (req.session?.permissions?.includes('manage:system')) {
+    return
+  }
+  const key = req.session?.authenticated ? `user:${req.session.user!.id}` : `ip:${req.ip}`
+  const verdict = await WIKI.models.rateLimits.consume(`public:${key}`, PUBLIC_DEFAULTS)
+  if (verdict.allowed) {
+    return
+  }
+  WIKI.logger.debug(
+    `Rate limit: refused ${req.method} ${req.url} from ${key}, ${verdict.retryAfter}s left of its ban.`
+  )
+  reply.header('Retry-After', String(verdict.retryAfter))
+  return reply.tooManyRequests(
+    `Too many requests. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
+  )
+}
+
+/**
+ * Whether a request path is one of the root-mounted public routes {@link limitPublicRequests} guards.
+ *
+ * Takes the path alone (query string already stripped by the caller), matching prefix-registered
+ * controllers (`/_icons`, `/_files`, `/_thumb`, `/_site`) by prefix and the two bare root files
+ * (`/sitemap.xml`, `/robots.txt`) exactly.
+ */
+export function isPublicRateLimitedPath(path: string): boolean {
+  if (path === '/sitemap.xml' || path === '/robots.txt') {
+    return true
+  }
+  return ['/_icons', '/_files', '/_thumb', '/_site'].some((prefix) => path.startsWith(`${prefix}/`))
+}
+
+/**
  * Refuse a request to render a page once a client has made too many.
  *
  * Written as a per-route `preHandler` hook — `{ preHandler: limitRenders, schema: … }` — so that the

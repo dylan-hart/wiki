@@ -3,7 +3,7 @@ import { after, before, describe, test } from 'node:test'
 import { eq, sql } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { pageviews as pageviewsTable } from '../db/schema.ts'
-import { hashVisitor } from './pageviews.ts'
+import { hashVisitor, pageviews } from './pageviews.ts'
 import type { PageActor } from './pages.ts'
 
 /**
@@ -18,6 +18,32 @@ test('hashVisitor never returns the raw id, and is deterministic per input', () 
   assert.equal(a, b, 'the same raw id should hash to the same visitor')
   assert.notEqual(a, c, 'two different raw ids should hash to two different visitors')
   assert.ok(!a.includes('secret-key-id'), 'the raw id must never appear in the stored hash')
+})
+
+/**
+ * OpenProject #2269: `countsForGraph` reads the same `WIKI.config.pageviews.isEnabled` flag `record()`
+ * already gates writes on. No database at all here -- the point is that the query never runs in the
+ * first place, which a real Postgres round trip couldn't distinguish from "ran and found nothing".
+ */
+test('countsForGraph returns an empty map and never touches the database while pageview tracking is disabled', async () => {
+  const previousWiki = (globalThis as any).WIKI
+  ;(globalThis as any).WIKI = {
+    config: { pageviews: { isEnabled: false } },
+    db: new Proxy(
+      {},
+      {
+        get() {
+          throw new Error('must not touch the database while pageview tracking is disabled')
+        }
+      }
+    )
+  }
+  try {
+    const counts = await pageviews.countsForGraph('any-site-id')
+    assert.deepEqual(counts, new Map())
+  } finally {
+    ;(globalThis as any).WIKI = previousWiki
+  }
 })
 
 /**
@@ -134,6 +160,11 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
     let countsPageId: string
 
     before(async () => {
+      // -> countsForGraph now short-circuits on this flag itself (OpenProject #2269), not only
+      //    `record()` -- explicit here rather than relying on whichever value an earlier sibling
+      //    test in this file happened to leave it at.
+      WIKI.config.pageviews = { isEnabled: true }
+
       const page = await pagesModel.createPage(
         fixtures.siteId,
         {

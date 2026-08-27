@@ -1,11 +1,12 @@
 import { isEqual } from 'es-toolkit/predicate'
-import { and, desc, eq, isNotNull, lt, notExists, sql } from 'drizzle-orm'
+import { and, desc, eq, lt, notExists, sql } from 'drizzle-orm'
 import {
   pageHistory as pageHistoryTable,
   pages as pagesTable,
   users as usersTable
 } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
+import { invalidateGraphCache } from '../helpers/graphCache.ts'
 import type { Page, PageActor, PageInput } from './pages.ts'
 
 /**
@@ -243,6 +244,11 @@ class PageHistory {
         })
         .returning({ id: pageHistoryTable.id })
 
+      // -> A new version changes `contributorCountsForGraph`'s edit-volume figures for this page --
+      //    the cached graph bundle (`helpers/graphCache.ts`) has to drop, not just `models/pages.ts`'s
+      //    own writes above.
+      invalidateGraphCache(siteId)
+
       return inserted[0]?.id ?? null
     } catch (err: any) {
       WIKI.logger.warn(`Failed to record page history for ${pageId}: ${err.message}`)
@@ -306,17 +312,15 @@ class PageHistory {
    * edits still count toward `pageHistory` rows existing, just not toward how many distinct people
    * they came from.
    *
-   * Two aggregate queries rather than one: `GROUP BY pageId, via` gives the `editor`/`mcp` split,
-   * but `COUNT(DISTINCT authorId)` does not distribute over that split -- someone who edited through
-   * both channels would count once in each bucket, and adding the two back together would count
-   * them twice. A second `GROUP BY pageId` alone gives the true site-wide-distinct `all` figure.
-   *
-   * A third query -- `total`, raw `count(*)` per page/via -- runs unfiltered by `authorId`,
-   * deliberately: a since-deleted author's edits are still real rows against the page (see the
-   * `authorId IS NOT NULL` note above), so an edit-volume total should count them, unlike the
-   * unique-contributor figures. Its `all` needs no fourth query the way the distinct `all` above
-   * does -- row counts carry no identity to double-count, so summing `editor` + `mcp` totals is
-   * already exact.
+   * One aggregate query, not three (OpenProject #2269): every figure below is a `FILTER`-qualified
+   * aggregate over a single `GROUP BY pageId` pass, rather than a separate `GROUP BY pageId, via`
+   * query for the per-`via` split plus a second `GROUP BY pageId` alone for the site-wide-distinct
+   * `all` figure plus a third for the unfiltered row-count `total`. `COUNT(DISTINCT authorId)`
+   * already excludes `NULL` on its own — standard SQL aggregate semantics, not something a `WHERE
+   * authorId IS NOT NULL` needs to do first — so `editor`/`mcp`/`all` need no such filter, while
+   * `total.*` deliberately counts every row regardless of `authorId`: a since-deleted account's
+   * edits are still real rows against the page, they just aren't attributable to a distinct person
+   * any more.
    *
    * @returns A map keyed by `pageId`. A page with no history at all (should not happen in practice --
    *          every page gets a `created` row -- but not a case worth throwing over) is simply absent;
@@ -325,68 +329,31 @@ class PageHistory {
   async contributorCountsForGraph(
     siteId: string
   ): Promise<Map<string, PageHistoryContributorCounts>> {
-    const distinctAuthor = sql<number>`count(distinct ${pageHistoryTable.authorId})::int`
-    const totalRows = sql<number>`count(*)::int`
+    const isEditor = sql`${pageHistoryTable.via} = 'editor'`
+    const isMcp = sql`${pageHistoryTable.via} = 'mcp'`
 
-    const [byVia, overall, totalByVia] = await Promise.all([
-      WIKI.db
-        .select({
-          pageId: pageHistoryTable.pageId,
-          via: pageHistoryTable.via,
-          count: distinctAuthor
-        })
-        .from(pageHistoryTable)
-        .where(and(eq(pageHistoryTable.siteId, siteId), isNotNull(pageHistoryTable.authorId)))
-        .groupBy(pageHistoryTable.pageId, pageHistoryTable.via),
-      WIKI.db
-        .select({ pageId: pageHistoryTable.pageId, count: distinctAuthor })
-        .from(pageHistoryTable)
-        .where(and(eq(pageHistoryTable.siteId, siteId), isNotNull(pageHistoryTable.authorId)))
-        .groupBy(pageHistoryTable.pageId),
-      WIKI.db
-        .select({ pageId: pageHistoryTable.pageId, via: pageHistoryTable.via, count: totalRows })
-        .from(pageHistoryTable)
-        .where(eq(pageHistoryTable.siteId, siteId))
-        .groupBy(pageHistoryTable.pageId, pageHistoryTable.via)
-    ])
+    const rows = await WIKI.db
+      .select({
+        pageId: pageHistoryTable.pageId,
+        editor: sql<number>`count(distinct ${pageHistoryTable.authorId}) filter (where ${isEditor})::int`,
+        mcp: sql<number>`count(distinct ${pageHistoryTable.authorId}) filter (where ${isMcp})::int`,
+        all: sql<number>`count(distinct ${pageHistoryTable.authorId})::int`,
+        totalEditor: sql<number>`count(*) filter (where ${isEditor})::int`,
+        totalMcp: sql<number>`count(*) filter (where ${isMcp})::int`,
+        totalAll: sql<number>`count(*)::int`
+      })
+      .from(pageHistoryTable)
+      .where(eq(pageHistoryTable.siteId, siteId))
+      .groupBy(pageHistoryTable.pageId)
 
     const result = new Map<string, PageHistoryContributorCounts>()
-    for (const row of overall) {
+    for (const row of rows) {
       result.set(row.pageId, {
-        editor: 0,
-        mcp: 0,
-        all: row.count,
-        total: { editor: 0, mcp: 0, all: 0 }
+        editor: row.editor,
+        mcp: row.mcp,
+        all: row.all,
+        total: { editor: row.totalEditor, mcp: row.totalMcp, all: row.totalAll }
       })
-    }
-    for (const row of byVia) {
-      const entry = result.get(row.pageId) ?? {
-        editor: 0,
-        mcp: 0,
-        all: 0,
-        total: { editor: 0, mcp: 0, all: 0 }
-      }
-      if (row.via === 'mcp') {
-        entry.mcp = row.count
-      } else {
-        entry.editor = row.count
-      }
-      result.set(row.pageId, entry)
-    }
-    for (const row of totalByVia) {
-      const entry = result.get(row.pageId) ?? {
-        editor: 0,
-        mcp: 0,
-        all: 0,
-        total: { editor: 0, mcp: 0, all: 0 }
-      }
-      if (row.via === 'mcp') {
-        entry.total.mcp = row.count
-      } else {
-        entry.total.editor = row.count
-      }
-      entry.total.all = entry.total.editor + entry.total.mcp
-      result.set(row.pageId, entry)
     }
     return result
   }

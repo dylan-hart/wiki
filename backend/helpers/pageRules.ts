@@ -1,6 +1,32 @@
 import type { GroupRule, GroupRuleMatch, GroupRuleMode } from '../models/groups.ts'
 
 /**
+ * Compiled `REGEX` rule patterns, memoized by the rule's own path string.
+ *
+ * `ruleMatchesPage` runs once per (rule, page) pair -- `/sitemap.xml`'s guest-rule pass alone calls it
+ * once for every published, browsable page on the site, on every request. A `REGEX` rule's pattern is
+ * set once by an administrator and reused across every page it is checked against, so compiling it
+ * fresh each time was pure waste (OpenProject #2267). Unbounded: the key space is admin-authored rule
+ * paths, not user input, so it cannot grow without bound the way a per-request cache could.
+ */
+const compiledRegexCache = new Map<string, RegExp | null>()
+
+/** A rule pattern compiled to a `RegExp`, or `null` when it does not compile -- memoized either way. */
+function compileRulePattern(pattern: string): RegExp | null {
+  if (compiledRegexCache.has(pattern)) {
+    return compiledRegexCache.get(pattern)!
+  }
+  let compiled: RegExp | null
+  try {
+    compiled = new RegExp(pattern)
+  } catch {
+    compiled = null
+  }
+  compiledRegexCache.set(pattern, compiled)
+  return compiled
+}
+
+/**
  * How a page rule is matched against a page, and which rule wins when several match.
  *
  * ---------------------------------------------------------------------------------------------
@@ -186,13 +212,11 @@ export function ruleMatchesPage(rule: GroupRule, page: RulePageRef): boolean {
       return pagePath === rulePath
     case 'END':
       return pagePath.endsWith(rulePath)
-    case 'REGEX':
-      try {
-        return new RegExp(rulePath).test(pagePath)
-      } catch {
-        // -> A rule that cannot compile addresses nothing, rather than everything
-        return false
-      }
+    case 'REGEX': {
+      // -> A rule that cannot compile addresses nothing, rather than everything
+      const compiled = compileRulePattern(rulePath)
+      return compiled ? compiled.test(pagePath) : false
+    }
     case 'TAG':
       return ruleTags(rule).some((tag) => pageTags.includes(tag))
     case 'TAGALL': {

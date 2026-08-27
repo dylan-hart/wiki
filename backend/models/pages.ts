@@ -8,6 +8,7 @@ import {
   timingSafeCompare
 } from '../helpers/common.ts'
 import { rulesAllow } from '../helpers/pageRules.ts'
+import { invalidateGraphCache } from '../helpers/graphCache.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import type { PageHistoryVia } from './pageHistory.ts'
 import type { RenderPermissions, TocNode } from './rendering.ts'
@@ -52,6 +53,19 @@ const REDIRECT_EDITOR = 'redirect'
 /** A page path is what ends up in a URL, so it is held to what reads and routes cleanly. */
 const rePagePath = /^[a-zA-Z0-9-_/]*$/
 const reAlias = /^[a-zA-Z0-9-_]*$/
+
+/**
+ * How long `/sitemap.xml`'s already-guest-filtered page list stays cached per site (OpenProject
+ * #2267). `listPagesForSitemap` is a whole-table scan plus a per-row page-rule evaluation, and the
+ * route carries no rate limiting of its own — a few minutes keeps a crawl loop from repeating that
+ * work on every request without making a fresh publish invisible for long.
+ */
+export const SITEMAP_CACHE_TTL_MS = 5 * 60 * 1000
+
+/** `WIKI.cache` key for a site's cached sitemap page list. */
+function sitemapCacheKey(siteId: string): string {
+  return `sitemap:${siteId}`
+}
 
 /**
  * What `getPage`'s `unlocked`/`withPassword` callbacks are handed: enough of the row to ask
@@ -931,6 +945,12 @@ class Pages {
       siteId,
       authorId: actor.id
     })
+    // -> A freshly created page defaults to published and browsable, so it can join the sitemap
+    //    immediately -- the cached list has to reflect that on the very next request.
+    this.invalidateSitemapCache(siteId)
+    // -> A brand new page is a brand new graph node (and possibly new edges, if its relations/links
+    //    point at existing pages) -- the cached graph bundle has to reflect it too.
+    invalidateGraphCache(siteId)
 
     return (await this.getPage({ siteId, id: page.id })) as Page
   }
@@ -992,6 +1012,11 @@ class Pages {
         )
       }
       values.publishState = patch.publishState
+    }
+    // -> Whether a page appears in the sitemap turns on `publishState`/`isBrowsable` alone (see
+    //    `listPagesForSitemap`'s own doc comment); a change to either has to drop the cached list.
+    if (patch.publishState !== undefined || patch.isBrowsable !== undefined) {
+      this.invalidateSitemapCache(siteId)
     }
     if (patch.publishStartDate !== undefined) {
       values.publishStartDate = patch.publishStartDate ? new Date(patch.publishStartDate) : null
@@ -1145,6 +1170,11 @@ class Pages {
       siteId,
       authorId: actor.id
     })
+    // -> Any of title/icon/tags/classification/relations/links can move in a plain edit, all of
+    //    which the graph's nodes or edges reflect -- unconditional, unlike the narrower sitemap check
+    //    above, since there is no single field this cache turns on the way the sitemap turns on
+    //    publishState/isBrowsable alone.
+    invalidateGraphCache(siteId)
 
     return updated
   }
@@ -1266,6 +1296,12 @@ class Pages {
       changedFields
     )
     await WIKI.models.search.renamed(siteId, rawMoved, previous.path, previous.locale)
+    // -> A moved page's `<loc>` is built from its path and locale, so any move -- not only one that
+    //    also affects the glossary's canonical-page cache below -- has to drop the cached sitemap list.
+    this.invalidateSitemapCache(siteId)
+    // -> A moved page's path is what every edge pointing at it is keyed by (`assembleGraph` matches
+    //    relations/links against `row.path`), so a move can silently break edges in a stale bundle.
+    invalidateGraphCache(siteId)
     // -> A glossary term's cached canonical-page mapping (`models/glossary.ts`'s `getRawCachedTerms`)
     //    caches the page's path/locale, so a canonical page's path or locale changing has to drop it
     //    too, the same way a term CRUD does -- otherwise the cache would keep resolving a link to
@@ -1511,6 +1547,11 @@ class Pages {
     //    link needs the same drop or it would keep pointing at a page that no longer exists
     //    (OpenProject #870).
     WIKI.models.glossary.invalidateCache(siteId)
+    // -> Same reasoning as the glossary cache above: a deleted page must not linger in the cached
+    //    sitemap list.
+    this.invalidateSitemapCache(siteId)
+    // -> Nor in the cached graph bundle, as a node or as an edge target.
+    invalidateGraphCache(siteId)
 
     await WIKI.models.search.deleted(siteId, id)
     await WIKI.models.hooks.emit('page:delete', siteId, {
@@ -1576,6 +1617,10 @@ class Pages {
     // -> Same reasoning as `deletePage`: a glossary term canonically linked to any of these pages has
     //    a now-stale cached link (OpenProject #870). One call covers the whole batch.
     WIKI.models.glossary.invalidateCache(siteId)
+    // -> Same reasoning: any of these pages may have been in the cached sitemap list.
+    this.invalidateSitemapCache(siteId)
+    // -> ...and in the cached graph bundle.
+    invalidateGraphCache(siteId)
 
     // -> One per page, as deleting them one at a time would have sent: a subscriber mirroring the
     //    wiki has to hear about each page, not about the folder it happened to sit in
@@ -1771,6 +1816,14 @@ class Pages {
   async listPagesForSitemap(
     siteId: string
   ): Promise<Array<{ path: string; locale: string; updatedAt: Date }>> {
+    const key = sitemapCacheKey(siteId)
+    const cached = WIKI.cache.get(key) as
+      | Array<{ path: string; locale: string; updatedAt: Date }>
+      | undefined
+    if (cached) {
+      return cached
+    }
+
     const rows = await WIKI.db
       .select({
         path: pagesTable.path,
@@ -1789,7 +1842,7 @@ class Pages {
       )
 
     const guestRules = WIKI.models.groups.rulesForGroups([WIKI.data.systemIds.guestsGroupId])
-    return rows
+    const result = rows
       .filter((row) =>
         rulesAllow(guestRules, 'read:pages', {
           path: row.path,
@@ -1800,6 +1853,19 @@ class Pages {
         })
       )
       .map(({ path, locale, updatedAt }) => ({ path, locale, updatedAt }))
+
+    WIKI.cache.set(key, result, { ttl: SITEMAP_CACHE_TTL_MS })
+    return result
+  }
+
+  /**
+   * Drop a site's cached sitemap page list, so the next `/sitemap.xml` request rebuilds it.
+   *
+   * Called wherever a page's publish/browsable state, path, locale or existence changes — a publish,
+   * an unpublish, a move or a delete — since any of those can add or remove a row from the list.
+   */
+  invalidateSitemapCache(siteId: string): void {
+    WIKI.cache.delete(sitemapCacheKey(siteId))
   }
 
   /**

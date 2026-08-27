@@ -6,14 +6,22 @@ import { icons as iconsTable, iconSets as iconSetsTable } from '../db/schema.ts'
 import type { IconifyIconCustomisations } from '@iconify/utils'
 import type { IconifyIcon, IconifyInfo, IconifyJSON } from '@iconify/types'
 
-/** An icon set as stored, plus how many of its icons the wiki holds. */
-export interface IconSet {
+/**
+ * An icon set as stored, without the per-set icon count -- what a single-row lookup by prefix can
+ * answer without joining the (potentially large) `icons` table. `getSet()` returns this shape; use
+ * `getSets()` for the admin listing's `IconSet[]`, which is the only caller that needs `iconCount`.
+ */
+export interface IconSetRow {
   prefix: string
   name: string
   isEnabled: boolean
   info: IconifyInfo | Record<string, never>
   refreshedAt: Date | null
   createdAt: Date
+}
+
+/** An icon set as stored, plus how many of its icons the wiki holds. */
+export interface IconSet extends IconSetRow {
   /** Icons of this set stored in the database, i.e. the ones this wiki can serve on its own. */
   iconCount: number
 }
@@ -78,6 +86,15 @@ const UPSTREAM_BUDGET_PER_MINUTE = 60
 
 /** How long a name that upstream does not know stays remembered as missing. */
 const NOT_FOUND_TTL_MS = 60 * 60 * 1000
+
+/**
+ * How many "known missing" names to hold before evicting the oldest, the same way `remember()` bounds
+ * `memoryCache` (OpenProject #2272). `isKnownMissing()`'s own TTL check only evicts a key that is
+ * looked up again after expiring -- nothing walks the map on a timer -- so without a size bound, a
+ * public, unmetered route driving a stream of never-repeated misses would grow it forever between
+ * restarts.
+ */
+export const NOT_FOUND_CACHE_MAX = 5000
 
 /**
  * Reject anything that could execute when an icon is opened directly rather than drawn into a page.
@@ -169,10 +186,21 @@ class Icons {
   }
 
   /**
-   * A single set, or null when it has not been added
+   * A single set, or null when it has not been added.
+   *
+   * A single-row, no-aggregate query (OpenProject #2272): the public `/_icons` batch route calls this
+   * on every request before `resolveIcons` gets a chance to answer from memory, and `getSets()`'s
+   * `count() … group by` over the whole `icons` table has no place on that path. `iconCount` is only
+   * needed by the admin listing, which stays on `getSets()`.
    */
-  async getSet(prefix: string): Promise<IconSet | null> {
-    return (await this.getSets()).find((set) => set.prefix === prefix) ?? null
+  async getSet(prefix: string): Promise<IconSetRow | null> {
+    const rows = await WIKI.db
+      .select()
+      .from(iconSetsTable)
+      .where(eq(iconSetsTable.prefix, prefix))
+      .limit(1)
+    const set = rows[0]
+    return set ? { ...set, info: (set.info ?? {}) as IconifyInfo } : null
   }
 
   /**
@@ -205,15 +233,21 @@ class Icons {
       return Promise.reject(new Error(`There is no "${prefix}" icon set available upstream.`))
     }
 
-    await WIKI.db.insert(iconSetsTable).values({
-      prefix,
-      name: info.name ?? prefix,
-      isEnabled: true,
-      info,
-      refreshedAt: new Date()
-    })
+    const inserted = await WIKI.db
+      .insert(iconSetsTable)
+      .values({
+        prefix,
+        name: info.name ?? prefix,
+        isEnabled: true,
+        info,
+        refreshedAt: new Date()
+      })
+      .returning()
     WIKI.logger.info(`Added icon set ${prefix} [ OK ]`)
-    return (await this.getSet(prefix))!
+    const set = inserted[0]!
+    // -> A set that was just added has no icons stored for it yet, so there is no need to ask --
+    //    `iconCount` is only ever 0 the moment a set is created.
+    return { ...set, info: (set.info ?? {}) as IconifyInfo, iconCount: 0 }
   }
 
   /**
@@ -497,7 +531,7 @@ class Icons {
       const data = getIconData(iconSet, name)
       if (!data?.body) {
         notFound.push(name)
-        this.notFoundCache.set(`${prefix}:${name}`, Date.now())
+        this.rememberMissing(prefix, name)
         continue
       }
       if (!isSafeIconBody(data.body)) {
@@ -628,6 +662,19 @@ class Icons {
       }
     }
     this.memoryCache.set(`${prefix}:${name}`, icon)
+  }
+
+  /**
+   * Remember that upstream has no such icon, evicting the oldest entry when full.
+   */
+  rememberMissing(prefix: string, name: string): void {
+    if (this.notFoundCache.size >= NOT_FOUND_CACHE_MAX) {
+      const oldest = this.notFoundCache.keys().next().value
+      if (oldest) {
+        this.notFoundCache.delete(oldest)
+      }
+    }
+    this.notFoundCache.set(`${prefix}:${name}`, Date.now())
   }
 
   /**

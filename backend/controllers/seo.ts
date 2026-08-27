@@ -5,6 +5,7 @@ import {
   guardSiteEnabled,
   type LocaleRoutingConfig
 } from '../helpers/common.ts'
+import { SITEMAP_CACHE_TTL_MS } from '../models/pages.ts'
 
 /** The two flags a site's SEO settings hold, as read off `site.config`. */
 interface RobotsConfig {
@@ -148,8 +149,11 @@ async function routes(app: FastifyInstance) {
 
     const pages = await WIKI.models.pages.listPagesForSitemap(site.id)
     const baseUrl = requestOrigin(req.protocol, req.hostname)
+    // -> The page list itself is cached (`listPagesForSitemap`); this header lets a crawler or a CDN
+    //    skip asking again at all within the same window.
     return reply
       .type('application/xml; charset=utf-8')
+      .header('Cache-Control', `public, max-age=${Math.floor(SITEMAP_CACHE_TTL_MS / 1000)}`)
       .send(buildSitemapXml(baseUrl, pages, site.config?.locales))
   })
 }

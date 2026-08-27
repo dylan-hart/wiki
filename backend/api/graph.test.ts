@@ -1,6 +1,17 @@
-import { describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import fastify from 'fastify'
+import type { FastifyInstance } from 'fastify'
+import fastifySensible from '@fastify/sensible'
+import { eq } from 'drizzle-orm'
 import { assembleGraph, folderOf, type GraphPageRow } from './graph.ts'
+import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { groups as groupsTable } from '../db/schema.ts'
+import graphRoutes from './graph.ts'
+import { registerSchemas as registerGraphSchema } from './schemas/graph.ts'
+import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import type { GroupRule } from '../models/groups.ts'
+import type { PageActor } from '../models/pages.ts'
 
 function makeRow(overrides: Partial<GraphPageRow> = {}): GraphPageRow {
   // -> `id` defaults to `path` (not a fixed constant) so a test giving several rows distinct
@@ -249,5 +260,165 @@ describe('assembleGraph', () => {
     const result = assembleGraph(rows, () => true)
 
     assert.deepEqual(result.nodes[0]!.pageviews, ZERO_PAGEVIEWS)
+  })
+})
+
+/**
+ * DB-backed route test for `GET /sites/:siteId/graph` (OpenProject #2269): the caching, cold-rebuild
+ * authentication gate, and the pageviews-disabled short-circuit, all of which need a real route, a
+ * real permission check and a real database to exercise honestly -- `assembleGraph`'s own pure-unit
+ * tests above cover node/edge assembly, not any of this. Same `req.session`-via-hook shape as
+ * `api/comments.admin.test.ts`.
+ */
+describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let app: FastifyInstance
+  let groupsModel: typeof import('../models/groups.ts').groups
+  let pagesModel: typeof import('../models/pages.ts').pages
+  let testSession: any = null
+  let actor: PageActor
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ groups: groupsModel } = await import('../models/groups.ts'))
+    ;({ pages: pagesModel } = await import('../models/pages.ts'))
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+
+    // -> `mayOnPage`'s anonymous path resolves the actor's groups through `WIKI.data.systemIds
+    //    .guestsGroupId` (`models/groups.ts#groupIdsForRequest`) -- `setupTestDb()` leaves `WIKI.data`
+    //    empty, so an anonymous request needs this set, with the fixture group standing in as
+    //    "guests" and granted `read:pages` site-wide through a real rule (not the group-wide
+    //    `permissions` column, which page-rule checks never consult).
+    WIKI.data.systemIds = { guestsGroupId: fixtures.groupId }
+    const guestRule: GroupRule = {
+      id: 'guest-read-rule',
+      name: 'Guest read',
+      roles: ['read:pages'],
+      match: 'START',
+      mode: 'ALLOW',
+      path: '',
+      locales: [],
+      sites: []
+    }
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [guestRule] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    app = fastify()
+    app.addHook('onRequest', async (req) => {
+      ;(req as any).session = testSession
+    })
+    await app.register(fastifySensible)
+    await registerErrorSchema(app)
+    await registerGraphSchema(app)
+    await app.register(graphRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    await teardownTestDb()
+  })
+
+  test('an anonymous caller gets a 401 while the cache is cold, rather than triggering a rebuild', async () => {
+    testSession = null
+    const res = await app.inject({ method: 'GET', url: `/sites/${fixtures.siteId}/graph` })
+    assert.equal(res.statusCode, 401)
+  })
+
+  test('a signed-in caller rebuilds a cold cache, and it then serves a later anonymous caller warm', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'graph-warm-cache/page', title: 'Warm Cache', editor: 'markdown', content: 'x' },
+      actor
+    )
+
+    testSession = {
+      authenticated: true,
+      user: { id: fixtures.userId },
+      groups: [],
+      permissions: []
+    }
+    const cold = await app.inject({ method: 'GET', url: `/sites/${fixtures.siteId}/graph` })
+    assert.equal(cold.statusCode, 200)
+    assert.ok(cold.json().nodes.some((n: any) => n.path === page.path))
+
+    testSession = null
+    const warm = await app.inject({ method: 'GET', url: `/sites/${fixtures.siteId}/graph` })
+    assert.equal(warm.statusCode, 200)
+    assert.ok(warm.json().nodes.some((n: any) => n.path === page.path))
+  })
+
+  test('a warm cache answers with no call to any of the three underlying aggregate queries', async (t) => {
+    testSession = {
+      authenticated: true,
+      user: { id: fixtures.userId },
+      groups: [],
+      permissions: []
+    }
+    // -> Warm it first (a cold rebuild has to call all three).
+    const warmup = await app.inject({ method: 'GET', url: `/sites/${fixtures.siteId}/graph` })
+    assert.equal(warmup.statusCode, 200)
+
+    const listAllForGraph = t.mock.method(pagesModel, 'listAllForGraph')
+    const contributorCountsForGraph = t.mock.method(
+      WIKI.models.pageHistory,
+      'contributorCountsForGraph'
+    )
+    const countsForGraph = t.mock.method(WIKI.models.pageviews, 'countsForGraph')
+
+    const res = await app.inject({ method: 'GET', url: `/sites/${fixtures.siteId}/graph` })
+    assert.equal(res.statusCode, 200)
+    assert.equal(listAllForGraph.mock.calls.length, 0)
+    assert.equal(contributorCountsForGraph.mock.calls.length, 0)
+    assert.equal(countsForGraph.mock.calls.length, 0)
+  })
+
+  test('no pageview aggregate runs, and every node reports all-zero pageviews, while tracking is disabled', async (t) => {
+    const previousPageviewsConfig = WIKI.config.pageviews
+    WIKI.config.pageviews = { isEnabled: false }
+    WIKI.cache.delete(`graph:${fixtures.siteId}`)
+
+    try {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'graph-pageviews-disabled/page',
+          title: 'No Pageviews',
+          editor: 'markdown',
+          content: 'x'
+        },
+        actor
+      )
+      const countsForGraph = t.mock.method(WIKI.models.pageviews, 'countsForGraph')
+
+      testSession = {
+        authenticated: true,
+        user: { id: fixtures.userId },
+        groups: [],
+        permissions: []
+      }
+      const res = await app.inject({ method: 'GET', url: `/sites/${fixtures.siteId}/graph` })
+      assert.equal(res.statusCode, 200)
+
+      // -> countsForGraph is still called once (the route calls it unconditionally) but its own
+      //    early return means it never reaches the database -- see `models/pageviews.test.ts`'s
+      //    dedicated no-database assertion for that half; here what matters is the end-to-end
+      //    result, every node's `pageviews` staying all-zero.
+      assert.equal(countsForGraph.mock.calls.length, 1)
+      const node = res.json().nodes.find((n: any) => n.path === page.path)
+      assert.ok(node)
+      assert.deepEqual(node.pageviews.last2yr, {
+        browser: 0,
+        api: 0,
+        mcp: 0,
+        all: 0,
+        total: { browser: 0, api: 0, mcp: 0, all: 0 }
+      })
+    } finally {
+      WIKI.config.pageviews = previousPageviewsConfig
+    }
   })
 })

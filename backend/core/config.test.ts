@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, before, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import configSvc from './config.ts'
 
 /**
@@ -70,4 +70,47 @@ test('reads and trims the DB_PASS_FILE contents into WIKI.config.db.pass', async
 
   const wiki = (globalThis as any).WIKI
   assert.equal(wiki.config.db.pass, 'sup3rSecret')
+})
+
+/**
+ * OpenProject #2276: `base.yml`'s `defaults.config.pool.max` merges into `WIKI.config.pool.max` the
+ * same way every other `base.yml` default does (`toMerged(appdata.defaults.config, appconfig)`) —
+ * this is the value `core/db.ts:186` spreads straight into `new Pool({ ...WIKI.config.pool })`, so
+ * proving it survives the merge is what proving it "reaches the pool options" actually means at the
+ * config layer, without needing a real Postgres connection to look at the pool itself.
+ * `base.test.ts`'s own test locks that the real repo `base.yml` declares this key at all; this one
+ * locks that the merge mechanism carries whatever value is declared there through unchanged.
+ */
+describe('pool.max reaches WIKI.config', () => {
+  let dir: string
+  let previousWiki: any
+
+  before(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'wikijs-config-pool-test-'))
+    await writeFile(
+      path.join(dir, 'base.yml'),
+      'defaults:\n  config:\n    port: 80\n    db:\n      host: localhost\n    pool:\n      min: 1\n      max: 17\n'
+    )
+    await writeFile(path.join(dir, 'config.yml'), 'port: 3000\n')
+    await writeFile(
+      path.join(dir, 'package.json'),
+      JSON.stringify({ version: '0.0.0-test', releaseDate: '2026-01-01', dev: true })
+    )
+
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = { ROOTPATH: dir, SERVERPATH: dir }
+  })
+
+  after(async () => {
+    ;(globalThis as any).WIKI = previousWiki
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  test('a pool.max declared in base.yml reaches WIKI.config.pool.max unchanged', async () => {
+    await configSvc.init(true)
+
+    const wiki = (globalThis as any).WIKI
+    assert.equal(wiki.config.pool.max, 17)
+    assert.equal(wiki.config.pool.min, 1)
+  })
 })
