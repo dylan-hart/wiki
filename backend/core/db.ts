@@ -187,6 +187,20 @@ export default {
       options: `-c search_path=${WIKI.config.db.schema}`
     })
 
+    // -> node-postgres emits 'error' on the pool whenever a checked-in, idle client's connection
+    //    fails (a Postgres restart, a failover, an idle timeout) -- `Pool extends EventEmitter`, so
+    //    with no listener that 'error' is re-thrown as an uncaught exception and kills the process.
+    //    node-postgres already discards the broken client itself, so logging is the whole fix: the
+    //    next checkout opens a fresh connection. Same treatment as the dedicated LISTEN clients in
+    //    `helpers/pubsub.ts`'s `connectListener`. Attached here in `init()` rather than after it
+    //    returns so worker mode (`worker.ts`'s `ensureDb()`, which also calls `init(true)`) is
+    //    covered too.
+    this.pool.on('error', (err: any, client: any) => {
+      WIKI.logger.error(
+        `Postgres pool error${err.code ? ` [${err.code}]` : ''}${client?.processID ? ` (client pid ${client.processID})` : ''}: ${err.message}`
+      )
+    })
+
     const db = createDb(this.pool)
 
     // Connect
