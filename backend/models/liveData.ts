@@ -222,10 +222,14 @@ class LiveData {
 
   /**
    * Resolves `url`'s hostname and refuses to continue if any address it comes back with is private,
-   * loopback, or link-local — see the class comment. A hostname that fails to resolve at all is left
-   * for the real fetch to fail on its own (a `Bad Gateway`), rather than duplicated here.
+   * loopback, or link-local — see the class comment. A hostname whose resolution itself throws
+   * (NXDOMAIN, resolver timeout, etc.) is refused with the same 400 rather than let through: `dns.lookup`
+   * and undici's own resolver are not guaranteed to agree on any given name, so "the lookup failed" is
+   * not evidence the real fetch's resolution will fail too, and letting it through here would mean this
+   * pre-check can be bypassed by any name whose resolution merely errors instead of succeeding.
    *
-   * @throws {CustomError} `Bad Request` (400) when any resolved address is non-public.
+   * @throws {CustomError} `Bad Request` (400) when any resolved address is non-public, or when
+   *   resolution itself throws.
    */
   private async assertNotPrivateAddress(url: URL): Promise<void> {
     const hostname = url.hostname.replace(/^\[|\]$/g, '')
@@ -233,7 +237,11 @@ class LiveData {
     try {
       addresses = await this.resolveAddresses(hostname)
     } catch {
-      return
+      throw new CustomError(
+        'Bad Request',
+        'url resolves to a private, loopback, or link-local address, which this block may not fetch.',
+        400
+      )
     }
     if (addresses.some((address) => isPrivateAddress(address))) {
       throw new CustomError(

@@ -193,20 +193,19 @@ describe('LiveData.resolve', () => {
     assert.equal(fetchMock.mock.calls.length, 0)
   })
 
-  test('lets the fetch itself fail when the hostname cannot be resolved at all', async () => {
+  test('throws Bad Request and never fetches when the DNS pre-check itself throws', async () => {
     mock.method(liveData as any, 'resolveAddresses', async () => {
       throw new Error('getaddrinfo ENOTFOUND nowhere.invalid')
     })
-    mock.method(globalThis, 'fetch', async () => {
-      throw new Error('fetch failed')
-    })
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
     await assert.rejects(
       liveData.resolve('site-1', { url: 'https://nowhere.invalid/metrics', jsonPath: '$.v' }),
       (err: any) => {
-        assert.equal(err.statusCode, 502)
+        assert.equal(err.statusCode, 400)
         return true
       }
     )
+    assert.equal(fetchMock.mock.calls.length, 0)
   })
 
   test('fetches with redirect: "error" -- a redirect is never followed', async () => {
