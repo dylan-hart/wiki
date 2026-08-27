@@ -525,6 +525,73 @@ describe('page store: pageLoad()', () => {
     const [, opts] = API_CLIENT.get.mock.calls[0]
     expect(opts.searchParams).toEqual({ withContent: false, locale: 'fr' })
   })
+
+  /*
+   * OpenProject #1785: `isStale` is the hook `Index.vue`'s route-path watcher passes so a slower,
+   * now-superseded call's response cannot stomp whatever a faster, later navigation already wrote.
+   * Driven directly here (rather than through a full `Index.vue` mount) to pin the store's own half
+   * of the guard in isolation -- the watcher-level wiring gets its own coverage in `Index.test.js`.
+   */
+  describe('isStale guard (OpenProject #1785)', () => {
+    it('performs no store write when isStale() is true once the response resolves', async () => {
+      const siteStore = useSiteStore()
+      siteStore.id = 'site-1'
+      API_CLIENT.get.mockReturnValueOnce(
+        stubPageResponse({ id: 'page-a', path: 'page-a', title: 'Page A' })
+      )
+
+      const pageStore = usePageStore()
+      // -> A page already on screen, standing in for whatever a faster, later navigation already
+      //    landed on -- asserted unchanged below.
+      pageStore.$patch({ id: 'page-b', path: 'page-b', title: 'Page B' })
+
+      await pageStore.pageLoad({ path: '/page-a', isStale: () => true })
+
+      expect(pageStore.id).toBe('page-b')
+      expect(pageStore.title).toBe('Page B')
+    })
+
+    it('does not throw ERR_PAGE_NOT_FOUND for a stale response, even when the page truly is missing', async () => {
+      const siteStore = useSiteStore()
+      siteStore.id = 'site-1'
+      // -> The default stub shape: no `id` on the payload is what a 404 lookup resolves to
+      //    (`pageLoad`'s own `!pageData?.id` check), which would normally throw.
+      API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(undefined) })
+
+      const pageStore = usePageStore()
+      await expect(
+        pageStore.pageLoad({ path: '/gone', isStale: () => true })
+      ).resolves.toBeUndefined()
+    })
+
+    it('writes the store as usual when isStale() is false', async () => {
+      const siteStore = useSiteStore()
+      siteStore.id = 'site-1'
+      API_CLIENT.get.mockReturnValueOnce(
+        stubPageResponse({ id: 'page-a', path: 'page-a', title: 'Page A' })
+      )
+
+      const pageStore = usePageStore()
+      await pageStore.pageLoad({ path: '/page-a', isStale: () => false })
+
+      expect(pageStore.id).toBe('page-a')
+      expect(pageStore.title).toBe('Page A')
+    })
+
+    it('writes the store as usual when isStale is omitted, unchanged for every other caller', async () => {
+      const siteStore = useSiteStore()
+      siteStore.id = 'site-1'
+      API_CLIENT.get.mockReturnValueOnce(
+        stubPageResponse({ id: 'page-a', path: 'page-a', title: 'Page A' })
+      )
+
+      const pageStore = usePageStore()
+      await pageStore.pageLoad({ path: '/page-a' })
+
+      expect(pageStore.id).toBe('page-a')
+      expect(pageStore.title).toBe('Page A')
+    })
+  })
 })
 
 describe('page store: pageEdit()', () => {

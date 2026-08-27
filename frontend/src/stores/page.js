@@ -152,8 +152,16 @@ export const usePageStore = defineStore('page', {
   actions: {
     /**
      * PAGE - LOAD
+     *
+     * @param {object} args
+     * @param {() => boolean} [args.isStale] Checked once the request resolves, before the store is
+     *   touched at all -- a caller that can start a second, overlapping load for a different target
+     *   (`Index.vue`'s route-path watcher, navigating A -> B while A is still in flight) passes this
+     *   so a slower, now-superseded response cannot stomp whatever a faster, later one already wrote.
+     *   Every other caller leaves it unset and keeps the unconditional write this always had
+     *   (OpenProject #1785).
      */
-    async pageLoad({ path, id, withContent = false, locale }) {
+    async pageLoad({ path, id, withContent = false, locale, isStale }) {
       const editorStore = useEditorStore()
       const siteStore = useSiteStore()
       /*
@@ -180,6 +188,13 @@ export const usePageStore = defineStore('page', {
             }
           }
         ).json()
+        // -> Bail before any of it: not just the $patch below, but also the not-found throw, which
+        //    would otherwise send a stale ERR_PAGE_NOT_FOUND back to a caller that has already moved
+        //    on (`Index.vue`'s catch branch guards its own end independently, but there is no reason
+        //    to raise a superseded error at all).
+        if (isStale?.()) {
+          return
+        }
         if (!pageData?.id) {
           throw new Error('ERR_PAGE_NOT_FOUND')
         }

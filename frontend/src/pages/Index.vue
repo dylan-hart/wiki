@@ -691,6 +691,16 @@ function onHashChange() {
   scrollToAnchorWhenReady(window.location.hash)
 }
 
+/*
+  Generation guard for the plain page-load branch of the watcher below (OpenProject #1785). The
+  watcher is `async` and Vue does not cancel a previous, still-running invocation when `route.path`
+  changes again -- so navigating A -> B while A's `pageStore.pageLoad` is still in flight can let A's
+  slower response land AFTER B's faster one, stomping B's title/body/tags/permissions with A's stale
+  data. A plain incrementing counter, not reactive state: it is only ever read and written from
+  inside the watcher's own closures, never from a template.
+*/
+let pageLoadGeneration = 0
+
 watch(
   () => route.path,
   async (newValue) => {
@@ -791,8 +801,21 @@ watch(
       : null
     const pagePath = parsedLocale?.path ?? newValue
     const pageLocale = parsedLocale?.locale ?? siteStore.locales.primary
+    // -> Captured before the first await -- see the counter's own comment above.
+    const generation = ++pageLoadGeneration
     try {
-      await pageStore.pageLoad({ path: pagePath, locale: pageLocale })
+      await pageStore.pageLoad({
+        path: pagePath,
+        locale: pageLocale,
+        isStale: () => generation !== pageLoadGeneration
+      })
+      // -> A faster, later navigation already landed while this one was still in flight -- `pageLoad`
+      //    already discarded its own response (see its own `isStale` check), and none of what follows
+      //    here -- the editor-exit patch, the block-loading scan, the anchor scroll -- belongs to the
+      //    page actually on screen either.
+      if (generation !== pageLoadGeneration) {
+        return
+      }
       if (editorStore.isActive) {
         /*
           Walking away from the editor closes it, and `mode` describes the editor that was open — so
@@ -811,6 +834,12 @@ watch(
       // -> Load Blocks. `?.` because a locked page draws its lock screen in place of the article, so
       //    there is no content element to scan -- and nothing in it to scan for.
       nextTick(() => {
+        // -> Checked again here, not just above: `nextTick` defers to the next DOM update cycle, and
+        //    a further navigation can land in the gap between the check above and this callback
+        //    actually running.
+        if (generation !== pageLoadGeneration) {
+          return
+        }
         for (const block of pageContents.value?.querySelectorAll(':not(:defined)') ?? []) {
           const tag = block.tagName.toLowerCase()
           // -> Resolved off `siteStore.blocksIndex` (a public field on the site-info response
@@ -836,6 +865,12 @@ watch(
         scrollToAnchorWhenReady(route.hash)
       })
     } catch (err) {
+      // -> Worse than the success branch above if left unguarded: a stale ERR_PAGE_NOT_FOUND would
+      //    call `pageStore.pageNotFound` below and blank the store for whatever page a faster, later
+      //    navigation already landed on.
+      if (generation !== pageLoadGeneration) {
+        return
+      }
       if (err.message === 'ERR_PAGE_NOT_FOUND') {
         if (newValue === '/') {
           if (!userStore.authenticated) {
