@@ -128,7 +128,8 @@
                   option-value="id"
                   option-label="title"
                   emit-value
-                  map-options />
+                  map-options
+                  :aria-label="t('admin.nav.site')" />
               </w-item-section>
             </w-item>
             <w-item

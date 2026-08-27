@@ -80,6 +80,7 @@
                   dense
                   outlined
                   autofocus
+                  :aria-label="t('common.field.name')"
                   @keyup.enter="commitRename(level)"
                   @blur="commitRename(level)" />
                 <template v-else>

@@ -89,6 +89,7 @@
         :disabled="disable || disabled"
         :autocomplete="autocomplete"
         :rows="type === 'textarea' ? rows : undefined"
+        :aria-label="label ? undefined : ariaLabel"
         :aria-invalid="hasError || undefined"
         :aria-required="required || undefined"
         :aria-describedby="describedBy"
@@ -176,6 +177,11 @@ const props = defineProps({
     default: ''
   },
   label: {
+    type: String,
+    default: null
+  },
+  /** Accessible name for the control, used only when there is no `label` to associate instead. */
+  ariaLabel: {
     type: String,
     default: null
   },

@@ -244,7 +244,8 @@
               color="primary"
               :left-label-value="`H` + pageStore.tocDepth.min"
               :right-label-value="`H` + pageStore.tocDepth.max"
-              snap
+              :aria-label-min="t('editor.props.tocMinMaxDepth')"
+              :aria-label-max="t('editor.props.tocMinMaxDepth')"
               label
               markers />
           </div>
