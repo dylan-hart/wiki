@@ -176,6 +176,7 @@ import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { passwordStrengthScore } from '@/helpers/passwordStrength'
 import { computed, onMounted, reactive, ref } from 'vue'
 
@@ -316,7 +317,7 @@ async function create() {
     if (state.userSendWelcomeEmail && !state.userSendWelcomeEmailFromSiteId) {
       throw new Error(t('admin.users.createSendEmailMissingSiteId'))
     }
-    const resp = await API_CLIENT.post('users', {
+    await API_CLIENT.post('users', {
       json: {
         name: state.userName,
         email: state.userEmail,
@@ -329,11 +330,6 @@ async function create() {
           : {})
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.users.${resp?.error}`, resp?.message || 'An unexpected error occured.')
-      )
-    }
     notify({
       type: 'positive',
       message: t('admin.users.createSuccess')
@@ -347,9 +343,11 @@ async function create() {
       onDialogOK()
     }
   } catch (err) {
+    // -> ky throws for a non-2xx response (e.g. the duplicate-email guard) before this catch is
+    //    ever reached, so the reason the API gave lives in the response body, not `err.message`.
     notify({
       type: 'negative',
-      message: err.message
+      message: apiErrorMessage(err, 'An unexpected error occured.')
     })
   }
   state.loading--
