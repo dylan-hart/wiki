@@ -282,7 +282,8 @@ async function create() {
     dialog({
       component: ApiKeyCopyDialog,
       componentProps: {
-        keyValue: resp.key
+        keyValue: resp.key,
+        labelPrefix: 'profile.api'
       }
     }).onDismiss(() => {
       onDialogOK()
