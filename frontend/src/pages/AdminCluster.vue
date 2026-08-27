@@ -78,7 +78,7 @@
             <w-td :props="props">
               <span>{{ props.value }}</span>
               <div>
-                <small class="text-grey">{{ humanizeDate(props.row.dbFirstSeen) }}</small>
+                <small class="text-grey">{{ humanizeDate(t, props.row.dbFirstSeen) }}</small>
               </div>
             </w-td>
           </template>
@@ -86,7 +86,7 @@
             <w-td :props="props">
               <span>{{ props.value }}</span>
               <div>
-                <small class="text-grey">{{ humanizeDate(props.row.dbLastSeen) }}</small>
+                <small class="text-grey">{{ humanizeDate(t, props.row.dbLastSeen) }}</small>
               </div>
             </w-td>
           </template>
@@ -105,7 +105,7 @@ import { notify } from '@/composables/notify'
 
 import { useSiteStore } from '@/stores/site'
 
-import { relativeDate } from '@/helpers/datetime'
+import { humanizeDate, relativeDate } from '@/helpers/datetime'
 
 // STORES
 
@@ -176,24 +176,6 @@ const nodesHeaders = [
 ]
 
 // METHODS
-
-/*
-  The fields luxon's `fff` expanded to, so the cell reads exactly as before -- long month, no seconds.
-  The scheduler spells out seconds in its own copy of this, because there a job's timing is the point.
-*/
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
-}
 
 async function load() {
   state.loading++

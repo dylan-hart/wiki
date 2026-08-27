@@ -37,7 +37,9 @@
             </w-item-section>
             <w-item-section>
               <w-item-label>{{ delivery.event }}</w-item-label>
-              <w-item-label caption>{{ humanizeDate(delivery.startedAt) }}</w-item-label>
+              <w-item-label caption>{{
+                humanizeDateWithSeconds(t, delivery.startedAt)
+              }}</w-item-label>
               <w-item-label v-if="delivery.state === `failed`" caption class="text-negative">
                 {{ delivery.lastErrorMessage }}
               </w-item-label>
@@ -84,6 +86,7 @@ import { onMounted, reactive } from 'vue'
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDateWithSeconds } from '@/helpers/datetime'
 
 // PROPS
 
@@ -115,22 +118,6 @@ const state = reactive({
 })
 
 // METHODS
-
-/** Absolute, and with seconds: for a delivery attempt, the timing IS the thing being read. */
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZoneName: 'short'
-  })
-}
 
 async function load() {
   state.isLoading = true

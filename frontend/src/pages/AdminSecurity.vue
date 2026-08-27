@@ -159,7 +159,7 @@
                       <div class="mt-1">
                         {{
                           t('admin.security.insecureCookieRiskWarnSince', {
-                            date: humanizeDate(state.config.insecureCookieRiskAt)
+                            date: humanizeDate(t, state.config.insecureCookieRiskAt)
                           })
                         }}
                       </div>
@@ -587,6 +587,7 @@ import { useSiteStore } from '@/stores/site'
 
 import { filesize } from 'filesize'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 import { parseFileSize } from '@/helpers/fileSize'
 
 // STORES
@@ -652,21 +653,6 @@ const corsModes = [
 ]
 
 // METHODS
-
-/** Same long-form spelling `AdminCluster.vue` / `AdminApi.vue` use for a stored timestamp. */
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
-}
 
 async function load() {
   state.loading++

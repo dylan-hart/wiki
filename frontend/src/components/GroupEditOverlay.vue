@@ -157,7 +157,7 @@
                   <w-item-section>
                     <w-item-label>{{ t(`common.field.createdOn`) }}</w-item-label>
                     <w-item-label>
-                      <strong>{{ humanizeDate(state.group.createdAt) }}</strong>
+                      <strong>{{ humanizeDate(t, state.group.createdAt) }}</strong>
                     </w-item-label>
                   </w-item-section>
                 </w-item>
@@ -167,7 +167,7 @@
                   <w-item-section>
                     <w-item-label>{{ t(`common.field.lastUpdated`) }}</w-item-label>
                     <w-item-label>
-                      <strong>{{ humanizeDate(state.group.updatedAt) }}</strong>
+                      <strong>{{ humanizeDate(t, state.group.updatedAt) }}</strong>
                     </w-item-label>
                   </w-item-section>
                 </w-item>
@@ -596,7 +596,7 @@
                 <w-td :props="props">
                   <i18n-t class="text-caption" keypath="admin.users.createdAt" tag="div">
                     <template #date
-                      ><strong>{{ humanizeDate(props.value) }}</strong></template
+                      ><strong>{{ humanizeDate(t, props.value) }}</strong></template
                     >
                   </i18n-t>
                   <i18n-t
@@ -605,7 +605,7 @@
                     keypath="admin.users.lastLoginAt"
                     tag="div">
                     <template #date>
-                      <strong>{{ humanizeDate(props.row.lastLoginAt) }}</strong>
+                      <strong>{{ humanizeDate(t, props.row.lastLoginAt) }}</strong>
                     </template>
                   </i18n-t>
                 </w-td>
@@ -670,6 +670,7 @@ import { v4 as uuid } from 'uuid'
 import { fileOpen, fileSave } from 'browser-fs-access'
 import UserSearchDialog from '@/components/UserSearchDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 
 // COMPOSABLES
 
@@ -1115,20 +1116,6 @@ function checkRoute() {
   } else if (route.params.section === 'users') {
     refreshUsers()
   }
-}
-
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
 }
 
 function getRuleModeColor(mode) {
