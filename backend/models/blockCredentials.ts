@@ -1,5 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 import { blockCredentials as blockCredentialsTable } from '../db/schema.ts'
+import { CustomError } from '../helpers/common.ts'
+import { isValidOriginPattern } from '../helpers/network.ts'
 
 /**
  * A stored credential's public shape — everything about it except `secret`, which never leaves this
@@ -36,12 +38,31 @@ const publicSelection = {
  *
  * `allowedDomains` is a second, independent boundary: even a caller who legitimately knows a
  * credential's id (any `write:pages` author who can read a page already using it) can only have
- * that credential sent to a domain the admin who created it explicitly allowed —
- * `models/liveData.ts#resolve()` is what enforces this, this model just stores and returns the
- * list. `createCredential` requires at least one domain; `updateAllowedDomains` may reduce that to
- * zero (deliberately disabling the credential — fail-closed, not a new hole).
+ * that credential sent to an origin+path-prefix the admin who created it explicitly allowed (OpenProject
+ * #2185 — an entry is a full `scheme://host[:port]/path-prefix`, not a bare hostname) —
+ * `models/liveData.ts#resolve()` is what enforces this, this model just validates the syntax and
+ * stores/returns the list. `createCredential` requires at least one entry; `updateAllowedDomains`
+ * may reduce that to zero (deliberately disabling the credential — fail-closed, not a new hole).
  */
 class BlockCredentials {
+  /**
+   * @throws {CustomError} `Bad Request` (400) for any entry that isn't a valid
+   *   `scheme://host[:port][/path-prefix]` origin — see `helpers/network.ts#isValidOriginPattern`.
+   *   The API route's own JSON Schema `pattern` already rejects a malformed entry before it reaches
+   *   here in the ordinary case; this is what keeps that guarantee true for every other caller of
+   *   this model too (tests, a future importer, …), not just the one route.
+   */
+  private assertValidAllowedDomains(allowedDomains: string[]): void {
+    for (const entry of allowedDomains) {
+      if (!isValidOriginPattern(entry)) {
+        throw new CustomError(
+          'Bad Request',
+          `"${entry}" is not a valid allowed origin — expected an absolute http(s) origin with an optional path prefix and no query or fragment (e.g. "https://api.example.com/v1").`,
+          400
+        )
+      }
+    }
+  }
   /** A site's stored credentials, secrets excluded. What the admin credential list is built from. */
   async getSiteCredentials(siteId: string): Promise<BlockCredential[]> {
     return WIKI.db
@@ -78,6 +99,7 @@ class BlockCredentials {
     secret: string,
     allowedDomains: string[]
   ): Promise<BlockCredential> {
+    this.assertValidAllowedDomains(allowedDomains)
     const [row] = await WIKI.db
       .insert(blockCredentialsTable)
       .values({ siteId, name, secret, allowedDomains })
@@ -113,6 +135,7 @@ class BlockCredentials {
     id: string,
     allowedDomains: string[]
   ): Promise<boolean> {
+    this.assertValidAllowedDomains(allowedDomains)
     const result = await WIKI.db
       .update(blockCredentialsTable)
       .set({ allowedDomains, updatedAt: new Date() })

@@ -25,6 +25,7 @@ describe('LiveData.resolve', () => {
     }
     ;(globalThis as any).WIKI = {
       cache: createCacheStub(),
+      config: { offline: false },
       models: {
         blockCredentials: {
           getCredentialForResolve: mock.fn(async () => undefined)
@@ -36,6 +37,7 @@ describe('LiveData.resolve', () => {
   beforeEach(() => {
     getCredentialForResolve = mock.fn(async () => undefined)
     ;(WIKI.models.blockCredentials.getCredentialForResolve as any) = getCredentialForResolve
+    WIKI.config.offline = false
     // -> Stubbed to a public address by default so the SSRF guard (`assertNotPrivateAddress`) never
     //    blocks a test that isn't specifically exercising it, and so no test here makes a real DNS
     //    lookup. Individual tests below override this via `mock.method` again to exercise the guard
@@ -61,7 +63,7 @@ describe('LiveData.resolve', () => {
   test('resolves the credential and sends it as a bearer token', async () => {
     getCredentialForResolve.mock.mockImplementation(async () => ({
       secret: 's3cr3t-token',
-      allowedDomains: ['example.com']
+      allowedDomains: ['https://example.com']
     }))
     const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
     await liveData.resolve('site-1', {
@@ -77,7 +79,7 @@ describe('LiveData.resolve', () => {
   test('never puts the credential secret into the resolved result', async () => {
     getCredentialForResolve.mock.mockImplementation(async () => ({
       secret: 's3cr3t-token',
-      allowedDomains: ['example.com']
+      allowedDomains: ['https://example.com']
     }))
     mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
     const result = await liveData.resolve('site-1', {
@@ -103,10 +105,10 @@ describe('LiveData.resolve', () => {
     )
   })
 
-  test("throws Bad Request when the url is not in the credential's allowed domains", async () => {
+  test("throws Bad Request when the url is not in the credential's allowed origins", async () => {
     getCredentialForResolve.mock.mockImplementation(async () => ({
       secret: 's3cr3t-token',
-      allowedDomains: ['other.com']
+      allowedDomains: ['https://other.com']
     }))
     await assert.rejects(
       liveData.resolve('site-1', {
@@ -124,7 +126,7 @@ describe('LiveData.resolve', () => {
   test('does not call fetch when the url is outside the allowlist', async () => {
     getCredentialForResolve.mock.mockImplementation(async () => ({
       secret: 's3cr3t-token',
-      allowedDomains: ['other.com']
+      allowedDomains: ['https://other.com']
     }))
     const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
     await assert.rejects(
@@ -140,7 +142,7 @@ describe('LiveData.resolve', () => {
   test('allows the url when it matches a wildcard entry in the allowlist', async () => {
     getCredentialForResolve.mock.mockImplementation(async () => ({
       secret: 's3cr3t-token',
-      allowedDomains: ['*.example.com']
+      allowedDomains: ['https://*.example.com']
     }))
     mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
     const result = await liveData.resolve('site-1', {
@@ -149,6 +151,60 @@ describe('LiveData.resolve', () => {
       jsonPath: '$.v'
     })
     assert.equal(result.value, 1)
+  })
+
+  test("throws Bad Request when the url is outside the credential's allowed path prefix", async () => {
+    getCredentialForResolve.mock.mockImplementation(async () => ({
+      secret: 's3cr3t-token',
+      allowedDomains: ['https://example.com/v1']
+    }))
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    await assert.rejects(
+      liveData.resolve('site-1', {
+        credentialId: 'cred-1',
+        url: 'https://example.com/v2/metrics',
+        jsonPath: '$.v'
+      }),
+      (err: any) => {
+        assert.equal(err.statusCode, 400)
+        return true
+      }
+    )
+    assert.equal(fetchMock.mock.calls.length, 0)
+  })
+
+  test('succeeds against a url within the allowed path prefix', async () => {
+    getCredentialForResolve.mock.mockImplementation(async () => ({
+      secret: 's3cr3t-token',
+      allowedDomains: ['https://example.com/v1']
+    }))
+    mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    const result = await liveData.resolve('site-1', {
+      credentialId: 'cred-1',
+      url: 'https://example.com/v1/metrics',
+      jsonPath: '$.v'
+    })
+    assert.equal(result.value, 1)
+  })
+
+  test('refuses a credentialed request over http, even when the allowlist would otherwise match', async () => {
+    getCredentialForResolve.mock.mockImplementation(async () => ({
+      secret: 's3cr3t-token',
+      allowedDomains: ['http://example.com']
+    }))
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    await assert.rejects(
+      liveData.resolve('site-1', {
+        credentialId: 'cred-1',
+        url: 'http://example.com/metrics',
+        jsonPath: '$.v'
+      }),
+      (err: any) => {
+        assert.equal(err.statusCode, 400)
+        return true
+      }
+    )
+    assert.equal(fetchMock.mock.calls.length, 0)
   })
 
   test('a request with no credentialId is never checked against any allowlist', async () => {
@@ -161,6 +217,15 @@ describe('LiveData.resolve', () => {
     assert.equal(getCredentialForResolve.mock.calls.length, 0)
   })
 
+  test('a request with no credentialId is allowed over plain http', async () => {
+    mock.method(globalThis, 'fetch', async () => jsonResponse({ cpu: 5 }))
+    const result = await liveData.resolve('site-1', {
+      url: 'http://anything.example.net/metrics',
+      jsonPath: '$.cpu'
+    })
+    assert.equal(result.value, 5)
+  })
+
   test('throws Bad Request for a malformed url', async () => {
     await assert.rejects(
       liveData.resolve('site-1', { url: 'not-a-url', jsonPath: '$.v' }),
@@ -169,6 +234,37 @@ describe('LiveData.resolve', () => {
         return true
       }
     )
+  })
+
+  test('throws Bad Request for a bare "$" jsonPath', async () => {
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    await assert.rejects(
+      liveData.resolve('site-1', { url: 'https://example.com/metrics', jsonPath: '$' }),
+      (err: any) => {
+        assert.equal(err.statusCode, 400)
+        return true
+      }
+    )
+    assert.equal(fetchMock.mock.calls.length, 0)
+  })
+
+  test('throws Bad Request for a whitespace-padded bare "$" jsonPath', async () => {
+    await assert.rejects(
+      liveData.resolve('site-1', { url: 'https://example.com/metrics', jsonPath: '  $  ' }),
+      (err: any) => {
+        assert.equal(err.statusCode, 400)
+        return true
+      }
+    )
+  })
+
+  test('a jsonPath narrower than a bare "$" (e.g. "$.v") is accepted', async () => {
+    mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 9 }))
+    const result = await liveData.resolve('site-1', {
+      url: 'https://example.com/metrics',
+      jsonPath: '$.v'
+    })
+    assert.equal(result.value, 9)
   })
 
   test('throws Bad Request when the url resolves to a private address (SSRF guard)', async () => {
@@ -282,17 +378,61 @@ describe('LiveData.resolve', () => {
     const setCall = (WIKI.cache.set as any).mock.calls.at(-1)
     assert.equal(setCall.arguments[2].ttl, 10 * 1000)
   })
+
+  test('the cache key stays a bounded length no matter how long the url is (OpenProject #2185)', async () => {
+    const cacheSetMock = WIKI.cache.set as any
+    mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    const longUrl = `https://example.com/metrics?${'a'.repeat(10000)}`
+    await liveData.resolve('site-1', { url: longUrl, jsonPath: '$.v' })
+    const key = cacheSetMock.mock.calls.at(-1).arguments[0] as string
+    assert.ok(key.length < 200, `expected a bounded cache key, got length ${key.length}`)
+  })
+
+  test('a repeat request with a very long, identical url still serves from cache', async () => {
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    const request = {
+      url: `https://example.com/metrics?${'b'.repeat(5000)}`,
+      jsonPath: '$.v',
+      refreshInterval: 60
+    }
+    await liveData.resolve('site-1', request)
+    await liveData.resolve('site-1', request)
+    assert.equal(fetchMock.mock.calls.length, 1)
+  })
+
+  test('refuses to fetch when the instance is in offline mode', async () => {
+    WIKI.config.offline = true
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    await assert.rejects(
+      liveData.resolve('site-1', { url: 'https://example.com/metrics', jsonPath: '$.v' }),
+      (err: any) => {
+        assert.equal(err.statusCode, 503)
+        return true
+      }
+    )
+    assert.equal(fetchMock.mock.calls.length, 0)
+  })
+
+  test('still serves a cached value while the instance is in offline mode', async () => {
+    mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 7 }))
+    const request = { url: 'https://example.com/metrics', jsonPath: '$.v', refreshInterval: 60 }
+    const first = await liveData.resolve('site-1', request)
+    WIKI.config.offline = true
+    const second = await liveData.resolve('site-1', request)
+    assert.deepEqual(second, first)
+  })
 })
 
-describe('LiveData.resolve rate limiting (OpenProject #1050)', () => {
+describe('LiveData.resolve rate limiting (OpenProject #1050, #2185)', () => {
   let getCredentialForResolve: ReturnType<typeof mock.fn>
 
   beforeEach(() => {
     getCredentialForResolve = mock.fn(async () => ({
       secret: 's3cr3t-token',
-      allowedDomains: ['example.com']
+      allowedDomains: ['https://example.com']
     }))
     ;(WIKI.models.blockCredentials.getCredentialForResolve as any) = getCredentialForResolve
+    WIKI.config.offline = false
     mock.method(liveData as any, 'resolveAddresses', async () => ['93.184.216.34'])
   })
 
@@ -373,14 +513,91 @@ describe('LiveData.resolve rate limiting (OpenProject #1050)', () => {
     assert.equal(result.value, 1)
   })
 
-  test('a request with no credentialId is never rate limited', async () => {
+  test('an unresolvable credentialId consumes no rate-limit budget (OpenProject #2185)', async () => {
     mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
-    for (let i = 0; i < 150; i++) {
+    // -> 200 attempts against a credential id that never resolves -- well past the 120/window cap --
+    //    followed by a real, valid credential that must still have its full budget available.
+    getCredentialForResolve.mock.mockImplementation(async () => undefined)
+    for (let i = 0; i < 200; i++) {
+      await assert.rejects(
+        liveData.resolve('site-1', {
+          credentialId: 'cred-rate-unresolvable',
+          url: `https://example.com/metrics?i=${i}`,
+          jsonPath: '$.v'
+        }),
+        (err: any) => {
+          assert.equal(err.statusCode, 404)
+          return true
+        }
+      )
+    }
+    getCredentialForResolve.mock.mockImplementation(async () => ({
+      secret: 's3cr3t-token',
+      allowedDomains: ['https://example.com']
+    }))
+    await assert.doesNotReject(exhaust('cred-rate-unresolvable', 120))
+  })
+
+  test('an off-allowlist url consumes no rate-limit budget', async () => {
+    mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    getCredentialForResolve.mock.mockImplementation(async () => ({
+      secret: 's3cr3t-token',
+      allowedDomains: ['https://other.com']
+    }))
+    for (let i = 0; i < 130; i++) {
+      await assert.rejects(
+        liveData.resolve('site-1', {
+          credentialId: 'cred-rate-disallowed',
+          url: `https://example.com/metrics?i=${i}`,
+          jsonPath: '$.v'
+        })
+      )
+    }
+    getCredentialForResolve.mock.mockImplementation(async () => ({
+      secret: 's3cr3t-token',
+      allowedDomains: ['https://example.com']
+    }))
+    const result = await liveData.resolve('site-1', {
+      credentialId: 'cred-rate-disallowed',
+      url: 'https://example.com/metrics?fresh=1',
+      jsonPath: '$.v'
+    })
+    assert.equal(result.value, 1)
+  })
+
+  test('a request with no credentialId is metered per site, independent of credentialed requests', async () => {
+    mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    for (let i = 0; i < 120; i++) {
       await liveData.resolve('site-1', {
         url: `https://example.com/metrics?i=${i}`,
         jsonPath: '$.v'
       })
     }
     assert.equal(getCredentialForResolve.mock.calls.length, 0)
+    await assert.rejects(
+      liveData.resolve('site-1', {
+        url: 'https://example.com/metrics?i=over',
+        jsonPath: '$.v'
+      }),
+      (err: any) => {
+        assert.equal(err.statusCode, 429)
+        return true
+      }
+    )
+  })
+
+  test('a credential-free rate limit on one site does not affect another site', async () => {
+    mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    for (let i = 0; i < 120; i++) {
+      await liveData.resolve('site-1', {
+        url: `https://example.com/metrics?i=${i}`,
+        jsonPath: '$.v'
+      })
+    }
+    const result = await liveData.resolve('site-2', {
+      url: 'https://example.com/metrics?fresh=1',
+      jsonPath: '$.v'
+    })
+    assert.equal(result.value, 1)
   })
 })

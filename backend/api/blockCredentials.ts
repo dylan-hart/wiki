@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { DOMAIN_PATTERN_SOURCE } from '../helpers/network.ts'
+import { ORIGIN_PATTERN_SOURCE } from '../helpers/network.ts'
 
 /**
  * Whether this caller may create, rotate or delete this site's block credentials.
@@ -100,10 +100,10 @@ async function routes(app: FastifyInstance) {
             },
             allowedDomains: {
               type: 'array',
-              items: { type: 'string', minLength: 1, pattern: DOMAIN_PATTERN_SOURCE },
+              items: { type: 'string', minLength: 1, pattern: ORIGIN_PATTERN_SOURCE },
               minItems: 1,
               description:
-                "Domains (or `*.`-wildcard patterns) this credential's secret may be sent to. At least one is required."
+                "Origins (scheme + host[:port], optionally `*.`-wildcarded) plus an optional path prefix -- e.g. `https://api.example.com/v1` -- this credential's secret may be sent to. At least one is required."
             }
           }
         },
@@ -216,9 +216,9 @@ async function routes(app: FastifyInstance) {
           properties: {
             allowedDomains: {
               type: 'array',
-              items: { type: 'string', minLength: 1, pattern: DOMAIN_PATTERN_SOURCE },
+              items: { type: 'string', minLength: 1, pattern: ORIGIN_PATTERN_SOURCE },
               description:
-                "Domains (or `*.`-wildcard patterns) this credential's secret may be sent to. May be empty."
+                "Origins (scheme + host[:port], optionally `*.`-wildcarded) plus an optional path prefix -- e.g. `https://api.example.com/v1` -- this credential's secret may be sent to. May be empty."
             }
           }
         },

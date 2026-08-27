@@ -43,36 +43,38 @@ describe('BlockCredentialDialog (mode: create)', () => {
     await inputs[1].setValue('sekret-token')
     expect(submit().attributes('disabled')).toBeDefined()
 
-    await addDomain(wrapper, 'api.example.com')
+    await addDomain(wrapper, 'https://api.example.com')
     expect(submit().attributes('disabled')).toBeUndefined()
   })
 
   it('adds a domain as a chip on Enter and clears the input, trimmed and deduplicated', async () => {
     const { wrapper } = await mountDialog({ mode: 'create' })
-    await addDomain(wrapper, '  api.example.com  ')
-    expect(wrapper.text()).toContain('api.example.com')
-    await addDomain(wrapper, 'api.example.com')
+    await addDomain(wrapper, '  https://api.example.com  ')
+    expect(wrapper.text()).toContain('https://api.example.com')
+    await addDomain(wrapper, 'https://api.example.com')
     expect(wrapper.findAll('.w-chip, [class*=chip]').length).toBeLessThanOrEqual(1)
   })
 
   it('rejects a malformed domain, shows an inline error, and does not add a chip (OpenProject #1099)', async () => {
     const { wrapper } = await mountDialog({ mode: 'create' })
-    await addDomain(wrapper, 'https://api.example.com/')
+    // -> A bare hostname with no scheme: valid under the old hostname-only shape, invalid now that
+    //    an entry must be a full origin (OpenProject #2185).
+    await addDomain(wrapper, 'api.example.com')
     expect(wrapper.vm.state.allowedDomains).toEqual([])
     expect(wrapper.text()).toContain('admin.blocks.credentialAllowedDomainsInvalid')
 
     // Fixing the value and retrying succeeds, and the error clears.
-    await addDomain(wrapper, 'api.example.com')
-    expect(wrapper.vm.state.allowedDomains).toEqual(['api.example.com'])
+    await addDomain(wrapper, 'https://api.example.com')
+    expect(wrapper.vm.state.allowedDomains).toEqual(['https://api.example.com'])
     expect(wrapper.text()).not.toContain('admin.blocks.credentialAllowedDomainsInvalid')
   })
 
   it('removes a domain chip when its remove control is clicked', async () => {
     const { wrapper } = await mountDialog({ mode: 'create' })
-    await addDomain(wrapper, 'api.example.com')
-    expect(wrapper.vm.state.allowedDomains).toEqual(['api.example.com'])
+    await addDomain(wrapper, 'https://api.example.com')
+    expect(wrapper.vm.state.allowedDomains).toEqual(['https://api.example.com'])
     await wrapper.find('[aria-label], .w-chip__remove, button').exists()
-    wrapper.vm.removeDomain('api.example.com')
+    wrapper.vm.removeDomain('https://api.example.com')
     expect(wrapper.vm.state.allowedDomains).toEqual([])
   })
 
@@ -82,14 +84,14 @@ describe('BlockCredentialDialog (mode: create)', () => {
       id: 'cred-1',
       siteId: 'site-1',
       name: 'Weather API',
-      allowedDomains: ['api.example.com']
+      allowedDomains: ['https://api.example.com']
     }
     API_CLIENT.post.mockReturnValueOnce({ json: vi.fn().mockResolvedValue(created) })
 
     const inputs = wrapper.findAll('input')
     await inputs[0].setValue('Weather API')
     await inputs[1].setValue('sekret-token')
-    await addDomain(wrapper, 'api.example.com')
+    await addDomain(wrapper, 'https://api.example.com')
 
     const submit = wrapper
       .findAll('button')
@@ -100,7 +102,11 @@ describe('BlockCredentialDialog (mode: create)', () => {
     expect(API_CLIENT.post).toHaveBeenCalledWith(
       `sites/${adminStore.currentSiteId}/block-credentials`,
       {
-        json: { name: 'Weather API', secret: 'sekret-token', allowedDomains: ['api.example.com'] }
+        json: {
+          name: 'Weather API',
+          secret: 'sekret-token',
+          allowedDomains: ['https://api.example.com']
+        }
       }
     )
     expect(wrapper.emitted('ok')).toEqual([[created]])
@@ -117,7 +123,7 @@ describe('BlockCredentialDialog (mode: create)', () => {
     const inputs = wrapper.findAll('input')
     await inputs[0].setValue('Weather API')
     await inputs[1].setValue('sekret-token')
-    await addDomain(wrapper, 'api.example.com')
+    await addDomain(wrapper, 'https://api.example.com')
     await wrapper
       .findAll('button')
       .find((btn) => btn.text() === 'admin.blocks.credentialAdd')
@@ -136,7 +142,7 @@ describe('BlockCredentialDialog (mode: rotate)', () => {
   it('has no name field, no domain field, only a secret field, and posts to the rotate route', async () => {
     const { wrapper, adminStore } = await mountDialog({
       mode: 'rotate',
-      credential: { id: 'cred-1', name: 'Weather API', allowedDomains: ['api.example.com'] }
+      credential: { id: 'cred-1', name: 'Weather API', allowedDomains: ['https://api.example.com'] }
     })
     API_CLIENT.post.mockReturnValueOnce({ json: vi.fn().mockResolvedValue({ ok: true }) })
 
@@ -159,7 +165,7 @@ describe('BlockCredentialDialog (mode: rotate)', () => {
   it('reveals and hides the secret via its reveal toggle (OpenProject #1098)', async () => {
     const { wrapper } = await mountDialog({
       mode: 'rotate',
-      credential: { id: 'cred-1', name: 'Weather API', allowedDomains: ['api.example.com'] }
+      credential: { id: 'cred-1', name: 'Weather API', allowedDomains: ['https://api.example.com'] }
     })
     const secretInput = wrapper.find('input')
     expect(secretInput.attributes('type')).toBe('password')
@@ -177,12 +183,12 @@ describe('BlockCredentialDialog (mode: domains)', () => {
   it("starts pre-filled with the credential's existing domains and posts the replaced list", async () => {
     const { wrapper, adminStore } = await mountDialog({
       mode: 'domains',
-      credential: { id: 'cred-1', name: 'Weather API', allowedDomains: ['old.example.com'] }
+      credential: { id: 'cred-1', name: 'Weather API', allowedDomains: ['https://old.example.com'] }
     })
-    expect(wrapper.text()).toContain('old.example.com')
+    expect(wrapper.text()).toContain('https://old.example.com')
 
-    wrapper.vm.removeDomain('old.example.com')
-    await addDomain(wrapper, 'new.example.com')
+    wrapper.vm.removeDomain('https://old.example.com')
+    await addDomain(wrapper, 'https://new.example.com')
 
     API_CLIENT.post.mockReturnValueOnce({ json: vi.fn().mockResolvedValue({ ok: true }) })
     await wrapper
@@ -193,7 +199,7 @@ describe('BlockCredentialDialog (mode: domains)', () => {
 
     expect(API_CLIENT.post).toHaveBeenCalledWith(
       `sites/${adminStore.currentSiteId}/block-credentials/cred-1/allowed-domains`,
-      { json: { allowedDomains: ['new.example.com'] } }
+      { json: { allowedDomains: ['https://new.example.com'] } }
     )
     expect(wrapper.emitted('ok')).toEqual([[undefined]])
   })
@@ -201,11 +207,11 @@ describe('BlockCredentialDialog (mode: domains)', () => {
   it('allows submitting an empty domain list, deliberately disabling the credential', async () => {
     const { wrapper } = await mountDialog({
       mode: 'domains',
-      credential: { id: 'cred-1', name: 'Weather API', allowedDomains: ['old.example.com'] }
+      credential: { id: 'cred-1', name: 'Weather API', allowedDomains: ['https://old.example.com'] }
     })
     const submit = () =>
       wrapper.findAll('button').find((btn) => btn.text() === 'admin.blocks.credentialDomains')
-    wrapper.vm.removeDomain('old.example.com')
+    wrapper.vm.removeDomain('https://old.example.com')
     await wrapper.vm.$nextTick()
     expect(submit().attributes('disabled')).toBeUndefined()
   })

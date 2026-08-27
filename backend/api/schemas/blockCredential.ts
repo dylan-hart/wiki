@@ -26,7 +26,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'array',
         items: { type: 'string' },
         description:
-          "Domains (or `*.`-wildcard patterns) this credential's secret may be sent to. Empty means the credential cannot be used by any block."
+          "Origins (scheme + host[:port], optionally `*.`-wildcarded) plus an optional path prefix -- e.g. `https://api.example.com/v1` -- this credential's secret may be sent to. Empty means the credential cannot be used by any block."
       },
       createdAt: {
         type: 'string',

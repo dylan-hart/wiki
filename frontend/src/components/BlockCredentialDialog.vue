@@ -93,7 +93,7 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { useAdminStore } from '@/stores/admin'
 import { apiErrorMessage } from '@/helpers/apiError'
-import { isValidDomainPattern } from '@/helpers/domainPattern'
+import { isValidOriginPattern } from '@/helpers/originPattern'
 
 // PROPS
 
@@ -139,14 +139,15 @@ const state = reactive({
 const domainInputRef = ref(null)
 
 /**
- * Matches `hostnameMatchesAllowlist`'s own accepted syntax (see `helpers/domainPattern.js`) rather
- * than accepting anything non-empty (OpenProject #1099): a malformed entry used to be stored silently
- * and just never match any real hostname at resolve time.
+ * Matches `originMatchesAllowlist`'s own accepted syntax (see `helpers/originPattern.js`) rather
+ * than accepting anything non-empty (OpenProject #1099, extended by #2185 to a full origin+path-prefix
+ * shape): a malformed entry used to be stored silently and just never match any real request at
+ * resolve time.
  */
 const domainValidation = [
   (value) =>
     !(value ?? '').trim() ||
-    isValidDomainPattern(value.trim()) ||
+    isValidOriginPattern(value.trim()) ||
     t('admin.blocks.credentialAllowedDomainsInvalid')
 ]
 
@@ -181,7 +182,11 @@ const submitDisabled = computed(() => {
 // METHODS
 
 function addDomain() {
-  const value = state.domainInput.trim().toLowerCase()
+  // -> Trimmed only, not lowercased: an entry's path prefix is case-sensitive (unlike its scheme and
+  //    host, which `isValidOriginPattern`/`originMatchesAllowlist` already compare
+  //    case-insensitively) -- lowercasing the whole string here would silently corrupt a
+  //    case-sensitive path an admin actually typed.
+  const value = state.domainInput.trim()
   if (!value) {
     return
   }
