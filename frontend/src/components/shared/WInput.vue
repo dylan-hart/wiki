@@ -93,7 +93,7 @@
         :aria-invalid="hasError || undefined"
         :aria-required="required || undefined"
         :aria-describedby="describedBy"
-        class="w-unstyled min-w-0 flex-1 bg-transparent pt-0.5 outline-none placeholder:text-black/40 dark:placeholder:text-white/40"
+        class="w-unstyled min-w-0 flex-1 bg-transparent pt-0.5 outline-none placeholder:text-black/54 dark:placeholder:text-white/54"
         :class="monospaced ? 'font-mono text-[13px] leading-[1.4] font-semibold' : ''"
         @input="onInput"
         @focus="onFocus"
