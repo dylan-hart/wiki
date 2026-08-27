@@ -917,7 +917,6 @@ async function initHTTPServer() {
     WIKI.logger.info(`Starting HTTP Server on port ${WIKI.config.port} [ STARTING ]`)
     await app.listen({ port: WIKI.config.port, host: WIKI.config.bindIP })
     WIKI.logger.info('HTTP Server: [ RUNNING ]')
-    WIKI.server.setReady()
   } catch (err: any) {
     WIKI.logger.error(err)
     process.exit(1)
@@ -944,3 +943,10 @@ async function initHTTPServer() {
 await preBoot()
 await initHTTPServer()
 await postBoot()
+
+// -> Not ready until postBoot() has resolved: everything that makes the instance able to answer a
+//    page request (site/group/locale/approval/classification caches, storage/search/comment sync,
+//    the scheduler, ...) happens there. Signalling ready any earlier — e.g. as the last statement of
+//    initHTTPServer(), right after the listener binds — means /_ready reports 200 while every page
+//    request would still resolve to not-found (OpenProject #2062).
+WIKI.server.setReady()
