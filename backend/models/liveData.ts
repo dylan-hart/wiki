@@ -1,4 +1,7 @@
 import dns from 'node:dns/promises'
+import type * as dnsTypes from 'node:dns'
+import net from 'node:net'
+import { Agent } from 'undici'
 import { CustomError } from '../helpers/common.ts'
 import { extractJsonPathValue } from '../helpers/jsonPath.ts'
 import { hostnameMatchesAllowlist, isPrivateAddress } from '../helpers/network.ts'
@@ -122,7 +125,7 @@ class LiveData {
       return cached
     }
 
-    await this.assertNotPrivateAddress(url)
+    const validatedAddresses = await this.assertNotPrivateAddress(url)
 
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (request.credentialId) {
@@ -144,50 +147,62 @@ class LiveData {
       headers.Authorization = `Bearer ${credential.secret}`
     }
 
-    let response: Response
+    // -> Pins the actual TCP connection to one of the addresses `assertNotPrivateAddress` just
+    //    validated, rather than letting undici resolve the hostname a second time on its own — see
+    //    `createPinnedDispatcher`'s own comment for why a second, unpinned resolution is exploitable
+    //    even though the pre-check above already ran.
+    const dispatcher = this.createPinnedDispatcher(validatedAddresses)
     try {
-      // -> `redirect: 'error'` rather than the default `'follow'`: a redirect response is never
-      //    resolved by `assertNotPrivateAddress` above, so following one would hand the credential's
-      //    bearer token (and the DNS check itself) to whatever address the *response* names instead of
-      //    the one the author configured — the same SSRF hole the pre-check exists to close, reopened
-      //    one hop later. A malformed or unreachable-by-design redirect target throws here, which the
-      //    catch below reports as the same `Bad Gateway` any other network failure gets.
-      response = await fetch(url, {
-        headers,
-        redirect: 'error',
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-      })
-    } catch (err: any) {
-      throw new CustomError('Bad Gateway', `Could not reach the endpoint: ${err.message}`, 502)
-    }
-    if (!response.ok) {
-      throw new CustomError(
-        'Bad Gateway',
-        `The endpoint answered ${response.status} ${response.statusText}.`,
-        502
-      )
-    }
+      let response: Response
+      try {
+        // -> `redirect: 'error'` rather than the default `'follow'`: a redirect response is never
+        //    resolved by `assertNotPrivateAddress` above, so following one would hand the credential's
+        //    bearer token (and the DNS check itself) to whatever address the *response* names instead
+        //    of the one the author configured — the same SSRF hole the pre-check exists to close,
+        //    reopened one hop later. A malformed or unreachable-by-design redirect target throws here,
+        //    which the catch below reports as the same `Bad Gateway` any other network failure gets.
+        // -> `dispatcher` is an undici-specific extension to `fetch`'s options that Node's own
+        //    (DOM-derived) `RequestInit` type does not declare, hence the cast.
+        response = await fetch(url, {
+          headers,
+          redirect: 'error',
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+          dispatcher
+        } as RequestInit & { dispatcher: Agent })
+      } catch (err: any) {
+        throw new CustomError('Bad Gateway', `Could not reach the endpoint: ${err.message}`, 502)
+      }
+      if (!response.ok) {
+        throw new CustomError(
+          'Bad Gateway',
+          `The endpoint answered ${response.status} ${response.statusText}.`,
+          502
+        )
+      }
 
-    let json: unknown
-    try {
-      json = await response.json()
-    } catch {
-      throw new CustomError('Bad Gateway', 'The endpoint did not answer with valid JSON.', 502)
-    }
+      let json: unknown
+      try {
+        json = await response.json()
+      } catch {
+        throw new CustomError('Bad Gateway', 'The endpoint did not answer with valid JSON.', 502)
+      }
 
-    let value: unknown
-    try {
-      value = extractJsonPathValue(json, request.jsonPath)
-    } catch (err: any) {
-      throw new CustomError('Bad Request', err.message, 400)
-    }
+      let value: unknown
+      try {
+        value = extractJsonPathValue(json, request.jsonPath)
+      } catch (err: any) {
+        throw new CustomError('Bad Request', err.message, 400)
+      }
 
-    const result: LiveDataResult = {
-      value,
-      fetchedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
+      const result: LiveDataResult = {
+        value,
+        fetchedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
+      }
+      WIKI.cache.set(cacheKey, result, { ttl: refreshSeconds * 1000 })
+      return result
+    } finally {
+      await dispatcher.close()
     }
-    WIKI.cache.set(cacheKey, result, { ttl: refreshSeconds * 1000 })
-    return result
   }
 
   /**
@@ -222,18 +237,25 @@ class LiveData {
 
   /**
    * Resolves `url`'s hostname and refuses to continue if any address it comes back with is private,
-   * loopback, or link-local — see the class comment. A hostname that fails to resolve at all is left
-   * for the real fetch to fail on its own (a `Bad Gateway`), rather than duplicated here.
+   * loopback, or link-local — see the class comment. Fails closed: a hostname that cannot be resolved
+   * at all is refused with the same 400 rather than left for the real fetch to fail on its own. That
+   * used to be deliberate ("left for the real fetch to fail on its own"), but `dns.lookup` here and
+   * undici's own resolution for the real fetch are not guaranteed to agree — a transient resolver
+   * failure on this lookup with a *successful* one moments later for the actual fetch would skip the
+   * check entirely, which needs no attacker-controlled DNS to happen (OpenProject #2239).
    *
-   * @throws {CustomError} `Bad Request` (400) when any resolved address is non-public.
+   * @returns The resolved, validated addresses — reused by {@link createPinnedDispatcher} so the
+   *   connection undici actually opens is pinned to one of these, not resolved a second time.
+   * @throws {CustomError} `Bad Request` (400) when the hostname cannot be resolved, or when any
+   *   resolved address is non-public.
    */
-  private async assertNotPrivateAddress(url: URL): Promise<void> {
+  private async assertNotPrivateAddress(url: URL): Promise<string[]> {
     const hostname = url.hostname.replace(/^\[|\]$/g, '')
     let addresses: string[]
     try {
       addresses = await this.resolveAddresses(hostname)
-    } catch {
-      return
+    } catch (err: any) {
+      throw new CustomError('Bad Request', `Could not resolve the endpoint: ${err.message}`, 400)
     }
     if (addresses.some((address) => isPrivateAddress(address))) {
       throw new CustomError(
@@ -242,12 +264,77 @@ class LiveData {
         400
       )
     }
+    return addresses
   }
 
   /** Broken out so a test can mock it — the same pattern `diagramRender.ts#launchBrowser` uses. */
   private async resolveAddresses(hostname: string): Promise<string[]> {
     const results = await dns.lookup(hostname, { all: true })
     return results.map((result) => result.address)
+  }
+
+  /**
+   * Builds a per-request undici `Agent` whose connector never resolves the hostname again — its
+   * `connect.lookup` (the same signature and slot `dns.lookup` fills for `net.connect`/`tls.connect`)
+   * ignores whatever the target actually resolves to at connect time and returns only the addresses
+   * `assertNotPrivateAddress` already validated moments earlier.
+   *
+   * Without this, the fetch below would repeat the hostname lookup itself (undici resolves the
+   * hostname it was given, same as any HTTP client) — a second, independent resolution with no
+   * connection to the one just validated. A nameserver an attacker controls can answer the pre-check's
+   * lookup with a public address and this second one with a private one (classic TTL-0 DNS rebinding);
+   * pinning to the pre-validated set closes that gap by making a second lookup never happen at all.
+   *
+   * @param validatedAddresses IP literals `assertNotPrivateAddress` already confirmed are non-private —
+   *   the only addresses this dispatcher's connector will ever hand back.
+   */
+  private createPinnedDispatcher(validatedAddresses: string[]): Agent {
+    return new Agent({ connect: { lookup: this.createPinnedLookup(validatedAddresses) } })
+  }
+
+  /**
+   * Broken out from {@link createPinnedDispatcher} so a test can call it directly and inspect its
+   * callback behavior, rather than reaching into an undici `Agent` instance's private internals.
+   *
+   * Ignores the hostname it is asked to resolve entirely — the whole point is that this never performs
+   * a real lookup, only ever hands back (a subset of) the addresses it was built with.
+   */
+  private createPinnedLookup(validatedAddresses: string[]) {
+    const byFamily = validatedAddresses
+      .map((address) => ({ address, family: net.isIP(address) }))
+      .filter((entry) => entry.family !== 0)
+    return (
+      _hostname: string,
+      options: dnsTypes.LookupOptions,
+      callback: (
+        err: NodeJS.ErrnoException | null,
+        address: string | dnsTypes.LookupAddress[],
+        family?: number
+      ) => void
+    ) => {
+      const wantedFamily =
+        options.family === 'IPv6' ? 6 : options.family === 'IPv4' ? 4 : (options.family ?? 0)
+      const matches = byFamily.filter(
+        (entry) => wantedFamily === 0 || entry.family === wantedFamily
+      )
+      if (matches.length === 0) {
+        callback(
+          Object.assign(new Error('No pre-validated address available for this connection.'), {
+            code: 'ENOTFOUND'
+          }),
+          ''
+        )
+        return
+      }
+      if (options.all) {
+        callback(
+          null,
+          matches.map((entry) => ({ address: entry.address, family: entry.family }))
+        )
+      } else {
+        callback(null, matches[0].address, matches[0].family)
+      }
+    }
   }
 }
 
