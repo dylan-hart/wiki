@@ -42,6 +42,7 @@
           icon="la:plus"
           :label="t(`admin.classification.new`)"
           color="primary"
+          :loading="state.isLoading"
           @click="createLevel" />
       </div>
     </div>
@@ -230,12 +231,17 @@ function openReport(row) {
 }
 
 async function createLevel() {
+  if (state.isLoading) {
+    return
+  }
+  state.isLoading = true
   try {
     await API_CLIENT.post('classification-levels', {
       json: { name: t('admin.classification.newDefaultName'), sortOrder: state.levels.length }
     }).json()
     await load()
   } catch (err) {
+    state.isLoading = false
     notify({
       type: 'negative',
       message: t('admin.classification.createFailed'),
