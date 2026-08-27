@@ -413,6 +413,163 @@ describe('Index.vue: read-path block loading for a directly-loaded/reloaded page
 })
 
 /**
+ * OpenProject #2063: the `/` branch of the `ERR_PAGE_NOT_FOUND` handler used to decide between the
+ * Welcome overlay and `/_error/unauthorized` off `userStore.can('write:pages')` alone -- `write:pages`
+ * is a page-rule permission, never present in the global `permissions` list, so on a cold load (where
+ * `pagePermissions` is still empty) that check could only ever pass for `manage:system`. Every
+ * delegated editor holding `write:pages` through a page rule saw a factually-wrong 403 instead of the
+ * page they were entitled to create. The fix fetches page permissions at `'home'` first, same as the
+ * non-root branch already does for its own missing-page screen, and answers a "may not write" reader
+ * with that same placeholder rather than an error route.
+ */
+describe('Index.vue: site-root missing-home-page screen (OpenProject #2063)', () => {
+  async function mountAtRoot({ authenticated, pagePermissions = [] }) {
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} })
+
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    siteStore.editors.markdown = false // -> Keeps the placeholder on the simpler "go back" branch
+
+    const userStore = useUserStore()
+    userStore.authenticated = authenticated
+
+    // -> `pageLoad`'s GET resolves to `undefined` by default (the stub's plain response), which is
+    //    exactly what makes it throw ERR_PAGE_NOT_FOUND and take the missing-home-page path below
+    globalThis.API_CLIENT.post.mockReturnValue({
+      json: vi.fn().mockResolvedValue(pagePermissions)
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: Index },
+        { path: '/login', component: { template: '<div />' } }
+      ]
+    })
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(Index, {
+      global: {
+        plugins: [router, i18n],
+        stubs: {
+          PageHeader: true,
+          PageActionsCol: true,
+          PageRedirect: true,
+          PageTags: true,
+          PageToc: true,
+          FooterNav: true,
+          SideDialog: true
+        }
+      }
+    })
+    activeWrapper = wrapper
+
+    router.push('/')
+    await router.isReady()
+    await flushPromises()
+
+    return { wrapper, userStore, siteStore, router }
+  }
+
+  it('shows the Welcome overlay when the fetched page permissions grant write:pages', async () => {
+    const { siteStore, router } = await mountAtRoot({
+      authenticated: true,
+      pagePermissions: ['write:pages']
+    })
+
+    expect(siteStore.overlay).toBe('Welcome')
+    expect(router.currentRoute.value.path).not.toBe('/_error/unauthorized')
+  })
+
+  it('shows the missing-page placeholder, never /_error/unauthorized, when the fetched permissions lack write:pages', async () => {
+    const { wrapper, siteStore, router } = await mountAtRoot({
+      authenticated: true,
+      pagePermissions: []
+    })
+
+    expect(siteStore.overlay).not.toBe('Welcome')
+    expect(router.currentRoute.value.path).not.toBe('/_error/unauthorized')
+    expect(wrapper.find('.page-placeholder').exists()).toBe(true)
+  })
+
+  it('sends an unauthenticated visitor to /login without fetching page permissions', async () => {
+    const { userStore, router } = await mountAtRoot({ authenticated: false })
+
+    expect(router.currentRoute.value.path).toBe('/login')
+    expect(userStore.pagePermissions).toEqual([])
+  })
+
+  it('awaits fetchPagePermissions("home", …) before deciding, so the ordering does not regress', async () => {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    siteStore.editors.markdown = false
+
+    const userStore = useUserStore()
+    userStore.authenticated = true
+
+    let resolveFetch
+    const order = []
+    vi.spyOn(userStore, 'fetchPagePermissions').mockImplementation(
+      (path, locale) =>
+        new Promise((resolve) => {
+          order.push(`fetch:${path}`)
+          resolveFetch = () => {
+            userStore.pagePermissions = ['write:pages']
+            resolve()
+          }
+        })
+    )
+
+    globalThis.API_CLIENT.get.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue(undefined)
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: Index },
+        { path: '/login', component: { template: '<div />' } }
+      ]
+    })
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(Index, {
+      global: {
+        plugins: [router, i18n],
+        stubs: {
+          PageHeader: true,
+          PageActionsCol: true,
+          PageRedirect: true,
+          PageTags: true,
+          PageToc: true,
+          FooterNav: true,
+          SideDialog: true
+        }
+      }
+    })
+    activeWrapper = wrapper
+
+    router.push('/')
+    await router.isReady()
+    await flushPromises()
+
+    // -> The overlay must not have been set yet -- proof the decision waited on the fetch
+    expect(siteStore.overlay).not.toBe('Welcome')
+    expect(userStore.fetchPagePermissions).toHaveBeenCalledWith('home', 'en')
+
+    resolveFetch()
+    order.push('decided')
+    await flushPromises()
+
+    expect(siteStore.overlay).toBe('Welcome')
+    expect(order).toEqual(['fetch:home', 'decided'])
+  })
+})
+
+/**
  * OpenProject #947, item 1: the `/_create` and `/_edit` route-watcher branches called
  * `loading.show()` then `await pageStore.pageCreate(...)`/`pageEdit(...)` with no try/catch, unlike
  * the plain page-load branch (whose own catch handles every error `pageLoad` can throw). A rejection
