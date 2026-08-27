@@ -200,6 +200,7 @@ async function routes(app: FastifyInstance) {
             $ref: 'ChecklistExecution#'
           },
           400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
           404: { $ref: 'ApiError#' }
         }
@@ -208,7 +209,7 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       const actor = actorFrom(req)
       if (!actor) {
-        return reply.forbidden('You must be signed in to check off a checklist item.')
+        return reply.unauthorized('You must be signed in to check off a checklist item.')
       }
       const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
       if (!page) {
