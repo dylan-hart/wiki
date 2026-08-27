@@ -115,7 +115,9 @@
               <w-td :props="props">
                 <span>{{ props.value }}</span>
                 <div>
-                  <small class="text-grey">{{ humanizeDate(props.row.createdAt) }}</small>
+                  <small class="text-grey">{{
+                    humanizeDateWithSeconds(t, props.row.createdAt)
+                  }}</small>
                 </div>
               </w-td>
             </template>
@@ -123,7 +125,9 @@
               <w-td :props="props">
                 <span>{{ props.value }}</span>
                 <div>
-                  <small class="text-grey">{{ humanizeDate(props.row.updatedAt) }}</small>
+                  <small class="text-grey">{{
+                    humanizeDateWithSeconds(t, props.row.updatedAt)
+                  }}</small>
                 </div>
               </w-td>
             </template>
@@ -182,7 +186,9 @@
               <w-td :props="props">
                 <span>{{ props.value }}</span>
                 <div>
-                  <small class="text-grey">{{ humanizeDate(props.row.waitUntil) }}</small>
+                  <small class="text-grey">{{
+                    humanizeDateWithSeconds(t, props.row.waitUntil)
+                  }}</small>
                 </div>
               </w-td>
             </template>
@@ -307,7 +313,9 @@
                     </template>
                   </i18n-t>
                   <div>
-                    <small class="text-grey">{{ humanizeDate(props.row.completedAt) }}</small>
+                    <small class="text-grey">{{
+                      humanizeDateWithSeconds(t, props.row.completedAt)
+                    }}</small>
                   </div>
                 </template>
                 <template v-else-if="props.value === `active`">
@@ -349,7 +357,9 @@
               <w-td :props="props">
                 <span>{{ props.value }}</span>
                 <div>
-                  <small class="text-grey">{{ humanizeDate(props.row.startedAt) }}</small>
+                  <small class="text-grey">{{
+                    humanizeDateWithSeconds(t, props.row.startedAt)
+                  }}</small>
                 </div>
                 <div>
                   <i18n-t class="text-grey" keypath="admin.scheduler.createdBy" tag="small">
@@ -408,7 +418,7 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 
 import { apiErrorMessage } from '@/helpers/apiError'
-import { humanizeDuration, relativeDate } from '@/helpers/datetime'
+import { humanizeDateWithSeconds, humanizeDuration, relativeDate } from '@/helpers/datetime'
 
 import { useSiteStore } from '@/stores/site'
 
@@ -623,22 +633,6 @@ watch(
 )
 
 // METHODS
-
-/** Absolute, and with seconds: for a job, the timing IS the thing being read. */
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZoneName: 'short'
-  })
-}
 
 async function load() {
   state.loading++

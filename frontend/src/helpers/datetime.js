@@ -10,7 +10,18 @@
  * `Intl` rather than a formatting library: the browser already knows how the reader's locale words
  * "3 minutes ago" and "1h 4m 32s", which is what luxon's `toRelative()` and `Duration.toHuman()` were
  * here for.
+ *
+ * `humanizeDate`/`humanizeDateWithSeconds` below are a different kind of sharing than the rest of this
+ * file: not a units-table walk reimplemented three times, but a THIRTEEN-times-reimplemented absolute
+ * formatter that ignored the reader's stored `timezone`/`dateFormat`/`timeFormat` entirely, formatting
+ * in the browser's own zone with a hardcoded field list instead. Both delegate to
+ * `userStore.formatDateTime()` (`stores/user.js`), which is where that preference-aware formatting
+ * actually lives — this file just adds the `'---'` guard every call site wants and gives the delegation
+ * one importable name, so a screen no longer needs its own `humanizeDate(val) { … }` wrapper just to
+ * pass `t` through.
  */
+
+import { useUserStore } from '@/stores/user'
 
 /*
   Largest first, so the first unit the difference clears is the one it reads best in. `week` is
@@ -105,4 +116,36 @@ export function humanizeIsoDuration(value) {
     }).format(dur[unit])
   )
   return parts.length > 0 ? isoDurationListFormat.format(parts) : '0 seconds'
+}
+
+/**
+ * Absolute date + time, in the reader's own stored timezone, date pattern and 12h/24h choice --
+ * MINUTE precision. This is the shared form: a screen that needs to show seconds (a job's timing, a
+ * webhook delivery attempt) wants `humanizeDateWithSeconds` instead, not this one with an extra field
+ * bolted on locally.
+ *
+ * @param {Function} t The i18n translate function, for locale-correct date/time word order.
+ * @param {string|null} value An ISO instant, as the API returns.
+ * @returns {string} e.g. `24/08/2026 at 2:32 PM`, or `---` for nothing at all.
+ */
+export function humanizeDate(t, value) {
+  if (!value) {
+    return '---'
+  }
+  return useUserStore().formatDateTime(t, value)
+}
+
+/**
+ * Same as `humanizeDate`, with seconds shown -- for the couple of screens where sub-minute precision
+ * is the point rather than incidental.
+ *
+ * @param {Function} t The i18n translate function.
+ * @param {string|null} value An ISO instant, as the API returns.
+ * @returns {string} e.g. `24/08/2026 at 2:32:07 PM`, or `---` for nothing at all.
+ */
+export function humanizeDateWithSeconds(t, value) {
+  if (!value) {
+    return '---'
+  }
+  return useUserStore().formatDateTimeWithSeconds(t, value)
 }

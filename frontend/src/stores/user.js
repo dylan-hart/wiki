@@ -55,13 +55,17 @@ function toUserZone(date, timezone) {
 /**
  * Render the time part. `hourCycle` rather than `hour12: false`, which some locales render as 24:00
  * where they mean 00:00.
+ *
+ * @param {boolean} seconds Include a `second` field -- for the handful of screens (job timing,
+ *   webhook delivery attempts) where sub-minute precision is the point, not just the moment.
  */
-function formatTimePart(zoned, timeFormat) {
+function formatTimePart(zoned, timeFormat, seconds = false) {
+  const secondField = seconds ? { second: '2-digit' } : {}
   return zoned.toLocaleString(
     undefined,
     timeFormat === '24h'
-      ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }
-      : { hour: 'numeric', minute: '2-digit', hour12: true }
+      ? { hour: '2-digit', minute: '2-digit', ...secondField, hourCycle: 'h23' }
+      : { hour: 'numeric', minute: '2-digit', ...secondField, hour12: true }
   )
 }
 
@@ -297,6 +301,20 @@ export const useUserStore = defineStore('user', {
       return t('common.datetime', {
         date: formatDatePart(zoned, this.dateFormat),
         time: formatTimePart(zoned, this.timeFormat)
+      })
+    },
+    /**
+     * Same as `formatDateTime`, with seconds shown -- for the couple of screens (job timing, webhook
+     * delivery attempts) where sub-minute precision is the point rather than incidental.
+     */
+    formatDateTimeWithSeconds(t, date) {
+      if (!date) {
+        return ''
+      }
+      const zoned = toUserZone(date, this.timezone)
+      return t('common.datetime', {
+        date: formatDatePart(zoned, this.dateFormat),
+        time: formatTimePart(zoned, this.timeFormat, true)
       })
     },
     /**

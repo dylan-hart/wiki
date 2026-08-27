@@ -132,7 +132,7 @@
           </template>
           <template v-slot:body-cell-date="props">
             <w-td :props="props">
-              <span>{{ humanizeDate(props.value) }}</span>
+              <span>{{ humanizeDate(t, props.value) }}</span>
               <div>
                 <small class="text-grey">{{ relativeDate(props.value) }}</small>
               </div>
@@ -194,7 +194,7 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 
 import { apiErrorMessage } from '@/helpers/apiError'
-import { relativeDate } from '@/helpers/datetime'
+import { humanizeDate, relativeDate } from '@/helpers/datetime'
 
 import { useSiteStore } from '@/stores/site'
 
@@ -294,20 +294,6 @@ const eventOptions = ref([
 const actorOptions = ref([{ label: t('admin.audit.allActors'), value: null }])
 
 // METHODS
-
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
-}
 
 function resetFilters() {
   state.filters.actorId = null

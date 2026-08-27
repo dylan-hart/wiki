@@ -351,3 +351,25 @@ describe('user store: formatDate()', () => {
     expect(store.formatDate(null)).toBe('')
   })
 })
+
+describe('user store: formatDateTimeWithSeconds()', () => {
+  const fakeT = (key, params) => `${params.date} at ${params.time}`
+
+  it('renders the same moment as formatDateTime, with a seconds field added', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '24h'
+    store.timezone = 'UTC'
+
+    expect(store.formatDateTime(fakeT, '2026-03-04T12:34:56Z')).toBe('2026-03-04 at 12:34')
+    expect(store.formatDateTimeWithSeconds(fakeT, '2026-03-04T12:34:56Z')).toBe(
+      '2026-03-04 at 12:34:56'
+    )
+  })
+
+  it('returns an empty string for a nullish date rather than throwing', () => {
+    const store = useUserStore()
+
+    expect(store.formatDateTimeWithSeconds(fakeT, null)).toBe('')
+  })
+})
