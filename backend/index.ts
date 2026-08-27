@@ -179,11 +179,11 @@ WIKI.logger.info(`Running node.js ${process.version} [ OK ]`)
 // ----------------------------------------
 
 async function preBoot() {
-  WIKI.dbManager = (await import('./core/db.ts')).default
-  WIKI.db = await dbManager.init()
-  WIKI.models = (await import('./models/index.ts')).default
-
   try {
+    WIKI.dbManager = (await import('./core/db.ts')).default
+    WIKI.db = await dbManager.init()
+    WIKI.models = (await import('./models/index.ts')).default
+
     if (await WIKI.configSvc.loadFromDb()) {
       WIKI.logger.info('Settings merged with DB successfully [ OK ]')
     } else {
