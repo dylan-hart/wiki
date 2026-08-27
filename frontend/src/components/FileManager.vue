@@ -137,7 +137,7 @@
       Narrower while it overlays, so there is a comfortable width of scrim left to tap on.
     -->
     <w-drawer class="fileman-left" v-model="treeDrawerOpen" :width="isTreeOverlay ? 300 : 350">
-      <w-scroll-area :thumb-style="thumbStyle" :bar-style="barStyle" style="height: 100%">
+      <w-scroll-area style="height: 100%">
         <!--
           -> No side padding: the tree's rows run the full width of the drawer, so a hovered or
              selected row reads as a band across it rather than a floating pill. `pt-2` is the gap
@@ -157,7 +157,7 @@
       </w-scroll-area>
     </w-drawer>
     <w-drawer class="fileman-right" :model-value="detailsPaneShown" :width="350" side="right">
-      <w-scroll-area :thumb-style="thumbStyle" :bar-style="barStyle" style="height: 100%">
+      <w-scroll-area style="height: 100%">
         <div class="p-4">
           <template v-if="currentFileDetails">
             <img
@@ -401,7 +401,7 @@
               <w-icon name="la:cloud-upload-alt" size="64px" />
               <span>{{ t('fileman.dropToUpload') }}</span>
             </div>
-            <w-scroll-area :thumb-style="thumbStyle" :bar-style="barStyle" style="height: 100%">
+            <w-scroll-area style="height: 100%">
               <div class="fileman-loadinglist" v-if="state.fileListLoading">
                 <w-spinner class="mr-2" color="primary" size="64px" />
                 <span class="text-primary">Fetching folder contents...</span>
@@ -699,19 +699,6 @@ watch(
     }
   }
 )
-
-const thumbStyle = {
-  right: '2px',
-  borderRadius: '5px',
-  backgroundColor: '#000',
-  width: '5px',
-  opacity: 0.15
-}
-const barStyle = {
-  backgroundColor: '#FAFAFA',
-  width: '9px',
-  opacity: 1
-}
 
 // REFS
 

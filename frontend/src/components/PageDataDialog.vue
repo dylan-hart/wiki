@@ -35,10 +35,7 @@
       <w-tab name="visual" label="Visual" />
       <w-tab name="code" label="YAML" />
     </w-tabs>
-    <w-scroll-area
-      :thumb-style="siteStore.thumbStyle"
-      :bar-style="siteStore.barStyle"
-      style="height: calc(100% - 50px - 75px - 48px)">
+    <w-scroll-area style="height: calc(100% - 50px - 75px - 48px)">
       <w-card-section v-if="state.mode === `visual`">
         <div class="gap-2">
           <w-input label="Attribute Text" dense outlined>

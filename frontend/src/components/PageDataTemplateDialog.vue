@@ -86,11 +86,7 @@
         </div>
       </div>
       <div class="min-w-0 flex-1 page-datatmpl-content">
-        <w-scroll-area
-          ref="scrollArea"
-          :thumb-style="siteStore.thumbStyle"
-          :bar-style="siteStore.barStyle"
-          style="height: 100%">
+        <w-scroll-area ref="scrollArea" style="height: 100%">
           <div class="min-w-0 flex-1 page-datatmpl-meta px-4 py-4 flex gap-4">
             <w-input
               class="min-w-0 flex-1"
