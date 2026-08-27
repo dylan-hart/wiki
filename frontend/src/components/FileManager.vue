@@ -518,7 +518,7 @@
                         </template>
                         <w-item clickable @click="delItem(item)">
                           <w-item-section side>
-                            <w-icon name="la:trash-alt" color="negative" />
+                            <w-icon name="la:trash" color="negative" />
                           </w-item-section>
                           <w-item-section class="text-negative">{{
                             t(`common.actions.delete`)
