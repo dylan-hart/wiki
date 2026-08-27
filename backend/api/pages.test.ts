@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, describe, it, mock, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, it, mock, test } from 'node:test'
 import Fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
@@ -377,6 +377,10 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
       installFakeTemporal()
     }
     ;(globalThis as any).WIKI = {
+      // -> `recordPageview()`'s isEnabled gate (OpenProject #2251) reads this; on, matching this
+      //    fixture's pre-existing unconditional pageview stub, since pageviews are not what this
+      //    describe block is testing.
+      config: { pageviews: { isEnabled: true } },
       models: {
         pages: {
           getPage: async () => currentPage(),
@@ -963,6 +967,10 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
 
   before(async () => {
     ;(globalThis as any).WIKI = {
+      // -> `recordPageview()`'s isEnabled gate (OpenProject #2251) reads this; on, matching this
+      //    fixture's pre-existing unconditional pageview stub, since pageviews are not what this
+      //    describe block is testing.
+      config: { pageviews: { isEnabled: true } },
       models: {
         pages: { getPage },
         groups: { actorForRequest, checkAccess, groupIdsForRequest: () => [] },
@@ -1072,6 +1080,170 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
       headers: sessionHeader([])
     })
     assert.equal(res.statusCode, 403)
+  })
+})
+
+/**
+ * Regression test for OpenProject #2251: `recordPageview()` in `pages.ts` used to write
+ * `req.session.pageViewed = true` for every anonymous browser read unconditionally -- deliberately,
+ * to defeat `saveUninitialized: false` so a returning anonymous reader is not miscounted as new --
+ * *before* calling `WIKI.models.pageviews.record()`, whose own `isEnabled` guard lives in
+ * `models/pageviews.ts`. That meant disabling pageview tracking still minted a session (and the
+ * `Set-Cookie` + permanent `sessions` row that comes with it) for every anonymous page read; only the
+ * `pageviews` insert itself stopped.
+ *
+ * This suite has no real `@fastify/session` plugin registered (see the other describes' own doc
+ * comments for why), so it cannot observe an actual `Set-Cookie` header. What it CAN observe -- and
+ * what is the exact mechanism that decides whether `@fastify/session` would emit one -- is whether
+ * the route touches the session object at all: a session `@fastify/session` never sees written to
+ * stays uninitialized and is never persisted or cookied. The `onRequest` hook below always attaches
+ * an empty `session` object up front, mirroring what the real plugin lazily provides to every
+ * request (including an anonymous one) before any handler runs.
+ */
+describe('GET /sites/:siteId/pages/:pageIdOrHash — pageview session write respects isEnabled (OpenProject #2251)', () => {
+  const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const PAGE_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+  const PAGE_HASH = 'deadbeef'
+
+  async function getPage() {
+    return {
+      id: PAGE_ID,
+      path: 'foo',
+      hash: PAGE_HASH,
+      alias: null,
+      title: 'Foo',
+      description: null,
+      icon: null,
+      locale: 'en',
+      editor: 'markdown',
+      contentType: 'markdown',
+      publishState: 'published',
+      publishStartDate: null,
+      publishEndDate: null,
+      isBrowsable: true,
+      isSearchable: true,
+      isLocked: false,
+      relations: [],
+      tags: [],
+      toc: [],
+      render: '<p>Hello</p>',
+      allowComments: false,
+      allowContributions: false,
+      allowRatings: false,
+      showSidebar: true,
+      showTags: true,
+      showToc: true,
+      tocDepth: { min: 1, max: 2 },
+      scriptJsLoad: '',
+      scriptJsUnload: '',
+      scriptCss: '',
+      navigationId: null,
+      navigationMode: 'default',
+      authorId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      authorName: 'Test Author',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+  }
+
+  // -> Every anonymous reader is granted `read:pages` -- what is under test here is the pageview
+  //    session write, not page-rule resolution (covered by `helpers/pageRules.test.ts`).
+  function actorForRequest() {
+    return { permissions: [] as string[], pagePermissions: ['read:pages'] }
+  }
+
+  function checkAccess(
+    actor: { permissions: string[]; pagePermissions: string[] },
+    permission: string
+  ): boolean {
+    return actor.pagePermissions.includes(permission)
+  }
+
+  let app: FastifyInstance
+  let recordMock: ReturnType<typeof mock.fn>
+  let capturedSession: { pageViewed?: boolean } | undefined
+
+  beforeEach(async () => {
+    recordMock = mock.fn(async () => {})
+    capturedSession = undefined
+    ;(globalThis as any).WIKI = {
+      config: { pageviews: { isEnabled: false } },
+      models: {
+        pages: { getPage },
+        groups: { actorForRequest, checkAccess, groupIdsForRequest: () => [] },
+        approvals: {
+          pageViewerState: async () => ({
+            canSuggestEdits: false,
+            hasOpenSuggestion: false,
+            canReview: false,
+            pendingSubmissions: []
+          })
+        },
+        pageWatching: { isWatching: async () => false },
+        comments: { countForPage: async () => 0 },
+        pageviews: { record: recordMock }
+      },
+      sites: {}
+    }
+
+    app = Fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    app.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerErrorSchema(app)
+    await registerSchemas(app)
+    await registerApprovalSchemas(app)
+    // -> Mirrors what the real `@fastify/session` plugin does for every request, anonymous or not: it
+    //    hands the handler an empty, un-persisted session object up front. Whether that object ends up
+    //    written to (and therefore cookied and stored) is exactly what this suite asserts on.
+    app.addHook('onRequest', async (req) => {
+      ;(req as any).session = {}
+    })
+    // -> Captured post-handler so the test can assert on the exact object the route wrote to,
+    //    without needing a real `@fastify/session` plugin to serialize/cookie it.
+    app.addHook('onResponse', async (req) => {
+      capturedSession = (req as any).session
+    })
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  afterEach(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('pageviews disabled: anonymous read never writes to the session and never records', async () => {
+    ;(globalThis as any).WIKI.config.pageviews.isEnabled = false
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_HASH}`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(capturedSession?.pageViewed, undefined)
+    assert.equal(recordMock.mock.callCount(), 0)
+  })
+
+  test('pageviews enabled: anonymous read writes pageViewed onto the session and records', async () => {
+    ;(globalThis as any).WIKI.config.pageviews.isEnabled = true
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_HASH}`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(capturedSession?.pageViewed, true)
+    assert.equal(recordMock.mock.callCount(), 1)
   })
 })
 

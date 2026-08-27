@@ -120,6 +120,11 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
  * `POST .../unlock`'s own doc comment describes ("unlocking one is what first gives an anonymous reader
  * a session"). Setting `pageViewed` is what closes it here: without it, an anonymous reader with no
  * other reason to touch their session would look like a brand new visitor on every single view.
+ *
+ * That write is gated on the same `WIKI.config.pageviews.isEnabled` opt-out `record()` itself checks
+ * (OpenProject #2251): with tracking off there is no visitor identity worth preserving across requests,
+ * so forcing a session (and the `Set-Cookie` + permanent `sessions` row that comes with it) for every
+ * anonymous read would only defeat `saveUninitialized: false` for nothing in return.
  */
 function recordPageview(req: FastifyRequest, siteId: string, pageId: string): void {
   if (req.apiKey) {
@@ -131,7 +136,7 @@ function recordPageview(req: FastifyRequest, siteId: string, pageId: string): vo
     })
     return
   }
-  if (req.session) {
+  if (req.session && WIKI.config.pageviews?.isEnabled === true) {
     req.session.pageViewed = true
     void WIKI.models.pageviews.record({
       siteId,
