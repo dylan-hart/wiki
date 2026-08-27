@@ -61,9 +61,6 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.allowHTML"
-                color="primary"
-                checked-icon="la:check"
-                unchecked-icon="la:times"
                 :aria-label="t(`admin.editors.markdown.allowHTML`)" />
             </w-item-section>
           </w-item>
@@ -77,9 +74,6 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.linkify"
-                color="primary"
-                checked-icon="la:check"
-                unchecked-icon="la:times"
                 :aria-label="t(`admin.editors.markdown.linkify`)" />
             </w-item-section>
           </w-item>
@@ -93,9 +87,6 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.lineBreaks"
-                color="primary"
-                checked-icon="la:check"
-                unchecked-icon="la:times"
                 :aria-label="t(`admin.editors.markdown.lineBreaks`)" />
             </w-item-section>
           </w-item>
@@ -130,9 +121,6 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.multimdTable"
-                color="primary"
-                checked-icon="la:check"
-                unchecked-icon="la:times"
                 :aria-label="t(`admin.editors.markdown.multimdTable`)" />
             </w-item-section>
           </w-item>
@@ -146,9 +134,6 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.typographer"
-                color="primary"
-                checked-icon="la:check"
-                unchecked-icon="la:times"
                 :aria-label="t(`admin.editors.markdown.typographer`)" />
             </w-item-section>
           </w-item>
@@ -184,9 +169,6 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.underline"
-                color="primary"
-                checked-icon="la:check"
-                unchecked-icon="la:times"
                 :aria-label="t(`admin.editors.markdown.underline`)" />
             </w-item-section>
           </w-item>

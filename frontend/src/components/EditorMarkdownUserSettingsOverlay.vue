@@ -60,9 +60,6 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.previewShown"
-                color="primary"
-                checked-icon="la:check"
-                unchecked-icon="la:times"
                 :aria-label="t(`editor.settings.markdownPreviewShown`)" />
             </w-item-section>
           </w-item>

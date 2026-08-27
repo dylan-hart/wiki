@@ -213,20 +213,14 @@
             <w-toggle
               v-model="pageStore.showSidebar"
               dense
-              :label="t(`editor.props.showSidebar`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.showSidebar`)" />
           </div>
           <div>
             <w-toggle
               v-if="pageStore.showSidebar"
               v-model="pageStore.showToc"
               dense
-              :label="t(`editor.props.showToc`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.showToc`)" />
           </div>
           <div v-if="pageStore.showSidebar && pageStore.showToc" style="padding-left: 40px">
             <div class="text-caption">
@@ -249,10 +243,7 @@
               v-if="pageStore.showSidebar"
               v-model="pageStore.showTags"
               dense
-              :label="t(`editor.props.showTags`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.showTags`)" />
           </div>
         </w-form>
       </w-card-section>
@@ -263,28 +254,19 @@
             <w-toggle
               v-model="pageStore.allowComments"
               dense
-              :label="t(`editor.props.allowComments`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.allowComments`)" />
           </div>
           <div>
             <w-toggle
               v-model="pageStore.allowContributions"
               dense
-              :label="t(`editor.props.allowContributions`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.allowContributions`)" />
           </div>
           <div>
             <w-toggle
               v-model="pageStore.allowRatings"
               dense
-              :label="t(`editor.props.allowRatings`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.allowRatings`)" />
           </div>
         </w-form>
       </w-card-section>
@@ -318,29 +300,20 @@
             <w-toggle
               v-model="pageStore.isBrowsable"
               dense
-              :label="$t(`editor.props.showInTree`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="$t(`editor.props.showInTree`)" />
           </div>
           <div>
             <w-toggle
               v-model="pageStore.isSearchable"
               dense
-              :label="$t(`editor.props.isSearchable`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="$t(`editor.props.isSearchable`)" />
           </div>
           <div>
             <w-toggle
               v-model="state.requirePassword"
               @update:model-value="toggleRequirePassword"
               dense
-              :label="$t(`editor.props.requirePassword`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="$t(`editor.props.requirePassword`)" />
           </div>
           <div v-if="state.requirePassword" style="padding-left: 40px">
             <!-- -> Masked, with WInput's own reveal toggle: this is a secret to hand out rather than

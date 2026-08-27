@@ -33,13 +33,7 @@
           :label="state.locale"
           :aria-label="state.locale"
           style="height: 40px">
-          <w-menu
-            class="translucent-menu"
-            auto-close
-            transition-show="jump-down"
-            transition-hide="jump-up"
-            anchor="bottom left"
-            self="top left">
+          <w-menu class="translucent-menu" auto-close anchor="bottom left" self="top left">
             <w-card class="p-2">
               <w-list dense style="min-width: 180px">
                 <w-item
@@ -250,11 +244,7 @@
               <w-tooltip anchor="bottom middle" self="top middle">{{
                 t(`fileman.viewOptions`)
               }}</w-tooltip>
-              <w-menu
-                transition-show="jump-down"
-                transition-hide="jump-up"
-                anchor="bottom right"
-                self="top right">
+              <w-menu anchor="bottom right" self="top right">
                 <w-card class="p-2">
                   <div class="text-center">
                     <small class="text-grey">{{ t(`fileman.viewOptions`) }}</small>
@@ -430,13 +420,7 @@
                     <div class="text-caption">{{ item.side }}</div>
                   </w-item-section>
                   <!-- RIGHT-CLICK MENU -->
-                  <w-menu
-                    class="translucent-menu"
-                    touch-position
-                    context-menu
-                    auto-close
-                    transition-show="jump-down"
-                    transition-hide="jump-up">
+                  <w-menu class="translucent-menu" touch-position context-menu auto-close>
                     <w-card class="p-2">
                       <w-list dense style="min-width: 150px">
                         <w-item

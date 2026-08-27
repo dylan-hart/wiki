@@ -262,8 +262,7 @@
                       option-label="title"
                       options-dense
                       multiple
-                      use-chips
-                      stack-label>
+                      use-chips>
                       <template #selected-item="scope">
                         <w-chip
                           square
@@ -280,9 +279,6 @@
                             <w-toggle
                               :model-value="selected"
                               @update:model-value="toggleOption(opt)"
-                              color="primary"
-                              checked-icon="la:check"
-                              unchecked-icon="la:times"
                               :aria-label="opt.label" />
                           </w-item-section>
                           <!-- q-item-section(side, style='flex-basis: 150px;') -->
@@ -324,7 +320,6 @@
                         option-value="id"
                         option-label="title"
                         multiple
-                        behavior="dialog"
                         :display-value="
                           t(`admin.groups.selectedSites`, rule.sites.length, {
                             count: rule.sites.length
@@ -339,9 +334,6 @@
                               <w-toggle
                                 :model-value="selected"
                                 @update:model-value="toggleOption(opt)"
-                                color="primary"
-                                checked-icon="la:check"
-                                unchecked-icon="la:times"
                                 :aria-label="opt.label" />
                             </w-item-section>
                           </w-item>
@@ -359,7 +351,6 @@
                         option-value="code"
                         option-label="name"
                         multiple
-                        behavior="dialog"
                         :display-value="
                           t(
                             `admin.groups.selectedLocales`,
@@ -381,9 +372,6 @@
                               <w-toggle
                                 :model-value="selected"
                                 @update:model-value="toggleOption(opt)"
-                                color="primary"
-                                checked-icon="la:check"
-                                unchecked-icon="la:times"
                                 :aria-label="opt.name" />
                             </w-item-section>
                           </w-item>
@@ -431,7 +419,6 @@
                         option-value="id"
                         option-label="name"
                         multiple
-                        behavior="dialog"
                         :display-value="
                           t(
                             `admin.groups.selectedClassifications`,
@@ -448,9 +435,6 @@
                               <w-toggle
                                 :model-value="selected"
                                 @update:model-value="toggleOption(opt)"
-                                color="primary"
-                                checked-icon="la:check"
-                                unchecked-icon="la:times"
                                 :aria-label="opt.name" />
                             </w-item-section>
                           </w-item>
@@ -507,9 +491,6 @@
                       <w-toggle
                         v-model="state.group.permissions"
                         :val="perm.permission"
-                        color="primary"
-                        checked-icon="la:check"
-                        unchecked-icon="la:times"
                         :disable="isSystemPermissionLocked(perm.permission)"
                         :aria-label="t(`admin.general.allowComments`)" />
                     </w-item-section>
