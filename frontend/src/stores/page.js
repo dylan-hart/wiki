@@ -521,7 +521,11 @@ export const usePageStore = defineStore('page', {
         if (!pageData?.id) {
           throw new Error('ERR_PAGE_NOT_FOUND')
         }
-        this.pageCreate({
+        // -> Awaited so this call's own catch owns the failure: `pageCreate` is async and rejects
+        //    readily (its first act is `editorStore.fetchConfigs()`, a network request that rethrows
+        //    on failure) -- left un-awaited, that rejection escaped this try entirely and became an
+        //    unhandled rejection nobody in `frontend/src` catches (OpenProject #1787).
+        await this.pageCreate({
           editor: pageData.editor,
           title,
           path,

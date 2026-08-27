@@ -537,12 +537,23 @@ function duplicatePage() {
       itemFileName: pageStore.path,
       locale: pageStore.locale
     }
-  }).onOk((newPageOpts) => {
-    pageStore.pageDuplicate({
-      sourcePageId: pageStore.id,
-      path: newPageOpts.path,
-      title: newPageOpts.title
-    })
+  }).onOk(async (newPageOpts) => {
+    // -> `pageDuplicate` rejects on either its own source-page fetch failing or the `pageCreate` it
+    //    now awaits (OpenProject #1787) rejecting -- previously dropped on the floor here, an
+    //    unhandled rejection with no notify shown, matching `FileManager.vue`'s own duplicate handler
+    try {
+      await pageStore.pageDuplicate({
+        sourcePageId: pageStore.id,
+        path: newPageOpts.path,
+        title: newPageOpts.title
+      })
+    } catch (err) {
+      notify({
+        type: 'negative',
+        message: 'Failed to duplicate page.',
+        caption: apiErrorMessage(err, 'An unexpected error occured.')
+      })
+    }
   })
 }
 
