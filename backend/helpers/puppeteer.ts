@@ -4,35 +4,29 @@ import { CustomError } from './common.ts'
  * Browser flags every headless launch in this codebase uses, so a page re-render and a PDF export
  * behave identically as far as the browser they run in is concerned.
  *
- * `--disable-dev-shm-usage` because a container's default `/dev/shm` is far smaller than Chromium
- * expects, which otherwise crashes it on a page heavy enough to need more shared memory than that.
+ * `--disable-dev-shm-usage` is always included: a container's default `/dev/shm` is far smaller than
+ * Chromium expects, which otherwise crashes it on a page heavy enough to need more shared memory than
+ * that.
  *
- * `--no-sandbox` is deliberately **not** included by default: it disables Chromium's own process
- * sandbox, so a renderer-process exploit escapes straight to this process's own privileges. Two of
- * the three call sites feed the browser attacker-influenced content (`pdfExport` drives the live SPA
- * page view under the requester's own session; `diagramRender` mounts a POST-body Mermaid source), so
- * a sandboxed launch is the safer default. It exists only as an opt-in fallback
- * (`WIKI.config.rendering.puppeteerNoSandbox`) for a host that genuinely cannot start Chromium's
- * sandbox — a container without the setuid sandbox helper or unprivileged user namespaces enabled.
- * See `docs/variances.md` for this instance's posture.
- */
-export const BASE_PUPPETEER_LAUNCH_ARGS = ['--disable-dev-shm-usage']
-
-/**
- * The launch args to actually use, honouring the `--no-sandbox` opt-in fallback. Logs loudly at warn
- * level when the fallback is taken, so an operator notices it's on rather than discovering it only
- * when reading source.
+ * `--no-sandbox` is NOT included by default. It drops Chromium's own process sandbox, which matters
+ * here because two of the three callers feed the browser attacker-influenced content: `pdfExport`
+ * drives the live SPA page view with the requester's own session cookie (so page markdown, block
+ * components and a `write:scripts` author's `scriptJsLoad`/`scriptJsUnload` bodies all execute), and
+ * `diagramRender.renderMermaid` mounts `block-diagram` around a POST-body Mermaid source. An operator
+ * whose deployment environment cannot give Chromium its own sandbox (typically a container without
+ * the setuid sandbox helper) opts into it via `security.allowPuppeteerNoSandbox` — see
+ * `docs/variances.md` for the posture this default was chosen against.
  */
 export function getPuppeteerLaunchArgs(): string[] {
-  if (WIKI.config.rendering?.puppeteerNoSandbox) {
+  const args = ['--disable-dev-shm-usage']
+  if (WIKI.config.security.allowPuppeteerNoSandbox) {
     WIKI.logger.warn(
-      'Launching headless Chromium with --no-sandbox (rendering.puppeteerNoSandbox is enabled). ' +
-        "This disables Chromium's own process sandbox — only use this on a host that cannot start " +
-        'the sandbox otherwise. See docs/variances.md.'
+      'Launching Puppeteer with --no-sandbox (security.allowPuppeteerNoSandbox is enabled). This disables ' +
+        "Chromium's own process sandbox for every page render, PDF export and diagram render this instance performs."
     )
-    return [...BASE_PUPPETEER_LAUNCH_ARGS, '--no-sandbox']
+    args.push('--no-sandbox')
   }
-  return [...BASE_PUPPETEER_LAUNCH_ARGS]
+  return args
 }
 
 /**

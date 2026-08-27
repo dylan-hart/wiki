@@ -1493,10 +1493,10 @@ artwork, separately pinned to upstream tag v17.0.3) despite the version-number m
 drift. Revisit once a `@twemoji/parser` release ships that restores the ten shortcodes' matching —
 until then, do not bump `@twemoji/api` past 17.0.2 in an automated currency pass.
 
-## OpenProject #2244/#2250/#2247 — headless Chromium's `--no-sandbox` flipped to an opt-in fallback
+## OpenProject #2244/#2250/#2247 — headless Chromium's `--no-sandbox` flipped to an opt-in fallback: two competing implementations reconciled
 
 **Date:** 2026-08-26
-**Feature:** #2244 (children #2250, #2247)
+**Feature:** Epic #2244 (children #2250, #2247)
 
 Every headless Chromium launch (`helpers/puppeteer.ts#launchPuppeteerBrowser()`, shared by
 `models/pdfExport.ts`, `models/rendering.ts` and `models/diagramRender.ts`) used to pass
@@ -1506,16 +1506,47 @@ content — `pdfExport` drives the live SPA page view under the requester's own 
 unconditional `--no-sandbox` meant a renderer-process exploit would escape straight to this
 process's own privileges, with no seccomp-bpf or namespace isolation behind it.
 
+Two independent implementations of the same task (#2250) landed in this cycle and collided at merge
+time, each choosing a different home for the opt-in flag: one added `rendering.puppeteerNoSandbox`
+(`config.sample.yml`, plus a `dev/build/Dockerfile` comment pointing at it) but never actually wired
+a default for it into `backend/base.yml` — `getPuppeteerLaunchArgs()` read it via `WIKI.config
+.rendering?.puppeteerNoSandbox`, optional-chained past a `rendering` section that doesn't exist in
+`base.yml`'s `defaults:`, so the key worked only insofar as a deployment's own `config.yml` set it
+outright. The other added `security.allowPuppeteerNoSandbox`, with a real `base.yml` default
+(`false`) alongside this instance's other security-posture toggles (`trustProxy`, `enforceCsp`,
+the rate-limit keys) — the established "read `WIKI.config.security.*` at the point of use" pattern
+those already follow.
+
+**Kept:** `security.allowPuppeteerNoSandbox`, for being the correctly-wired one — a real `base.yml`
+default, and the same config section every other security-posture toggle in this codebase already
+lives in. `config.sample.yml`'s now-orphaned `rendering:` section was deleted rather than left
+pointing at a key nothing reads any more (this fork's "change the shape, change the callers, delete
+the old path" rule — see CLAUDE.md), and `dev/build/Dockerfile`'s comment was repointed at
+`security.allowPuppeteerNoSandbox`. `backend/helpers/puppeteer.test.ts` keeps both implementations'
+distinct coverage: the `security.allowPuppeteerNoSandbox` unit tests from the kept implementation,
+and the `launchUnderSemaphore` describe block (below) from the other, since that part was not
+actually competing — see next.
+
+**Also kept, unconditionally, from the other implementation:** `getPuppeteerLaunchArgs()`'s result
+is still funneled through `launchUnderSemaphore()` in `launchPuppeteerBrowser()` — the process-wide
+concurrency ceiling from OpenProject #2258/#2259 (see "Task 785 — server-side diagram pre-rendering"
+above) that already lived on this integration branch before this merge. The competing
+`allowPuppeteerNoSandbox` implementation branched before that ceiling existed and called
+`puppeteer.launch()` directly; folding its config-key change in without also keeping the semaphore
+wrapper would have silently dropped the concurrency cap. The two changes are orthogonal — one
+decides what flags a launch gets, the other decides when a launch is allowed to start — so both are
+kept in full rather than either superseding the other.
+
 **Posture chosen:** sandboxed by default. `--no-sandbox` is now added only when
-`rendering.puppeteerNoSandbox` (`backend/base.yml`, `config.sample.yml`) is explicitly set to
+`security.allowPuppeteerNoSandbox` (`backend/base.yml`, default `false`) is explicitly set to
 `true` — logged at `warn` level every time the fallback is taken, so it can't go unnoticed in an
 instance's logs. `dev/build/Dockerfile`'s production image relies on the host kernel allowing
 unprivileged user namespace creation (the default on most distributions) for Chromium's sandbox to
 start without a setuid helper, rather than installing that helper — see the Dockerfile's own
 comment by `USER node`. An operator whose container runtime blocks unprivileged user namespaces
 (a hardened kernel, or an older Docker engine's default seccomp profile) needs to set
-`rendering.puppeteerNoSandbox: true` for PDF export and diagram/page rendering to keep working, and
-should record that choice here in their own deployment notes.
+`security.allowPuppeteerNoSandbox: true` for PDF export and diagram/page rendering to keep working,
+and should record that choice here in their own deployment notes.
 
 **Not independently verified in this pass:** building `dev/build/Dockerfile` and confirming a real
 PDF export succeeds with the sandbox enabled inside the resulting container (child #2247's

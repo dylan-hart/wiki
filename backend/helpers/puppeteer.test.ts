@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, describe, test } from 'node:test'
+import { afterEach, beforeEach, describe, mock, test } from 'node:test'
 import {
-  BASE_PUPPETEER_LAUNCH_ARGS,
   MAX_CONCURRENT_BROWSERS,
   MAX_QUEUED_LAUNCHES,
   getPuppeteerLaunchArgs,
@@ -124,63 +123,51 @@ describe('launchUnderSemaphore', () => {
 })
 
 /**
- * `getPuppeteerLaunchArgs` reads `WIKI.config.rendering.puppeteerNoSandbox` and logs through
- * `WIKI.logger.warn` when the fallback is taken — a pure unit test of that branch, no database
- * and no real Puppeteer/Chromium involved.
+ * `getPuppeteerLaunchArgs` is the sole place `--no-sandbox` can enter a launch, so this is a pure
+ * unit test against a stubbed `WIKI.config.security`/`WIKI.logger` — no database, no real Puppeteer
+ * (an extension the operator installs, not a backend dependency) needed.
  */
 describe('getPuppeteerLaunchArgs', () => {
-  let warnCalls: any[][]
+  let warnCalls: any[]
 
-  before(() => {
+  beforeEach(() => {
+    warnCalls = []
     ;(globalThis as any).WIKI = {
-      config: { rendering: { puppeteerNoSandbox: false } },
+      config: {
+        security: {
+          allowPuppeteerNoSandbox: false
+        }
+      },
       logger: {
         warn: (...args: any[]) => warnCalls.push(args)
       }
     }
   })
 
-  after(() => {
-    delete (globalThis as any).WIKI
-  })
-
-  beforeEach(() => {
-    warnCalls = []
-    ;(globalThis as any).WIKI.config.rendering.puppeteerNoSandbox = false
+  afterEach(() => {
+    mock.restoreAll()
   })
 
   test('omits --no-sandbox by default', () => {
     const args = getPuppeteerLaunchArgs()
-    assert.deepEqual(args, BASE_PUPPETEER_LAUNCH_ARGS)
-    assert.equal(args.includes('--no-sandbox'), false)
+    assert.deepEqual(args, ['--disable-dev-shm-usage'])
   })
 
-  test('does not log a warning by default', () => {
+  test('does not warn when the config key is left at its default', () => {
     getPuppeteerLaunchArgs()
     assert.equal(warnCalls.length, 0)
   })
 
-  test('includes --no-sandbox only when the config key is set', () => {
-    ;(globalThis as any).WIKI.config.rendering.puppeteerNoSandbox = true
+  test('includes --no-sandbox when security.allowPuppeteerNoSandbox is set', () => {
+    ;(globalThis as any).WIKI.config.security.allowPuppeteerNoSandbox = true
     const args = getPuppeteerLaunchArgs()
-    assert.equal(args.includes('--no-sandbox'), true)
-    // -> The rest of the base args are still present, unmodified
-    for (const arg of BASE_PUPPETEER_LAUNCH_ARGS) {
-      assert.equal(args.includes(arg), true)
-    }
+    assert.deepEqual(args, ['--disable-dev-shm-usage', '--no-sandbox'])
   })
 
-  test('logs a warning when the fallback is taken', () => {
-    ;(globalThis as any).WIKI.config.rendering.puppeteerNoSandbox = true
+  test('logs a warning when the config key is set', () => {
+    ;(globalThis as any).WIKI.config.security.allowPuppeteerNoSandbox = true
     getPuppeteerLaunchArgs()
     assert.equal(warnCalls.length, 1)
-    assert.match(warnCalls[0][0], /no-sandbox/)
-  })
-
-  test('does not mutate BASE_PUPPETEER_LAUNCH_ARGS across calls', () => {
-    const before = [...BASE_PUPPETEER_LAUNCH_ARGS]
-    ;(globalThis as any).WIKI.config.rendering.puppeteerNoSandbox = true
-    getPuppeteerLaunchArgs()
-    assert.deepEqual(BASE_PUPPETEER_LAUNCH_ARGS, before)
+    assert.match(warnCalls[0][0], /--no-sandbox/)
   })
 })

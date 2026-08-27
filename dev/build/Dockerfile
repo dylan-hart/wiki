@@ -36,7 +36,7 @@ ENV NODE_ENV=production
 # disabled by some hardened ones and by Docker's default seccomp profile on older engines) rather than
 # installing the setuid helper here, so no extra root-owned binary/capability is added to the image on
 # top of the existing `USER node`. An operator whose container runtime blocks unprivileged user
-# namespaces should instead opt into `rendering.puppeteerNoSandbox` and record that in
+# namespaces should instead opt into `security.allowPuppeteerNoSandbox` and record that in
 # docs/variances.md, rather than expect the sandbox to start here.
 
 # The browser the Puppeteer extension drives, installed above rather than downloaded by Puppeteer: the
