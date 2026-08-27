@@ -356,3 +356,30 @@ describe('rendering.sanitize -- KaTeX MathML from mhchem (\\ce{}/\\pu{})', () =>
     assert.ok(clean.includes(math), 'the whole <math>…</math> survived sanitize() unchanged')
   })
 })
+
+/*
+ * `resolveSiteOrigin` is what carries the site's real hostname into the headless renderer's context
+ * (OpenProject #1751), so `isExternalHref` in `frontend/src/renderers/markdown.js` classifies an
+ * absolute same-site link the same way whether it was just saved by the editor or re-rendered
+ * headlessly afterwards. Mirrors `models/mail.ts`'s `resolveMailBaseURL` -- same `https://<hostname>`
+ * assumption, same `*`-catch-all/unresolvable-siteId fallback.
+ */
+describe('rendering.resolveSiteOrigin (OpenProject #1751)', () => {
+  test('builds https://<hostname> for a real site', () => {
+    ;(global as any).WIKI.sites = { site1: { hostname: 'wiki.example.com' } }
+
+    assert.equal((rendering as any).resolveSiteOrigin('site1'), 'https://wiki.example.com')
+  })
+
+  test('returns undefined for the "*" catch-all site, which has no hostname of its own', () => {
+    ;(global as any).WIKI.sites = { site1: { hostname: '*' } }
+
+    assert.equal((rendering as any).resolveSiteOrigin('site1'), undefined)
+  })
+
+  test('returns undefined for a siteId with no cached site', () => {
+    ;(global as any).WIKI.sites = {}
+
+    assert.equal((rendering as any).resolveSiteOrigin('missing'), undefined)
+  })
+})

@@ -561,3 +561,40 @@ describe('MarkdownRenderer -- codeblock class attribute (OpenProject #946)', () 
     expect(html).not.toContain('false')
   })
 })
+
+/**
+ * `isExternalHref` judges a link's origin against `siteOrigin` when the render context supplies one,
+ * rather than only `globalThis.location` -- what lets the headless re-render
+ * (`backend/models/rendering.ts`, running in a browser navigated to its own loopback address, not the
+ * site's hostname) classify a link the same way the editor's own save did (OpenProject #1751). This
+ * test file has no DOM/`location` at all (see the header comment), so every case here exercises the
+ * `siteOrigin` path specifically -- it is the only origin `isExternalHref` ever has to work with under
+ * Vitest's `node` environment.
+ */
+describe('MarkdownRenderer -- is-external-link with a site origin (OpenProject #1751)', () => {
+  it('does not mark an absolute link to this same wiki as external', () => {
+    const md = new MarkdownRenderer({})
+    const html = md.render('[Docs](https://wiki.example.com/docs)', {
+      siteOrigin: 'https://wiki.example.com'
+    })
+
+    expect(html).toContain('<a href="https://wiki.example.com/docs">')
+    expect(html).not.toContain('is-external-link')
+  })
+
+  it('marks an absolute link to a foreign origin as external', () => {
+    const md = new MarkdownRenderer({})
+    const html = md.render('[Elsewhere](https://other.example.com/docs)', {
+      siteOrigin: 'https://wiki.example.com'
+    })
+
+    expect(html).toContain('class="is-external-link"')
+  })
+
+  it('does not mark a relative link as external, regardless of siteOrigin', () => {
+    const md = new MarkdownRenderer({})
+    const html = md.render('[Sibling](/docs/other)', { siteOrigin: 'https://wiki.example.com' })
+
+    expect(html).not.toContain('is-external-link')
+  })
+})

@@ -45,14 +45,23 @@ const quoteStyles = {
  * URL are all judged the same way -- by the host they end up on. `mailto:`, `tel:` and the rest are not
  * pages at all, and are left unmarked: they announce themselves by what they are.
  *
- * With no document to resolve against -- a render outside a browser -- only an absolute URL can be
- * judged, and it is judged external; a relative one fails to parse and comes back internal.
+ * `siteOrigin` -- the site's real, public origin -- is preferred over `globalThis.location?.href` when
+ * given. The in-editor render runs in the author's own browser, already on the site's hostname, so
+ * `location` is correct there and `siteOrigin` is not passed. The headless re-render
+ * (`backend/models/rendering.ts`) instead runs the identical bundle in a headless browser navigated to
+ * its own loopback address -- `location` there is never the site's hostname, so without `siteOrigin` an
+ * absolute link to this same wiki would be judged external, disagreeing with what the editor's save
+ * just produced. See OpenProject #1751.
+ *
+ * With no document to resolve against -- neither a `siteOrigin` nor a browser `location` -- only an
+ * absolute URL can be judged, and it is judged external; a relative one fails to parse and comes back
+ * internal.
  */
-function isExternalHref(href) {
+function isExternalHref(href, siteOrigin) {
   if (!href) {
     return false
   }
-  const here = globalThis.location?.href
+  const here = siteOrigin || globalThis.location?.href
   try {
     const url = new URL(href, here)
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -437,7 +446,7 @@ export class MarkdownRenderer {
       The class survives being stored: `models/rendering.ts` keeps `class` on every element.
     */
     this.md.renderer.rules.link_open = (tokens, idx, options, env, slf) => {
-      if (isExternalHref(tokens[idx].attrGet('href'))) {
+      if (isExternalHref(tokens[idx].attrGet('href'), env?.siteOrigin)) {
         tokens[idx].attrJoin('class', 'is-external-link')
       }
       return slf.renderToken(tokens, idx, options, env, slf)
@@ -566,12 +575,15 @@ export class MarkdownRenderer {
    * @param {string} src Markdown source.
    * @param {string} [pagePath] Path of the page this source belongs to, without a leading slash. What
    *                            a relative image resolves against -- see `fileSrc`.
+   * @param {string} [siteOrigin] The site's real public origin (e.g. `https://wiki.example.com`), for
+   *                              `isExternalHref` to judge a link's destination against. Only the
+   *                              headless re-render passes this -- see `isExternalHref`'s own comment.
    */
-  render(src, { pagePath = '' } = {}) {
+  render(src, { pagePath = '', siteOrigin } = {}) {
     this.linesMap = []
     // -> A fresh env every time, whatever the caller passed: markdown-it keeps per-render state in it
     //    (footnotes and references), and one shared between renders would carry the last one's
-    return this.md.render(src, { pagePath })
+    return this.md.render(src, { pagePath, siteOrigin })
   }
 
   getClosestPreviewLine(line) {
