@@ -1902,7 +1902,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Export a page as PDF',
         description:
-          "Drives Puppeteer against this instance's own live page view — not the stored render — so the PDF matches what a reader sees: theme, layout and block components (Mermaid diagrams, PlantUML, …) included, once their own async drawing has settled. Needs the Puppeteer extension, and answers 503 without it.\n\nNeeds `read:pages` ON THIS PAGE, on the same terms as reading it: a password-protected page answers only once the session has satisfied `POST …/unlock`, and an anonymous requester only ever exports a published page. The export runs as whoever asked for it — nothing more.",
+          "Drives Puppeteer against this instance's own live page view — not the stored render — so the PDF matches what a reader sees: theme, layout and block components (Mermaid diagrams, PlantUML, …) included, once their own async drawing has settled. Needs the Puppeteer extension, and answers 503 without it.\n\nNeeds `read:pages` ON THIS PAGE, on the same terms as reading it: a password-protected page answers only once the session has satisfied `POST …/unlock`. Requires a logged in user (session or personal access token) on top of that, the same rule the page re-render route above and `POST /diagrams/render` already apply to every other route that launches a headless browser — an anonymous request never reaches Puppeteer, however readable the page itself is (OpenProject #2258/#2262; see `docs/variances.md`). The export runs as whoever asked for it — nothing more.",
         tags: ['Pages'],
         params: pageIdParam,
         response: {
@@ -1913,11 +1913,17 @@ async function routes(app: FastifyInstance) {
                 schema: { type: 'string', format: 'binary' }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
     async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('Exporting a page as PDF requires a logged in user.')
+      }
       const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
       if (!page) {
         return reply.notFound('This page does not exist.')

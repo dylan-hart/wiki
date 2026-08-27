@@ -12,7 +12,117 @@ import { CustomError } from './common.ts'
 export const PUPPETEER_LAUNCH_ARGS = ['--no-sandbox', '--disable-dev-shm-usage']
 
 /**
- * Load Puppeteer and open a browser with this instance's standard flags.
+ * How many headless Chromium processes this instance ever allows in flight at once, across every
+ * caller (page re-render, PDF export, diagram render) and every request source — module-level state,
+ * not per-model-instance, so it is a genuine process-wide ceiling. Deliberately small: each browser is
+ * hundreds of MB, and the previous absence of any cap (OpenProject #2258/#2259) meant a handful of
+ * concurrent requests could OOM-kill the whole process.
+ */
+export const MAX_CONCURRENT_BROWSERS = 2
+
+/**
+ * How many launch attempts may queue behind the ceiling above before a new one is refused outright.
+ * Bounded rather than unbounded so a burst of requests fails fast (503) once the queue is already
+ * deep, instead of every caller hanging indefinitely on a promise that might take minutes to settle.
+ */
+export const MAX_QUEUED_LAUNCHES = 8
+
+/** How many browsers are currently open, counted from a successful launch until its `close()`. */
+let activeLaunches = 0
+
+/** FIFO of resolvers for launches waiting on a slot, each capped by `MAX_QUEUED_LAUNCHES`. */
+const queuedLaunches: Array<() => void> = []
+
+/**
+ * Test-only: resets this module's semaphore state to empty. `puppeteer.test.ts` calls this between
+ * tests so one test's in-flight (or deliberately never-resolved) launches cannot leak into the next
+ * — there is no production caller.
+ */
+export function resetLaunchSemaphoreForTests(): void {
+  activeLaunches = 0
+  queuedLaunches.length = 0
+}
+
+/**
+ * Blocks until a launch slot is free, claiming it before returning. Throws a 503 `CustomError`
+ * immediately, without waiting, once the queue behind the ceiling is already at `MAX_QUEUED_LAUNCHES`
+ * — a bounded wait, not an unbounded one.
+ */
+function acquireLaunchSlot(errorName: string): Promise<void> {
+  if (activeLaunches < MAX_CONCURRENT_BROWSERS) {
+    activeLaunches++
+    return Promise.resolve()
+  }
+  if (queuedLaunches.length >= MAX_QUEUED_LAUNCHES) {
+    throw new CustomError(
+      errorName,
+      'Too many browser renders are already in progress. Please try again shortly.',
+      503
+    )
+  }
+  return new Promise<void>((resolve) => {
+    queuedLaunches.push(() => {
+      activeLaunches++
+      resolve()
+    })
+  })
+}
+
+/** Frees the current caller's slot and, if anyone is queued, immediately hands it to the next. */
+function releaseLaunchSlot(): void {
+  activeLaunches--
+  const next = queuedLaunches.shift()
+  if (next) {
+    next()
+  }
+}
+
+/**
+ * Runs `launch` under this module's process-wide semaphore, and arranges for the slot it claims to
+ * be released exactly once — on a launch failure, or otherwise the first time the returned browser's
+ * `close()` is called. Broken out from `launchPuppeteerBrowser` below purely so `puppeteer.test.ts`
+ * can drive the semaphore directly with a stubbed `launch`, without needing the real `puppeteer`
+ * package (or Node module-mocking) to exercise it.
+ *
+ * @param errorName The `CustomError` name a rejected-for-being-over-capacity caller fails with.
+ * @param launch Opens the actual browser, e.g. `puppeteer.launch(...)`.
+ */
+export async function launchUnderSemaphore(
+  errorName: string,
+  launch: () => Promise<any>
+): Promise<any> {
+  await acquireLaunchSlot(errorName)
+
+  let browser: any
+  try {
+    browser = await launch()
+  } catch (err: any) {
+    releaseLaunchSlot()
+    throw err
+  }
+
+  const originalClose = browser.close?.bind(browser)
+  let released = false
+  const releaseOnce = () => {
+    if (!released) {
+      released = true
+      releaseLaunchSlot()
+    }
+  }
+  browser.close = async (...args: any[]) => {
+    try {
+      return originalClose ? await originalClose(...args) : undefined
+    } finally {
+      releaseOnce()
+    }
+  }
+
+  return browser
+}
+
+/**
+ * Load Puppeteer and open a browser with this instance's standard flags, under the process-wide
+ * concurrency ceiling above.
  *
  * Puppeteer is an extension the operator installs, not a declared dependency of the backend, so the
  * import is dynamic and by specifier rather than literal — a literal `import 'puppeteer'` would not
@@ -21,12 +131,14 @@ export const PUPPETEER_LAUNCH_ARGS = ['--no-sandbox', '--disable-dev-shm-usage']
  * rather than claim the extension is ready to use in a process that already tried and failed to load
  * its module.
  *
- * Shared by `models/rendering.ts` (re-rendering a page's markdown from a headless shell) and
- * `models/pdfExport.ts` (driving the live page view to produce a PDF) — two different reasons to open
- * a browser that should still open the exact same browser.
+ * Shared by `models/rendering.ts` (re-rendering a page's markdown from a headless shell),
+ * `models/pdfExport.ts` (driving the live page view to produce a PDF) and `models/diagramRender.ts`
+ * (drawing a Mermaid diagram) — three different reasons to open a browser that should still open the
+ * exact same browser, and all three funnel through the one semaphore here.
  *
  * @param errorName The `CustomError` name to fail with. Each caller has its own, so a client can tell
- *   a render failure from an export failure apart despite both sharing this one cause.
+ *   a render failure from an export failure apart despite both sharing this one cause. Also the name
+ *   a caller rejected for being over the concurrency ceiling fails with.
  */
 export async function launchPuppeteerBrowser(errorName: string): Promise<any> {
   // -> Held in a variable for the same reason the specifier is dynamic: nothing here may resolve at
@@ -40,8 +152,10 @@ export async function launchPuppeteerBrowser(errorName: string): Promise<any> {
     throw new CustomError(errorName, `Could not load the Puppeteer extension: ${err.message}`, 503)
   }
 
-  return puppeteer.launch({
-    headless: true,
-    args: PUPPETEER_LAUNCH_ARGS
-  })
+  return launchUnderSemaphore(errorName, () =>
+    puppeteer.launch({
+      headless: true,
+      args: PUPPETEER_LAUNCH_ARGS
+    })
+  )
 }

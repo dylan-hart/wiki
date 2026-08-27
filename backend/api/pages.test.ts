@@ -2902,3 +2902,114 @@ describe('POST /sites/:siteId/pages/userPermissions — locale (bug #949, task 9
     assert.ok(!res.json().includes('write:pages'))
   })
 })
+
+/**
+ * Route-level test for `GET /sites/:siteId/pages/:pageId/export/pdf` — OpenProject #2258/#2262.
+ *
+ * Settles the anonymous-access question the audit flagged as an accident: exporting a page as PDF
+ * drives a headless browser exactly like the page re-render route above it in `api/pages.ts`, and
+ * `POST /diagrams/render` beside it — both of which already refuse an anonymous caller. This route
+ * now does too, before it ever reaches `WIKI.models.pdfExport.exportPdf()`, regardless of whether the
+ * page itself is one an anonymous reader could otherwise see. `WIKI.models.pdfExport` is stubbed
+ * rather than driving a real browser — the export model's own behavior has its own coverage in
+ * `models/pdfExport.test.ts`; what this checks is the route's own gate.
+ */
+describe('GET /sites/:siteId/pages/:pageId/export/pdf — anonymous access (OpenProject #2258/#2262)', () => {
+  const SITE_ID = '55555555-5555-5555-5555-555555555555'
+  const PAGE_ID = '66666666-6666-6666-6666-666666666666'
+
+  let app: FastifyInstance
+  let exportPdfCalls: any[]
+
+  function withSession(session: Record<string, any>) {
+    return { 'x-test-session': JSON.stringify(session) }
+  }
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      config: { port: 3000 },
+      logger: { debug: () => {} },
+      models: {
+        rateLimits: {
+          consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
+        },
+        groups: {
+          actorForRequest: (req: any) => ({
+            id: req.session?.user?.id ?? null,
+            permissions: req.session?.permissions ?? [],
+            groups: req.session?.groups ?? []
+          }),
+          checkAccess: () => true,
+          groupIdsForRequest: () => []
+        },
+        pages: {
+          getPage: async () => ({
+            id: PAGE_ID,
+            path: 'some/page',
+            locale: 'en',
+            isLocked: false
+          })
+        },
+        pdfExport: {
+          exportPdf: async (request: any) => {
+            exportPdfCalls.push(request)
+            return Buffer.from('%PDF-fake')
+          }
+        }
+      }
+    }
+
+    app = Fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
+    await app.register(fastifySensible)
+    app.decorateRequest('session', null as any)
+    app.addHook('onRequest', async (req) => {
+      const raw = req.headers['x-test-session']
+      ;(req as any).session = typeof raw === 'string' ? JSON.parse(raw) : {}
+    })
+    app.setErrorHandler((error: any, _req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerErrorSchema(app)
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    exportPdfCalls = []
+  })
+
+  test('refuses an anonymous request before ever launching Puppeteer', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export/pdf`
+    })
+
+    assert.equal(res.statusCode, 401)
+    assert.equal(exportPdfCalls.length, 0)
+  })
+
+  test('exports for a logged-in session', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export/pdf`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' }, permissions: [] })
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(exportPdfCalls.length, 1)
+    assert.equal(exportPdfCalls[0].path, 'some/page')
+  })
+})

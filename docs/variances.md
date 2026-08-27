@@ -712,6 +712,19 @@ waiting on the live view to draw them one at a time) is left as a followup rathe
 the win is real but unproven without profiling data on where PDF export time actually goes, and nothing
 about the model's shape forecloses wiring it in later.
 
+**Reconciled with PDF export (OpenProject #2258/#2262).** Until the 2026-08-24 audit, `GET
+/sites/:siteId/pages/:pageId/export/pdf` (`api/pages.ts`) disagreed with this route and with the page
+re-render route beside it: it let an anonymous request through to launch Puppeteer, since page
+permissions are page-rule-scoped rather than group-wide and the guests group holds `read:pages` on an
+ordinary public wiki — an accident of how that route's permission check was wired, not a considered
+exception to the reasoning above. It now applies the identical rule: an anonymous request (no session,
+no personal access token) never reaches `WIKI.models.pdfExport.exportPdf()`, for the same reason this
+route requires a session. All three browser-launching routes in this codebase — this one, page
+re-render, and PDF export — now agree. Separately, `helpers/puppeteer.ts#launchPuppeteerBrowser` gained
+a process-wide concurrency ceiling (also #2258/#2259): previously nothing capped how many headless
+Chromium processes any of these three routes could have open at once, so even an authenticated-only
+audience could still exhaust the process with a handful of concurrent requests.
+
 ## PDF export: two competing implementations reconciled at merge-review time
 
 **Merged:** `integration/merge-review-1`, reconciling `feature/page-version-export` (Feature 371,
