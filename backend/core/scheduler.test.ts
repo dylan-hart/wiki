@@ -905,5 +905,89 @@ describe(
         scheduler.tasks = originalTasks
       }
     })
+
+    /**
+     * OpenProject #2072: `processJob()` read `activeWorkers` and only incremented it *after* awaiting
+     * the whole claim transaction, so two overlapping callers (the polling interval and a burst of
+     * `newJob` NOTIFYs both call this, unsynchronized) could both compute the same `availableWorkers`
+     * and each claim up to `maxWorkers` jobs of their own -- `maxWorkers` bounded nothing.
+     *
+     * `Promise.all` fires both calls back-to-back in the same tick: JS runs each call's synchronous
+     * prefix -- reading `activeWorkers`, and (once fixed) reserving the slots -- to completion before
+     * yielding at its first `await`, so the second call's synchronous prefix always runs before the
+     * first call's claim transaction has even started. That makes the outcome deterministic rather
+     * than a timing race: fixed, the second call always sees the first call's reservation already
+     * made and returns immediately having claimed nothing; unfixed, it always sees the pre-reservation
+     * `activeWorkers` and proceeds to claim its own batch regardless.
+     */
+    test('two concurrent processJob() calls together claim no more than maxWorkers jobs', async () => {
+      const originalRunJob = scheduler.runJob
+      const originalMaxWorkers = scheduler.maxWorkers
+      scheduler.runJob = async () => {}
+      scheduler.maxWorkers = 2
+      scheduler.activeWorkers = 0
+      try {
+        const inserted = await fixtures.db
+          .insert(jobsTable)
+          .values([
+            {
+              task: 'raceTask',
+              useWorker: false,
+              retries: 0,
+              maxRetries: 1,
+              payload: {},
+              createdBy: 'test'
+            },
+            {
+              task: 'raceTask',
+              useWorker: false,
+              retries: 0,
+              maxRetries: 1,
+              payload: {},
+              createdBy: 'test'
+            },
+            {
+              task: 'raceTask',
+              useWorker: false,
+              retries: 0,
+              maxRetries: 1,
+              payload: {},
+              createdBy: 'test'
+            }
+          ])
+          .returning()
+        for (const job of inserted) {
+          historyIds.push(job.id)
+          jobIds.push(job.id)
+        }
+
+        await Promise.all([scheduler.processJob(), scheduler.processJob()])
+
+        const remaining = await fixtures.db
+          .select()
+          .from(jobsTable)
+          .where(
+            inArray(
+              jobsTable.id,
+              inserted.map((j) => j.id)
+            )
+          )
+        const claimedCount = inserted.length - remaining.length
+
+        assert.equal(
+          claimedCount,
+          2,
+          `expected exactly maxWorkers (2) jobs claimed across both concurrent calls, got ${claimedCount}`
+        )
+        assert.equal(
+          scheduler.activeWorkers,
+          0,
+          'activeWorkers must return to 0 once both concurrent calls have fully settled'
+        )
+      } finally {
+        scheduler.runJob = originalRunJob
+        scheduler.maxWorkers = originalMaxWorkers
+      }
+    })
   }
 )
