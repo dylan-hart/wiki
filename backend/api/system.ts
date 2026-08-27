@@ -81,11 +81,20 @@ async function routes(app: FastifyInstance) {
   //    pattern as `PUT /sites/:siteId/images/:kind`: one file, no fields, no dependency to add.
   //    Registered inside this plugin, so every other route keeps rejecting this body outright. The
   //    accepted types cover what a browser reports for a `.tar.gz` across platforms.
+  //
+  //    No `parseAs` (OpenProject #2213): that option only supports `'string'`/`'buffer'`, both of
+  //    which have Fastify collect the *entire* body into memory before this route ever sees it —
+  //    exactly the ~500 MB-per-request buffering this was fixed to stop doing. Omitting it hands the
+  //    parser function the raw request stream instead, which `WIKI.models.import.streamUpload` pipes
+  //    straight to `<dataPath>/imports/`; `bodyLimit` is therefore no longer Fastify's own job for
+  //    this route either — `streamUpload` enforces `importUploadLimit` itself as bytes arrive.
   app.addContentTypeParser(
     ['application/gzip', 'application/x-gzip', 'application/octet-stream'],
-    { parseAs: 'buffer', bodyLimit: importUploadLimit },
-    (req, body, done) => {
-      done(null, body)
+    (req, payload, done) => {
+      WIKI.models.import.streamUpload(payload, importUploadLimit).then(
+        (result) => done(null, result),
+        (err) => done(err, undefined)
+      )
     }
   )
 
@@ -1496,23 +1505,18 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const data = req.body
-      if (!Buffer.isBuffer(data) || data.length < 1) {
-        return reply.badRequest('No archive was sent.')
-      }
-      // -> The declared content type got the request this far; the gzip magic number is a cheap
-      //    sanity check before saving it to disk at all. The archive's actual structure and format
-      //    version are validated inside the queued job, which is where it is really read apart.
-      if (data[0] !== 0x1f || data[1] !== 0x8b) {
-        return reply.badRequest('Not a gzip archive, whatever the request said it was.')
-      }
+      // -> Already written to disk, gzip-magic-checked and non-empty by the time the content-type
+      //    parser above handed control here — `streamUpload` did all three as the bytes arrived. The
+      //    archive's actual structure and format version are validated inside the queued job, which
+      //    is where it is really read apart.
+      const { filePath } = req.body as { filePath: string; size: number }
 
       const targetSite = await WIKI.models.sites.getSiteById({ id: req.query.targetSiteId })
       if (!targetSite) {
+        await WIKI.models.import.deleteUpload(filePath)
         return reply.notFound('Target site does not exist.')
       }
 
-      const filePath = await WIKI.models.import.saveUpload(data)
       const added = await WIKI.scheduler.addJob({
         task: 'importContent',
         payload: {
@@ -1522,6 +1526,7 @@ async function routes(app: FastifyInstance) {
         }
       })
       if (!added?.id) {
+        await WIKI.models.import.deleteUpload(filePath)
         return reply.internalServerError('The scheduler could not queue the import.')
       }
       return {

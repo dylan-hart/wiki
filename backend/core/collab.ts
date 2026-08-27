@@ -115,6 +115,32 @@ const PEER_PRESENCE_TTL = 15 * 1000
 const PING_INTERVAL = 30 * 1000
 
 /**
+ * Ceiling on `session.pending` — see {@link capture}. The handshake it exists to preserve is one
+ * small y-websocket sync frame, so a few dozen kilobytes and a handful of entries is ample; a socket
+ * that sends more than this before a room is ever attached either isn't a real y-websocket client or
+ * is deliberately stalling, and gets terminated rather than buffered further (OpenProject #2196,
+ * audit `09-dos-resource.md` §3). Exported for `core/collab.test.ts`, which checks the real
+ * constants rather than hardcoded copies of them.
+ */
+export const MAX_PENDING_FRAMES = 16
+
+/** See {@link MAX_PENDING_FRAMES}. */
+export const MAX_PENDING_BYTES = 64 * 1024
+
+/**
+ * How long a refused socket is given to complete the closing handshake it was just sent, before it
+ * is cut off outright. `ws`'s own default ({@link https://github.com/websockets/ws} `CLOSE_TIMEOUT`,
+ * 30s) is sized for an ordinary, cooperating peer that might be slow to answer — but
+ * `controllers/collab.ts`'s refusal paths run before authentication or the site feature-flag check,
+ * so a socket that never intends to complete the handshake still has this whole window in which
+ * `capture`'s listener stays attached (bounded now by {@link MAX_PENDING_FRAMES}/
+ * {@link MAX_PENDING_BYTES}, but still an open socket doing nothing legitimate). A real client
+ * completes the handshake within one round trip; this is comfortably longer than that while being
+ * far short of `ws`'s own 30s default. Exported for `core/collab.test.ts`.
+ */
+export const REFUSAL_GRACE_PERIOD = 2 * 1000
+
+/**
  * Marks a document or awareness change as having arrived over the relay, so that applying it here does
  * not send it straight back out to the instance it came from.
  */
@@ -357,14 +383,31 @@ export default {
    */
   capture(conn: WebSocket): CollabSession {
     const session: CollabSession = { room: null, pending: [] }
+    let pendingBytes = 0
     conn.on('message', (data: unknown) => {
       if (session.room) {
         this.onMessage(session.room, conn, toBytes(data))
-      } else {
-        // -> Copied, not referenced: `toBytes` hands back a view into a buffer `ws` owns, which is
-        //    only good for the length of this event
-        session.pending.push(new Uint8Array(toBytes(data)))
+        return
       }
+      const bytes = toBytes(data)
+      if (
+        session.pending.length >= MAX_PENDING_FRAMES ||
+        pendingBytes + bytes.length > MAX_PENDING_BYTES
+      ) {
+        // -> No room has been attached yet, so there is nothing here to release — just stop
+        //    buffering. `terminate()`, not `close()`: this socket has already sent more than a real
+        //    y-websocket handshake ever does, so it does not get the closing handshake's grace period
+        //    either.
+        WIKI.logger.warn(
+          'A collaboration socket exceeded the pre-auth frame buffer cap and was terminated.'
+        )
+        conn.terminate()
+        return
+      }
+      pendingBytes += bytes.length
+      // -> Copied, not referenced: `toBytes` hands back a view into a buffer `ws` owns, which is
+      //    only good for the length of this event
+      session.pending.push(new Uint8Array(bytes))
     })
     conn.on('close', () => {
       if (session.room) {
@@ -375,6 +418,25 @@ export default {
       WIKI.logger.debug(`Collaboration socket error: ${err.message}`)
     })
     return session
+  },
+
+  /**
+   * Refuse a socket before it ever joins a room: send the close frame a well-behaved client (the
+   * editor's own y-websocket provider, see `composables/collab.js`) needs to tell "you are not
+   * allowed" apart from an ordinary drop and back off rather than reconnect, then cut the socket off
+   * outright once {@link REFUSAL_GRACE_PERIOD} has passed rather than leaving it in `CLOSING` for
+   * `ws`'s own far longer default. See `controllers/collab.ts`, whose five refusal points all call
+   * this instead of `conn.close()` directly.
+   */
+  refuse(conn: WebSocket, code: number, reason: string): void {
+    conn.close(code, reason)
+    const timer = setTimeout(() => {
+      if (conn.readyState !== conn.CLOSED) {
+        conn.terminate()
+      }
+    }, REFUSAL_GRACE_PERIOD)
+    // -> This timer alone must never be the reason the process stays alive (e.g. mid-shutdown)
+    timer.unref?.()
   },
 
   /**

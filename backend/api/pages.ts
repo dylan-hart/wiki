@@ -3,6 +3,7 @@ import fastifyMultipart from '@fastify/multipart'
 import type { PageActor, PageInput } from '../models/pages.ts'
 import {
   detectImportFormat,
+  MAX_IMPORT_BATCH_BYTES,
   MAX_IMPORT_BATCH_FILES,
   MAX_IMPORT_SIZE,
   SUPPORTED_IMPORT_FORMATS
@@ -1064,14 +1065,36 @@ async function routes(app: FastifyInstance) {
         oversize is checked via `file.truncated` after `toBuffer()` resolves, not by catching a
         throw — see the `throwFileSizeLimit: false` comment on the plugin registration above for why
         letting an oversized file throw here would still fail the whole batch anyway.
+
+        `MAX_IMPORT_BATCH_BYTES` bounds the total across every file combined (OpenProject #2204):
+        `fileSize`/`MAX_IMPORT_SIZE` above only cap ONE file, so nothing previously stopped
+        `MAX_IMPORT_BATCH_FILES` maximum-size files (~500 MB) from all being resident as `Buffer`s at
+        once. Tripping it discards whatever had been buffered so far and stops accepting more —
+        atomically refusing the whole request rather than converting the files that fit before the
+        ceiling was crossed, which is what keeps this a hard cap rather than a soft one an attacker
+        could still push past by spreading a large batch across many small file reads. The rest of
+        the body is still drained (each further file read and immediately discarded, never buffered)
+        rather than abandoned mid-stream, which would otherwise leave the connection holding
+        unconsumed bytes.
       */
       const uploads: (
         | { fileName: string; data: Buffer; formatOverride: string }
         | { fileName: string; error: string }
       )[] = []
+      let totalBytes = 0
+      let overBudget = false
       for await (const part of req.parts()) {
         if (part.type === 'file') {
           const data = await part.toBuffer()
+          if (overBudget) {
+            continue
+          }
+          totalBytes += data.length
+          if (totalBytes > MAX_IMPORT_BATCH_BYTES) {
+            overBudget = true
+            uploads.length = 0
+            continue
+          }
           if (part.file.truncated) {
             uploads.push({
               fileName: part.filename,
@@ -1084,6 +1107,7 @@ async function routes(app: FastifyInstance) {
         }
         const last = uploads.at(-1)
         if (
+          !overBudget &&
           part.fieldname === 'formats' &&
           last &&
           !('error' in last) &&
@@ -1091,6 +1115,11 @@ async function routes(app: FastifyInstance) {
         ) {
           last.formatOverride = part.value
         }
+      }
+      if (overBudget) {
+        return reply.badRequest(
+          `This batch is larger than the ${Math.round(MAX_IMPORT_BATCH_BYTES / 1024 / 1024)} MB aggregate limit for one import request.`
+        )
       }
       if (uploads.length < 1) {
         return reply.badRequest('No files were sent.')
