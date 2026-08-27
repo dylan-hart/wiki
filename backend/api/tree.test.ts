@@ -56,6 +56,17 @@ before(async () => {
     }
   })
   await app.register(fastifySensible)
+  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/etc. is a thrown
+  //    `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that shapes it
+  //    into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
+  app.setErrorHandler((error: any, req, reply) => {
+    reply.code(error.statusCode ?? 500).send({
+      ok: false,
+      error: error.name,
+      statusCode: error.statusCode ?? 500,
+      message: error.message
+    })
+  })
   await registerTreeSchema(app)
   await registerErrorSchema(app)
   await app.register(treeRoutes)
@@ -153,6 +164,40 @@ test('GET TREE route: getTree receives the same resolved locale visibleTreeItems
   })
   assert.equal(res.statusCode, 200)
   assert.equal(getTreeLocale, 'en', "getTree must receive the site's resolved default locale")
+})
+
+/**
+ * OpenProject #1666: CREATE FOLDER looked `parentId` up by bare id with no site check, unlike GET,
+ * RENAME and DELETE FOLDER above -- a `parentId` belonging to another site could seed the new
+ * folder's path/locale from a foreign site while the row itself was stamped with the URL's siteId.
+ */
+test('CREATE FOLDER route: rejects a parentId belonging to another site (404, no folder created)', async () => {
+  const FOREIGN_SITE_ID = '22222222-2222-4222-8222-222222222222'
+  const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
+  let createFolderCalled = false
+  ;(globalThis as any).WIKI.models.tree.getFolderById = async () => ({
+    id: FOLDER_ID,
+    siteId: FOREIGN_SITE_ID,
+    fileName: 'sub',
+    folderPath: '',
+    locale: 'en',
+    meta: {}
+  })
+  ;(globalThis as any).WIKI.models.tree.createFolder = async () => {
+    createFolderCalled = true
+    return {}
+  }
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders`,
+      payload: { pathName: 'sub', title: 'Sub', parentId: FOLDER_ID }
+    })
+    assert.equal(res.statusCode, 404)
+    assert.equal(createFolderCalled, false, 'createFolder must not run once the parent is rejected')
+  } finally {
+    ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
+  }
 })
 
 test('RENAME FOLDER route: passes the route siteId through to checkAccess', async () => {

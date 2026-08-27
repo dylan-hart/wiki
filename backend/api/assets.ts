@@ -135,6 +135,7 @@ async function routes(app: FastifyInstance) {
           400: { $ref: 'ApiError#' },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
           409: {
             $ref: 'ApiError#',
             description:
@@ -174,6 +175,12 @@ async function routes(app: FastifyInstance) {
       const folder = req.query.folderId
         ? await WIKI.models.tree.getFolderById(req.query.folderId)
         : null
+      // -> Site-checked before the permission check below evaluates against it, so a foreign-site id
+      //    can't make that check run against the wrong destination (matches tree.ts's own folder
+      //    routes: GET/RENAME/DELETE FOLDER)
+      if (req.query.folderId && (!folder || folder.siteId !== req.params.siteId)) {
+        return reply.notFound('This folder does not exist.')
+      }
       const folderPath = folder ? (decodeTreePath(folder.folderPath ?? '') ?? '') : ''
       const parentPath = req.query.parentPath ? normalizePagePath(req.query.parentPath) : ''
       const destination = req.query.folderId
