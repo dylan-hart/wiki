@@ -960,12 +960,9 @@ async function routes(app: FastifyInstance) {
           204: {
             description: 'Site deleted successfully'
           },
-          400: {
-            $ref: 'ApiError#',
-            description: 'Site does not exist. (Pre-existing: a 400 rather than a 404.)'
-          },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
           409: {
             $ref: 'ApiError#',
             description: 'This is the last remaining site, or it still holds content.'
@@ -980,7 +977,7 @@ async function routes(app: FastifyInstance) {
         } else if (await WIKI.models.sites.deleteSite(req.params.siteId)) {
           reply.code(204)
         } else {
-          reply.badRequest('Site does not exist.')
+          reply.notFound('Site does not exist.')
         }
       } catch (err: any) {
         // -> Pages, assets, navigation, tags and the page tree all reference the site without a

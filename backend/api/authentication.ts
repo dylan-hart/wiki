@@ -246,14 +246,14 @@ async function routes(app: FastifyInstance) {
               }
             }
           },
-          400: { $ref: 'ApiError#' }
+          404: { $ref: 'ApiError#' }
         }
       }
     },
     async (req, reply) => {
       const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
       if (!site) {
-        return reply.badRequest('Invalid Site ID')
+        return reply.notFound('Site does not exist.')
       }
       /*
         `getActiveStrategies` rather than the raw rows: it completes each config from the module's
