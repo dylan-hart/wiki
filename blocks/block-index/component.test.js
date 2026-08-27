@@ -111,6 +111,27 @@ describe('block-index', () => {
     expect(globalThis.WIKI_ROUTER.push).toHaveBeenCalledWith('/docs/intro')
   })
 
+  it('leaves a ctrl-click alone so the browser can open a new tab', async () => {
+    const el = await mountIndex()
+    const anchor = el.shadowRoot.querySelector('li a')
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true })
+
+    anchor.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(false)
+    expect(globalThis.WIKI_ROUTER.push).not.toHaveBeenCalled()
+  })
+
+  it('degrades to a plain link without throwing when WIKI_ROUTER is missing', async () => {
+    delete globalThis.WIKI_ROUTER
+    const el = await mountIndex()
+    const anchor = el.shadowRoot.querySelector('li a')
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true })
+
+    expect(() => anchor.dispatchEvent(event)).not.toThrow()
+    expect(event.defaultPrevented).toBe(false)
+  })
+
   it('logs and keeps _loading false rather than throwing when the fetch fails', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     globalThis.API_CLIENT.get = vi.fn(() => ({ json: () => Promise.reject(new Error('boom')) }))
