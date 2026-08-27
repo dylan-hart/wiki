@@ -1684,14 +1684,14 @@ function delItem(item) {
 }
 
 /**
- * Ctrl+K reaches THIS search field while the overlay is up.
+ * Cmd+K (macOS/iOS) or Ctrl+K (everywhere else) reaches THIS search field while the overlay is up.
  *
  * HeaderSearch owns the same shortcut and steps aside for an overlay (see the note there), so the two
  * never both answer it. Bound and unbound with the component, which only exists while the overlay is
  * open -- the listener's lifetime is the window in which it should win.
  */
 function handleKeyPress(ev) {
-  if (ev.ctrlKey && ev.key === 'k') {
+  if ((ev.metaKey || ev.ctrlKey) && ev.key === 'k') {
     ev.preventDefault()
     searchField.value?.focus()
   }

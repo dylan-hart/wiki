@@ -61,6 +61,54 @@ async function mountHeaderNav() {
 }
 
 /**
+ * OpenProject #2050: below the 600px breakpoint (where `HeaderSearch` is unmounted and so cannot
+ * claim the shortcut itself), `onKeydown` only ever tested `ev.ctrlKey`, leaving Cmd+K unbound on
+ * macOS. `matchMedia` is stubbed here to `matches: false` -- unlike the wide-viewport default from
+ * the top-level `beforeEach` -- so `isSearchCollapsed` is true and this handler is the one in play.
+ *
+ * `composables/screen.js`'s `useMinWidth` caches one `matchMedia` listener per breakpoint at MODULE
+ * scope, shared for the whole file's lifetime once the first caller asks for it (see
+ * `composables/screen.test.js`'s own header comment) -- so this describe block must run, and mount
+ * its first `HeaderNav`, before any other test in this file touches the 600/900px breakpoints,
+ * otherwise it would inherit whatever `matches` value that earlier mount already cached instead of
+ * the `false` this block needs. Declared first in the file for exactly that reason.
+ */
+describe('HeaderNav collapsed-search keyboard shortcut (OpenProject #2050)', () => {
+  async function mountCollapsed() {
+    window.matchMedia = vi.fn().mockImplementation((query) => ({
+      matches: false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn()
+    }))
+
+    const { wrapper, siteStore } = await mountHeaderNav()
+    siteStore.features.search = true
+    await flushPromises()
+
+    return wrapper
+  }
+
+  it('opens the search row on Ctrl+K', async () => {
+    const wrapper = await mountCollapsed()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))
+    await flushPromises()
+
+    expect(wrapper.find('.header-search-row').exists()).toBe(true)
+  })
+
+  it('also opens the search row on Cmd+K (metaKey) -- previously unbound entirely', async () => {
+    const wrapper = await mountCollapsed()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
+    await flushPromises()
+
+    expect(wrapper.find('.header-search-row').exists()).toBe(true)
+  })
+})
+
+/**
  * OpenProject #1218: the browse-by-tags entry point moved out of this button group entirely, docked
  * to the search field instead (`HeaderSearch.test.js` covers it now) -- so it must NOT be one of the
  * icons `HeaderNav` itself renders any more, with `HeaderSearch` stubbed out of the picture here.
