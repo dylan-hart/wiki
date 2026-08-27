@@ -9,7 +9,7 @@ export interface BlockCredential {
   id: string
   siteId: string
   name: string
-  allowedDomains: string[]
+  allowedOrigins: string[]
   createdAt: Date
   updatedAt: Date
 }
@@ -18,7 +18,7 @@ const publicSelection = {
   id: blockCredentialsTable.id,
   siteId: blockCredentialsTable.siteId,
   name: blockCredentialsTable.name,
-  allowedDomains: blockCredentialsTable.allowedDomains,
+  allowedOrigins: blockCredentialsTable.allowedOrigins,
   createdAt: blockCredentialsTable.createdAt,
   updatedAt: blockCredentialsTable.updatedAt
 }
@@ -34,11 +34,11 @@ const publicSelection = {
  * (`models/liveData.ts`). Every other method here — the ones an API route can reach — returns
  * {@link BlockCredential}, which has no `secret` field to leak.
  *
- * `allowedDomains` is a second, independent boundary: even a caller who legitimately knows a
+ * `allowedOrigins` is a second, independent boundary: even a caller who legitimately knows a
  * credential's id (any `write:pages` author who can read a page already using it) can only have
- * that credential sent to a domain the admin who created it explicitly allowed —
+ * that credential sent to an origin (and path prefix) the admin who created it explicitly allowed —
  * `models/liveData.ts#resolve()` is what enforces this, this model just stores and returns the
- * list. `createCredential` requires at least one domain; `updateAllowedDomains` may reduce that to
+ * list. `createCredential` requires at least one origin; `updateAllowedOrigins` may reduce that to
  * zero (deliberately disabling the credential — fail-closed, not a new hole).
  */
 class BlockCredentials {
@@ -61,11 +61,11 @@ class BlockCredentials {
   async getCredentialForResolve(
     siteId: string,
     id: string
-  ): Promise<{ secret: string; allowedDomains: string[] } | undefined> {
+  ): Promise<{ secret: string; allowedOrigins: string[] } | undefined> {
     const [row] = await WIKI.db
       .select({
         secret: blockCredentialsTable.secret,
-        allowedDomains: blockCredentialsTable.allowedDomains
+        allowedOrigins: blockCredentialsTable.allowedOrigins
       })
       .from(blockCredentialsTable)
       .where(and(eq(blockCredentialsTable.siteId, siteId), eq(blockCredentialsTable.id, id)))
@@ -76,11 +76,11 @@ class BlockCredentials {
     siteId: string,
     name: string,
     secret: string,
-    allowedDomains: string[]
+    allowedOrigins: string[]
   ): Promise<BlockCredential> {
     const [row] = await WIKI.db
       .insert(blockCredentialsTable)
-      .values({ siteId, name, secret, allowedDomains })
+      .values({ siteId, name, secret, allowedOrigins })
       .returning(publicSelection)
     return row!
   }
@@ -101,21 +101,21 @@ class BlockCredentials {
   }
 
   /**
-   * Replace a credential's allowed-domains list, keeping its id, name and secret. Unlike creation,
+   * Replace a credential's allowed origins list, keeping its id, name and secret. Unlike creation,
    * this may reduce the list to empty — an admin deliberately disabling the credential rather than
    * deleting it, which is safe (the credential simply stops resolving for every URL) rather than a
    * new exposure.
    *
    * @returns Whether a matching row was found and updated
    */
-  async updateAllowedDomains(
+  async updateAllowedOrigins(
     siteId: string,
     id: string,
-    allowedDomains: string[]
+    allowedOrigins: string[]
   ): Promise<boolean> {
     const result = await WIKI.db
       .update(blockCredentialsTable)
-      .set({ allowedDomains, updatedAt: new Date() })
+      .set({ allowedOrigins, updatedAt: new Date() })
       .where(and(eq(blockCredentialsTable.siteId, siteId), eq(blockCredentialsTable.id, id)))
     return (result.rowCount ?? 0) > 0
   }

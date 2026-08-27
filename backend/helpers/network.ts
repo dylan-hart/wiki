@@ -60,36 +60,6 @@ function isPrivateIPv6(address: string): boolean {
 }
 
 /**
- * Whether `hostname` is covered by any pattern in `allowedDomains` — the enforcement half of the
- * per-credential domain allowlist (OpenProject #868 follow-up). An empty list matches nothing:
- * `models/blockCredentials.ts` requires at least one domain at creation time specifically so this
- * function is never the only thing standing between "credential exists" and "credential unusable."
- *
- * Matching is case-insensitive. A pattern starting with `*.` matches exactly one extra label before
- * the given suffix — the same convention a TLS wildcard certificate uses (`*.example.com` matches
- * `api.example.com`, not `example.com` itself and not `a.b.example.com`) — chosen because it is the
- * behavior most people already carry an intuition for, and it does not silently cover a whole
- * multi-level subtree an admin may not have intended. Any other pattern (including a bare IP
- * literal, since a URL's `hostname` for an IP-literal address is the literal itself) matches only by
- * exact string equality.
- */
-export function hostnameMatchesAllowlist(hostname: string, allowedDomains: string[]): boolean {
-  const target = hostname.toLowerCase()
-  return allowedDomains.some((pattern) => {
-    const normalized = pattern.toLowerCase()
-    if (normalized.startsWith('*.')) {
-      const suffix = normalized.slice(1) // ".example.com"
-      if (!target.endsWith(suffix)) {
-        return false
-      }
-      const prefix = target.slice(0, target.length - suffix.length)
-      return prefix.length > 0 && !prefix.includes('.')
-    }
-    return target === normalized
-  })
-}
-
-/**
  * A DNS label: 1-63 chars, alphanumeric, hyphens allowed except at either end. Both cases are spelled
  * out explicitly (rather than relying on a regex `i` flag) so this same source string can be embedded
  * directly as a JSON Schema `pattern` -- Ajv applies a schema's `pattern` with no flags, so a
@@ -100,40 +70,92 @@ const DOMAIN_HOSTNAME = `${DOMAIN_LABEL}(?:\\.${DOMAIN_LABEL})*`
 /**
  * A loose IPv6 literal, `[`/`]`-bracketed: hex groups separated by colons, `::` collapse included.
  * Deliberately not a fully RFC 4291-compliant pattern -- the actual enforcement of "does this
- * credential's secret get sent here" is `hostnameMatchesAllowlist`'s exact-string match at resolve
- * time; this only guards against an admin fat-fingering the syntax `hostnameMatchesAllowlist`
+ * credential's secret get sent here" is `originMatchesAllowlist`'s exact host+port comparison at
+ * resolve time; this only guards against an admin fat-fingering the syntax the schema pattern
  * accepts, so a slightly permissive match costs nothing a strict one would have caught anyway.
  *
  * The brackets are required, not optional: `URL.prototype.hostname` for an IPv6-literal authority
- * always carries them (`new URL('http://[::1]/').hostname === '[::1]'`), and `hostnameMatchesAllowlist`
- * compares an entry against that hostname by exact string -- an unbracketed entry would validate here
- * but could then never actually match at resolve time, silently making every IPv6 allowlist entry
- * unusable (OpenProject #1099 follow-up).
+ * always carries them (`new URL('http://[::1]/').hostname === '[::1]'`), and matching happens
+ * against that same rendering -- an unbracketed entry would validate here but could then never
+ * actually match at resolve time, silently making every IPv6 allowlist entry unusable (OpenProject
+ * #1099 follow-up, carried forward into the origin+prefix shape).
  */
 const DOMAIN_IPV6 = '\\[(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}\\]'
 
 /**
- * The regex source for one `allowedDomains` entry -- either (optionally `*.`-prefixed) a hostname, or
- * a bare IPv6 literal. An IPv4 literal is already covered by the hostname branch: each octet is just
- * digits, which is a valid `DOMAIN_LABEL` on its own (OpenProject #1099).
+ * The regex source for one `allowedOrigins` entry: an `http:`/`https:` origin (hostname or bracketed
+ * IPv6 literal, optional port) plus an optional path prefix -- no query string, no fragment, since
+ * neither one is ever meaningful as part of a *prefix*. `https://api.example.com`, `https://api
+ * .example.com:8443/v1` and `https://api.example.com/v1/reports` are all valid entries;
+ * `api.example.com` (no scheme -- what the old hostname-only allowlist stored) and
+ * `https://api.example.com/v1?x=1` (a query string) are not.
  *
- * Kept as a string (not just the compiled `DOMAIN_PATTERN` below) specifically so
+ * Kept as a string (not just the compiled `ORIGIN_PREFIX_PATTERN` below) specifically so
  * `api/blockCredentials.ts` can splice it straight into the JSON Schema `pattern` for
- * `allowedDomains` items -- the backend route and this helper's own `isValidDomainPattern` share one
- * definition of "valid" rather than risking two that quietly drift apart.
+ * `allowedOrigins` items -- the backend route and this helper's own `isValidOriginPrefixPattern`
+ * share one definition of "valid" rather than risking two that quietly drift apart.
  */
-export const DOMAIN_PATTERN_SOURCE = `^(?:\\*\\.)?${DOMAIN_HOSTNAME}$|^${DOMAIN_IPV6}$`
+export const ORIGIN_PREFIX_PATTERN_SOURCE = `^https?://(?:${DOMAIN_HOSTNAME}|${DOMAIN_IPV6})(?::[0-9]{1,5})?(?:/[^?#]*)?$`
 
-const DOMAIN_PATTERN = new RegExp(DOMAIN_PATTERN_SOURCE)
+const ORIGIN_PREFIX_PATTERN = new RegExp(ORIGIN_PREFIX_PATTERN_SOURCE)
 
 /**
- * Whether `value` is syntactically a valid `allowedDomains` entry -- the same shape
- * `hostnameMatchesAllowlist` actually matches against: an exact hostname, a `*.`-prefixed wildcard,
- * an IPv4 literal (matches as a hostname), or a `[`/`]`-bracketed IPv6 literal. Used by both the block-credential route
- * schema and (mirrored, since `frontend/` cannot import from `backend/` -- see root `CLAUDE.md`'s
- * workspace layout) `frontend/src/helpers/domainPattern.js`'s copy for `BlockCredentialDialog.vue`'s
- * inline validation (OpenProject #1099).
+ * Whether `value` is syntactically a valid `allowedOrigins` entry -- the same shape
+ * `originMatchesAllowlist` actually matches against: `http:`/`https:`, a hostname or bracketed IPv6
+ * literal, an optional port, and an optional path prefix with no query or fragment. Used by both the
+ * block-credential route schema and (mirrored, since `frontend/` cannot import from `backend/` --
+ * see root `CLAUDE.md`'s workspace layout) `frontend/src/helpers/originPattern.js`'s copy for
+ * `BlockCredentialDialog.vue`'s inline validation.
+ *
+ * Deliberately narrower than what `new URL()` itself would accept: no userinfo (`user:pass@host`),
+ * since that has no business in a stored allowlist entry and `URL`'s own parser would silently
+ * accept and discard it.
  */
-export function isValidDomainPattern(value: string): boolean {
-  return DOMAIN_PATTERN.test(value)
+export function isValidOriginPrefixPattern(value: string): boolean {
+  if (!ORIGIN_PREFIX_PATTERN.test(value)) {
+    return false
+  }
+  try {
+    const url = new URL(value)
+    return !url.username && !url.password
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether `url` falls within any entry of `allowedOrigins` -- the enforcement half of the
+ * per-credential origin+path-prefix allowlist (OpenProject #2195/#2198). An empty list matches
+ * nothing: `models/blockCredentials.ts` requires at least one origin at creation time specifically
+ * so this function is never the only thing standing between "credential exists" and "credential
+ * unusable."
+ *
+ * A pattern pins **scheme, host and port** (via `URL#protocol`/`#host` equality -- `#host` already
+ * includes the port) and, independently, a **path prefix**: an entry with no path (or a bare `/`)
+ * matches every path on that origin, while `https://api.example.com/v1` matches `/v1` and
+ * `/v1/reports` but not `/v1-legacy` (the trailing-slash-or-exact-match boundary check below is what
+ * keeps a prefix from accidentally matching an unrelated sibling path). `models/liveData.ts#resolve()`
+ * separately refuses any credentialed request whose own scheme is not `https:` -- this function does
+ * not special-case scheme beyond the plain equality check, since a stored `http:` entry can never
+ * match a request forced to `https:` anyway.
+ *
+ * @param allowedOrigins Every entry is assumed already validated by
+ *   {@link isValidOriginPrefixPattern} (`models/blockCredentials.ts`'s job) -- a malformed entry here
+ *   simply never matches rather than throwing, so a row written before this function existed cannot
+ *   make `resolve()` itself misbehave.
+ */
+export function originMatchesAllowlist(url: URL, allowedOrigins: string[]): boolean {
+  return allowedOrigins.some((pattern) => {
+    let allowed: URL
+    try {
+      allowed = new URL(pattern)
+    } catch {
+      return false
+    }
+    if (url.protocol !== allowed.protocol || url.host !== allowed.host) {
+      return false
+    }
+    const prefix = allowed.pathname === '/' ? '' : allowed.pathname.replace(/\/+$/, '')
+    return prefix === '' || url.pathname === prefix || url.pathname.startsWith(`${prefix}/`)
+  })
 }
