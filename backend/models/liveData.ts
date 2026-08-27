@@ -134,6 +134,13 @@ function buildCacheKey(
  * {@link RATE_LIMIT_MAX_PER_WINDOW}. Rate-limit accounting only ever runs against a credential that
  * has already been loaded and has already passed its allowlist and scheme checks — an id that
  * resolves to nothing must not be able to burn down another (or a future) credential's budget.
+ *
+ * `WIKI.config.offline` is a fourth, independent guard (OpenProject #2212), checked immediately after
+ * the cache lookup and before anything else on the fresh-fetch path — including the DNS resolution
+ * {@link assertNotPrivateAddress} performs. A cache hit is still served (nothing is reached), but a
+ * fresh fetch refuses with a 503 rather than reaching out, the same way `diagramRender.ts` gates its
+ * PlantUML fetch: an operator who has put the instance in offline mode expects nothing on this path
+ * to touch the network at all, not even to resolve a hostname.
  */
 class LiveData {
   /**
@@ -170,6 +177,14 @@ class LiveData {
       return cached
     }
 
+    if (WIKI.config.offline) {
+      throw new CustomError(
+        'liveDataOffline',
+        'Wiki.js is in offline mode and cannot reach this endpoint to resolve live data.',
+        503
+      )
+    }
+
     const validatedAddresses = await this.assertNotPrivateAddress(url)
 
     const headers: Record<string, string> = { Accept: 'application/json' }
@@ -201,14 +216,6 @@ class LiveData {
       headers.Authorization = `Bearer ${credential.secret}`
     } else {
       this.assertWithinRateLimit(anonymousRateLimitKey(siteId))
-    }
-
-    if (WIKI.config.offline) {
-      throw new CustomError(
-        'liveDataOffline',
-        'Wiki.js is in offline mode and cannot reach external endpoints.',
-        503
-      )
     }
 
     // -> Pins the actual TCP connection to one of the addresses `assertNotPrivateAddress` just

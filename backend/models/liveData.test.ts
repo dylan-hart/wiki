@@ -50,6 +50,29 @@ describe('LiveData.resolve', () => {
     ;(WIKI.cache as any).clear()
   })
 
+  test('refuses with 503 when WIKI.config.offline is set, before any fetch', async () => {
+    WIKI.config.offline = true
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    await assert.rejects(
+      liveData.resolve('site-1', { url: 'https://example.com/metrics', jsonPath: '$.v' }),
+      (err: any) => {
+        assert.equal(err.statusCode, 503)
+        return true
+      }
+    )
+    assert.equal(fetchMock.mock.calls.length, 0)
+  })
+
+  test('still serves a cache hit while offline, with no fetch attempted', async () => {
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 7 }))
+    const request = { url: 'https://example.com/metrics', jsonPath: '$.v', refreshInterval: 60 }
+    const first = await liveData.resolve('site-1', request)
+    WIKI.config.offline = true
+    const second = await liveData.resolve('site-1', request)
+    assert.deepEqual(second, first)
+    assert.equal(fetchMock.mock.calls.length, 1)
+  })
+
   test('extracts the JSONPath value from a plain (no-credential) endpoint', async () => {
     mock.method(globalThis, 'fetch', async () => jsonResponse({ status: 'ok', cpu: 17 }))
     const result = await liveData.resolve('site-1', {
@@ -432,28 +455,6 @@ describe('LiveData.resolve', () => {
     await liveData.resolve('site-1', request)
     await liveData.resolve('site-1', request)
     assert.equal(fetchMock.mock.calls.length, 1)
-  })
-
-  test('refuses to fetch when the instance is in offline mode', async () => {
-    WIKI.config.offline = true
-    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
-    await assert.rejects(
-      liveData.resolve('site-1', { url: 'https://example.com/metrics', jsonPath: '$.v' }),
-      (err: any) => {
-        assert.equal(err.statusCode, 503)
-        return true
-      }
-    )
-    assert.equal(fetchMock.mock.calls.length, 0)
-  })
-
-  test('still serves a cached value while the instance is in offline mode', async () => {
-    mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 7 }))
-    const request = { url: 'https://example.com/metrics', jsonPath: '$.v', refreshInterval: 60 }
-    const first = await liveData.resolve('site-1', request)
-    WIKI.config.offline = true
-    const second = await liveData.resolve('site-1', request)
-    assert.deepEqual(second, first)
   })
 })
 
