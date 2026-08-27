@@ -242,21 +242,22 @@ export default {
    * mirror that faithfully on the sending side rather than trying to paper over it: a send with no
    * live client is a silent no-op, never buffered.
    *
-   * All seven current subscribers below already tolerate a missed notification, but not for the same
+   * All eight current subscribers below already tolerate a missed notification, but not for the same
    * reason a naive read of their code might suggest — none re-checks the DB on a timer:
    *  - `configSvc.subscribeToEvents()`'s `reloadConfig` handler, `maintenance.subscribeToEvents()`'s
-   *    `flushCaches`/`disconnectWebsockets` handlers, and `groups`/`sites`/`approvals`/`locales`'
-   *    `reloadGroups`/`reloadSites`/`reloadApprovals`/`reloadLocales` handlers (each model's own `broadcastReload()`
-   *    is what emits the matching outbound event, right after refreshing this instance's own cache —
-   *    see `models/groups.ts`'s `broadcastReload()` for the shape every one of them follows) are
+   *    `flushCaches`/`disconnectWebsockets` handlers, and `groups`/`sites`/`approvals`/`locales`/
+   *    `classificationLevels`' `reloadGroups`/`reloadSites`/`reloadApprovals`/`reloadLocales`/
+   *    `reloadClassificationLevels` handlers (each model's own `broadcastReload()` is what emits the
+   *    matching outbound event, right after refreshing this instance's own cache — see
+   *    `models/groups.ts`'s `broadcastReload()` for the shape every one of them follows) are
    *    purely edge-triggered. A missed one has no independent side channel back except another
    *    matching event later, or this instance's own restart.
    *  - What actually closes the common case is `index.ts`: `preBoot()` calls
-   *    `configSvc.loadFromDb()` and `postBoot()` calls `groups`/`sites`/`locales`/`approvals`
-   *    `.reloadCache()` **unconditionally on every boot**, not gated on any notification having
-   *    arrived. So an instance that missed an event while it was down is always fully resynced the
-   *    moment it comes back — that is the scenario the task description calls out, and it is
-   *    closed by construction, not by chance.
+   *    `configSvc.loadFromDb()` and `postBoot()` calls `groups`/`sites`/`locales`/`approvals`/
+   *    `classificationLevels` `.reloadCache()` **unconditionally on every boot**, not gated on any
+   *    notification having arrived. So an instance that missed an event while it was down is always
+   *    fully resynced the moment it comes back — that is the scenario the task description calls
+   *    out, and it is closed by construction, not by chance.
    *  - The one gap this does *not* close is a notification lost during this instance's own brief
    *    reconnect window while it otherwise stays up the whole time: nothing re-syncs until the next
    *    matching event or a restart. Judged low-severity (bounded window, and every current event —
@@ -321,6 +322,7 @@ export default {
     WIKI.models.approvals.subscribeToEvents()
     WIKI.models.locales.subscribeToEvents()
     WIKI.models.glossary.subscribeToEvents()
+    WIKI.models.classificationLevels.subscribeToEvents()
     // WIKI.db.pages.subscribeToEvents()
 
     WIKI.logger.info('Event Listener initialized successfully: [ OK ]')

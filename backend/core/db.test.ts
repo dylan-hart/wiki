@@ -12,6 +12,7 @@ import { sites } from '../models/sites.ts'
 import { approvals } from '../models/approvals.ts'
 import { locales } from '../models/locales.ts'
 import { glossary } from '../models/glossary.ts'
+import { classificationLevels } from '../models/classificationLevels.ts'
 
 /**
  * Task 708 (feature 411): confirms what `core/db.ts`'s `subscribeToNotifications()` /
@@ -19,8 +20,9 @@ import { glossary } from '../models/glossary.ts'
  * channel, and whether any current subscriber (`core/config.ts`'s `reloadConfig`,
  * `core/maintenance.ts`'s `disconnectWebsockets`/`flushCaches`, — added by OpenProject #966 —
  * `models/groups.ts`/`sites.ts`/`approvals.ts`'s `reloadGroups`/`reloadSites`/`reloadApprovals`,
- * — added by OpenProject #2042 — `models/locales.ts`'s `reloadLocales`, and — added by OpenProject
- * #2038 — `models/glossary.ts`'s `invalidateGlossaryCache`) depends on more than
+ * — added by OpenProject #2042 — `models/locales.ts`'s `reloadLocales`, — added by OpenProject
+ * #2038 — `models/glossary.ts`'s `invalidateGlossaryCache`, and — added by OpenProject #2030 —
+ * `models/classificationLevels.ts`'s `reloadClassificationLevels`) depends on more than
  * that.
  *
  * Postgres NOTIFY has no persistence and no delivery guarantee: a message published while nobody
@@ -33,6 +35,10 @@ import { glossary } from '../models/glossary.ts'
  * (`helpers/pubsub.ts`'s `connectListener`, task 703) after a dropped connection and before the
  * next one lands.
  *
+ * OpenProject #2030 added an eighth subscriber, `classificationLevels`'s
+ * `reloadClassificationLevels` — same shape as `groups`/`sites`/`approvals`, stubbed and asserted
+ * the same way below.
+ *
  * A fake `Pool`/`PoolClient` pair stands in for postgres, matching `helpers/pubsub.test.ts`'s
  * fixtures — this is event-bus wiring and delivery-loss semantics, not SQL, so a mock is the right
  * tool per CLAUDE.md's testing guidance rather than a real two-`node backend` harness (also not
@@ -41,11 +47,12 @@ import { glossary } from '../models/glossary.ts'
  *
  * **Finding**, expanded on in `dev/multi-instance-verify/README.md`: no subscriber is exposed to a
  * *permanently* missed event, because `index.ts`'s `preBoot()` calls `configSvc.loadFromDb()` and
- * `postBoot()` calls `groups`/`sites`/`locales`/`approvals` `.reloadCache()` unconditionally on
- * every boot — not gated on any notification ever having arrived. An instance that missed a
- * `reloadConfig`/`flushCaches`/`reloadGroups`/`reloadSites`/`reloadApprovals`/`reloadLocales` notify
- * while it was down (or mid-restart) is fully resynced the moment it comes back, regardless of what
- * it missed. The
+ * `postBoot()` calls `groups`/`sites`/`locales`/`approvals`/`classificationLevels`
+ * `.reloadCache()` unconditionally on every boot — not gated on any notification ever having
+ * arrived. An instance that missed a
+ * `reloadConfig`/`flushCaches`/`reloadGroups`/`reloadSites`/`reloadApprovals`/`reloadLocales`/`reloadClassificationLevels`
+ * notify while it was down (or mid-restart) is fully resynced the moment it comes back, regardless
+ * of what it missed. The
  * narrower residual gap is an instance that stays up throughout but loses one specific
  * notification during its own listener's brief reconnect window: nothing re-checks the DB for it
  * independently until the next matching event (another settings save, another manual "flush
@@ -91,6 +98,7 @@ let sitesReloadCacheMock: any
 let approvalsReloadCacheMock: any
 let localesReloadCacheMock: any
 let glossaryDropLocalCacheMock: any
+let classificationLevelsReloadCacheMock: any
 
 before(() => {
   previousWiki = (globalThis as any).WIKI
@@ -113,6 +121,10 @@ beforeEach(() => {
   //    (see `core/db.ts`) -- stubbed the same way, though its local effect is a cache delete rather
   //    than a DB re-fetch, so the stubbed method is `dropLocalCache`, not `reloadCache`.
   glossaryDropLocalCacheMock = mock.fn(() => {})
+  // -> OpenProject #2030: `subscribeToNotifications()` also wires
+  //    `classificationLevels.subscribeToEvents()` now (see `core/db.ts`), stubbed the same way as
+  //    `groups`/`sites`/`approvals`/`locales`.
+  classificationLevelsReloadCacheMock = mock.fn(async () => {})
   configSvc.loadFromDb = loadFromDbMock
   maintenance.flushCaches = flushCachesMock
   maintenance.disconnectWebsockets = disconnectWebsocketsMock
@@ -121,6 +133,7 @@ beforeEach(() => {
   approvals.reloadCache = approvalsReloadCacheMock
   locales.reloadCache = localesReloadCacheMock
   glossary.dropLocalCache = glossaryDropLocalCacheMock
+  classificationLevels.reloadCache = classificationLevelsReloadCacheMock
 
   ;(globalThis as any).WIKI = {
     INSTANCE_ID: 'instance-a',
@@ -128,7 +141,7 @@ beforeEach(() => {
     events: { inbound: new Emittery(), outbound: new Emittery() },
     configSvc,
     dbManager,
-    models: { groups, sites, approvals, locales, glossary }
+    models: { groups, sites, approvals, locales, glossary, classificationLevels }
   }
 
   dbManager.pool = null
@@ -220,7 +233,7 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.deepEqual(received, [{ event: 'reloadConfig', value: null }])
   })
 
-  test('wires all seven current subscribers, each purely reactive to the notify with no independent re-check', async () => {
+  test('wires all eight current subscribers, each purely reactive to the notify with no independent re-check', async () => {
     const pool = new FakePool()
     const client = new FakeClient()
     pool.queueClient(client)
@@ -267,6 +280,15 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
         value: { siteId: 'site-1' }
       })
     })
+    // -> OpenProject #2030: classification-level cache reloads propagate the same way now
+    client.emit('notification', {
+      channel: 'wiki',
+      payload: JSON.stringify({
+        source: 'instance-b',
+        event: 'reloadClassificationLevels',
+        value: null
+      })
+    })
 
     // -> Emittery's inbound handlers run as microtasks; give them a tick.
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -280,6 +302,7 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.equal(localesReloadCacheMock.mock.calls.length, 1)
     assert.equal(glossaryDropLocalCacheMock.mock.calls.length, 1)
     assert.deepEqual(glossaryDropLocalCacheMock.mock.calls[0].arguments, ['site-1'])
+    assert.equal(classificationLevelsReloadCacheMock.mock.calls.length, 1)
   })
 })
 
