@@ -7,6 +7,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import AdminComments from './AdminComments.vue'
 import { useAdminStore } from '@/stores/admin'
 import { openDialogs, closeDialog } from '@/composables/dialog'
+import { queue as notifyQueue } from '@/composables/notify'
 
 /**
  * Task 621 (Feature 394, "Admin comments management UI rebuild"): the provider selection &
@@ -295,6 +296,39 @@ describe('AdminComments', () => {
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site1/comments/providers')
   })
 
+  // -> `boot/api.js`'s `throwHttpErrors` does not throw for exactly HTTP 400, so
+  //    `WIKI.models.commentProviders.setActiveProvider`'s validation failure
+  //    (`backend/api/comments.ts`'s `reply.badRequest(err.message)`) resolves with a parsed
+  //    `{ ok: false, message }` envelope rather than rejecting. Without an explicit check, that
+  //    envelope is indistinguishable from the saved provider and the failure reads as success.
+  it('shows saveFailed with the server message, and does not reload, on a 400 refusal to save', async () => {
+    const put = vi.fn(() => ({
+      json: () =>
+        Promise.resolve({
+          ok: false,
+          error: 'Bad Request',
+          statusCode: 400,
+          message: 'Invalid config.'
+        })
+    }))
+    const { wrapper } = mountPage({ putImpl: put })
+    await flushPromises()
+    API_CLIENT.get.mockClear()
+    notifyQueue.splice(0, notifyQueue.length)
+
+    const applyBtn = wrapper.findAll('button').find((b) => b.text() === 'Apply')
+    await applyBtn.trigger('click')
+    await flushPromises()
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to save the comment provider configuration.',
+      caption: 'Invalid config.'
+    })
+    // -> save() only reloads on success
+    expect(API_CLIENT.get).not.toHaveBeenCalledWith('sites/site1/comments/providers')
+  })
+
   it('renders a message when no provider modules are installed', async () => {
     const { wrapper } = mountPage({ providers: [] })
     await flushPromises()
@@ -390,7 +424,7 @@ describe('AdminComments moderation panel', () => {
   })
 
   it('opens a confirm dialog before deleting a comment, and only deletes on confirm', async () => {
-    const del = vi.fn(() => ({ json: () => Promise.resolve(undefined) }))
+    const del = vi.fn(() => ({ ok: true }))
     const { wrapper } = mountPage({ deleteImpl: del })
     await flushPromises()
     await switchToModeration(wrapper)
@@ -413,7 +447,7 @@ describe('AdminComments moderation panel', () => {
   })
 
   it('does not delete when the confirm dialog is cancelled', async () => {
-    const del = vi.fn(() => ({ json: () => Promise.resolve(undefined) }))
+    const del = vi.fn(() => ({ ok: true }))
     const { wrapper } = mountPage({ deleteImpl: del })
     await flushPromises()
     await switchToModeration(wrapper)
@@ -428,6 +462,36 @@ describe('AdminComments moderation panel', () => {
     await flushPromises()
 
     expect(del).not.toHaveBeenCalled()
+  })
+
+  // -> This DELETE route never calls `.json()` on success, so the check is against the raw
+  //    `Response`'s own `ok` flag (`boot/api.js`'s `throwHttpErrors` does not throw for exactly
+  //    HTTP 400) rather than a parsed envelope. Without it, a refusal is indistinguishable from a
+  //    real delete and the row would vanish from the list along with a false success toast.
+  it('shows deleteFailed with the server message, and does not remove the row, on a 400 refusal to delete', async () => {
+    const del = vi.fn(() => ({
+      ok: false,
+      json: () => Promise.resolve({ ok: false, message: 'Not allowed.' })
+    }))
+    const { wrapper } = mountPage({ deleteImpl: del })
+    await flushPromises()
+    await switchToModeration(wrapper)
+    notifyQueue.splice(0, notifyQueue.length)
+
+    const deleteBtn = wrapper
+      .findAll('button')
+      .find((b) => b.attributes('aria-label') === 'Delete Comment')
+    await deleteBtn.trigger('click')
+    await flushPromises()
+    closeDialog(openDialogs[0].id, true)
+    await flushPromises()
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Failed to delete the comment.',
+      caption: 'Not allowed.'
+    })
+    expect(wrapper.text()).toContain('Alice')
   })
 
   it('shows a no-results message when a search matches nothing', async () => {
