@@ -1,0 +1,101 @@
+import assert from 'node:assert/strict'
+import { after, before, describe, mock, test } from 'node:test'
+import fastify from 'fastify'
+import type { FastifyInstance } from 'fastify'
+import fastifySensible from '@fastify/sensible'
+import { buildNonApiErrorResponse, sendNonApiError } from './errorHandler.ts'
+
+describe('buildNonApiErrorResponse', () => {
+  test('an error with no statusCode collapses to a generic 500 body carrying no message/code text', () => {
+    const error: any = new Error(
+      "ENOENT: no such file or directory, open '/data/cache/files/secret-path'"
+    )
+    error.code = 'ENOENT'
+    const { statusCode, body } = buildNonApiErrorResponse(error)
+    assert.equal(statusCode, 500)
+    assert.deepEqual(body, {
+      ok: false,
+      error: 'Internal Server Error',
+      statusCode: 500,
+      message: 'Internal Server error'
+    })
+    const serialized = JSON.stringify(body)
+    assert.ok(!serialized.includes('ENOENT'))
+    assert.ok(!serialized.includes('secret-path'))
+  })
+
+  test('a deliberate error carrying a statusCode (as @fastify/sensible sets) is passed through as-is', () => {
+    const error: any = new Error('This page could not be found.')
+    error.name = 'NotFoundError'
+    error.statusCode = 404
+    const { statusCode, body } = buildNonApiErrorResponse(error)
+    assert.equal(statusCode, 404)
+    assert.deepEqual(body, {
+      ok: false,
+      error: 'NotFoundError',
+      statusCode: 404,
+      message: 'This page could not be found.'
+    })
+  })
+})
+
+/**
+ * `sendNonApiError` is wired as `index.ts`'s actual non-`/_api` `setErrorHandler` branch here, driven
+ * through a real Fastify instance (`app.inject`) rather than hand-built request/reply stand-ins --
+ * same technique `helpers/rateLimit.test.ts` uses for the same reason: reply/error interplay
+ * (`reply.code().type().send()`, `@fastify/sensible`'s thrown `httpErrors`) is exactly what would be
+ * re-describing Fastify's own behavior if mocked instead of exercised.
+ */
+describe('sendNonApiError', () => {
+  let app: FastifyInstance
+
+  before(async () => {
+    ;(globalThis as any).WIKI = { logger: { warn: mock.fn() } }
+    app = fastify()
+    await app.register(fastifySensible)
+    app.setErrorHandler((error: any, _req, reply) => sendNonApiError(error, reply))
+    app.get('/boom-generic', async () => {
+      throw new Error("ENOENT: no such file or directory, open '/data/cache/files/secret-path'")
+    })
+    app.get('/boom-sensible', async () => {
+      throw app.httpErrors.notFound('This page could not be found.')
+    })
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('an unmarked error answers a generic 500 with no leaked detail, and is logged via WIKI.logger.warn', async () => {
+    ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
+    const res = await app.inject({ method: 'GET', url: '/boom-generic' })
+    assert.equal(res.statusCode, 500)
+    assert.deepEqual(res.json(), {
+      ok: false,
+      error: 'Internal Server Error',
+      statusCode: 500,
+      message: 'Internal Server error'
+    })
+    assert.ok(!res.body.includes('secret-path'))
+    assert.ok(!res.body.includes('ENOENT'))
+    assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 1)
+    assert.equal(
+      (globalThis as any).WIKI.logger.warn.mock.calls[0].arguments[0].message.includes(
+        'secret-path'
+      ),
+      true
+    )
+  })
+
+  test('a deliberate @fastify/sensible error answers its own status and message, and is logged via WIKI.logger.warn', async () => {
+    ;(globalThis as any).WIKI.logger.warn.mock.resetCalls()
+    const res = await app.inject({ method: 'GET', url: '/boom-sensible' })
+    assert.equal(res.statusCode, 404)
+    const body = res.json()
+    assert.equal(body.statusCode, 404)
+    assert.equal(body.message, 'This page could not be found.')
+    assert.equal((globalThis as any).WIKI.logger.warn.mock.calls.length, 1)
+  })
+})
