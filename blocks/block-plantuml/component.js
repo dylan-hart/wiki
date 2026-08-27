@@ -102,6 +102,22 @@ Bob --> Alice : hi
         options: ['left', 'center'],
         default: 'left'
       }
+    ],
+    /**
+     * Site-level fields an admin sets once for the whole site, as opposed to `props` above, which an
+     * author sets per use in the editor. Same field name as the `server` prop above on purpose — an
+     * admin's site-wide server is what `propDefault()` (`frontend/src/helpers/blocks.js`) seeds the
+     * picker's `server` field from, the same way block-map's `config`/`props` pair does for its own
+     * tile-server fields.
+     */
+    config: [
+      {
+        name: 'server',
+        type: 'string',
+        label: 'Server',
+        hint: 'PlantUML server to draw with, for every use of this block on the site. The public one when left empty.',
+        default: 'https://www.plantuml.com/plantuml'
+      }
     ]
   }
 

@@ -125,9 +125,12 @@
             <!--
               Configure never renders for a custom block: a custom block has no manifest entry, so
               `getSiteBlocks()` (backend/models/blocks.ts) reports `configFields: []` for it, and this
-              guard hides the button rather than opening a form with nothing in it.
+              guard hides the button rather than opening a form with nothing in it. It also stays
+              hidden for a block whose only config field is `server` when that field already has its
+              own dedicated input above (block-kroki, block-plantuml) -- `configurableFields` is what
+              keeps the same setting from getting two separate editors.
             -->
-            <template v-if="block.configFields?.length > 0">
+            <template v-if="configurableFields(block).length > 0">
               <w-item-section side>
                 <w-btn
                   icon="la:cog"
@@ -253,7 +256,7 @@
         <w-card-section>
           <block-props-form
             v-if="state.configDialog.block"
-            :fields="state.configDialog.block.configFields"
+            :fields="configurableFields(state.configDialog.block)"
             :values="state.configDialog.values" />
         </w-card-section>
         <w-separator />
@@ -351,6 +354,19 @@ function hasServerProp(block) {
 
 function serverProp(block) {
   return block.props?.find((prop) => prop.name === 'server')
+}
+
+/**
+ * A block's admin-config fields that don't already have a dedicated control of their own.
+ *
+ * `server` is covered by the inline field above (`hasServerProp`) for block-kroki/block-plantuml, so
+ * the generic "Configure" dialog has nothing left to add for either -- today `server` is their only
+ * declared config field, so both simply never show the button (see WP #1745).
+ */
+function configurableFields(block) {
+  return (block?.configFields ?? []).filter(
+    (field) => !(field.name === 'server' && hasServerProp(block))
+  )
 }
 
 /**
@@ -540,7 +556,10 @@ function deleteBlock(id) {
  */
 function openConfig(block) {
   state.configDialog.block = block
-  state.configDialog.values = seedConfigValues(block)
+  state.configDialog.values = seedConfigValues({
+    ...block,
+    configFields: configurableFields(block)
+  })
   state.configDialog.open = true
 }
 

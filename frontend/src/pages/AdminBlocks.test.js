@@ -34,7 +34,9 @@ const KROKI_BLOCK = {
   isEnabled: true,
   isCustom: false,
   config: { server: 'https://kroki.example.com' },
-  configFields: [],
+  // -> WP #1745: block-kroki now declares `server` on `config` too (as well as `props`), so the site's
+  //    saved value actually survives a save instead of being stripped by `sanitizeConfig`.
+  configFields: [{ name: 'server', type: 'string', label: 'Server', default: 'https://kroki.io' }],
   props: [{ name: 'server', type: 'string', label: 'Server', default: 'https://kroki.io' }],
   template: ''
 }
@@ -203,6 +205,21 @@ describe('AdminBlocks Configure affordance', () => {
       .filter((btn) => btn.text() === 'admin.blocks.configure')
 
     expect(configureButtons).toHaveLength(1)
+  })
+
+  /**
+   * WP #1745: block-kroki's only config field is `server`, and that field already has a dedicated
+   * inline input (`hasServerProp`) -- so the generic Configure button, which would otherwise open a
+   * second editor for the exact same setting, stays hidden for it.
+   */
+  it('does not show a Configure button for a block whose only config field is the dedicated Server field', async () => {
+    const wrapper = await mountAdminBlocks([KROKI_BLOCK])
+
+    const configureButtons = wrapper
+      .findAll('button')
+      .filter((btn) => btn.text() === 'admin.blocks.configure')
+
+    expect(configureButtons).toHaveLength(0)
   })
 })
 
