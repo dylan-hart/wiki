@@ -8,6 +8,50 @@ beforeEach(() => {
   setActivePinia(createPinia())
 })
 
+/**
+ * Regression coverage for OpenProject #1769: `desiredLocale` used to duplicate `locale` -- both
+ * seeded from the same `localStorage` key and both written by `setLocale()` -- as a leftover from a
+ * two-field design `App.vue` no longer needs. `setLocale()` now owns exactly one field.
+ */
+describe('common store: setLocale()', () => {
+  it('writes the single locale field, plus localStorage, and nothing else', () => {
+    const store = useCommonStore()
+
+    store.setLocale('fr')
+
+    expect(store.locale).toBe('fr')
+    expect(store.desiredLocale).toBeUndefined()
+    expect(localStorage.getItem('locale')).toBe('fr')
+  })
+})
+
+/**
+ * `fetchLocaleStrings()` used to wrap `return API_CLIENT.get(...).json()` in a try/catch that could
+ * never fire -- a `return <promise>` inside an async function settles the returned promise after the
+ * try block has already been exited, so the rejection never reached the catch. Asserting the
+ * rejection reaches the CALLER unchanged is what pins that dead handler gone rather than merely
+ * deleted-and-untested.
+ */
+describe('common store: fetchLocaleStrings()', () => {
+  it('propagates a request rejection to the caller', async () => {
+    const store = useCommonStore()
+    const failure = new Error('network down')
+    API_CLIENT.get.mockImplementationOnce(() => {
+      throw failure
+    })
+
+    await expect(store.fetchLocaleStrings('fr')).rejects.toThrow('network down')
+  })
+
+  it('resolves with the fetched strings on success', async () => {
+    const store = useCommonStore()
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ hello: 'bonjour' }) })
+
+    await expect(store.fetchLocaleStrings('fr')).resolves.toEqual({ hello: 'bonjour' })
+    expect(API_CLIENT.get).toHaveBeenCalledWith('locales/fr/strings')
+  })
+})
+
 describe('common store: blockImportUrl()', () => {
   it('addresses a built-in block by its flat, site-independent compiled-output URL', () => {
     expect(blockImportUrl({ tag: 'block-alert', isCustom: false }, 'site-1')).toBe(
