@@ -4,7 +4,17 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { detectImageMime, svgMimeType } from '../helpers/images.ts'
-import { navigation as navigationTable, sites as sitesTable } from '../db/schema.ts'
+import {
+  approvalRules as approvalRulesTable,
+  commentProviders as commentProvidersTable,
+  glossaryVersions as glossaryVersionsTable,
+  migrationRecords as migrationRecordsTable,
+  navigation as navigationTable,
+  pageHistory as pageHistoryTable,
+  pageWatchEvents as pageWatchEventsTable,
+  sites as sitesTable,
+  tags as tagsTable
+} from '../db/schema.ts'
 import { sites, siteAssetKinds } from './sites.ts'
 import type { SiteAssetKind } from './sites.ts'
 import { navigation as navigationModel } from './navigation.ts'
@@ -480,6 +490,11 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   before(async () => {
     fixtures = await setupTestDb()
     actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
+    // -> `createSite()` reads `WIKI.data.systemIds.localAuthId` to seed the default auth strategy —
+    //    real values come from `base.yml` via `core/config.ts`, neither of which the minimal test
+    //    `WIKI` global in `test/db.ts` populates. Only the cases below that call `createSite()` need
+    //    this; `makeSite()`'s direct insert doesn't.
+    WIKI.data.systemIds = { localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588' }
   })
 
   after(async () => {
@@ -533,6 +548,104 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.equal(err.code === '23503' || err.cause?.code === '23503', true)
       return true
     })
+  })
+
+  /**
+   * OpenProject #1744: `deleteSite()` used to clean only six site-owned tables, on the theory that
+   * everything else left standing was content the route deliberately blocks on. That theory failed
+   * for seven non-content tables whose rows outlive the content they describe (`commentProviders`,
+   * seeded per site by `createSite()`'s `commentProviders.syncSite()`, being the most immediate —
+   * it blocked even a brand-new, otherwise-empty site) or that content routes were never meant to
+   * guard at all (`tags`, `glossaryVersions`, `pageWatchEvents`, `approvalRules`,
+   * `migrationRecords`). Going through `sites.createSite()` rather than the `makeSite()` helper
+   * above is deliberate: only `createSite()` seeds the `commentProviders` rows that made the delete
+   * fail unconditionally.
+   */
+  test('a site created via createSite(), with a page created and deleted, deletes cleanly with every extended-cleanup table left empty', async () => {
+    const hostname = `full-cleanup-${randomBytes(6).toString('hex')}.localhost`
+    const site = await sites.createSite(hostname)
+    const siteId = site.id
+
+    const page = await pagesModel.createPage(
+      siteId,
+      {
+        path: 'home',
+        title: 'Home',
+        editor: 'markdown',
+        content: '# Hello'
+      },
+      actor
+    )
+    await pagesModel.deletePage(siteId, page.id, actor)
+
+    // -> `commentProviders` (seeded above by `createSite()`) and `pageHistory` (written above by
+    //    `deletePage()`) are populated through the real app flow; the other five have no such call
+    //    site under test, so they're seeded directly to prove the cleanup covers them too.
+    await fixtures.db.insert(tagsTable).values({ siteId, tag: 'demo' })
+    await fixtures.db.insert(glossaryVersionsTable).values({ siteId, snapshot: {}, termCount: 0 })
+    await fixtures.db.insert(approvalRulesTable).values({ siteId })
+    await fixtures.db.insert(migrationRecordsTable).values({
+      siteId,
+      sourceSystem: 'test',
+      sourceTable: 'pages',
+      sourceId: '1',
+      destTable: 'pages',
+      destId: randomUUID()
+    })
+    await fixtures.db.insert(pageWatchEventsTable).values({
+      action: 'updated',
+      pageId: randomUUID(),
+      pageTitle: 'Home',
+      pagePath: 'home',
+      siteId,
+      userId: fixtures.userId,
+      notifyMode: 'immediate'
+    })
+
+    const deleted = await sites.deleteSite(siteId)
+    assert.equal(deleted, true)
+
+    const remainingCommentProviders = await fixtures.db
+      .select({ id: commentProvidersTable.id })
+      .from(commentProvidersTable)
+      .where(eq(commentProvidersTable.siteId, siteId))
+    assert.equal(remainingCommentProviders.length, 0)
+
+    const remainingPageHistory = await fixtures.db
+      .select({ id: pageHistoryTable.id })
+      .from(pageHistoryTable)
+      .where(eq(pageHistoryTable.siteId, siteId))
+    assert.equal(remainingPageHistory.length, 0)
+
+    const remainingTags = await fixtures.db
+      .select({ id: tagsTable.id })
+      .from(tagsTable)
+      .where(eq(tagsTable.siteId, siteId))
+    assert.equal(remainingTags.length, 0)
+
+    const remainingGlossaryVersions = await fixtures.db
+      .select({ id: glossaryVersionsTable.id })
+      .from(glossaryVersionsTable)
+      .where(eq(glossaryVersionsTable.siteId, siteId))
+    assert.equal(remainingGlossaryVersions.length, 0)
+
+    const remainingPageWatchEvents = await fixtures.db
+      .select({ id: pageWatchEventsTable.id })
+      .from(pageWatchEventsTable)
+      .where(eq(pageWatchEventsTable.siteId, siteId))
+    assert.equal(remainingPageWatchEvents.length, 0)
+
+    const remainingApprovalRules = await fixtures.db
+      .select({ id: approvalRulesTable.id })
+      .from(approvalRulesTable)
+      .where(eq(approvalRulesTable.siteId, siteId))
+    assert.equal(remainingApprovalRules.length, 0)
+
+    const remainingMigrationRecords = await fixtures.db
+      .select({ id: migrationRecordsTable.id })
+      .from(migrationRecordsTable)
+      .where(eq(migrationRecordsTable.siteId, siteId))
+    assert.equal(remainingMigrationRecords.length, 0)
   })
 })
 
