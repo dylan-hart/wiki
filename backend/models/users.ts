@@ -4,6 +4,7 @@ import {
   assets as assetsTable,
   authentication as authenticationTable,
   groups as groupsTable,
+  pageEditSubmissions,
   pages as pagesTable,
   sessions as sessionsTable,
   userAvatars,
@@ -1500,18 +1501,28 @@ class Users {
   /**
    * Delete a user.
    *
-   * Group assignments cascade, but sessions and keys do not — they are login artifacts, so they are
-   * cleared here rather than blocking the delete. References from authored content (pages, assets)
-   * have no cascade either and will make this throw, which is deliberate: the delete is refused
-   * rather than silently orphaning content.
+   * Group assignments cascade, but sessions, keys and the avatar do not — they are login/profile
+   * artifacts, so they are cleared here rather than blocking the delete. Open edit submissions
+   * (`pageEditSubmissions.authorId`) are discarded here too rather than nulled: the column is
+   * nullable and could survive as an anonymous suggestion, but that would silently change what the
+   * submission is instead of removing what belonged to the deleted account. References from
+   * authored content (pages, assets) have no cascade either and will make this throw, which is
+   * deliberate: the delete is refused rather than silently orphaning content.
+   *
+   * Everything runs in one transaction so a delete refused by that foreign-key conflict leaves the
+   * user's sessions, keys and avatar intact rather than having already destroyed them.
    *
    * @returns Whether a user was deleted
    */
   async deleteUser(id: string): Promise<boolean> {
-    await WIKI.db.delete(userKeys).where(eq(userKeys.userId, id))
-    await WIKI.db.delete(sessionsTable).where(eq(sessionsTable.userId, id))
-    const result = await WIKI.db.delete(usersTable).where(eq(usersTable.id, id))
-    return (result.rowCount ?? 0) > 0
+    return WIKI.db.transaction(async (tx) => {
+      await tx.delete(userKeys).where(eq(userKeys.userId, id))
+      await tx.delete(sessionsTable).where(eq(sessionsTable.userId, id))
+      await tx.delete(userAvatars).where(eq(userAvatars.id, id))
+      await tx.delete(pageEditSubmissions).where(eq(pageEditSubmissions.authorId, id))
+      const result = await tx.delete(usersTable).where(eq(usersTable.id, id))
+      return (result.rowCount ?? 0) > 0
+    })
   }
 
   async init(ids: SystemIds): Promise<void> {
