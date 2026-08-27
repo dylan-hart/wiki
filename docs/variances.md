@@ -917,7 +917,7 @@ LTR. Reasoning:
   lets an operator pick _any_ installed locale, RTL ones included, directly from within the admin
   area — the admin UI is evidently meant to render in whatever locale is active, not assumed
   English/LTR-only. (This held as an intent, not yet as fact, until OpenProject #1696: `App.vue`'s
-  router guard used to validate `desiredLocale` against the site's active *content* locales only, so
+  router guard used to validate `desiredLocale` against the site's active _content_ locales only, so
   a UI-only interface locale picked here reverted on the very next navigation, direction included.
   The guard now also accepts any locale from the instance's installed catalogue
   (`adminStore.locales`), which is what makes this bullet's claim actually true today.)
