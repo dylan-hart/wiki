@@ -367,34 +367,60 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     //    fix the tree write's guard (`treeTitle !== null || patch.tags !== undefined`) skipped
     //    entirely -- leaving `meta.description` (what the file manager reads) and `updatedAt` (what
     //    an `updatedAt`-ordered listing sorts by) stale on a description-only edit.
-    const page = await pagesModel.createPage(
-      fixtures.siteId,
-      pageInput({ path: 'docs/description-only', description: 'original description' }),
-      actor
-    )
-    const beforeTree = await WIKI.models.tree.getById(page.id)
-    assert.equal((beforeTree!.meta as Record<string, any>).description, 'original description')
+    //
+    // -> `Temporal` is a Node 26 global needing no import (CLAUDE.md), but this sandbox's `node` is
+    //    older and doesn't expose it (same environment gap `api/pages.test.ts`'s own
+    //    `installFakeTemporal` documents). Installed only when genuinely missing, so a real Node 26
+    //    run exercises the native API.
+    const previousTemporal = (globalThis as any).Temporal
+    const previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
+    if (typeof previousTemporal === 'undefined') {
+      ;(globalThis as any).Temporal = {
+        Instant: {
+          compare: (a: { epochMilliseconds: number }, b: { epochMilliseconds: number }) =>
+            Math.sign(a.epochMilliseconds - b.epochMilliseconds)
+        }
+      }
+      ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
+        return { epochMilliseconds: this.getTime() }
+      }
+    }
 
-    // -> A later `updatedAt` than the create-time row requires actual elapsed time between the two
-    //    writes; both use `sql\`now()\`` so a Node-side sleep is enough to force the difference.
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    try {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/description-only', description: 'original description' }),
+        actor
+      )
+      const beforeTree = await WIKI.models.tree.getById(page.id)
+      assert.equal((beforeTree!.meta as Record<string, any>).description, 'original description')
 
-    const updated = await pagesModel.updatePage(
-      fixtures.siteId,
-      page.id,
-      { description: 'updated description' },
-      actor
-    )
-    assert.equal(updated!.description, 'updated description')
+      // -> A later `updatedAt` than the create-time row requires actual elapsed time between the two
+      //    writes; both use `sql\`now()\`` so a Node-side sleep is enough to force the difference.
+      await new Promise((resolve) => setTimeout(resolve, 10))
 
-    const afterTree = await WIKI.models.tree.getById(page.id)
-    assert.equal((afterTree!.meta as Record<string, any>).description, 'updated description')
-    assert.ok(
-      Temporal.Instant.compare(
-        afterTree!.updatedAt.toTemporalInstant(),
-        beforeTree!.updatedAt.toTemporalInstant()
-      ) > 0
-    )
+      const updated = await pagesModel.updatePage(
+        fixtures.siteId,
+        page.id,
+        { description: 'updated description' },
+        actor
+      )
+      assert.equal(updated!.description, 'updated description')
+
+      const afterTree = await WIKI.models.tree.getById(page.id)
+      assert.equal((afterTree!.meta as Record<string, any>).description, 'updated description')
+      assert.ok(
+        Temporal.Instant.compare(
+          afterTree!.updatedAt.toTemporalInstant(),
+          beforeTree!.updatedAt.toTemporalInstant()
+        ) > 0
+      )
+    } finally {
+      if (typeof previousTemporal === 'undefined') {
+        ;(globalThis as any).Temporal = previousTemporal
+        ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
+      }
+    }
   })
 
   test("updatePage keeps the page's original editor even if the patch names a different one", async () => {
