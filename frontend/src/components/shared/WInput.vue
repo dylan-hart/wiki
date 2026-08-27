@@ -1,12 +1,20 @@
 <template>
-  <!--
-    `max-w-full`: the field is often a flex item in a fixed-width track -- the admin rows put one
-    in a `flex: 0 0 120px` section. `align-items: stretch` only ever GROWS an item to fill its
-    container; it will not shrink one whose content is wider, so a text input at its natural width
-    pushed the field past the section and out of the card. The cap does the shrinking, and stretch
-    still handles the growing.
-  -->
   <div class="w-input max-w-full min-w-0">
+    <!--
+      A template-level comment lives INSIDE the root element, not before it as a sibling: a sibling
+      comment makes this component compile to a two-node Fragment root once a build preserves
+      comments (dev mode does; `vite build` and this workspace's Vitest config both strip them --
+      see `vitest.config.js`'s own note on `WCheckbox.vue`), and a multi-root component can't take
+      ordinary attrs fallthrough, so Vue warns "Extraneous non-props attributes" on every mount in
+      dev. Keeping it as the div's first child keeps the component single-root regardless of
+      whether comments survive.
+
+      `max-w-full`: the field is often a flex item in a fixed-width track -- the admin rows put one
+      in a `flex: 0 0 120px` section. `align-items: stretch` only ever GROWS an item to fill its
+      container; it will not shrink one whose content is wider, so a text input at its natural
+      width pushed the field past the section and out of the card. The cap does the shrinking, and
+      stretch still handles the growing.
+    -->
     <!-- -> Only the non-outlined variant still labels from above; see `hasFloatingLabel` -->
     <label
       v-if="label && !hasFloatingLabel"
@@ -154,7 +162,7 @@
 </template>
 
 <script setup>
-import { computed, inject, ref, useId, useSlots, watch } from 'vue'
+import { computed, inject, onMounted, ref, useId, useSlots, watch } from 'vue'
 
 /**
  * Text input.
@@ -237,6 +245,17 @@ const props = defineProps({
     default: false
   },
   disabled: {
+    type: Boolean,
+    default: false
+  },
+  /**
+   * Focuses the real control on mount.
+   *
+   * A declared prop rather than fall-through: the root element is a wrapper `<div>`, so a bare
+   * `autofocus` attribute lands there and does nothing -- see `focus()` below for the same action
+   * taken on demand rather than at mount.
+   */
+  autofocus: {
     type: Boolean,
     default: false
   },
@@ -519,6 +538,13 @@ watch(
 */
 const registerWithForm = inject('wFormRegister', null)
 registerWithForm?.({ validate })
+
+// -> Mirrors the exposed `focus()` below, run once for the caller that just wants "focus on mount"
+onMounted(() => {
+  if (props.autofocus) {
+    inputEl.value?.focus()
+  }
+})
 
 defineExpose({
   validate,

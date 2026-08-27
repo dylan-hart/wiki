@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 
 import WInput from './WInput.vue'
@@ -150,6 +150,35 @@ describe('WInput', () => {
       wrapper.vm.focus()
 
       expect(document.activeElement).toBe(wrapper.find('input').element)
+      wrapper.unmount()
+    })
+  })
+
+  describe('autofocus prop', () => {
+    it('focuses the real input on mount when set', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '', autofocus: true },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).toBe(wrapper.find('input').element)
+      wrapper.unmount()
+    })
+
+    it('leaves nothing focused on mount when absent', () => {
+      const wrapper = mount(WInput, { props: { modelValue: '' }, attachTo: document.body })
+
+      expect(document.activeElement).not.toBe(wrapper.find('input').element)
+      wrapper.unmount()
+    })
+
+    it('mounts as a single root with no "extraneous non-props attributes" warning', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      const wrapper = mount(WInput, { props: { modelValue: '', autofocus: true, class: 'x' } })
+
+      expect(warn).not.toHaveBeenCalled()
+      warn.mockRestore()
       wrapper.unmount()
     })
   })
