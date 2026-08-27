@@ -66,6 +66,7 @@ const notifier = createNotifier(() => WIKI.scheduler.pubsubClient, 'scheduler')
 interface CompletionPromise {
   id: string
   added: Temporal.Instant
+  promise: Deferred['promise']
   resolve: Deferred['resolve']
   reject: Deferred['reject']
 }
@@ -259,14 +260,6 @@ export default {
     try {
       const jobId = crypto.randomUUID()
       const jobDefer = createDeferred()
-      if (promise) {
-        this.completionPromises.push({
-          id: jobId,
-          added: Temporal.Now.instant(),
-          resolve: jobDefer.resolve,
-          reject: jobDefer.reject
-        })
-      }
       await WIKI.db.insert(jobsTable).values({
         id: jobId,
         task,
@@ -277,6 +270,15 @@ export default {
         waitUntil,
         createdBy: WIKI.INSTANCE_ID
       })
+      if (promise) {
+        this.completionPromises.push({
+          id: jobId,
+          added: Temporal.Now.instant(),
+          promise: jobDefer.promise,
+          resolve: jobDefer.resolve,
+          reject: jobDefer.reject
+        })
+      }
       if (notify) {
         notifier.send(
           'scheduler',
@@ -316,6 +318,7 @@ export default {
       (p) => Temporal.Instant.compare(p.added, cutoff) < 0
     )
     for (const p of expired) {
+      p.promise.catch(() => {})
       p.reject(new Error(`Timed out after ${ttlSeconds}s waiting for job ${p.id} to complete.`))
     }
   },
