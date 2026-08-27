@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 import { blockImportUrl, useCommonStore } from './common.js'
@@ -59,5 +59,42 @@ describe('common store: loadBlocks()', () => {
     //    only thing this test can observe is that the failure was NOT recorded as loaded -- the URL
     //    construction itself is covered directly by the blockImportUrl() tests above.
     expect(store.blocksLoaded).not.toContain('block-widget')
+  })
+
+  describe('deduping repeated tags', () => {
+    let warnSpy
+
+    beforeEach(() => {
+      // -> Nothing under /_blocks/ exists in this test environment, so every import attempt
+      //    rejects and logs one console.warn -- a 1:1 stand-in for "one real import() attempt
+      //    was made", which is what these tests are actually asserting: not zero, not two.
+      warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+      warnSpy.mockRestore()
+    })
+
+    it('records each tag exactly once when called with duplicates in a single call', async () => {
+      const store = useCommonStore()
+
+      await store.loadBlocks(['block-dup', 'block-dup', 'block-dup'])
+
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('records each tag exactly once when called twice concurrently with the same tag', async () => {
+      const store = useCommonStore()
+
+      // -> Neither call is awaited before the other starts, so both run their `blocksLoaded`
+      //    filter before either import has resolved -- the case a plain array-membership check
+      //    can't catch on its own, and `blocksLoading`'s in-flight tracking exists to close.
+      await Promise.all([
+        store.loadBlocks(['block-concurrent']),
+        store.loadBlocks(['block-concurrent'])
+      ])
+
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+    })
   })
 })
