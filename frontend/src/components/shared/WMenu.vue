@@ -19,7 +19,6 @@
       <div
         v-if="shown"
         ref="floatEl"
-        role="menu"
         v-bind="$attrs"
         class="w-menu fixed overflow-auto rounded shadow-menu"
         :class="[surfaceClass, contentClass]"
