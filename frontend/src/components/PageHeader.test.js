@@ -37,6 +37,24 @@ async function mountHeader() {
   })
 }
 
+/**
+ * OpenProject #1633: the page title used to be a plain `<div>`, which left the app's heading
+ * hierarchy with no `<h1>` at all -- see the accessibility audit's heading-hierarchy pass
+ * (`docs/audit-2026-08-24/accessibility-i18n.md` §3).
+ */
+describe('PageHeader title heading', () => {
+  it('renders the page title as an <h1>, carrying the same typography classes it had as a <div>', async () => {
+    const wrapper = await mountHeader()
+    usePageStore().$patch({ title: 'Getting Started' })
+    await wrapper.vm.$nextTick()
+
+    const titleEl = wrapper.find('.page-header-title')
+    expect(titleEl.element.tagName).toBe('H1')
+    expect(titleEl.classes()).toContain('text-h4')
+    expect(titleEl.text()).toBe('Getting Started')
+  })
+})
+
 describe('PageHeader RTL-safe spacing', () => {
   it('spaces the page icon from the title with a logical (inline-start) padding, not a physical one', async () => {
     const wrapper = await mountHeader()

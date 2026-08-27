@@ -1,5 +1,5 @@
 <template>
-  <div class="w-card-header w-section-header">
+  <component :is="level" class="w-card-header w-section-header">
     <div class="w-card-header__row">
       <div class="min-w-0 flex-1">
         <slot />
@@ -15,11 +15,11 @@
         <slot name="action" />
       </div>
     </div>
-  </div>
+  </component>
 </template>
 
 <script setup>
- /**
+/**
  * Heading band at the top of a `WCard`.
  *
  * Replaces the plain `WCardSection` + `text-subtitle1` pairing the admin cards used, so the whole
@@ -31,7 +31,20 @@
  *     <template #hint>Shown in the browser tab</template>
  *     <template #action><w-btn ... /></template>
  *   </w-card-header>
+ *
+ * `level` picks the element this root renders as -- `h2` by default, since most callers sit one
+ * level under a page's own `<h1>` (`PageHeader.vue`'s title). A card nested deeper in the hierarchy
+ * (a card-inside-a-dialog-inside-a-card) passes `h3`/`h4` so the document still nests headings
+ * correctly instead of skipping or repeating a level. `.w-card-header`/`.w-section-header` are pure
+ * typography (see `css/tailwind.css`), so swapping the tag changes nothing visually.
  */
+defineProps({
+  level: {
+    type: String,
+    default: 'h2',
+    validator: (val) => ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(val)
+  }
+})
 </script>
 
 <style scoped>
