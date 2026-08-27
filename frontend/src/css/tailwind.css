@@ -82,14 +82,25 @@ html.theme-transition-suppress *::after {
   remapping in `stores/user.js`) by writing those properties on :root, so the indirection is what
   keeps runtime theming working. Do not inline these.
 */
+/*
+  `secondary`/`positive`, `warning` and `accent`/`negative` are darkened from their original
+  brighter tones -- #02c39a, #f99d4d and #f03a47 respectively -- because a solid `WBtn` in one of
+  these colors always draws white text over it (`WBtn.vue`'s `color` prop), and none of the
+  originals cleared 4.5:1 (WCAG AA) against white: 2.26:1, 2.11:1 and 3.89:1. These three do (see
+  `helpers/accessibility.test.js`'s palette-pinning test), each darkened along its own hue so the
+  brand colors stay recognizable rather than converging on a single "safe" shade. `colorSecondary`/
+  `colorAccent` are also site-configurable (`AdminTheme.vue`) -- kept equal to `backend/models/sites.ts`'s
+  `DEFAULT_THEME_COLORS` seed and `AdminTheme.vue`'s `resetColors()`, so a fresh install and a reset
+  theme both start accessible instead of only the CSS fallback being fixed.
+*/
 :root {
   --q-primary: #1976d2;
-  --q-secondary: #02c39a;
-  --q-accent: #f03a47;
-  --q-positive: #02c39a;
-  --q-negative: #f03a47;
+  --q-secondary: #018569;
+  --q-accent: #e81221;
+  --q-positive: #018569;
+  --q-negative: #e81221;
   --q-info: #3e6990;
-  --q-warning: #f99d4d;
+  --q-warning: #ba5a06;
   --q-header: #000;
   --q-sidebar: #1976d2;
 }

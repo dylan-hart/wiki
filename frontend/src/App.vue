@@ -188,8 +188,8 @@ async function applyTheme() {
   setCssVar('accent', userStore.getAccessibleColor('accent', siteStore.theme.colorAccent))
   setCssVar('header', userStore.getAccessibleColor('header', siteStore.theme.colorHeader))
   setCssVar('sidebar', userStore.getAccessibleColor('sidebar', siteStore.theme.colorSidebar))
-  setCssVar('positive', userStore.getAccessibleColor('positive', '#02C39A'))
-  setCssVar('negative', userStore.getAccessibleColor('negative', '#f03a47'))
+  setCssVar('positive', userStore.getAccessibleColor('positive', '#018569'))
+  setCssVar('negative', userStore.getAccessibleColor('negative', '#e81221'))
 
   // -> Fonts
   applyFonts(siteStore.theme.baseFont, siteStore.theme.contentFont)

@@ -5,11 +5,31 @@ import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { detectImageMime, svgMimeType } from '../helpers/images.ts'
 import { navigation as navigationTable, sites as sitesTable } from '../db/schema.ts'
-import { sites, siteAssetKinds } from './sites.ts'
+import { sites, siteAssetKinds, DEFAULT_THEME_COLORS } from './sites.ts'
 import type { SiteAssetKind } from './sites.ts'
 import { navigation as navigationModel } from './navigation.ts'
 import { pages as pagesModel } from './pages.ts'
 import type { PageActor } from './pages.ts'
+
+/**
+ * Task 1682: `DEFAULT_THEME_COLORS` -- what `createSite()` and `init()` both seed -- must agree with
+ * the CSS defaults at `frontend/src/css/tailwind.css`'s `:root` block and `AdminTheme.vue`'s
+ * `resetColors()`/`defaultConfig()`. Pure/no-DB: `DEFAULT_THEME_COLORS` is a plain exported constant,
+ * so this runs on every `npm run test`, not just when `DATABASE_URL` is set. The frontend half of
+ * this pin -- that the CSS/AdminTheme values themselves clear WCAG AA -- lives in
+ * `frontend/src/helpers/accessibility.test.js`.
+ */
+describe('sites.DEFAULT_THEME_COLORS', () => {
+  test('matches the CSS defaults (frontend/src/css/tailwind.css) exactly', () => {
+    assert.deepEqual(DEFAULT_THEME_COLORS, {
+      colorPrimary: '#1976D2',
+      colorSecondary: '#018569',
+      colorAccent: '#E81221',
+      colorHeader: '#000000',
+      colorSidebar: '#1976D2'
+    })
+  })
+})
 
 /**
  * Regression coverage for Task 588: `createSite()`'s default config used to carry a dead
