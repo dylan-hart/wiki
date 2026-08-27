@@ -341,6 +341,41 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(updated!.description, 'original description')
   })
 
+  test('updatePage syncs the tree row even when only the description changed (OpenProject #1709)', async () => {
+    // -> Description is handled by a separate branch that never touches `treeTable`, so before this
+    //    fix the tree write's guard (`treeTitle !== null || patch.tags !== undefined`) skipped
+    //    entirely -- leaving `meta.description` (what the file manager reads) and `updatedAt` (what
+    //    an `updatedAt`-ordered listing sorts by) stale on a description-only edit.
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/description-only', description: 'original description' }),
+      actor
+    )
+    const beforeTree = await WIKI.models.tree.getById(page.id)
+    assert.equal((beforeTree!.meta as Record<string, any>).description, 'original description')
+
+    // -> A later `updatedAt` than the create-time row requires actual elapsed time between the two
+    //    writes; both use `sql\`now()\`` so a Node-side sleep is enough to force the difference.
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    const updated = await pagesModel.updatePage(
+      fixtures.siteId,
+      page.id,
+      { description: 'updated description' },
+      actor
+    )
+    assert.equal(updated!.description, 'updated description')
+
+    const afterTree = await WIKI.models.tree.getById(page.id)
+    assert.equal((afterTree!.meta as Record<string, any>).description, 'updated description')
+    assert.ok(
+      Temporal.Instant.compare(
+        afterTree!.updatedAt.toTemporalInstant(),
+        beforeTree!.updatedAt.toTemporalInstant()
+      ) > 0
+    )
+  })
+
   test("updatePage keeps the page's original editor even if the patch names a different one", async () => {
     // -> The invariant `PageHistoryOverlay.vue`'s `restoreVersion`/`branchFrom` rely on: a page's
     //    editor is fixed at creation (see the comment on `updatePage`, "which editor authored a page

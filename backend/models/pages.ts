@@ -1117,17 +1117,19 @@ class Pages {
       changedFields
     )
 
-    if (treeTitle !== null || patch.tags !== undefined) {
-      await WIKI.db
-        .update(treeTable)
-        .set({
-          ...(treeTitle !== null ? { title: treeTitle } : {}),
-          ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
-          meta: this.treeMeta(updated),
-          updatedAt: sql`now()`
-        })
-        .where(eq(treeTable.id, id))
-    }
+    // -> `meta` and `updatedAt` move on every save, not only when `title`/`tags` did -- otherwise a
+    //    description-only edit (handled above, touching nothing tree-side) leaves the tree row's
+    //    `meta` (which the file manager reads `description` out of) and sort-by-`updatedAt` ordering
+    //    stale. Matches `movePage` (:1223) and `createPage` (:896), which write `meta` unconditionally.
+    await WIKI.db
+      .update(treeTable)
+      .set({
+        ...(treeTitle !== null ? { title: treeTitle } : {}),
+        ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
+        meta: this.treeMeta(updated),
+        updatedAt: sql`now()`
+      })
+      .where(eq(treeTable.id, id))
 
     await WIKI.models.search.updated(rawUpdated)
     await WIKI.models.hooks.emit('page:edit', siteId, {
