@@ -2,8 +2,6 @@ import { defineStore } from 'pinia'
 
 import { sortBy } from 'es-toolkit/array'
 
-import { useUserStore } from './user'
-
 /**
  * Turn the site's active locale CODES into the descriptors the UI reads.
  *
@@ -203,29 +201,6 @@ export const useSiteStore = defineStore('site', {
   getters: {
     overlayIsShown: (state) => Boolean(state.overlay),
     sideNavIsDisabled: (state) => Boolean(state.theme.sidebarPosition === 'off'),
-    scrollStyle: (state) => {
-      const userStore = useUserStore()
-      let isDark = false
-      if (userStore.appearance === 'site') {
-        isDark = state.theme.dark
-      } else if (userStore.appearance === 'dark') {
-        isDark = true
-      }
-      return {
-        thumb: {
-          right: '2px',
-          borderRadius: '5px',
-          backgroundColor: isDark ? '#FFF' : '#000',
-          width: '5px',
-          opacity: isDark ? 0.25 : 0.15
-        },
-        bar: {
-          backgroundColor: isDark ? '#000' : '#FAFAFA',
-          width: '9px',
-          opacity: isDark ? 0.25 : 1
-        }
-      }
-    },
     useLocales: (state) => {
       return state.locales?.active?.length > 1
     },

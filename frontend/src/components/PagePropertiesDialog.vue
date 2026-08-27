@@ -40,11 +40,7 @@
         :aria-label="t(`common.actions.close`)"
         @click="siteStore.sideDialogShown = false" />
     </w-toolbar>
-    <w-scroll-area
-      ref="scrollArea"
-      :thumb-style="siteStore.scrollStyle.thumb"
-      :bar-style="siteStore.scrollStyle.bar"
-      style="height: calc(100% - 50px)">
+    <w-scroll-area ref="scrollArea" style="height: calc(100% - 50px)">
       <w-card-section id="refCardInfo">
         <div class="w-section-header">{{ t('editor.props.info') }}</div>
         <w-form class="gap-2">

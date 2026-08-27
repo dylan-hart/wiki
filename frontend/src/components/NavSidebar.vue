@@ -3,9 +3,7 @@
           right one only while the sidebar is on the left; see the stylesheet -->
   <w-scroll-area
     class="sidebar-nav"
-    :class="siteStore.theme.sidebarPosition === `right` ? `sidebar-nav--flipped` : ``"
-    :thumb-style="thumbStyle"
-    :bar-style="barStyle">
+    :class="siteStore.theme.sidebarPosition === `right` ? `sidebar-nav--flipped` : ``">
     <w-list class="sidebar-nav-list" clickable dense dark>
       <template v-for="item of siteStore.nav.items" :key="item.id">
         <w-item-label
@@ -41,21 +39,6 @@ const siteStore = useSiteStore()
 // I18N
 
 const { t } = useI18n()
-
-// DATA
-
-const thumbStyle = {
-  right: '2px',
-  borderRadius: '5px',
-  backgroundColor: '#FFF',
-  width: '5px',
-  opacity: 0.5
-}
-const barStyle = {
-  backgroundColor: '#000',
-  width: '9px',
-  opacity: 0.1
-}
 
 // WATCHERS
 

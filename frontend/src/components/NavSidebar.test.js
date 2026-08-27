@@ -516,9 +516,8 @@ describe('NavSidebar', () => {
    * "elbows" that already read `inset-inline-start`, and a `border-left` here would point the
    * straight run of the rail at a different edge than its own turns once `dir="rtl"` moves them.
    *
-   * Excludes the `<script>` block's `thumbStyle.right` (the scroll-thumb's position within its own
-   * track, a native-scrollbar convention this custom control is matching -- not a text-direction
-   * concern), which is why this greps the `<style>` block specifically rather than the whole file.
+   * Greps the `<style>` block specifically rather than the whole file, since a `right`/`left` used
+   * outside a border declaration elsewhere in the source would be a false positive for this check.
    */
   it('keeps the open-group rail on a logical (inline-start) border, not a physical one', () => {
     const dir = dirname(fileURLToPath(import.meta.url))

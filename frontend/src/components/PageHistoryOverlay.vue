@@ -54,7 +54,7 @@
     <!-- TIMELINE -->
     <!-- ----------------------------------------------------- -->
     <w-drawer class="page-history-sidebar" :model-value="true" :width="380">
-      <w-scroll-area :thumb-style="thumb" :bar-style="bar" style="height: 100%">
+      <w-scroll-area style="height: 100%">
         <div class="page-history-timeline" v-if="state.versions.length > 0">
           <div
             class="page-history-item"
@@ -342,19 +342,6 @@ const state = reactive({
   /** One column with the changes marked in place, rather than the two-column default. */
   inline: false
 })
-
-const thumb = {
-  right: '2px',
-  borderRadius: '5px',
-  backgroundColor: '#FFF',
-  width: '5px',
-  opacity: 0.25
-}
-const bar = {
-  backgroundColor: '#000',
-  width: '9px',
-  opacity: 0.25
-}
 
 /**
  * How each kind of change reads on the line. Both halves are literals on purpose: an icon name built
