@@ -1,39 +1,48 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { setTimeout as delay } from 'node:timers/promises'
-import { Pool } from 'pg'
-import { withAdvisoryLock } from './advisoryLock.ts'
+import {
+  withAdvisoryLock,
+  AdvisoryLockAcquisitionError,
+  _resetLockPoolForTests
+} from './advisoryLock.ts'
 
 /**
  * Exercises `withAdvisoryLock` against a real Postgres instance — the whole point of this helper is
- * genuine cross-connection locking semantics (`pg_advisory_lock`/`pg_advisory_unlock`), which a mock
- * `Pool` would only re-describe rather than verify. See `dispatch-storage.test.ts` for the
+ * genuine cross-connection locking semantics (`pg_try_advisory_lock`/`pg_advisory_unlock`), which a
+ * mock `Pool` would only re-describe rather than verify. See `dispatch-storage.test.ts` for the
  * dependency-injected `withLock` unit tests that cover the caller's own control flow instead.
  *
  * Skipped unless `DATABASE_URL` points at a real database — see `contentSync.test.ts` for the same
- * convention. Migrations are not required: this only ever calls `pg_advisory_lock`/`_unlock`, which
- * need no schema.
+ * convention. Migrations are not required: this only ever calls
+ * `pg_try_advisory_lock`/`pg_advisory_unlock`, which need no schema.
+ *
+ * `withAdvisoryLock` builds its own dedicated pool lazily from `WIKI.dbManager.config` (see that
+ * file's header doc for why — never `WIKI.db.$client`, the request-serving pool), so the global stub
+ * here only needs to supply that shape, plus `INSTANCE_ID` for the pool's `application_name`.
+ * `_resetLockPoolForTests()` drops the cached pool in `after()` so the test process can exit; nothing
+ * under `backend/` builds a second `Pool` directly against `DATABASE_URL` here.
  */
 const DATABASE_URL = process.env.DATABASE_URL
 const skip = DATABASE_URL
   ? false
   : 'requires DATABASE_URL (a Postgres instance, no migrations needed)'
 
-let pool: Pool
-
 before(() => {
   if (!DATABASE_URL) {
     return
   }
-  pool = new Pool({ connectionString: DATABASE_URL, max: 5 })
-  ;(globalThis as any).WIKI = { db: { $client: pool } }
+  ;(globalThis as any).WIKI = {
+    dbManager: { config: { connectionString: DATABASE_URL } },
+    INSTANCE_ID: 'advisory-lock-test'
+  }
 })
 
 after(async () => {
   if (!DATABASE_URL) {
     return
   }
-  await pool.end()
+  await _resetLockPoolForTests()
 })
 
 test('serializes two concurrent holders of the same key', { skip }, async () => {
@@ -53,8 +62,8 @@ test('serializes two concurrent holders of the same key', { skip }, async () => 
   })
 
   await Promise.all([first, second])
-  // -> `second-start` never lands between `first-start` and `first-end` — it blocks until `first`
-  //    has fully released the lock, rather than interleaving with it.
+  // -> `second-start` never lands between `first-start` and `first-end` — it backs off and retries
+  //    until `first` has fully released the lock, rather than interleaving with it.
   assert.deepEqual(order, ['first-start', 'first-end', 'second-start', 'second-end'])
 })
 
@@ -102,5 +111,68 @@ test(
       delay(1000).then(() => 'timed-out')
     ])
     assert.equal(acquired, 'acquired')
+  }
+)
+
+test(
+  'a contended acquisition backs off and retries rather than blocking, and eventually succeeds',
+  { skip },
+  async () => {
+    const key = `advisory-lock-test-backoff-success-${Date.now()}`
+    const order: string[] = []
+
+    const holder = withAdvisoryLock(key, async () => {
+      order.push('holder-start')
+      await delay(120)
+      order.push('holder-end')
+    })
+    await delay(10)
+
+    // -> Small backoff parameters so the retry loop actually runs several non-blocking attempts
+    //    (rather than one lucky poll) before the holder releases at ~120ms, without the test itself
+    //    waiting out production-sized delays.
+    const contender = withAdvisoryLock(
+      key,
+      async () => {
+        order.push('contender-start')
+      },
+      { maxAttempts: 20, baseDelayMs: 15, maxDelayMs: 30 }
+    )
+
+    await Promise.all([holder, contender])
+    assert.deepEqual(order, ['holder-start', 'holder-end', 'contender-start'])
+  }
+)
+
+test(
+  'a contended acquisition gives up with AdvisoryLockAcquisitionError rather than blocking indefinitely',
+  { skip },
+  async () => {
+    const key = `advisory-lock-test-backoff-giveup-${Date.now()}`
+
+    // -> Holds the lock well past the contender's whole retry budget, so the contender is guaranteed
+    //    to exhaust its attempts and reject instead of hanging or eventually succeeding.
+    const holder = withAdvisoryLock(key, async () => {
+      await delay(500)
+    })
+    await delay(10)
+
+    const startedAt = Date.now()
+    await assert.rejects(
+      withAdvisoryLock(key, async () => 'unreachable', {
+        maxAttempts: 3,
+        baseDelayMs: 10,
+        maxDelayMs: 20
+      }),
+      AdvisoryLockAcquisitionError
+    )
+    // -> Bounds how long giving up took: proof this actually backed off and quit rather than hanging
+    //    until something external (a test timeout) killed it.
+    assert.ok(
+      Date.now() - startedAt < 400,
+      'gave up far slower than its own backoff schedule allows'
+    )
+
+    await holder
   }
 )
