@@ -117,6 +117,17 @@ export interface DeletedEntry {
   locale: string
 }
 
+/**
+ * One page `refreshDescendantPaths` repathed, for the caller to fire the move side effects
+ * `pages.ts#recordMoveSideEffects` fires for a direct `movePage` (search index, storage dispatch) --
+ * see `renameFolder`. `page` is the full post-update row, matching what `search.renamed` expects.
+ */
+export interface MovedDescendantPage {
+  page: typeof pagesTable.$inferSelect
+  previousPath: string
+  previousLocale: string
+}
+
 /** A raw `tree` row, as the model passes it around internally. */
 export interface TreeRow {
   id: string
@@ -1008,6 +1019,10 @@ class Tree {
 
     WIKI.logger.debug(`Renaming folder ${folder.id} from ${oldPath} to ${newPath}...`)
 
+    // -> Populated inside the transaction below, fired after it resolves -- see
+    //    `fireDescendantMoveSideEffects`'s own comment for why history/watchers stay out of this.
+    let movedPages: MovedDescendantPage[] = []
+
     // -> Everything below is one logical move: partway through would leave some descendants renamed
     //    and others not, or a folder row moved but its descendants' paths unrefreshed
     const updated = await WIKI.db.transaction(async (tx) => {
@@ -1044,7 +1059,7 @@ class Tree {
         .where(eq(treeTable.id, folder.id))
         .returning()
 
-      await this.refreshDescendantPaths(folder.siteId, folder.locale, newPath, tx)
+      movedPages = await this.refreshDescendantPaths(folder.siteId, folder.locale, newPath, tx)
 
       return renamed
     })
@@ -1052,6 +1067,17 @@ class Tree {
     // -> Every asset under it is served from a different path now, and nothing about the assets
     //    themselves changed for the file cache to notice
     WIKI.models.assets.forgetAllPaths()
+
+    // -> Fired after the transaction resolves, never inside `tx` -- `movePage`'s own boundary (writes
+    //    inside, I/O outside) is the reference. One `search.renamed`/`storage.dispatch` per descendant
+    //    page, but `glossary.invalidateCache` only once for the whole batch (see
+    //    `fireDescendantMoveSideEffects`).
+    for (const moved of movedPages) {
+      await this.fireDescendantMoveSideEffects(folder.siteId, moved)
+    }
+    if (movedPages.length > 0) {
+      WIKI.models.glossary.invalidateCache(folder.siteId)
+    }
 
     WIKI.logger.debug(`Renamed folder ${folder.id} successfully.`)
     return updated[0] as TreeRow
@@ -1072,13 +1098,18 @@ class Tree {
    * The two hashes are not the same function and neither exists in postgres, so each row is rewritten
    * from here. What is deliberately not touched is `updatedAt`: the folder moved, the pages under it
    * did not change, and marking a few hundred of them as freshly edited would say otherwise.
+   *
+   * @returns Every page this call repathed -- its full post-update row plus where it used to live, for
+   *          `renameFolder` to fire the move side effects (search reindex, storage dispatch) once the
+   *          transaction this runs inside has committed. A folder or asset row carries no side effect
+   *          of its own here, so only pages are returned.
    */
   private async refreshDescendantPaths(
     siteId: string,
     locale: string,
     path: string,
     db: WikiDbOrTx = WIKI.db
-  ): Promise<void> {
+  ): Promise<MovedDescendantPage[]> {
     const rows = await db
       .select({
         id: treeTable.id,
@@ -1095,7 +1126,23 @@ class Tree {
         )
       )
 
+    // -> Read before anything below overwrites it: `pages.path` is a second, independent copy of
+    //    where the page sits (see the class comment above), and this is the only place its
+    //    pre-rename value is still around to read.
+    const pageIds = rows.filter((row) => row.type === 'page').map((row) => row.id)
+    const previousPaths = new Map<string, string>()
+    if (pageIds.length > 0) {
+      const previousRows = await db
+        .select({ id: pagesTable.id, path: pagesTable.path })
+        .from(pagesTable)
+        .where(inArray(pagesTable.id, pageIds))
+      for (const row of previousRows) {
+        previousPaths.set(row.id, row.path)
+      }
+    }
+
     let pageCount = 0
+    const movedPages: MovedDescendantPage[] = []
     for (const row of rows) {
       const folderPath = decodeTreePath(row.folderPath ?? '')
       const fullPath = folderPath ? `${folderPath}/${row.fileName}` : row.fileName
@@ -1104,10 +1151,15 @@ class Tree {
         .set({ hash: generateHash(fullPath) })
         .where(eq(treeTable.id, row.id))
       if (row.type === 'page') {
-        await db
+        const [updated] = await db
           .update(pagesTable)
           .set({ path: fullPath, hash: generatePathHash(fullPath) })
           .where(eq(pagesTable.id, row.id))
+          .returning()
+        const previousPath = previousPaths.get(row.id)
+        if (updated && previousPath !== undefined) {
+          movedPages.push({ page: updated, previousPath, previousLocale: locale })
+        }
         pageCount++
       }
     }
@@ -1116,6 +1168,30 @@ class Tree {
         `Refreshed the path of ${rows.length} moved entrie(s), ${pageCount} of them page(s).`
       )
     }
+    return movedPages
+  }
+
+  /**
+   * The move side effects one descendant page owes once `renameFolder`'s transaction has committed --
+   * the same reindex/dispatch pair `pages.ts#recordMoveSideEffects` fires for a direct `movePage`.
+   * History and watcher notifications are deliberately not fired here: both need a real authoring
+   * actor, and `renameFolder` (a folder-level operation with no such actor today) has none to give
+   * them. `glossary.invalidateCache` is likewise not fired here -- it is per-site, not per-page, so
+   * `renameFolder` fires it once for the whole batch instead of once per descendant.
+   */
+  private async fireDescendantMoveSideEffects(
+    siteId: string,
+    { page, previousPath, previousLocale }: MovedDescendantPage
+  ): Promise<void> {
+    await WIKI.models.search.renamed(siteId, page, previousPath, previousLocale)
+    await WIKI.models.storage.dispatch('page:rename', {
+      id: page.id,
+      path: page.path,
+      previousPath,
+      locale: page.locale,
+      previousLocale,
+      siteId
+    })
   }
 
   /**
