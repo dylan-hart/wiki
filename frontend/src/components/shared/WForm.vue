@@ -36,11 +36,18 @@ provide('wFormRegister', (field) => {
  */
 function validate() {
   let ok = true
+  let firstInvalid = null
   for (const field of fields.value) {
     // -> Every field runs, so the user sees all errors at once rather than one per submit
     if (field.validate?.() === false) {
       ok = false
+      firstInvalid ??= field
     }
+  }
+  if (!ok) {
+    // -> Registration order matches DOM/tab order, since fields register from their own `setup()`
+    //    as they mount top-to-bottom -- so the first Set entry is also the first invalid control.
+    firstInvalid?.focus?.()
   }
   return ok
 }
