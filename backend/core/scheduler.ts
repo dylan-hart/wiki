@@ -407,7 +407,11 @@ export default {
                 state: 'active',
                 executedBy: WIKI.INSTANCE_ID,
                 startedAt: sql`now()`,
-                attempt: job.retries + 1
+                attempt: job.retries + 1,
+                // -> A reclaim must also clear any error text left over from the attempt that got
+                //    interrupted — otherwise a job that succeeds on retry ends `completed` while
+                //    still carrying `reapStaleJobs`'s stale-instance message.
+                lastErrorMessage: null
               }
             })
         }
