@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit'
 import { unsafeSVG } from 'lit/directives/unsafe-svg.js'
 import { renderSVG } from 'uqr'
 import { DarkMode } from '../shared/theme.js'
+import { I18n } from '../shared/i18n.js'
 
 /**
  * Block QR Code
@@ -113,7 +114,8 @@ export class BlockQrCodeElement extends LitElement {
 
       // Internal Properties
       _svg: { state: true },
-      _error: { state: true }
+      /** True once the value has proven too long to fit — the message itself is resolved in render(). */
+      _tooLong: { state: true }
     }
   }
 
@@ -123,9 +125,10 @@ export class BlockQrCodeElement extends LitElement {
     this.size = 180
     this.caption = ''
     this._svg = ''
-    this._error = ''
+    this._tooLong = false
     // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
+    this._i18n = new I18n(this)
   }
 
   /**
@@ -147,13 +150,15 @@ export class BlockQrCodeElement extends LitElement {
       this._svg = renderSVG(this._encoded(), { border: 1, pixelSize: 8 })
     } catch {
       // -> Every symbol size has a ceiling, and a long enough string clears the largest of them
-      this._error = 'This is too long to fit in a QR code.'
+      this._tooLong = true
     }
   }
 
   render() {
-    if (this._error) {
-      return html`<div class="error">${this._error}</div>`
+    if (this._tooLong) {
+      return html`<div class="error">
+        ${this._i18n.t('blocks.qr-code.errors.tooLong', 'This is too long to fit in a QR code.')}
+      </div>`
     }
     const size = `${Math.min(Math.max(Number(this.size) || 180, 80), 600)}px`
     return html`

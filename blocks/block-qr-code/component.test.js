@@ -1,4 +1,21 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+/*
+ * OpenProject #1638: the "too long" message resolves through `../shared/i18n.js`'s `I18n` reactive
+ * controller rather than a hardcoded literal -- see `block-youtube/component.test.js` for the same
+ * mocking rationale (`I18n` has its own dedicated coverage in `shared/i18n.test.js`).
+ */
+const { i18nT, MockI18n } = vi.hoisted(() => {
+  const i18nT = vi.fn((_key, fallback) => fallback)
+  class MockI18n {
+    constructor(host) {
+      this.host = host
+      this.t = i18nT
+    }
+  }
+  return { i18nT, MockI18n }
+})
+vi.mock('../shared/i18n.js', () => ({ I18n: MockI18n }))
 
 import './component.js'
 
@@ -16,6 +33,7 @@ describe('block-qr-code', () => {
   afterEach(() => {
     document.body.replaceChildren()
     document.body.className = ''
+    i18nT.mockClear()
   })
 
   it('encodes the given value as an SVG code', async () => {
@@ -70,6 +88,27 @@ describe('block-qr-code', () => {
 
     expect(el.shadowRoot.querySelector('svg')).toBeNull()
     expect(el.shadowRoot.querySelector('.error').textContent).toContain('too long to fit')
+  })
+
+  describe('the too-long message resolves through the shared i18n resolver, not a literal', () => {
+    it('asks the resolver for the too-long key', async () => {
+      await mountQrCode({ value: 'x'.repeat(5000) })
+
+      expect(i18nT).toHaveBeenCalledWith(
+        'blocks.qr-code.errors.tooLong',
+        'This is too long to fit in a QR code.'
+      )
+    })
+
+    it("renders whatever the resolver returns, not the component's own literal", async () => {
+      i18nT.mockReturnValueOnce('Trop long pour tenir dans un QR code.')
+      const el = await mountQrCode({ value: 'x'.repeat(5000) })
+
+      expect(el.shadowRoot.querySelector('.error').textContent).toContain(
+        'Trop long pour tenir dans un QR code.'
+      )
+      expect(el.shadowRoot.querySelector('.error').textContent).not.toContain('too long to fit')
+    })
   })
 
   describe('dark mode', () => {

@@ -1,4 +1,5 @@
 import { LitElement, html, css } from 'lit'
+import { I18n } from '../shared/i18n.js'
 
 /**
  * An attribute that means "off" when it says so.
@@ -258,6 +259,7 @@ export class BlockYoutubeElement extends LitElement {
     this.fs = true
     this.loop = false
     this.start = 0
+    this._i18n = new I18n(this)
   }
 
   /** A prop given a usable number, or null for one left empty. */
@@ -309,8 +311,15 @@ export class BlockYoutubeElement extends LitElement {
         <div class="error">
           ${
             this.url?.trim()
-              ? `${this.url} is not the address of a YouTube video.`
-              : 'This player needs the address of a YouTube video.'
+              ? this._i18n.t(
+                  'blocks.youtube.errors.invalidUrl',
+                  `${this.url} is not the address of a YouTube video.`,
+                  { url: this.url }
+                )
+              : this._i18n.t(
+                  'blocks.youtube.errors.missingUrl',
+                  'This player needs the address of a YouTube video.'
+                )
           }
         </div>
       `
