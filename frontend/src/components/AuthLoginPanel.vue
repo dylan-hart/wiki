@@ -9,6 +9,7 @@
         <div class="auth-strategies mb-4">
           <w-btn
             v-for="str of formStrategies"
+            :key="str.id"
             :label="str.activeStrategy.displayName"
             :icon="`img:` + str.activeStrategy.strategy.icon"
             push
