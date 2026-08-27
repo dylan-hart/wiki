@@ -100,29 +100,52 @@ watch(
 
 watch(() => commonStore.locale, applyLocale)
 
+/*
+  -> Content locale (<html lang>/dir)
+  `pageStore.locale` is the CONTENT locale -- which translation is being read -- a different axis
+  from `commonStore.locale` above, the interface language (see `LocaleSelectorMenu.vue`'s own header
+  comment). `<html lang>`/`dir` describe the document being rendered, i.e. the content, so they track
+  this instead of the UI locale: a French page read under an English UI is still announced in French,
+  and its layout still mirrors under an RTL translation regardless of which language the chrome is
+  in. Fires on every `pageStore.locale` change, not only a full navigation -- `pageLoad()` can settle
+  on a locale slightly different from the router guard's own path-based guess (see its own comment),
+  and this is what catches that correction too.
+*/
+watch(() => pageStore.locale, applyContentLocale)
+
 // LOCALE
 
-async function applyLocale(locale) {
-  /*
-    -> Direction + <html lang>
-    Set synchronously, ahead of the (possibly awaited) locale-strings fetch below: this function is
-    called un-awaited from the router guard, whose `afterEach` removes `.init-loading` as soon as
-    navigation resolves -- it does not wait on this promise. Direction comes from `siteStore.locales`,
-    already loaded by the time the guard reaches locale handling, so it does not depend on `locale`
-    being in `i18n.availableLocales` or on its strings having arrived. Left this way rather than after
-    `i18n.locale.value = locale` below, a reader would see the outgoing (or default LTR) layout for as
-    long as the strings take to fetch -- exactly the flash `index.html`'s static `lang="en"` needs the
-    boot code to correct.
-
-    `direction.set()` rather than a bare `setAttribute()`: this runs on every navigation, not once at
-    boot, so a component mounted across navigations (`PageHeader.vue`'s review-queue menu, via
-    `composables/direction.js`) needs a reactive read of whatever this last resolved to, not a stale
-    one from whenever it happened to first mount.
-  */
+/**
+ * Sets `<html lang>` and `direction.set()` from the page's own content locale, falling back to the
+ * site's primary locale on an app (`/_`) route -- there is no page, and therefore no content locale,
+ * for those. Mirrors the `/_`-route fallback the router guard's own `resolveRouteLocale` call already
+ * applies to `pageStore.locale` for an ordinary page route; `siteStore.useLocales` is what gates
+ * whether that call runs at all (a single-locale site never touches `pageStore.locale` from the
+ * guard), so it is also the source of truth here for which value actually describes "now showing".
+ *
+ * Set synchronously, ahead of the (possibly awaited) locale-strings fetch in `applyLocale` below:
+ * this runs un-awaited from the router guard, whose `afterEach` removes `.init-loading` as soon as
+ * navigation resolves -- it does not wait on that promise. Direction comes from `siteStore.locales`,
+ * already loaded by the time the guard reaches locale handling, so it does not depend on the content
+ * locale's UI strings having arrived (it has none of its own to wait on regardless).
+ *
+ * `direction.set()` rather than a bare `setAttribute()`: this runs on every navigation, not once at
+ * boot, so a component mounted across navigations (`PageHeader.vue`'s review-queue menu, via
+ * `composables/direction.js`) needs a reactive read of whatever this last resolved to, not a stale
+ * one from whenever it happened to first mount.
+ */
+function applyContentLocale() {
+  const locale = siteStore.useLocales ? pageStore.locale : siteStore.locales.primary
   const localeInfo = siteStore.locales.active.find((entry) => entry.code === locale)
   direction.set(Boolean(localeInfo?.isRTL))
   document.documentElement.setAttribute('lang', locale)
+}
 
+/**
+ * Sets `i18n.locale.value` (the interface language) and lazily fetches its strings. Deliberately
+ * does NOT touch `<html lang>`/`dir` any more -- see `applyContentLocale` above for that axis.
+ */
+async function applyLocale(locale) {
   if (!i18n.availableLocales.includes(locale)) {
     try {
       i18n.setLocaleMessage(locale, await commonStore.fetchLocaleStrings(locale))
@@ -443,6 +466,15 @@ router.beforeEach(async (to, from) => {
       siteStore.locales.primary
     )
   }
+  /*
+    Called directly here, not left to the `pageStore.locale` watcher above: that watcher only fires
+    when the value actually CHANGES, which misses this navigation whenever it resolves to the same
+    locale the previous page already had (including a single-locale site, where `pageStore.locale`
+    is never even touched by the block above). Calling it unconditionally on every navigation is what
+    keeps `<html lang>`/`dir` correct immediately, ahead of `router.afterEach` removing
+    `.init-loading` -- see `applyContentLocale`'s own doc comment.
+  */
+  applyContentLocale()
 
   // -> Locale
   if (

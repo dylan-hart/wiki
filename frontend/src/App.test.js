@@ -32,6 +32,7 @@ import { queue as notifyQueue } from '@/composables/notify'
 import { useSiteStore } from '@/stores/site'
 import { useEditorStore } from '@/stores/editor'
 import { useFlagsStore } from '@/stores/flags'
+import { usePageStore } from '@/stores/page'
 import { useUserStore } from '@/stores/user'
 import { useCommonStore } from './stores/common'
 let currentWrapper
@@ -240,10 +241,12 @@ describe('App.vue applyTheme()', () => {
 })
 
 /**
- * Regression coverage for feature 413 ("RTL support end-to-end"), task 716: `App.vue`'s
- * `applyLocale()` must set `dir`/`lang` on `<html>` for the active locale, and must do so
- * immediately -- ahead of `router.afterEach` removing `.init-loading` -- rather than waiting on the
- * (possibly slow, possibly never-resolving in this test) locale-strings fetch.
+ * Regression coverage for feature 413 ("RTL support end-to-end") / OpenProject #1660: `App.vue`'s
+ * `applyContentLocale()` must set `dir`/`lang` on `<html>` from the PAGE's own content locale
+ * (`pageStore.locale`) -- not the interface locale (`commonStore.locale`) `applyLocale()` drives --
+ * and must do so immediately, ahead of `router.afterEach` removing `.init-loading`, rather than
+ * waiting on the (possibly slow, possibly never-resolving in this test) locale-strings fetch
+ * `applyLocale()` itself awaits.
  */
 
 beforeEach(() => {
@@ -258,11 +261,17 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-async function mountAppWithLocale(localeCode) {
+/**
+ * Mounts the real `App.vue` against a multi-locale site (`en` primary/LTR, `ar` active/RTL) and
+ * navigates to `path` -- driving `pageStore.locale` through the same router guard a real navigation
+ * takes (`resolveRouteLocale`, off the path's own leading segment, or the site's primary on an app
+ * `/_` route), rather than patching the store directly, so this proves the guard's own wiring rather
+ * than only the helper functions in isolation.
+ */
+async function mountAppAtPath(path) {
   const siteStore = useSiteStore()
   const flagsStore = useFlagsStore()
   const userStore = useUserStore()
-  const commonStore = useCommonStore()
 
   // -> Bootstrap already "loaded", so the router guard's loadBootstrap() branch is skipped and this
   //    hand-set locale data survives navigation untouched
@@ -279,33 +288,79 @@ async function mountAppWithLocale(localeCode) {
   })
   flagsStore.loaded = true
   userStore.profileLoaded = true
-  commonStore.setLocale(localeCode)
 
   // -> Never resolves: proves the dir/lang flip does not wait on the locale-strings request
   API_CLIENT.get.mockImplementationOnce(() => new Promise(() => {}))
 
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
+    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
   })
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
 
-  mount(App, { global: { plugins: [router, i18n] } })
+  const wrapper = mount(App, { global: { plugins: [router, i18n] } })
 
-  await router.push('/')
+  await router.push(path)
   await router.isReady()
+
+  return { wrapper, router }
 }
 
-describe('App.vue applyLocale()', () => {
-  it('sets dir="rtl" and lang for an RTL active locale, without waiting on locale strings', async () => {
-    await mountAppWithLocale('ar')
+describe('App.vue applyContentLocale()', () => {
+  it('sets dir="rtl" and lang for a page under an RTL content locale, without waiting on locale strings', async () => {
+    await mountAppAtPath('/ar/some-page')
 
     expect(document.documentElement.getAttribute('dir')).toBe('rtl')
     expect(document.documentElement.getAttribute('lang')).toBe('ar')
   })
 
-  it('sets dir="ltr" for an LTR active locale', async () => {
-    await mountAppWithLocale('en')
+  it('sets dir="ltr" for a page under the primary (LTR) content locale', async () => {
+    await mountAppAtPath('/some-page')
+
+    expect(document.documentElement.getAttribute('dir')).toBe('ltr')
+    expect(document.documentElement.getAttribute('lang')).toBe('en')
+  })
+
+  it('follows the page locale across a route change, from ltr to rtl', async () => {
+    const { router } = await mountAppAtPath('/some-page')
+    expect(document.documentElement.getAttribute('lang')).toBe('en')
+
+    await router.push('/ar/some-page')
+
+    expect(document.documentElement.getAttribute('dir')).toBe('rtl')
+    expect(document.documentElement.getAttribute('lang')).toBe('ar')
+  })
+
+  it('falls back to the site primary locale on an app (/_) route, regardless of the last page locale', async () => {
+    const { router } = await mountAppAtPath('/ar/some-page')
+    expect(document.documentElement.getAttribute('lang')).toBe('ar')
+
+    await router.push('/_admin/dashboard')
+
+    expect(document.documentElement.getAttribute('dir')).toBe('ltr')
+    expect(document.documentElement.getAttribute('lang')).toBe('en')
+  })
+
+  it('re-applies from a pageStore.locale change outside a navigation (e.g. a pageLoad() correction)', async () => {
+    await mountAppAtPath('/some-page')
+    expect(document.documentElement.getAttribute('lang')).toBe('en')
+
+    usePageStore().locale = 'ar'
+    await flushPromises()
+
+    expect(document.documentElement.getAttribute('dir')).toBe('rtl')
+    expect(document.documentElement.getAttribute('lang')).toBe('ar')
+  })
+
+  it('switching the interface locale alone does not change dir or lang', async () => {
+    await mountAppAtPath('/some-page')
+    expect(document.documentElement.getAttribute('dir')).toBe('ltr')
+    expect(document.documentElement.getAttribute('lang')).toBe('en')
+
+    // -> Never resolves: applyLocale() awaits this for the newly-selected 'ar' UI strings
+    API_CLIENT.get.mockImplementationOnce(() => new Promise(() => {}))
+    useCommonStore().setLocale('ar')
+    await flushPromises()
 
     expect(document.documentElement.getAttribute('dir')).toBe('ltr')
     expect(document.documentElement.getAttribute('lang')).toBe('en')

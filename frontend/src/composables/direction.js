@@ -4,11 +4,12 @@ import { computed, reactive, ref } from 'vue'
  * Reader text direction.
  *
  * The single source of truth is the `dir` attribute on `<html>`, written by `App.vue`'s
- * `applyLocale()` on every navigation -- not only once at boot: a reader moving between an LTR page
- * and an RTL one in the same session (any multi-locale wiki) flips it mid-app-lifetime, with no
- * remount of the surrounding layout to hang a read-once value off of. A module-level ref mirrors it
- * for the same reason `composables/dark.js` mirrors `body--dark`: setting an attribute on an element
- * outside the app is not itself reactive, and every caller has to see the same value.
+ * `applyContentLocale()` off the page's own content locale (`pageStore.locale`), on every navigation
+ * -- not only once at boot: a reader moving between an LTR page and an RTL one in the same session
+ * (any multi-locale wiki) flips it mid-app-lifetime, with no remount of the surrounding layout to
+ * hang a read-once value off of. A module-level ref mirrors it for the same reason
+ * `composables/dark.js` mirrors `body--dark`: setting an attribute on an element outside the app is
+ * not itself reactive, and every caller has to see the same value.
  *
  * Most of what "goes RTL" is plain CSS -- logical properties resolve against `dir` on their own, no
  * Vue involved. This exists for the minority that is NOT CSS: a `WMenu`/`WTooltip` `anchor`/`self`
