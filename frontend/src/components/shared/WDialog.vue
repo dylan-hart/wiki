@@ -37,7 +37,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 /**
  * Modal dialog shell.
@@ -148,6 +148,22 @@ function onKeydown(ev) {
 
 // WATCHERS
 
+// -> Tracks whether THIS instance is the one that incremented wDialogDepth, so its release path
+// (the watcher's else-branch, and onBeforeUnmount) can only ever hand back a lock it actually took.
+// `{ immediate: true }` below runs the watcher once at mount for every instance, including one that
+// mounts closed -- without this flag that immediate run would decrement a counter it never touched.
+const hasLocked = ref(false)
+
+function releaseLock() {
+  document.removeEventListener('keydown', onKeydown, true)
+  const depth = Math.max(0, Number(document.body.dataset.wDialogDepth ?? 0) - 1)
+  document.body.dataset.wDialogDepth = String(depth)
+  if (depth === 0) {
+    document.body.style.overflow = ''
+  }
+  hasLocked.value = false
+}
+
 /**
  * Escape handling and scroll-locking are bound only while open, so stacked dialogs do not each keep
  * a listener alive. The lock is reference-counted on a data attribute because a dialog can open on
@@ -161,13 +177,9 @@ watch(
       const depth = Number(document.body.dataset.wDialogDepth ?? 0) + 1
       document.body.dataset.wDialogDepth = String(depth)
       document.body.style.overflow = 'hidden'
-    } else {
-      document.removeEventListener('keydown', onKeydown, true)
-      const depth = Math.max(0, Number(document.body.dataset.wDialogDepth ?? 0) - 1)
-      document.body.dataset.wDialogDepth = String(depth)
-      if (depth === 0) {
-        document.body.style.overflow = ''
-      }
+      hasLocked.value = true
+    } else if (hasLocked.value) {
+      releaseLock()
     }
   },
   { immediate: true }
@@ -175,13 +187,8 @@ watch(
 
 onBeforeUnmount(() => {
   // -> An unmount while open (route change, host teardown) would otherwise leak both
-  if (props.modelValue) {
-    document.removeEventListener('keydown', onKeydown, true)
-    const depth = Math.max(0, Number(document.body.dataset.wDialogDepth ?? 0) - 1)
-    document.body.dataset.wDialogDepth = String(depth)
-    if (depth === 0) {
-      document.body.style.overflow = ''
-    }
+  if (hasLocked.value) {
+    releaseLock()
   }
 })
 </script>
