@@ -2,8 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { classifyMailError } from '../models/mail.ts'
 
 /**
- * Placeholder sent to the client in place of the stored SMTP password. Sending it back unchanged
- * leaves the stored password alone.
+ * Placeholder sent to the client in place of a stored secret (the SMTP password and the DKIM
+ * private key). Sending it back unchanged leaves the stored secret alone.
  */
 const PASSWORD_MASK = '********'
 
@@ -57,7 +57,8 @@ async function routes(app: FastifyInstance) {
     async () => {
       return {
         ...WIKI.config.mail,
-        pass: WIKI.config.mail?.pass?.length > 0 ? PASSWORD_MASK : ''
+        pass: WIKI.config.mail?.pass?.length > 0 ? PASSWORD_MASK : '',
+        dkimPrivateKey: WIKI.config.mail?.dkimPrivateKey?.length > 0 ? PASSWORD_MASK : ''
       }
     }
   )
@@ -129,6 +130,11 @@ async function routes(app: FastifyInstance) {
       // -> The client only ever receives a masked password, so an unchanged one must not be stored
       if (patch.pass === PASSWORD_MASK) {
         delete patch.pass
+      }
+
+      // -> Same masking contract for the DKIM private key: an unchanged mask must not overwrite it
+      if (patch.dkimPrivateKey === PASSWORD_MASK) {
+        delete patch.dkimPrivateKey
       }
 
       const previousConfig = WIKI.config.mail
