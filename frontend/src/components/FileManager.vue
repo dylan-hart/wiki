@@ -161,11 +161,9 @@
         <div class="p-4">
           <template v-if="currentFileDetails">
             <img
-              class="w-full object-cover rounded mb-4"
+              class="w-full aspect-[16/10] object-cover rounded mb-4"
               v-if="currentFileDetails.thumbnail"
-              :src="currentFileDetails.thumbnail"
-              width="100%"
-              :ratio="16 / 10" />
+              :src="currentFileDetails.thumbnail" />
             <div
               class="fileman-details-row"
               v-for="item of currentFileDetails.items"

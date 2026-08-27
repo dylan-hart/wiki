@@ -374,6 +374,61 @@ describe('FileManager context menu (OpenProject #859, #861, #862, #863, #864)', 
 })
 
 /**
+ * WP #1728: the detail thumbnail `<img>` carried leftover `q-img`-era props (`width="100%"`,
+ * `:ratio="16 / 10"`) that mean nothing on a plain `<img>` -- `ratio` lands as a dead DOM attribute
+ * and `width` is non-conforming markup, while reserving no actual height, so the pane reflows once
+ * the thumbnail loads. This asserts the markup is plain now: no `ratio`/`width` attributes, and the
+ * aspect ratio reserved via a class instead (`object-cover`, already present, does the rest).
+ */
+describe('FileManager detail thumbnail markup (WP #1728)', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders the detail thumbnail with no leftover q-img ratio/width attributes', async () => {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    const router = createRouter({ history: createWebHistory(), routes: [] })
+
+    const wrapper = mount(FileManager, {
+      global: {
+        plugins: [i18n, router],
+        stubs: { Tree: true, NewMenu: true, LocaleSelectorMenu: true }
+      },
+      attachTo: document.body
+    })
+    await flushPromises()
+
+    wrapper.vm.state.fileList = [
+      {
+        id: 'a1',
+        type: 'asset',
+        title: 'photo',
+        fileName: 'photo.png',
+        fileExt: 'png',
+        fileSize: 1024,
+        mimeType: 'image/png',
+        folderPath: ''
+      }
+    ]
+    wrapper.vm.state.currentFileId = 'a1'
+    await flushPromises()
+
+    const img = wrapper.find('.fileman-right img')
+    expect(img.exists()).toBe(true)
+    expect(img.attributes('ratio')).toBeUndefined()
+    expect(img.attributes('width')).toBeUndefined()
+    expect(img.classes()).toContain('aspect-[16/10]')
+    expect(img.classes()).toContain('object-cover')
+    expect(img.attributes('src')).toBe('/_thumb/a1.webp')
+
+    wrapper.unmount()
+  })
+})
+
+/**
  * WP #1149: extra confirmation before deleting or moving a site's homepage, from the file manager's
  * own delete/rename-move entry points (`delItem`/`renameMovePage`) -- the tree-item counterparts to
  * `PageActionsCol.test.js`'s "homepage guard" suite, which covers the page view's action rail. Calls
