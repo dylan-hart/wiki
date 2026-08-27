@@ -117,13 +117,13 @@ function buildCacheKey(
  * an author turn this into an SSRF proxy into the wiki's own network, optionally carrying a stored
  * credential's secret along with it.
  *
- * A credential's `allowedDomains` is a second, independent guard, checked once a `credentialId` is
+ * A credential's `allowedOrigins` is a second, independent guard, checked once a `credentialId` is
  * given: even an author who legitimately knows a credential's id may not point it at any URL — only
  * an origin+path-prefix the admin who created that credential explicitly allowed
  * (`helpers/network.ts#originMatchesAllowlist`), and only over `https:` — a credential is never sent
- * in cleartext, regardless of what scheme an allowlist entry itself names (OpenProject #2185). This
- * is what stops a `write:pages` author from exfiltrating a `manage:sites`-gated secret to a URL (or a
- * path on an otherwise-allowed host) of their own choosing.
+ * in cleartext, regardless of what scheme an allowlist entry itself names (OpenProject #2185,
+ * #2198). This is what stops a `write:pages` author from exfiltrating a `manage:sites`-gated secret
+ * to a URL (or a path on an otherwise-allowed host) of their own choosing.
  *
  * A per-credential (and, since OpenProject #2185, per-site for the credential-free path) rate limit
  * is a third, independent guard (OpenProject #1050): even though a credentialed request now requires
@@ -138,8 +138,8 @@ function buildCacheKey(
 class LiveData {
   /**
    * @throws {CustomError} `Bad Request` (400) for a malformed URL/JSONPath, a bare `$` JSONPath, a
-   *   URL resolving to a private/loopback/link-local address, a URL outside a given credential's
-   *   allowed origins, or a non-`https:` URL when a credential is in play, `Not Found` (404) for a
+   *   URL resolving to a private/loopback/link-local address, a credentialed request whose URL is
+   *   not `https:`, or a URL outside a given credential's allowed origins, `Not Found` (404) for a
    *   `credentialId` with no matching row on this site, `Too Many Requests` (429) once a credential
    *   (or, for a credential-free request, this site) has exceeded its fresh-fetch rate limit,
    *   `Service Unavailable` (503) when the instance is in offline mode, `Bad Gateway` (502) for a
@@ -181,17 +181,17 @@ class LiveData {
       if (credential === undefined) {
         throw new CustomError('Not Found', 'No such credential on this site.', 404)
       }
-      if (!originMatchesAllowlist(url, credential.allowedDomains)) {
-        throw new CustomError(
-          'Bad Request',
-          "url is not in this credential's allowed origins.",
-          400
-        )
-      }
+      // -> Checked before the allowlist, and unconditionally -- a credential's `allowedOrigins`
+      //    entries may themselves be `http:` (schema-valid, see `helpers/network.ts`), but a
+      //    credentialed request is never allowed to actually send the secret in cleartext, so this
+      //    is enforced here rather than left as something an admin's allowlist choice controls.
       if (url.protocol !== 'https:') {
+        throw new CustomError('Bad Request', 'A credentialed request must use https.', 400)
+      }
+      if (!originMatchesAllowlist(url, credential.allowedOrigins)) {
         throw new CustomError(
           'Bad Request',
-          'url must be https when a credential is given — a credential is never sent in cleartext.',
+          "url is not within this credential's allowed origins.",
           400
         )
       }

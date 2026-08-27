@@ -22,7 +22,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       name: {
         type: 'string'
       },
-      allowedDomains: {
+      allowedOrigins: {
         type: 'array',
         items: { type: 'string' },
         description:

@@ -165,14 +165,15 @@ const DOMAIN_IPV6 = '\\[(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}\\]'
 const SCHEME_PATTERN = '[hH][tT][tT][pP][sS]?'
 
 /**
- * The regex source for one `allowedDomains` entry (OpenProject #2185, replacing the hostname-only
- * shape this superseded): a full origin -- scheme, host (optionally `*.`-prefixed, or a bracketed
- * IPv6 literal), and an optional `:port` -- plus an optional path prefix, with no query or fragment
- * (`[^?#]*` after the leading `/`, anchored to the end of the string, is what rules those out).
+ * The regex source for one `allowedOrigins` entry (OpenProject #2185/#2195, replacing the
+ * hostname-only shape this superseded): a full origin -- scheme, host (optionally `*.`-prefixed, or
+ * a bracketed IPv6 literal), and an optional `:port` -- plus an optional path prefix, with no query
+ * or fragment (`[^?#]*` after the leading `/`, anchored to the end of the string, is what rules
+ * those out).
  *
  * Kept as a string (not just the compiled {@link ORIGIN_PATTERN} below) specifically so
  * `api/blockCredentials.ts` can splice it straight into the JSON Schema `pattern` for
- * `allowedDomains` items -- the backend route and this helper's own `isValidOriginPattern` share one
+ * `allowedOrigins` items -- the backend route and this helper's own `isValidOriginPattern` share one
  * definition of "valid" rather than risking two that quietly drift apart.
  */
 export const ORIGIN_PATTERN_SOURCE = `^${SCHEME_PATTERN}:\\/\\/(?:${DOMAIN_IPV6}|(?:\\*\\.)?${DOMAIN_HOSTNAME})(?::[0-9]{1,5})?(?:\\/[^?#]*)?$`
@@ -180,14 +181,26 @@ export const ORIGIN_PATTERN_SOURCE = `^${SCHEME_PATTERN}:\\/\\/(?:${DOMAIN_IPV6}
 const ORIGIN_PATTERN = new RegExp(ORIGIN_PATTERN_SOURCE)
 
 /**
- * Whether `value` is syntactically a valid `allowedDomains` entry -- the same origin+prefix shape
+ * Whether `value` is syntactically a valid `allowedOrigins` entry -- the same origin+prefix shape
  * {@link originMatchesAllowlist} actually matches against. Used by both the block-credential route
  * schema and (mirrored, since `frontend/` cannot import from `backend/` -- see root `CLAUDE.md`'s
  * workspace layout) `frontend/src/helpers/originPattern.js`'s copy for `BlockCredentialDialog.vue`'s
  * inline validation.
+ *
+ * Deliberately narrower than what `new URL()` itself would accept: no userinfo (`user:pass@host`),
+ * since that has no business in a stored allowlist entry and `URL`'s own parser would silently
+ * accept and discard it (OpenProject #2198).
  */
 export function isValidOriginPattern(value: string): boolean {
-  return ORIGIN_PATTERN.test(value)
+  if (!ORIGIN_PATTERN.test(value)) {
+    return false
+  }
+  try {
+    const url = new URL(value)
+    return !url.username && !url.password
+  } catch {
+    return false
+  }
 }
 
 /** Capturing counterpart of {@link ORIGIN_PATTERN_SOURCE}, for {@link parseAllowedOrigin}. */
@@ -207,7 +220,7 @@ interface ParsedAllowedOrigin {
 }
 
 /**
- * Splits one already-validated `allowedDomains` entry into its parts, or `null` for a string that
+ * Splits one already-validated `allowedOrigins` entry into its parts, or `null` for a string that
  * does not match {@link ORIGIN_PATTERN} at all (defensive only -- every entry reaching this from
  * storage was validated by {@link isValidOriginPattern} first).
  */
@@ -253,7 +266,7 @@ function pathWithinPrefix(pathname: string, prefix: string): boolean {
 
 /**
  * Whether `url` is covered by any entry in `allowedOrigins` — the enforcement half of the
- * per-credential origin+path-prefix allowlist (OpenProject #2185, replacing the hostname-only
+ * per-credential origin+path-prefix allowlist (OpenProject #2185/#2195, replacing the hostname-only
  * `hostnameMatchesAllowlist` this superseded — that function compared a request's hostname alone,
  * leaving scheme, port, path and query entirely up to the caller). An empty list matches nothing:
  * `models/blockCredentials.ts` requires at least one entry at creation time specifically so this
@@ -265,6 +278,11 @@ function pathWithinPrefix(pathname: string, prefix: string): boolean {
  * the allowed host happens to answer on. A port an entry omits defaults per scheme (80 for `http:`,
  * 443 for `https:`), the same default a browser's own same-origin check uses, so `https://host` and
  * `https://host:443` are the same entry.
+ *
+ * `models/liveData.ts#resolve()` separately refuses any credentialed request whose own scheme is not
+ * `https:` (OpenProject #2198) -- this function does not special-case scheme beyond the plain
+ * equality check above, since a stored `http:` entry can never match a request forced to `https:`
+ * anyway.
  */
 export function originMatchesAllowlist(url: URL, allowedOrigins: string[]): boolean {
   const targetScheme = url.protocol.slice(0, -1).toLowerCase() // "https:" -> "https"

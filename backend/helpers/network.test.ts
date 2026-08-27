@@ -212,6 +212,7 @@ describe('isValidOriginPattern', () => {
   test('rejects a non-http(s) scheme', () => {
     assert.equal(isValidOriginPattern('ftp://api.example.com'), false)
     assert.equal(isValidOriginPattern('file:///etc/passwd'), false)
+    assert.equal(isValidOriginPattern('javascript://api.example.com'), false)
   })
 
   test('rejects a pattern carrying a query string', () => {
@@ -228,6 +229,13 @@ describe('isValidOriginPattern', () => {
 
   test('rejects a wildcard not at the start of the host', () => {
     assert.equal(isValidOriginPattern('https://api.*.example.com'), false)
+  })
+
+  // -> No userinfo has any business in a stored allowlist entry, and `new URL()` itself would
+  //    silently accept and discard it -- checked explicitly rather than left to the regex, which
+  //    already rejects most such strings only incidentally (OpenProject #2198).
+  test('rejects userinfo in the origin', () => {
+    assert.equal(isValidOriginPattern('https://user:pass@api.example.com/v1'), false)
   })
 
   test('rejects whitespace', () => {

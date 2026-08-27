@@ -51,6 +51,10 @@ describe('isValidOriginPattern', () => {
     expect(isValidOriginPattern('https://api.*.example.com')).toBe(false)
   })
 
+  it('rejects userinfo in the origin', () => {
+    expect(isValidOriginPattern('https://user:pass@api.example.com/v1')).toBe(false)
+  })
+
   it('rejects whitespace', () => {
     expect(isValidOriginPattern('https://api example.com')).toBe(false)
   })

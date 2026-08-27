@@ -353,8 +353,12 @@ export const blockCode = pgTable('blockCode', {
  * alone; resolving `secret` happens entirely server-side (`models/blockCredentials.ts`'s
  * `getCredentialForResolve()`) and it is never serialized back into an API response — see that
  * model's header comment.
- * `allowedDomains` is the deny-by-default scoping list `models/liveData.ts#resolve()` checks a
+ * `allowedOrigins` is the deny-by-default scoping list `models/liveData.ts#resolve()` checks a
  * block's configured URL against before ever attaching the secret — see that file's header comment.
+ * Each entry is a full origin (scheme + host + optional port) plus an optional path prefix, e.g.
+ * `https://api.example.com/v1` — not a bare hostname, and never `http:` in practice since a
+ * credentialed resolve refuses any request whose own scheme isn't `https:` regardless of what an
+ * entry names.
  */
 export const blockCredentials = pgTable(
   'blockCredentials',
@@ -365,7 +369,7 @@ export const blockCredentials = pgTable(
       .references(() => sites.id),
     name: varchar({ length: 255 }).notNull(),
     secret: text().notNull(),
-    allowedDomains: text()
+    allowedOrigins: text()
       .array()
       .notNull()
       .default(sql`ARRAY[]::text[]`),
