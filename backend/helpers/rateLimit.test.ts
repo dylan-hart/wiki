@@ -4,6 +4,7 @@ import fastify from 'fastify'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import {
+  activeBanMemo,
   limitApiKey,
   limitApiRequests,
   limitPublicRequests,
@@ -82,6 +83,9 @@ describe('limitApiKey', () => {
 
   beforeEach(() => {
     consumeCalls = []
+    // -> The ban memo is a module-level singleton shared across every test in this file; clearing it
+    //    here keeps a ban memoized by one test from leaking into the next test reusing the same key.
+    activeBanMemo.clear()
   })
 
   test('lets a request through and keys the counter by the api key id, not by ip', async () => {
@@ -141,6 +145,9 @@ describe('limitApiRequests', () => {
 
   beforeEach(() => {
     consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    // -> Same reasoning as `limitApiKey`'s `beforeEach` above: several tests below reuse the same
+    //    IP/key on purpose, so a ban memoized by one must not carry into the next.
+    activeBanMemo.clear()
     ;(globalThis as any).WIKI = {
       config: {
         security: {
@@ -519,5 +526,166 @@ describe('limitPublicRequests', () => {
     const replyPublic1 = makeReply()
     await limitPublicRequests(makeReq(), replyPublic1)
     assert.equal((replyPublic1.tooManyRequests as any).mock.calls.length, 0)
+  })
+})
+
+/**
+ * Task 2222: an in-process memo of active bans fronts every call `helpers/rateLimit.ts` makes to
+ * `WIKI.models.rateLimits.consume()`, so a request from a key already serving a ban is refused
+ * without a second database write. Exercised through `limitApiRequests` — the shared
+ * `consumeWithBanMemo` wrapper it (and `limitAuthAttempts`/`limitRenders`/`limitApiKey`) calls into
+ * is the thing actually under test here, not anything specific to this one hook.
+ */
+describe('rate-limit ban memo', () => {
+  function makeReply(): FastifyReply {
+    return {
+      header: mock.fn(),
+      tooManyRequests: mock.fn()
+    } as unknown as FastifyReply
+  }
+
+  function makeReq(overrides: Partial<FastifyRequest> = {}): FastifyRequest {
+    return {
+      method: 'GET',
+      url: '/_api/pages',
+      ip: '198.51.100.7',
+      apiKey: null,
+      session: undefined,
+      ...overrides
+    } as unknown as FastifyRequest
+  }
+
+  let consume: ReturnType<typeof mock.fn>
+
+  beforeEach(() => {
+    consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    activeBanMemo.clear()
+    ;(globalThis as any).WIKI = {
+      config: {
+        security: {
+          apiRateLimitEnabled: true,
+          apiRateLimitMax: 300,
+          apiRateLimitWindow: '5m',
+          apiRateLimitBan: '15m'
+        }
+      },
+      models: {
+        rateLimits: { consume }
+      },
+      logger: { debug: mock.fn() }
+    }
+  })
+
+  afterEach(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('a second request from an already-banned key is refused with no consume() call reaching the database', async () => {
+    consume.mock.mockImplementationOnce(async () => ({
+      allowed: false,
+      hits: 301,
+      retryAfter: 120
+    }))
+    const req = makeReq()
+
+    const reply1 = makeReply()
+    await limitApiRequests(req, reply1)
+    assert.equal(consume.mock.calls.length, 1)
+    assert.equal((reply1.tooManyRequests as any).mock.calls.length, 1)
+    assert.deepEqual((reply1.header as any).mock.calls[0].arguments, ['Retry-After', '120'])
+
+    // -> Same key, second request: refused straight out of the memo. `consume` must not be called
+    //    again — that is the database write this task exists to avoid.
+    const reply2 = makeReply()
+    await limitApiRequests(makeReq(), reply2)
+    assert.equal(consume.mock.calls.length, 1)
+    assert.equal((reply2.tooManyRequests as any).mock.calls.length, 1)
+  })
+
+  test('a permitted request always goes to SQL, even repeatedly, since a grant is never memoized', async () => {
+    consume.mock.mockImplementation(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    const req = makeReq()
+
+    await limitApiRequests(req, makeReply())
+    await limitApiRequests(makeReq(), makeReply())
+    await limitApiRequests(makeReq(), makeReply())
+
+    // -> Three allowed requests, three real consume() calls: nothing about an allowed verdict is
+    //    ever cached, matching `models/rateLimits.ts`'s shared-counter-across-instances requirement.
+    assert.equal(consume.mock.calls.length, 3)
+  })
+
+  /**
+   * `lru-cache` tracks TTL against `performance.now()`, not `Date.now()` (see `perf.js` in the
+   * package) — a portable-timestamp fallback exists only for environments with no `performance`
+   * global, which Node always has. `node:test`'s `mock.timers` fakes `Date` (and, if asked, the
+   * timer functions), but not `performance.now()`, so advancing a mocked `Date` does nothing to
+   * this cache's own clock. Faking `performance.now()` directly — via `mock.method`, which works
+   * because it's a writable, configurable prototype method — is what actually controls the memo's
+   * notion of elapsed time.
+   */
+  function withFakePerfNow(startMs: number) {
+    let now = startMs
+    const mocked = mock.method(performance, 'now', () => now)
+    return {
+      advance: (ms: number) => {
+        now += ms
+      },
+      restore: () => mocked.mock.restore()
+    }
+  }
+
+  test('a memoized ban expires exactly when its own retryAfter elapses', async () => {
+    const clock = withFakePerfNow(1_700_000_000_000)
+    try {
+      consume.mock.mockImplementationOnce(async () => ({
+        allowed: false,
+        hits: 301,
+        retryAfter: 5
+      }))
+      await limitApiRequests(makeReq(), makeReply())
+      assert.equal(consume.mock.calls.length, 1)
+
+      // Still within the 5s ban: refused from the memo, no second database call.
+      const replyStillBanned = makeReply()
+      await limitApiRequests(makeReq(), replyStillBanned)
+      assert.equal(consume.mock.calls.length, 1)
+      assert.equal((replyStillBanned.tooManyRequests as any).mock.calls.length, 1)
+
+      // Advance the clock past the ban's retryAfter.
+      clock.advance(5_001)
+      consume.mock.mockImplementationOnce(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+      const replyAfterExpiry = makeReply()
+      await limitApiRequests(makeReq(), replyAfterExpiry)
+
+      // -> The memo entry is gone, so this reaches the database again rather than staying refused
+      //    forever off the original, now-stale memo entry.
+      assert.equal(consume.mock.calls.length, 2)
+      assert.equal((replyAfterExpiry.tooManyRequests as any).mock.calls.length, 0)
+    } finally {
+      clock.restore()
+    }
+  })
+
+  test('retryAfter reported from the memo counts down rather than staying pinned at the original value', async () => {
+    const clock = withFakePerfNow(1_700_000_000_000)
+    try {
+      consume.mock.mockImplementationOnce(async () => ({
+        allowed: false,
+        hits: 301,
+        retryAfter: 10
+      }))
+      await limitApiRequests(makeReq(), makeReply())
+
+      clock.advance(4_000)
+      const reply = makeReply()
+      await limitApiRequests(makeReq(), reply)
+      // -> Still refused out of the memo (consume() not called again), but the reported Retry-After
+      //    reflects the ~6s actually left, not the original 10s the ban started with.
+      assert.equal(consume.mock.calls.length, 1)
+      assert.deepEqual((reply.header as any).mock.calls[0].arguments, ['Retry-After', '6'])
+    } finally {
+      clock.restore()
+    }
   })
 })
