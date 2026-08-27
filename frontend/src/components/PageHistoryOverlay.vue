@@ -76,7 +76,7 @@
                   {{ t('history.current') }}
                 </w-badge>
               </div>
-              <div class="page-history-meta">{{ humanizeDate(version.versionDate) }}</div>
+              <div class="page-history-meta">{{ humanizeDate(t, version.versionDate) }}</div>
               <div class="page-history-meta flex items-center gap-1">
                 <span>{{ version.author.name || t('history.unknownAuthor') }}</span>
                 <!--
@@ -296,6 +296,7 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
 /**
@@ -395,13 +396,6 @@ function close() {
   siteStore.$patch({ overlay: '' })
 }
 
-function humanizeDate(val) {
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  })
-}
-
 function actionStyle(action) {
   return ACTION_STYLES[action] ?? ACTION_FALLBACK
 }
@@ -411,7 +405,7 @@ function actionLabel(action) {
 }
 
 function sideLabel(version) {
-  return version ? humanizeDate(version.versionDate) : t('history.emptyPage')
+  return version ? humanizeDate(t, version.versionDate) : t('history.emptyPage')
 }
 
 /** Who, and why if they said — the same line the timeline entry carries, on one row. */
@@ -545,7 +539,7 @@ async function viewSource(version) {
     component: defineAsyncComponent(() => import('./PageVersionSourceDialog.vue')),
     componentProps: {
       content: full.content ?? '',
-      date: humanizeDate(full.versionDate)
+      date: humanizeDate(t, full.versionDate)
     }
   })
 }
@@ -589,7 +583,7 @@ function restoreVersion(version) {
   confirm({
     title: t('history.restore'),
     message: [
-      t('history.restoreConfirm', { date: humanizeDate(version.versionDate) }),
+      t('history.restoreConfirm', { date: humanizeDate(t, version.versionDate) }),
       t('history.restoreConfirmHint')
     ],
     caption: t('history.versionId', { id: version.id }),
@@ -608,7 +602,7 @@ function restoreVersion(version) {
         json: {
           content,
           render: await renderOf(full, content),
-          reasonForChange: t('history.restoreReason', { date: humanizeDate(full.versionDate) })
+          reasonForChange: t('history.restoreReason', { date: humanizeDate(t, full.versionDate) })
         }
       }).json()
       if (!resp?.page?.id) {
@@ -673,7 +667,7 @@ function branchFrom(version) {
           // -> A version that was scheduled carries dates this new page has not got, and the API
           //    rightly refuses that combination
           publishState: full.meta?.publishState === 'published' ? 'published' : 'draft',
-          reasonForChange: t('history.branchReason', { date: humanizeDate(full.versionDate) })
+          reasonForChange: t('history.branchReason', { date: humanizeDate(t, full.versionDate) })
         }
       }).json()
       const page = resp?.page

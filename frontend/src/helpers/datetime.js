@@ -1,5 +1,5 @@
 /**
- * Date and duration rendering for the admin tables, in the reader's own locale.
+ * Date and duration rendering shared across the app, in the reader's own locale.
  *
  * Shared because several screens had grown their own copy of the same walk down a units table — some
  * under a different name — and the copies had already started to drift. `humanizeDate` below is the
