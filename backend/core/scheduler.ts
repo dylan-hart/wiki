@@ -366,6 +366,16 @@ export default {
       return
     }
 
+    // -> Reserve the slots now, synchronously, before anything below `await`s: two concurrent
+    //    invocations (the polling interval and a burst of `newJob` NOTIFYs both call this, and
+    //    neither is serialized against the other) must not both read the same `activeWorkers` and
+    //    each proceed to claim up to `maxWorkers` jobs of their own. Reserving the full
+    //    `availableWorkers` amount up front — and correcting it down once the actual claim size is
+    //    known below — closes that window; a second, concurrent call sees the reservation already
+    //    made and computes its own `availableWorkers` accordingly, all before either's claim
+    //    transaction has had a chance to run.
+    this.activeWorkers += availableWorkers
+
     let jobs: any[] = []
     try {
       jobs = await WIKI.db.transaction(async (trx: any) => {
@@ -414,16 +424,23 @@ export default {
         return claimed
       })
     } catch (err: any) {
-      // -> Nothing was claimed: the transaction rolled back, so the jobs are still queued
+      // -> Nothing was claimed: the transaction rolled back, so the jobs are still queued. The
+      //    reservation above was for nothing — give the whole thing back, not just the
+      //    claim-succeeded correction below.
+      this.activeWorkers -= availableWorkers
       WIKI.logger.warn(err)
       return
     }
+
+    // -> Give back whatever the reservation over-claimed: fewer due jobs than reserved slots (or
+    //    none at all). `jobs.length` is always <= `availableWorkers` (`SKIP LOCKED LIMIT
+    //    ${availableWorkers}` bounds it), so this only ever releases, never adds.
+    this.activeWorkers -= availableWorkers - jobs.length
 
     if (jobs.length < 1) {
       return
     }
 
-    this.activeWorkers += jobs.length
     try {
       // -> `allSettled`, though `runJob` handles its own failures: one job that manages to throw
       //    anyway must not abandon the bookkeeping of the others
