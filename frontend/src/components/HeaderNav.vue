@@ -88,13 +88,21 @@
                (`HeaderSearch.vue`) as of OpenProject #1218, to match the 2.5.x reference layout --
                it is no longer one of the five icons here.
           -->
+          <!--
+            OpenProject #2024: this badge counts unread page-watch notifications
+            (`unreadNotifications` below), so it has to land on the tab that actually lists them --
+            `/_inbox/watching`, not the old `/_inbox` redirect into the now-deleted Messages stub.
+            `la:bell` matches the icon `InboxWatching`/`InboxLayout`'s sidenav already use for that
+            tab, so the glyph agrees with the destination instead of pointing at the unrelated
+            `mdi:inbox-full` glyph.
+          -->
           <w-btn
             v-if="userStore.authenticated"
             class="header-nav-btn"
             flat
-            icon="mdi:inbox-full"
+            icon="la:bell"
             color="amber"
-            to="/_inbox"
+            to="/_inbox/watching"
             :aria-label="t(`inbox.title`)">
             <!--
               Same `floating` badge shape `PageActionsCol`'s pending-assets button uses, on the one

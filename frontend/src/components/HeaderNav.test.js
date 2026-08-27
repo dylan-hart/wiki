@@ -73,3 +73,22 @@ describe('HeaderNav "Browse by tags" entry point (OpenProject #1218)', () => {
     expect(tagsLink).toBeFalsy()
   })
 })
+
+/**
+ * OpenProject #2024: the badge counts unread page-watch notifications (`unreadNotifications`,
+ * populated from `sites/:siteId/notifications/unread-count`), so the button carrying it has to link
+ * to the route that actually lists them -- `/_inbox/watching` -- not the old `/_inbox` redirect into
+ * the now-deleted `InboxMessages` stub. Asserting on the resolved `to` rather than a literal string
+ * is what keeps the two from drifting apart again if the route table ever changes shape.
+ */
+describe('HeaderNav inbox badge destination (OpenProject #2024)', () => {
+  it('points the badged inbox button at the route that lists notifications', async () => {
+    const { wrapper, userStore } = await mountHeaderNav()
+    userStore.authenticated = true
+    await wrapper.vm.$nextTick()
+
+    const inboxLink = wrapper.findAll('a').find((a) => a.attributes('href')?.startsWith('/_inbox'))
+    expect(inboxLink).toBeTruthy()
+    expect(inboxLink.attributes('href')).toBe('/_inbox/watching')
+  })
+})
