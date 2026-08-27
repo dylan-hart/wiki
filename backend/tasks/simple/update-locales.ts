@@ -2,6 +2,9 @@ import { setTimeout } from 'node:timers/promises'
 import { sql } from 'drizzle-orm'
 import { locales as localesTable } from '../../db/schema.ts'
 
+/** Upper bound on languages processed per run, so a single metadata response cannot dictate unbounded work. */
+const MAX_LANGUAGES = 500
+
 export async function task(): Promise<void> {
   if (WIKI.config.offline) {
     WIKI.logger.info(
@@ -26,10 +29,23 @@ export async function task(): Promise<void> {
         isRtl: boolean
       }[]
     }
-    const metadata = await fetch(
-      'https://github.com/requarks/wiki-locales/raw/main/locales/metadata.json'
-    ).then((r) => r.json() as Promise<LocaleMetadata>)
-    for (const lang of metadata.languages) {
+    const metadataResp = await fetch(
+      'https://github.com/requarks/wiki-locales/raw/main/locales/metadata.json',
+      { signal: AbortSignal.timeout(15_000) }
+    )
+    if (!metadataResp.ok) {
+      throw new Error(`wiki-locales answered ${metadataResp.status} for metadata.json`)
+    }
+    const metadata = (await metadataResp.json()) as LocaleMetadata
+
+    const languages = metadata.languages.slice(0, MAX_LANGUAGES)
+    if (metadata.languages.length > MAX_LANGUAGES) {
+      WIKI.logger.warn(
+        `Metadata listed ${metadata.languages.length} languages, only processing the first ${MAX_LANGUAGES}.`
+      )
+    }
+
+    for (const lang of languages) {
       // -> Build filename
       const langFilenameParts = [lang.language]
       if (lang.region) {
@@ -43,7 +59,8 @@ export async function task(): Promise<void> {
       WIKI.logger.debug(`Fetching updates for language ${langFilename}...`)
 
       const stringsResp = await fetch(
-        `https://raw.githubusercontent.com/requarks/wiki-locales/main/locales/${langFilename}.json`
+        `https://raw.githubusercontent.com/requarks/wiki-locales/main/locales/${langFilename}.json`,
+        { signal: AbortSignal.timeout(15_000) }
       )
       const strings = stringsResp.ok ? await stringsResp.json() : null
 

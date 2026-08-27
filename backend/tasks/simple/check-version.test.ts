@@ -62,4 +62,30 @@ describe('check-version.task', () => {
     assert.equal(fetchSpy.mock.callCount(), 0)
     assert.equal(saveToDb.mock.callCount(), 0)
   })
+
+  test('the fetch carries an abort signal (OpenProject #2253)', async () => {
+    const fetchSpy = mock.fn(
+      async (_url?: string | URL | Request, _init?: RequestInit) =>
+        new Response(JSON.stringify({ tag_name: 'v3.1.0', published_at: '2026-08-01T00:00:00Z' }), {
+          status: 200
+        })
+    )
+    globalThis.fetch = fetchSpy as unknown as typeof fetch
+
+    await checkVersion()
+
+    assert.equal(fetchSpy.mock.callCount(), 1)
+    const init = fetchSpy.mock.calls[0]!.arguments[1]
+    assert.ok(init?.signal instanceof AbortSignal, 'fetch call missing an AbortSignal')
+  })
+
+  test('throws and does not save when the releases API answers non-ok (OpenProject #2253)', async () => {
+    globalThis.fetch = mock.fn(
+      async () => new Response('Service Unavailable', { status: 503 })
+    ) as unknown as typeof fetch
+
+    await assert.rejects(checkVersion(), /503/)
+
+    assert.equal(saveToDb.mock.callCount(), 0)
+  })
 })
