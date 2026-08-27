@@ -735,6 +735,16 @@ class Pages {
    * chose to bring up to the new floor. No floor/permission checks here: the API route is the one
    * place that decides who may call this and validates the target level, the same layering
    * `updatePage`'s own caller (`api/pages.ts`) already follows for the declassification guardrail.
+   *
+   * `.returning()` gets the raw rows for free off the same write -- exactly what
+   * `WIKI.models.search.updated` wants (`SearchIndexablePage`, `updatePage`'s own comment above
+   * explains why), and without it every external search module keeps indexing the old
+   * classification, so a raise leaves those pages searchable at their prior, more open level (an
+   * external module decides `read:pages` visibility per-hit off the indexed copy -- see
+   * `modules/search/algolia/search.ts`). And since `pageClassification` is part of what
+   * `glossary.ts#getRawCachedTerms` caches per term, a batch that changes it needs the cache dropped
+   * too -- one call after the loop covers the whole batch, same as `deleteOrphaned`'s glossary
+   * invalidation.
    */
   async bulkSetClassification(
     siteId: string,
@@ -744,11 +754,18 @@ class Pages {
     if (ids.length < 1) {
       return 0
     }
-    const result = await WIKI.db
+    const rows = await WIKI.db
       .update(pagesTable)
       .set({ classification, updatedAt: sql`now()` })
       .where(and(eq(pagesTable.siteId, siteId), inArray(pagesTable.id, ids)))
-    return result.rowCount ?? 0
+      .returning()
+    for (const row of rows) {
+      await WIKI.models.search.updated(row)
+    }
+    if (rows.length > 0) {
+      WIKI.models.glossary.invalidateCache(siteId)
+    }
+    return rows.length
   }
 
   /**
