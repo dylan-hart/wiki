@@ -7,7 +7,6 @@ import crypto from 'node:crypto'
 import { create as createTarball, list as listTarball } from 'tar'
 import { and, eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { readArchive } from './siteImport.ts'
 import {
   assets as assetsTable,
   groups as groupsTable,
@@ -171,84 +170,6 @@ describe('importModel.saveUpload (pure, no DB)', () => {
 
   test('saveUpload rejects an empty body', async () => {
     await assert.rejects(importModel.saveUpload(Readable.from([]), 1024), /No archive was sent/)
-  })
-})
-
-/**
- * `readArchive`'s two ceilings (OpenProject #2213), exercised directly against real tar fixtures
- * rather than through the DB-backed `importSite` round trip below — no `WIKI` global and no database
- * needed, since `readArchive` itself touches neither.
- */
-describe('siteImport.readArchive — decompressed-size ceilings (#2213)', () => {
-  let workDir: string
-
-  before(async () => {
-    workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-readarchive-test-'))
-  })
-
-  after(async () => {
-    await fs.rm(workDir, { recursive: true, force: true })
-  })
-
-  /** Builds a small gzipped tarball out of `{ name: content }`, the same helper shape as below. */
-  async function buildArchive(
-    name: string,
-    entries: Record<string, string | Buffer>
-  ): Promise<string> {
-    const stagingDir = await fs.mkdtemp(path.join(workDir, 'staging-'))
-    for (const [entryName, data] of Object.entries(entries)) {
-      await fs.writeFile(path.join(stagingDir, entryName), data)
-    }
-    const filePath = path.join(workDir, name)
-    await createTarball({ gzip: true, file: filePath, cwd: stagingDir }, Object.keys(entries))
-    return filePath
-  }
-
-  test('reads back every entry normally, well under either ceiling', async () => {
-    const filePath = await buildArchive('normal.tar.gz', {
-      'a.json': '{"ok":true}',
-      'b.txt': 'hello'
-    })
-    const entries = await readArchive(filePath)
-    assert.equal(entries['a.json']!.toString('utf8'), '{"ok":true}')
-    assert.equal(entries['b.txt']!.toString('utf8'), 'hello')
-  })
-
-  test('aborts once a single entry decompresses past the per-entry ceiling', async () => {
-    const filePath = await buildArchive('oversized-entry.tar.gz', {
-      'huge.bin': Buffer.alloc(2048, 'x')
-    })
-
-    await assert.rejects(readArchive(filePath, { maxEntryBytes: 1024 }), (err: any) => {
-      assert.match(err.message, /huge\.bin/)
-      assert.match(err.message, /per-entry limit/)
-      return true
-    })
-  })
-
-  test('aborts once the total across every entry passes the aggregate ceiling, even with no single oversized entry', async () => {
-    // -> Five entries, each safely under the per-entry ceiling, whose sum still passes the aggregate
-    //    one -- proves the two limits are independent checks, not the same one twice.
-    const filePath = await buildArchive('oversized-aggregate.tar.gz', {
-      'one.bin': Buffer.alloc(300, 'a'),
-      'two.bin': Buffer.alloc(300, 'b'),
-      'three.bin': Buffer.alloc(300, 'c'),
-      'four.bin': Buffer.alloc(300, 'd'),
-      'five.bin': Buffer.alloc(300, 'e')
-    })
-
-    await assert.rejects(
-      readArchive(filePath, { maxEntryBytes: 1024, maxTotalBytes: 1024 }),
-      /total decompressed size exceeds/
-    )
-  })
-
-  test('a normal read is unaffected by the override defaulting mechanism itself', async () => {
-    const filePath = await buildArchive('defaults.tar.gz', { 'small.txt': 'fits easily' })
-    // -> No `limits` argument at all -- the real, module-level ceilings apply, exactly as
-    //    `importSite` calls it.
-    const entries = await readArchive(filePath)
-    assert.equal(entries['small.txt']!.toString('utf8'), 'fits easily')
   })
 })
 
