@@ -253,8 +253,7 @@ import HeaderNav from '@/components/HeaderNav.vue'
 import FooterNav from '@/components/FooterNav.vue'
 import MainOverlayDialog from '@/components/MainOverlayDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
-
-const tagsInQueryRgx = /#[a-z0-9-\u3400-\u4DBF\u4E00-\u9FFF]+(?=(?:[^"]*(?:")[^"]*(?:"))*[^"]*$)/g
+import { extractTags, MAX_QUERY_LENGTH } from './searchTags.js'
 
 /** How many results one search returns. The API caps this at 100, and there is no pager yet. */
 const RESULTS_LIMIT = 100
@@ -361,7 +360,7 @@ watch(
   () => route.query,
   async (newQueryObj) => {
     if (newQueryObj.q) {
-      siteStore.search = newQueryObj.q.trim()
+      siteStore.search = newQueryObj.q.trim().slice(0, MAX_QUERY_LENGTH)
       syncTags()
       performSearch()
     }
@@ -391,9 +390,7 @@ function setOrderBy(val) {
 }
 
 function syncTags(newSelection) {
-  const queryTags = Array.from(siteStore.search.matchAll(tagsInQueryRgx)).map((t) =>
-    t[0].substring(1)
-  )
+  const queryTags = extractTags(siteStore.search)
   if (!newSelection) {
     state.selectedTags = queryTags
   } else {
@@ -415,7 +412,7 @@ async function performSearch() {
   let q = siteStore.search ?? ''
 
   // -> Extract tags
-  const queryTags = Array.from(q.matchAll(tagsInQueryRgx)).map((t) => t[0].substring(1))
+  const queryTags = extractTags(q)
   for (const tag of queryTags) {
     q = q.replaceAll(`#${tag}`, '')
   }
