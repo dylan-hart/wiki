@@ -30,6 +30,7 @@
     </div>
 
     <w-input
+      ref="contentIpt"
       v-model="content"
       type="textarea"
       outlined
@@ -39,8 +40,7 @@
       :hint="t(`common.comments.markdownFormat`)"
       :rules="contentRules"
       lazy-rules="ondemand"
-      :aria-label="t(`common.comments.fieldContent`)"
-      :autofocus="Boolean(replyTo)" />
+      :aria-label="t(`common.comments.fieldContent`)" />
 
     <div class="comment-composer-actions flex flex-wrap items-center gap-3">
       <w-btn
@@ -65,7 +65,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { notify } from '@/composables/notify'
@@ -113,6 +113,22 @@ const guestEmail = ref('')
 const submitting = ref(false)
 
 const composerForm = ref(null)
+const contentIpt = ref(null)
+
+/*
+  Only a reply composer steals focus on mount -- the permanent top-level one (`replyTo: null`) is
+  already on the page when it loads, and there is no "just opened this" moment to justify jumping the
+  caret into it. A reply composer, by contrast, is freshly mounted the instant `PageComments.vue`
+  toggles its reply box open (`v-if="openReplyIds.has(...)"`), so `onMounted` here really does line up
+  with "just appeared for the reader to type into."
+*/
+onMounted(() => {
+  if (props.replyTo) {
+    nextTick(() => {
+      contentIpt.value?.focus()
+    })
+  }
+})
 
 const nameRules = guestNameRules(t)
 const emailRules = guestEmailRules(t)

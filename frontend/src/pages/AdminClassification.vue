@@ -76,10 +76,10 @@
               <w-item-section>
                 <w-input
                   v-if="state.editingId === level.id"
+                  :ref="(el) => (renameInput = el)"
                   v-model="state.editingName"
                   dense
                   outlined
-                  autofocus
                   @keyup.enter="commitRename(level)"
                   @blur="commitRename(level)" />
                 <template v-else>
@@ -158,7 +158,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { defineAsyncComponent, onMounted, reactive } from 'vue'
+import { defineAsyncComponent, nextTick, onMounted, reactive } from 'vue'
 
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
@@ -195,6 +195,14 @@ const state = reactive({
   editingId: null,
   editingName: ''
 })
+
+/**
+ * The active rename field's `w-input` instance, set by the callback `:ref` in the template -- there
+ * is at most one at a time (`state.editingId` is a single id, not a set), so a plain variable rather
+ * than a ref-per-row map is enough. Not a Vue `ref()`: nothing reads it reactively, it only exists to
+ * be imperatively `.focus()`-ed once `startRename` puts it on screen.
+ */
+let renameInput = null
 
 // METHODS
 
@@ -244,9 +252,18 @@ async function createLevel() {
   }
 }
 
+/*
+  Focusing here is safe from the "don't scroll a keyboard user out from under themselves" concern the
+  task calls out: this swaps the field in at the exact spot the rename button the reader just clicked
+  already sits, inside a list that was already on screen -- there is nowhere new for the browser to
+  scroll to.
+*/
 function startRename(level) {
   state.editingId = level.id
   state.editingName = level.name
+  nextTick(() => {
+    renameInput?.focus()
+  })
 }
 
 async function commitRename(level) {

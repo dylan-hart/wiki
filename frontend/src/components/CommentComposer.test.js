@@ -63,11 +63,34 @@ async function mountComposer({ replyTo = null, authenticated = true, name = 'Jan
 
   const wrapper = mount(CommentComposer, {
     props: { replyTo },
-    global: { plugins: [i18n] }
+    global: { plugins: [i18n] },
+    attachTo: document.body
   })
 
   return { wrapper, pageStore, siteStore, userStore }
 }
+
+/**
+ * OpenProject #1671: the textarea's `:autofocus="Boolean(replyTo)"` attribute never did anything --
+ * `WInput.vue` exposes no such prop. `onMounted` now focuses it itself for a reply composer, since
+ * `PageComments.vue` mounts a fresh instance the moment a reply box is toggled open, and leaves the
+ * permanent top-level composer alone (nothing was "just opened" about a form already on the page).
+ */
+describe('CommentComposer autofocus', () => {
+  it('focuses the textarea on mount for a reply composer', async () => {
+    const { wrapper } = await mountComposer({ replyTo: 'c1' })
+    await flushPromises()
+
+    expect(document.activeElement).toBe(wrapper.find('textarea').element)
+  })
+
+  it('does not steal focus on mount for the permanent top-level composer', async () => {
+    const { wrapper } = await mountComposer({ replyTo: null })
+    await flushPromises()
+
+    expect(document.activeElement).not.toBe(wrapper.find('textarea').element)
+  })
+})
 
 describe('CommentComposer', () => {
   it('shows guest name/email fields when unauthenticated', async () => {

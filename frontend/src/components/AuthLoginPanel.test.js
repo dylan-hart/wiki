@@ -191,7 +191,8 @@ function mountAuthLoginPanel() {
   const wrapper = mount(AuthLoginPanel, {
     global: {
       plugins: [i18n]
-    }
+    },
+    attachTo: document.body
   })
 
   return { wrapper, siteStore }
@@ -200,6 +201,38 @@ function mountAuthLoginPanel() {
 beforeEach(() => {
   notifyQueue.splice(0, notifyQueue.length)
   window.history.replaceState(null, '', '/login')
+})
+
+/**
+ * OpenProject #1671: the username field's bare `autofocus` attribute never did anything -- `WInput.vue`
+ * exposes no such prop, so arriving at `/login` put the caret nowhere. `onMounted` now focuses it
+ * itself, ahead of the `fetchStrategies()` network round trip so it happens on first paint rather than
+ * after the response lands -- and only when the reset-password token check (`detectResetToken()`)
+ * leaves the screen on `login`, so a `/login/reset-password/:token` visit still gets its own field
+ * focused by `switchTo('reset')` instead, not this one stealing it back.
+ */
+describe('AuthLoginPanel focus on first paint', () => {
+  it('focuses the username field on first paint at /login, before strategies have loaded', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([REGISTRATION_STRATEGY]) })
+
+    const { wrapper } = mountAuthLoginPanel()
+    await wrapper.vm.$nextTick()
+
+    expect(document.activeElement).toBe(wrapper.find('input[autocomplete="email"]').element)
+  })
+
+  it('does not focus the login field when a reset-password token puts the reset screen up instead', async () => {
+    window.history.replaceState(null, '', '/login/reset-password/tok-abc')
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([REGISTRATION_STRATEGY]) })
+
+    const { wrapper } = mountAuthLoginPanel()
+    await vi.waitFor(() =>
+      expect(wrapper.text()).toContain('Choose a new password for your account:')
+    )
+
+    const pwdInputs = wrapper.findAll('input[autocomplete="new-password"]')
+    expect(document.activeElement).toBe(pwdInputs[0].element)
+  })
 })
 
 describe('AuthLoginPanel register', () => {
