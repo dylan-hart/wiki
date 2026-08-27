@@ -584,6 +584,14 @@ class PageHistory {
    * taken, or a locale the site no longer has — so a caller can steer the recreated page around the
    * conflict instead of recovery being an all-or-nothing retry of the exact same input.
    *
+   * Carries the classification the page held when it was deleted (OpenProject #1672), rather than
+   * letting `createPage` fall back to the destination's floor or the instance default -- a page
+   * classified `Restricted` and deleted must not come back `Public`. Also queues a re-render once the
+   * page exists, since a deleted version's row never stored the rendered HTML (only `EXCLUDED_FROM_META`
+   * fields are derived, and `render`/`toc`/`searchContent` are among them) -- left unqueued, the
+   * recovered page would render as a blank body until someone re-saved it or an admin re-rendered it by
+   * hand.
+   *
    * @throws If no `deleted` version exists at this id for this site.
    */
   async recoverDeletedPage(
@@ -614,6 +622,11 @@ class PageHistory {
       description: meta.description,
       icon: meta.icon,
       alias: meta.alias,
+      // -> The level the page held when it was deleted (OpenProject #1672). `resolveCreateClassification`
+      //    still validates it against the *destination* parent's floor -- `overrides.path` can move the
+      //    page under a stricter branch -- so a recovery that can no longer honor the original level
+      //    throws `classificationInvalid`/`classificationBelowFloor` instead of silently reopening it.
+      classification: meta.classification,
       publishState: meta.publishState,
       publishStartDate: meta.publishStartDate ?? null,
       publishEndDate: meta.publishEndDate ?? null,
@@ -634,7 +647,22 @@ class PageHistory {
       scriptCss: scripts.css
     }
 
-    return WIKI.models.pages.createPage(siteId, input, actor)
+    const page = await WIKI.models.pages.createPage(siteId, input, actor)
+
+    // -> Best effort, not a hard dependency: `queueRerender` calls `ensureCanRender` unconditionally and
+    //    throws `renderUnsupportedEditor`/`renderPuppeteerMissing` on an instance with no Puppeteer
+    //    extension, which must not turn a successful recovery into a 500 with the page already created.
+    //    Mirrors `migration/page-import.ts`'s try/catch/log/continue shape for the same call.
+    try {
+      await WIKI.models.pages.queueRerender(siteId, page.id, actor)
+    } catch (err: any) {
+      WIKI.logger.warn(
+        `Recovered page ${page.id} but failed to queue a re-render -- it will render blank until ` +
+          `re-saved or re-rendered manually: ${err.message}`
+      )
+    }
+
+    return page
   }
 
   /**
