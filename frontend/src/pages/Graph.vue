@@ -3,6 +3,8 @@
     <canvas
       ref="canvasRef"
       class="graph-view-canvas"
+      role="img"
+      :aria-label="graphAccessibleName"
       @click="onCanvasClick"
       @mousemove="onCanvasMouseMove" />
     <div
@@ -295,6 +297,20 @@ function groupKeyFor(node) {
   }
   return node.folder || '(root)'
 }
+
+/** Accessible name for the canvas (OpenProject #1681) -- with no `role`/label at all, a screen
+ *  reader announces the graph as nothing, so this is the minimum text alternative: a live summary
+ *  of what's currently drawn. Reads `nodes.value`/`edges.value`/`groupBy` -- already-held reactive
+ *  state, no separate computation -- and excludes synthetic hub/root nodes (`applyFilters()`'s
+ *  `edgeMode`-driven stand-ins, never real pages) from the page count. `groupBy`'s own values
+ *  ('folder'/'tag'/'classification') already read as the words used here, so no separate label
+ *  lookup is needed; a real focusable text alternative (per-node links) is #1686's larger scope,
+ *  and moving this string into a `graph.*` i18n key is #1690's. */
+const graphAccessibleName = computed(() => {
+  const pageCount = nodes.value.filter((node) => !node.synthetic).length
+  const linkCount = edges.value.length
+  return `Knowledge graph: ${pageCount} page${pageCount === 1 ? '' : 's'}, ${linkCount} link${linkCount === 1 ? '' : 's'}, grouped by ${groupBy.value}`
+})
 
 /*
   The `dataviz` skill's validated 8-slot categorical theme (references/palette.md), light-surface

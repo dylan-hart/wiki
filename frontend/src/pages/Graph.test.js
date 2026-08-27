@@ -534,6 +534,28 @@ describe('Graph.vue (OpenProject #891)', () => {
     expect(wrapper.text()).not.toContain('12 visits')
   })
 
+  it('gives the canvas role="img" and a computed accessible name reflecting node/link counts and grouping (OpenProject #1681)', async () => {
+    const wrapper = await mountGraph()
+    const canvas = wrapper.find('canvas')
+
+    expect(canvas.attributes('role')).toBe('img')
+    const label = canvas.attributes('aria-label')
+    const realPageCount = wrapper.vm.nodes.filter((node) => !node.synthetic).length
+    expect(realPageCount).toBe(FIXTURE_GRAPH.nodes.length)
+    expect(label).toContain(`${realPageCount} page`)
+    expect(label).toContain(`${wrapper.vm.edges.length} link`)
+    expect(label).toContain('grouped by folder')
+  })
+
+  it('updates the accessible name when groupBy changes (OpenProject #1681)', async () => {
+    const wrapper = await mountGraph()
+
+    wrapper.vm.groupBy = 'classification'
+    await flushPromises()
+
+    expect(wrapper.find('canvas').attributes('aria-label')).toContain('grouped by classification')
+  })
+
   it('recovers from a fetch failure without throwing', async () => {
     setActivePinia(createPinia())
     const siteStore = useSiteStore()
