@@ -8,10 +8,9 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     $id: 'DiagramRenderRequest',
     type: 'object',
     required: ['type', 'source'],
-    // -> Closes the door all the way on the removed `server` override (OpenProject #2219): a stray
-    //    or forwarded `server` field is stripped by Fastify's default `removeAdditional` AJV option
-    //    before the request body ever reaches the model, rather than silently passing through
-    //    unused (which `additionalProperties`'s absence would otherwise allow).
+    // -> No per-request `server` override: which PlantUML server this renders against is read from
+    //    the site's own `block-plantuml` config (OpenProject task 2223), never from the caller, so
+    //    Fastify's default `removeAdditional` strips a `server` field rather than forwarding it.
     additionalProperties: false,
     properties: {
       type: {

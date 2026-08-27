@@ -30,7 +30,10 @@ before(async () => {
       rateLimits: {
         consume: mock.fn(async () => ({ allowed: true, retryAfter: 0 }))
       }
-    }
+    },
+    // -> Resolved and passed to the model on every render, same as `index.ts`'s SEO hook does for its
+    //    own non-site-scoped lookups — see `diagrams.ts`'s handler comment.
+    sitesMappings: { '*': 'default-site-id', 'site-b.example.com': 'site-b-id' }
   }
 
   app = fastify({
@@ -80,7 +83,7 @@ test('refuses an anonymous request without asking the model to render anything',
   assert.equal(render.mock.callCount(), 0)
 })
 
-test('forwards the request body to the model unchanged', async () => {
+test('forwards the request body to the model unchanged, alongside the resolved siteId', async () => {
   const body = {
     type: 'plantuml',
     source: '@startuml\nA -> B\n@enduml',
@@ -92,6 +95,46 @@ test('forwards the request body to the model unchanged', async () => {
   assert.equal(res.statusCode, 200)
   assert.equal(render.mock.callCount(), 1)
   assert.deepEqual(render.mock.calls[0].arguments[0], body)
+  assert.equal(render.mock.calls[0].arguments[1], 'default-site-id')
+})
+
+test('a server-supplied "server" field is stripped before it ever reaches the model (OpenProject #2223)', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/render',
+    payload: {
+      type: 'plantuml',
+      source: '@startuml\nA -> B\n@enduml',
+      server: 'https://x.example.com'
+    }
+  })
+
+  assert.equal(res.statusCode, 200)
+  assert.equal((render.mock.calls[0].arguments[0] as any).server, undefined)
+})
+
+test('resolves the site from the request hostname, not a fixed default', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/render',
+    headers: { host: 'site-b.example.com' },
+    payload: BODY
+  })
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(render.mock.calls[0].arguments[1], 'site-b-id')
+})
+
+test('falls back to the catch-all site for an unmapped hostname', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/render',
+    headers: { host: 'unmapped.example.com' },
+    payload: BODY
+  })
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(render.mock.calls[0].arguments[1], 'default-site-id')
 })
 
 test('the body schema no longer accepts a `server` override — it is stripped before reaching the model (OpenProject #2219)', async () => {
