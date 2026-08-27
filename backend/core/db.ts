@@ -52,14 +52,57 @@ const LEGACY_TABLES = ['knex_migrations', 'searchEngines']
  * The decision is made per query rather than when the instance is built, so that the `sqlLog` system
  * flag can be turned on in the admin area and take effect on the next query — a logger chosen at boot
  * would need a restart.
+ *
+ * Bound parameter *values* are never logged, only redacted below. A bound parameter routinely carries
+ * a secret — `models/settings.ts#updateConfig` binds a whole settings blob as one JSONB parameter, and
+ * that blob can hold the API signing private key and its passphrase, the session secret, SMTP/LDAP/
+ * OAuth credentials, storage-target keys, bcrypt hashes and TOTP secrets — and this line reaches
+ * `WIKI.logger.info` unconditionally whenever either trigger below is on: the container log pipeline
+ * for `sqlLog`/`dev.logQueries`, and every connected admin terminal client via
+ * `controllers/terminal.ts`'s backlog replay. Redaction lives inside `logQuery` itself rather than
+ * behind either trigger's `if`, so both are covered identically. See OpenProject #2205.
  */
-const queryLogger = {
+export const queryLogger = {
   logQuery(query: string, params: unknown[]): void {
     if (!flags.isEnabled('sqlLog') && !WIKI.config.dev?.logQueries) {
       return
     }
-    WIKI.logger.info(`[SQL] ${query}${params.length > 0 ? ` -- ${JSON.stringify(params)}` : ''}`)
+    WIKI.logger.info(
+      `[SQL] ${query}${params.length > 0 ? ` -- ${describeQueryParams(params)}` : ''}`
+    )
   }
+}
+
+/**
+ * Describes a bound-parameter array for logging without exposing any value it carries — see
+ * `queryLogger` above.
+ */
+function describeQueryParams(params: unknown[]): string {
+  const count = params.length
+  return `(${count} param${count === 1 ? '' : 's'}: ${params.map(describeQueryParam).join(', ')})`
+}
+
+/** Type/length descriptor for one bound parameter. Never returns the value itself. */
+function describeQueryParam(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'null'
+  }
+  if (typeof value === 'string') {
+    return `string(${value.length})`
+  }
+  if (Buffer.isBuffer(value)) {
+    return `buffer(${value.length})`
+  }
+  if (Array.isArray(value)) {
+    return `array(${value.length})`
+  }
+  if (value instanceof Date) {
+    return 'date'
+  }
+  if (typeof value === 'object') {
+    return 'object'
+  }
+  return typeof value
 }
 
 /**
