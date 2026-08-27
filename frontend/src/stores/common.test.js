@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 import { blockImportUrl, useCommonStore } from './common.js'
@@ -59,5 +59,31 @@ describe('common store: loadBlocks()', () => {
     //    only thing this test can observe is that the failure was NOT recorded as loaded -- the URL
     //    construction itself is covered directly by the blockImportUrl() tests above.
     expect(store.blocksLoaded).not.toContain('block-widget')
+  })
+
+  /**
+   * OpenProject #1734: `toLoad`'s `!blocksLoaded.includes(...)` filter only screens out a tag that
+   * has ALREADY finished loading -- two calls racing for the same not-yet-loaded tag both used to
+   * pass it and both `import()`, each appending the tag to `blocksLoaded` once its own import
+   * resolved. A tag whose import actually succeeds is the only way to observe the fix (a failed
+   * import never reaches the `blocksLoaded.push()` line at all), so this stubs `import()`'s
+   * underlying failure into a success by resolving the returned promise directly rather than relying
+   * on a real module existing under `/_blocks/` in this environment.
+   */
+  it('appends blocksLoaded exactly once for two concurrent loadBlocks() calls racing for the same tag', async () => {
+    const store = useCommonStore()
+    let resolveImport
+    const importSpy = vi.spyOn(store, '_importBlock').mockImplementation(async (entry) => {
+      await new Promise((resolve) => (resolveImport = resolve))
+      store.blocksLoaded.push(entry.tag)
+    })
+
+    const first = store.loadBlocks(['block-race'])
+    const second = store.loadBlocks(['block-race'])
+    resolveImport()
+    await Promise.all([first, second])
+
+    expect(importSpy).toHaveBeenCalledTimes(1)
+    expect(store.blocksLoaded.filter((tag) => tag === 'block-race')).toEqual(['block-race'])
   })
 })

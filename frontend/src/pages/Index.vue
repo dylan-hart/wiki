@@ -811,8 +811,17 @@ watch(
       // -> Load Blocks. `?.` because a locked page draws its lock screen in place of the article, so
       //    there is no content element to scan -- and nothing in it to scan for.
       nextTick(() => {
+        // -> Keyed on the tag, so several elements sharing one not-yet-defined tag (a page with a
+        //    dozen `block-tabs`, say) only resolve it once -- one `loadBlocks()` call below with one
+        //    entry per tag, mirroring `EditorMarkdown.vue`'s own `pendingBlocks` Map (OpenProject
+        //    #1734). Collecting into a Map is a courtesy to whoever reads `blocksLoaded` later, not a
+        //    safety requirement any more: `loadBlocks()` itself dedupes concurrent same-tag requests.
+        const pendingBlocks = new Map()
         for (const block of pageContents.value?.querySelectorAll(':not(:defined)') ?? []) {
           const tag = block.tagName.toLowerCase()
+          if (pendingBlocks.has(tag)) {
+            continue
+          }
           // -> Resolved off `siteStore.blocksIndex` (a public field on the site-info response
           //    every reader's browser already has) rather than `GET sites/:siteId/blocks`, which
           //    is gated to authors/administrators and silently 403s for a plain reader -- see
@@ -825,7 +834,10 @@ watch(
           const record = tag.startsWith('block-')
             ? siteStore.blocksIndex[tag.slice('block-'.length)]
             : undefined
-          commonStore.loadBlocks([record ? { tag, isCustom: record.isCustom, id: record.id } : tag])
+          pendingBlocks.set(tag, record ? { tag, isCustom: record.isCustom, id: record.id } : tag)
+        }
+        if (pendingBlocks.size > 0) {
+          commonStore.loadBlocks([...pendingBlocks.values()])
         }
         /*
           Then the heading in the URL, if there is one. The browser tried it the moment it had the

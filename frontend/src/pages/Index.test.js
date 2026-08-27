@@ -413,6 +413,76 @@ describe('Index.vue: read-path block loading for a directly-loaded/reloaded page
 })
 
 /**
+ * OpenProject #1734: the block scan below used to call `commonStore.loadBlocks()` once PER
+ * undefined element, rather than once for the whole page. `loadBlocks()`'s own `!blocksLoaded
+ * .includes(...)` filter only screens out a tag that has ALREADY finished loading, so N concurrent
+ * calls for the same not-yet-loaded tag all pass it -- a page with several elements of the same tag
+ * (a `block-tabs` used three times, say) fired three identical `loadBlocks()` calls instead of one,
+ * making `blocksLoaded` misleading to anyone debugging block loading. Collapsed into a single call
+ * with one Map entry per tag, mirroring `EditorMarkdown.vue`'s own `pendingBlocks` Map.
+ */
+describe('Index.vue: collapses the block scan into one loadBlocks() call (OpenProject #1734)', () => {
+  it('produces exactly one loadBlocks() call carrying one entry per tag, for a page with several elements sharing a tag', async () => {
+    setActivePinia(createPinia())
+
+    const commonStore = useCommonStore()
+    const loadBlocksSpy = vi.spyOn(commonStore, 'loadBlocks').mockResolvedValue(undefined)
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'page-1',
+          path: 'tabbed-page',
+          editor: 'markdown',
+          render:
+            '<block-tabs>One</block-tabs>' +
+            '<block-tabs>Two</block-tabs>' +
+            '<block-tabs>Three</block-tabs>' +
+            '<block-alert>Note</block-alert>',
+          relations: [],
+          tocDepth: { min: 1, max: 6 }
+        })
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    router.push('/')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(Index, {
+      global: {
+        plugins: [router, i18n],
+        stubs: {
+          PageHeader: true,
+          PageActionsCol: true,
+          PageToc: true,
+          PageTags: true,
+          SideDialog: true,
+          PageRedirect: true,
+          FooterNav: true,
+          PageComments: true
+        }
+      }
+    })
+    await flushPromises()
+    // -> The block scan runs inside the route watcher's own `nextTick`, one tick behind `pageLoad`
+    //    resolving -- a second flush is what lets that nested callback actually run
+    await flushPromises()
+
+    expect(loadBlocksSpy).toHaveBeenCalledTimes(1)
+    const [entries] = loadBlocksSpy.mock.calls[0]
+    const tags = entries.map((entry) => (typeof entry === 'string' ? entry : entry.tag))
+    expect(tags).toEqual(['block-tabs', 'block-alert'])
+
+    wrapper.unmount()
+  })
+})
+
+/**
  * OpenProject #947, item 1: the `/_create` and `/_edit` route-watcher branches called
  * `loading.show()` then `await pageStore.pageCreate(...)`/`pageEdit(...)` with no try/catch, unlike
  * the plain page-load branch (whose own catch handles every error `pageLoad` can throw). A rejection

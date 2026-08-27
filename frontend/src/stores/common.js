@@ -53,21 +53,51 @@ export const useCommonStore = defineStore('common', {
       localStorage.setItem('locale', locale)
     },
     /**
+     * Import one block entry's compiled component and record it as loaded. Split out from
+     * `loadBlocks()` below so its per-tag dedupe can be verified with a stubbed import that actually
+     * resolves — nothing under `/_blocks/` is really served in a unit test, so a real `import()`
+     * always rejects, which would leave `blocksLoaded` untouched no matter how many callers raced.
+     */
+    async _importBlock(entry, siteId) {
+      await import(/* @vite-ignore */ blockImportUrl(entry, siteId))
+      this.blocksLoaded.push(entry.tag)
+    },
+    /**
      * @param blocks Tags to load, each either a bare string (a built-in) or `{ tag, isCustom, id }`
      *   (a record from `sites/:siteId/blocks` -- see `normalizeBlockEntry()`).
+     *
+     * Concurrency-safe per tag: `toLoad`'s `!blocksLoaded.includes(...)` filter only screens out a
+     * tag that has ALREADY finished loading -- two calls racing for the same not-yet-loaded tag would
+     * otherwise both pass it and both `import()`, each appending the tag to `blocksLoaded` once it
+     * resolves (OpenProject #1734). `this._pendingImports` closes that gap: the first caller for a
+     * given tag stores its in-flight promise there, every other caller (this call's own remaining
+     * entries included, and any later call before the import settles) awaits that same promise
+     * instead of starting a second `import()`. Removed again once settled -- success or failure --
+     * so a later call for a tag whose import failed still gets a real retry rather than being stuck
+     * on a rejected promise forever.
      */
     async loadBlocks(blocks = []) {
       const siteStore = useSiteStore()
+      this._pendingImports ??= new Map()
       const entries = blocks.map(normalizeBlockEntry)
       const toLoad = entries.filter((entry) => !this.blocksLoaded.includes(entry.tag))
-      for (const entry of toLoad) {
-        try {
-          await import(/* @vite-ignore */ blockImportUrl(entry, siteStore.id))
-          this.blocksLoaded.push(entry.tag)
-        } catch (err) {
-          console.warn(`Failed to load ${entry.tag}: ${err.message}`)
-        }
-      }
+      await Promise.all(
+        toLoad.map((entry) => {
+          if (!this._pendingImports.has(entry.tag)) {
+            this._pendingImports.set(
+              entry.tag,
+              this._importBlock(entry, siteStore.id)
+                .catch((err) => {
+                  console.warn(`Failed to load ${entry.tag}: ${err.message}`)
+                })
+                .finally(() => {
+                  this._pendingImports.delete(entry.tag)
+                })
+            )
+          }
+          return this._pendingImports.get(entry.tag)
+        })
+      )
     }
   }
 })
