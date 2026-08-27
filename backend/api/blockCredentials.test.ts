@@ -184,7 +184,11 @@ describe('block credentials API (site-scoped delegation)', () => {
         'x-test-permissions': '',
         'x-test-site-permissions': `site:blocks@${SITE_ID}`
       },
-      payload: { name: 'Prod API', secret: 'sekret-abc', allowedDomains: ['api.example.com'] }
+      payload: {
+        name: 'Prod API',
+        secret: 'sekret-abc',
+        allowedDomains: ['https://api.example.com']
+      }
     })
     assert.equal(res.statusCode, 200)
     assert.equal(createCredentialCalls.length, 1)
@@ -192,7 +196,7 @@ describe('block credentials API (site-scoped delegation)', () => {
       siteId: SITE_ID,
       name: 'Prod API',
       secret: 'sekret-abc',
-      allowedDomains: ['api.example.com']
+      allowedDomains: ['https://api.example.com']
     })
     assert.equal('secret' in res.json(), false)
   })
@@ -205,7 +209,11 @@ describe('block credentials API (site-scoped delegation)', () => {
         'x-test-permissions': '',
         'x-test-site-permissions': 'site:blocks@some-other-site'
       },
-      payload: { name: 'Prod API', secret: 'sekret-abc', allowedDomains: ['api.example.com'] }
+      payload: {
+        name: 'Prod API',
+        secret: 'sekret-abc',
+        allowedDomains: ['https://api.example.com']
+      }
     })
     assert.equal(res.statusCode, 403)
   })
@@ -221,7 +229,7 @@ describe('block credentials API (site-scoped delegation)', () => {
     assert.equal(createCredentialCalls.length, 0)
   })
 
-  test('rejects creating a credential with a malformed allowed-domains entry (OpenProject #1099)', async () => {
+  test('rejects creating a credential with a bare hostname (no scheme) as an allowed-domains entry', async () => {
     const res = await app.inject({
       method: 'POST',
       url: `/sites/${SITE_ID}/block-credentials`,
@@ -229,7 +237,22 @@ describe('block credentials API (site-scoped delegation)', () => {
       payload: {
         name: 'Prod API',
         secret: 'sekret-abc',
-        allowedDomains: ['https://api.example.com/']
+        allowedDomains: ['api.example.com']
+      }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(createCredentialCalls.length, 0)
+  })
+
+  test('rejects creating a credential with an allowed-domains entry carrying a query string', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/block-credentials`,
+      headers: { 'x-test-permissions': 'manage:sites' },
+      payload: {
+        name: 'Prod API',
+        secret: 'sekret-abc',
+        allowedDomains: ['https://api.example.com/v1?x=1']
       }
     })
     assert.equal(res.statusCode, 400)
@@ -286,7 +309,7 @@ describe('block credentials API (site-scoped delegation)', () => {
       method: 'POST',
       url: `/sites/${SITE_ID}/block-credentials/${CREDENTIAL_ID}/allowed-domains`,
       headers: { 'x-test-permissions': 'manage:sites' },
-      payload: { allowedDomains: ['new.example.com'] }
+      payload: { allowedDomains: ['https://new.example.com'] }
     })
     assert.equal(res.statusCode, 404)
   })
@@ -296,11 +319,15 @@ describe('block credentials API (site-scoped delegation)', () => {
       method: 'POST',
       url: `/sites/${SITE_ID}/block-credentials/${CREDENTIAL_ID}/allowed-domains`,
       headers: { 'x-test-permissions': 'manage:sites' },
-      payload: { allowedDomains: ['new.example.com', '*.other.com'] }
+      payload: { allowedDomains: ['https://new.example.com', 'https://*.other.com'] }
     })
     assert.equal(res.statusCode, 200)
     assert.deepEqual(updateAllowedDomainsCalls, [
-      { siteId: SITE_ID, id: CREDENTIAL_ID, allowedDomains: ['new.example.com', '*.other.com'] }
+      {
+        siteId: SITE_ID,
+        id: CREDENTIAL_ID,
+        allowedDomains: ['https://new.example.com', 'https://*.other.com']
+      }
     ])
   })
 
@@ -330,7 +357,7 @@ describe('block credentials API (site-scoped delegation)', () => {
       method: 'POST',
       url: `/sites/${SITE_ID}/block-credentials/${CREDENTIAL_ID}/allowed-domains`,
       headers: { 'x-test-permissions': '' },
-      payload: { allowedDomains: ['new.example.com'] }
+      payload: { allowedDomains: ['https://new.example.com'] }
     })
     assert.equal(res.statusCode, 403)
   })

@@ -26,46 +26,103 @@ describe('blockCredentials (DB-backed)', { skip: !hasTestDatabase() }, () => {
       fixtures.siteId,
       'Weather API',
       'sekret-token-1',
-      ['api.example.com']
+      ['https://api.example.com']
     )
     assert.equal(created.name, 'Weather API')
     assert.equal(created.siteId, fixtures.siteId)
-    assert.deepEqual(created.allowedDomains, ['api.example.com'])
+    assert.deepEqual(created.allowedDomains, ['https://api.example.com'])
     assert.equal('secret' in created, false)
 
     const resolved = await blockCredentials.getCredentialForResolve(fixtures.siteId, created.id)
     assert.equal(resolved?.secret, 'sekret-token-1')
-    assert.deepEqual(resolved?.allowedDomains, ['api.example.com'])
+    assert.deepEqual(resolved?.allowedDomains, ['https://api.example.com'])
   })
 
-  test('createCredential stores every given domain, in order, no dedup applied at this layer', async () => {
+  test('createCredential stores every given origin, in order, no dedup applied at this layer', async () => {
     const created = await blockCredentials.createCredential(
       fixtures.siteId,
       'Multi-domain',
       'secret',
-      ['api.example.com', '*.internal.example.com']
+      ['https://api.example.com/v1', 'https://*.internal.example.com']
     )
-    assert.deepEqual(created.allowedDomains, ['api.example.com', '*.internal.example.com'])
+    assert.deepEqual(created.allowedDomains, [
+      'https://api.example.com/v1',
+      'https://*.internal.example.com'
+    ])
+  })
+
+  test('createCredential rejects a bare hostname with no scheme', async () => {
+    await assert.rejects(
+      blockCredentials.createCredential(fixtures.siteId, 'Bad', 'secret', ['api.example.com']),
+      (err: any) => {
+        assert.equal(err.statusCode, 400)
+        return true
+      }
+    )
+  })
+
+  test('createCredential rejects a non-http(s) scheme', async () => {
+    await assert.rejects(
+      blockCredentials.createCredential(fixtures.siteId, 'Bad', 'secret', [
+        'ftp://api.example.com'
+      ]),
+      (err: any) => {
+        assert.equal(err.statusCode, 400)
+        return true
+      }
+    )
+  })
+
+  test('createCredential rejects an entry carrying a query string', async () => {
+    await assert.rejects(
+      blockCredentials.createCredential(fixtures.siteId, 'Bad', 'secret', [
+        'https://api.example.com/v1?x=1'
+      ]),
+      (err: any) => {
+        assert.equal(err.statusCode, 400)
+        return true
+      }
+    )
   })
 
   test('updateAllowedDomains replaces the list and returns true, false for an unknown id', async () => {
     const created = await blockCredentials.createCredential(fixtures.siteId, 'Scoped', 'secret', [
-      'old.example.com'
+      'https://old.example.com'
     ])
 
     const updated = await blockCredentials.updateAllowedDomains(fixtures.siteId, created.id, [
-      'new.example.com'
+      'https://new.example.com'
     ])
     assert.equal(updated, true)
     const resolved = await blockCredentials.getCredentialForResolve(fixtures.siteId, created.id)
-    assert.deepEqual(resolved?.allowedDomains, ['new.example.com'])
+    assert.deepEqual(resolved?.allowedDomains, ['https://new.example.com'])
 
     const missing = await blockCredentials.updateAllowedDomains(
       fixtures.siteId,
       '11111111-1111-4111-8111-111111111111',
-      ['whatever.com']
+      ['https://whatever.com']
     )
     assert.equal(missing, false)
+  })
+
+  test('updateAllowedDomains rejects a bare hostname, a non-http(s) scheme, or a query-carrying entry', async () => {
+    const created = await blockCredentials.createCredential(fixtures.siteId, 'Scoped', 'secret', [
+      'https://old.example.com'
+    ])
+
+    for (const badEntry of [
+      'new.example.com',
+      'ftp://new.example.com',
+      'https://new.example.com/v1?x=1'
+    ]) {
+      await assert.rejects(
+        blockCredentials.updateAllowedDomains(fixtures.siteId, created.id, [badEntry]),
+        (err: any) => {
+          assert.equal(err.statusCode, 400)
+          return true
+        }
+      )
+    }
   })
 
   test('updateAllowedDomains can clear the list to empty, deliberately disabling the credential', async () => {
@@ -73,7 +130,7 @@ describe('blockCredentials (DB-backed)', { skip: !hasTestDatabase() }, () => {
       fixtures.siteId,
       'Clearable',
       'secret',
-      ['api.example.com']
+      ['https://api.example.com']
     )
     const updated = await blockCredentials.updateAllowedDomains(fixtures.siteId, created.id, [])
     assert.equal(updated, true)
@@ -83,10 +140,10 @@ describe('blockCredentials (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test("getSiteCredentials lists a site's credentials without their secrets", async () => {
     await blockCredentials.createCredential(fixtures.siteId, 'API One', 'secret-one', [
-      'api.example.com'
+      'https://api.example.com'
     ])
     await blockCredentials.createCredential(fixtures.siteId, 'API Two', 'secret-two', [
-      'api.example.com'
+      'https://api.example.com'
     ])
 
     const list = await blockCredentials.getSiteCredentials(fixtures.siteId)
@@ -103,7 +160,7 @@ describe('blockCredentials (DB-backed)', { skip: !hasTestDatabase() }, () => {
       fixtures.siteId,
       'Scoped',
       'scoped-secret',
-      ['api.example.com']
+      ['https://api.example.com']
     )
     const otherSiteId = '00000000-0000-4000-8000-000000000000'
     const resolved = await blockCredentials.getCredentialForResolve(otherSiteId, created.id)
@@ -115,7 +172,7 @@ describe('blockCredentials (DB-backed)', { skip: !hasTestDatabase() }, () => {
       fixtures.siteId,
       'Rotates',
       'old-secret',
-      ['api.example.com']
+      ['https://api.example.com']
     )
 
     const rotated = await blockCredentials.rotateSecret(fixtures.siteId, created.id, 'new-secret')
@@ -135,7 +192,7 @@ describe('blockCredentials (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test('deleteCredential removes the row and returns false on a second call', async () => {
     const created = await blockCredentials.createCredential(fixtures.siteId, 'Doomed', 'bye', [
-      'api.example.com'
+      'https://api.example.com'
     ])
 
     const deleted = await blockCredentials.deleteCredential(fixtures.siteId, created.id)

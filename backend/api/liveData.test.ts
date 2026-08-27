@@ -53,6 +53,14 @@ describe('POST /sites/:siteId/live-data/resolve', () => {
         message: error.message
       })
     })
+    // -> No real `@fastify/session` plugin registered in this unit-level test (see the file's own
+    //    header comment) -- this stands in for it, simulating an authenticated session whenever the
+    //    request carries `x-test-authenticated`, the same way `api/blockCredentials.test.ts` fakes
+    //    its own permission headers.
+    app.addHook('onRequest', (req: any, _reply, done) => {
+      req.session = { authenticated: req.headers['x-test-authenticated'] === 'true' }
+      done()
+    })
     await registerErrorSchema(app)
     await app.register(liveDataRoutes)
     await app.ready()
@@ -89,10 +97,11 @@ describe('POST /sites/:siteId/live-data/resolve', () => {
     assert.equal(resolveCalls.length, 0)
   })
 
-  test('passes the body straight through to the model and returns its result', async () => {
+  test('passes the body straight through to the model and returns its result, for an authenticated caller', async () => {
     const res = await app.inject({
       method: 'POST',
       url: `/sites/${SITE_ID}/live-data/resolve`,
+      headers: { 'x-test-authenticated': 'true' },
       payload: {
         credentialId: 'a1b2c3d4-e5f6-4789-9abc-def012345678',
         url: 'https://example.com/metrics',
@@ -119,6 +128,50 @@ describe('POST /sites/:siteId/live-data/resolve', () => {
       payload: { url: 'https://example.com' }
     })
     assert.equal(res.statusCode, 400)
+  })
+
+  test('rejects an over-long url with a 400 (schema maxLength)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/live-data/resolve`,
+      payload: { url: `https://example.com/${'a'.repeat(2048)}`, jsonPath: '$.v' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(resolveCalls.length, 0)
+  })
+
+  test('rejects an over-long jsonPath with a 400 (schema maxLength)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/live-data/resolve`,
+      payload: { url: 'https://example.com/metrics', jsonPath: `$.${'a'.repeat(512)}` }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(resolveCalls.length, 0)
+  })
+
+  test('rejects a credentialId from an unauthenticated (anonymous) caller (OpenProject #2185)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/live-data/resolve`,
+      payload: {
+        credentialId: 'a1b2c3d4-e5f6-4789-9abc-def012345678',
+        url: 'https://example.com/metrics',
+        jsonPath: '$.cpu'
+      }
+    })
+    assert.equal(res.statusCode, 401)
+    assert.equal(resolveCalls.length, 0)
+  })
+
+  test('an anonymous credential-free request still succeeds (OpenProject #2185)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/live-data/resolve`,
+      payload: { url: 'https://example.com/metrics', jsonPath: '$.cpu' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(resolveCalls.length, 1)
   })
 
   test("propagates the model's error status (e.g. a 502 from an unreachable endpoint)", async () => {
