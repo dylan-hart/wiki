@@ -970,6 +970,138 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
+   * OpenProject #1706: `getRawCachedTerms` caches a term's canonical page classification and tags
+   * alongside its path/locale, and `getCachedTerms` runs the actor's `read:pages` check against that
+   * cached copy -- but only `movePage`/`deletePage`/`deleteOrphaned` invalidated it, not `updatePage`,
+   * the one path that actually changes `classification`/`tags`. These two cases set up a group rule
+   * whose ALLOW/DENY outcome for a non-`manage:system` actor depends on the page's classification (or
+   * tags), so a stale cache is provable by that actor's `link` flipping the wrong way rather than by
+   * spying on the invalidation call itself.
+   */
+  describe('updatePage invalidates the glossary cache (OpenProject #1706)', () => {
+    let restrictedId: string
+    let publicId: string
+    let restrictedActor: PageActor
+
+    before(async () => {
+      const { classificationLevels } = await import('./classificationLevels.ts')
+      const levels = classificationLevels.list()
+      publicId = levels.find((l) => l.name === 'Public')!.id
+      restrictedId = levels.find((l) => l.name === 'Restricted')!.id
+      restrictedActor = { id: fixtures.userId, permissions: [], groupIds: [fixtures.groupId] }
+    })
+
+    async function setRules(rules: any[]): Promise<void> {
+      await fixtures.db
+        .update(groupsTable)
+        .set({ rules })
+        .where(eq(groupsTable.id, fixtures.groupId))
+      await WIKI.models.groups.reloadCache()
+    }
+
+    test('a classification-only patch drops the cache so a newly-restricted term stops resolving', async () => {
+      await setRules([
+        {
+          id: 'allow-all',
+          name: 'Allow',
+          roles: ['read:pages'],
+          match: 'START',
+          mode: 'ALLOW',
+          path: '',
+          locales: [],
+          sites: []
+        },
+        {
+          id: 'deny-restricted',
+          name: 'Deny restricted',
+          roles: ['read:pages'],
+          match: 'CLASSIFICATION',
+          mode: 'DENY',
+          path: '',
+          classifications: [restrictedId],
+          locales: [],
+          sites: []
+        }
+      ])
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/glossary-classification-cache', classification: publicId }),
+        actor
+      )
+      const term = await WIKI.models.glossary.createTerm(fixtures.siteId, {
+        term: 'ClassificationCacheTerm',
+        definition: 'Points at a page about to be restricted.',
+        pageId: page.id
+      })
+      try {
+        const before = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, restrictedActor)
+        assert.equal(
+          before.find((t: any) => t.term === 'ClassificationCacheTerm')?.link,
+          '/docs/glossary-classification-cache'
+        )
+
+        await pagesModel.updatePage(
+          fixtures.siteId,
+          page.id,
+          { classification: restrictedId },
+          actor
+        )
+
+        const after = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, restrictedActor)
+        assert.equal(after.find((t: any) => t.term === 'ClassificationCacheTerm')?.link, null)
+      } finally {
+        await WIKI.models.glossary.deleteTerm(fixtures.siteId, term.id)
+      }
+    })
+
+    test('a tags-only patch drops the cache so a term loses its access-granting tag and stops resolving', async () => {
+      // -> Deliberately no competing path rule: `helpers/pageRules.ts` treats every TAG rule as
+      //    specificity 0, so a `path: ''` ALLOW would out-rank it on the match-priority tier and the
+      //    tag would never be what decides access, defeating the point of this test. A lone
+      //    ALLOW-by-tag rule, with the page starting with the tag and the patch removing it, isolates
+      //    tags as the only thing that can flip `read:pages` here.
+      await setRules([
+        {
+          id: 'allow-tagged',
+          name: 'Allow tagged',
+          roles: ['read:pages'],
+          match: 'TAG',
+          mode: 'ALLOW',
+          path: 'allowed',
+          locales: [],
+          sites: []
+        }
+      ])
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/glossary-tags-cache', tags: ['allowed'] }),
+        actor
+      )
+      const term = await WIKI.models.glossary.createTerm(fixtures.siteId, {
+        term: 'TagsCacheTerm',
+        definition: 'Points at a page about to lose its access-granting tag.',
+        pageId: page.id
+      })
+      try {
+        const before = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, restrictedActor)
+        assert.equal(
+          before.find((t: any) => t.term === 'TagsCacheTerm')?.link,
+          '/docs/glossary-tags-cache'
+        )
+
+        await pagesModel.updatePage(fixtures.siteId, page.id, { tags: [] }, actor)
+
+        const after = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, restrictedActor)
+        assert.equal(after.find((t: any) => t.term === 'TagsCacheTerm')?.link, null)
+      } finally {
+        await WIKI.models.glossary.deleteTerm(fixtures.siteId, term.id)
+      }
+    })
+  })
+
+  /**
    * Task #561's dispatcher wiring: `createPage`/`updatePage` already called `WIKI.models.search`
    * (as `indexPage`, previously), but `movePage`/`deletePage` called nothing at all — "silent no-ops
    * that only work by accident under Postgres" per the task. This spies on the dispatcher itself

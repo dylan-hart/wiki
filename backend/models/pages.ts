@@ -1130,6 +1130,15 @@ class Pages {
     }
 
     await WIKI.models.search.updated(rawUpdated)
+    // -> A glossary term's cached canonical-page mapping (`models/glossary.ts`'s `getRawCachedTerms`)
+    //    caches the page's classification and tags alongside its path/locale, and `getCachedTerms`
+    //    runs the actor's `read:pages` check against that cached copy -- so a classification or tags
+    //    change here has to drop it the same way a term CRUD does, or a reader keeps seeing a term
+    //    resolve to a page whose access just changed (OpenProject #1706). Path/locale are covered by
+    //    `movePage`, not here.
+    if (patch.classification !== undefined || patch.tags !== undefined) {
+      WIKI.models.glossary.invalidateCache(siteId)
+    }
     await WIKI.models.hooks.emit('page:edit', siteId, {
       id,
       path: updated.path,
@@ -1271,9 +1280,10 @@ class Pages {
     )
     await WIKI.models.search.renamed(siteId, rawMoved, previous.path, previous.locale)
     // -> A glossary term's cached canonical-page mapping (`models/glossary.ts`'s `getRawCachedTerms`)
-    //    caches the page's path/locale, so a canonical page's path or locale changing has to drop it
-    //    too, the same way a term CRUD does -- otherwise the cache would keep resolving a link to
-    //    where the page used to live (OpenProject #870).
+    //    caches the page's path, locale, classification and tags, so a canonical page's path or
+    //    locale changing has to drop it too, the same way a term CRUD does -- otherwise the cache
+    //    would keep resolving a link to where the page used to live (OpenProject #870). A
+    //    classification or tags change is `updatePage`'s to invalidate, not this one's.
     if (moved.path !== previous.path || moved.locale !== previous.locale) {
       WIKI.models.glossary.invalidateCache(siteId)
     }
