@@ -46,7 +46,8 @@
               emit-value
               map-options
               v-model="state.filters.actorId"
-              :options="actorOptions" />
+              :options="actorOptions"
+              :aria-label="t('admin.audit.filterActor')" />
           </div>
           <div style="min-width: 220px">
             <div class="text-caption text-grey mb-1">{{ t('admin.audit.filterEvent') }}</div>
@@ -57,15 +58,26 @@
               emit-value
               map-options
               v-model="state.filters.event"
-              :options="eventOptions" />
+              :options="eventOptions"
+              :aria-label="t('admin.audit.filterEvent')" />
           </div>
           <div style="min-width: 160px">
             <div class="text-caption text-grey mb-1">{{ t('admin.audit.filterFrom') }}</div>
-            <w-input outlined dense type="date" v-model="state.filters.from" />
+            <w-input
+              outlined
+              dense
+              type="date"
+              v-model="state.filters.from"
+              :aria-label="t('admin.audit.filterFrom')" />
           </div>
           <div style="min-width: 160px">
             <div class="text-caption text-grey mb-1">{{ t('admin.audit.filterTo') }}</div>
-            <w-input outlined dense type="date" v-model="state.filters.to" />
+            <w-input
+              outlined
+              dense
+              type="date"
+              v-model="state.filters.to"
+              :aria-label="t('admin.audit.filterTo')" />
           </div>
           <w-btn
             class="acrylic-btn"
@@ -169,7 +181,8 @@
                 min="1"
                 max="3650"
                 v-model.number="state.retentionDays"
-                :suffix="t('admin.audit.retentionDaysSuffix')" />
+                :suffix="t('admin.audit.retentionDaysSuffix')"
+                :aria-label="t('admin.audit.retentionTitle')" />
             </div>
             <w-btn
               class="acrylic-btn"

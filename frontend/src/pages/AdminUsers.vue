@@ -16,6 +16,8 @@
           outlined
           v-model="state.search"
           dense
+          :placeholder="t('admin.users.searchUsers')"
+          :aria-label="t('admin.users.searchUsers')"
           :class="dark.isActive ? `bg-dark text-white` : `bg-white`">
           <template #prepend><w-icon class="opacity-50" name="la:search" size="20px" /></template>
         </w-input>

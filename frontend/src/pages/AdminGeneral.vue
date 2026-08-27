@@ -304,6 +304,8 @@
                 color="primary"
                 :left-label-value="`H` + state.config.defaults.tocDepth.min"
                 :right-label-value="`H` + state.config.defaults.tocDepth.max"
+                :aria-label-min="t('editor.props.tocMinMaxDepth')"
+                :aria-label-max="t('editor.props.tocMinMaxDepth')"
                 label
                 markers />
             </w-item-section>

@@ -16,6 +16,8 @@
           outlined
           v-model="state.search"
           dense
+          :placeholder="t('common.header.search')"
+          :aria-label="t('common.header.search')"
           :class="dark.isActive ? `bg-dark text-white` : `bg-white`">
           <template #prepend><w-icon class="opacity-50" name="la:search" size="20px" /></template>
         </w-input>

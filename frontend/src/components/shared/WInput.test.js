@@ -153,4 +153,20 @@ describe('WInput', () => {
       wrapper.unmount()
     })
   })
+
+  describe('accessible name', () => {
+    it('sets aria-label on the input when no label is passed', () => {
+      const wrapper = mount(WInput, { props: { modelValue: '', ariaLabel: 'Search users' } })
+
+      expect(wrapper.find('input').attributes('aria-label')).toBe('Search users')
+    })
+
+    it('does not set aria-label on the input once a label is passed', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '', label: 'Name', ariaLabel: 'Search users' }
+      })
+
+      expect(wrapper.find('input').attributes('aria-label')).toBeUndefined()
+    })
+  })
 })
