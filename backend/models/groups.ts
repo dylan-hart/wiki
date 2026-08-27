@@ -588,10 +588,18 @@ class Groups {
   /**
    * Delete a group. Assignments in `userGroups` are removed by the FK cascade.
    *
+   * Deleting a group is the strongest revocation an administrator can perform, so member
+   * sessions are ended the same way a `permissions` change already is (OpenProject #936) --
+   * and it has to happen BEFORE the delete, not after: `clearSessionsForGroup` resolves
+   * members by reading `userGroups`, whose rows cascade away with the group itself. Doing
+   * this here rather than in the `DELETE /:groupId` route handler means the invariant holds
+   * for every caller (the MCP server included), not just that one route.
+   *
    * @param id Group ID
    * @returns Whether a group was deleted
    */
   async deleteGroup(id: string): Promise<boolean> {
+    await WIKI.models.sessions.clearSessionsForGroup(id)
     const result = await WIKI.db.delete(groupsTable).where(eq(groupsTable.id, id))
     await this.broadcastReload()
     return (result.rowCount ?? 0) > 0
