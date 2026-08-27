@@ -1,15 +1,22 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { fileOpen } from 'browser-fs-access'
 
 import GroupEditOverlay from './GroupEditOverlay.vue'
 import UserSearchDialog from './UserSearchDialog.vue'
+import WConfirmDialog from './shared/WConfirmDialog.vue'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
+
+vi.mock('browser-fs-access', () => ({
+  fileOpen: vi.fn(),
+  fileSave: vi.fn()
+}))
 
 /**
  * Task #684: `GroupEditOverlay.vue`'s rule editor is extended to offer the eight `site:*` site-admin
@@ -326,5 +333,114 @@ describe('GroupEditOverlay rule editor: CLASSIFICATION match kind', () => {
 
     expect(wrapper.find('[aria-label="admin.groups.ruleClassifications"]').exists()).toBe(true)
     expect(wrapper.find('[aria-label="admin.groups.rulePath"]').exists()).toBe(false)
+  })
+})
+
+/**
+ * OpenProject #2034: `importRules()`'s mode-choice prompt was opened with `persistent: true` and no
+ * `cancel`, so `WConfirmDialog` rendered exactly one button. The `model` radio defaults to
+ * `'replace'`, whose `onOk` branch runs `state.group.rules = []` -- pressing the only available
+ * button to back out of the modal discarded every rule on the group. Fixed by adding `cancel: true`
+ * to that one `confirm()` call.
+ */
+describe('GroupEditOverlay import rules confirmation', () => {
+  async function mountRulesSectionWithOneRule() {
+    setActivePinia(createPinia())
+    const adminStore = useAdminStore()
+    adminStore.overlayOpts = { id: 'group-import' }
+    adminStore.sites = []
+    adminStore.locales = []
+    adminStore.classificationLevels = []
+
+    const userStore = useUserStore()
+    userStore.permissions = ['manage:groups']
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'group-import',
+          name: 'Test Group',
+          userCount: 0,
+          permissions: [],
+          rules: [
+            {
+              id: 'rule-1',
+              name: 'Existing Rule',
+              mode: 'ALLOW',
+              roles: ['read:pages'],
+              sites: [],
+              match: 'START',
+              path: '',
+              locales: []
+            }
+          ]
+        })
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:section', component: { template: '<div />' } }]
+    })
+    router.push('/rules')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(GroupEditOverlay, {
+      global: {
+        plugins: [router, i18n]
+      }
+    })
+
+    await flushPromises()
+
+    return wrapper
+  }
+
+  it('opens the import-mode prompt with cancel:true, and leaves rules untouched when canceled', async () => {
+    const wrapper = await mountRulesSectionWithOneRule()
+
+    fileOpen.mockResolvedValueOnce({
+      text: () =>
+        Promise.resolve(
+          JSON.stringify([
+            {
+              name: 'Imported Rule',
+              mode: 'DENY',
+              match: 'START',
+              roles: ['write:pages'],
+              path: '',
+              locales: [],
+              sites: []
+            }
+          ])
+        )
+    })
+
+    // -> `importRules` isn't a key defined in this test's i18n bundle, so the tooltip text falls back
+    //    to the raw key -- but the button carries no visible text of its own (icon-only), so it's
+    //    located by the `data-icon` WIcon.vue stamps onto the rendered SVG instead.
+    const importButton = wrapper
+      .findAll('button')
+      .find((b) => b.find('[data-icon="la:file-import"]').exists())
+    expect(importButton).toBeTruthy()
+    await importButton.trigger('click')
+    await flushPromises()
+
+    // -> importRules() opened the mode-choice prompt via WConfirmDialog, and -- the actual fix --
+    //    passed `cancel: true` so the dialog has a non-destructive exit alongside its OK button.
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].component).toBe(WConfirmDialog)
+    expect(openDialogs[0].props.cancel).toBe(true)
+    const dialogId = openDialogs[0].id
+
+    // -> Simulates the user backing out via the new Cancel button: WDialogHost calls
+    //    `closeDialog(id, false)` for any close that isn't the `ok` event, so `onOk`'s
+    //    `state.group.rules = []` branch must never run.
+    closeDialog(dialogId, false)
+    await flushPromises()
+
+    expect(wrapper.findAll('.admin-groups-rule')).toHaveLength(1)
+    expect(wrapper.find('.admin-groups-rule-name input').element.value).toBe('Existing Rule')
   })
 })
