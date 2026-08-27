@@ -74,6 +74,53 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
+   * COMMENT UPDATE INPUT - The writable fields when editing an existing comment
+   *
+   * Deliberately narrower than `CommentInput#`: PATCH only ever changes `content` (`api/comments.ts`'s
+   * handler reads nothing else off the body, and echoes the stored `replyTo` back unchanged).
+   * `replyTo`/`guestName`/`guestEmail` are declared here rather than left to `additionalProperties:
+   * false` alone -- this instance's ajv is configured with the Fastify default `removeAdditional:
+   * true` (see `index.ts`'s `ajv` option and `api/watching.test.ts`'s "strips ... rather than
+   * erroring" case), which silently deletes an undeclared property instead of rejecting the request,
+   * i.e. exactly the silent-ignore this schema exists to stop. Declaring the three fields keeps them
+   * on `req.body` so the PATCH handler can reject them itself with a 400, the same way the POST
+   * handler already rejects `guestName`/`guestEmail` from an authenticated poster. A genuinely unknown
+   * field (neither `content` nor one of these three) still falls to `additionalProperties: false` and
+   * is silently dropped, matching every other route in this codebase.
+   */
+  app.addSchema({
+    $id: 'CommentUpdateInput',
+    type: 'object',
+    properties: {
+      content: {
+        type: 'string',
+        minLength: 1,
+        description: 'The comment source, in whatever format the comments provider renders.'
+      },
+      replyTo: {
+        type: 'string',
+        format: 'uuid',
+        nullable: true,
+        description: 'Not editable via PATCH. Present only so a request that sets it gets a 400.'
+      },
+      guestName: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 255,
+        description: 'Not editable via PATCH. Present only so a request that sets it gets a 400.'
+      },
+      guestEmail: {
+        type: 'string',
+        format: 'email',
+        maxLength: 255,
+        description: 'Not editable via PATCH. Present only so a request that sets it gets a 400.'
+      }
+    },
+    required: ['content'],
+    additionalProperties: false
+  })
+
+  /**
    * COMMENT - A single comment, with its direct replies nested under it
    *
    * `authorId` is null for a guest comment; `authorName` is resolved from the account for a logged in
