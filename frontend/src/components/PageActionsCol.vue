@@ -223,12 +223,7 @@
           Tailwind only emits a utility it can see spelled out, so these three icons had been drawing
           in the inherited text colour rather than the rail's orange.
         -->
-        <w-menu
-          class="translucent-menu"
-          anchor="top left"
-          self="top right"
-          auto-close
-          transition-show="jump-left">
+        <w-menu class="translucent-menu" anchor="top left" self="top right" auto-close>
           <w-list padding style="min-width: 225px">
             <w-item
               clickable

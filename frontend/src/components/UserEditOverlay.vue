@@ -366,9 +366,6 @@
                   <w-item-section avatar>
                     <w-toggle
                       v-model="localAuth.mustChangePwd"
-                      color="primary"
-                      checked-icon="la:check"
-                      unchecked-icon="la:times"
                       :aria-label="t(`admin.users.mustChangePwd`)" />
                   </w-item-section>
                 </w-item>
@@ -382,9 +379,6 @@
                   <w-item-section avatar>
                     <w-toggle
                       v-model="localAuth.restrictLogin"
-                      color="primary"
-                      checked-icon="la:check"
-                      unchecked-icon="la:times"
                       :aria-label="t(`admin.users.pwdAuthRestrict`)" />
                   </w-item-section>
                 </w-item>
@@ -400,9 +394,6 @@
                   <w-item-section avatar>
                     <w-toggle
                       v-model="localAuth.isTfaRequired"
-                      color="primary"
-                      checked-icon="la:check"
-                      unchecked-icon="la:times"
                       :aria-label="t(`admin.users.tfaRequired`)" />
                   </w-item-section>
                 </w-item>

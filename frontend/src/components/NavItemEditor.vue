@@ -318,9 +318,6 @@
               <w-item-section avatar>
                 <w-toggle
                   v-model="state.current.expandByDefault"
-                  color="primary"
-                  checked-icon="la:check"
-                  unchecked-icon="la:times"
                   :aria-label="t(`navEdit.expandByDefault`)" />
               </w-item-section>
             </w-item>
@@ -370,9 +367,6 @@
               <w-item-section avatar>
                 <w-toggle
                   v-model="state.current.openInNewWindow"
-                  color="primary"
-                  checked-icon="la:check"
-                  unchecked-icon="la:times"
                   :aria-label="t(`navEdit.openInNewWindow`)" />
               </w-item-section>
             </w-item>
