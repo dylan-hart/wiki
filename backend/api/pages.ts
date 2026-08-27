@@ -3,6 +3,7 @@ import fastifyMultipart from '@fastify/multipart'
 import type { PageActor, PageInput } from '../models/pages.ts'
 import {
   detectImportFormat,
+  MAX_IMPORT_BATCH_BYTES,
   MAX_IMPORT_BATCH_FILES,
   MAX_IMPORT_SIZE,
   SUPPORTED_IMPORT_FORMATS
@@ -1001,7 +1002,7 @@ async function routes(app: FastifyInstance) {
       */
       schema: {
         summary: 'Convert several uploaded files to Markdown in one request',
-        description: `A \`multipart/form-data\` sibling of \`POST .../pages/import\` (OpenProject #849): several files in one request (field name \`files\`, repeated), each file's format autodetected from its own extension (OpenProject #1209; field name \`formats\`, repeated in the same order as \`files\`, overrides a single file's detection when non-empty). At most ${MAX_IMPORT_BATCH_FILES} files, each at most ${Math.round(MAX_IMPORT_SIZE / 1024 / 1024)} MB. The response carries one result per file, in the order they were sent — a bad file in the batch does not stop the rest from converting, so check each entry's own \`ok\`. Convert-only, exactly like the single-file endpoint: nothing is saved here, which is what lets the caller assign each result its own destination and review it before saving.\n\n\`format: 'markdown'\` (OpenProject #1092) is a pass-through and needs no Pandoc extension — every other format still does, and answers 503 without it. A file whose extension is not recognized fails only its own entry, same as any other per-file conversion failure. \`path\` is not written to, only checked: converting content requires \`write:pages\` on wherever the caller says they intend to save it.`,
+        description: `A \`multipart/form-data\` sibling of \`POST .../pages/import\` (OpenProject #849): several files in one request (field name \`files\`, repeated), each file's format autodetected from its own extension (OpenProject #1209; field name \`formats\`, repeated in the same order as \`files\`, overrides a single file's detection when non-empty). At most ${MAX_IMPORT_BATCH_FILES} files, each at most ${Math.round(MAX_IMPORT_SIZE / 1024 / 1024)} MB, and at most ${Math.round(MAX_IMPORT_BATCH_BYTES / 1024 / 1024)} MB combined (OpenProject #2204) — a batch over that aggregate ceiling is refused outright (400), not partially converted. The response carries one result per file, in the order they were sent — a bad file in the batch does not stop the rest from converting, so check each entry's own \`ok\`. Convert-only, exactly like the single-file endpoint: nothing is saved here, which is what lets the caller assign each result its own destination and review it before saving.\n\n\`format: 'markdown'\` (OpenProject #1092) is a pass-through and needs no Pandoc extension — every other format still does, and answers 503 without it. A file whose extension is not recognized fails only its own entry, same as any other per-file conversion failure. \`path\` is not written to, only checked: converting content requires \`write:pages\` on wherever the caller says they intend to save it.`,
         tags: ['Pages'],
         consumes: ['multipart/form-data'],
         params: siteIdParam,
@@ -1064,11 +1065,20 @@ async function routes(app: FastifyInstance) {
         oversize is checked via `file.truncated` after `toBuffer()` resolves, not by catching a
         throw — see the `throwFileSizeLimit: false` comment on the plugin registration above for why
         letting an oversized file throw here would still fail the whole batch anyway.
+
+        `totalBytes` bounds the OTHER half of the memory cost (OpenProject #2204): even with every
+        file under `MAX_IMPORT_SIZE`, `MAX_IMPORT_BATCH_FILES` of them buffered here simultaneously —
+        before any conversion starts, per the constraint above — is still up to 500 MB of resident
+        Node heap for one request. Once the running total crosses `MAX_IMPORT_BATCH_BYTES` the whole
+        batch is refused outright rather than finishing the drain and converting whatever fit;
+        breaking out of this loop early destroys the still-unconsumed busboy stream instead of
+        reading the rest of the body.
       */
       const uploads: (
         | { fileName: string; data: Buffer; formatOverride: string }
         | { fileName: string; error: string }
       )[] = []
+      let totalBytes = 0
       for await (const part of req.parts()) {
         if (part.type === 'file') {
           const data = await part.toBuffer()
@@ -1077,9 +1087,15 @@ async function routes(app: FastifyInstance) {
               fileName: part.filename,
               error: 'This file is larger than the import limit.'
             })
-          } else {
-            uploads.push({ fileName: part.filename, data, formatOverride: '' })
+            continue
           }
+          totalBytes += data.length
+          if (totalBytes > MAX_IMPORT_BATCH_BYTES) {
+            return reply.badRequest(
+              `This batch is larger than the ${Math.round(MAX_IMPORT_BATCH_BYTES / 1024 / 1024)} MB combined limit for a single import batch.`
+            )
+          }
+          uploads.push({ fileName: part.filename, data, formatOverride: '' })
           continue
         }
         const last = uploads.at(-1)

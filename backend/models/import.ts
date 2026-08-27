@@ -27,6 +27,22 @@ export const MAX_IMPORT_SIZE = 25 * 1024 * 1024
  */
 export const MAX_IMPORT_BATCH_FILES = 20
 
+/**
+ * The most total bytes a single batch import request may buffer across every file combined.
+ *
+ * `POST .../pages/import/batch` has to drain each multipart part to completion before the next one
+ * becomes available (`@fastify/busboy`'s own constraint — see the route's header comment), so nothing
+ * short of a full protocol rewrite lets it start converting a file before the whole batch has been
+ * read off the wire. Left unbounded, `MAX_IMPORT_BATCH_FILES` files at `MAX_IMPORT_SIZE` bytes each
+ * would let one request hold all of them in memory at once (OpenProject #2204) — 20 * 25 MB = 500 MB
+ * of resident Node heap, for the price of one authenticated upload. This caps the running total
+ * instead: the route aborts the request as soon as the sum crosses it, rather than finishing the
+ * drain and converting whatever fit. Set well below the naive worst case (a third of it) while still
+ * comfortably fitting a real bulk import — a folder of ordinary wiki-sized pages, or a small handful
+ * of near-max-size office documents.
+ */
+export const MAX_IMPORT_BATCH_BYTES = 60 * 1024 * 1024
+
 /** How much of pandoc's stderr is kept when reporting a failure, taken from the end where the error is. */
 const importErrorLength = 800
 

@@ -12,7 +12,7 @@ import { registerSchemas as registerApprovalSchemas } from './schemas/approval.t
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
 import pagesRoutes, { mayOnPage, pagePermissionsFor } from './pages.ts'
-import { MAX_IMPORT_SIZE } from '../models/import.ts'
+import { MAX_IMPORT_BATCH_BYTES, MAX_IMPORT_SIZE } from '../models/import.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { CustomError } from '../helpers/common.ts'
 import type { GroupRule } from '../models/groups.ts'
@@ -1606,6 +1606,33 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
       ok: true,
       markdown: '# = Fine =\n'
     })
+  })
+
+  /**
+   * OpenProject #2204: several files, each individually under `MAX_IMPORT_SIZE`, whose combined size
+   * still crosses `MAX_IMPORT_BATCH_BYTES` used to buffer in full before the route noticed — up to
+   * `MAX_IMPORT_BATCH_FILES` * `MAX_IMPORT_SIZE` (500 MB) of resident Node heap for one request. This
+   * sends three real files sized so no single one trips the per-file limit but the running total
+   * does, and asserts the whole batch is refused (400) rather than partially converted.
+   */
+  test('a batch whose combined size crosses the aggregate byte ceiling is refused, not buffered', async () => {
+    const oneThird = Math.ceil(MAX_IMPORT_BATCH_BYTES / 3) + 1024 * 1024
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'one.mediawiki', content: 'x'.repeat(oneThird) },
+      { fileName: 'two.mediawiki', content: 'x'.repeat(oneThird) },
+      { fileName: 'three.mediawiki', content: 'x'.repeat(oneThird) }
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+
+    assert.equal(res.statusCode, 400)
+    assert.match(res.json().message, /combined limit/)
+    assert.equal(convertToMarkdown.mock.callCount(), 0)
   })
 
   test("autodetects format: markdown from .md and passes each result's parsed title/description/tags through", async () => {
