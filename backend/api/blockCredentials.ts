@@ -1,5 +1,4 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { DOMAIN_PATTERN_SOURCE } from '../helpers/network.ts'
 
 /**
  * Whether this caller may create, rotate or delete this site's block credentials.
@@ -73,14 +72,14 @@ async function routes(app: FastifyInstance) {
    */
   app.post<{
     Params: { siteId: string }
-    Body: { name: string; secret: string; allowedDomains: string[] }
+    Body: { name: string; secret: string; allowedOrigins: string[] }
   }>(
     '/sites/:siteId/block-credentials',
     {
       schema: {
         summary: 'Create a block credential',
         description:
-          'The secret is written once, here — it is never returned by this or any other route again. `allowedDomains` must name at least one domain: an empty list would mean the credential can never actually be used (see `models/liveData.ts`), which is never a state worth creating on purpose. Requires `manage:sites`, or `site:blocks` on this site.',
+          'The secret is written once, here — it is never returned by this or any other route again. `allowedOrigins` must name at least one absolute http(s) URL (an origin plus path prefix): an empty list would mean the credential can never actually be used (see `models/liveData.ts`), which is never a state worth creating on purpose. Requires `manage:sites`, or `site:blocks` on this site.',
         tags: ['Blocks'],
         params: {
           type: 'object',
@@ -89,7 +88,7 @@ async function routes(app: FastifyInstance) {
         },
         body: {
           type: 'object',
-          required: ['name', 'secret', 'allowedDomains'],
+          required: ['name', 'secret', 'allowedOrigins'],
           properties: {
             name: { type: 'string', minLength: 1, maxLength: 255 },
             secret: {
@@ -98,12 +97,16 @@ async function routes(app: FastifyInstance) {
               description:
                 'The bearer token / API key a block-live-data instance authenticates with.'
             },
-            allowedDomains: {
+            allowedOrigins: {
               type: 'array',
-              items: { type: 'string', minLength: 1, pattern: DOMAIN_PATTERN_SOURCE },
+              // -> `format: 'uri'` catches a syntactically-not-a-URL entry (a bare hostname, most
+              //    notably); `models/blockCredentials.ts#createCredential` is what enforces the rest
+              //    (http(s) scheme only, no query string or fragment) -- see its own comment for why
+              //    that part isn't a JSON Schema `pattern` too.
+              items: { type: 'string', minLength: 1, format: 'uri' },
               minItems: 1,
               description:
-                "Domains (or `*.`-wildcard patterns) this credential's secret may be sent to. At least one is required."
+                "Absolute http(s) URLs (origin plus path prefix) this credential's secret may be sent to. At least one is required."
             }
           }
         },
@@ -127,7 +130,7 @@ async function routes(app: FastifyInstance) {
         req.params.siteId,
         req.body.name,
         req.body.secret,
-        req.body.allowedDomains
+        req.body.allowedOrigins
       )
     }
   )
@@ -189,18 +192,18 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
-   * UPDATE A BLOCK CREDENTIAL'S ALLOWED DOMAINS
+   * UPDATE A BLOCK CREDENTIAL'S ALLOWED ORIGINS
    */
   app.post<{
     Params: { siteId: string; credentialId: string }
-    Body: { allowedDomains: string[] }
+    Body: { allowedOrigins: string[] }
   }>(
-    '/sites/:siteId/block-credentials/:credentialId/allowed-domains',
+    '/sites/:siteId/block-credentials/:credentialId/allowed-origins',
     {
       schema: {
-        summary: "Replace a block credential's allowed domains",
+        summary: "Replace a block credential's allowed origins",
         description:
-          'Unlike creation, this may be set to an empty list — an admin deliberately disabling the credential rather than deleting it, which is safe: `models/liveData.ts` refuses every url for a credential with no allowed domains. Requires `manage:sites`, or `site:blocks` on this site.',
+          'Unlike creation, this may be set to an empty list — an admin deliberately disabling the credential rather than deleting it, which is safe: `models/liveData.ts` refuses every url for a credential with no allowed origins. Requires `manage:sites`, or `site:blocks` on this site.',
         tags: ['Blocks'],
         params: {
           type: 'object',
@@ -212,19 +215,19 @@ async function routes(app: FastifyInstance) {
         },
         body: {
           type: 'object',
-          required: ['allowedDomains'],
+          required: ['allowedOrigins'],
           properties: {
-            allowedDomains: {
+            allowedOrigins: {
               type: 'array',
-              items: { type: 'string', minLength: 1, pattern: DOMAIN_PATTERN_SOURCE },
+              items: { type: 'string', minLength: 1, format: 'uri' },
               description:
-                "Domains (or `*.`-wildcard patterns) this credential's secret may be sent to. May be empty."
+                "Absolute http(s) URLs (origin plus path prefix) this credential's secret may be sent to. May be empty."
             }
           }
         },
         response: {
           200: {
-            description: 'Allowed domains updated successfully',
+            description: 'Allowed origins updated successfully',
             type: 'object',
             properties: { ok: { type: 'boolean' }, message: { type: 'string' } }
           },
@@ -242,15 +245,15 @@ async function routes(app: FastifyInstance) {
       if (!mayManageCredentials(req, req.params.siteId)) {
         return reply.forbidden()
       }
-      const updated = await WIKI.models.blockCredentials.updateAllowedDomains(
+      const updated = await WIKI.models.blockCredentials.updateAllowedOrigins(
         req.params.siteId,
         req.params.credentialId,
-        req.body.allowedDomains
+        req.body.allowedOrigins
       )
       if (!updated) {
         return reply.notFound('Credential does not exist.')
       }
-      return { ok: true, message: 'Allowed domains updated successfully.' }
+      return { ok: true, message: 'Allowed origins updated successfully.' }
     }
   )
 

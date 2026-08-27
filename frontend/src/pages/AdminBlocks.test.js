@@ -228,7 +228,7 @@ describe('AdminBlocks credentials list', () => {
     expect(wrapper.text()).toContain('admin.blocks.credentialsEmpty')
   })
 
-  it('opens BlockCredentialDialog in mode "domains" with the clicked credential when Edit Domains is clicked', async () => {
+  it('opens BlockCredentialDialog in mode "origins" with the clicked credential when Edit Origins is clicked', async () => {
     const wrapper = await mountAdminBlocks(
       [],
       [
@@ -236,28 +236,28 @@ describe('AdminBlocks credentials list', () => {
           id: 'cred-1',
           siteId: 'site-1',
           name: 'Weather API',
-          allowedDomains: ['api.example.com'],
+          allowedOrigins: ['https://api.example.com'],
           createdAt: '',
           updatedAt: ''
         }
       ]
     )
 
-    const editDomainsBtn = wrapper
+    const editOriginsBtn = wrapper
       .findAll('button')
-      .find((btn) => btn.text().includes('admin.blocks.credentialDomains'))
-    expect(editDomainsBtn).toBeTruthy()
-    await editDomainsBtn.trigger('click')
+      .find((btn) => btn.text().includes('admin.blocks.credentialOrigins'))
+    expect(editOriginsBtn).toBeTruthy()
+    await editOriginsBtn.trigger('click')
 
     expect(dialog).toHaveBeenCalledWith(
       expect.objectContaining({
         componentProps: {
-          mode: 'domains',
+          mode: 'origins',
           credential: {
             id: 'cred-1',
             siteId: 'site-1',
             name: 'Weather API',
-            allowedDomains: ['api.example.com'],
+            allowedOrigins: ['https://api.example.com'],
             createdAt: '',
             updatedAt: ''
           }

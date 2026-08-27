@@ -18,7 +18,7 @@
           autofocus
           class="mb-2" />
         <w-input
-          v-if="mode !== 'domains'"
+          v-if="mode !== 'origins'"
           outlined
           v-model="state.secret"
           type="password"
@@ -30,27 +30,27 @@
           :hint="t('admin.blocks.credentialSecretHint')"
           class="mb-2" />
         <template v-if="mode !== 'rotate'">
-          <div class="flex flex-wrap gap-1 mb-2" v-if="state.allowedDomains.length > 0">
+          <div class="flex flex-wrap gap-1 mb-2" v-if="state.allowedOrigins.length > 0">
             <w-chip
-              v-for="domain of state.allowedDomains"
-              :key="domain"
+              v-for="origin of state.allowedOrigins"
+              :key="origin"
               square
               dense
               removable
-              @remove="removeDomain(domain)">
-              {{ domain }}
+              @remove="removeOrigin(origin)">
+              {{ origin }}
             </w-chip>
           </div>
           <w-input
-            ref="domainInputRef"
+            ref="originInputRef"
             outlined
-            v-model="state.domainInput"
-            :autofocus="mode === 'domains'"
-            :label="t('admin.blocks.credentialAllowedDomains')"
-            :hint="t('admin.blocks.credentialAllowedDomainsHint')"
-            :rules="domainValidation"
+            v-model="state.originInput"
+            :autofocus="mode === 'origins'"
+            :label="t('admin.blocks.credentialAllowedOrigins')"
+            :hint="t('admin.blocks.credentialAllowedOriginsHint')"
+            :rules="originValidation"
             lazy-rules="ondemand"
-            @keyup:enter="addDomain">
+            @keyup:enter="addOrigin">
             <template #append>
               <w-btn
                 flat
@@ -58,7 +58,7 @@
                 dense
                 icon="la:plus"
                 :aria-label="t('common.actions.add')"
-                @click="addDomain" />
+                @click="addOrigin" />
             </template>
           </w-input>
         </template>
@@ -93,7 +93,7 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { useAdminStore } from '@/stores/admin'
 import { apiErrorMessage } from '@/helpers/apiError'
-import { isValidDomainPattern } from '@/helpers/domainPattern'
+import { isValidOriginPrefixPattern } from '@/helpers/originPattern'
 
 // PROPS
 
@@ -101,9 +101,9 @@ const props = defineProps({
   mode: {
     type: String,
     required: true,
-    validator: (value) => ['create', 'rotate', 'domains'].includes(value)
+    validator: (value) => ['create', 'rotate', 'origins'].includes(value)
   },
-  /** Required for mode `rotate` and `domains`: the credential row being edited. */
+  /** Required for mode `rotate` and `origins`: the credential row being edited. */
   credential: {
     type: Object,
     default: null
@@ -131,28 +131,28 @@ const { t } = useI18n()
 const state = reactive({
   name: '',
   secret: '',
-  allowedDomains: props.mode === 'domains' ? [...(props.credential?.allowedDomains ?? [])] : [],
-  domainInput: '',
+  allowedOrigins: props.mode === 'origins' ? [...(props.credential?.allowedOrigins ?? [])] : [],
+  originInput: '',
   isLoading: false
 })
 
-const domainInputRef = ref(null)
+const originInputRef = ref(null)
 
 /**
- * Matches `hostnameMatchesAllowlist`'s own accepted syntax (see `helpers/domainPattern.js`) rather
- * than accepting anything non-empty (OpenProject #1099): a malformed entry used to be stored silently
- * and just never match any real hostname at resolve time.
+ * Matches `urlMatchesAllowlist`'s own accepted syntax (see `helpers/originPattern.js`) rather than
+ * accepting anything non-empty (OpenProject #2195): a malformed entry used to be stored silently and
+ * just never match any real request URL at resolve time.
  */
-const domainValidation = [
+const originValidation = [
   (value) =>
     !(value ?? '').trim() ||
-    isValidDomainPattern(value.trim()) ||
-    t('admin.blocks.credentialAllowedDomainsInvalid')
+    isValidOriginPrefixPattern(value.trim()) ||
+    t('admin.blocks.credentialAllowedOriginsInvalid')
 ]
 
 const dialogTitle = computed(() => {
   if (props.mode === 'rotate') return t('admin.blocks.credentialRotate')
-  if (props.mode === 'domains') return t('admin.blocks.credentialDomains')
+  if (props.mode === 'origins') return t('admin.blocks.credentialOrigins')
   return t('admin.blocks.credentialAdd')
 })
 
@@ -160,8 +160,8 @@ const dialogSubtitle = computed(() => {
   if (props.mode === 'rotate') {
     return t('admin.blocks.credentialRotateSubtitle', { name: props.credential?.name ?? '' })
   }
-  if (props.mode === 'domains') {
-    return t('admin.blocks.credentialDomainsSubtitle', { name: props.credential?.name ?? '' })
+  if (props.mode === 'origins') {
+    return t('admin.blocks.credentialOriginsSubtitle', { name: props.credential?.name ?? '' })
   }
   return t('admin.blocks.credentialAddSubtitle')
 })
@@ -172,31 +172,31 @@ const submitDisabled = computed(() => {
   if (props.mode === 'rotate') {
     return !state.secret.trim()
   }
-  if (props.mode === 'domains') {
+  if (props.mode === 'origins') {
     return false
   }
-  return !state.name.trim() || !state.secret.trim() || state.allowedDomains.length === 0
+  return !state.name.trim() || !state.secret.trim() || state.allowedOrigins.length === 0
 })
 
 // METHODS
 
-function addDomain() {
-  const value = state.domainInput.trim().toLowerCase()
+function addOrigin() {
+  const value = state.originInput.trim()
   if (!value) {
     return
   }
-  if (!domainInputRef.value?.validate()) {
+  if (!originInputRef.value?.validate()) {
     return
   }
-  state.domainInput = ''
-  if (state.allowedDomains.includes(value)) {
+  state.originInput = ''
+  if (state.allowedOrigins.includes(value)) {
     return
   }
-  state.allowedDomains.push(value)
+  state.allowedOrigins.push(value)
 }
 
-function removeDomain(domain) {
-  state.allowedDomains = state.allowedDomains.filter((d) => d !== domain)
+function removeOrigin(origin) {
+  state.allowedOrigins = state.allowedOrigins.filter((o) => o !== origin)
 }
 
 async function submit() {
@@ -212,15 +212,15 @@ async function submit() {
       }
       notify({ type: 'positive', message: t('admin.blocks.credentialRotateSuccess') })
       onDialogOK()
-    } else if (props.mode === 'domains') {
+    } else if (props.mode === 'origins') {
       const resp = await API_CLIENT.post(
-        `sites/${adminStore.currentSiteId}/block-credentials/${props.credential.id}/allowed-domains`,
-        { json: { allowedDomains: state.allowedDomains } }
+        `sites/${adminStore.currentSiteId}/block-credentials/${props.credential.id}/allowed-origins`,
+        { json: { allowedOrigins: state.allowedOrigins } }
       ).json()
       if (!resp?.ok) {
         throw new Error(resp?.message || 'An unexpected error occured.')
       }
-      notify({ type: 'positive', message: t('admin.blocks.credentialDomainsUpdateSuccess') })
+      notify({ type: 'positive', message: t('admin.blocks.credentialOriginsUpdateSuccess') })
       onDialogOK()
     } else {
       const credential = await API_CLIENT.post(
@@ -229,7 +229,7 @@ async function submit() {
           json: {
             name: state.name.trim(),
             secret: state.secret,
-            allowedDomains: state.allowedDomains
+            allowedOrigins: state.allowedOrigins
           }
         }
       ).json()
@@ -240,8 +240,8 @@ async function submit() {
     const failMessage =
       props.mode === 'rotate'
         ? t('admin.blocks.credentialRotateFailed')
-        : props.mode === 'domains'
-          ? t('admin.blocks.credentialDomainsUpdateFailed')
+        : props.mode === 'origins'
+          ? t('admin.blocks.credentialOriginsUpdateFailed')
           : t('admin.blocks.credentialCreateFailed')
     notify({
       type: 'negative',
@@ -252,5 +252,5 @@ async function submit() {
   state.isLoading = false
 }
 
-defineExpose({ state, removeDomain })
+defineExpose({ state, removeOrigin })
 </script>

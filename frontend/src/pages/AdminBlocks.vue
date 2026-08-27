@@ -194,11 +194,11 @@
               </w-item-label>
               <w-item-label caption class="flex flex-wrap items-center gap-1 mt-1">
                 <w-icon name="la:globe" size="14px" class="mr-1" />
-                <span v-if="credential.allowedDomains?.length" class="text-caption">
-                  {{ credential.allowedDomains.join(', ') }}
+                <span v-if="credential.allowedOrigins?.length" class="text-caption">
+                  {{ credential.allowedOrigins.join(', ') }}
                 </span>
                 <span v-else class="text-caption text-negative">{{
-                  t('admin.blocks.credentialAllowedDomainsEmpty')
+                  t('admin.blocks.credentialAllowedOriginsEmpty')
                 }}</span>
               </w-item-label>
             </w-item-section>
@@ -206,12 +206,12 @@
               <w-btn
                 class="mr-2"
                 icon="la:globe"
-                :label="t(`admin.blocks.credentialDomains`)"
+                :label="t(`admin.blocks.credentialOrigins`)"
                 :color="dark.isActive ? `blue-grey-3` : `blue-grey-8`"
                 outline
                 no-caps
                 padding="xs md"
-                @click="editDomains(credential)" />
+                @click="editOrigins(credential)" />
             </w-item-section>
             <w-item-section side>
               <w-btn
@@ -414,10 +414,10 @@ function rotateCredential(credential) {
   })
 }
 
-function editDomains(credential) {
+function editOrigins(credential) {
   dialog({
     component: BlockCredentialDialog,
-    componentProps: { mode: 'domains', credential }
+    componentProps: { mode: 'origins', credential }
   }).onOk(() => {
     loadCredentials()
   })

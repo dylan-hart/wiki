@@ -353,8 +353,10 @@ export const blockCode = pgTable('blockCode', {
  * alone; resolving `secret` happens entirely server-side (`models/blockCredentials.ts`'s
  * `getCredentialForResolve()`) and it is never serialized back into an API response — see that
  * model's header comment.
- * `allowedDomains` is the deny-by-default scoping list `models/liveData.ts#resolve()` checks a
+ * `allowedOrigins` is the deny-by-default scoping list `models/liveData.ts#resolve()` checks a
  * block's configured URL against before ever attaching the secret — see that file's header comment.
+ * Each entry is an absolute http(s) URL naming an origin (scheme + host + optional port) plus a path
+ * prefix; scheme, port and path are all part of the match, not just the hostname (OpenProject #2195).
  */
 export const blockCredentials = pgTable(
   'blockCredentials',
@@ -365,7 +367,7 @@ export const blockCredentials = pgTable(
       .references(() => sites.id),
     name: varchar({ length: 255 }).notNull(),
     secret: text().notNull(),
-    allowedDomains: text()
+    allowedOrigins: text()
       .array()
       .notNull()
       .default(sql`ARRAY[]::text[]`),

@@ -61,7 +61,7 @@ describe('LiveData.resolve', () => {
   test('resolves the credential and sends it as a bearer token', async () => {
     getCredentialForResolve.mock.mockImplementation(async () => ({
       secret: 's3cr3t-token',
-      allowedDomains: ['example.com']
+      allowedOrigins: ['https://example.com']
     }))
     const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
     await liveData.resolve('site-1', {
@@ -77,7 +77,7 @@ describe('LiveData.resolve', () => {
   test('never puts the credential secret into the resolved result', async () => {
     getCredentialForResolve.mock.mockImplementation(async () => ({
       secret: 's3cr3t-token',
-      allowedDomains: ['example.com']
+      allowedOrigins: ['https://example.com']
     }))
     mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
     const result = await liveData.resolve('site-1', {
@@ -103,10 +103,10 @@ describe('LiveData.resolve', () => {
     )
   })
 
-  test("throws Bad Request when the url is not in the credential's allowed domains", async () => {
+  test("throws Bad Request when the url is not in the credential's allowed origins", async () => {
     getCredentialForResolve.mock.mockImplementation(async () => ({
       secret: 's3cr3t-token',
-      allowedDomains: ['other.com']
+      allowedOrigins: ['https://other.com']
     }))
     await assert.rejects(
       liveData.resolve('site-1', {
@@ -124,7 +124,7 @@ describe('LiveData.resolve', () => {
   test('does not call fetch when the url is outside the allowlist', async () => {
     getCredentialForResolve.mock.mockImplementation(async () => ({
       secret: 's3cr3t-token',
-      allowedDomains: ['other.com']
+      allowedOrigins: ['https://other.com']
     }))
     const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
     await assert.rejects(
@@ -137,18 +137,36 @@ describe('LiveData.resolve', () => {
     assert.equal(fetchMock.mock.calls.length, 0)
   })
 
-  test('allows the url when it matches a wildcard entry in the allowlist', async () => {
+  test('allows the url when it falls within an allowed path prefix', async () => {
     getCredentialForResolve.mock.mockImplementation(async () => ({
       secret: 's3cr3t-token',
-      allowedDomains: ['*.example.com']
+      allowedOrigins: ['https://api.example.com/metrics']
     }))
     mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
     const result = await liveData.resolve('site-1', {
       credentialId: 'cred-1',
-      url: 'https://api.example.com/metrics',
+      url: 'https://api.example.com/metrics/cpu',
       jsonPath: '$.v'
     })
     assert.equal(result.value, 1)
+  })
+
+  test('rejects the url when it falls outside the allowed path prefix', async () => {
+    getCredentialForResolve.mock.mockImplementation(async () => ({
+      secret: 's3cr3t-token',
+      allowedOrigins: ['https://api.example.com/metrics']
+    }))
+    await assert.rejects(
+      liveData.resolve('site-1', {
+        credentialId: 'cred-1',
+        url: 'https://api.example.com/other',
+        jsonPath: '$.v'
+      }),
+      (err: any) => {
+        assert.equal(err.statusCode, 400)
+        return true
+      }
+    )
   })
 
   test('a request with no credentialId is never checked against any allowlist', async () => {
@@ -290,7 +308,7 @@ describe('LiveData.resolve rate limiting (OpenProject #1050)', () => {
   beforeEach(() => {
     getCredentialForResolve = mock.fn(async () => ({
       secret: 's3cr3t-token',
-      allowedDomains: ['example.com']
+      allowedOrigins: ['https://example.com']
     }))
     ;(WIKI.models.blockCredentials.getCredentialForResolve as any) = getCredentialForResolve
     mock.method(liveData as any, 'resolveAddresses', async () => ['93.184.216.34'])

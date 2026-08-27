@@ -60,80 +60,72 @@ function isPrivateIPv6(address: string): boolean {
 }
 
 /**
- * Whether `hostname` is covered by any pattern in `allowedDomains` — the enforcement half of the
- * per-credential domain allowlist (OpenProject #868 follow-up). An empty list matches nothing:
- * `models/blockCredentials.ts` requires at least one domain at creation time specifically so this
- * function is never the only thing standing between "credential exists" and "credential unusable."
+ * Whether `value` is syntactically a valid `allowedOrigins` entry for a block credential: an
+ * absolute `http:`/`https:` URL naming a scheme, host, optional port, and path prefix, with no query
+ * string or userinfo, and no fragment (OpenProject #2195, narrowing the hostname-only allowlist this
+ * replaced). Either a query string or a fragment would leave "does this request URL fall under the
+ * allowed prefix" ambiguous — a query string carries no path information at all, and a fragment is
+ * never even sent to the server — so both are refused here rather than silently ignored at match
+ * time. Userinfo (`user:pass@host`) is refused for the same reason `URL`'s own username/password
+ * fields are never read anywhere else in this codebase: it is no part of "which origin", and a
+ * pattern that includes it would misleadingly suggest the allowlist itself carries credentials.
  *
- * Matching is case-insensitive. A pattern starting with `*.` matches exactly one extra label before
- * the given suffix — the same convention a TLS wildcard certificate uses (`*.example.com` matches
- * `api.example.com`, not `example.com` itself and not `a.b.example.com`) — chosen because it is the
- * behavior most people already carry an intuition for, and it does not silently cover a whole
- * multi-level subtree an admin may not have intended. Any other pattern (including a bare IP
- * literal, since a URL's `hostname` for an IP-literal address is the literal itself) matches only by
- * exact string equality.
+ * Used by both the block-credential route schema and (mirrored, since `frontend/` cannot import from
+ * `backend/` — see root `CLAUDE.md`'s workspace layout) `frontend/src/helpers/originPattern.js`'s copy
+ * for `BlockCredentialDialog.vue`'s inline validation.
  */
-export function hostnameMatchesAllowlist(hostname: string, allowedDomains: string[]): boolean {
-  const target = hostname.toLowerCase()
-  return allowedDomains.some((pattern) => {
-    const normalized = pattern.toLowerCase()
-    if (normalized.startsWith('*.')) {
-      const suffix = normalized.slice(1) // ".example.com"
-      if (!target.endsWith(suffix)) {
-        return false
-      }
-      const prefix = target.slice(0, target.length - suffix.length)
-      return prefix.length > 0 && !prefix.includes('.')
-    }
-    return target === normalized
-  })
+export function isValidOriginPrefixPattern(value: string): boolean {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return false
+  }
+  return (
+    (url.protocol === 'http:' || url.protocol === 'https:') &&
+    url.search === '' &&
+    url.hash === '' &&
+    url.username === '' &&
+    url.password === ''
+  )
 }
 
 /**
- * A DNS label: 1-63 chars, alphanumeric, hyphens allowed except at either end. Both cases are spelled
- * out explicitly (rather than relying on a regex `i` flag) so this same source string can be embedded
- * directly as a JSON Schema `pattern` -- Ajv applies a schema's `pattern` with no flags, so a
- * case-insensitive source only works if it never needed the flag to begin with.
+ * Whether `path` falls under the path prefix `pattern.pathname` names, respecting path-segment
+ * boundaries: a prefix of `/v1` matches `/v1` and `/v1/data` but not `/v1extra` — a naive
+ * `startsWith` would let a stored prefix also cover an entirely different endpoint that merely
+ * happens to share those characters, which is exactly the kind of silent over-authorization a
+ * path-prefix allowlist exists to rule out.
  */
-const DOMAIN_LABEL = '[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?'
-const DOMAIN_HOSTNAME = `${DOMAIN_LABEL}(?:\\.${DOMAIN_LABEL})*`
+function pathMatchesPrefix(path: string, prefix: string): boolean {
+  if (prefix === '' || prefix === '/') {
+    return true
+  }
+  const trimmedPrefix = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix
+  return path === trimmedPrefix || path.startsWith(`${trimmedPrefix}/`)
+}
+
 /**
- * A loose IPv6 literal, `[`/`]`-bracketed: hex groups separated by colons, `::` collapse included.
- * Deliberately not a fully RFC 4291-compliant pattern -- the actual enforcement of "does this
- * credential's secret get sent here" is `hostnameMatchesAllowlist`'s exact-string match at resolve
- * time; this only guards against an admin fat-fingering the syntax `hostnameMatchesAllowlist`
- * accepts, so a slightly permissive match costs nothing a strict one would have caught anyway.
+ * Whether `url` is covered by any pattern in `allowedOrigins` — the enforcement half of the
+ * per-credential allowlist (OpenProject #868, narrowed from a hostname-only match to an origin plus
+ * path prefix by #2195). An empty list matches nothing: `models/blockCredentials.ts` requires at
+ * least one entry at creation time specifically so this function is never the only thing standing
+ * between "credential exists" and "credential unusable."
  *
- * The brackets are required, not optional: `URL.prototype.hostname` for an IPv6-literal authority
- * always carries them (`new URL('http://[::1]/').hostname === '[::1]'`), and `hostnameMatchesAllowlist`
- * compares an entry against that hostname by exact string -- an unbracketed entry would validate here
- * but could then never actually match at resolve time, silently making every IPv6 allowlist entry
- * unusable (OpenProject #1099 follow-up).
+ * Every one of scheme, host, port and path prefix must agree — unlike the hostname-only match this
+ * replaced, an allowlist entry no longer silently authorizes every path (or a different port, or a
+ * plaintext request) an admin never actually intended when they named just a domain. Matching is
+ * exact on `origin` (`URL.prototype.origin` already normalizes host casing), and prefix-based, with
+ * segment boundaries, on the path — see {@link pathMatchesPrefix}.
  */
-const DOMAIN_IPV6 = '\\[(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}\\]'
-
-/**
- * The regex source for one `allowedDomains` entry -- either (optionally `*.`-prefixed) a hostname, or
- * a bare IPv6 literal. An IPv4 literal is already covered by the hostname branch: each octet is just
- * digits, which is a valid `DOMAIN_LABEL` on its own (OpenProject #1099).
- *
- * Kept as a string (not just the compiled `DOMAIN_PATTERN` below) specifically so
- * `api/blockCredentials.ts` can splice it straight into the JSON Schema `pattern` for
- * `allowedDomains` items -- the backend route and this helper's own `isValidDomainPattern` share one
- * definition of "valid" rather than risking two that quietly drift apart.
- */
-export const DOMAIN_PATTERN_SOURCE = `^(?:\\*\\.)?${DOMAIN_HOSTNAME}$|^${DOMAIN_IPV6}$`
-
-const DOMAIN_PATTERN = new RegExp(DOMAIN_PATTERN_SOURCE)
-
-/**
- * Whether `value` is syntactically a valid `allowedDomains` entry -- the same shape
- * `hostnameMatchesAllowlist` actually matches against: an exact hostname, a `*.`-prefixed wildcard,
- * an IPv4 literal (matches as a hostname), or a `[`/`]`-bracketed IPv6 literal. Used by both the block-credential route
- * schema and (mirrored, since `frontend/` cannot import from `backend/` -- see root `CLAUDE.md`'s
- * workspace layout) `frontend/src/helpers/domainPattern.js`'s copy for `BlockCredentialDialog.vue`'s
- * inline validation (OpenProject #1099).
- */
-export function isValidDomainPattern(value: string): boolean {
-  return DOMAIN_PATTERN.test(value)
+export function urlMatchesAllowlist(url: URL, allowedOrigins: string[]): boolean {
+  return allowedOrigins.some((pattern) => {
+    let entry: URL
+    try {
+      entry = new URL(pattern)
+    } catch {
+      return false
+    }
+    return url.origin === entry.origin && pathMatchesPrefix(url.pathname, entry.pathname)
+  })
 }
