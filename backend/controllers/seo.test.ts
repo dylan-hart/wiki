@@ -1,12 +1,24 @@
-import { after, before, describe, test } from 'node:test'
+import { after, afterEach, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildRobotsTxt, buildSitemapXml } from './seo.ts'
+import fastify from 'fastify'
+import type { FastifyInstance } from 'fastify'
+import fastifySensible from '@fastify/sensible'
+import seoRoutes, { buildRobotsTxt, buildSitemapXml } from './seo.ts'
+import { invalidateSitemapCache } from '../helpers/sitemapCache.ts'
+import { createCacheStub } from '../test/mocks.ts'
 
 /**
- * Pure content-generation logic only — no `WIKI` global, no database, no Fastify instance. Everything
- * that decides what a request gets (site resolution, the `sitemap` gate, `listPagesForSitemap`'s
- * guest-rule filtering) is exercised where it actually lives: `models/pages.test.ts` for the query,
- * and there is no server-boot harness in this repo to run the route registration itself against.
+ * `buildRobotsTxt`/`buildSitemapXml` below are pure content-generation logic — no `WIKI` global, no
+ * database, no Fastify instance. Everything that decides what a request gets before reaching them
+ * (site resolution, the `sitemap` gate, `listPagesForSitemap`'s guest-rule filtering) is exercised
+ * where it actually lives: `models/pages.test.ts` for the query.
+ *
+ * The `GET /sitemap.xml` caching describe block further down (OpenProject #2267) DOES register the
+ * real route plugin against `app.inject`, same as `controllers/site.test.ts` — `WIKI.models.pages
+ * .listPagesForSitemap` is stubbed as a `mock.fn` so the test can assert on how many times the
+ * (expensive) query actually ran, and `WIKI.cache` is `test/mocks.ts`'s real `createCacheStub()`
+ * rather than a bespoke stand-in, so the route exercises the same cache surface (`get`/`set`/`has`/
+ * `delete`, millisecond `ttl`) it would in production.
  */
 
 let previousToTemporalInstant: any
@@ -142,5 +154,109 @@ describe('buildSitemapXml', () => {
     // a page with no translations carries no alternate links
     assert.doesNotMatch(xml, /<xhtml:link[^>]*href="[^"]*\/solo"/)
     assert.match(xml, /xmlns:xhtml="http:\/\/www\.w3\.org\/1999\/xhtml"/)
+  })
+})
+
+describe('GET /sitemap.xml — per-site caching (OpenProject #2267)', () => {
+  const SITE = {
+    id: 'site-sitemap-cache',
+    hostname: 'wiki.example.com',
+    config: { sitemap: true, locales: null }
+  }
+
+  const SITEMAP_PAGES = [
+    { path: 'docs/one', locale: 'en', updatedAt: new Date('2026-01-01T00:00:00Z') }
+  ]
+
+  let app: FastifyInstance
+  let listPagesForSitemap: ReturnType<typeof mock.fn>
+
+  before(async () => {
+    listPagesForSitemap = mock.fn(async () => SITEMAP_PAGES)
+    ;(globalThis as any).WIKI = {
+      cache: createCacheStub(),
+      models: {
+        sites: { getSiteByHostname: async () => SITE },
+        pages: { listPagesForSitemap }
+      }
+    }
+
+    app = fastify()
+    await app.register(fastifySensible)
+    await app.register(seoRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  afterEach(() => {
+    listPagesForSitemap.mock.resetCalls()
+    // -> Each test starts from an empty cache, not whatever the previous test left cached for this
+    //    same siteId
+    ;(WIKI.cache as any).clear()
+  })
+
+  test('sets a public, max-age Cache-Control header on the response', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/sitemap.xml',
+      headers: { host: SITE.hostname }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.headers['cache-control'], 'public, max-age=300')
+  })
+
+  test('a second request inside the TTL performs no page query, and serves the same body', async () => {
+    const first = await app.inject({
+      method: 'GET',
+      url: '/sitemap.xml',
+      headers: { host: SITE.hostname }
+    })
+    assert.equal(listPagesForSitemap.mock.calls.length, 1)
+
+    const second = await app.inject({
+      method: 'GET',
+      url: '/sitemap.xml',
+      headers: { host: SITE.hostname }
+    })
+    assert.equal(
+      listPagesForSitemap.mock.calls.length,
+      1,
+      'the cached body must serve the second hit'
+    )
+    assert.equal(second.body, first.body)
+  })
+
+  test('the cached body is dropped on a page publish, so the next request re-queries', async () => {
+    await app.inject({ method: 'GET', url: '/sitemap.xml', headers: { host: SITE.hostname } })
+    assert.equal(listPagesForSitemap.mock.calls.length, 1)
+
+    // -> Stands in for `models/pages.ts`'s own call on create/update/move/delete -- the exact
+    //    function it imports from `helpers/sitemapCache.ts`
+    invalidateSitemapCache(SITE.id)
+
+    await app.inject({ method: 'GET', url: '/sitemap.xml', headers: { host: SITE.hostname } })
+    assert.equal(
+      listPagesForSitemap.mock.calls.length,
+      2,
+      'a dropped cache entry must force a fresh query'
+    )
+  })
+
+  test("a different baseUrl for the same siteId is treated as a cache miss, not served the wrong hostname's body", async () => {
+    await app.inject({ method: 'GET', url: '/sitemap.xml', headers: { host: SITE.hostname } })
+    assert.equal(listPagesForSitemap.mock.calls.length, 1)
+
+    // -> Same siteId (the catch-all `*` site can be reached through more than one hostname), but a
+    //    different `${protocol}://${hostname}` -- must not serve the first hostname's cached <loc>s
+    await app.inject({
+      method: 'GET',
+      url: '/sitemap.xml',
+      headers: { host: 'other.example.com' }
+    })
+    assert.equal(listPagesForSitemap.mock.calls.length, 2)
   })
 })

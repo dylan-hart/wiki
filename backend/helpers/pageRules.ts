@@ -137,6 +137,33 @@ function normalizePath(value: string): string {
 }
 
 /**
+ * Compiled `REGEX` rule patterns, keyed by the raw pattern text rather than by rule id — two rules
+ * (or the same rule reloaded after an edit) sharing identical pattern text share one compiled
+ * `RegExp` too. `null` is cached the same as a successful compile, so a pattern that fails to parse
+ * is remembered as unparseable rather than re-attempting (and re-catching) the same throw on every
+ * call. Unbounded, deliberately: a rule's pattern text comes from an admin-authored group rule, not
+ * from a per-request value, so the key space is bounded by how many distinct REGEX rules exist across
+ * every group, not by traffic.
+ */
+const compiledRegexCache = new Map<string, RegExp | null>()
+
+/** `new RegExp(rulePath)`, memoized — see `compiledRegexCache`'s own comment for why. */
+function compileRulePathRegex(rulePath: string): RegExp | null {
+  const cached = compiledRegexCache.get(rulePath)
+  if (cached !== undefined) {
+    return cached
+  }
+  let regex: RegExp | null
+  try {
+    regex = new RegExp(rulePath)
+  } catch {
+    regex = null
+  }
+  compiledRegexCache.set(rulePath, regex)
+  return regex
+}
+
+/**
  * How much of the site a rule is talking about, as a number where higher is narrower.
  *
  * The length of the path it addresses. A tag rule addresses no path, so it scores zero and can never
@@ -186,13 +213,11 @@ export function ruleMatchesPage(rule: GroupRule, page: RulePageRef): boolean {
       return pagePath === rulePath
     case 'END':
       return pagePath.endsWith(rulePath)
-    case 'REGEX':
-      try {
-        return new RegExp(rulePath).test(pagePath)
-      } catch {
-        // -> A rule that cannot compile addresses nothing, rather than everything
-        return false
-      }
+    case 'REGEX': {
+      // -> A rule that cannot compile addresses nothing, rather than everything
+      const regex = compileRulePathRegex(rulePath)
+      return regex ? regex.test(pagePath) : false
+    }
     case 'TAG':
       return ruleTags(rule).some((tag) => pageTags.includes(tag))
     case 'TAGALL': {

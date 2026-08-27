@@ -5,6 +5,11 @@ import {
   guardSiteEnabled,
   type LocaleRoutingConfig
 } from '../helpers/common.ts'
+import {
+  getCachedSitemap,
+  setCachedSitemap,
+  SITEMAP_CACHE_TTL_MS
+} from '../helpers/sitemapCache.ts'
 
 /** The two flags a site's SEO settings hold, as read off `site.config`. */
 interface RobotsConfig {
@@ -146,11 +151,22 @@ async function routes(app: FastifyInstance) {
       return
     }
 
-    const pages = await WIKI.models.pages.listPagesForSitemap(site.id)
+    // -> `helpers/sitemapCache.ts` (OpenProject #2267): a rendered body is cached per site for a few
+    //    minutes, so a burst of crawler/monitoring requests doesn't re-run `listPagesForSitemap`'s
+    //    unbounded, rule-filtered query on every hit. `models/pages.ts` drops the cache entry on any
+    //    write that could change what this should say.
     const baseUrl = requestOrigin(req.protocol, req.hostname)
-    return reply
-      .type('application/xml; charset=utf-8')
-      .send(buildSitemapXml(baseUrl, pages, site.config?.locales))
+    reply.header('Cache-Control', `public, max-age=${Math.floor(SITEMAP_CACHE_TTL_MS / 1000)}`)
+
+    const cached = getCachedSitemap(site.id, baseUrl)
+    if (cached !== undefined) {
+      return reply.type('application/xml; charset=utf-8').send(cached)
+    }
+
+    const pages = await WIKI.models.pages.listPagesForSitemap(site.id)
+    const body = buildSitemapXml(baseUrl, pages, site.config?.locales)
+    setCachedSitemap(site.id, baseUrl, body)
+    return reply.type('application/xml; charset=utf-8').send(body)
   })
 }
 

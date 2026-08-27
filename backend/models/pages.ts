@@ -8,6 +8,7 @@ import {
   timingSafeCompare
 } from '../helpers/common.ts'
 import { rulesAllow } from '../helpers/pageRules.ts'
+import { invalidateSitemapCache } from '../helpers/sitemapCache.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import type { PageHistoryVia } from './pageHistory.ts'
 import type { RenderPermissions, TocNode } from './rendering.ts'
@@ -932,6 +933,11 @@ class Pages {
       authorId: actor.id
     })
 
+    // -> A newly created page can be published and browsable from the moment it's saved
+    //    (`publishState` defaults to `'published'`), so it may belong in the sitemap immediately
+    //    (OpenProject #2267)
+    invalidateSitemapCache(siteId)
+
     return (await this.getPage({ siteId, id: page.id })) as Page
   }
 
@@ -1145,6 +1151,12 @@ class Pages {
       siteId,
       authorId: actor.id
     })
+
+    // -> Any of `publishState`, `isBrowsable`, `tags`, `classification` moving could change whether
+    //    this page belongs in the sitemap, and `updatedAt` (touched on every save) is its `<lastmod>`
+    //    when it does -- invalidating unconditionally is what keeps a cached body from ever describing
+    //    a page as it was rather than as it is now (OpenProject #2267)
+    invalidateSitemapCache(siteId)
 
     return updated
   }
@@ -1472,6 +1484,10 @@ class Pages {
         primaryMoved = moved
       }
     }
+    // -> A moved page's path/locale is what a sitemap `<loc>` is built from, so it has to be dropped
+    //    for every page this move touched -- one call covers the primary and every twin, since they
+    //    all share this siteId (OpenProject #2267)
+    invalidateSitemapCache(siteId)
     return primaryMoved!
   }
 
@@ -1511,6 +1527,8 @@ class Pages {
     //    link needs the same drop or it would keep pointing at a page that no longer exists
     //    (OpenProject #870).
     WIKI.models.glossary.invalidateCache(siteId)
+    // -> A deleted page can no longer belong in the sitemap (OpenProject #2267)
+    invalidateSitemapCache(siteId)
 
     await WIKI.models.search.deleted(siteId, id)
     await WIKI.models.hooks.emit('page:delete', siteId, {
@@ -1576,6 +1594,9 @@ class Pages {
     // -> Same reasoning as `deletePage`: a glossary term canonically linked to any of these pages has
     //    a now-stale cached link (OpenProject #870). One call covers the whole batch.
     WIKI.models.glossary.invalidateCache(siteId)
+    // -> Same reasoning as `deletePage`: none of these pages can still belong in the sitemap
+    //    (OpenProject #2267). One call covers the whole batch.
+    invalidateSitemapCache(siteId)
 
     // -> One per page, as deleting them one at a time would have sent: a subscriber mirroring the
     //    wiki has to hear about each page, not about the folder it happened to sit in
