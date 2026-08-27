@@ -258,20 +258,35 @@ describe('expireCompletionPromises (fake WIKI)', () => {
     scheduler.completionPromises = []
   })
 
-  /** A `CompletionPromise`-shaped entry `ageSeconds` in the past, recording whether/how it settled. */
+  /**
+   * A `CompletionPromise`-shaped entry `ageSeconds` in the past, recording whether/how it settled.
+   * `promise` is a real `Promise` wired to `resolve`/`reject`, matching production's
+   * `createDeferred()` shape (task 1993) -- `expireCompletionPromises()` attaches a no-op `.catch()`
+   * to it before rejecting, so a test entry without a matching live promise would throw calling
+   * `.catch()` on `undefined`.
+   */
   function makeEntry(ageSeconds: number) {
     const added = (globalThis as any).Temporal.Now.instant().subtract({ seconds: ageSeconds })
     let rejectedWith: Error | undefined
     let resolved = false
+    let resolveFn: (value: void) => void
+    let rejectFn: (reason?: unknown) => void
+    const promise = new Promise<void>((res, rej) => {
+      resolveFn = res
+      rejectFn = rej
+    })
     return {
       entry: {
         id: `job-aged-${ageSeconds}s`,
         added,
+        promise,
         resolve: () => {
           resolved = true
+          resolveFn()
         },
         reject: (err: Error) => {
           rejectedWith = err
+          rejectFn(err)
         }
       },
       getRejection: () => rejectedWith,
@@ -326,6 +341,81 @@ describe('expireCompletionPromises (fake WIKI)', () => {
       [fresh.entry.id]
     )
     assert.ok(stale.getRejection())
+  })
+})
+
+/**
+ * OpenProject #1993: `addJob({ promise: true })` used to push the `completionPromises` entry
+ * *before* `WIKI.db.insert(...)`. If the insert then rejected, the outer `catch` logged and
+ * returned `undefined` -- the caller never received `jobDefer.promise`, so nothing was ever
+ * attached to it, but the entry stayed tracked in `completionPromises` regardless. Roughly two
+ * hours later (`staleJobTimeout` * `COMPLETION_PROMISE_TTL_MULTIPLIER`),
+ * `expireCompletionPromises()` rejected that orphaned, handler-less promise -- an unhandled
+ * rejection with nothing left in the call stack to explain it, and (per `index.ts`'s
+ * `uncaughtException` handler) fatal to the whole instance.
+ *
+ * The fix moves the push to after a successful insert, so a rejecting insert leaves nothing in
+ * `completionPromises` for `expireCompletionPromises()` to ever reject.
+ */
+describe('addJob (fake WIKI, rejecting insert)', () => {
+  let previousWiki: any
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = {
+      INSTANCE_ID: 'test-instance',
+      config: { scheduler: { maxRetries: 3 } },
+      logger: { info: () => {}, warn: () => {}, debug: () => {} },
+      db: {
+        insert: (_table: any) => ({
+          values: async () => {
+            throw new Error('insert failed')
+          }
+        })
+      }
+    }
+    scheduler.tasks = {}
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  beforeEach(() => {
+    scheduler.completionPromises = []
+  })
+
+  test('returns undefined and leaves completionPromises empty when the insert rejects', async () => {
+    const result = await scheduler.addJob({ task: 'testTask', promise: true })
+
+    assert.equal(result, undefined)
+    assert.equal(scheduler.completionPromises.length, 0)
+  })
+
+  test('a subsequent expireCompletionPromises() sweep produces no unhandled rejection', async () => {
+    let unhandled: unknown
+    const onUnhandledRejection = (reason: unknown) => {
+      unhandled = reason
+    }
+    process.on('unhandledRejection', onUnhandledRejection)
+
+    try {
+      await scheduler.addJob({ task: 'testTask', promise: true })
+      scheduler.expireCompletionPromises()
+
+      // -> Give any unhandled rejection a microtask/macrotask turn to actually fire before asserting
+      //    its absence.
+      await new Promise((resolve) => setImmediate(resolve))
+
+      assert.equal(scheduler.completionPromises.length, 0)
+      assert.equal(
+        unhandled,
+        undefined,
+        'expireCompletionPromises() must not produce an unhandled rejection'
+      )
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection)
+    }
   })
 })
 
