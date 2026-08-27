@@ -103,6 +103,9 @@
                   @click="deleteGroup(props.row)" />
               </w-td>
             </template>
+            <template #no-data="{ rowsCount }">
+              {{ rowsCount > 0 ? t('admin.groups.noMatchesText') : t('admin.groups.emptyText') }}
+            </template>
           </w-table>
         </w-card>
       </div>

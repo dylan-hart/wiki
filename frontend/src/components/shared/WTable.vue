@@ -56,6 +56,17 @@
         </tr>
       </tbody>
     </table>
+    <!--
+      Only rendered when a caller actually fills the slot -- `$slots['no-data']` guards it so every
+      call site that has NOT migrated onto this slot yet (most of them, still hand-rolling their own
+      empty block outside `<w-table>`) gets no extra markup at all, not an empty padded div sitting
+      above their own text.
+    -->
+    <div
+      v-if="$slots['no-data'] && visibleRows.length === 0 && !loading"
+      class="w-table__no-data p-4 text-center text-grey">
+      <slot name="no-data" :rows-count="rows.length" :filter="filter" />
+    </div>
     <w-inner-loading :showing="loading" />
   </div>
 </template>
@@ -74,6 +85,16 @@ import { computed, reactive } from 'vue'
  * scrolling, no top/bottom slots. Every call site passed `:rows-per-page-options="[0]"` and
  * `hide-bottom`, i.e. "show all rows, no footer", so the whole paging apparatus was dead weight.
  * Sorting is kept because several tables mark columns sortable and the header is visible there.
+ *
+ * An optional `#no-data` slot renders in place of the table body when there are no rows left to
+ * show and the table isn't loading. It receives `rowsCount` (the `rows` prop's own length, i.e. the
+ * count BEFORE this component's own `filter` prop narrows it) and `filter` (the active filter
+ * value) as slot props, so a caller can tell "nothing exists yet" (`rowsCount === 0`) apart from
+ * "nothing matched" (`rowsCount > 0` with a non-empty `filter`) -- distinct copy for each, the way
+ * `AdminNavigation.vue` already did by hand before this slot existed. A caller filtering server-side
+ * instead (its `rows` prop already narrowed by a search sent to the API, `filter` left unset) reads
+ * its own local search state to draw that same distinction rather than relying on these slot props,
+ * which only describe filtering this component itself performed.
  */
 const props = defineProps({
   rows: {

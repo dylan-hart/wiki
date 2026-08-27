@@ -136,6 +136,9 @@
                 </w-btn>
               </w-td>
             </template>
+            <template #no-data>
+              {{ state.search ? t('admin.users.searchNoResults') : t('admin.users.emptyText') }}
+            </template>
           </w-table>
         </w-card>
         <div class="flex items-center justify-center mt-6" v-if="state.totalPages > 1">
