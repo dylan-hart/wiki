@@ -481,6 +481,56 @@ describe('DiagramRender.render', () => {
       )
     })
 
+    test('fetches with redirect: "error" and a bounded abort signal (OpenProject #2226)', async () => {
+      const fetchMock = mock.fn(
+        async (_url: string, _init: RequestInit) =>
+          new Response(new Uint8Array([1]), { status: 200 })
+      )
+      ;(globalThis as any).fetch = fetchMock
+
+      await diagramRender.render({ type: 'plantuml', source: '@startuml\nA -> B\n@enduml' })
+
+      const init = fetchMock.mock.calls[0].arguments[1]
+      assert.equal(init.redirect, 'error')
+      assert.ok(init.signal instanceof AbortSignal)
+    })
+
+    test('reports a redirecting server as a clean error rather than following it (OpenProject #2226)', async () => {
+      ;(globalThis as any).fetch = mock.fn(async (_url: string, init: RequestInit) => {
+        if (init.redirect === 'error') {
+          // -> What undici actually throws for a redirect response under `redirect: 'error'`.
+          throw new TypeError('fetch failed')
+        }
+        throw new Error('should never fetch without redirect: "error"')
+      })
+
+      await assert.rejects(
+        diagramRender.render({ type: 'plantuml', source: '@startuml\nA -> B\n@enduml' }),
+        (err: any) => {
+          assert.equal(err.name, 'diagramRenderFailed')
+          assert.equal(err.statusCode, 502)
+          return true
+        }
+      )
+    })
+
+    test('reports a hanging server as a clean error rather than an indefinite hang (OpenProject #2226)', async () => {
+      ;(globalThis as any).fetch = mock.fn(async () => {
+        // -> What undici actually throws once `AbortSignal.timeout` fires mid-request.
+        throw new DOMException('The operation was aborted.', 'TimeoutError')
+      })
+
+      await assert.rejects(
+        diagramRender.render({ type: 'plantuml', source: '@startuml\nA -> B\n@enduml' }),
+        (err: any) => {
+          assert.equal(err.name, 'diagramRenderFailed')
+          assert.equal(err.statusCode, 502)
+          assert.match(err.message, /aborted/i)
+          return true
+        }
+      )
+    })
+
     test('surfaces the X-PlantUML-Diagram-Error header as the failure reason', async () => {
       ;(globalThis as any).fetch = mock.fn(
         async () =>
