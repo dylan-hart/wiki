@@ -1,7 +1,12 @@
 import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { userGroups as userGroupsTable, users as usersTable } from '../db/schema.ts'
+import {
+  pageEditSubmissions as submissionsTable,
+  userGroups as userGroupsTable,
+  users as usersTable
+} from '../db/schema.ts'
 import type { PageActor } from './pages.ts'
 import type { ApprovalPageRef } from './approvals.ts'
 
@@ -1143,5 +1148,270 @@ describe('approvals.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, 
     } finally {
       approvalsModel.reloadCache = originalReloadCache
     }
+  })
+})
+
+/**
+ * OpenProject #2129: `rejectSubmission` used to be a bare DELETE, and `approveSubmission` ended in
+ * one too -- neither path recorded anything, so a declined suggestion could not be shown back to its
+ * author or recovered from a mistaken decline. Both now mark the row (`status`, `resolvedReason`,
+ * `resolvedBy`) and retain it. This suite pins that: the row survives resolution with the right
+ * fields set, and every "still pending" query (`getReviewableSubmissions`, `countSubmissions`,
+ * `getOwnSubmission` via `saveSubmission`'s resubmit path) stops surfacing a resolved row as open.
+ */
+describe('approvals retain resolved submissions (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let pagesModel: typeof import('./pages.ts').pages
+  let approvalsModel: typeof import('./approvals.ts').approvals
+  let actor: PageActor
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'covers everything',
+      isEnabled: true,
+      match: 'START',
+      path: '',
+      submitterGroups: [],
+      reviewerGroups: [fixtures.groupId]
+    })
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  function pageRef(page: { id: string; path: string }): ApprovalPageRef {
+    return {
+      id: page.id,
+      path: page.path,
+      locale: 'en',
+      tags: [],
+      allowContributions: true,
+      classification: null
+    }
+  }
+
+  async function makePage(path: string, content: string) {
+    return pagesModel.createPage(
+      fixtures.siteId,
+      { path, title: path, editor: 'markdown', content },
+      actor
+    )
+  }
+
+  async function rowFor(submissionId: string) {
+    const rows = await fixtures.db
+      .select()
+      .from(submissionsTable)
+      .where(eq(submissionsTable.id, submissionId))
+      .limit(1)
+    return rows[0]
+  }
+
+  test('reject retains the row with status, resolvedReason and resolvedBy set', async () => {
+    const page = await makePage('approvals/retain/reject', 'Original content')
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    const rejected = await approvalsModel.rejectSubmission(
+      fixtures.siteId,
+      submission.id,
+      'Not a good fit for this page',
+      actor.id
+    )
+    assert.equal(rejected, true)
+
+    const row = await rowFor(submission.id)
+    assert.ok(row, 'the row must still exist -- reject retains it rather than deleting it')
+    assert.equal(row!.status, 'declined')
+    assert.equal(row!.resolvedReason, 'Not a good fit for this page')
+    assert.equal(row!.resolvedBy, actor.id)
+  })
+
+  test('reject without a reason retains the row with resolvedReason left null', async () => {
+    const page = await makePage('approvals/retain/reject-no-reason', 'Original content')
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    await approvalsModel.rejectSubmission(fixtures.siteId, submission.id, null, actor.id)
+
+    const row = await rowFor(submission.id)
+    assert.equal(row!.status, 'declined')
+    assert.equal(row!.resolvedReason, null)
+    assert.equal(row!.resolvedBy, actor.id)
+  })
+
+  test('rejecting an already-resolved submission is a no-op and does not overwrite it', async () => {
+    const page = await makePage('approvals/retain/reject-twice', 'Original content')
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    await approvalsModel.rejectSubmission(fixtures.siteId, submission.id, 'First reason', actor.id)
+    const secondAttempt = await approvalsModel.rejectSubmission(
+      fixtures.siteId,
+      submission.id,
+      'Second reason',
+      actor.id
+    )
+    assert.equal(secondAttempt, false)
+
+    const row = await rowFor(submission.id)
+    assert.equal(row!.resolvedReason, 'First reason')
+  })
+
+  test('rejecting a submission that does not exist returns false', async () => {
+    const result = await approvalsModel.rejectSubmission(
+      fixtures.siteId,
+      '00000000-0000-0000-0000-000000000000',
+      'reason',
+      actor.id
+    )
+    assert.equal(result, false)
+  })
+
+  test('approve marks the row approved and resolvedBy rather than deleting it', async () => {
+    const page = await makePage('approvals/retain/approve', 'Original content')
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    const result = await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Suggested content',
+      render: '<p>Suggested content</p>',
+      actor
+    })
+    assert.equal(result.ok, true)
+
+    const row = await rowFor(submission.id)
+    assert.ok(row, 'the row must still exist -- approve retains it rather than deleting it')
+    assert.equal(row!.status, 'approved')
+    assert.equal(row!.resolvedBy, actor.id)
+  })
+
+  test('a declined submission does not reappear in the reviewer queue', async () => {
+    const page = await makePage('approvals/retain/queue-decline', 'Original content')
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    const before = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
+      groupIds: [fixtures.groupId],
+      pageId: page.id
+    })
+    assert.ok(before.some((s) => s.id === submission.id))
+
+    await approvalsModel.rejectSubmission(fixtures.siteId, submission.id, null, actor.id)
+
+    const afterReject = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
+      groupIds: [fixtures.groupId],
+      pageId: page.id
+    })
+    assert.ok(!afterReject.some((s) => s.id === submission.id))
+  })
+
+  test('an approved submission does not reappear in the reviewer queue', async () => {
+    const page = await makePage('approvals/retain/queue-approve', 'Original content')
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Suggested content',
+      render: '<p>Suggested content</p>',
+      actor
+    })
+
+    const afterApprove = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
+      groupIds: [fixtures.groupId],
+      pageId: page.id
+    })
+    assert.ok(!afterApprove.some((s) => s.id === submission.id))
+  })
+
+  test('countSubmissions does not count a resolved row as still waiting', async () => {
+    const page = await makePage('approvals/retain/count', 'Original content')
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+    assert.equal(await approvalsModel.countSubmissions(page.id), 1)
+
+    await approvalsModel.rejectSubmission(fixtures.siteId, submission.id, null, actor.id)
+    assert.equal(await approvalsModel.countSubmissions(page.id), 0)
+  })
+
+  test('a declined submission no longer counts as the author’s open suggestion, so they can suggest again', async () => {
+    const page = await makePage('approvals/retain/resubmit', 'Original content')
+    const first = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'First suggestion',
+      authorId: fixtures.userId
+    })
+
+    await approvalsModel.rejectSubmission(fixtures.siteId, first.id, null, actor.id)
+
+    // -> `getOwnSubmission` must not resolve the declined row as still "open"
+    assert.equal(await approvalsModel.getOwnSubmission(page.id, fixtures.userId), null)
+
+    // -> And `saveSubmission`'s resubmit path must not collide with the declined row (its partial
+    //    unique index is scoped to `status = 'open'`) -- it creates a fresh, independent row instead
+    //    of silently reopening the declined one
+    const second = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Second suggestion',
+      authorId: fixtures.userId
+    })
+    assert.notEqual(second.id, first.id)
+    assert.equal(second.content, 'Second suggestion')
+
+    const firstRow = await rowFor(first.id)
+    assert.equal(firstRow!.status, 'declined')
+    assert.equal(firstRow!.content, 'First suggestion', 'the declined row itself is left untouched')
+
+    const secondRow = await rowFor(second.id)
+    assert.equal(secondRow!.status, 'open')
   })
 })

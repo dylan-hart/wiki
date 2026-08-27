@@ -576,7 +576,13 @@ class Approvals {
         updatedAt: submissionsTable.updatedAt
       })
       .from(submissionsTable)
-      .where(and(eq(submissionsTable.pageId, pageId), eq(submissionsTable.authorId, authorId)))
+      .where(
+        and(
+          eq(submissionsTable.pageId, pageId),
+          eq(submissionsTable.authorId, authorId),
+          eq(submissionsTable.status, 'open')
+        )
+      )
       .limit(1)
     return (rows[0] as PageEditSubmission) ?? null
   }
@@ -640,8 +646,9 @@ class Approvals {
           .values(values)
           .onConflictDoUpdate({
             target: [submissionsTable.pageId, submissionsTable.authorId],
-            // -> Matches the partial index, which only covers rows with an author
-            targetWhere: sql`"authorId" IS NOT NULL`,
+            // -> Matches the partial index: only an OPEN submission of this author's on this page
+            //    conflicts. A resolved one is left alone and this insert creates a fresh row instead.
+            targetWhere: sql`"authorId" IS NOT NULL AND "status" = 'open'`,
             set: {
               content: values.content,
               patch: values.patch,
@@ -836,7 +843,10 @@ class Approvals {
    * How many suggestions are waiting on a page. Counted for every reviewer, whoever wrote them.
    */
   async countSubmissions(pageId: string): Promise<number> {
-    return WIKI.db.$count(submissionsTable, eq(submissionsTable.pageId, pageId))
+    return WIKI.db.$count(
+      submissionsTable,
+      and(eq(submissionsTable.pageId, pageId), eq(submissionsTable.status, 'open'))
+    )
   }
 
   /**
@@ -885,9 +895,15 @@ class Approvals {
       .innerJoin(pagesTable, eq(pagesTable.id, submissionsTable.pageId))
       .leftJoin(usersTable, eq(usersTable.id, submissionsTable.authorId))
       .where(
+        // -> Retained resolved rows are not reviewable a second time -- only what is still `open`
+        //    belongs in this queue.
         pageId
-          ? and(eq(submissionsTable.siteId, siteId), eq(submissionsTable.pageId, pageId))
-          : eq(submissionsTable.siteId, siteId)
+          ? and(
+              eq(submissionsTable.siteId, siteId),
+              eq(submissionsTable.pageId, pageId),
+              eq(submissionsTable.status, 'open')
+            )
+          : and(eq(submissionsTable.siteId, siteId), eq(submissionsTable.status, 'open'))
       )
       .orderBy(asc(submissionsTable.createdAt))
 
@@ -1104,22 +1120,53 @@ class Approvals {
       await WIKI.models.pages.queueRerender(siteId, page.id, actor)
     }
 
-    // -> Cascades onto `pageEditSubmissionApprovals`, so the votes that got it here are cleaned up
-    //    with it rather than left to be swept separately
-    await WIKI.db.delete(submissionsTable).where(eq(submissionsTable.id, submissionId))
+    /*
+      Marked resolved rather than deleted, so the author can be shown it was approved and onto which
+      page. `pageEditSubmissionApprovals`'s votes are no longer cascaded away with the row -- they stay
+      as a record of who signed off -- but they also no longer matter to anything: `approvalCountsFor`
+      and `getReviewableSubmissions` only ever look at `open` submissions, so a resolved one's approval
+      rows are inert history, not live state.
+    */
+    await WIKI.db
+      .update(submissionsTable)
+      .set({ status: 'approved', resolvedBy: actor.id, updatedAt: new Date() })
+      .where(eq(submissionsTable.id, submissionId))
     WIKI.logger.debug(`Approved edit suggestion ${submissionId} onto page ${page.id}`)
     return { ok: true, finalized: true, approvalsCount, approvalsRequired }
   }
 
   /**
-   * Decline a suggestion, which discards it. The page is untouched.
+   * Decline a suggestion. The page is untouched, and the submission is retained with `status:
+   * 'declined'` (rather than deleted) so it can be shown back to its author along with `reason`.
    *
+   * @param reason The reviewer's optional note on why, shown to the author
+   * @param resolvedBy The reviewer declining it
    * @returns False when there is no such submission
    */
-  async rejectSubmission(siteId: string, submissionId: string): Promise<boolean> {
+  async rejectSubmission(
+    siteId: string,
+    submissionId: string,
+    reason: string | null,
+    resolvedBy: string
+  ): Promise<boolean> {
     const result = await WIKI.db
-      .delete(submissionsTable)
-      .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.siteId, siteId)))
+      .update(submissionsTable)
+      .set({
+        status: 'declined',
+        resolvedReason: reason,
+        resolvedBy,
+        updatedAt: new Date()
+      })
+      .where(
+        and(
+          eq(submissionsTable.id, submissionId),
+          eq(submissionsTable.siteId, siteId),
+          // -> Only an OPEN submission can be declined: this makes a repeat decline of an already
+          //    resolved row a no-op (`false`) rather than silently overwriting its reason/resolver a
+          //    second time.
+          eq(submissionsTable.status, 'open')
+        )
+      )
     return (result.rowCount ?? 0) > 0
   }
 
