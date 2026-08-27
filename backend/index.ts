@@ -917,7 +917,17 @@ async function initHTTPServer() {
     WIKI.logger.info(`Starting HTTP Server on port ${WIKI.config.port} [ STARTING ]`)
     await app.listen({ port: WIKI.config.port, host: WIKI.config.bindIP })
     WIKI.logger.info('HTTP Server: [ RUNNING ]')
-    WIKI.server.setReady()
+    // -> `/_ready` is deliberately NOT flipped here: `app.listen()` only means the socket accepts
+    //    connections, not that a request can be served correctly. `WIKI.sites`/`WIKI.sitesMappings`
+    //    are still `{}` at this point (see the WIKI literal above), no auth strategy is active yet,
+    //    and the groups/locales/approvals/classification caches every request path reads from are
+    //    still empty -- all of that is filled in by `postBoot()`, which runs after this function
+    //    returns. Reporting ready here would let a rolling update or load balancer route live
+    //    traffic onto an instance that 302s every page to `/_error/unknownsite` and fails every
+    //    login. `setReady()` is called once `postBoot()` has actually populated those caches, at
+    //    the bottom of this file. `/_live` (bound by `gracefulServer` above, independent of
+    //    `setReady()`) answers from here onward regardless, so liveness probes still see the
+    //    process as up throughout.
   } catch (err: any) {
     WIKI.logger.error(err)
     process.exit(1)
@@ -944,3 +954,8 @@ async function initHTTPServer() {
 await preBoot()
 await initHTTPServer()
 await postBoot()
+
+// -> Only now are the site/group/locale/approval/classification caches and the active auth
+//    strategies actually populated (see the comment at the end of `initHTTPServer()`), so only now
+//    is the instance fit to receive live traffic.
+WIKI.server.setReady()
