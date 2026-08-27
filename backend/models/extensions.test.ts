@@ -157,3 +157,35 @@ describe('pandoc definition.yml description accuracy (Task 665, superseded by Fe
     assert.match(definition.description, /mediawiki/i)
   })
 })
+
+/**
+ * WP 2290: `package.json`'s `allowScripts` key is only ever read by `@lavamoat/allow-scripts`, which
+ * is not installed anywhere in this repo (`grep -rn lavamoat` across all four workspaces,
+ * `.github/` and `dev/` returns nothing) — so the key denied nothing and permitted nothing, while the
+ * `install()` doc comment above claimed it still gated which scripts ran. Rather than wire up a tool
+ * this codebase doesn't otherwise use, the key was deleted and the comment rewritten to say plainly
+ * that `--no-ignore-scripts` runs every install script unmediated. This guards both halves: the key
+ * cannot silently come back (e.g. from a copy-pasted `package.json` snippet), and `@lavamoat/allow-
+ * scripts` cannot land as a dependency without a human also updating this test and the comment it
+ * documents.
+ */
+describe('package.json has no decorative allowScripts key (WP 2290)', () => {
+  test('no allowScripts key while @lavamoat/allow-scripts is not a dependency', async () => {
+    const raw = await readFile(path.join(import.meta.dirname, '..', 'package.json'), 'utf8')
+    const pkg = JSON.parse(raw)
+
+    assert.equal(
+      Object.hasOwn(pkg, 'allowScripts'),
+      false,
+      'allowScripts is only read by @lavamoat/allow-scripts, which is not installed — see the ' +
+        'install() doc comment in extensions.ts for the full rationale. If @lavamoat/allow-scripts ' +
+        'is added as a real dependency, update this test alongside it.'
+    )
+    assert.equal(
+      Object.hasOwn(pkg.devDependencies ?? {}, '@lavamoat/allow-scripts'),
+      false,
+      '@lavamoat/allow-scripts is not installed; if this ever changes, allowScripts becomes a real ' +
+        'policy again and this assertion (and the one above it) should be updated together'
+    )
+  })
+})

@@ -268,27 +268,34 @@ class Extensions {
    * platform and run on another, or an install that skipped optional dependencies, leaves the
    * JavaScript package in place and the binary for this OS and architecture missing.
    *
-   * Puppeteer is not declared anywhere, so this is a genuine first install, and the bulk of it is the
-   * browser. Nothing has to be arranged for that: Puppeteer's own postinstall fetches one into its
-   * cache, which is the ordinary case and the one an install straight onto Linux takes. A server that
-   * already has a browser opts out with `PUPPETEER_SKIP_DOWNLOAD` and points at it with
-   * `PUPPETEER_EXECUTABLE_PATH` — what the Docker image does with the Chromium it takes from the
-   * distro. Neither is required, and neither is set here: npm inherits this process's environment, so
-   * an install from the admin area sees exactly what the operator set for the server and nothing else.
+   * Puppeteer is not declared anywhere in the manifest, so this is a genuine first install, and the
+   * bulk of it is the browser. Nothing has to be arranged for that: Puppeteer's own postinstall
+   * fetches one into its cache, which is the ordinary case and the one an install straight onto Linux
+   * takes. A server that already has a browser opts out with `PUPPETEER_SKIP_DOWNLOAD` and points at
+   * it with `PUPPETEER_EXECUTABLE_PATH` — what the Docker image does with the Chromium it takes from
+   * the distro. Neither is required, and neither is set here: npm inherits this process's environment,
+   * so an install from the admin area sees exactly what the operator set for the server and nothing
+   * else.
    *
    * Hence the flags:
    *
-   * - `--no-save` because the manifest already declares the package, and an HTTP request has no
-   *   business rewriting the manifests the release was built from.
+   * - `--no-save` because an HTTP request has no business rewriting the manifests the release was
+   *   built from — true of both packages, whether or not the manifest happens to declare them
+   *   already (Sharp does, as an optional dependency; Puppeteer doesn't, per the paragraph above).
    * - `--force` so npm refetches rather than deciding an already-present but unusable copy is fine.
    * - `--include=optional` because the per-platform binaries are themselves optional dependencies of
    *   the package, and omitting them is the usual cause of the failure being repaired here.
    * - `--no-ignore-scripts` because the browser IS Puppeteer's postinstall. An operator who has set
    *   `ignore-scripts` — a reasonable thing to harden an npm config with — would otherwise get the
    *   package with no browser under it, npm exiting zero, and this model reporting it as installed:
-   *   the failure would surface much later, as a render that cannot start a browser. Which scripts
-   *   are trusted is still decided by the `allowScripts` policy in `package.json`, and a package
-   *   denied there is skipped whatever this flag says.
+   *   the failure would surface much later, as a render that cannot start a browser. This runs every
+   *   install script in the resolved tree unmediated — nothing here reads `package.json` to decide
+   *   which scripts to trust, npm itself has no such per-package allowlist, and this codebase installs
+   *   no tool (such as `@lavamoat/allow-scripts`) that would add one. That is accepted rather than
+   *   mediated because the caller must already hold `manage:system` (see the route's
+   *   `config.permissions` in `api/system.ts`) — an operator with that permission can already run
+   *   arbitrary code on this server by other means, so gating install scripts specifically would add
+   *   friction without adding a boundary.
    *
    * @throws If the extension cannot be installed this way, if npm fails, or if the module is still
    *         missing afterwards
