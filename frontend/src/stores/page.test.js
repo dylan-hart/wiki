@@ -1025,3 +1025,33 @@ describe('page store: editorExitPath', () => {
     expect(pageStore.editorExitPath).toBe('/fr/foo/bar?redirect=no')
   })
 })
+
+describe('page store: pageWatch()', () => {
+  it('reverts isWatching and rethrows when the request is refused, for the caller to report', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.$patch({ id: 'page-1', isWatching: false })
+
+    const refusal = { data: { message: 'You may not watch this page.' } }
+    API_CLIENT.put.mockReturnValueOnce(Promise.reject(refusal))
+
+    await expect(pageStore.pageWatch(true)).rejects.toBe(refusal)
+
+    expect(pageStore.isWatching).toBe(false)
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/pages/page-1/watch')
+  })
+
+  it('sets isWatching optimistically and keeps it on success', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.$patch({ id: 'page-1', isWatching: false })
+
+    API_CLIENT.put.mockReturnValueOnce(Promise.resolve({ ok: true }))
+
+    await pageStore.pageWatch(true)
+
+    expect(pageStore.isWatching).toBe(true)
+  })
+})

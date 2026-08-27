@@ -14,6 +14,16 @@ import { queue as notifyQueue } from '@/composables/notify'
  * watching list beneath it.
  */
 
+const WATCHED_PAGE = {
+  pageId: 'page-9',
+  title: 'Watched Page',
+  path: 'watched/page',
+  locale: 'en',
+  icon: '',
+  updatedAt: '2026-08-17T12:00:00.000Z',
+  watchedAt: '2026-08-01T12:00:00.000Z'
+}
+
 const NOTIFICATION = {
   id: 'notif-1',
   pageId: 'page-1',
@@ -43,7 +53,10 @@ const messages = {
       watchingInfo: 'Pages you asked to be told about, most recently added first.',
       watchingNone: 'You are not watching any page yet.',
       watchingHint: 'Open a page and press the bell in its header to start watching it.',
-      watchingLoadFailed: 'Failed to load your watched pages.'
+      watchingLoadFailed: 'Failed to load your watched pages.',
+      watchingUnwatch: 'Stop watching',
+      watchingUnwatched: '{title} is no longer watched.',
+      watchingUnwatchFailed: 'Could not stop watching this page.'
     }
   }
 }
@@ -180,5 +193,53 @@ describe('InboxWatching notifications', () => {
 
     expect(wrapper.text()).toContain('Jane Actor edited Some Page')
     expect(notifyQueue.some((n) => n.type === 'negative')).toBe(true)
+  })
+})
+
+describe('InboxWatching watching', () => {
+  function mockWatchedPages() {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'sites/site-1/watching') {
+        return { json: () => Promise.resolve([WATCHED_PAGE]) }
+      }
+      return { json: () => Promise.resolve([]) }
+    })
+  }
+
+  it('unwatching a page via DELETE removes it from the list and toasts a positive notification', async () => {
+    mockWatchedPages()
+    API_CLIENT.delete.mockReturnValueOnce(Promise.resolve({ ok: true }))
+
+    const { wrapper } = await mountInboxWatching()
+    expect(wrapper.text()).toContain('Watched Page')
+
+    const unwatchButton = wrapper
+      .findAll('button')
+      .find((btn) => btn.attributes('aria-label') === 'Stop watching')
+    await unwatchButton.trigger('click')
+    await flushLoads()
+
+    expect(API_CLIENT.delete).toHaveBeenCalledWith('sites/site-1/pages/page-9/watch')
+    expect(wrapper.text()).not.toContain('Watched Page')
+    expect(notifyQueue[notifyQueue.length - 1].type).toBe('positive')
+  })
+
+  it('shows the server message and keeps the row when unwatching is refused', async () => {
+    mockWatchedPages()
+    API_CLIENT.delete.mockReturnValueOnce(
+      Promise.reject({ data: { message: 'You are not watching this page.' } })
+    )
+
+    const { wrapper } = await mountInboxWatching()
+    const unwatchButton = wrapper
+      .findAll('button')
+      .find((btn) => btn.attributes('aria-label') === 'Stop watching')
+    await unwatchButton.trigger('click')
+    await flushLoads()
+
+    expect(wrapper.text()).toContain('Watched Page')
+    const lastNotification = notifyQueue[notifyQueue.length - 1]
+    expect(lastNotification.type).toBe('negative')
+    expect(lastNotification.caption).toBe('You are not watching this page.')
   })
 })
