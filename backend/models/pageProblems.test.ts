@@ -297,7 +297,8 @@ describe('pageProblems.scan (DB-backed)', { skip: !hasTestDatabase() }, () => {
         authorId: fixtures.userId,
         creatorId: fixtures.userId,
         ownerId: fixtures.userId,
-        siteId: fixtures.siteId
+        siteId: fixtures.siteId,
+        classification: fixtures.classificationId
       })
       .returning()
 
