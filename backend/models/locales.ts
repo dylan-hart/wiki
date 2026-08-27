@@ -195,7 +195,7 @@ class Locales {
     }
 
     if (loaded.length > 0) {
-      await WIKI.models.locales.reloadCache()
+      await this.broadcastReload()
     }
     if (skipped.length > 0) {
       WIKI.logger.warn(
@@ -347,6 +347,27 @@ class Locales {
     WIKI.logger.info('Reloading locales cache...')
     const locales = await WIKI.models.locales.getLocales({ cache: false })
     WIKI.logger.info(`Loaded ${locales.length} locales into cache [ OK ]`)
+  }
+
+  /**
+   * Reload this instance's own cache, then tell every other instance in the cluster to do the same —
+   * see `models/groups.ts`'s `broadcastReload()`, which this mirrors exactly, including the same
+   * "never call from inside `reloadCache()`" rule: `reloadCache()` also runs when
+   * `subscribeToEvents()`'s handler answers *another* instance's event, and broadcasting from there
+   * would echo the event back around the cluster forever.
+   */
+  private async broadcastReload(): Promise<void> {
+    await this.reloadCache()
+    WIKI.events.outbound.emit('reloadLocales')
+  }
+
+  /**
+   * Subscribe to HA propagation events
+   */
+  subscribeToEvents(): void {
+    WIKI.events.inbound.on('reloadLocales', async () => {
+      await this.reloadCache()
+    })
   }
 }
 
