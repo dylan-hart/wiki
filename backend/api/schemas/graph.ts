@@ -137,6 +137,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     $id: 'GraphNode',
     type: 'object',
     properties: {
+      id: {
+        type: 'string',
+        description:
+          'Composite `${locale}:${path}` id (OpenProject #1626) -- unique across locales, since translations share a path by design. Edges are keyed on this, not on `path`.'
+      },
       path: { type: 'string' },
       locale: { type: 'string' },
       title: { type: 'string' },
@@ -172,8 +177,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     $id: 'GraphEdge',
     type: 'object',
     properties: {
-      source: { type: 'string', description: 'Source node path.' },
-      target: { type: 'string', description: 'Target node path.' },
+      source: { type: 'string', description: 'Source node id (`GraphNode.id`, not a bare path).' },
+      target: { type: 'string', description: 'Target node id (`GraphNode.id`, not a bare path).' },
       type: {
         type: 'string',
         enum: ['relation', 'link'],

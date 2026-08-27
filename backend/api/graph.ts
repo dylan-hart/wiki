@@ -13,6 +13,11 @@ export type { GraphPageRow }
 
 /** One node in the knowledge graph (OpenProject #872) — a page the requester may read. */
 export interface GraphNode {
+  /** Composite `${locale}:${path}` id (OpenProject #1626) -- translations share a `path` by design
+   *  (`docs/decisions/locale-translation-linking.md`, "Same-path-by-convention"), so `path` alone
+   *  cannot uniquely identify a node once a site has more than one locale. Edges are keyed on this,
+   *  not on `path`. */
+  id: string
   path: string
   locale: string
   title: string
@@ -37,7 +42,8 @@ export interface GraphNode {
   pageviews: PageviewCountsForGraph
 }
 
-/** One edge — an authored relation or an extracted internal link, always between two visible nodes. */
+/** One edge — an authored relation or an extracted internal link, always between two visible nodes.
+ *  `source`/`target` are `GraphNode.id` composite ids (OpenProject #1626), not bare paths. */
 export interface GraphEdge {
   source: string
   target: string
@@ -90,9 +96,16 @@ export function assembleGraph(
   pageviewsFor: (pageId: string) => PageviewCountsForGraph = zeroPageviewCountsForGraph
 ): Graph {
   const visible = rows.filter(canRead)
-  const visiblePaths = new Set(visible.map((row) => row.path))
+  // -> A relation/link target is a bare path, resolved within the target's own locale (translations
+  //    share a path by design -- `docs/decisions/locale-translation-linking.md`), so it must be
+  //    paired with the *source* row's locale, not looked up as a path on its own, or an `en` page's
+  //    link would count as visible when only a `fr`-locale page occupies that path (OpenProject
+  //    #1626).
+  const nodeId = (locale: string, path: string) => `${locale}:${path}`
+  const visibleIds = new Set(visible.map((row) => nodeId(row.locale, row.path)))
 
   const nodes: GraphNode[] = visible.map((row) => ({
+    id: nodeId(row.locale, row.path),
     path: row.path,
     locale: row.locale,
     title: row.title,
@@ -106,19 +119,22 @@ export function assembleGraph(
 
   const edges: GraphEdge[] = []
   for (const row of visible) {
+    const sourceId = nodeId(row.locale, row.path)
     for (const relation of row.relations) {
-      if (visiblePaths.has(relation.target)) {
+      const targetId = nodeId(row.locale, relation.target)
+      if (visibleIds.has(targetId)) {
         edges.push({
-          source: row.path,
-          target: relation.target,
+          source: sourceId,
+          target: targetId,
           type: 'relation',
           label: relation.label
         })
       }
     }
     for (const target of row.links) {
-      if (visiblePaths.has(target)) {
-        edges.push({ source: row.path, target, type: 'link' })
+      const targetId = nodeId(row.locale, target)
+      if (visibleIds.has(targetId)) {
+        edges.push({ source: sourceId, target: targetId, type: 'link' })
       }
     }
   }
