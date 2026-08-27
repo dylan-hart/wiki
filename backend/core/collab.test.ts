@@ -6,6 +6,8 @@ import * as awarenessProtocol from 'y-protocols/awareness'
 import * as Y from 'yjs'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import collab, {
+  MAX_CONNECTIONS_PER_ADDRESS,
+  MAX_CONNECTIONS_PER_USER,
   MAX_PENDING_BYTES,
   MAX_PENDING_FRAMES,
   PEER_STATE_TIMEOUT,
@@ -255,6 +257,11 @@ function makeInstance(id: string): any {
     rooms: new Map(),
     partials: new Map(),
     awaitingState: new Map(),
+    // -> Fresh per instance, like every other mutable collection above: `{ ...collab }` only copies
+    //    the *reference* to the real singleton's maps, and sharing them across "instances" would let
+    //    one test's connection-cap bookkeeping bleed into another's.
+    userConnections: new Map(),
+    addressConnections: new Map(),
     listenClient: {},
     relaySeq: 0,
     peerPresence: { known: false, checkedAt: 0 }
@@ -664,6 +671,194 @@ describe('(e) collab pre-auth frame buffer cap and refusal termination', () => {
 
     t.mock.timers.tick(REFUSAL_GRACE_PERIOD)
     assert.equal(socket.terminated, false, 'terminate() is never called once already CLOSED')
+  })
+})
+
+/**
+ * (f) Task 2200: a per-user and per-address ceiling on concurrent collaboration sockets, checked and
+ * reserved by `join()` before `ensureRoom()` ever runs — so a refusal never allocates, or reuses, a
+ * room — and released by `onClose()`, so a legitimate reconnect loop can't exhaust its own ceiling.
+ *
+ * `fakeConn()` is a minimal `ws`-shaped stand-in good enough for `join()`/`onClose()`'s surface
+ * (`readyState`, `OPEN`, `on`, `close`) — no real socket needed since nothing here exercises the sync
+ * protocol itself, only the reservation bookkeeping around it.
+ */
+describe('(f) connection cap: per-user and per-address ceilings', () => {
+  interface FakeConn {
+    readyState: number
+    OPEN: number
+    on: (event: string, cb: (...args: any[]) => void) => void
+    close: (code?: number, reason?: string) => void
+    closedCode: number | null
+    closedReason: string | null
+  }
+
+  function fakeConn(): FakeConn {
+    const conn: FakeConn = {
+      readyState: 1,
+      OPEN: 1,
+      closedCode: null,
+      closedReason: null,
+      on: () => {},
+      close(code, reason) {
+        conn.readyState = 3
+        conn.closedCode = code ?? null
+        conn.closedReason = reason ?? null
+      }
+    }
+    return conn
+  }
+
+  /** Tears down every room this test opened, exactly as `closeRoomIfEmpty` would once empty. */
+  function destroyRoom(inst: any, pageId: string): void {
+    const room = inst.rooms.get(pageId)
+    if (room) {
+      room.awareness.destroy()
+      room.doc.destroy()
+      inst.rooms.delete(pageId)
+    }
+  }
+
+  test('a connection past the per-user ceiling is refused, and it allocates no room', async () => {
+    const inst = makeInstance('cap-user')
+    // -> No peer to wait on: without this, every room's initRoom() would burn a real
+    //    PEER_STATE_TIMEOUT querying for a nonexistent peer, the same seeding test (a) above does.
+    inst.peerPresence = { known: false, checkedAt: Date.now() }
+    ;(globalThis as any).WIKI.INSTANCE_ID = 'cap-user'
+    const userId = 'capped-user'
+    const opened: { conn: FakeConn; session: any; pageId: string }[] = []
+
+    try {
+      for (let i = 0; i < MAX_CONNECTIONS_PER_USER; i++) {
+        const conn = fakeConn()
+        const session: any = { room: null, pending: [] }
+        const pageId = `page-cap-user-${i}`
+        await inst.join(conn, { id: pageId, siteId: 'site-1' }, session, {
+          userId,
+          address: `10.0.0.${i}`
+        })
+        assert.ok(session.room, `connection ${i} should have been let in under the ceiling`)
+        opened.push({ conn, session, pageId })
+      }
+      assert.equal(inst.rooms.size, MAX_CONNECTIONS_PER_USER)
+
+      const refusedConn = fakeConn()
+      const refusedSession: any = { room: null, pending: [] }
+      const refusedPageId = 'page-cap-user-refused'
+      await inst.join(refusedConn, { id: refusedPageId, siteId: 'site-1' }, refusedSession, {
+        userId,
+        address: '10.0.0.999'
+      })
+
+      assert.equal(refusedSession.room, null, 'a refused connection must not join a room')
+      assert.equal(refusedConn.closedCode, 4429)
+      assert.equal(
+        inst.rooms.has(refusedPageId),
+        false,
+        'a refused connection must not allocate a room for its page'
+      )
+      assert.equal(
+        inst.rooms.size,
+        MAX_CONNECTIONS_PER_USER,
+        'the refusal must leave the existing room count unchanged'
+      )
+
+      // -> Releasing one of the ceiling's own slots (a real close event, same path `terminate()` takes)
+      //    must free up room for a fresh connection from the same user.
+      const first = opened[0]
+      inst.onClose(first.session.room, first.conn)
+      const retryConn = fakeConn()
+      const retrySession: any = { room: null, pending: [] }
+      const retryPageId = 'page-cap-user-retry'
+      await inst.join(retryConn, { id: retryPageId, siteId: 'site-1' }, retrySession, {
+        userId,
+        address: '10.0.0.1000'
+      })
+      assert.ok(
+        retrySession.room,
+        'after a slot is released, a subsequent connection for the same user must succeed'
+      )
+      inst.onClose(retrySession.room, retryConn)
+      destroyRoom(inst, retryPageId)
+    } finally {
+      for (const { conn, session, pageId } of opened.slice(1)) {
+        inst.onClose(session.room, conn)
+        destroyRoom(inst, pageId)
+      }
+      destroyRoom(inst, 'page-cap-user-0')
+    }
+  })
+
+  test('a connection past the per-address ceiling is refused, regardless of user id', async () => {
+    const inst = makeInstance('cap-address')
+    inst.peerPresence = { known: false, checkedAt: Date.now() }
+    ;(globalThis as any).WIKI.INSTANCE_ID = 'cap-address'
+    const address = '203.0.113.5'
+    const opened: { conn: FakeConn; session: any; pageId: string }[] = []
+
+    try {
+      for (let i = 0; i < MAX_CONNECTIONS_PER_ADDRESS; i++) {
+        const conn = fakeConn()
+        const session: any = { room: null, pending: [] }
+        const pageId = `page-cap-addr-${i}`
+        await inst.join(conn, { id: pageId, siteId: 'site-1' }, session, {
+          userId: `user-${i}`,
+          address
+        })
+        assert.ok(session.room, `connection ${i} should have been let in under the ceiling`)
+        opened.push({ conn, session, pageId })
+      }
+
+      const refusedConn = fakeConn()
+      const refusedSession: any = { room: null, pending: [] }
+      const refusedPageId = 'page-cap-addr-refused'
+      await inst.join(refusedConn, { id: refusedPageId, siteId: 'site-1' }, refusedSession, {
+        userId: 'yet-another-user',
+        address
+      })
+
+      assert.equal(refusedSession.room, null, 'a refused connection must not join a room')
+      assert.equal(refusedConn.closedCode, 4429)
+      assert.equal(
+        inst.rooms.has(refusedPageId),
+        false,
+        'a refused connection must not allocate a room for its page'
+      )
+    } finally {
+      for (const { conn, session, pageId } of opened) {
+        inst.onClose(session.room, conn)
+        destroyRoom(inst, pageId)
+      }
+    }
+  })
+
+  test('closing a socket releases both its user and address slots', async () => {
+    const inst = makeInstance('cap-release')
+    inst.peerPresence = { known: false, checkedAt: Date.now() }
+    ;(globalThis as any).WIKI.INSTANCE_ID = 'cap-release'
+    const identity = { userId: 'release-user', address: '198.51.100.1' }
+    const conn = fakeConn()
+    const session: any = { room: null, pending: [] }
+    const pageId = 'page-cap-release'
+
+    await inst.join(conn, { id: pageId, siteId: 'site-1' }, session, identity)
+    assert.ok(session.room)
+    assert.equal(inst.userConnections.get(identity.userId), 1)
+    assert.equal(inst.addressConnections.get(identity.address), 1)
+
+    inst.onClose(session.room, conn)
+
+    assert.equal(
+      inst.userConnections.has(identity.userId),
+      false,
+      'the user slot must be released, not merely decremented to a lingering zero'
+    )
+    assert.equal(
+      inst.addressConnections.has(identity.address),
+      false,
+      'the address slot must be released, not merely decremented to a lingering zero'
+    )
+    destroyRoom(inst, pageId)
   })
 })
 
