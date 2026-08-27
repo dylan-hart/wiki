@@ -732,15 +732,14 @@ function cvdPreviewColor(cl) {
 
 /**
  * The foreground/background pair that actually matters for `cl`, or null when this color isn't
- * checked at all (only `primary`/`header`/`sidebar` are, per this task's scope -- `secondary` and
- * `accent` have no single fixed pairing to check against).
+ * checked at all.
  */
 function contrastPairFor(cl) {
   const base = state.config[`color` + startCase(cl)]
   if (!base) {
     return null
   }
-  if (cl === 'header' || cl === 'sidebar') {
+  if (cl === 'header' || cl === 'sidebar' || cl === 'secondary' || cl === 'accent') {
     return { fg: CHROME_TEXT_COLOR, bg: base }
   }
   if (cl === 'primary') {
