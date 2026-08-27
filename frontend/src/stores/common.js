@@ -32,7 +32,6 @@ export const useCommonStore = defineStore('common', {
   state: () => ({
     routerLoading: false,
     locale: localStorage.getItem('locale') || 'en',
-    desiredLocale: localStorage.getItem('locale'),
     blocksLoaded: [],
     // -> Tag -> in-flight import promise. Lets two overlapping `loadBlocks()` calls for the same
     //    tag (e.g. two page renders racing on a slow connection) share one `import()` rather than
@@ -43,18 +42,13 @@ export const useCommonStore = defineStore('common', {
   getters: {},
   actions: {
     async fetchLocaleStrings(locale) {
-      try {
-        return API_CLIENT.get(`locales/${locale}/strings`).json()
-      } catch (err) {
-        console.warn(err)
-        throw err
-      }
+      // -> No try/catch here: a rejection is the caller's to handle (App.vue#applyLocale already
+      //    does, raising a user-facing notify()). Wrapping a returned promise in try/catch here would
+      //    do nothing -- the rejection settles after this function has already returned.
+      return API_CLIENT.get(`locales/${locale}/strings`).json()
     },
     setLocale(locale) {
-      this.$patch({
-        locale,
-        desiredLocale: locale
-      })
+      this.locale = locale
       localStorage.setItem('locale', locale)
     },
     /**

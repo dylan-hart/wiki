@@ -102,6 +102,21 @@ watch(() => commonStore.locale, applyLocale)
 
 // LOCALE
 
+/**
+ * Locale codes with an `applyLocale()` call currently in flight, each mapped to the promise that
+ * call returned.
+ *
+ * `App.vue` drives locale changes through two independent triggers -- the `watch(() =>
+ * commonStore.locale, applyLocale)` below, and the direct call in the router guard after its
+ * correction block -- and both can fire for the same locale within a microtask of each other (the
+ * guard's `commonStore.setLocale()` call is exactly what the watcher above reacts to). Without this,
+ * `applyLocale` has no way to know a fetch for the same locale is already underway, and issues a
+ * second `GET locales/:code/strings` before the first has set `i18n.locale.value` (the only thing an
+ * `i18n.availableLocales.includes()` check up front could have caught). Keyed by locale, not a single
+ * in-flight flag, so a change to a *different* locale mid-fetch is never held up by this.
+ */
+const localeApplyPromises = new Map()
+
 async function applyLocale(locale) {
   /*
     -> Direction + <html lang>
@@ -123,18 +138,37 @@ async function applyLocale(locale) {
   direction.set(Boolean(localeInfo?.isRTL))
   document.documentElement.setAttribute('lang', locale)
 
-  if (!i18n.availableLocales.includes(locale)) {
-    try {
-      i18n.setLocaleMessage(locale, await commonStore.fetchLocaleStrings(locale))
-    } catch (err) {
-      notify({
-        type: 'negative',
-        message: `Failed to load ${locale} locale strings.`,
-        caption: err.message
-      })
-    }
+  // -> Already the active locale, with its strings loaded: nothing left for either trigger to do.
+  if (i18n.locale.value === locale && i18n.availableLocales.includes(locale)) {
+    return
   }
-  i18n.locale.value = locale
+
+  // -> A call for this same locale is already fetching strings -- ride that one instead of a second.
+  const inFlight = localeApplyPromises.get(locale)
+  if (inFlight) {
+    return inFlight
+  }
+
+  const applyPromise = (async () => {
+    if (!i18n.availableLocales.includes(locale)) {
+      try {
+        i18n.setLocaleMessage(locale, await commonStore.fetchLocaleStrings(locale))
+      } catch (err) {
+        notify({
+          type: 'negative',
+          message: `Failed to load ${locale} locale strings.`,
+          caption: err.message
+        })
+      }
+    }
+    i18n.locale.value = locale
+  })()
+  localeApplyPromises.set(locale, applyPromise)
+  try {
+    await applyPromise
+  } finally {
+    localeApplyPromises.delete(locale)
+  }
 }
 
 // THEME
@@ -425,9 +459,9 @@ router.beforeEach(async (to, from) => {
   /*
     -> Locale prefix
     A site with more than one active locale can address each in a page URL's own leading segment
-    (`/fr/some/page`), which is a content decision, not a UI one -- distinct from `desiredLocale` below,
-    which is the interface language and persists across pages regardless of which translation is being
-    read. Resolved into `pageStore.locale` so it is there before the page itself arrives: a `/_` route
+    (`/fr/some/page`), which is a content decision, not a UI one -- distinct from `commonStore.locale`
+    below, which is the interface language and persists across pages regardless of which translation is
+    being read. Resolved into `pageStore.locale` so it is there before the page itself arrives: a `/_` route
     is the app itself rather than a page, same as the extension check above, so it has no path segment
     to read one from -- `resolveRouteLocale` falls back to a `?locale=` query instead (only `/_create`
     ever sets one; see `pageStore.pageCreate`), and then to the site's primary same as an ordinary path
@@ -445,13 +479,10 @@ router.beforeEach(async (to, from) => {
   }
 
   // -> Locale
-  if (
-    !commonStore.desiredLocale ||
-    !siteStore.locales.active.some((l) => l.code === commonStore.desiredLocale)
-  ) {
+  if (!commonStore.locale || !siteStore.locales.active.some((l) => l.code === commonStore.locale)) {
     commonStore.setLocale(siteStore.locales.primary)
   }
-  applyLocale(commonStore.desiredLocale)
+  applyLocale(commonStore.locale)
 
   /*
     -> Page Permissions

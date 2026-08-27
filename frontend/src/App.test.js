@@ -313,6 +313,60 @@ describe('App.vue applyLocale()', () => {
 })
 
 /**
+ * Regression coverage for OpenProject #1769: a first navigation to a site whose primary locale isn't
+ * the stored default drives `applyLocale()` through BOTH of its triggers for the same new locale
+ * within a microtask of each other -- the router guard's `commonStore.setLocale(primary)` correction
+ * fires the `watch(() => commonStore.locale, applyLocale)` at the top of this file, and the guard's
+ * own very next line calls `applyLocale(commonStore.locale)` directly. Before this fix, neither call
+ * had any way to see the other's fetch already underway, so this exact sequence issued the same
+ * `GET locales/:code/strings` twice.
+ */
+describe('App.vue applyLocale() idempotency', () => {
+  it('two overlapping calls for the same locale issue exactly one locale-strings request', async () => {
+    const siteStore = useSiteStore()
+    const flagsStore = useFlagsStore()
+    const userStore = useUserStore()
+    const commonStore = useCommonStore()
+
+    // -> commonStore.locale defaults to 'en' (no stored value in this test's localStorage stub), which
+    //    is NOT in this site's active list -- so the guard's correction branch runs, driving both
+    //    triggers to 'fr' back to back.
+    siteStore.$patch({
+      id: 'site-1',
+      locales: {
+        primary: 'fr',
+        showMenu: true,
+        active: [
+          { code: 'fr', language: 'fr', name: 'French', nativeName: 'Français', isRTL: false }
+        ]
+      }
+    })
+    flagsStore.loaded = true
+    userStore.profileLoaded = true
+
+    API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve({}) })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    mount(App, { global: { plugins: [router, i18n] } })
+
+    await router.push('/')
+    await router.isReady()
+    await flushPromises()
+
+    expect(commonStore.locale).toBe('fr')
+    const localeStringsCalls = API_CLIENT.get.mock.calls.filter(
+      ([url]) => url === 'locales/fr/strings'
+    )
+    expect(localeStringsCalls.length).toBe(1)
+  })
+})
+
+/**
  * Regression coverage for OpenProject #809's follow-up: the Markdown editor's saved
  * preview-shown/width/font-size preferences used to only ever be fetched from
  * `EditorMarkdown.vue`'s own `onMounted`, once the reader had already clicked Edit -- putting a
