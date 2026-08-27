@@ -348,3 +348,55 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
     assert.deepEqual(infoCalls, ['[SQL] select 1'])
   })
 })
+
+/**
+ * Task 2270: `dev.dropSchema` must not be honored outside a debug boot, even though the config value
+ * itself carries no environment condition -- see `dropSchemaIfDev`'s own doc comment in `core/db.ts`
+ * for the full reasoning. A fake `db` (just an `execute` mock.fn, matching this suite's other fakes)
+ * stands in for the real Drizzle instance since this is pure guard logic, not SQL.
+ */
+describe('dropSchemaIfDev() — WIKI.IS_DEBUG guard (task 2270)', () => {
+  let executeMock: any
+  let warnMock: any
+  let fakeDb: any
+
+  beforeEach(() => {
+    executeMock = mock.fn(async () => ({ rows: [] }))
+    fakeDb = { execute: executeMock }
+    warnMock = mock.fn(() => {})
+    WIKI.logger.warn = warnMock
+    WIKI.config = { db: { schema: 'wiki' }, dev: {} }
+  })
+
+  test('dropSchema set, IS_DEBUG false: the schema is NOT dropped, and a refusal is logged', async () => {
+    WIKI.IS_DEBUG = false
+    WIKI.config.dev.dropSchema = true
+
+    await dbManager.dropSchemaIfDev(fakeDb)
+
+    assert.equal(executeMock.mock.calls.length, 0)
+    assert.equal(warnMock.mock.calls.length, 1)
+    assert.match(warnMock.mock.calls[0].arguments[0], /refused/i)
+    assert.match(warnMock.mock.calls[0].arguments[0], /NOT dropped/)
+  })
+
+  test('dropSchema set, IS_DEBUG true: the schema IS dropped', async () => {
+    WIKI.IS_DEBUG = true
+    WIKI.config.dev.dropSchema = true
+
+    await dbManager.dropSchemaIfDev(fakeDb)
+
+    assert.equal(executeMock.mock.calls.length, 1)
+    assert.match(executeMock.mock.calls[0].arguments[0], /DROP SCHEMA IF EXISTS wiki CASCADE/)
+  })
+
+  test('dropSchema unset: nothing happens regardless of IS_DEBUG, and nothing is logged', async () => {
+    WIKI.IS_DEBUG = true
+    WIKI.config.dev.dropSchema = false
+
+    await dbManager.dropSchemaIfDev(fakeDb)
+
+    assert.equal(executeMock.mock.calls.length, 0)
+    assert.equal(warnMock.mock.calls.length, 0)
+  })
+})
