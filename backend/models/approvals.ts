@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { createPatch } from 'diff'
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
 import {
   approvalRules as approvalRulesTable,
   groups as groupsTable,
@@ -1053,45 +1054,103 @@ class Approvals {
       return { ok: false, reason: 'stale' }
     }
 
-    await WIKI.db
-      .insert(submissionApprovalsTable)
-      .values({ submissionId, reviewerId: actor.id })
-      // -> Idempotent: this reviewer approving again (a double click, a retried request) must not
-      //    count as a second, different sign-off
-      .onConflictDoNothing({
-        target: [submissionApprovalsTable.submissionId, submissionApprovalsTable.reviewerId]
-      })
-
-    const approvalsRequired = await this.requiredApprovalsForPage(siteId, {
-      path: page.path,
-      tags: page.tags ?? []
-    })
-    const approvalsCount = await WIKI.db.$count(
-      submissionApprovalsTable,
-      eq(submissionApprovalsTable.submissionId, submissionId)
-    )
-
-    if (approvalsCount < approvalsRequired) {
-      WIKI.logger.debug(
-        `Recorded approval ${approvalsCount}/${approvalsRequired} for edit suggestion ${submissionId} ` +
-          `on page ${page.id}; waiting on more reviewers`
-      )
-      return { ok: true, finalized: false, approvalsCount, approvalsRequired }
-    }
-
     /*
-      The render has to move with the content, or the page keeps serving HTML that no longer matches
-      its source. The markdown pipeline lives in the frontend, so the reviewer's browser produces it
-      the same way the editor does on any other save, and it arrives with the approval.
+      Everything from the vote insert through the submission delete runs under a single advisory
+      lock keyed by the submission id. Without it, two concurrent calls (a double-submit from the
+      same reviewer, or two reviewers finishing at once under `minApprovals: 1`) can both run
+      `$count` after their own insert, both observe the threshold reached, and both fall through to
+      write the page and delete the submission -- the second `delete` is silently a no-op (nothing
+      here checked its row count), but by then it's too late: `updatePage` already ran twice.
 
-      Falling back to the server-side renderer covers an API client that has no pipeline of its own.
-      That one needs the Puppeteer extension and says so before the content is written if it is
-      missing, rather than leaving a stale render on a page somebody just changed with no prospect of
-      it being corrected.
+      Serializing on the lock closes that: whichever call gets in first inserts its vote, counts,
+      finds the threshold met, and deletes the submission *before* releasing the lock. The other call
+      blocks on the same lock, then -- once it's finally its turn -- re-checks whether the submission
+      is still there. It isn't, so it returns `not-found` instead of re-counting and finalizing a
+      second time. `updatePage` itself stays outside the lock: it does its own history, watcher,
+      search, hook and storage I/O, none of which needs to serialize against an approval on some
+      *other* submission, and none of which should be run while holding a lock this call might not
+      even end up needing (a call that only adds to the count, or loses the race, never gets here).
     */
-    if (!render) {
-      await WIKI.models.rendering.ensureCanRender(page.editor)
+    const decision = await withAdvisoryLock(`approval-submission:${submissionId}`, async () => {
+      // -> The existence + staleness checks above ran before this call ever queued for the lock; a
+      //    concurrent call may have already finalized (and deleted) the submission while this one
+      //    was waiting its turn.
+      const stillPending = await WIKI.db
+        .select({ id: submissionsTable.id })
+        .from(submissionsTable)
+        .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.siteId, siteId)))
+        .limit(1)
+      if (!stillPending[0]) {
+        return {
+          finalized: false,
+          vanished: true,
+          approvalsCount: 0,
+          approvalsRequired: 0
+        } as const
+      }
+
+      await WIKI.db
+        .insert(submissionApprovalsTable)
+        .values({ submissionId, reviewerId: actor.id })
+        // -> Idempotent: this reviewer approving again (a double click, a retried request) must not
+        //    count as a second, different sign-off
+        .onConflictDoNothing({
+          target: [submissionApprovalsTable.submissionId, submissionApprovalsTable.reviewerId]
+        })
+
+      const approvalsRequired = await this.requiredApprovalsForPage(siteId, {
+        path: page.path,
+        tags: page.tags ?? []
+      })
+      const approvalsCount = await WIKI.db.$count(
+        submissionApprovalsTable,
+        eq(submissionApprovalsTable.submissionId, submissionId)
+      )
+
+      if (approvalsCount < approvalsRequired) {
+        WIKI.logger.debug(
+          `Recorded approval ${approvalsCount}/${approvalsRequired} for edit suggestion ${submissionId} ` +
+            `on page ${page.id}; waiting on more reviewers`
+        )
+        return { finalized: false, vanished: false, approvalsCount, approvalsRequired } as const
+      }
+
+      /*
+        The render has to move with the content, or the page keeps serving HTML that no longer
+        matches its source. The markdown pipeline lives in the frontend, so the reviewer's browser
+        produces it the same way the editor does on any other save, and it arrives with the
+        approval.
+
+        Falling back to the server-side renderer covers an API client that has no pipeline of its
+        own. That one needs the Puppeteer extension and says so before the content is written if it
+        is missing -- checked here, before the submission is deleted, so a missing extension leaves
+        the submission intact (still at threshold, ready to retry) rather than silently discarding a
+        finalisation nobody could actually write.
+      */
+      if (!render) {
+        await WIKI.models.rendering.ensureCanRender(page.editor)
+      }
+
+      // -> Commit the finalisation intent while still holding the lock: cascades onto
+      //    `pageEditSubmissionApprovals`, so the votes that got it here are cleaned up with it
+      //    rather than left to be swept separately, and its absence is what tells the next
+      //    concurrent caller (above) that this submission is already spoken for.
+      await WIKI.db.delete(submissionsTable).where(eq(submissionsTable.id, submissionId))
+      return { finalized: true, vanished: false, approvalsCount, approvalsRequired } as const
+    })
+
+    if (decision.vanished) {
+      return { ok: false, reason: 'not-found' }
     }
+    if (!decision.finalized) {
+      return {
+        ok: true,
+        finalized: false,
+        approvalsCount: decision.approvalsCount,
+        approvalsRequired: decision.approvalsRequired
+      }
+    }
+
     await WIKI.models.pages.updatePage(
       siteId,
       page.id,
@@ -1104,11 +1163,13 @@ class Approvals {
       await WIKI.models.pages.queueRerender(siteId, page.id, actor)
     }
 
-    // -> Cascades onto `pageEditSubmissionApprovals`, so the votes that got it here are cleaned up
-    //    with it rather than left to be swept separately
-    await WIKI.db.delete(submissionsTable).where(eq(submissionsTable.id, submissionId))
     WIKI.logger.debug(`Approved edit suggestion ${submissionId} onto page ${page.id}`)
-    return { ok: true, finalized: true, approvalsCount, approvalsRequired }
+    return {
+      ok: true,
+      finalized: true,
+      approvalsCount: decision.approvalsCount,
+      approvalsRequired: decision.approvalsRequired
+    }
   }
 
   /**

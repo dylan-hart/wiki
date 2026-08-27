@@ -238,6 +238,8 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
   let fixtures: TestFixtures
   let pagesModel: typeof import('./pages.ts').pages
   let approvalsModel: typeof import('./approvals.ts').approvals
+  let hooksModel: typeof import('./hooks.ts').hooks
+  let pageHistoryModel: typeof import('./pageHistory.ts').pageHistory
   let actor: PageActor
   let reviewerBId: string
   let reviewerCId: string
@@ -246,6 +248,8 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
     fixtures = await setupTestDb()
     ;({ pages: pagesModel } = await import('./pages.ts'))
     ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+    ;({ hooks: hooksModel } = await import('./hooks.ts'))
+    ;({ pageHistory: pageHistoryModel } = await import('./pageHistory.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
 
     const [reviewerB] = await fixtures.db
@@ -512,6 +516,112 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
       approvalsCount: 3,
       approvalsRequired: 3
     })
+  })
+
+  /**
+   * OpenProject #1735: `approveSubmission` used to insert the vote, count approvals and (once the
+   * threshold was met) write the page + delete the submission with no serialization at all -- two
+   * concurrent calls could both observe "count has reached the threshold" and both go on to write.
+   * `minApprovals: 1` is the sharpest version of this: a single reviewer's double-submit (a doubled
+   * click, a retried request) is enough to trigger it, since both requests count the same one vote as
+   * meeting the threshold.
+   *
+   * Fired as genuine concurrent calls (`Promise.all`, not sequential `await`s) against the real
+   * database, so this actually exercises `withAdvisoryLock`'s cross-connection locking rather than
+   * merely re-describing the code's control flow. One call must finalize; the other must see the
+   * submission already gone and return `not-found`. `pageHistory`'s `updated` row count is used as
+   * the proxy for "how many times did `updatePage` actually run" -- `hooks.emit('page:edit', ...)`
+   * and `storage.dispatch('page:edit', ...)` are both called exactly once per `updatePage` call (see
+   * `models/pages.ts#updatePage`), so a single history row is sufficient evidence that neither of
+   * those ran twice either, without this test also having to stand up a real storage target (which
+   * needs `WIKI.SERVERPATH` and the on-disk module definitions -- out of scope for this fix). A
+   * subscribed webhook is cheap to set up, though, and gives an independent, direct check on top.
+   */
+  test('two concurrent approve calls from the same reviewer at minApprovals:1 finalize exactly once', async () => {
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'concurrent finalize',
+      isEnabled: true,
+      match: 'START',
+      path: 'approvals/concurrent/finalize',
+      submitterGroups: [],
+      reviewerGroups: [],
+      minApprovals: 1
+    })
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'approvals/concurrent/finalize/page',
+        title: 'Concurrent Finalize',
+        editor: 'markdown',
+        content: 'Original content'
+      },
+      actor
+    )
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    const hookId = await hooksModel.createHook({
+      name: 'concurrent finalize watcher',
+      events: ['page:edit'],
+      url: 'https://example.com/concurrent-finalize',
+      siteId: fixtures.siteId
+    })
+    const addJob = WIKI.scheduler.addJob as unknown as {
+      mock: { calls: { arguments: [{ task: string; payload: any }] }[]; resetCalls: () => void }
+    }
+    addJob.mock.resetCalls()
+
+    const approveCall = () =>
+      approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested content',
+        render: '<p>Suggested content</p>',
+        actor
+      })
+    const [first, second] = await Promise.all([approveCall(), approveCall()])
+    const results = [first, second]
+
+    const finalized = results.filter((r) => r.ok && r.finalized)
+    const notFound = results.filter((r) => !r.ok && r.reason === 'not-found')
+    assert.equal(finalized.length, 1, 'exactly one call should finalize')
+    assert.equal(notFound.length, 1, 'the losing call should see the submission already gone')
+
+    const finalPage = await pagesModel.getPage({
+      siteId: fixtures.siteId,
+      id: page.id,
+      withContent: true
+    })
+    assert.equal(finalPage!.content, 'Suggested content')
+
+    const history = await pageHistoryModel.list(fixtures.siteId, page.id)
+    assert.equal(
+      history.filter((entry) => entry.action === 'updated').length,
+      1,
+      'the page should carry exactly one "updated" history version'
+    )
+
+    const webhookJobs = addJob.mock.calls.filter(
+      (call) =>
+        call.arguments[0].task === 'dispatchWebhook' && call.arguments[0].payload.hookId === hookId
+    )
+    assert.equal(webhookJobs.length, 1, 'the page:edit hook should fire exactly once')
+
+    // -> Closed out: gone from the queue, and re-approving the finalized submission is a no-op
+    //    not-found, not a second finalization
+    const afterBoth = await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Suggested content',
+      render: '<p>Suggested content</p>',
+      actor
+    })
+    assert.deepEqual(afterBoth, { ok: false, reason: 'not-found' })
   })
 })
 
