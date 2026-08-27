@@ -236,6 +236,74 @@ describe('addScheduled (fake WIKI)', () => {
 })
 
 /**
+ * OpenProject #2077: the claim subquery in `processJob()` used to `ORDER BY id`, and `id` is a
+ * `crypto.randomUUID()` over a `defaultRandom()` column -- no correlation at all with `waitUntil` or
+ * `createdAt`. That let an overdue retry (`reapStaleJobs()` sets `waitUntil: new Date()` precisely so
+ * a requeued job is claimed next) sit behind an unrelated job whose uuid happened to sort lower, and
+ * disagreed with the admin "Upcoming" ordering (`models/jobs.ts#getUpcoming()`:
+ * `waitUntil ASC NULLS FIRST, createdAt ASC`).
+ *
+ * This drives the real `processJob()` against a fake `WIKI.db.transaction`/`trx.delete` and inspects
+ * the literal SQL text of the claim subquery's `inArray(...)` condition -- the thing actually sent to
+ * postgres -- rather than re-implementing the ordering logic to compare against. `extractSqlText`
+ * walks a drizzle `SQL` object's `queryChunks` (each a `{ value: string[] }` literal chunk, a nested
+ * `SQL` chunk, or a bound param contributing no literal text) and concatenates the literal chunks, so
+ * what it produces is exactly the query string drizzle would send.
+ */
+describe('processJob claim ordering (fake WIKI)', () => {
+  let capturedCondition: any
+  let previousWiki: any
+
+  function extractSqlText(node: any): string {
+    if (node == null) return ''
+    if (Array.isArray(node.value)) return node.value.join('')
+    if (Array.isArray(node.queryChunks)) return node.queryChunks.map(extractSqlText).join('')
+    return ''
+  }
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = {
+      INSTANCE_ID: 'test-instance',
+      logger: { info: () => {}, warn: () => {}, debug: () => {} },
+      db: {
+        transaction: async (fn: any) =>
+          fn({
+            delete: (_table: any) => ({
+              where: (condition: any) => {
+                capturedCondition = condition
+                return { returning: async () => [] }
+              }
+            })
+          })
+      }
+    }
+    scheduler.maxWorkers = 1
+    scheduler.activeWorkers = 0
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('claim subquery orders by waitUntil ASC NULLS FIRST, then createdAt ASC -- not by id', async () => {
+    await scheduler.processJob()
+
+    const sqlText = extractSqlText(capturedCondition)
+    assert.match(
+      sqlText,
+      /ORDER BY "waitUntil" ASC NULLS FIRST, "createdAt" ASC FOR UPDATE SKIP LOCKED/,
+      `claim subquery must order by due time and age, matching getUpcoming(); got: ${sqlText}`
+    )
+    assert.doesNotMatch(
+      sqlText,
+      /ORDER BY id\b/,
+      'claim subquery must not order by the random-uuid id column'
+    )
+  })
+})
+
+/**
  * `expireCompletionPromises()`, OpenProject #928: the only way an `addJob({ promise: true })` deferred
  * ever otherwise settled was a `jobCompleted` NOTIFY -- and postgres NOTIFY is not durable, so one
  * missed during a LISTEN reconnect left the deferred, and everything awaiting it, pending forever. This
