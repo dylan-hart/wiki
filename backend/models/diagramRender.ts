@@ -40,6 +40,14 @@ const PLANTUML_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq
  */
 const MAX_PLANTUML_URL_LENGTH = 8000
 
+/**
+ * How long the PlantUML fetch gets before it is aborted, in milliseconds — mirrors
+ * `models/liveData.ts`'s `FETCH_TIMEOUT_MS`, for the same reason: without an `AbortSignal`, a tarpit
+ * server holds both the request and a `limitRenders` slot (`helpers/rateLimit.ts`) open until
+ * undici's own 300s header timeout.
+ */
+const FETCH_TIMEOUT_MS = 10000
+
 export type DiagramType = 'mermaid' | 'plantuml'
 export type DiagramFormat = 'svg' | 'png'
 
@@ -293,7 +301,15 @@ class DiagramRender {
 
     let response: Response
     try {
-      response = await fetch(url)
+      // -> `redirect: 'error'` rather than the default `'follow'`: a benign public PlantUML server
+      //    can bounce the request into the internal network, the same SSRF hole `models/liveData.ts`
+      //    closes the same way. `AbortSignal.timeout` bounds a tarpit server to `FETCH_TIMEOUT_MS`
+      //    instead of undici's 300s header timeout, which would otherwise hold a `limitRenders` slot
+      //    (`helpers/rateLimit.ts`) open for the duration.
+      response = await fetch(url, {
+        redirect: 'error',
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+      })
     } catch (err: any) {
       throw new CustomError(
         'diagramRenderFailed',
