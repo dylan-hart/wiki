@@ -12,16 +12,18 @@ import { locales as localesTable } from '../../db/schema.ts'
 const MAX_LANGUAGES = 200
 
 /**
- * True only for a plain object every one of whose own values is a string — the shape the `locales`
- * table's `strings` jsonb column is meant to hold. Rejects arrays, `null`, nested objects and
- * non-string values, so a compromised `wiki-locales` payload can land unexpected shapes (numbers,
- * objects, functions-as-JSON-can't-but-arrays-can) without ever reaching the insert.
+ * Guards the one shape the `locales.strings` jsonb column is ever supposed to hold: a flat mapping
+ * of translation key to translated string. `update-locales`'s `strings` payload comes straight off
+ * `raw.githubusercontent.com` with no signature, so this is what stands between a compromised
+ * `requarks/wiki-locales` and arbitrary values landing in every instance's `locales` table on the
+ * next daily run (OpenProject #2255) -- a nested object, an array, or a non-string value is refused
+ * rather than inserted as-is.
  */
-function isFlatStringMap(value: unknown): value is Record<string, string> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+export function isFlatStringMap(value: unknown): value is Record<string, string> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return false
   }
-  return Object.values(value).every((v) => typeof v === 'string')
+  return Object.values(value).every((entry) => typeof entry === 'string')
 }
 
 export async function task(): Promise<void> {

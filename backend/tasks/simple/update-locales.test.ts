@@ -3,7 +3,45 @@ import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../../test/db.ts'
 import { locales as localesTable } from '../../db/schema.ts'
-import { task } from './update-locales.ts'
+import { isFlatStringMap, task } from './update-locales.ts'
+
+/**
+ * `isFlatStringMap` is the shape guard OpenProject #2255 added: `strings` comes straight off
+ * `raw.githubusercontent.com` with no signature, so it is the one thing standing between a
+ * compromised `requarks/wiki-locales` and arbitrary values landing in the `locales.strings` jsonb
+ * column. Pure function, no `WIKI`/database needed. The task-level wiring around it (percent-encoded
+ * URLs, invalid payloads never reaching the insert, a valid payload upserting) is already covered by
+ * the "update-locales.task (unit, no DB)" suite below, so this suite sticks to the predicate itself.
+ */
+describe('update-locales.isFlatStringMap', () => {
+  test('accepts a flat string -> string map', () => {
+    assert.equal(isFlatStringMap({ welcome: 'Bienvenue', bye: 'Au revoir' }), true)
+  })
+
+  test('accepts an empty object', () => {
+    assert.equal(isFlatStringMap({}), true)
+  })
+
+  test('rejects null', () => {
+    assert.equal(isFlatStringMap(null), false)
+  })
+
+  test('rejects an array', () => {
+    assert.equal(isFlatStringMap(['Bienvenue']), false)
+  })
+
+  test('rejects a nested object value', () => {
+    assert.equal(isFlatStringMap({ welcome: { nested: 'Bienvenue' } }), false)
+  })
+
+  test('rejects a non-string value', () => {
+    assert.equal(isFlatStringMap({ welcome: 42 }), false)
+  })
+
+  test('rejects a primitive', () => {
+    assert.equal(isFlatStringMap('Bienvenue'), false)
+  })
+})
 
 /**
  * `task()` is the daily `updateLocales` scheduled job: it pulls the language list + each language's
