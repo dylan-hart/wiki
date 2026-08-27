@@ -40,23 +40,87 @@ function isPrivateIPv4(address: string): boolean {
   )
 }
 
+/**
+ * Expands an IPv6 literal (`::` zero-compression and an embedded IPv4 dotted-quad tail both
+ * handled) into its eight 16-bit groups. Returns `null` if the literal isn't well-formed enough to
+ * expand -- `isPrivateIPv6` only ever calls this on a string `net.isIP` already confirmed is type
+ * 6, so `null` in practice means "shouldn't happen", not "probably a normal address".
+ */
+function parseIPv6Groups(address: string): number[] | null {
+  const halves = address.split('::')
+  if (halves.length > 2) {
+    return null // more than one '::' collapse is not a valid literal
+  }
+  const hasDoubleColon = halves.length === 2
+  const splitSide = (side: string): string[] => (side.length === 0 ? [] : side.split(':'))
+  const head = splitSide(halves[0])
+  const tail = hasDoubleColon ? splitSide(halves[1]) : []
+
+  // An embedded IPv4 dotted-quad (`::ffff:a.b.c.d`, `::a.b.c.d`) only ever appears as the very last
+  // group -- reconstitute it into two hex groups before treating everything else as plain hex.
+  const lastSide = tail.length > 0 ? tail : head
+  const lastGroup = lastSide[lastSide.length - 1]
+  if (lastGroup?.includes('.')) {
+    const octets = lastGroup.split('.').map(Number)
+    if (octets.length !== 4 || octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255)) {
+      return null
+    }
+    lastSide.splice(
+      lastSide.length - 1,
+      1,
+      ((octets[0] << 8) | octets[1]).toString(16),
+      ((octets[2] << 8) | octets[3]).toString(16)
+    )
+  }
+
+  const knownCount = head.length + tail.length
+  if (hasDoubleColon ? knownCount > 8 : knownCount !== 8) {
+    return null
+  }
+  const groupStrings = [...head, ...Array(8 - knownCount).fill('0'), ...tail]
+
+  const groups: number[] = []
+  for (const group of groupStrings) {
+    if (!/^[0-9a-fA-F]{1,4}$/.test(group)) {
+      return null
+    }
+    groups.push(Number.parseInt(group, 16))
+  }
+  return groups
+}
+
+/**
+ * Tests real address-range prefixes against the address's canonical binary form (eight 16-bit
+ * groups), rather than the string form `net.isIP`/the WHATWG URL parser happen to hand back. The
+ * previous implementation matched IPv4-mapped addresses as dotted-quad text and everything else by
+ * string-prefixing the first colon-separated group -- but `url.hostname` normalises an IPv4-mapped
+ * literal into *hex group* form (`::ffff:a9fe:a9fe`, never `::ffff:169.254.169.254`), which matched
+ * neither the dotted-quad regex nor any recognised prefix and so silently returned `false` for a
+ * literal that resolves straight to the cloud metadata endpoint (OpenProject #2236).
+ */
 function isPrivateIPv6(address: string): boolean {
-  const normalized = address.toLowerCase()
-  if (normalized === '::1' || normalized === '::') {
-    return true
+  const groups = parseIPv6Groups(address.toLowerCase())
+  if (!groups) {
+    return true // fail closed: a literal `net.isIP` accepted but this couldn't expand is not provably public
   }
-  // IPv4-mapped (::ffff:a.b.c.d) and IPv4-compatible (::a.b.c.d) -- recurse on the embedded address
-  // rather than special-casing it, so a mapped metadata-endpoint address is still caught.
-  const mapped = normalized.match(/^::(ffff:)?(\d+\.\d+\.\d+\.\d+)$/)
-  if (mapped) {
-    return isPrivateIPv4(mapped[2])
+
+  if (groups.slice(0, 7).every((g) => g === 0) && (groups[7] === 0 || groups[7] === 1)) {
+    return true // ::1/128 (loopback) and ::/128 (unspecified)
   }
-  const firstGroup = normalized.split(':')[0]
-  return (
-    ['fe8', 'fe9', 'fea', 'feb'].some((prefix) => firstGroup.startsWith(prefix)) || // fe80::/10
-    firstGroup.startsWith('fc') || // fc00::/7 -- unique local
-    firstGroup.startsWith('fd')
-  )
+  if ((groups[0] & 0xffc0) === 0xfe80) {
+    return true // fe80::/10 -- link-local, by the top 10 bits of the first group
+  }
+  if ((groups[0] & 0xfe00) === 0xfc00) {
+    return true // fc00::/7 -- unique local, by the top 7 bits of the first group
+  }
+  // ::ffff:0:0/96 -- IPv4-mapped; reconstruct the embedded IPv4 from the last two groups and
+  // delegate to isPrivateIPv4 rather than special-casing address ranges twice.
+  if (groups.slice(0, 5).every((g) => g === 0) && groups[5] === 0xffff) {
+    const [group7, group8] = [groups[6], groups[7]]
+    const embedded = [group7 >> 8, group7 & 0xff, group8 >> 8, group8 & 0xff].join('.')
+    return isPrivateIPv4(embedded)
+  }
+  return false
 }
 
 /**

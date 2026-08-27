@@ -48,6 +48,20 @@ describe('isPrivateAddress', () => {
     assert.equal(isPrivateAddress('::ffff:8.8.8.8'), false)
   })
 
+  // -> The WHATWG URL parser normalises an IPv4-mapped IPv6 literal into *hex group* form --
+  //    `url.hostname` can never emit the dotted-quad shape above, so this is the form a real
+  //    caller (`LiveData#assertNotPrivateAddress`) actually has to reject (OpenProject #2236).
+  test('flags an IPv4-mapped IPv6 address in the hex-group form the URL parser actually emits', () => {
+    assert.equal(isPrivateAddress('::ffff:a9fe:a9fe'), true) // 169.254.169.254 -- cloud metadata
+    assert.equal(isPrivateAddress('::ffff:7f00:1'), true) // 127.0.0.1
+    assert.equal(isPrivateAddress('::ffff:c0a8:1'), true) // 192.168.0.1
+  })
+
+  test('a bracketed IPv4-mapped literal round-trips through URL parsing into a rejection', () => {
+    const hostname = new URL('http://[::ffff:169.254.169.254]/').hostname
+    assert.equal(isPrivateAddress(hostname.replace(/^\[|\]$/g, '')), true)
+  })
+
   test('does not flag a public IPv6 address', () => {
     assert.equal(isPrivateAddress('2606:4700:10::6814:179a'), false)
   })
