@@ -353,6 +353,15 @@ describe('Index.vue: read-path block loading for a directly-loaded/reloaded page
     const commonStore = useCommonStore()
     const loadBlocksSpy = vi.spyOn(commonStore, 'loadBlocks').mockResolvedValue(undefined)
 
+    // -> The block-loading scan resolves `block-diagram` off `siteStore.blocksIndex` (a public
+    //    field on the site-info response every reader's browser already has -- see
+    //    `siteBlocksInfoFor` in `backend/api/sites.ts`, OpenProject #954) rather than a network
+    //    call. Set directly here rather than via `applySiteInfo`, since nothing else this test
+    //    checks needs a full site-info payload. A tag absent from this index is skipped entirely
+    //    since OpenProject #1729, so it has to be present for this test's block to load at all.
+    const siteStore = useSiteStore()
+    siteStore.blocksIndex = { diagram: { id: null, isCustom: false } }
+
     // -> The shape `rendering.postProcess` actually stores: the block element plus its fenced
     //    mermaid source, exactly as a reload's GET would hand it back -- see
     //    `rendering.test.ts`'s "render, save, reload" describe block for where this shape comes from.
@@ -369,10 +378,6 @@ describe('Index.vue: read-path block loading for a directly-loaded/reloaded page
           tocDepth: { min: 1, max: 6 }
         })
     })
-    // -> The block-loading scan resolves `block-diagram` off `siteStore.blocksIndex` (empty here,
-    //    since this test never calls `applySiteInfo`) rather than a network call -- a miss falls
-    //    back to the bare tag, which is fine: `block-diagram` is a built-in and resolves by its
-    //    bare tag either way. See `siteBlocksInfoFor` in `backend/api/sites.ts` (OpenProject #954).
 
     const router = createRouter({
       history: createMemoryHistory(),
@@ -407,6 +412,85 @@ describe('Index.vue: read-path block loading for a directly-loaded/reloaded page
       call[0].map((entry) => (typeof entry === 'string' ? entry : entry.tag))
     )
     expect(loadedTags).toContain('block-diagram')
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #1729: a `block-*` tag absent from `siteStore.blocksIndex` used to fall back to the
+ * bare tag, which `loadBlocks()` resolves to the flat, unauthenticated `/_blocks/<tag>.js` URL --
+ * so a block a site administrator had switched off still loaded for a reader whose stored page HTML
+ * still embedded it. `blockAllowances()`/`siteBlocksInfoFor` document that a disabled block must
+ * never reach a reader's browser, neither its config nor a URL to fetch its code from.
+ *
+ * `block-tab` is the one legitimate absent-from-`blocksIndex` case: a child block gets no row of
+ * its own (`models/blocks.ts#syncSite`), so it never appears there even when its parent `block-tabs`
+ * is enabled -- told apart from a disabled block by ancestry, the same way the server's own
+ * `unwrapOrphanedChildBlocks` (`backend/models/rendering.ts`) does.
+ */
+describe('Index.vue: reader-view block scan skips a block absent from blocksIndex (OpenProject #1729)', () => {
+  it('does not load a block-* tag absent from blocksIndex, but still loads a child block whose parent is present', async () => {
+    setActivePinia(createPinia())
+
+    const commonStore = useCommonStore()
+    const loadBlocksSpy = vi.spyOn(commonStore, 'loadBlocks').mockResolvedValue(undefined)
+
+    const siteStore = useSiteStore()
+    // -> `tabs` (the parent) is enabled; `tab` (the child) never gets a row of its own, so it is
+    //    never a key here even when its parent is. `widget` stands in for a block the site has
+    //    switched off -- absent from the index the same way, but with no enabled ancestor to save it.
+    siteStore.blocksIndex = { tabs: { id: null, isCustom: false } }
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'page-1',
+          path: 'tabs-page',
+          editor: 'markdown',
+          render:
+            '<block-tabs><block-tab name="One">Content</block-tab></block-tabs>' +
+            '<block-widget>disabled block markup left over in stored HTML</block-widget>',
+          relations: [],
+          tocDepth: { min: 1, max: 6 }
+        })
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    router.push('/')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(Index, {
+      global: {
+        plugins: [router, i18n],
+        stubs: {
+          PageHeader: true,
+          PageActionsCol: true,
+          PageToc: true,
+          PageTags: true,
+          SideDialog: true,
+          PageRedirect: true,
+          FooterNav: true,
+          PageComments: true
+        }
+      }
+    })
+    await flushPromises()
+    // -> The block scan runs inside the route watcher's own `nextTick`, one tick behind `pageLoad`
+    //    resolving -- a second flush is what lets that nested callback actually run
+    await flushPromises()
+
+    const loadedTags = loadBlocksSpy.mock.calls.flatMap((call) =>
+      call[0].map((entry) => (typeof entry === 'string' ? entry : entry.tag))
+    )
+    expect(loadedTags).toContain('block-tabs')
+    expect(loadedTags).toContain('block-tab')
+    expect(loadedTags).not.toContain('block-widget')
 
     wrapper.unmount()
   })
