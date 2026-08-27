@@ -1,5 +1,5 @@
 import dns from 'node:dns/promises'
-import { CustomError } from '../helpers/common.ts'
+import { CustomError, generateHash } from '../helpers/common.ts'
 import { extractJsonPathValue } from '../helpers/jsonPath.ts'
 import { hostnameMatchesAllowlist, isPrivateAddress } from '../helpers/network.ts'
 
@@ -37,22 +37,35 @@ const CACHE_PREFIX = 'liveData:'
 const RATE_LIMIT_PREFIX = 'liveDataRate:'
 
 /**
- * The per-credential fresh-fetch rate limit window and cap (OpenProject #1050).
+ * Rate-limit key prefix for the credential-free path, one bucket per site.
+ *
+ * A request with no `credentialId` has no id of its own to key a limiter on, but it still needs its
+ * *own* budget rather than none at all (see {@link RATE_LIMIT_MAX_PER_WINDOW}'s header comment) — and
+ * rather than one bucket shared across every site on the instance (which would let a caller hammering
+ * one site's uncredentialed endpoint starve every other site's legitimate uncredentialed traffic too),
+ * this is scoped per site, the same granularity `siteId` already gives every other part of this path.
+ */
+const UNCREDENTIALED_RATE_LIMIT_PREFIX = 'uncredentialed:'
+
+/**
+ * The fresh-fetch rate limit window and cap (OpenProject #1050), shared by the per-credential and
+ * per-site-uncredentialed buckets alike.
  *
  * The response cache already collapses repeat requests for the *same* site/credential/url/jsonPath
- * onto one upstream fetch per `refreshInterval` — but nothing stopped a caller who has merely learned
- * a credential's id (its allowed domains are not a secret — every admin managing the site can see
- * them, and the id itself travels in plain page markdown as a block prop, readable by anyone with
- * `read:source`) from varying the url or jsonPath on every request to always miss that cache and
- * force a fresh outbound fetch, unthrottled, for as long as the credential's domain allowlist would
- * accept the url. This caps *that*: total fresh (cache-miss) fetches attributable to one credential,
- * independent of which url/jsonPath each one names.
+ * onto one upstream fetch per `refreshInterval` — but nothing stops a caller who has merely learned a
+ * credential's id (its allowed domains are not a secret — every admin managing the site can see them,
+ * and the id itself travels in plain page markdown as a block prop, readable by anyone with
+ * `read:source`), or a caller using no credential at all, from varying the url or jsonPath on every
+ * request to always miss that cache and force a fresh outbound fetch, unthrottled, for as long as a
+ * credential's domain allowlist (or, for the uncredentialed path, the public SSRF guard alone) would
+ * accept the url. This caps *that*: total fresh (cache-miss) fetches attributable to one credential —
+ * or, with no credential, to one site — independent of which url/jsonPath each one names.
  *
  * The cap is sized for legitimate multi-block use, not just one: several distinct `block-live-data`
- * instances can share one credential, each polling its own url/jsonPath as often as the
- * {@link MIN_REFRESH_SECONDS} floor allows -- a dozen such blocks at that floor is already 72
- * fresh fetches/minute. 120/minute leaves headroom above that while still bounding a caller that is
- * deliberately varying the request to bypass the response cache.
+ * instances can share one credential (or one site, uncredentialed), each polling its own url/jsonPath
+ * as often as the {@link MIN_REFRESH_SECONDS} floor allows -- a dozen such blocks at that floor is
+ * already 72 fresh fetches/minute. 120/minute leaves headroom above that while still bounding a
+ * caller that is deliberately varying the request to bypass the response cache.
  */
 const RATE_LIMIT_WINDOW_SECONDS = 60
 const RATE_LIMIT_MAX_PER_WINDOW = 120
@@ -88,21 +101,23 @@ function clampRefreshSeconds(seconds: number | undefined): number {
  * ones the admin who created that credential explicitly allowed. This is what stops a `write:pages`
  * author from exfiltrating a `manage:sites`-gated secret to a URL of their own choosing.
  *
- * A per-credential rate limit is a third, independent guard (OpenProject #1050): the resolve route
- * this backs is deliberately unauthenticated (see `api/liveData.ts`'s header comment), and a
- * credential's allowlist narrows *where* its secret may be sent but not *how often* — without this, a
- * caller who has merely learned a credential's id could vary the url/jsonPath on every request to
- * bypass the response cache and drive unlimited fresh fetches against whatever the allowed domain
- * hosts. See {@link RATE_LIMIT_MAX_PER_WINDOW}.
+ * A fresh-fetch rate limit is a third, independent guard (OpenProject #1050): the resolve route this
+ * backs is deliberately unauthenticated (see `api/liveData.ts`'s header comment), and a credential's
+ * allowlist narrows *where* its secret may be sent but not *how often* — without this, a caller who
+ * has merely learned a credential's id could vary the url/jsonPath on every request to bypass the
+ * response cache and drive unlimited fresh fetches against whatever the allowed domain hosts. The
+ * credential-free path gets the same treatment, metered per site instead of per credential, since an
+ * unauthenticated caller needs no credential at all to mount the identical cache-bypass. See
+ * {@link RATE_LIMIT_MAX_PER_WINDOW}.
  */
 class LiveData {
   /**
    * @throws {CustomError} `Bad Request` (400) for a malformed URL/JSONPath, an unmatched JSONPath, a
    *   URL resolving to a private/loopback/link-local address, or a URL outside a given credential's
    *   allowed domains, `Not Found` (404) for a `credentialId` with no matching row on this site,
-   *   `Too Many Requests` (429) once a credential has exceeded its fresh-fetch rate limit,
-   *   `Bad Gateway` (502) for a network failure, a non-2xx response, or a response body that isn't
-   *   JSON.
+   *   `Too Many Requests` (429) once the request's fresh-fetch rate limit bucket — a credential's, or
+   *   (with no `credentialId`) the site's own uncredentialed bucket — has been exceeded, `Bad Gateway`
+   *   (502) for a network failure, a non-2xx response, or a response body that isn't JSON.
    */
   async resolve(siteId: string, request: LiveDataRequest): Promise<LiveDataResult> {
     let url: URL
@@ -116,7 +131,16 @@ class LiveData {
     }
 
     const refreshSeconds = clampRefreshSeconds(request.refreshInterval)
-    const cacheKey = `${CACHE_PREFIX}${siteId}:${request.credentialId || ''}:${request.url}:${request.jsonPath}`
+    // -> Hashed rather than concatenated raw: `url`/`jsonPath` are author-supplied and unbounded in
+    //    length, and a key built by concatenating them straight into the cache's key space would grow
+    //    with them — the LRU this shares with the rate-limit counters below can then be forced to
+    //    evict a live counter to make room for one oversized entry, undermining the very limiter this
+    //    class exists to enforce. `JSON.stringify` (not a bare template join) delimits the two fields
+    //    unambiguously before hashing, so `url: 'a:b', jsonPath: 'c'` and `url: 'a', jsonPath: 'b:c'`
+    //    hash to different keys instead of colliding on the same joined string. `generateHash` is
+    //    SHA-1 hex — a fixed 40 characters regardless of input length, and only ever used here as a
+    //    lookup key, not a security boundary.
+    const cacheKey = `${CACHE_PREFIX}${siteId}:${request.credentialId || ''}:${generateHash(JSON.stringify([request.url, request.jsonPath]))}`
     const cached = WIKI.cache.get(cacheKey) as LiveDataResult | undefined
     if (cached) {
       return cached
@@ -126,7 +150,6 @@ class LiveData {
 
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (request.credentialId) {
-      this.assertWithinRateLimit(request.credentialId)
       const credential = await WIKI.models.blockCredentials.getCredentialForResolve(
         siteId,
         request.credentialId
@@ -141,7 +164,19 @@ class LiveData {
           400
         )
       }
+      // -> Only now, with a real, allowlist-passing credential in hand: checking the rate limit
+      //    against `request.credentialId` before it was resolved let any caller drain another
+      //    credential's budget with an id that never resolves to a row (or resolves but fails the
+      //    allowlist) — the id alone was enough to charge its counter, no actual access required.
+      this.assertWithinRateLimit(request.credentialId)
       headers.Authorization = `Bearer ${credential.secret}`
+    } else {
+      // -> The credential-free path used to skip metering entirely — this route is deliberately
+      //    unauthenticated (see the class comment), so that gap let anyone vary the url/jsonPath on
+      //    every request to force unlimited fresh fetches against any public, non-private address.
+      //    Metered under its own per-site bucket rather than a credential's, since there is no
+      //    credential id to key on here.
+      this.assertWithinRateLimit(`${UNCREDENTIALED_RATE_LIMIT_PREFIX}${siteId}`)
     }
 
     let response: Response
@@ -191,19 +226,22 @@ class LiveData {
   }
 
   /**
-   * Counts this fresh (cache-miss) fetch against `credentialId`'s rate limit and throws once the
-   * window's cap is exceeded — see the class comment and {@link RATE_LIMIT_MAX_PER_WINDOW}.
+   * Counts this fresh (cache-miss) fetch against `bucketId`'s rate limit and throws once the window's
+   * cap is exceeded — see the class comment and {@link RATE_LIMIT_MAX_PER_WINDOW}. `bucketId` is
+   * either a credential's id (the credentialed path) or a
+   * `${UNCREDENTIALED_RATE_LIMIT_PREFIX}${siteId}` bucket (the credential-free path) — either way,
+   * this only cares that it is a stable string to key a counter on.
    *
    * A fixed window, not a sliding one: `WIKI.cache.getRemainingTTL` reports how much longer the
    * current window's key has left, and that remaining time is preserved (via `WIKI.cache.set`'s own
    * `ttl` option) on every increment rather than reset — resetting it on every request would mean a
-   * credential at exactly its cap, with requests still arriving, would never see the window lapse and
+   * bucket at exactly its cap, with requests still arriving, would never see the window lapse and
    * would stay throttled forever instead of recovering once the offending traffic actually stops.
    *
    * @throws {CustomError} `Too Many Requests` (429) once the count exceeds the cap.
    */
-  private assertWithinRateLimit(credentialId: string): void {
-    const key = `${RATE_LIMIT_PREFIX}${credentialId}`
+  private assertWithinRateLimit(bucketId: string): void {
+    const key = `${RATE_LIMIT_PREFIX}${bucketId}`
     const remainingMs = WIKI.cache.getRemainingTTL(key)
     const windowIsFresh = remainingMs <= 0
     const count = (windowIsFresh ? 0 : ((WIKI.cache.get(key) as number | undefined) ?? 0)) + 1
@@ -214,7 +252,7 @@ class LiveData {
     if (count > RATE_LIMIT_MAX_PER_WINDOW) {
       throw new CustomError(
         'Too Many Requests',
-        'This credential is being used to fetch too frequently. Try again shortly.',
+        'This block is being used to fetch too frequently. Try again shortly.',
         429
       )
     }
