@@ -1,5 +1,9 @@
 import type { FastifyInstance } from 'fastify'
-import { AUDIT_EVENTS, AUDIT_TARGET_TYPES } from '../../models/auditLog.ts'
+import {
+  AUDIT_EVENTS,
+  AUDIT_LOG_RETENTION_DAYS_FLOOR,
+  AUDIT_TARGET_TYPES
+} from '../../models/auditLog.ts'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
@@ -72,7 +76,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     properties: {
       retentionDays: {
         type: 'integer',
-        minimum: 1,
+        minimum: AUDIT_LOG_RETENTION_DAYS_FLOOR,
         description: 'How many days of history to keep before the retention job trims it.'
       }
     }
