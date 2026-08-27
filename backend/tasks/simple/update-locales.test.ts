@@ -134,6 +134,33 @@ describe('update-locales.task (DB-backed)', { skip: !hasTestDatabase() }, () => 
 
     assert.equal(fetchSpy.mock.callCount(), 0)
   })
+
+  test('every fetch carries an abort signal (OpenProject #2253)', async () => {
+    stubFetch([makeLang('de-t4', 'German')], { 'de-t4': { welcome: 'Willkommen' } })
+
+    await task()
+
+    const calls = (globalThis.fetch as unknown as ReturnType<typeof mock.fn>).mock.calls
+    assert.ok(calls.length >= 2, 'expected at least the metadata fetch + one per-language fetch')
+    for (const call of calls) {
+      const init = call.arguments[1] as RequestInit | undefined
+      assert.ok(init?.signal instanceof AbortSignal, 'fetch call missing an AbortSignal')
+    }
+  })
+
+  test('a non-ok metadata response aborts the run before any per-language fetch is issued (OpenProject #2253)', async () => {
+    globalThis.fetch = mock.fn(async (url: string, _init?: RequestInit) => {
+      if (url.includes('metadata.json')) {
+        return new Response('Service Unavailable', { status: 503 })
+      }
+      throw new Error(`unexpected per-language fetch for ${url}`)
+    }) as unknown as typeof fetch
+
+    await assert.rejects(task(), /503/)
+
+    const calls = (globalThis.fetch as unknown as ReturnType<typeof mock.fn>).mock.calls
+    assert.equal(calls.length, 1, 'expected only the metadata fetch to have been issued')
+  })
 })
 
 /**
