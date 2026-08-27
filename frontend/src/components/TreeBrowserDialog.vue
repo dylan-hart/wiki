@@ -65,11 +65,11 @@
           <blueprint-icon icon="new-document" />
           <w-item-section>
             <w-input
+              ref="iptTitle"
               v-model="state.title"
               :label="t(`pageSaveDialog.pageTitle`)"
               dense
               outlined
-              autofocus
               @focus="state.currentFileId = null"
               @keyup:enter="save" />
           </w-item-section>
@@ -230,7 +230,9 @@ defineEmits([...dialogComponentEmits])
 
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => iptTitle.value
+})
 
 // STORES
 
@@ -262,6 +264,7 @@ const state = reactive({
 // REFS
 
 const treeComp = ref(null)
+const iptTitle = ref(null)
 
 // -> Path Name is the leaf slug only -- the folder itself comes from the tree browser (#1013), not
 //    from typing `/`-separated segments here. Live validation (`w-input`'s `rules` convention) is

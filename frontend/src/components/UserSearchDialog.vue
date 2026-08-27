@@ -7,14 +7,14 @@
       </w-card-section>
       <w-card-section class="py-2">
         <w-input
+          ref="iptSearch"
           v-model="state.search"
           outlined
           dense
           :placeholder="t(`admin.users.searchUsers`)"
           :aria-label="t(`admin.users.searchUsers`)"
           clearable
-          hide-bottom-space
-          autofocus>
+          hide-bottom-space>
           <template #prepend>
             <w-icon name="la:search" />
           </template>
@@ -107,7 +107,7 @@ import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 
 // PROPS
 
@@ -153,9 +153,15 @@ const props = defineProps({
 
 defineEmits([...dialogComponentEmits])
 
+// REFS
+
+const iptSearch = ref(null)
+
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => iptSearch.value
+})
 
 // I18N
 

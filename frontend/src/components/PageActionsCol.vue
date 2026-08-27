@@ -73,10 +73,10 @@
                 <w-item-section side><w-icon name="la:file-image" /></w-item-section>
                 <w-item-section v-if="editingAssetId === item.id">
                   <w-input
+                    ref="iptRenamePendingAsset"
                     v-model="renameDraft"
                     dense
                     outlined
-                    autofocus
                     label="New file name"
                     :suffix="renameSuffix"
                     :rules="[renameBaseNameRule]"
@@ -305,7 +305,7 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { fileSave } from 'browser-fs-access'
@@ -346,6 +346,10 @@ const { t } = useI18n()
 // REFS
 
 const menuPendingAssets = ref(null)
+
+/** The rename field for whichever pending asset is currently being renamed -- not a dialog, so
+ *  there is no `useDialogComponent` to focus it; see `startRenamePendingAsset`. */
+const iptRenamePendingAsset = ref(null)
 
 // DATA
 
@@ -654,6 +658,13 @@ function startRenamePendingAsset(item) {
   editingAssetId.value = item.id
   renameDraft.value = base
   renameExt.value = ext
+  // -> The field is only rendered once `editingAssetId` flips, so the ref is empty until after this
+  //    update has been applied to the DOM. It sits inside the pending-assets `v-for`, which makes Vue
+  //    collect the ref as an array (one entry, since only one item is ever being edited at a time)
+  //    rather than a single instance -- `[0]`, not `.value` directly.
+  nextTick(() => {
+    iptRenamePendingAsset.value?.[0]?.focus()
+  })
 }
 
 function cancelRenamePendingAsset() {

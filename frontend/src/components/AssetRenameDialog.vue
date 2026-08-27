@@ -10,8 +10,8 @@
           <blueprint-icon icon="image" class="self-start" />
           <w-item-section>
             <w-input
+              ref="iptPath"
               v-model="state.path"
-              autofocus
               outlined
               dense
               hide-bottom-space
@@ -49,7 +49,7 @@ import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
-import { onMounted, reactive } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
@@ -67,9 +67,15 @@ const props = defineProps({
 
 defineEmits([...dialogComponentEmits])
 
+// REFS
+
+const iptPath = ref(null)
+
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => iptPath.value
+})
 
 // STORES
 
