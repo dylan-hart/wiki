@@ -198,6 +198,16 @@ let app: FastifyInstance
 
 before(async () => {
   ;(globalThis as any).WIKI = {
+    config: {
+      auth: {
+        // -> Distinct from GROUP_ID, so the root-admin-permissions guard in the PUT handler never
+        //    activates for the fixture group these tests exercise.
+        rootAdminGroupId: '99999999-9999-9999-9999-999999999999'
+      }
+    },
+    logger: {
+      warn: () => {}
+    },
     models: {
       groups: {
         async getAllGroups() {
@@ -205,7 +215,19 @@ before(async () => {
         },
         async getGroupById(id: string) {
           return id === GROUP_ID ? fullGroup : null
+        },
+        async updateGroup() {
+          return true
+        },
+        holdsSystemPermission() {
+          return true
         }
+      },
+      sessions: {
+        async clearSessionsForGroup() {}
+      },
+      auditLog: {
+        async record() {}
       }
     }
   }
@@ -274,4 +296,76 @@ test('an account with neither read:groups, manage:groups nor manage:navigation i
 test('an anonymous request is refused the list', async () => {
   const res = await app.inject({ method: 'GET', url: '/' })
   assert.equal(res.statusCode, 401)
+})
+
+/**
+ * OpenProject #1658: `permissions` and rule `roles` are now validated against the closed
+ * vocabularies (`helpers/permissions.ts`, `helpers/siteRules.ts`) at the schema level, so an unknown
+ * string is rejected with 400 before it ever reaches `updateGroup` -- rather than being silently
+ * accepted, stored, and granting nothing. Schema validation runs ahead of the permission preHandler
+ * in Fastify's request lifecycle, but `manage:groups` headers are still sent here to keep each case
+ * indistinguishable from a real, otherwise-authorized caller.
+ *
+ * There is no equivalent case for the create route: `POST /groups` accepts only `name` in its body
+ * (`createGroup` seeds default permissions/rules internally, not from caller input), so it has no
+ * `permissions`/`roles` surface for an unknown vocabulary entry to reach in the first place.
+ */
+test('PUT rejects an unknown global permission string with 400', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${GROUP_ID}`,
+    headers: headersFor(['manage:groups']),
+    payload: {
+      permissions: ['manage:navigations']
+    }
+  })
+  assert.equal(res.statusCode, 400)
+})
+
+test('PUT rejects an unknown rule role string with 400', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${GROUP_ID}`,
+    headers: headersFor(['manage:groups']),
+    payload: {
+      rules: [
+        {
+          id: 'bad-role',
+          name: 'Bad role',
+          roles: ['write:page'],
+          match: 'START',
+          mode: 'ALLOW',
+          path: '',
+          locales: [],
+          sites: []
+        }
+      ]
+    }
+  })
+  assert.equal(res.statusCode, 400)
+})
+
+test('PUT accepts a known global permission and a known rule role', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${GROUP_ID}`,
+    headers: headersFor(['manage:groups']),
+    payload: {
+      permissions: ['manage:navigation'],
+      rules: [
+        {
+          id: 'good-role',
+          name: 'Good role',
+          roles: ['write:pages', 'site:theme'],
+          match: 'START',
+          mode: 'ALLOW',
+          path: '',
+          locales: [],
+          sites: []
+        }
+      ]
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().ok, true)
 })

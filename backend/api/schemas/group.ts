@@ -1,6 +1,20 @@
 import type { FastifyInstance } from 'fastify'
+import { GLOBAL_PERMISSIONS, PAGE_PERMISSIONS } from '../../helpers/permissions.ts'
+import { SITE_PERMISSIONS } from '../../helpers/siteRules.ts'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
+  /**
+   * GLOBAL PERMISSION - The closed vocabulary a group's top-level `permissions` array may name.
+   * Kept separate from `ApiKeyScopePermission#` (`api/schemas/apiKey.ts`), which additionally allows
+   * page permissions -- an API key's scope narrows both kinds at once, but a group's `permissions`
+   * field is global-only (page access is granted through `rules` instead).
+   */
+  app.addSchema({
+    $id: 'GlobalPermission',
+    type: 'string',
+    enum: GLOBAL_PERMISSIONS
+  })
+
   /**
    * GROUP RULE - A single page rule within a group
    */
@@ -22,7 +36,10 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'array',
         description: 'Permissions granted or denied by this rule.',
         items: {
-          type: 'string'
+          type: 'string',
+          // -> `GroupRule.roles` is one shared vocabulary space across both kinds it may name -- see
+          //    docs/decisions/delegated-per-site-administration.md.
+          enum: [...PAGE_PERMISSIONS, ...SITE_PERMISSIONS]
         }
       },
       match: {
