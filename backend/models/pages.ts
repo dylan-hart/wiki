@@ -1013,11 +1013,6 @@ class Pages {
       }
       values.publishState = patch.publishState
     }
-    // -> Whether a page appears in the sitemap turns on `publishState`/`isBrowsable` alone (see
-    //    `listPagesForSitemap`'s own doc comment); a change to either has to drop the cached list.
-    if (patch.publishState !== undefined || patch.isBrowsable !== undefined) {
-      this.invalidateSitemapCache(siteId)
-    }
     if (patch.publishStartDate !== undefined) {
       values.publishStartDate = patch.publishStartDate ? new Date(patch.publishStartDate) : null
     }
@@ -1171,10 +1166,16 @@ class Pages {
       authorId: actor.id
     })
     // -> Any of title/icon/tags/classification/relations/links can move in a plain edit, all of
-    //    which the graph's nodes or edges reflect -- unconditional, unlike the narrower sitemap check
-    //    above, since there is no single field this cache turns on the way the sitemap turns on
-    //    publishState/isBrowsable alone.
+    //    which the graph's nodes or edges reflect -- unconditional, since there is no single field
+    //    this cache turns on.
     invalidateGraphCache(siteId)
+
+    // -> Any of `publishState`, `isBrowsable`, `tags`, `classification` moving could change whether
+    //    this page belongs in the sitemap (`listPagesForSitemap`'s guest-rule filter reads all four),
+    //    and `updatedAt` (touched on every save) is its `<lastmod>` when it does -- invalidating
+    //    unconditionally, same as the graph cache above, is what keeps the cached list from ever
+    //    describing a page as it was rather than as it is now (OpenProject #2267).
+    this.invalidateSitemapCache(siteId)
 
     return updated
   }

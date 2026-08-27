@@ -88,6 +88,55 @@ describe('ruleMatchesPage', () => {
       assert.doesNotThrow(() => ruleMatchesPage(rule, page()))
       assert.equal(ruleMatchesPage(rule, page()), false)
     })
+
+    test('memoizes a compiled pattern rather than recompiling it on every call (OpenProject #2267)', () => {
+      const OriginalRegExp = globalThis.RegExp
+      let compileCount = 0
+      class CountingRegExp extends OriginalRegExp {
+        constructor(pattern: string | RegExp, flags?: string) {
+          super(pattern, flags)
+          compileCount++
+        }
+      }
+      globalThis.RegExp = CountingRegExp as unknown as RegExpConstructor
+
+      try {
+        // -> A pattern unique to this test, so an earlier test's memoized entry can't mask a real
+        //    recompile here
+        const rule = makeRule({ match: 'REGEX', path: '^regex-memo-test/' })
+        assert.equal(ruleMatchesPage(rule, page({ path: 'regex-memo-test/a' })), true)
+        assert.equal(ruleMatchesPage(rule, page({ path: 'regex-memo-test/b' })), true)
+        assert.equal(ruleMatchesPage(rule, page({ path: 'no-match' })), false)
+        assert.equal(
+          compileCount,
+          1,
+          'RegExp should only be constructed once for a repeated pattern'
+        )
+      } finally {
+        globalThis.RegExp = OriginalRegExp
+      }
+    })
+
+    test('a pattern that fails to compile is also memoized, not re-thrown on every call', () => {
+      const OriginalRegExp = globalThis.RegExp
+      let compileCount = 0
+      class CountingRegExp extends OriginalRegExp {
+        constructor(pattern: string | RegExp, flags?: string) {
+          compileCount++
+          super(pattern, flags)
+        }
+      }
+      globalThis.RegExp = CountingRegExp as unknown as RegExpConstructor
+
+      try {
+        const rule = makeRule({ match: 'REGEX', path: '(unclosed-memo-test' })
+        assert.equal(ruleMatchesPage(rule, page()), false)
+        assert.equal(ruleMatchesPage(rule, page()), false)
+        assert.equal(compileCount, 1, 'an unparseable pattern should only be attempted once')
+      } finally {
+        globalThis.RegExp = OriginalRegExp
+      }
+    })
   })
 
   describe('TAG', () => {
