@@ -775,5 +775,67 @@ describe(
         scheduler.runJob = originalRunJob
       }
     })
+
+    /**
+     * OpenProject #2084: the reclaim upsert's `set` clause refreshed `state`/`executedBy`/`startedAt`/
+     * `attempt` but left `lastErrorMessage` untouched, so a job interrupted, requeued, reclaimed and
+     * then *succeeded* on retry still carried `reapStaleJobs()`'s stale-instance message forever —
+     * `runJob()`'s own success path only ever sets `state`/`completedAt`, never touching the column
+     * either. A reclaim must start the row as clean as a fresh claim.
+     */
+    test('reclaiming after an interruption clears lastErrorMessage once the retry succeeds', async () => {
+      const originalTasks = scheduler.tasks
+      scheduler.tasks = { retrySucceeds: async () => {} }
+      try {
+        const [job] = await fixtures.db
+          .insert(jobsTable)
+          .values({
+            task: 'retrySucceeds',
+            useWorker: false,
+            retries: 0,
+            maxRetries: 1,
+            payload: {},
+            createdBy: 'test'
+          })
+          .returning()
+        historyIds.push(job!.id)
+        jobIds.push(job!.id)
+
+        // Attempt 1: claimed, then the process "dies" before recording anything (runJob stubbed), so
+        // reapStaleJobs() flips the row to 'interrupted' and stamps a stale-instance lastErrorMessage.
+        const originalRunJob = scheduler.runJob
+        scheduler.runJob = async () => {}
+        try {
+          await scheduler.processJob()
+        } finally {
+          scheduler.runJob = originalRunJob
+        }
+        await fixtures.db
+          .update(jobHistoryTable)
+          .set({ startedAt: pastDate(120) })
+          .where(eq(jobHistoryTable.id, job!.id))
+        const requeued = await scheduler.reapStaleJobs()
+        assert.equal(requeued, 1)
+
+        const [interrupted] = await fixtures.db
+          .select()
+          .from(jobHistoryTable)
+          .where(eq(jobHistoryTable.id, job!.id))
+        assert.match(interrupted!.lastErrorMessage ?? '', /No instance reported on this job/)
+
+        // Attempt 2 (the retry): reclaimed via the SAME jobHistory row — this exercises the ON
+        // CONFLICT DO UPDATE path — and this time the task actually runs to completion.
+        await scheduler.processJob()
+
+        const [after1] = await fixtures.db
+          .select()
+          .from(jobHistoryTable)
+          .where(eq(jobHistoryTable.id, job!.id))
+        assert.equal(after1!.state, 'completed')
+        assert.equal(after1!.lastErrorMessage, null)
+      } finally {
+        scheduler.tasks = originalTasks
+      }
+    })
   }
 )
