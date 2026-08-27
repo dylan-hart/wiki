@@ -515,10 +515,11 @@ watch(
 
 /*
   Join the enclosing WForm, if there is one, so submitting validates this field too. Optional by
-  design -- most inputs in the codebase stand alone rather than inside a form.
+  design -- most inputs in the codebase stand alone rather than inside a form. `focus` rides along so
+  a failed submit can land the user on the first invalid control -- see WForm's `validate()`.
 */
 const registerWithForm = inject('wFormRegister', null)
-registerWithForm?.({ validate })
+registerWithForm?.({ validate, focus: () => inputEl.value?.focus() })
 
 defineExpose({
   validate,
