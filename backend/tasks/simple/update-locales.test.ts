@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../../test/db.ts'
 import { locales as localesTable } from '../../db/schema.ts'
+import { task } from './update-locales.ts'
 
 /**
  * `task()` is the daily `updateLocales` scheduled job: it pulls the language list + each language's
@@ -132,5 +133,137 @@ describe('update-locales.task (DB-backed)', { skip: !hasTestDatabase() }, () => 
     await assert.doesNotReject(task())
 
     assert.equal(fetchSpy.mock.callCount(), 0)
+  })
+})
+
+/**
+ * OpenProject #2253/#2255: the fetch/validation hardening around this task — abort timeouts, the
+ * missing `ok` check, percent-encoding the derived filename, and rejecting a non-flat `strings`
+ * payload before it ever reaches the database. Unlike the suite above, none of this needs a real
+ * Postgres instance: `WIKI.db.insert` is stubbed directly (the same manual-stub approach
+ * `check-version.test.ts` uses), so this runs unconditionally rather than being gated on
+ * `DATABASE_URL`.
+ */
+describe('update-locales.task (unit, no DB)', () => {
+  let previousWiki: any
+  let previousFetch: typeof fetch
+  let insertValues: ReturnType<typeof mock.fn>
+  let onConflictDoUpdate: ReturnType<typeof mock.fn>
+  let loggerWarn: ReturnType<typeof mock.fn>
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    previousFetch = globalThis.fetch
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+    globalThis.fetch = previousFetch
+  })
+
+  beforeEach(() => {
+    onConflictDoUpdate = mock.fn(async () => true)
+    insertValues = mock.fn(() => ({ onConflictDoUpdate }))
+    loggerWarn = mock.fn()
+    ;(globalThis as any).WIKI = {
+      config: {},
+      logger: { info: mock.fn(), error: mock.fn(), warn: loggerWarn, debug: mock.fn() },
+      db: { insert: () => ({ values: insertValues }) }
+    }
+  })
+
+  function makeLang(overrides: Record<string, any> = {}) {
+    return {
+      language: 'fr',
+      region: '',
+      script: '',
+      name: 'French',
+      localizedName: 'French',
+      isRtl: false,
+      ...overrides
+    }
+  }
+
+  test('every fetch carries an AbortSignal', async () => {
+    const calls: Array<[string, any]> = []
+    globalThis.fetch = mock.fn(async (url: string, opts?: any) => {
+      calls.push([url, opts])
+      if (url.includes('metadata.json')) {
+        return new Response(JSON.stringify({ languages: [makeLang()] }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ welcome: 'Bienvenue' }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    await task()
+
+    assert.equal(calls.length, 2)
+    for (const [, opts] of calls) {
+      assert.ok(opts?.signal instanceof AbortSignal, 'fetch call is missing an AbortSignal')
+    }
+  })
+
+  test('a non-ok metadata response aborts the run before any per-language fetch', async () => {
+    const fetchSpy = mock.fn(async (url: string) => {
+      if (url.includes('metadata.json')) {
+        return new Response('Internal Server Error', { status: 500 })
+      }
+      throw new Error('per-language fetch should never be reached')
+    })
+    globalThis.fetch = fetchSpy as unknown as typeof fetch
+
+    await assert.rejects(task())
+
+    assert.equal(fetchSpy.mock.callCount(), 1)
+    assert.equal(insertValues.mock.callCount(), 0)
+  })
+
+  test('percent-encodes the derived filename in the strings URL', async () => {
+    // -> A region containing path-traversal-shaped characters proves the filename segment is
+    //    encoded rather than concatenated raw into the URL path.
+    const calls: string[] = []
+    globalThis.fetch = mock.fn(async (url: string) => {
+      calls.push(url)
+      if (url.includes('metadata.json')) {
+        return new Response(JSON.stringify({ languages: [makeLang({ region: '../../evil' })] }), {
+          status: 200
+        })
+      }
+      return new Response(JSON.stringify({ welcome: 'Bienvenue' }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    await task()
+
+    const stringsUrl = calls.find((u) => !u.includes('metadata.json'))
+    assert.ok(stringsUrl, 'strings URL was never fetched')
+    assert.equal(stringsUrl!.includes('../../evil'), false)
+    assert.equal(stringsUrl!.includes(encodeURIComponent('fr-../../evil')), true)
+  })
+
+  test('rejects a strings payload that is not a flat string map before inserting', async () => {
+    globalThis.fetch = mock.fn(async (url: string) => {
+      if (url.includes('metadata.json')) {
+        return new Response(JSON.stringify({ languages: [makeLang()] }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ nested: { not: 'flat' } }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    await assert.doesNotReject(task())
+
+    assert.equal(insertValues.mock.callCount(), 0)
+    assert.equal(loggerWarn.mock.callCount(), 1)
+  })
+
+  test('accepts a genuinely flat string map', async () => {
+    globalThis.fetch = mock.fn(async (url: string) => {
+      if (url.includes('metadata.json')) {
+        return new Response(JSON.stringify({ languages: [makeLang()] }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ welcome: 'Bienvenue' }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    await task()
+
+    assert.equal(insertValues.mock.callCount(), 1)
+    assert.equal(onConflictDoUpdate.mock.callCount(), 1)
   })
 })

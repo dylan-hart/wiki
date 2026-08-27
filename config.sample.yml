@@ -100,6 +100,19 @@ icons:
   apiUrl: 'https://api.iconify.design'
 
 # ---------------------------------------------------------------------
+# Rendering
+# ---------------------------------------------------------------------
+# Every headless Chromium launch (page re-render, PDF export, diagram
+# render) is sandboxed by default. Only set puppeteerNoSandbox to true
+# if this host cannot start Chromium's own sandbox (no setuid sandbox
+# helper, no unprivileged user namespaces available) -- see
+# docs/variances.md before enabling it, since it disables a real
+# security boundary rather than working around a cosmetic error.
+
+rendering:
+  puppeteerNoSandbox: false
+
+# ---------------------------------------------------------------------
 # Body Parser Limit
 # ---------------------------------------------------------------------
 # Maximum size of API requests body that can be parsed, in bytes.

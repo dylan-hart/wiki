@@ -4,12 +4,36 @@ import { CustomError } from './common.ts'
  * Browser flags every headless launch in this codebase uses, so a page re-render and a PDF export
  * behave identically as far as the browser they run in is concerned.
  *
- * `--no-sandbox` because this runs as a background service — typically containerized, often without
- * the setuid sandbox helper Chromium's own sandbox needs — and `--disable-dev-shm-usage` because a
- * container's default `/dev/shm` is far smaller than Chromium expects, which otherwise crashes it on
- * a page heavy enough to need more shared memory than that.
+ * `--disable-dev-shm-usage` because a container's default `/dev/shm` is far smaller than Chromium
+ * expects, which otherwise crashes it on a page heavy enough to need more shared memory than that.
+ *
+ * `--no-sandbox` is deliberately **not** included by default: it disables Chromium's own process
+ * sandbox, so a renderer-process exploit escapes straight to this process's own privileges. Two of
+ * the three call sites feed the browser attacker-influenced content (`pdfExport` drives the live SPA
+ * page view under the requester's own session; `diagramRender` mounts a POST-body Mermaid source), so
+ * a sandboxed launch is the safer default. It exists only as an opt-in fallback
+ * (`WIKI.config.rendering.puppeteerNoSandbox`) for a host that genuinely cannot start Chromium's
+ * sandbox — a container without the setuid sandbox helper or unprivileged user namespaces enabled.
+ * See `docs/variances.md` for this instance's posture.
  */
-export const PUPPETEER_LAUNCH_ARGS = ['--no-sandbox', '--disable-dev-shm-usage']
+export const BASE_PUPPETEER_LAUNCH_ARGS = ['--disable-dev-shm-usage']
+
+/**
+ * The launch args to actually use, honouring the `--no-sandbox` opt-in fallback. Logs loudly at warn
+ * level when the fallback is taken, so an operator notices it's on rather than discovering it only
+ * when reading source.
+ */
+export function getPuppeteerLaunchArgs(): string[] {
+  if (WIKI.config.rendering?.puppeteerNoSandbox) {
+    WIKI.logger.warn(
+      'Launching headless Chromium with --no-sandbox (rendering.puppeteerNoSandbox is enabled). ' +
+        "This disables Chromium's own process sandbox — only use this on a host that cannot start " +
+        'the sandbox otherwise. See docs/variances.md.'
+    )
+    return [...BASE_PUPPETEER_LAUNCH_ARGS, '--no-sandbox']
+  }
+  return [...BASE_PUPPETEER_LAUNCH_ARGS]
+}
 
 /**
  * Load Puppeteer and open a browser with this instance's standard flags.
@@ -42,6 +66,6 @@ export async function launchPuppeteerBrowser(errorName: string): Promise<any> {
 
   return puppeteer.launch({
     headless: true,
-    args: PUPPETEER_LAUNCH_ARGS
+    args: getPuppeteerLaunchArgs()
   })
 }
