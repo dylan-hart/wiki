@@ -180,11 +180,24 @@ export default {
 
     // Initialize Postgres Pool
 
+    // -> `WIKI.config.pool` carries operator-tunable `max`/`connectionTimeoutMillis`/
+    //    `statementTimeoutMillis` (defaulted in base.yml, sized above `scheduler.workers` so the
+    //    scheduler's own claim query is never the thing starved). `connectionTimeoutMillis` bounds
+    //    how long `pool.connect()` waits for a checkout on a saturated pool -- unset, pg-pool waits
+    //    forever, which is what let a saturated main pool wedge every DB-backed request handler,
+    //    session load/save, and the scheduler's claim query indefinitely (task 2249). Worker-mode
+    //    pools already stay tightly bounded in size (`max: 1`, one connection per worker thread) but
+    //    still inherit the same connect timeout, since a worker's single connection can wedge the
+    //    same way. `statement_timeout` has to travel via the `options` connection string -- pg-pool
+    //    has no dedicated config key for it -- so Postgres itself cancels a runaway query rather than
+    //    leaving it to run unbounded once a connection is checked out.
+    const poolConfig = WIKI.config.pool ?? {}
     this.pool = new Pool({
       application_name: `Wiki.js - ${WIKI.INSTANCE_ID}:${workerMode ? 'WORKER' : 'MAIN'}`,
       ...this.config,
-      ...(workerMode ? { min: 0, max: 1 } : WIKI.config.pool),
-      options: `-c search_path=${WIKI.config.db.schema}`
+      connectionTimeoutMillis: poolConfig.connectionTimeoutMillis,
+      ...(workerMode ? { min: 0, max: 1 } : { min: poolConfig.min, max: poolConfig.max }),
+      options: `-c search_path=${WIKI.config.db.schema} -c statement_timeout=${poolConfig.statementTimeoutMillis}`
     })
 
     const db = createDb(this.pool)
