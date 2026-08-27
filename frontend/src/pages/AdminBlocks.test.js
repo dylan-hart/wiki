@@ -11,10 +11,16 @@ import WInput from '@/components/shared/WInput.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
 import { dialog } from '@/composables/dialog'
+import { loading } from '@/composables/loading'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
   dialog: vi.fn(() => ({ onOk: vi.fn() }))
+}))
+
+vi.mock('@/composables/loading', async (importOriginal) => ({
+  ...(await importOriginal()),
+  loading: { show: vi.fn(), hide: vi.fn() }
 }))
 
 /**
@@ -55,10 +61,10 @@ const GALLERY_BLOCK = {
   template: ''
 }
 
-async function mountAdminBlocks(blocks, credentials = []) {
+async function mountAdminBlocks(blocks, credentials = [], siteId = 'site-1') {
   setActivePinia(createPinia())
   const adminStore = useAdminStore()
-  adminStore.currentSiteId = 'site-1'
+  adminStore.currentSiteId = siteId
 
   // -> useSiteAdminAccess('site:blocks') needs a real route (for its `siteid` param) and a
   //    permission that satisfies GLOBAL_FALLBACKS['site:blocks'], so this mount neither warns on a
@@ -281,6 +287,28 @@ describe('AdminBlocks credentials list', () => {
         }
       })
     )
+  })
+})
+
+/**
+ * OpenProject #1736: `onMounted` used to call `loading.show()` unconditionally, before the
+ * `if (adminStore.currentSiteId)` test that gates the `load()` call which would hide it again. On a
+ * zero-site instance (`currentSiteId` null) that left the full-screen overlay stuck on forever, with
+ * nothing in the UI explaining why. `loading.show()` must now be inside that branch.
+ */
+describe('AdminBlocks: loading overlay on mount (OpenProject #1736)', () => {
+  it('does not show the loading overlay when adminStore.currentSiteId is null', async () => {
+    loading.show.mockClear()
+    await mountAdminBlocks([], [], null)
+
+    expect(loading.show).not.toHaveBeenCalled()
+  })
+
+  it('does show the loading overlay when adminStore.currentSiteId is set', async () => {
+    loading.show.mockClear()
+    await mountAdminBlocks([], [], 'site-1')
+
+    expect(loading.show).toHaveBeenCalled()
   })
 })
 

@@ -580,8 +580,8 @@ function saveConfig() {
 // MOUNTED
 
 onMounted(async () => {
-  loading.show()
   if (adminStore.currentSiteId) {
+    loading.show()
     await load()
   }
 })
