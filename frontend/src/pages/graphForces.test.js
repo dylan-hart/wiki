@@ -75,7 +75,7 @@ describe('clusterForce settles a cold-load simulation without a directional wedg
     const realNodes = []
     for (const folder of FOLDERS) {
       for (let i = 0; i < 8; i++) {
-        realNodes.push({ path: `${folder}/page-${i}`, title: `Page ${i}`, folder })
+        realNodes.push({ path: `${folder}/page-${i}`, title: `Page ${i}`, folder, locale: 'en' })
       }
     }
     const { syntheticNodes, edges } = buildPathHierarchyEdges(realNodes)
@@ -86,7 +86,7 @@ describe('clusterForce settles a cold-load simulation without a directional wedg
       .force(
         'link',
         forceLink(edges)
-          .id((d) => d.path)
+          .id((d) => `${d.locale}:${d.path}`)
           .distance(60)
       )
       .force('charge', forceManyBody().strength(-120))

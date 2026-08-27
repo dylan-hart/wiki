@@ -22,15 +22,29 @@ export function deriveFilterOptions(nodes) {
 }
 
 /**
- * An edge's endpoint as fetched is a plain node-id string, but `d3-force`'s `forceLink` mutates
- * `edge.source`/`edge.target` in place into a reference to the actual node object the moment
- * `.links()` resolves ids against `.nodes()` (Task 26 feeds `Graph.vue`'s live `allEdges`/`edges`
- * arrays straight into it, so this same edge array is what the simulation mutates) -- normalizing
- * both shapes here is what keeps a re-filter after the first tick from comparing a node object
- * against a Set of path strings and dropping every edge.
+ * The composite node id every function below keys nodes and edges by: `${locale}:${path}`
+ * (OpenProject #1632). A bare `path` is only unique *within* one locale -- translations of the
+ * same page share a path by design (`docs/decisions/locale-translation-linking.md`,
+ * "Same-path-by-convention") -- so filtering or hierarchy-building on `path` alone lets a `fr`
+ * node's path stand in for an `en` node's, or merges two locales' folder trees into one. The graph
+ * API emits nodes/edges keyed on this same composite id (`backend/api/graph.ts#assembleGraph`,
+ * OpenProject #1626), and `Graph.vue`'s d3-force layout resolves nodes by it too (OpenProject
+ * #1629) -- this is the one shared id format all three use.
+ */
+function nodeId(node) {
+  return `${node.locale}:${node.path}`
+}
+
+/**
+ * An edge's endpoint as fetched is already the composite id string above, but `d3-force`'s
+ * `forceLink` mutates `edge.source`/`edge.target` in place into a reference to the actual node
+ * object the moment `.links()` resolves ids against `.nodes()` (Task 26 feeds `Graph.vue`'s live
+ * `allEdges`/`edges` arrays straight into it, so this same edge array is what the simulation
+ * mutates) -- normalizing both shapes here is what keeps a re-filter after the first tick from
+ * comparing a node object against a Set of id strings and dropping every edge.
  */
 function endpointId(endpoint) {
-  return typeof endpoint === 'object' && endpoint !== null ? endpoint.path : endpoint
+  return typeof endpoint === 'object' && endpoint !== null ? nodeId(endpoint) : endpoint
 }
 
 /**
@@ -56,9 +70,9 @@ export function computeVisibleSubset(nodes, edges, filters) {
     filters.folderDepth == null || folderDepthOf(node) <= filters.folderDepth
 
   const visibleNodes = nodes.filter((n) => passesTag(n) && passesLocale(n) && passesFolderDepth(n))
-  const visiblePaths = new Set(visibleNodes.map((n) => n.path))
+  const visibleIds = new Set(visibleNodes.map(nodeId))
   const visibleEdges = edges.filter(
-    (e) => visiblePaths.has(endpointId(e.source)) && visiblePaths.has(endpointId(e.target))
+    (e) => visibleIds.has(endpointId(e.source)) && visibleIds.has(endpointId(e.target))
   )
 
   return { visibleNodes, visibleEdges }
@@ -70,14 +84,20 @@ export function computeVisibleSubset(nodes, edges, filters) {
  * (`''`) -- "root fans out to everything," so even a wiki with zero authored relations/links renders
  * a fully connected graph. A real page is reused as a folder's node when one exists at that exact
  * path (so an index-style page at `docs` doesn't get a duplicate dot next to a synthetic `docs`
- * marker); otherwise a bare `{ path, title, synthetic: true }` stand-in is synthesized. Edges are
- * de-duped via a `Set` keyed on `"parent target"`, since many sibling pages under the same folder all
- * climb through the same parent segment -- cheap to always climb every node fully to root rather than
- * short-circuiting on "already wired," given the graph's confirmed real-world scale (low hundreds to
- * low thousands of pages).
+ * marker); otherwise a bare `{ path, locale, title, synthetic: true }` stand-in is synthesized.
+ * Edges are de-duped via a `Set` keyed on `"parent target"` composite ids, since many sibling pages
+ * under the same folder all climb through the same parent segment -- cheap to always climb every
+ * node fully to root rather than short-circuiting on "already wired," given the graph's confirmed
+ * real-world scale (low hundreds to low thousands of pages).
+ *
+ * Everything here -- the `byId` reuse lookup, the de-dupe key, the synthesized folder nodes
+ * (including the root) and the emitted edges -- is keyed on the composite `${locale}:${path}` id,
+ * not the bare path (OpenProject #1632): two locales sharing a folder path must climb to two
+ * distinct folder nodes and a locale-qualified root each, not merge into one shared tree. A
+ * synthetic folder node therefore carries its climbing node's `locale`, same as a real page node.
  */
 export function buildPathHierarchyEdges(nodes) {
-  const byPath = new Map(nodes.map((n) => [n.path, n]))
+  const byId = new Map(nodes.map((n) => [nodeId(n), n]))
   const synthesized = new Map()
   const edgeKeys = new Set()
   const edges = []
@@ -87,26 +107,29 @@ export function buildPathHierarchyEdges(nodes) {
     return idx === -1 ? '' : path.slice(0, idx)
   }
 
-  function ensureFolderNode(path) {
-    if (byPath.has(path) || synthesized.has(path)) {
+  function ensureFolderNode(locale, path) {
+    const id = `${locale}:${path}`
+    if (byId.has(id) || synthesized.has(id)) {
       return
     }
-    synthesized.set(path, {
+    synthesized.set(id, {
       path,
+      locale,
       title: path === '' ? '(root)' : path.split('/').at(-1),
       synthetic: true
     })
   }
 
   for (const node of nodes) {
+    const { locale } = node
     let current = node.path
     while (current !== '') {
       const parent = parentOf(current)
-      ensureFolderNode(parent)
-      const key = `${parent} ${current}`
+      ensureFolderNode(locale, parent)
+      const key = `${locale}:${parent} ${locale}:${current}`
       if (!edgeKeys.has(key)) {
         edgeKeys.add(key)
-        edges.push({ source: parent, target: current, type: 'path' })
+        edges.push({ source: `${locale}:${parent}`, target: `${locale}:${current}`, type: 'path' })
       }
       current = parent
     }

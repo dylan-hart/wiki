@@ -37,9 +37,11 @@ const NODES2 = [
   { path: 'docs/b', locale: 'fr', tags: ['bar'], folder: 'docs' },
   { path: 'docs/deep/c', locale: 'en', tags: [], folder: 'docs' }
 ]
+// Sources/targets are composite `${locale}:${path}` ids, matching what the graph API emits
+// (OpenProject #1626) and what `computeVisibleSubset` now keys visibility by (OpenProject #1632).
 const EDGES2 = [
-  { source: 'a', target: 'docs/b', type: 'link' },
-  { source: 'a', target: 'docs/deep/c', type: 'link' }
+  { source: 'en:a', target: 'fr:docs/b', type: 'link' },
+  { source: 'en:a', target: 'en:docs/deep/c', type: 'link' }
 ]
 
 describe('computeVisibleSubset (OpenProject #900)', () => {
@@ -134,64 +136,137 @@ describe('computeVisibleSubset (OpenProject #900)', () => {
     })
     expect(visibleEdges).toEqual(resolvedEdges)
   })
+
+  it('drops an edge whose target exists only in the other locale, even though a same-path node in the active locale survives the filter (OpenProject #1632)', () => {
+    const nodes = [
+      { path: 'a', locale: 'en', tags: [] },
+      { path: 'shared', locale: 'en', tags: [] },
+      { path: 'shared', locale: 'fr', tags: [] }
+    ]
+    // The edge's real target is the `fr` copy of 'shared' -- bare-path matching would have wrongly
+    // kept this edge once the `en` copy of 'shared' also passed the filter.
+    const edges = [{ source: 'en:a', target: 'fr:shared', type: 'link' }]
+
+    const { visibleNodes, visibleEdges } = computeVisibleSubset(nodes, edges, {
+      tags: [],
+      folderDepth: null,
+      locale: 'en'
+    })
+    expect(visibleNodes.map((n) => n.path)).toEqual(['a', 'shared'])
+    expect(visibleEdges).toEqual([])
+  })
 })
 
 describe('buildPathHierarchyEdges (OpenProject #998)', () => {
   it('climbs a nested path to a synthetic root, synthesizing every missing segment', () => {
-    const { syntheticNodes, edges } = buildPathHierarchyEdges([{ path: 'docs/child/page' }])
+    const { syntheticNodes, edges } = buildPathHierarchyEdges([
+      { path: 'docs/child/page', locale: 'en' }
+    ])
     expect(syntheticNodes.map((n) => n.path).sort()).toEqual(['', 'docs', 'docs/child'])
     expect(edges).toEqual([
-      { source: 'docs/child', target: 'docs/child/page', type: 'path' },
-      { source: 'docs', target: 'docs/child', type: 'path' },
-      { source: '', target: 'docs', type: 'path' }
+      { source: 'en:docs/child', target: 'en:docs/child/page', type: 'path' },
+      { source: 'en:docs', target: 'en:docs/child', type: 'path' },
+      { source: 'en:', target: 'en:docs', type: 'path' }
     ])
   })
 
   it('gives a root-level page a single edge straight to the synthetic root', () => {
-    const { syntheticNodes, edges } = buildPathHierarchyEdges([{ path: 'about' }])
-    expect(syntheticNodes).toEqual([{ path: '', title: '(root)', synthetic: true }])
-    expect(edges).toEqual([{ source: '', target: 'about', type: 'path' }])
+    const { syntheticNodes, edges } = buildPathHierarchyEdges([{ path: 'about', locale: 'en' }])
+    expect(syntheticNodes).toEqual([{ path: '', locale: 'en', title: '(root)', synthetic: true }])
+    expect(edges).toEqual([{ source: 'en:', target: 'en:about', type: 'path' }])
   })
 
   it('de-dupes the shared parent edge for sibling pages under the same folder', () => {
     const { syntheticNodes, edges } = buildPathHierarchyEdges([
-      { path: 'docs/a' },
-      { path: 'docs/b' }
+      { path: 'docs/a', locale: 'en' },
+      { path: 'docs/b', locale: 'en' }
     ])
     expect(syntheticNodes.map((n) => n.path).sort()).toEqual(['', 'docs'])
     expect(edges).toEqual([
-      { source: 'docs', target: 'docs/a', type: 'path' },
-      { source: '', target: 'docs', type: 'path' },
-      { source: 'docs', target: 'docs/b', type: 'path' }
+      { source: 'en:docs', target: 'en:docs/a', type: 'path' },
+      { source: 'en:', target: 'en:docs', type: 'path' },
+      { source: 'en:docs', target: 'en:docs/b', type: 'path' }
     ])
   })
 
   it('reuses a real page as its own folder node instead of synthesizing a duplicate', () => {
     const { syntheticNodes, edges } = buildPathHierarchyEdges([
-      { path: 'docs', title: 'Docs Index' },
-      { path: 'docs/child' }
+      { path: 'docs', title: 'Docs Index', locale: 'en' },
+      { path: 'docs/child', locale: 'en' }
     ])
-    expect(syntheticNodes).toEqual([{ path: '', title: '(root)', synthetic: true }])
+    expect(syntheticNodes).toEqual([{ path: '', locale: 'en', title: '(root)', synthetic: true }])
     expect(edges).toHaveLength(2)
     expect(edges).toEqual(
       expect.arrayContaining([
-        { source: 'docs', target: 'docs/child', type: 'path' },
-        { source: '', target: 'docs', type: 'path' }
+        { source: 'en:docs', target: 'en:docs/child', type: 'path' },
+        { source: 'en:', target: 'en:docs', type: 'path' }
       ])
     )
   })
 
   it('reuses a real home page (path "") as the root instead of synthesizing one', () => {
     const { syntheticNodes, edges } = buildPathHierarchyEdges([
-      { path: '', title: 'Home' },
-      { path: 'about' }
+      { path: '', title: 'Home', locale: 'en' },
+      { path: 'about', locale: 'en' }
     ])
     expect(syntheticNodes).toEqual([])
-    expect(edges).toEqual([{ source: '', target: 'about', type: 'path' }])
+    expect(edges).toEqual([{ source: 'en:', target: 'en:about', type: 'path' }])
   })
 
   it('produces nothing for an empty node set', () => {
     expect(buildPathHierarchyEdges([])).toEqual({ syntheticNodes: [], edges: [] })
+  })
+})
+
+describe('buildPathHierarchyEdges: locale-qualified hierarchy (OpenProject #1632)', () => {
+  it('builds a separate hierarchy per locale instead of merging same-path trees', () => {
+    const nodes = [
+      { path: 'docs/child', locale: 'en' },
+      { path: 'docs/child', locale: 'fr' }
+    ]
+    const { syntheticNodes, edges } = buildPathHierarchyEdges(nodes)
+
+    // One root and one 'docs' folder node per locale -- not one shared pair merging both trees.
+    expect(syntheticNodes).toHaveLength(4)
+    expect(syntheticNodes).toEqual(
+      expect.arrayContaining([
+        { path: '', locale: 'en', title: '(root)', synthetic: true },
+        { path: 'docs', locale: 'en', title: 'docs', synthetic: true },
+        { path: '', locale: 'fr', title: '(root)', synthetic: true },
+        { path: 'docs', locale: 'fr', title: 'docs', synthetic: true }
+      ])
+    )
+
+    expect(edges).toHaveLength(4)
+    expect(edges).toEqual(
+      expect.arrayContaining([
+        { source: 'en:docs', target: 'en:docs/child', type: 'path' },
+        { source: 'en:', target: 'en:docs', type: 'path' },
+        { source: 'fr:docs', target: 'fr:docs/child', type: 'path' },
+        { source: 'fr:', target: 'fr:docs', type: 'path' }
+      ])
+    )
+  })
+
+  it('a real page in one locale does not suppress synthesizing the same folder path in another locale', () => {
+    // A real page sits at path 'docs' in `en`; `fr`'s 'docs' has no real page at all -- the two
+    // locales must not share one `byId` lookup that decides whether to synthesize it.
+    const nodes = [
+      { path: 'docs', title: 'Docs Index', locale: 'en' },
+      { path: 'docs/child', locale: 'en' },
+      { path: 'docs/child', locale: 'fr' }
+    ]
+    const { syntheticNodes } = buildPathHierarchyEdges(nodes)
+
+    expect(syntheticNodes).toEqual(
+      expect.arrayContaining([
+        { path: '', locale: 'en', title: '(root)', synthetic: true },
+        { path: '', locale: 'fr', title: '(root)', synthetic: true },
+        { path: 'docs', locale: 'fr', title: 'docs', synthetic: true }
+      ])
+    )
+    // 'docs' is NOT synthesized for `en` -- the real Docs Index page is reused instead.
+    expect(syntheticNodes.some((n) => n.locale === 'en' && n.path === 'docs')).toBe(false)
   })
 })
 
@@ -247,21 +322,21 @@ describe('buildTagHubEdges (OpenProject #999)', () => {
 describe('buildPathHierarchyEdges: combined scenario (OpenProject #1002)', () => {
   it('produces exactly one synthetic node per distinct missing folder and one edge per parent-child pair, across a mixed real/synthetic tree', () => {
     const nodes = [
-      { path: 'docs', title: 'Docs Index' }, // real page reused as its own folder node
-      { path: 'docs/guides/intro' },
-      { path: 'docs/guides/advanced' },
-      { path: 'about' }
+      { path: 'docs', title: 'Docs Index', locale: 'en' }, // real page reused as its own folder node
+      { path: 'docs/guides/intro', locale: 'en' },
+      { path: 'docs/guides/advanced', locale: 'en' },
+      { path: 'about', locale: 'en' }
     ]
     const { syntheticNodes, edges } = buildPathHierarchyEdges(nodes)
 
     expect(syntheticNodes.map((n) => n.path).sort()).toEqual(['', 'docs/guides'])
     expect(edges).toEqual(
       expect.arrayContaining([
-        { source: 'docs/guides', target: 'docs/guides/intro', type: 'path' },
-        { source: 'docs', target: 'docs/guides', type: 'path' },
-        { source: 'docs/guides', target: 'docs/guides/advanced', type: 'path' },
-        { source: '', target: 'docs', type: 'path' },
-        { source: '', target: 'about', type: 'path' }
+        { source: 'en:docs/guides', target: 'en:docs/guides/intro', type: 'path' },
+        { source: 'en:docs', target: 'en:docs/guides', type: 'path' },
+        { source: 'en:docs/guides', target: 'en:docs/guides/advanced', type: 'path' },
+        { source: 'en:', target: 'en:docs', type: 'path' },
+        { source: 'en:', target: 'en:about', type: 'path' }
       ])
     )
     // -> One edge per distinct parent-child pair, no more: 4 real pages climbing a shared tree
