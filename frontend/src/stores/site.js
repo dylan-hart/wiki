@@ -197,7 +197,8 @@ export const useSiteStore = defineStore('site', {
     docsBase: 'https://docs.js.wiki',
     nav: {
       currentId: null,
-      items: []
+      items: [],
+      inFlightId: null
     }
   }),
   getters: {
@@ -365,8 +366,16 @@ export const useSiteStore = defineStore('site', {
       if (!id || (!forceRefresh && id === this.nav.currentId)) {
         return
       }
+      // -> Set synchronously, before the request goes out, so a second overlapping call can mark
+      //    this one stale the instant it starts -- not only once it too has a response in hand.
+      this.nav.inFlightId = id
       try {
         const items = await API_CLIENT.get(`sites/${this.id}/navigation/${id}`).json()
+        // -> A newer call may have started (and even finished) while this one was in flight; if so,
+        //    its id is no longer the one this response is for, so discard rather than clobber it.
+        if (this.nav.inFlightId !== id) {
+          return
+        }
         this.$patch({
           nav: {
             currentId: id,
@@ -374,6 +383,9 @@ export const useSiteStore = defineStore('site', {
           }
         })
       } catch (err) {
+        if (this.nav.inFlightId !== id) {
+          return
+        }
         // -> An empty sidebar is the right outcome for a menu nobody has set up, rather than an error
         //    in front of a reader who cannot act on it
         console.warn(err.message)
