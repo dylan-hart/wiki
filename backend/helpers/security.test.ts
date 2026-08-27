@@ -28,10 +28,49 @@ describe('corsOrigin', () => {
     )
   })
 
+  test('HOSTNAMES normalizes a bare hostname entry into a full https origin', () => {
+    assert.deepEqual(corsOrigin({ corsMode: 'HOSTNAMES', corsConfig: 'wiki.example.com' }), [
+      'https://wiki.example.com'
+    ])
+  })
+
+  test('HOSTNAMES leaves an entry that already names a scheme untouched', () => {
+    assert.deepEqual(
+      corsOrigin({
+        corsMode: 'HOSTNAMES',
+        corsConfig: 'http://wiki.example.com, wiki.other.example'
+      }),
+      ['http://wiki.example.com', 'https://wiki.other.example']
+    )
+  })
+
   test('REGEX compiles the configured pattern', () => {
     const result = corsOrigin({ corsMode: 'REGEX', corsConfig: '^https://.*\\.example$' })
     assert.ok(result instanceof RegExp)
     assert.equal((result as RegExp).test('https://foo.example'), true)
+  })
+
+  test('REGEX anchors an unanchored operator pattern so it cannot match as a substring', () => {
+    const result = corsOrigin({
+      corsMode: 'REGEX',
+      corsConfig: 'https://wiki\\.example\\.com'
+    }) as RegExp
+    assert.ok(result instanceof RegExp)
+    assert.equal(result.test('https://wiki.example.com'), true)
+    assert.equal(result.test('https://wiki.example.com.attacker.test'), false)
+    assert.equal(result.test('https://evil.test/?x=wiki.example.com'), false)
+  })
+
+  test('REGEX leaves an already-anchored operator pattern as written', () => {
+    const result = corsOrigin({
+      corsMode: 'REGEX',
+      corsConfig: '^https://.*\\.example$'
+    }) as RegExp
+    // -> Not double-wrapped: a leading `^`/trailing `$` the operator already wrote is stripped
+    //    before re-anchoring, so the effective pattern is unchanged rather than `^^...$$`.
+    assert.equal(result.source, new RegExp('^https://.*\\.example$').source)
+    assert.equal(result.test('https://wiki.example'), true)
+    assert.equal(result.test('https://wiki.example.attacker.test'), false)
   })
 
   test('REGEX falls back to same-origin only on an invalid pattern', () => {
