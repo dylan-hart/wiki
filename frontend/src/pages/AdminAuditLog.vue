@@ -163,12 +163,15 @@
           <div class="flex items-end gap-3">
             <div style="width: 160px">
               <w-input
+                ref="retentionInput"
                 outlined
                 dense
                 type="number"
                 min="1"
                 max="3650"
                 v-model.number="state.retentionDays"
+                :rules="retentionDaysRules"
+                lazy-rules="ondemand"
                 :suffix="t('admin.audit.retentionDaysSuffix')" />
             </div>
             <w-btn
@@ -293,6 +296,18 @@ const eventOptions = ref([
 
 const actorOptions = ref([{ label: t('admin.audit.allActors'), value: null }])
 
+const retentionInput = ref(null)
+
+/**
+ * `min`/`max` on the native control stop the spinner and the slider, not a pasted value -- typing or
+ * pasting "0" or "9999" bypasses both silently. Mirrors `ApprovalRuleDialog.vue`'s
+ * `minApprovalsValidation` convention.
+ */
+const retentionDaysRules = [
+  (val) =>
+    (Number.isInteger(val) && val >= 1 && val <= 3650) || t('admin.audit.retentionDaysInvalid')
+]
+
 // METHODS
 
 function resetFilters() {
@@ -389,6 +404,9 @@ async function loadRetention() {
 }
 
 async function saveRetention() {
+  if (retentionInput.value && !retentionInput.value.validate()) {
+    return
+  }
   state.savingRetention = true
   try {
     const resp = await API_CLIENT.put('audit-log/settings', {
