@@ -244,6 +244,28 @@ describe('LiveData.resolve', () => {
     )
   })
 
+  test('throws Bad Request for a bare "$" jsonPath', async () => {
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    await assert.rejects(
+      liveData.resolve('site-1', { url: 'https://example.com/metrics', jsonPath: '$' }),
+      (err: any) => {
+        assert.equal(err.statusCode, 400)
+        return true
+      }
+    )
+    assert.equal(fetchMock.mock.calls.length, 0)
+  })
+
+  test('throws Bad Request for a whitespace-padded "$" jsonPath', async () => {
+    await assert.rejects(
+      liveData.resolve('site-1', { url: 'https://example.com/metrics', jsonPath: '  $  ' }),
+      (err: any) => {
+        assert.equal(err.statusCode, 400)
+        return true
+      }
+    )
+  })
+
   test('throws Bad Request for a JSONPath that matches nothing', async () => {
     mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
     await assert.rejects(

@@ -97,9 +97,10 @@ function clampRefreshSeconds(seconds: number | undefined): number {
  */
 class LiveData {
   /**
-   * @throws {CustomError} `Bad Request` (400) for a malformed URL/JSONPath, an unmatched JSONPath, a
-   *   URL resolving to a private/loopback/link-local address, or a URL outside a given credential's
-   *   allowed domains, `Not Found` (404) for a `credentialId` with no matching row on this site,
+   * @throws {CustomError} `Bad Request` (400) for a malformed URL/JSONPath, a bare `$` JSONPath, an
+   *   unmatched JSONPath, a URL resolving to a private/loopback/link-local address, or a URL outside
+   *   a given credential's allowed domains, `Not Found` (404) for a `credentialId` with no matching
+   *   row on this site,
    *   `Too Many Requests` (429) once a credential has exceeded its fresh-fetch rate limit,
    *   `Bad Gateway` (502) for a network failure, a non-2xx response, or a response body that isn't
    *   JSON.
@@ -113,6 +114,18 @@ class LiveData {
     }
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
       throw new CustomError('Bad Request', 'url must be an http(s) address.', 400)
+    }
+    if (request.jsonPath.trim() === '$') {
+      // -> `extractJsonPathValue`'s `wrap: true` query returns `results[0]` of whatever a `$` query
+      //    matches, which for the root selector is the entire parsed upstream document -- and `$` is
+      //    the block's own default for this prop (`blocks/block-live-data/component.js`). Refusing it
+      //    here is what stops a host-level fetch allowance from doubling as a whole-document read
+      //    primitive: an author must name the one field they actually want.
+      throw new CustomError(
+        'Bad Request',
+        'jsonPath must not be a bare "$", which returns the entire response. Name a specific field, e.g. "$.data.value".',
+        400
+      )
     }
 
     const refreshSeconds = clampRefreshSeconds(request.refreshInterval)

@@ -121,6 +121,26 @@ describe('POST /sites/:siteId/live-data/resolve', () => {
     assert.equal(res.statusCode, 400)
   })
 
+  test('rejects an over-long url with a 400, never reaching the model', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/live-data/resolve`,
+      payload: { url: `https://example.com/${'a'.repeat(2048)}`, jsonPath: '$.v' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(resolveCalls.length, 0)
+  })
+
+  test('rejects an over-long jsonPath with a 400, never reaching the model', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/live-data/resolve`,
+      payload: { url: 'https://example.com', jsonPath: `$.${'a'.repeat(512)}` }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(resolveCalls.length, 0)
+  })
+
   test("propagates the model's error status (e.g. a 502 from an unreachable endpoint)", async () => {
     ;(WIKI.models.liveData.resolve as any) = async () => {
       const err: any = new Error('Could not reach the endpoint: fetch failed')

@@ -35,9 +35,14 @@ async function routes(app: FastifyInstance) {
           required: ['url', 'jsonPath'],
           properties: {
             credentialId: { type: 'string', format: 'uuid', nullable: true },
-            url: { type: 'string', description: 'The REST/JSON endpoint to poll.' },
+            url: {
+              type: 'string',
+              maxLength: 2048,
+              description: 'The REST/JSON endpoint to poll.'
+            },
             jsonPath: {
               type: 'string',
+              maxLength: 512,
               description: 'JSONPath expression naming the one field to show.'
             },
             refreshInterval: {
