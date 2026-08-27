@@ -8,14 +8,15 @@ import AdminTheme from './AdminTheme.vue'
 import BlueprintIcon from '@/components/BlueprintIcon.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
-import { getAccessibleColor } from '@/helpers/accessibility'
+import { contrastRatio, getAccessibleColor } from '@/helpers/accessibility'
 
 /**
  * Task 754: `getAccessibleColor` now has real substitutes for every themeable color name, and this
  * page is where they should actually show up -- a live preview swatch per color under the admin's
  * own `userStore.cvd` setting, plus a WCAG AA contrast warning for the pairings that matter
  * (`colorHeader`/`colorSidebar` against the white chrome text, `colorPrimary` against the page
- * background).
+ * background, and -- since task 1678 -- `colorSecondary`/`colorAccent` against that same white
+ * chrome text, matching the fg/bg pairing `WBtn.vue` uses for every solid button in the app).
  */
 async function mountPage(theme, cvd = 'none') {
   setActivePinia(createPinia())
@@ -41,7 +42,18 @@ async function mountPage(theme, cvd = 'none') {
   const i18n = createI18n({
     legacy: false,
     locale: 'en',
-    messages: { en: {} },
+    // -> Real message for the one key a test needs to read back (the computed ratio); everything
+    // else stays untranslated (`missingWarn`/`fallbackWarn` off), matching upstream `en.json`.
+    messages: {
+      en: {
+        admin: {
+          theme: {
+            contrastWarning:
+              'Contrast ratio is {ratio}, below the WCAG AA minimum of 4.5:1 for this color against the text drawn over it.'
+          }
+        }
+      }
+    },
     missingWarn: false,
     fallbackWarn: false
   })
@@ -105,16 +117,18 @@ describe('AdminTheme — WCAG AA contrast warning', () => {
     expect(wrapper.findAll('.text-negative, [color="negative"]').length).toBeGreaterThan(0)
   })
 
-  it('does not warn on the default (black) header, which has plenty of contrast', async () => {
+  it('does not warn when every color has plenty of contrast against the text drawn over it', async () => {
     const wrapper = await mountPage({
       colorPrimary: '#1976D2',
-      colorSecondary: '#02C39A',
-      colorAccent: '#FF9800',
+      // -> Dark enough to clear WCAG AA against the white chrome text -- unlike the app's own
+      // `resetColors()` defaults (`#02C39A` / `#FF9800`), which is exactly the pair task 1678 is
+      // about: see the "checks secondary and accent" describe block below.
+      colorSecondary: '#00695C',
+      colorAccent: '#8a4b00',
       colorHeader: '#000000',
       colorSidebar: '#1976D2'
     })
 
-    // -> The default primary/header/sidebar all pass AA, so no warning icon should render at all.
     const warningIcons = wrapper.findAll('[data-icon="la:exclamation-triangle"]')
     expect(warningIcons.length).toBe(0)
   })
@@ -122,13 +136,49 @@ describe('AdminTheme — WCAG AA contrast warning', () => {
   it('warns on colorPrimary when it is too close to the (light) page background', async () => {
     const wrapper = await mountPage({
       colorPrimary: '#fefefe',
-      colorSecondary: '#02C39A',
-      colorAccent: '#FF9800',
+      colorSecondary: '#00695C',
+      colorAccent: '#8a4b00',
       colorHeader: '#000000',
       colorSidebar: '#1976D2'
     })
 
     const warningIcons = wrapper.findAll('[data-icon="la:exclamation-triangle"]')
     expect(warningIcons.length).toBeGreaterThan(0)
+  })
+})
+
+describe('AdminTheme — WCAG AA contrast warning checks secondary and accent (task 1678)', () => {
+  it('raises the warning for both secondary and accent, paired against white the same way WBtn renders solid buttons', async () => {
+    // -> `resetColors()`'s own defaults: previously exempt from the check entirely (`contrastPairFor`
+    // returned null for these two), so the theme screen reported a clean bill of health for the
+    // colors that actually fail worst.
+    const wrapper = await mountPage({
+      colorPrimary: '#1976D2',
+      colorSecondary: '#02c39a',
+      colorAccent: '#FF9800',
+      colorHeader: '#000000',
+      colorSidebar: '#1976D2'
+    })
+
+    // -> Only secondary and accent fail here -- primary/header/sidebar are all the passing defaults.
+    const warningIcons = wrapper.findAll('[data-icon="la:exclamation-triangle"]')
+    expect(warningIcons.length).toBe(2)
+
+    const expectedSecondaryRatio = `${contrastRatio('#ffffff', '#02c39a').toFixed(1)}:1`
+    const expectedAccentRatio = `${contrastRatio('#ffffff', '#FF9800').toFixed(1)}:1`
+    expect(expectedSecondaryRatio).not.toBe(expectedAccentRatio)
+
+    // -> Trigger each warning's tooltip (focusin bubbles to the shared `.w-item` trigger the
+    // `WTooltip` climbs to) and read the computed ratio it renders back out of the teleported body.
+    for (const [icon, expectedRatio] of [
+      [warningIcons[0], expectedSecondaryRatio],
+      [warningIcons[1], expectedAccentRatio]
+    ]) {
+      icon.element.closest('[tabindex="0"]').dispatchEvent(new Event('focusin', { bubbles: true }))
+      await new Promise((resolve) => setTimeout(resolve, 260))
+      await flushPromises()
+      expect(document.body.textContent).toContain(expectedRatio)
+      icon.element.closest('[tabindex="0"]').dispatchEvent(new Event('focusout', { bubbles: true }))
+    }
   })
 })
