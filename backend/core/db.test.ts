@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import Emittery from 'emittery'
+import { Pool } from 'pg'
 
 import dbManager from './db.ts'
 import configSvc from './config.ts'
@@ -247,5 +248,110 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.equal(groupsReloadCacheMock.mock.calls.length, 1)
     assert.equal(sitesReloadCacheMock.mock.calls.length, 1)
     assert.equal(approvalsReloadCacheMock.mock.calls.length, 1)
+  })
+})
+
+/**
+ * OpenProject #2049: `init()` builds `this.pool = new Pool({...})` and, until now, never attached an
+ * `error` listener to it. node-postgres emits `error` on the pool whenever a checked-in, idle
+ * client's connection fails (a Postgres restart, a failover, an idle timeout) -- `Pool extends
+ * EventEmitter`, so an unhandled `error` is re-thrown as an uncaught exception and takes the whole
+ * process down, exactly the failure mode `helpers/pubsub.ts`'s `connectListener` already guards
+ * against for the dedicated LISTEN clients. This is the same regression-test shape
+ * `helpers/pubsub.test.ts` uses for that listener path, aimed at the main pool instead.
+ *
+ * `Pool.prototype.query` is mocked at the `pg` level rather than reaching for a real Postgres
+ * connection: `init()`'s own query traffic (`connect()`'s `SELECT 1 + 1;`, then `SHOW
+ * server_version;`) both go through `drizzle-orm/node-postgres`'s session, which calls
+ * `this.client.query(...)` directly on the pool handed to `createDb()` -- so intercepting
+ * `Pool.prototype.query` is enough to run the real `init()` end to end with no `DATABASE_URL` and no
+ * network I/O. `workerMode: true` additionally skips `syncSchemas()` (real migrations), which is the
+ * only other DB-touching step `init()` takes.
+ */
+describe('init() attaches an error listener to the main pool (OpenProject #2049)', () => {
+  let previousWiki: any
+  let previousDatabaseUrl: string | undefined
+  let queryMock: ReturnType<typeof mock.method>
+  let loggerErrorMock: any
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    previousDatabaseUrl = process.env.DATABASE_URL
+    delete process.env.DATABASE_URL
+
+    queryMock = mock.method(Pool.prototype, 'query', async function (queryConfig: any) {
+      const text = typeof queryConfig === 'string' ? queryConfig : queryConfig?.text
+      if (typeof text === 'string' && text.includes('SHOW server_version')) {
+        return { rows: [{ server_version: '16.4' }] }
+      }
+      return { rows: [] }
+    })
+  })
+
+  after(() => {
+    queryMock.mock.restore()
+    ;(globalThis as any).WIKI = previousWiki
+    if (previousDatabaseUrl === undefined) {
+      delete process.env.DATABASE_URL
+    } else {
+      process.env.DATABASE_URL = previousDatabaseUrl
+    }
+  })
+
+  beforeEach(() => {
+    loggerErrorMock = mock.fn(() => {})
+    ;(globalThis as any).WIKI = {
+      INSTANCE_ID: 'instance-a',
+      logger: { warn: () => {}, info: () => {}, debug: () => {}, error: loggerErrorMock },
+      config: {
+        db: {
+          host: '127.0.0.1',
+          user: 'wiki',
+          pass: 'wiki',
+          db: 'wiki',
+          port: 5432,
+          schema: 'public',
+          ssl: false
+        },
+        pool: {}
+      }
+    }
+    dbManager.pool = null
+    dbManager.pubsubClient = null
+    dbManager.listenerHandle = null
+    dbManager.connectAttempts = 0
+  })
+
+  afterEach(async () => {
+    if (dbManager.pool) {
+      await dbManager.pool.end()
+      dbManager.pool = null
+    }
+  })
+
+  test('the constructed pool has an error listener registered', async () => {
+    await dbManager.init(true)
+
+    assert.ok(dbManager.pool, 'init() should have set dbManager.pool')
+    assert.ok(
+      dbManager.pool!.listenerCount('error') >= 1,
+      'the pool should have at least one error listener attached'
+    )
+  })
+
+  test('emitting error on the pool logs through WIKI.logger.error rather than throwing', async () => {
+    await dbManager.init(true)
+
+    const err: any = new Error('Connection terminated unexpectedly')
+    err.code = 'ECONNRESET'
+
+    assert.doesNotThrow(() => {
+      dbManager.pool!.emit('error', err)
+    })
+
+    assert.equal(loggerErrorMock.mock.calls.length, 1)
+    const [message] = loggerErrorMock.mock.calls[0].arguments
+    assert.match(message, /ECONNRESET/)
+    assert.match(message, /Connection terminated unexpectedly/)
   })
 })
