@@ -40,6 +40,26 @@ function findApplyButton(wrapper) {
   save made here untouched, or dragging the divider and later changing the font size in this overlay
   would silently erase the dragged width.
 */
+/*
+  `WInput` used to leave `min`/`max`/`step` off its inner control entirely (they fell through onto
+  the outer wrapper `<div>` instead), so this field's advertised 10-32 range was never actually
+  enforced by the browser. Asserting the real rendered `<input>` carries them is what proves that
+  regression stays fixed here, at the one call site the range is meant to protect.
+*/
+describe('EditorMarkdownUserSettingsOverlay font size range', () => {
+  it('renders the 10-32 min/max on the actual font size <input>, not just the outer wrapper', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ previewShown: true, fontSize: 16, previewWidth: null })
+    })
+    const { wrapper } = mountOverlay()
+    await flushPromises()
+
+    const fontSizeInput = wrapper.find('input[type="number"]')
+    expect(fontSizeInput.attributes('min')).toBe('10')
+    expect(fontSizeInput.attributes('max')).toBe('32')
+  })
+})
+
 describe('EditorMarkdownUserSettingsOverlay preview width round-trip', () => {
   it('carries a saved previewWidth through save() even though nothing here edits it', async () => {
     API_CLIENT.get.mockReturnValueOnce({
