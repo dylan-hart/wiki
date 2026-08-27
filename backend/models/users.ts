@@ -961,12 +961,19 @@ class Users {
         : []
     const wantedIds = wanted.map((g: any) => g.id)
 
-    await WIKI.db.delete(userGroups).where(eq(userGroups.userId, userId))
-    if (wantedIds.length > 0) {
-      await WIKI.db
-        .insert(userGroups)
-        .values(wantedIds.map((groupId: string) => ({ userId, groupId })))
-    }
+    // -> Delete-then-insert has to commit or fail as one unit: split across two statements, a
+    //    concurrent single-membership grant landing in between conflicts with the multi-row insert
+    //    (the composite primary key rejects it), and any other mid-window failure (an FK violation
+    //    from a group deleted in the window, a dropped connection) would otherwise leave the user in
+    //    no groups at all rather than back in the ones they started with.
+    await WIKI.db.transaction(async (tx) => {
+      await tx.delete(userGroups).where(eq(userGroups.userId, userId))
+      if (wantedIds.length > 0) {
+        await tx
+          .insert(userGroups)
+          .values(wantedIds.map((groupId: string) => ({ userId, groupId })))
+      }
+    })
   }
 
   /**
