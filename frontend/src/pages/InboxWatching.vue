@@ -36,7 +36,7 @@
                 siteStore.localeRouting
               )
             }}</w-item-label>
-            <w-item-label caption>{{ humanizeDate(notification.createdAt) }}</w-item-label>
+            <w-item-label caption>{{ humanizeDate(t, notification.createdAt) }}</w-item-label>
           </w-item-section>
           <w-item-section side>
             <!-- `@click.stop`, so marking read does not also follow the row to the page. -->
@@ -90,9 +90,9 @@
               localizedPagePath(page.path, page.locale, siteStore.localeRouting)
             }}</w-item-label>
             <w-item-label caption>
-              {{ t('inbox.watchingUpdated', { date: humanizeDate(page.updatedAt) }) }}
+              {{ t('inbox.watchingUpdated', { date: humanizeDate(t, page.updatedAt) }) }}
               &middot;
-              {{ t('inbox.watchingSince', { date: humanizeDate(page.watchedAt) }) }}
+              {{ t('inbox.watchingSince', { date: humanizeDate(t, page.watchedAt) }) }}
             </w-item-label>
           </w-item-section>
           <w-item-section side>
@@ -131,6 +131,7 @@ import { notify } from '@/composables/notify'
 import { DEFAULT_PAGE_ICON, usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
 // COMPOSABLES
@@ -175,13 +176,6 @@ onMounted(load)
 onMounted(loadNotifications)
 
 // METHODS
-
-function humanizeDate(val) {
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  })
-}
 
 /** The one-line summary of a notification, phrased by its action — see `inbox.notificationAction*`. */
 function notificationLine(notification) {

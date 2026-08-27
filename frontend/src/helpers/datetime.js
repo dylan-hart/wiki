@@ -1,16 +1,19 @@
 /**
- * Date and duration rendering for the admin tables, in the reader's own locale.
+ * Date and duration rendering shared across the app, in the reader's own locale.
  *
- * Shared because three screens had grown their own copy of the same walk down a units table — one of
- * them under a different name — and the copies had already started to drift. What stays local to a
- * screen is ABSOLUTE formatting: the scheduler spells out seconds because a job's timing is the point,
- * where the instances table does not, and anything a user chose a pattern for goes through
- * `userStore.formatDate()` instead.
+ * Shared because several screens had grown their own copy of the same walk down a units table -- one
+ * of them under a different name -- and the copies had already started to drift. What stays local to a
+ * screen is ABSOLUTE formatting where the precision itself is the point (the scheduler and the webhook
+ * history dialog spell out seconds, where most tables don't) -- everything else goes through
+ * `humanizeDate` below, which honours the reader's own timezone/date/time preferences rather than the
+ * browser's system zone.
  *
  * `Intl` rather than a formatting library: the browser already knows how the reader's locale words
  * "3 minutes ago" and "1h 4m 32s", which is what luxon's `toRelative()` and `Duration.toHuman()` were
  * here for.
  */
+
+import { useUserStore } from '@/stores/user'
 
 /*
   Largest first, so the first unit the difference clears is the one it reads best in. `week` is
@@ -105,4 +108,21 @@ export function humanizeIsoDuration(value) {
     }).format(dur[unit])
   )
   return parts.length > 0 ? isoDurationListFormat.format(parts) : '0 seconds'
+}
+
+/**
+ * A moment as this reader asked to see it -- their stored date pattern, 12h/24h choice and timezone --
+ * rather than the browser's own system zone and locale-default format. This is the shared replacement
+ * for the screens that used to hand-roll `toLocaleString(undefined, { dateStyle: 'medium', timeStyle:
+ * 'short' })` (or an equivalent walk over `Temporal` parts) themselves.
+ *
+ * @param {Function} t The i18n translate function -- date/time word order is locale-dependent.
+ * @param {string|Date|Temporal.Instant|null} value A moment, as the API returns it.
+ * @returns {string} e.g. `24/08/2026 at 14:32`, or `---` for nothing at all.
+ */
+export function humanizeDate(t, value) {
+  if (!value) {
+    return '---'
+  }
+  return useUserStore().formatDateTime(t, value)
 }

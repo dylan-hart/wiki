@@ -40,7 +40,7 @@
                   <template #author>
                     <strong>{{ authorLabel(submission) }}</strong>
                   </template>
-                  <template #date>{{ humanizeDate(submission.createdAt) }}</template>
+                  <template #date>{{ humanizeDate(t, submission.createdAt) }}</template>
                 </i18n-t>
               </w-item-label>
             </w-item-section>
@@ -101,7 +101,7 @@
               <template #author>
                 <strong>{{ state.selected.author.name || t('inbox.reviewUnknownAuthor') }}</strong>
               </template>
-              <template #date>{{ humanizeDate(state.selected.createdAt) }}</template>
+              <template #date>{{ humanizeDate(t, state.selected.createdAt) }}</template>
             </i18n-t>
             <template v-if="state.selected.author.email">
               &middot; {{ state.selected.author.email }}
@@ -180,6 +180,7 @@ import { confirm } from '@/composables/dialog'
 import { useEditorStore } from '@/stores/editor'
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 
 // COMPOSABLES
 
@@ -249,13 +250,6 @@ watch(
 )
 
 // METHODS
-
-function humanizeDate(val) {
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  })
-}
 
 async function load() {
   state.loading++

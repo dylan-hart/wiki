@@ -1,5 +1,32 @@
-import { describe, expect, it } from 'vitest'
-import { humanizeDuration, humanizeIsoDuration, relativeDate } from './datetime.js'
+import { createPinia, setActivePinia } from 'pinia'
+import { beforeEach, describe, expect, it } from 'vitest'
+
+import { useUserStore } from '@/stores/user'
+
+import { humanizeDate, humanizeDuration, humanizeIsoDuration, relativeDate } from './datetime.js'
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+})
+
+// -> Matches `common.datetime`'s `"{date} at {time}"` closely enough to prove the word-order
+//    argument is actually threaded through, without pulling in the full i18n setup for one string.
+const t = (key, params) => `${params.date} at ${params.time}`
+
+describe('humanizeDate', () => {
+  it('returns the placeholder for a null or empty value', () => {
+    expect(humanizeDate(t, null)).toBe('---')
+    expect(humanizeDate(t, '')).toBe('---')
+  })
+
+  it('renders in the profile-stored timezone and date pattern, not the system zone', () => {
+    const userStore = useUserStore()
+    userStore.dateFormat = 'DD/MM/YYYY'
+    userStore.timezone = 'UTC'
+
+    expect(humanizeDate(t, '2026-03-04T12:00:00Z')).toBe('04/03/2026 at 12:00 PM')
+  })
+})
 
 describe('humanizeIsoDuration', () => {
   it('renders a single-unit ISO-8601 duration in words', () => {
