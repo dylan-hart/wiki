@@ -421,6 +421,24 @@ html.theme-transition-suppress *::after {
   }
 
   /*
+    Every dialog's panel, clamped to the viewport regardless of what its card asks for.
+
+    `WDialog`'s own `maxWidth` prop is opt-in (most callers never pass it), and a card's own
+    `min-width` -- several go past 550px, one as high as 850px -- otherwise wins outright on a
+    phone-width screen, running the panel off both edges. `calc(100vw - 2rem)` matches the
+    viewport's own `p-4` gutter (1rem each side), so the clamp lines up with the padding the
+    backdrop already reserves rather than fighting it.
+
+    A component class rather than a `WDialog.vue` `<style>` rule, for the same reason `.w-card`
+    lives here: every one of the 19 callers sets its `min-width` as an inline style on the panel's
+    own children, which -- same element, same specificity tier -- would otherwise be free to beat
+    a scoped rule depending on source order. A utility class wins here by @layer order alone.
+  */
+  .w-dialog-panel {
+    max-width: calc(100vw - 2rem);
+  }
+
+  /*
     How an image in a `WAvatar` is cropped to the avatar's shape: by taking its radius and filling
     the box, rather than by the avatar clipping its overflow. Same approach as the avatar this
     replaces, and the reason is the same -- a clipping avatar would also cut off a floating badge,

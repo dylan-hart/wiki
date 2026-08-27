@@ -101,11 +101,19 @@ const TRANSITIONS = {
   `p-3` on the right-hand viewport is what insets the side panel from the window edges instead of
   butting it against them, which is also what lets its corners be rounded: a radius against the very
   edge of the window reads as a rendering fault rather than a shape.
+
+  The standard viewport centers with `justify-center-safe`, not plain `justify-center`: a plain
+  `center` on a panel wider than the viewport (a card's inline `min-width` past the
+  `.w-dialog-panel` clamp's own floor) centers the OVERFLOW too, pushing the panel's start edge
+  off-screen in both directions with no way to scroll back to it. `-safe` falls back to
+  start-alignment exactly when the content would overflow, so the start edge stays put at the
+  viewport edge and reachable through the `overflow-auto` above, while a panel that fits still
+  centers as before.
 */
 const VIEWPORTS = {
   right: 'items-stretch justify-end p-3',
   bottom: 'items-end justify-center',
-  standard: 'items-center justify-center p-4'
+  standard: 'items-center justify-center-safe p-4'
 }
 
 const transitionName = computed(() => TRANSITIONS[props.position] ?? TRANSITIONS.standard)
