@@ -68,6 +68,33 @@ describe('WInput', () => {
     })
   })
 
+  describe('min/max/step', () => {
+    it('forwards min, max and step to the inner input, not the outer wrapper', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: 10, type: 'number', min: 10, max: 32, step: 2 }
+      })
+
+      const input = wrapper.find('input')
+      expect(input.attributes('min')).toBe('10')
+      expect(input.attributes('max')).toBe('32')
+      expect(input.attributes('step')).toBe('2')
+
+      const outerDiv = wrapper.find('div.w-input')
+      expect(outerDiv.attributes('min')).toBeUndefined()
+      expect(outerDiv.attributes('max')).toBeUndefined()
+      expect(outerDiv.attributes('step')).toBeUndefined()
+    })
+
+    it('leaves min/max/step off the input entirely when unset', () => {
+      const wrapper = mount(WInput, { props: { modelValue: '' } })
+
+      const input = wrapper.find('input')
+      expect(input.attributes('min')).toBeUndefined()
+      expect(input.attributes('max')).toBeUndefined()
+      expect(input.attributes('step')).toBeUndefined()
+    })
+  })
+
   describe('required', () => {
     it('marks aria-required and shows an asterisk beside the label', () => {
       const wrapper = mount(WInput, { props: { modelValue: '', label: 'Name', required: true } })

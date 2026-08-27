@@ -81,6 +81,9 @@
         :disabled="disable || disabled"
         :autocomplete="autocomplete"
         :rows="type === 'textarea' ? rows : undefined"
+        :min="min"
+        :max="max"
+        :step="step"
         :aria-invalid="hasError || undefined"
         :aria-required="required || undefined"
         :aria-describedby="describedBy"
@@ -248,6 +251,21 @@ const props = defineProps({
   rows: {
     type: [String, Number],
     default: 3
+  },
+  /** Native `min` attribute, e.g. for `type="number"`. */
+  min: {
+    type: [String, Number],
+    default: undefined
+  },
+  /** Native `max` attribute, e.g. for `type="number"`. */
+  max: {
+    type: [String, Number],
+    default: undefined
+  },
+  /** Native `step` attribute, e.g. for `type="number"`. */
+  step: {
+    type: [String, Number],
+    default: undefined
   },
   /** Monospaced content, e.g. code or keys. */
   monospaced: {
