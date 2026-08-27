@@ -4,9 +4,9 @@
       <w-toolbar style="height: 64px">
         <w-btn dense flat to="/">
           <w-avatar v-if="siteStore.logoText" size="34px" square>
-            <img :src="`/_site/current/logo`" />
+            <img :src="`/_site/current/logo`" :alt="siteStore.title" />
           </w-avatar>
-          <img v-else :src="`/_site/current/logo`" style="height: 34px" />
+          <img v-else :src="`/_site/current/logo`" style="height: 34px" :alt="siteStore.title" />
         </w-btn>
         <div v-if="siteStore.logoText" class="site-title text-h6 ml-2 min-w-0 flex-1 truncate">
           {{ siteStore.title }}
