@@ -2,6 +2,21 @@ import { setTimeout } from 'node:timers/promises'
 import { sql } from 'drizzle-orm'
 import { locales as localesTable } from '../../db/schema.ts'
 
+/**
+ * Guards the one shape the `locales.strings` jsonb column is ever supposed to hold: a flat mapping
+ * of translation key to translated string. `update-locales`'s `strings` payload comes straight off
+ * `raw.githubusercontent.com` with no signature, so this is what stands between a compromised
+ * `requarks/wiki-locales` and arbitrary values landing in every instance's `locales` table on the
+ * next daily run (OpenProject #2255) -- a nested object, an array, or a non-string value is refused
+ * rather than inserted as-is.
+ */
+export function isFlatStringMap(value: unknown): value is Record<string, string> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+  return Object.values(value).every((entry) => typeof entry === 'string')
+}
+
 export async function task(): Promise<void> {
   if (WIKI.config.offline) {
     WIKI.logger.info(
@@ -43,11 +58,11 @@ export async function task(): Promise<void> {
       WIKI.logger.debug(`Fetching updates for language ${langFilename}...`)
 
       const stringsResp = await fetch(
-        `https://raw.githubusercontent.com/requarks/wiki-locales/main/locales/${langFilename}.json`
+        `https://raw.githubusercontent.com/requarks/wiki-locales/main/locales/${encodeURIComponent(langFilename)}.json`
       )
       const strings = stringsResp.ok ? await stringsResp.json() : null
 
-      if (strings) {
+      if (strings && isFlatStringMap(strings)) {
         await WIKI.db
           .insert(localesTable)
           .values({
@@ -65,6 +80,10 @@ export async function task(): Promise<void> {
             set: { strings, updatedAt: sql`now()` }
           })
         WIKI.logger.debug(`Updated strings for language ${langFilename}.`)
+      } else if (strings) {
+        WIKI.logger.warn(
+          `Rejected strings payload for language ${langFilename}: not a flat string map. [ SKIPPED ]`
+        )
       } else {
         WIKI.logger.warn(
           `No strings file found for language ${langFilename} on wiki-locales. [ SKIPPED ]`
