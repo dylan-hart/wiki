@@ -740,6 +740,40 @@ describe('page store: pageCreate()', () => {
 })
 
 /**
+ * OpenProject #1787: `pageDuplicate` called `this.pageCreate({...})` at the end of its try block with
+ * no `await` and no `.catch` -- `pageCreate` is itself `async` and rejects readily (its first act is
+ * `editorStore.fetchConfigs()`, a network call that rethrows on failure), so the rejection escaped
+ * the enclosing try entirely and became an unhandled rejection nobody in `frontend/src` catches,
+ * instead of reaching an awaiting caller (`PageActionsCol.vue`'s duplicate handler).
+ */
+describe('page store: pageDuplicate() (OpenProject #1787)', () => {
+  function stubRouter(currentPath = '/_create/markdown') {
+    return {
+      currentRoute: { value: { path: currentPath } },
+      push: vi.fn()
+    }
+  }
+
+  it('rejects when the pageCreate it calls rejects, instead of resolving as if it had succeeded', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+
+    // -> First call: the source-page fetch, which succeeds. Second call: `pageCreate`'s own
+    //    `editorStore.fetchConfigs()` reaching for the site config, which fails -- this is the
+    //    rejection that used to vanish as an unhandled rejection instead of reaching this awaiter.
+    API_CLIENT.get
+      .mockReturnValueOnce(stubPageResponse({ editor: 'markdown', content: 'hello' }))
+      .mockReturnValueOnce({ json: vi.fn().mockRejectedValue(new Error('network down')) })
+
+    await expect(
+      pageStore.pageDuplicate({ sourcePageId: 'page-1', title: 'Copy', path: 'copy' })
+    ).rejects.toThrow('network down')
+  })
+})
+
+/**
  * A move can now change a page's locale as well as its path (backend task 8), which is why the
  * follow-link is built through `localizedPagePath` rather than as a bare `/${path}`: landing on an
  * unprefixed link to a page that now lives in a non-primary locale round-trips through locale
