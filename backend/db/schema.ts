@@ -80,10 +80,10 @@ export const apiKeys = pgTable(
     //    credential for acting AS that account, not a record of something that already happened, so
     //    there is no audit trail reason to keep the row around orphaned.
     userId: uuid().references(() => users.id, { onDelete: 'cascade' }),
-    expiration: timestamp().notNull().defaultNow(),
+    expiration: timestamp({ withTimezone: true }).notNull().defaultNow(),
     isRevoked: boolean().notNull().default(false),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow()
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
     index('apiKeys_siteId_idx').on(table.siteId),
@@ -141,7 +141,7 @@ export const auditLog = pgTable(
     //    storage-target changes are per-site, and a login happens against the site it was attempted
     //    on, so those rows carry it.
     siteId: uuid().references(() => sites.id, { onDelete: 'set null' }),
-    createdAt: timestamp().notNull().defaultNow()
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
     // -> The admin list's default view: newest first, across the whole instance
@@ -183,8 +183,8 @@ export const approvalRules = pgTable(
     //    distinct approvers recorded in `pageEditSubmissionApprovals` against the highest threshold of
     //    every enabled rule currently matching the page -- see the doc comment there.
     minApprovals: integer().notNull().default(1),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     siteId: uuid()
       .notNull()
       .references(() => sites.id)
@@ -205,8 +205,8 @@ export const assets = pgTable(
     mimeType: varchar({ length: 255 }).notNull().default('application/octet-stream'),
     fileSize: bigint({ mode: 'number' }), // in bytes
     meta: jsonb().notNull().default({}),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     data: bytea(),
     preview: bytea(),
     authorId: uuid()
@@ -259,13 +259,13 @@ export const contentSyncState = pgTable(
     targetRef: jsonb(),
     // -> Completion time of the most recent successful sync. Null until one has ever succeeded; read
     //    back with `.toTemporalInstant()`, per this repo's Temporal convention.
-    lastSyncedAt: timestamp(),
+    lastSyncedAt: timestamp({ withTimezone: true }),
     // -> Message from the most recent attempt, cleared to null the moment an attempt succeeds. A
     //    non-null value here alongside a non-null `lastSyncedAt` means the item synced successfully at
     //    some point but the *latest* attempt since then failed.
     lastError: text(),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow()
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
     // -> Enforces one row per content item per target, and covers "every state for this target" --
@@ -343,7 +343,7 @@ export const blockCode = pgTable('blockCode', {
     .primaryKey()
     .references(() => blocks.id, { onDelete: 'cascade' }),
   code: bytea().notNull(),
-  updatedAt: timestamp().notNull().defaultNow()
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
 })
 
 // BLOCK CREDENTIALS --------------------
@@ -370,8 +370,8 @@ export const blockCredentials = pgTable(
       .array()
       .notNull()
       .default(sql`ARRAY[]::text[]`),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow()
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [index('blockCredentials_siteId_idx').on(table.siteId)]
 )
@@ -391,8 +391,8 @@ export const classificationLevels = pgTable('classificationLevels', {
   // -> Lower is more open. This is the floor-invariant ordering (#1080) and the display order --
   //    independent of insertion order or id, both of which an admin cannot rearrange by renaming.
   sortOrder: integer().notNull().default(0),
-  createdAt: timestamp().notNull().defaultNow(),
-  updatedAt: timestamp().notNull().defaultNow()
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
 })
 
 // GROUPS ------------------------------
@@ -405,8 +405,8 @@ export const groups = pgTable('groups', {
   redirectOnFirstLogin: varchar({ length: 255 }).notNull().default(''),
   redirectOnLogout: varchar({ length: 255 }).notNull().default(''),
   isSystem: boolean().notNull().default(false),
-  createdAt: timestamp().notNull().defaultNow(),
-  updatedAt: timestamp().notNull().defaultNow()
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
 })
 
 // GLOSSARY TERMS -----------------------
@@ -425,8 +425,8 @@ export const glossaryTerms = pgTable(
       .array()
       .notNull()
       .default(sql`ARRAY[]::text[]`),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     siteId: uuid()
       .notNull()
       .references(() => sites.id),
@@ -469,7 +469,7 @@ export const glossaryVersions = pgTable(
     //    history that already happened under the old name.
     actorId: uuid().references(() => users.id, { onDelete: 'set null' }),
     actorName: varchar({ length: 255 }).notNull().default(''),
-    createdAt: timestamp().notNull().defaultNow()
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
     index('glossaryVersions_siteId_idx').on(table.siteId),
@@ -498,8 +498,8 @@ export const hooks = pgTable(
     // -> Outcome of the most recent delivery, which is what the admin list shows
     state: hookStateEnum().notNull().default('pending'),
     lastErrorMessage: text(),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     // -> Null means "fires for every site" -- today's behavior, and what every hook created before
     //    this column existed keeps meaning with no backfill. `set null` on delete rather than
     //    restricting it or cascading: a webhook scoped to a site that goes away reverts to firing
@@ -523,8 +523,8 @@ export const iconSets = pgTable('iconSets', {
   // -> Iconify collection metadata (author, license, total, palette, samples, ...) as published by
   //    the upstream API, refreshed on demand rather than being authored here
   info: jsonb().notNull().default({}),
-  refreshedAt: timestamp(),
-  createdAt: timestamp().notNull().defaultNow()
+  refreshedAt: timestamp({ withTimezone: true }),
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow()
 })
 
 // -> The permanent home of every icon the wiki has ever served. Fetched from the Iconify API on first
@@ -547,7 +547,7 @@ export const icons = pgTable(
     rotate: integer().notNull().default(0),
     hFlip: boolean().notNull().default(false),
     vFlip: boolean().notNull().default(false),
-    createdAt: timestamp().notNull().defaultNow()
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [primaryKey({ columns: [table.prefix, table.name] })]
 )
@@ -572,9 +572,9 @@ export const jobHistory = pgTable(
     maxRetries: integer().notNull().default(0),
     lastErrorMessage: text(),
     executedBy: varchar({ length: 255 }),
-    createdAt: timestamp().notNull(),
-    startedAt: timestamp().notNull().defaultNow(),
-    completedAt: timestamp(),
+    createdAt: timestamp({ withTimezone: true }).notNull(),
+    startedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp({ withTimezone: true }),
     // -> Whatever a task chose to hand back, e.g. `exportContent`'s `{ filePath, fileSize }` — set via
     //    `models/jobs.ts#setResult`, which is how a follow-up route (the export download) finds what a
     //    background job produced without the two coupling to anything more specific than a job id.
@@ -601,15 +601,15 @@ export const jobSchedule = pgTable('jobSchedule', {
   cron: varchar({ length: 255 }).notNull(),
   type: varchar({ length: 255 }).notNull().default('system'),
   payload: jsonb(),
-  createdAt: timestamp().notNull().defaultNow(),
-  updatedAt: timestamp().notNull().defaultNow()
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
 })
 
 // JOB LOCK ----------------------------
 export const jobLock = pgTable('jobLock', {
   key: varchar({ length: 255 }).primaryKey(),
   lastCheckedBy: varchar({ length: 255 }),
-  lastCheckedAt: timestamp().notNull().defaultNow()
+  lastCheckedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
 })
 
 // JOBS --------------------------------
@@ -620,11 +620,11 @@ export const jobs = pgTable('jobs', {
   payload: jsonb(),
   retries: integer().notNull().default(0),
   maxRetries: integer().notNull().default(0),
-  waitUntil: timestamp(),
+  waitUntil: timestamp({ withTimezone: true }),
   isScheduled: boolean().notNull().default(false),
   createdBy: varchar({ length: 255 }),
-  createdAt: timestamp().notNull().defaultNow(),
-  updatedAt: timestamp().notNull().defaultNow()
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
 })
 
 // LOCALES -----------------------------
@@ -640,8 +640,8 @@ export const locales = pgTable(
     isRTL: boolean().notNull().default(false),
     strings: jsonb().notNull().default([]),
     completeness: integer().notNull().default(0),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow()
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [index('locales_language_idx').on(table.language)]
 )
@@ -684,7 +684,7 @@ export const migrationRecords = pgTable(
     // -> The 3.0 table the row landed in, e.g. `'users'`, `'pages'`.
     destTable: varchar({ length: 255 }).notNull(),
     destId: uuid().notNull(),
-    importedAt: timestamp().notNull().defaultNow()
+    importedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
     uniqueIndex('migrationRecords_source_idx').on(
@@ -742,8 +742,8 @@ export const pages = pgTable(
     description: varchar({ length: 255 }),
     icon: varchar({ length: 255 }),
     publishState: pagePublishStateEnum('publishState').notNull().default('draft'),
-    publishStartDate: timestamp(),
-    publishEndDate: timestamp(),
+    publishStartDate: timestamp({ withTimezone: true }),
+    publishEndDate: timestamp({ withTimezone: true }),
     config: jsonb().notNull().default({}),
     relations: jsonb().notNull().default([]),
     // -> Internal-link target page paths found in the rendered content, resolved at save time by
@@ -774,8 +774,8 @@ export const pages = pgTable(
     ratingCount: integer().notNull().default(0),
     scripts: jsonb().notNull().default({}),
     historyData: jsonb().notNull().default({}),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     authorId: uuid()
       .notNull()
       .references(() => users.id),
@@ -855,8 +855,8 @@ export const comments = pgTable(
     guestEmail: varchar({ length: 255 }),
     // -> Long enough for an IPv6 address in its longest textual form.
     guestIp: varchar({ length: 45 }),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     pageId: uuid()
       .notNull()
       .references(() => pages.id, { onDelete: 'cascade' }),
@@ -917,11 +917,11 @@ export const checklistExecutions = pgTable(
     //    editing the checklist mid-run does not retroactively change what "every item" meant for a
     //    run already in progress.
     itemCount: integer().notNull(),
-    startedAt: timestamp().notNull().defaultNow(),
+    startedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     // -> Null once the account is gone, rather than holding the account hostage. Mirrors
     //    `comments.authorId`.
     startedBy: uuid().references(() => users.id, { onDelete: 'set null' }),
-    completedAt: timestamp(),
+    completedAt: timestamp({ withTimezone: true }),
     completedBy: uuid().references(() => users.id, { onDelete: 'set null' })
   },
   (table) => [
@@ -956,7 +956,7 @@ export const checklistItemChecks = pgTable(
     //    the item having changed in any way that should re-open a run.
     itemKey: varchar({ length: 255 }).notNull(),
     checkedBy: uuid().references(() => users.id, { onDelete: 'set null' }),
-    checkedAt: timestamp().notNull().defaultNow()
+    checkedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
     uniqueIndex('checklistItemChecks_execution_item_idx').on(table.executionId, table.itemKey),
@@ -1026,7 +1026,7 @@ export const pageHistory = pgTable(
      * collected it. Null when the site does not ask for one, or asks and is not answered.
      */
     reason: varchar({ length: 255 }),
-    versionDate: timestamp().notNull().defaultNow(),
+    versionDate: timestamp({ withTimezone: true }).notNull().defaultNow(),
     // -> Null once the account is gone, rather than holding the account hostage: a history row is a
     //    record of what happened to the page, and requiring its author to exist for ever would mean
     //    that editing a page once made an account undeletable — even after the page itself was gone.
@@ -1068,8 +1068,8 @@ export const pageEditSubmissions = pgTable(
     //    logged in author, whose name is on `authorId` instead.
     guestName: varchar({ length: 255 }),
     guestEmail: varchar({ length: 255 }),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     pageId: uuid()
       .notNull()
       .references(() => pages.id, { onDelete: 'cascade' }),
@@ -1107,7 +1107,7 @@ export const pageEditSubmissionApprovals = pgTable(
   'pageEditSubmissionApprovals',
   {
     id: uuid().primaryKey().defaultRandom(),
-    createdAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     submissionId: uuid()
       .notNull()
       .references(() => pageEditSubmissions.id, { onDelete: 'cascade' }),
@@ -1149,7 +1149,7 @@ export const pageWatching = pgTable(
   'pageWatching',
   {
     id: uuid().primaryKey().defaultRandom(),
-    createdAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     pageId: uuid()
       .notNull()
       .references(() => pages.id, { onDelete: 'cascade' }),
@@ -1227,10 +1227,10 @@ export const pageWatchEvents = pgTable(
       .array()
       .notNull()
       .default(sql`ARRAY[]::text[]`),
-    createdAt: timestamp().notNull().defaultNow(),
-    deliveredAt: timestamp(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    deliveredAt: timestamp({ withTimezone: true }),
     /** When the recipient saw this in the in-app inbox — null until then. See this table's own comment. */
-    readAt: timestamp(),
+    readAt: timestamp({ withTimezone: true }),
     pageId: uuid().notNull(),
     /** The page's title as of this change — see this table's own doc comment for why it's captured here. */
     pageTitle: text().notNull(),
@@ -1304,7 +1304,7 @@ export const pageviews = pgTable(
     clientType: varchar({ length: 16 }).notNull(),
     /** A sha256 hex digest, never the raw session id or API key id it was computed from. */
     visitorHash: text().notNull(),
-    viewedAt: timestamp().notNull().defaultNow()
+    viewedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
     // -> "Distinct visitorHash for this page within a trailing window" -- the one query this table
@@ -1340,8 +1340,8 @@ export const pageRenderQueue = pgTable(
     allowScripts: boolean().notNull().default(false),
     /** `write:styles` — whether this render may keep `<style>` and inline `style` attributes. */
     allowStyles: boolean().notNull().default(false),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     pageId: uuid()
       .notNull()
       .unique()
@@ -1375,10 +1375,10 @@ export const rateLimits = pgTable(
     key: varchar({ length: 255 }).primaryKey(),
     /** Attempts made inside the current window. */
     hits: integer().notNull().default(0),
-    windowStartedAt: timestamp().notNull().defaultNow(),
+    windowStartedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     /** When the ban lifts. Null for a client that has not earned one. */
-    bannedUntil: timestamp(),
-    updatedAt: timestamp().notNull().defaultNow()
+    bannedUntil: timestamp({ withTimezone: true }),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   // -> How the purge finds rows nothing has touched in a long while
   (table) => [index('rateLimits_updatedAt_idx').on(table.updatedAt)]
@@ -1397,8 +1397,8 @@ export const sessions = pgTable(
     id: varchar({ length: 255 }).primaryKey(),
     userId: uuid().references(() => users.id),
     data: jsonb().notNull().default({}),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow()
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [index('sessions_userId_idx').on(table.userId)]
 )
@@ -1409,7 +1409,7 @@ export const sites = pgTable('sites', {
   hostname: varchar({ length: 255 }).notNull().unique(),
   isEnabled: boolean().notNull().default(false),
   config: jsonb().notNull(),
-  createdAt: timestamp().notNull().defaultNow()
+  createdAt: timestamp({ withTimezone: true }).notNull().defaultNow()
 })
 
 // -> The images an administrator uploads for a site — its logo, favicon and login background — one row
@@ -1451,7 +1451,7 @@ export const storage = pgTable(
     //    has. Read back against the module's (or the override's) schedule to decide whether it's due
     //    again -- see `models/storage.ts`'s `tickScheduledSyncs()`. Irrelevant to a push-only target,
     //    which is never ticked at all.
-    lastTickAt: timestamp(),
+    lastTickAt: timestamp({ withTimezone: true }),
     // -> Values for the props the module declares in its `definition.yml`
     config: jsonb().notNull().default({}),
     // -> Where the module stands, as opposed to how it is configured: `{ setup: 'notconfigured' |
@@ -1472,8 +1472,8 @@ export const tags = pgTable(
     id: uuid().primaryKey().defaultRandom(),
     tag: varchar({ length: 255 }).notNull(),
     usageCount: integer().notNull().default(0),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     siteId: uuid()
       .notNull()
       .references(() => sites.id)
@@ -1512,8 +1512,8 @@ export const tree = pgTable(
       .notNull()
       .default(sql`ARRAY[]::text[]`),
     meta: jsonb().notNull().default({}),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     siteId: uuid()
       .notNull()
       .references(() => sites.id)
@@ -1558,8 +1558,8 @@ export const userKeys = pgTable(
     kind: varchar({ length: 255 }).notNull(),
     token: varchar({ length: 255 }).notNull(),
     meta: jsonb().notNull().default({}),
-    createdAt: timestamp().notNull().defaultNow(),
-    validUntil: timestamp().notNull(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    validUntil: timestamp({ withTimezone: true }).notNull(),
     userId: uuid()
       .notNull()
       .references(() => users.id)
@@ -1582,9 +1582,9 @@ export const users = pgTable(
     isActive: boolean().notNull().default(false),
     isSystem: boolean().notNull().default(false),
     isVerified: boolean().notNull().default(false),
-    lastLoginAt: timestamp(),
-    createdAt: timestamp().notNull().defaultNow(),
-    updatedAt: timestamp().notNull().defaultNow()
+    lastLoginAt: timestamp({ withTimezone: true }),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [index('users_lastLoginAt_idx').on(table.lastLoginAt)]
 )
