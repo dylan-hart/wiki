@@ -2,6 +2,7 @@ import dns from 'node:dns/promises'
 import { CustomError } from '../helpers/common.ts'
 import { extractJsonPathValue } from '../helpers/jsonPath.ts'
 import { hostnameMatchesAllowlist, isPrivateAddress } from '../helpers/network.ts'
+import type { RateLimitPolicy } from './rateLimits.ts'
 
 /** A `block-live-data` instance's props, as posted to the resolve route. */
 export interface LiveDataRequest {
@@ -53,9 +54,26 @@ const RATE_LIMIT_PREFIX = 'liveDataRate:'
  * {@link MIN_REFRESH_SECONDS} floor allows -- a dozen such blocks at that floor is already 72
  * fresh fetches/minute. 120/minute leaves headroom above that while still bounding a caller that is
  * deliberately varying the request to bypass the response cache.
+ *
+ * Counted via `WIKI.models.rateLimits.consume` (OpenProject #1700) rather than `WIKI.cache`: the
+ * counter used to live in the same LRU the response cache, the glossary term map and the locale list
+ * all share, so ordinary cache traffic could evict a credential's counter mid-window and silently
+ * reset its count. `consume` is durable and keyed per credential, independent of both cache churn and
+ * which backend instance in a cluster happens to handle the request -- see `models/rateLimits.ts`.
  */
 const RATE_LIMIT_WINDOW_SECONDS = 60
 const RATE_LIMIT_MAX_PER_WINDOW = 120
+/**
+ * How long a credential stays refused once it exceeds {@link RATE_LIMIT_MAX_PER_WINDOW} in one
+ * window. Set equal to the window itself: the old cache-backed counter kept incrementing (and
+ * throwing) on every request until its window's TTL lapsed, so a ban lasting one full window
+ * reproduces that behavior rather than granting an early reprieve.
+ */
+const RATE_LIMIT_POLICY: RateLimitPolicy = {
+  max: RATE_LIMIT_MAX_PER_WINDOW,
+  windowSeconds: RATE_LIMIT_WINDOW_SECONDS,
+  banSeconds: RATE_LIMIT_WINDOW_SECONDS
+}
 
 function clampRefreshSeconds(seconds: number | undefined): number {
   if (!Number.isFinite(seconds)) {
@@ -126,7 +144,7 @@ class LiveData {
 
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (request.credentialId) {
-      this.assertWithinRateLimit(request.credentialId)
+      await this.assertWithinRateLimit(request.credentialId)
       const credential = await WIKI.models.blockCredentials.getCredentialForResolve(
         siteId,
         request.credentialId
@@ -194,24 +212,20 @@ class LiveData {
    * Counts this fresh (cache-miss) fetch against `credentialId`'s rate limit and throws once the
    * window's cap is exceeded — see the class comment and {@link RATE_LIMIT_MAX_PER_WINDOW}.
    *
-   * A fixed window, not a sliding one: `WIKI.cache.getRemainingTTL` reports how much longer the
-   * current window's key has left, and that remaining time is preserved (via `WIKI.cache.set`'s own
-   * `ttl` option) on every increment rather than reset — resetting it on every request would mean a
-   * credential at exactly its cap, with requests still arriving, would never see the window lapse and
-   * would stay throttled forever instead of recovering once the offending traffic actually stops.
+   * Delegates to `WIKI.models.rateLimits.consume` (OpenProject #1700) — the same durable,
+   * postgres-backed fixed-window limiter `models/hooks.ts#emit()` uses for webhook delivery — rather
+   * than counting in `WIKI.cache`. A single upsert reads, rolls over, increments and possibly bans the
+   * row atomically, so this is also safe across a cluster of backend instances sharing one counter per
+   * credential, not just within one process.
    *
    * @throws {CustomError} `Too Many Requests` (429) once the count exceeds the cap.
    */
-  private assertWithinRateLimit(credentialId: string): void {
-    const key = `${RATE_LIMIT_PREFIX}${credentialId}`
-    const remainingMs = WIKI.cache.getRemainingTTL(key)
-    const windowIsFresh = remainingMs <= 0
-    const count = (windowIsFresh ? 0 : ((WIKI.cache.get(key) as number | undefined) ?? 0)) + 1
-    const remainingSeconds = windowIsFresh
-      ? RATE_LIMIT_WINDOW_SECONDS
-      : Math.max(1, Math.ceil(remainingMs / 1000))
-    WIKI.cache.set(key, count, { ttl: remainingSeconds * 1000 })
-    if (count > RATE_LIMIT_MAX_PER_WINDOW) {
+  private async assertWithinRateLimit(credentialId: string): Promise<void> {
+    const verdict = await WIKI.models.rateLimits.consume(
+      `${RATE_LIMIT_PREFIX}${credentialId}`,
+      RATE_LIMIT_POLICY
+    )
+    if (!verdict.allowed) {
       throw new CustomError(
         'Too Many Requests',
         'This credential is being used to fetch too frequently. Try again shortly.',
