@@ -134,7 +134,7 @@
               v-for="row of state.report"
               :key="row.levelId"
               clickable
-              :disable="row.count === 0"
+              :disabled="row.count === 0"
               @click="openReport(row)">
               <w-item-section>
                 <w-item-label>{{ row.name }}</w-item-label>
@@ -218,6 +218,9 @@ async function load() {
 }
 
 function openReport(row) {
+  if (row.count === 0) {
+    return
+  }
   dialog({
     component: defineAsyncComponent(
       () => import('../components/ClassificationReportDrillDialog.vue')

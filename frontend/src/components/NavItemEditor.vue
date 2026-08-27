@@ -126,7 +126,7 @@
               <w-item
                 clickable
                 @click="clearItems"
-                :disable="!state.items.some((item) => !item.generated)">
+                :disabled="!state.items.some((item) => !item.generated)">
                 <w-item-section side>
                   <w-icon name="la:trash-alt" color="negative" />
                 </w-item-section>
