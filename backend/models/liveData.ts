@@ -144,13 +144,14 @@ function buildCacheKey(
  */
 class LiveData {
   /**
-   * @throws {CustomError} `Bad Request` (400) for a malformed URL/JSONPath, a bare `$` JSONPath, a
-   *   URL resolving to a private/loopback/link-local address, a credentialed request whose URL is
-   *   not `https:`, or a URL outside a given credential's allowed origins, `Not Found` (404) for a
-   *   `credentialId` with no matching row on this site, `Too Many Requests` (429) once a credential
-   *   (or, for a credential-free request, this site) has exceeded its fresh-fetch rate limit,
-   *   `Service Unavailable` (503) when the instance is in offline mode, `Bad Gateway` (502) for a
-   *   network failure, a non-2xx response, or a response body that isn't JSON.
+   * @throws {CustomError} `Bad Request` (400) for a malformed URL/JSONPath, a bare `$` JSONPath, an
+   *   unmatched JSONPath, a URL resolving to a private/loopback/link-local address, a credentialed
+   *   request whose URL is not `https:`, or a URL outside a given credential's allowed origins,
+   *   `Not Found` (404) for a `credentialId` with no matching row on this site, `Too Many Requests`
+   *   (429) once a credential (or, for a credential-free request, this site) has exceeded its
+   *   fresh-fetch rate limit, `Service Unavailable` (503) when the instance is in offline mode,
+   *   `Bad Gateway` (502) for a network failure, a non-2xx response, or a response body that isn't
+   *   JSON.
    */
   async resolve(siteId: string, request: LiveDataRequest): Promise<LiveDataResult> {
     let url: URL
@@ -163,9 +164,14 @@ class LiveData {
       throw new CustomError('Bad Request', 'url must be an http(s) address.', 400)
     }
     if (request.jsonPath.trim() === '$') {
+      // -> `extractJsonPathValue`'s `wrap: true` query returns `results[0]` of whatever a `$` query
+      //    matches, which for the root selector is the entire parsed upstream document -- and `$` is
+      //    the block's own default for this prop (`blocks/block-live-data/component.js`). Refusing it
+      //    here is what stops a host-level fetch allowance from doubling as a whole-document read
+      //    primitive: an author must name the one field they actually want.
       throw new CustomError(
         'Bad Request',
-        'jsonPath must not be a bare "$": that would return the entire response body rather than one field.',
+        'jsonPath must not be a bare "$", which returns the entire response. Name a specific field, e.g. "$.data.value".',
         400
       )
     }
