@@ -387,6 +387,49 @@ describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () =
     assert.deepEqual(siteBlock!.config, { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' })
   })
 
+  /**
+   * WP #1745: block-kroki's `server` field lives on `props` (an author's per-use setting) and, since
+   * this fix, also on `config` (an admin's site-wide default) — mirroring block-map's
+   * `tileServerUrl`/`apiKey` pair above. Before the fix, `config` on block-kroki's manifest was
+   * missing entirely, so `sanitizeConfig` stripped `server` down to `{}` on every save; this locks in
+   * that it now survives.
+   */
+  test('writes a self-hosted server for block-kroki, whose config now declares it', async () => {
+    blocksModel.definitions = [
+      {
+        block: 'kroki',
+        name: 'Kroki',
+        description: 'Draws a diagram through a Kroki server.',
+        icon: 'tree-structure',
+        config: [{ name: 'server', type: 'string', label: 'Server', default: 'https://kroki.io' }]
+      }
+    ]
+
+    const [row] = await fixtures.db
+      .insert(blocksTable)
+      .values({
+        siteId: fixtures.siteId,
+        block: 'kroki',
+        name: 'Kroki',
+        description: 'Draws a diagram through a Kroki server.',
+        icon: 'tree-structure',
+        isEnabled: true,
+        isCustom: false,
+        config: {}
+      })
+      .returning({ id: blocksTable.id })
+
+    const updated = await blocksModel.setBlocksState(fixtures.siteId, [
+      { id: row!.id, isEnabled: true, config: { server: 'https://kroki.internal' } }
+    ])
+
+    assert.equal(updated, 1)
+    const [siteBlock] = (await blocksModel.getSiteBlocks(fixtures.siteId)).filter(
+      (b) => b.id === row!.id
+    )
+    assert.deepEqual(siteBlock!.config, { server: 'https://kroki.internal' })
+  })
+
   test('a custom block config is written as-is, not sanitized against any declared field', async () => {
     blocksModel.definitions = []
 
