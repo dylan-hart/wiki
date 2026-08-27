@@ -61,7 +61,9 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         maxLength: 255
       },
       dkimPrivateKey: {
-        type: 'string'
+        type: 'string',
+        description:
+          'Returned masked as `********` when a key is stored. Send the masked value back unchanged to keep the stored key.'
       }
     }
   })
