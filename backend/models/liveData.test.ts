@@ -193,20 +193,54 @@ describe('LiveData.resolve', () => {
     assert.equal(fetchMock.mock.calls.length, 0)
   })
 
-  test('lets the fetch itself fail when the hostname cannot be resolved at all', async () => {
+  test('fails closed with Bad Request (not an unchecked fetch) when the DNS pre-check throws (OpenProject #2239)', async () => {
     mock.method(liveData as any, 'resolveAddresses', async () => {
       throw new Error('getaddrinfo ENOTFOUND nowhere.invalid')
     })
-    mock.method(globalThis, 'fetch', async () => {
-      throw new Error('fetch failed')
+    const fetchMock = mock.method(globalThis, 'fetch', async () => {
+      throw new Error('should never be called -- the pre-check must refuse before any fetch')
     })
     await assert.rejects(
       liveData.resolve('site-1', { url: 'https://nowhere.invalid/metrics', jsonPath: '$.v' }),
       (err: any) => {
-        assert.equal(err.statusCode, 502)
+        assert.equal(err.statusCode, 400)
         return true
       }
     )
+    assert.equal(fetchMock.mock.calls.length, 0)
+  })
+
+  test('dispatches the fetch through a pinned undici Agent built from the pre-validated addresses (OpenProject #2241)', async () => {
+    mock.method(liveData as any, 'resolveAddresses', async () => ['93.184.216.34'])
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    await liveData.resolve('site-1', { url: 'https://example.com/metrics', jsonPath: '$.v' })
+    const [, init]: [unknown, { dispatcher: any }] = fetchMock.mock.calls[0].arguments as any
+    assert.equal(init.dispatcher?.constructor?.name, 'Agent')
+  })
+
+  test("the pinned dispatcher's connector never falls back to a real lookup, and returns only the pre-validated address (OpenProject #2241)", async () => {
+    const lookup = (liveData as any).createPinnedLookup(['93.184.216.34'])
+    // -> Whatever hostname is actually being connected to -- including one that would resolve
+    //    differently by now than it did at the pre-check (DNS rebinding) -- the connector must still
+    //    only ever hand back the address the pre-check already validated, never perform a fresh lookup.
+    const result = await new Promise((resolve) => {
+      lookup(
+        'attacker-controlled.example',
+        { family: 0, all: false },
+        (err: Error | null, address: string) => resolve({ err, address })
+      )
+    })
+    assert.deepEqual(result, { err: null, address: '93.184.216.34' })
+  })
+
+  test("the pinned dispatcher's connector refuses when no pre-validated address matches the requested family", async () => {
+    const lookup = (liveData as any).createPinnedLookup(['93.184.216.34']) // IPv4 only
+    const result = await new Promise((resolve) => {
+      lookup('example.com', { family: 6, all: false }, (err: Error | null, address: string) => {
+        resolve({ err, address })
+      })
+    })
+    assert.equal((result as any).err instanceof Error, true)
   })
 
   test('fetches with redirect: "error" -- a redirect is never followed', async () => {
