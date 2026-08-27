@@ -1873,7 +1873,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Export a page as PDF',
         description:
-          "Drives Puppeteer against this instance's own live page view — not the stored render — so the PDF matches what a reader sees: theme, layout and block components (Mermaid diagrams, PlantUML, …) included, once their own async drawing has settled. Needs the Puppeteer extension, and answers 503 without it.\n\nNeeds `read:pages` ON THIS PAGE, on the same terms as reading it: a password-protected page answers only once the session has satisfied `POST …/unlock`, and an anonymous requester only ever exports a published page. The export runs as whoever asked for it — nothing more.",
+          "Drives Puppeteer against this instance's own live page view — not the stored render — so the PDF matches what a reader sees: theme, layout and block components (Mermaid diagrams, PlantUML, …) included, once their own async drawing has settled. Needs the Puppeteer extension, and answers 503 without it.\n\nRequires a logged-in session — same rule the re-render route above and `POST /diagrams/render` both carry, and for the same reason: this launches a full headless browser per request, which an anonymous caller could otherwise ask for at no cost to themselves. Also needs `read:pages` ON THIS PAGE, on the same terms as reading it: a password-protected page answers only once the session has satisfied `POST …/unlock`. The export runs as whoever asked for it — nothing more.",
         tags: ['Pages'],
         params: pageIdParam,
         response: {
@@ -1884,11 +1884,19 @@ async function routes(app: FastifyInstance) {
                 schema: { type: 'string', format: 'binary' }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
     async (req, reply) => {
+      // -> Launches a full headless browser per request; see the schema description above for why
+      //    this is refused anonymously the same way the re-render route and diagram render are.
+      if (!req.session?.authenticated) {
+        return reply.unauthorized('Exporting a page to PDF requires a logged in user.')
+      }
       const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
       if (!page) {
         return reply.notFound('This page does not exist.')

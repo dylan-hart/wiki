@@ -34,7 +34,10 @@ export interface PdfExportRequest {
   path: string
   /**
    * The requester's `wikiSession` cookie value, forwarded so the headless browser sees exactly the
-   * page they may — `null`/absent for an anonymous requester exporting a public page.
+   * page they may. `api/pages.ts`'s export route requires an authenticated session before it ever
+   * calls this, so in practice this always carries a real cookie; left optional rather than required
+   * so a caller of this model that genuinely has none (there isn't one today) is not forced to
+   * fabricate one.
    */
   sessionCookie?: string | null
 }
