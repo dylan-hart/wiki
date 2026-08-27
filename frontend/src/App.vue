@@ -134,6 +134,31 @@ async function applyLocale(locale) {
       })
     }
   }
+
+  /*
+    -> Eager-load the `en` fallback dictionary
+    `messages: {}` at i18n init (boot/i18n.js) plus the block above -- which only ever loads
+    messages for the locale being switched TO -- means `en`'s own message bag stays empty forever
+    on a site whose active locale isn't `en`. vue-i18n's `fallbackLocale: 'en'` then has nothing to
+    fall back TO, so any key missing from the active locale (true of ~32% of keys even for a
+    "complete" shipped translation, and the whole dictionary for an unrecognised code -- see
+    `fetchLocaleStrings()`'s array guard) renders as its raw dotted path instead of English.
+
+    Fired fire-and-forget, same reasoning as the dir/lang attributes above: nothing downstream of
+    this function needs to wait on it, and it's a no-op once `en` is already loaded (either from a
+    previous call here, or because `en` was itself the active locale).
+  */
+  if (locale !== 'en' && !i18n.availableLocales.includes('en')) {
+    commonStore
+      .fetchLocaleStrings('en')
+      .then((strings) => {
+        i18n.setLocaleMessage('en', strings)
+      })
+      .catch((err) => {
+        console.warn('Failed to load en fallback locale strings.', err)
+      })
+  }
+
   i18n.locale.value = locale
 }
 

@@ -313,6 +313,104 @@ describe('App.vue applyLocale()', () => {
 })
 
 /**
+ * Regression coverage for OpenProject #1652: `applyLocale()` must eager-load the `en` fallback
+ * dictionary alongside a non-`en` active locale, so vue-i18n's `fallbackLocale: 'en'` (boot/i18n.js)
+ * has something to actually fall back to -- otherwise any key missing from the active locale (routine
+ * for any real, incomplete translation) renders as its raw dotted key path instead of English.
+ */
+describe('App.vue applyLocale() en fallback eager-load', () => {
+  async function mountAppWithLocaleAndRequests(localeCode, { active }) {
+    const siteStore = useSiteStore()
+    const flagsStore = useFlagsStore()
+    const userStore = useUserStore()
+    const commonStore = useCommonStore()
+
+    siteStore.$patch({
+      id: 'site-1',
+      locales: { primary: 'en', showMenu: true, active }
+    })
+    flagsStore.loaded = true
+    userStore.profileLoaded = true
+    commonStore.setLocale(localeCode)
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    // -> `messages: {}`, matching the real boot/i18n.js -- not `{ en: {} }` as the other describe
+    //    blocks in this file use, since that would put `en` in `availableLocales` from the start and
+    //    the eager-load branch under test (`!i18n.availableLocales.includes('en')`) would never fire.
+    const i18n = createI18n({ legacy: false, locale: 'en', fallbackLocale: 'en', messages: {} })
+
+    mount(App, { global: { plugins: [router, i18n] } })
+
+    await router.push('/')
+    await router.isReady()
+    await flushPromises()
+
+    return { i18n }
+  }
+
+  it('requests both the active non-en locale and en, exactly once each', async () => {
+    API_CLIENT.get.mockImplementation((url) => ({
+      json: () =>
+        Promise.resolve(
+          url === 'locales/fr/strings' ? { 'common.actions.save': 'Enregistrer' } : {}
+        )
+    }))
+
+    const { i18n } = await mountAppWithLocaleAndRequests('fr', {
+      active: [
+        { code: 'en', language: 'en', name: 'English', nativeName: 'English', isRTL: false },
+        { code: 'fr', language: 'fr', name: 'French', nativeName: 'Français', isRTL: false }
+      ]
+    })
+
+    const requestedUrls = API_CLIENT.get.mock.calls.map(([url]) => url)
+    expect(requestedUrls.filter((url) => url === 'locales/fr/strings')).toHaveLength(1)
+    expect(requestedUrls.filter((url) => url === 'locales/en/strings')).toHaveLength(1)
+    expect(i18n.global.availableLocales).toEqual(expect.arrayContaining(['fr', 'en']))
+  })
+
+  it('requests en exactly once when the active locale already IS en', async () => {
+    API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve({}) }))
+
+    await mountAppWithLocaleAndRequests('en', {
+      active: [{ code: 'en', language: 'en', name: 'English', nativeName: 'English', isRTL: false }]
+    })
+
+    const requestedUrls = API_CLIENT.get.mock.calls.map(([url]) => url)
+    expect(requestedUrls.filter((url) => url === 'locales/en/strings')).toHaveLength(1)
+  })
+
+  it('falls back to English instead of raw key echo when the strings backend has no row for the active locale', async () => {
+    // -> `xx` is listed as one of the SITE's active locales (so the router guard's
+    //    desiredLocale-reset at line 473 above doesn't kick in and silently swap it for the primary
+    //    locale before applyLocale() ever runs), but `models/locales.ts#getStrings()` still replies
+    //    with its no-row array shape for it -- an installed-but-not-yet-cached code, in practice.
+    API_CLIENT.get.mockImplementation((url) => ({
+      json: () =>
+        Promise.resolve(
+          url === 'locales/xx/strings' ? [] : { 'common.actions.save': 'Save' } // en reply
+        )
+    }))
+
+    const { i18n } = await mountAppWithLocaleAndRequests('xx', {
+      active: [
+        { code: 'en', language: 'en', name: 'English', nativeName: 'English', isRTL: false },
+        { code: 'xx', language: 'xx', name: 'Xx', nativeName: 'Xx', isRTL: false }
+      ]
+    })
+
+    // -> The array-shaped reply for `xx` is rejected by fetchLocaleStrings(), so setLocaleMessage()
+    //    is never called for it -- only `en` ends up loaded, giving the fallback something to
+    //    resolve `common.actions.save` from instead of echoing the raw key.
+    expect(i18n.global.availableLocales).toEqual(['en'])
+    expect(i18n.global.t('common.actions.save')).toBe('Save')
+  })
+})
+
+/**
  * Regression coverage for OpenProject #809's follow-up: the Markdown editor's saved
  * preview-shown/width/font-size preferences used to only ever be fetched from
  * `EditorMarkdown.vue`'s own `onMounted`, once the reader had already clicked Edit -- putting a

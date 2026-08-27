@@ -39,7 +39,17 @@ export const useCommonStore = defineStore('common', {
   actions: {
     async fetchLocaleStrings(locale) {
       try {
-        return API_CLIENT.get(`locales/${locale}/strings`).json()
+        const strings = await API_CLIENT.get(`locales/${locale}/strings`).json()
+        // -> `models/locales.ts#getStrings()` replies with an empty ARRAY, not an object, for a code
+        //    with no row in the `locales` table -- distinct from a real, merely-incomplete locale's
+        //    (object-shaped) reply. Left uncaught, that array flows straight into `setLocaleMessage()`
+        //    and every key in that locale renders as its own raw dotted path. Throwing here instead
+        //    lets `App.vue#applyLocale()`'s caller skip `setLocaleMessage` for this locale entirely, so
+        //    vue-i18n's `fallbackLocale: 'en'` -- now eager-loaded alongside it -- takes over instead.
+        if (Array.isArray(strings)) {
+          throw new Error(`Unrecognised locale: ${locale}`)
+        }
+        return strings
       } catch (err) {
         console.warn(err)
         throw err
