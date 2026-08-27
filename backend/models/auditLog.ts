@@ -22,6 +22,7 @@ export const AUDIT_EVENTS = [
   'apiKey.revoked',
   'site.settingsUpdated',
   'storage.targetUpdated',
+  'auth.strategyUpdated',
   'glossaryTerm.created',
   'glossaryTerm.updated',
   'glossaryTerm.deleted',
@@ -80,6 +81,7 @@ export const AUDIT_TARGET_TYPES = [
   'apiKey',
   'site',
   'storageTarget',
+  'authStrategy',
   // -> #1118: `mcp.writeToolCalled`'s target is the page the tool call wrote, not the calling key
   //   (that's `mcp.sessionOpened`'s `apiKey` target) -- naming the page is what makes the log entry
   //   answer "what did the agent write", not just "an agent wrote something".

@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import { limitAuthAttempts } from '../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
+import { actorFromRequest } from '../models/auditLog.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 /**
@@ -1567,6 +1568,18 @@ async function routes(app: FastifyInstance) {
       if (!(await WIKI.models.authentication.updateStrategy(req.params.strategyId, patch))) {
         return reply.internalServerError('Failed to update the authentication strategy.')
       }
+
+      // -> Config holds OAuth client secrets and LDAP bind passwords, so `detail` names which
+      //    top-level fields changed rather than their values -- `changedFields` never descends into
+      //    `patch.config` itself. Mirrors `storage.targetUpdated` in `api/storage.ts`.
+      await WIKI.models.auditLog.record({
+        event: 'auth.strategyUpdated',
+        actor: actorFromRequest(req),
+        targetType: 'authStrategy',
+        targetId: current.id,
+        targetLabel: current.displayName,
+        detail: { module: current.module, changedFields: Object.keys(patch) }
+      })
 
       return {
         ok: true,
