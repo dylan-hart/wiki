@@ -234,6 +234,7 @@ const AUDIT_EVENTS = [
   'group.memberRemoved',
   'apiKey.issued',
   'apiKey.revoked',
+  'auth.strategyUpdated',
   'site.settingsUpdated',
   'storage.targetUpdated',
   'glossaryTerm.created',

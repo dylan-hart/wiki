@@ -167,6 +167,7 @@
   "admin.audit.colTarget": "Target",
   "admin.audit.event.apiKey.issued": "API Key Issued",
   "admin.audit.event.apiKey.revoked": "API Key Revoked",
+  "admin.audit.event.auth.strategyUpdated": "Authentication Strategy Updated",
   "admin.audit.event.group.created": "Group Created",
   "admin.audit.event.group.deleted": "Group Deleted",
   "admin.audit.event.group.memberAdded": "Group Member Added",
