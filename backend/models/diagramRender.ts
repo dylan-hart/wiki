@@ -23,7 +23,7 @@ const MERMAID_THEMES = ['default', 'dark', 'neutral', 'forest']
 /** A source past this length is refused before a browser is ever opened — see `renderMermaid`. */
 const MAX_MERMAID_SOURCE_LENGTH = 20000
 
-/** The PlantUML server every reader's `block-plantuml` draws with unless a page names its own. */
+/** The PlantUML server a site draws against unless its `block-plantuml` config names one of its own. */
 const DEFAULT_PLANTUML_SERVER = 'https://www.plantuml.com/plantuml'
 
 /**
@@ -50,8 +50,6 @@ export interface DiagramRenderRequest {
   /** Mermaid only. One of `MERMAID_THEMES`; anything else (including `auto`) falls back to `default`. */
   theme?: string
   format?: DiagramFormat
-  /** PlantUML only. The public server when left empty, same as the block's own default. */
-  server?: string
 }
 
 export interface DiagramRenderResult {
@@ -176,14 +174,21 @@ class DiagramRender {
     }
   }
 
-  /** Render one diagram to a static image, dispatching on `request.type`. */
-  async render(request: DiagramRenderRequest): Promise<DiagramRenderResult> {
+  /**
+   * Render one diagram to a static image, dispatching on `request.type`.
+   *
+   * @param siteId The site to render against — only PlantUML reads it, to look up that site's
+   * `block-plantuml` config (`resolvePlantumlServer()`), since which server it renders against is
+   * admin-configured per site rather than caller-supplied (OpenProject task 2223). Left undefined
+   * falls back to the public default the same as a site with nothing configured.
+   */
+  async render(request: DiagramRenderRequest, siteId?: string): Promise<DiagramRenderResult> {
     const format: DiagramFormat = request.format === 'png' ? 'png' : 'svg'
     if (!request.source?.trim()) {
       throw new CustomError('diagramRenderEmpty', 'There is no diagram source to render.', 400)
     }
     if (request.type === 'plantuml') {
-      return this.renderPlantuml(request.source, request.server, format)
+      return this.renderPlantuml(request.source, siteId, format)
     }
     if (request.type === 'mermaid') {
       return this.renderMermaid(request.source, request.theme, format)
@@ -271,7 +276,7 @@ class DiagramRender {
    */
   private async renderPlantuml(
     source: string,
-    server: string | undefined,
+    siteId: string | undefined,
     format: DiagramFormat
   ): Promise<DiagramRenderResult> {
     if (WIKI.config.offline) {
@@ -282,6 +287,7 @@ class DiagramRender {
       )
     }
 
+    const server = await this.resolvePlantumlServer(siteId)
     const url = this.plantumlUrl(source, server, format)
     if (url.length > MAX_PLANTUML_URL_LENGTH) {
       throw new CustomError(
@@ -322,9 +328,27 @@ class DiagramRender {
     return { contentType: format === 'png' ? 'image/png' : 'image/svg+xml', data }
   }
 
+  /**
+   * The PlantUML server this site is configured to render against — its `block-plantuml` row's
+   * site-level `server` config value (`models/blocks.ts`'s `assertValidConfig` validates it at write
+   * time, so it is trusted as-is here), or `DEFAULT_PLANTUML_SERVER` when the site has none, has no
+   * such block row at all, or `siteId` itself is unknown (never happens for a real request — the route
+   * always resolves one via the request's hostname — but is not worth a throw here either).
+   */
+  private async resolvePlantumlServer(siteId: string | undefined): Promise<string> {
+    if (!siteId) {
+      return DEFAULT_PLANTUML_SERVER
+    }
+    const siteBlocks = await WIKI.models.blocks.getSiteBlocks(siteId)
+    const plantuml = siteBlocks.find((block) => block.block === 'plantuml')
+    const configured =
+      typeof plantuml?.config?.server === 'string' ? plantuml.config.server.trim() : ''
+    return configured || DEFAULT_PLANTUML_SERVER
+  }
+
   /** The URL `block-plantuml` itself would set as an `<img src>` for this source. */
-  private plantumlUrl(source: string, server: string | undefined, format: DiagramFormat): string {
-    const base = (server?.trim() || DEFAULT_PLANTUML_SERVER).replace(/\/+$/, '')
+  private plantumlUrl(source: string, server: string, format: DiagramFormat): string {
+    const base = server.replace(/\/+$/, '')
     return `${base}/${format}/${this.encodeForUrl(source)}`
   }
 
