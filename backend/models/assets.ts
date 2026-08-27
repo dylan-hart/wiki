@@ -332,7 +332,7 @@ class Assets {
       throw err
     }
 
-    WIKI.models.hooks.emit('asset:upload', siteId, {
+    await WIKI.models.hooks.emit('asset:upload', siteId, {
       id: entry.id,
       fileName: storedName,
       folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
@@ -340,7 +340,7 @@ class Assets {
       authorId,
       metadata: { fileSize: data.length, mimeType: resolvedMime, kind }
     })
-    WIKI.models.storage.dispatch('asset:upload', {
+    await WIKI.models.storage.dispatch('asset:upload', {
       id: entry.id,
       fileName: storedName,
       folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
@@ -431,7 +431,7 @@ class Assets {
     this.forgetPath(siteId, folderPath, fileName)
     await this.dropCachedContent([id])
 
-    WIKI.models.hooks.emit('asset:edit', siteId, {
+    await WIKI.models.hooks.emit('asset:edit', siteId, {
       id,
       fileName,
       folderPath,
@@ -439,7 +439,7 @@ class Assets {
       authorId,
       metadata: { fileSize: data.length, mimeType, kind }
     })
-    WIKI.models.storage.dispatch('asset:edit', {
+    await WIKI.models.storage.dispatch('asset:edit', {
       id,
       fileName,
       folderPath,
@@ -1081,14 +1081,14 @@ class Assets {
     this.forgetPath(siteId, asset.folderPath, safeName)
     await this.dropCachedContent([id])
 
-    WIKI.models.hooks.emit('asset:rename', siteId, {
+    await WIKI.models.hooks.emit('asset:rename', siteId, {
       id,
       fileName: safeName,
       previousFileName: asset.fileName,
       folderPath: asset.folderPath,
       siteId
     })
-    WIKI.models.storage.dispatch('asset:rename', {
+    await WIKI.models.storage.dispatch('asset:rename', {
       id,
       fileName: safeName,
       previousFileName: asset.fileName,
@@ -1117,13 +1117,13 @@ class Assets {
     this.forgetPath(siteId, asset.folderPath, asset.fileName)
     await this.dropCachedContent([id])
 
-    WIKI.models.hooks.emit('asset:delete', siteId, {
+    await WIKI.models.hooks.emit('asset:delete', siteId, {
       id,
       fileName: asset.fileName,
       folderPath: asset.folderPath,
       siteId
     })
-    WIKI.models.storage.dispatch('asset:delete', {
+    await WIKI.models.storage.dispatch('asset:delete', {
       id,
       fileName: asset.fileName,
       folderPath: asset.folderPath,
