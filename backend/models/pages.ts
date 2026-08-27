@@ -1501,8 +1501,16 @@ class Pages {
       locale: page.locale
     })
 
-    await WIKI.db.delete(pagesTable).where(eq(pagesTable.id, id))
-    await WIKI.models.tree.deleteEntry(id)
+    // -> The page row and its tree entry are deleted together: nothing at the db level cascades
+    //    `tree` off `pages` (`tree.id` has no FK to `pages.id`), so a failure between the two
+    //    statements would leave a tree row pointing at a page that no longer exists -- still
+    //    rendered by `getTree`'s left join, 404ing when opened, permanently blocking re-creation at
+    //    the same path via `tree_composite_page_idx` (OpenProject #1739). `movePage` draws the same
+    //    boundary for its own delete-and-reinsert of the tree entry.
+    await WIKI.db.transaction(async (tx) => {
+      await tx.delete(pagesTable).where(eq(pagesTable.id, id))
+      await WIKI.models.tree.deleteEntry(id, tx)
+    })
     // -> A page that overrode the sidebar owns a menu keyed by its own id, which nothing could reach
     //    once the page is gone
     await WIKI.models.navigation.deleteNavForEntries([id])

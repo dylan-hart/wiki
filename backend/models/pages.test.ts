@@ -772,6 +772,67 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(recreated.path, 'docs/delete-me')
   })
 
+  /**
+   * OpenProject #1739: `deletePage` used to run the `pages` delete and `tree.deleteEntry` as two
+   * separate statements, with nothing at the db level tying them together (`tree.id` carries no FK
+   * back to `pages.id`). A failure in the second left an orphaned tree row -- still rendered by
+   * `getTree`'s left join, 404ing when opened, and permanently blocking re-creation at the same path
+   * via `tree_composite_page_idx`. Wrapped in one transaction, forcing `tree.deleteEntry` to throw
+   * must roll the `pages` delete back too, leaving both rows exactly as they were.
+   */
+  test('deletePage rolls back the page row when tree.deleteEntry fails, leaving the path reusable', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'atomic-delete/page-one', title: 'Atomic Delete Me' }),
+      actor
+    )
+    const treeEntryBefore = await WIKI.models.tree.getById(page.id)
+    assert.ok(treeEntryBefore)
+    const folderBefore = await WIKI.models.tree.getFolder({
+      path: 'atomic-delete',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    const childrenBefore = folderBefore.meta?.children ?? 0
+
+    const deleteEntry = mock.method(WIKI.models.tree, 'deleteEntry', async () => {
+      throw new Error('simulated tree.deleteEntry failure')
+    })
+    try {
+      await assert.rejects(pagesModel.deletePage(fixtures.siteId, page.id, actor))
+    } finally {
+      deleteEntry.mock.restore()
+    }
+
+    // -> Both rows survive together, exactly as before the failed attempt -- not "the page is gone
+    //    but the tree row remains" (the pre-fix orphan)
+    const pageAfterFailure = await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id })
+    assert.ok(pageAfterFailure)
+    const treeEntryAfterFailure = await WIKI.models.tree.getById(page.id)
+    assert.ok(treeEntryAfterFailure)
+    const folderAfterFailure = await WIKI.models.tree.getFolder({
+      path: 'atomic-delete',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    assert.equal(folderAfterFailure.meta?.children ?? 0, childrenBefore)
+
+    // -> The real deletePage, unmocked, must still be able to finish the job
+    const deleted = await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+    assert.equal(deleted, true)
+    assert.equal(await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id }), null)
+    assert.equal(await WIKI.models.tree.getById(page.id), null)
+
+    // -> And the path is free to reuse -- `tree_composite_page_idx` would refuse this insert if the
+    //    old tree row had survived
+    const recreated = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'atomic-delete/page-one', title: 'Recreated After Rollback' }),
+      actor
+    )
+    assert.equal(recreated.path, 'atomic-delete/page-one')
+  })
+
   test('getPathFromAlias resolves an alias to its path and locale', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
