@@ -32,12 +32,45 @@ let siteFeatures: Record<string, any> | null = null
 let userGroupsFixture: Array<{ id: string; name: string }> = []
 let nonMemberGroupsFixture: Array<{ id: string; name: string }> = []
 
+/**
+ * Mutable fixtures for `DELETE /:userId` (task 2283): each test sets these ahead of its own
+ * `app.inject`, then restores them in a `finally` -- same convention as the `/profile/groups`
+ * fixtures above.
+ */
+let deleteUserFixture: { id: string; email: string; isSystem: boolean } | null = null
+let deleteUserError: Error | null = null
+const deleteUserWarnCalls: any[] = []
+
 before(async () => {
   ;(globalThis as any).WIKI = {
+    config: {
+      auth: { rootAdminGroupId: '99999999-9999-9999-9999-999999999999' }
+    },
+    logger: {
+      warn: (err: any) => {
+        deleteUserWarnCalls.push(err)
+      }
+    },
     models: {
       users: {
         getUserGroups: async () => userGroupsFixture,
-        getNonMemberGroups: async () => nonMemberGroupsFixture
+        getNonMemberGroups: async () => nonMemberGroupsFixture,
+        getById: async () => deleteUserFixture,
+        deleteUser: async () => {
+          if (deleteUserError) throw deleteUserError
+          return true
+        }
+      },
+      groups: {
+        // -> Happy path for every test that doesn't care about the system-user guard: the caller
+        //    already holds `manage:system`, so `systemUserGuard` returns immediately.
+        holdsSystemPermission: () => true,
+        userHoldsSystemPermission: async () => false,
+        isUserInGroup: async () => false,
+        countUsersInGroup: async () => 5
+      },
+      auditLog: {
+        record: async () => {}
       },
       sites: {
         getSiteByHostname: async () =>
@@ -57,6 +90,28 @@ before(async () => {
   app.addHook('onRequest', async (req) => {
     const raw = req.headers['x-test-session']
     ;(req as any).session = raw ? JSON.parse(raw as string) : undefined
+  })
+  // -> Mirrors `index.ts`'s `setErrorHandler` for `/_api/`-shaped failures -- the `ApiError#` schema
+  //    the DELETE route's `response` block references requires `ok`, which `@fastify/sensible`'s
+  //    `reply.conflict()` alone does not add. Without this, the real handler's serialization step is
+  //    the thing under test would never see: every reply.conflict()/notFound()/... call would 500 on
+  //    "ok is required" before its message was ever inspectable.
+  app.setErrorHandler((error: any, req, reply) => {
+    if (error.statusCode) {
+      reply.code(error.statusCode).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode,
+        message: error.message
+      })
+    } else {
+      reply.code(500).send({
+        ok: false,
+        error: 'Internal Server Error',
+        statusCode: 500,
+        message: 'Internal Server error'
+      })
+    }
   })
 
   await registerErrorSchema(app)
@@ -187,6 +242,87 @@ test('GET /profile/groups: setting on -> non-member groups included', async () =
     siteFeatures = null
     userGroupsFixture = []
     nonMemberGroupsFixture = []
+  }
+})
+
+/**
+ * `DELETE /:userId` (task 2283): a `23503` foreign key violation on delete should name the actual
+ * blocking relation, read off the Postgres constraint name, rather than a hard-coded "pages or
+ * assets" guess -- and the reassign advice should only be offered where reassigning is the real
+ * remedy.
+ */
+
+const DELETE_ADMIN_SESSION = JSON.stringify({
+  authenticated: true,
+  user: { id: '22222222-2222-2222-2222-222222222222', name: 'Admin' }
+})
+
+const TARGET_USER = {
+  id: '11111111-1111-1111-1111-111111111111',
+  email: 'target@example.com',
+  isSystem: false
+}
+
+test('DELETE /:userId: unrecognized 23503 constraint falls back to the generic pages/assets message', async () => {
+  deleteUserFixture = TARGET_USER
+  deleteUserError = new Error('violates foreign key constraint')
+  ;(deleteUserError as any).cause = { code: '23503', constraint: 'some_other_table_fkey' }
+  try {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/${TARGET_USER.id}`,
+      headers: { 'x-test-session': DELETE_ADMIN_SESSION }
+    })
+    assert.equal(res.statusCode, 409)
+    assert.match(res.json().message, /Cannot delete a user who still owns pages or assets/)
+  } finally {
+    deleteUserFixture = null
+    deleteUserError = null
+  }
+})
+
+test('DELETE /:userId: pages_authorId constraint names authored pages and advises reassigning', async () => {
+  deleteUserFixture = TARGET_USER
+  deleteUserError = new Error('violates foreign key constraint')
+  ;(deleteUserError as any).cause = { code: '23503', constraint: 'pages_authorId_users_id_fkey' }
+  try {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/${TARGET_USER.id}`,
+      headers: { 'x-test-session': DELETE_ADMIN_SESSION }
+    })
+    assert.equal(res.statusCode, 409)
+    assert.equal(
+      res.json().message,
+      'Cannot delete a user who still has authored pages. Reassign them first.'
+    )
+  } finally {
+    deleteUserFixture = null
+    deleteUserError = null
+  }
+})
+
+test('DELETE /:userId: pageEditSubmissions_authorId constraint names the open suggestion, no reassign advice', async () => {
+  deleteUserFixture = TARGET_USER
+  deleteUserError = new Error('violates foreign key constraint')
+  ;(deleteUserError as any).cause = {
+    code: '23503',
+    constraint: 'pageEditSubmissions_authorId_users_id_fkey'
+  }
+  try {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/${TARGET_USER.id}`,
+      headers: { 'x-test-session': DELETE_ADMIN_SESSION }
+    })
+    assert.equal(res.statusCode, 409)
+    assert.equal(
+      res.json().message,
+      'Cannot delete a user who still has an open page edit suggestion. Approve or reject it first.'
+    )
+  } finally {
+    deleteUserFixture = null
+    deleteUserError = null
   }
 })
 
