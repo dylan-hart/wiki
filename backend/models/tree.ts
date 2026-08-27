@@ -1301,10 +1301,6 @@ class Tree {
       siteId,
       tags,
       meta,
-      // -> Pages inherit their locale's site-wide navigation until something says otherwise. Resolved
-      //    to that menu's own row id -- never the site id, since the site-wide menu is locale-scoped
-      //    and identified by (siteId, locale) rather than by id.
-      navigationId: await WIKI.models.navigation.ensureSiteNav(siteId, locale),
       // -> A page's file name is its URL, chosen deliberately by whoever wrote it, so a clash is
       //    something to report rather than something to work around
       onConflict: 'error',
@@ -1449,7 +1445,6 @@ class Tree {
     siteId,
     tags,
     meta,
-    navigationId,
     onConflict,
     db = WIKI.db
   }: {
@@ -1463,7 +1458,6 @@ class Tree {
     siteId: string
     tags: string[]
     meta: Record<string, any>
-    navigationId?: string
     onConflict: 'error' | 'suffix'
     db?: WikiDbOrTx
   }): Promise<TreeRow> {
@@ -1479,6 +1473,12 @@ class Tree {
           })
         : null
     const path = folder ? childPathOf(folder) : ''
+
+    // -> A page inherits the nearest ancestor folder's override/hide menu, falling back to the
+    //    locale's site-wide menu when nothing above it says otherwise (`ancestorNavId`). An asset
+    //    has no sidebar of its own, so it gets no `navigationId` at all.
+    const navigationId =
+      type === 'page' ? await WIKI.models.navigation.ancestorNavId(siteId, locale, path) : null
 
     const name = await this.resolveName({ siteId, locale, path, type, fileName, onConflict, db })
     const fullPath = path ? `${decodeTreePath(path)}/${name}` : name
