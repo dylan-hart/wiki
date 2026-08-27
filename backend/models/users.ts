@@ -1442,11 +1442,15 @@ class Users {
   /**
    * Bulk-reassign every page and asset `fromUserId` authored to `toUserId`, in one transaction.
    *
-   * `pages.authorId`/`creatorId`/`ownerId` and `assets.authorId` are the only columns referencing
-   * `users.id` with no `onDelete` cascade or `set null` (see `db/schema.ts`), which is exactly why
-   * `deleteUser()` throws a foreign key violation for a user who authored, created, or owns any page,
-   * or authored any asset. This is the whole of what clears that violation: once no row names
-   * `fromUserId` in one of those columns, `deleteUser()` has nothing left to point at it.
+   * `pages.authorId`/`creatorId`/`ownerId` and `assets.authorId` are reassigned here, but they are
+   * NOT the only columns referencing `users.id` with no `onDelete` cascade or `set null` (see
+   * `db/schema.ts`) -- `pageEditSubmissions.authorId` has no `onDelete` either, and blocks
+   * `deleteUser()`'s foreign key check exactly the same way. This method does not touch it: an open
+   * page edit suggestion has no "reassign" remedy, only approve/reject (`models/approvals.ts`), so
+   * clearing it is a different operation, not a fourth column added to the two `UPDATE`s below.
+   * Reassigning what this method DOES cover clears deleteUser()'s foreign key violation for a user
+   * who authored, created, or owns any page, or authored any asset -- it does not by itself clear an
+   * open page edit suggestion still naming them as author.
    *
    * A single page can carry `fromUserId` in more than one of its three columns at once (e.g. as both
    * author and owner), so `pages` is updated with one statement that repoints only the columns that

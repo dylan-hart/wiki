@@ -19,6 +19,26 @@ interface UserUpdateBody {
 /** How large an avatar upload may be, before any resizing. */
 const avatarUploadLimit = 2 * 1024 * 1024
 
+/**
+ * What blocks `DELETE /:userId` on a `23503` foreign key violation, keyed by the Postgres constraint
+ * name (`db/schema.ts`'s `<table>_<column>_users_id_fkey` naming, confirmed against
+ * `db/migrations/*_main/snapshot.json`) -- so the 409 can name the actual relation rather than a
+ * hard-coded guess. `remedy` is only ever the reassign advice for the two constraints
+ * `WIKI.models.users.reassignContent()` actually clears; `pageEditSubmissions.authorId` has no
+ * reassign path (see that method's doc comment), so its remedy points at resolving the submission
+ * instead.
+ */
+const DELETE_USER_BLOCKING_RELATIONS: Record<string, { relation: string; remedy: string }> = {
+  pages_authorId_users_id_fkey: { relation: 'authored pages', remedy: 'Reassign them first.' },
+  pages_creatorId_users_id_fkey: { relation: 'created pages', remedy: 'Reassign them first.' },
+  pages_ownerId_users_id_fkey: { relation: 'owned pages', remedy: 'Reassign them first.' },
+  assets_authorId_users_id_fkey: { relation: 'authored assets', remedy: 'Reassign them first.' },
+  pageEditSubmissions_authorId_users_id_fkey: {
+    relation: 'an open page edit suggestion',
+    remedy: 'Approve or reject it first.'
+  }
+}
+
 /** A group's identity only -- no member count, no permissions. Shared by both halves of `GET /profile/groups`. */
 const GROUP_IDENTITY_SCHEMA = {
   type: 'object',
@@ -2548,11 +2568,17 @@ async function routes(app: FastifyInstance) {
         })
         return reply.code(204).send()
       } catch (err: any) {
-        // -> Pages and assets reference users without a cascade, so a user who authored content
-        //    cannot be removed. That is a conflict to report, not a server fault.
-        if (err.cause?.code === '23503' || err.code === '23503') {
+        // -> Several tables reference users without a cascade, so a user who still has a row in one
+        //    of them cannot be removed. That is a conflict to report, not a server fault -- and
+        //    Postgres names the specific constraint that tripped, so the reply can name the specific
+        //    relation instead of guessing at "pages or assets".
+        const pgErr = err.cause?.code ? err.cause : err
+        if (pgErr.code === '23503') {
+          const blocker = DELETE_USER_BLOCKING_RELATIONS[pgErr.constraint as string]
           return reply.conflict(
-            'Cannot delete a user who still owns pages or assets. Reassign them first.'
+            blocker
+              ? `Cannot delete a user who still has ${blocker.relation}. ${blocker.remedy}`
+              : 'Cannot delete a user who still owns pages or assets. Reassign them first.'
           )
         }
         WIKI.logger.warn(err)
