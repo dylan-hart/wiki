@@ -1,5 +1,5 @@
 <template>
-  <w-layout view="hHh lpR fFf" container>
+  <w-layout container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="img:/_assets/icons/fluent-people.svg" left size="md" />
       <div>
@@ -7,7 +7,7 @@
         <div class="text-caption">{{ state.group.name }}</div>
       </div>
       <w-space />
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
           push
           color="grey-6"
@@ -222,7 +222,6 @@
         <div class="p-4">
           <w-banner
             v-if="!state.group.rules || state.group.rules.length < 1"
-            rounded
             :class="dark.isActive ? `bg-negative text-white` : `bg-grey-4 text-grey-9`"
             >{{ t('admin.groups.rulesNone') }}</w-banner
           >
@@ -262,8 +261,7 @@
                       option-label="title"
                       options-dense
                       multiple
-                      use-chips
-                      stack-label>
+                      use-chips>
                       <template #selected-item="scope">
                         <w-chip
                           square
@@ -280,9 +278,6 @@
                             <w-toggle
                               :model-value="selected"
                               @update:model-value="toggleOption(opt)"
-                              color="primary"
-                              checked-icon="la:check"
-                              unchecked-icon="la:times"
                               :aria-label="opt.label" />
                           </w-item-section>
                           <!-- q-item-section(side, style='flex-basis: 150px;') -->
@@ -324,7 +319,6 @@
                         option-value="id"
                         option-label="title"
                         multiple
-                        behavior="dialog"
                         :display-value="
                           t(`admin.groups.selectedSites`, rule.sites.length, {
                             count: rule.sites.length
@@ -339,9 +333,6 @@
                               <w-toggle
                                 :model-value="selected"
                                 @update:model-value="toggleOption(opt)"
-                                color="primary"
-                                checked-icon="la:check"
-                                unchecked-icon="la:times"
                                 :aria-label="opt.label" />
                             </w-item-section>
                           </w-item>
@@ -359,7 +350,6 @@
                         option-value="code"
                         option-label="name"
                         multiple
-                        behavior="dialog"
                         :display-value="
                           t(
                             `admin.groups.selectedLocales`,
@@ -381,9 +371,6 @@
                               <w-toggle
                                 :model-value="selected"
                                 @update:model-value="toggleOption(opt)"
-                                color="primary"
-                                checked-icon="la:check"
-                                unchecked-icon="la:times"
                                 :aria-label="opt.name" />
                             </w-item-section>
                           </w-item>
@@ -431,7 +418,6 @@
                         option-value="id"
                         option-label="name"
                         multiple
-                        behavior="dialog"
                         :display-value="
                           t(
                             `admin.groups.selectedClassifications`,
@@ -448,9 +434,6 @@
                               <w-toggle
                                 :model-value="selected"
                                 @update:model-value="toggleOption(opt)"
-                                color="primary"
-                                checked-icon="la:check"
-                                unchecked-icon="la:times"
                                 :aria-label="opt.name" />
                             </w-item-section>
                           </w-item>
@@ -459,7 +442,6 @@
                       <w-input
                         v-else
                         class="mt-2"
-                        standout
                         v-model="rule.path"
                         dense
                         :prefix="[`START`, `REGEX`, `EXACT`].includes(rule.match) ? `/` : null"
@@ -507,9 +489,6 @@
                       <w-toggle
                         v-model="state.group.permissions"
                         :val="perm.permission"
-                        color="primary"
-                        checked-icon="la:check"
-                        unchecked-icon="la:times"
                         :disable="isSystemPermissionLocked(perm.permission)"
                         :aria-label="t(`admin.general.allowComments`)" />
                     </w-item-section>
@@ -563,7 +542,6 @@
         <div class="p-4">
           <w-banner
             v-if="!state.users || state.users.length < 1"
-            rounded
             :class="dark.isActive ? `bg-negative text-white` : `bg-grey-4 text-grey-9`"
             >{{ t('admin.groups.usersNone') }}</w-banner
           >

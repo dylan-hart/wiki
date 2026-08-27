@@ -1,5 +1,5 @@
 <template>
-  <w-layout class="page-history" view="hHh lpR fFf" container>
+  <w-layout class="page-history" container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="la:history" left size="md" />
       <span>{{ t('history.title') }}</span>
@@ -54,7 +54,7 @@
     <!-- TIMELINE -->
     <!-- ----------------------------------------------------- -->
     <w-drawer class="page-history-sidebar" :model-value="true" :width="380">
-      <w-scroll-area :thumb-style="thumb" :bar-style="bar" style="height: 100%">
+      <w-scroll-area style="height: 100%">
         <div class="page-history-timeline" v-if="state.versions.length > 0">
           <div
             class="page-history-item"

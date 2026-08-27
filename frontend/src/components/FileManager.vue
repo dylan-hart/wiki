@@ -1,5 +1,5 @@
 <template>
-  <w-layout class="fileman" view="hHh lpR lFr" container>
+  <w-layout class="fileman" container>
     <!--
       Three toolbars in one flex row, which below ~700px is more than fits: the row overflowed and took the
       last of them -- the one holding Close -- off the side of the screen, so on a phone the overlay could
@@ -7,11 +7,11 @@
       also why each of the three carries a name.
     -->
     <w-header class="card-header">
-      <w-toolbar class="fileman-hdr-title" dark>
+      <w-toolbar class="fileman-hdr-title">
         <w-icon name="img:/_assets/icons/fluent-folder.svg" left size="md" />
         <span>{{ t(`fileman.title`) }}</span>
       </w-toolbar>
-      <w-toolbar class="fileman-hdr-search" dark>
+      <w-toolbar class="fileman-hdr-search">
         <!--
           -> The CONTENT locale being browsed, not the UI language -- `commonStore.locale` /
              `<locale-selector-menu/>` switch that, and mounting it here read as "which locale's
@@ -33,13 +33,7 @@
           :label="state.locale"
           :aria-label="state.locale"
           style="height: 40px">
-          <w-menu
-            class="translucent-menu"
-            auto-close
-            transition-show="jump-down"
-            transition-hide="jump-up"
-            anchor="bottom left"
-            self="top left">
+          <w-menu class="translucent-menu" auto-close anchor="bottom left" self="top left">
             <w-card class="p-2">
               <w-list dense style="min-width: 180px">
                 <w-item
@@ -101,7 +95,7 @@
         -> No right margin on the last control: the toolbar's own 12px is already close to the 9-10px the
            header leaves above and below.
       -->
-      <w-toolbar class="fileman-hdr-actions" dark>
+      <w-toolbar class="fileman-hdr-actions">
         <w-space />
         <w-btn
           class="mr-2"
@@ -137,7 +131,7 @@
       Narrower while it overlays, so there is a comfortable width of scrim left to tap on.
     -->
     <w-drawer class="fileman-left" v-model="treeDrawerOpen" :width="isTreeOverlay ? 300 : 350">
-      <w-scroll-area :thumb-style="thumbStyle" :bar-style="barStyle" style="height: 100%">
+      <w-scroll-area style="height: 100%">
         <!--
           -> No side padding: the tree's rows run the full width of the drawer, so a hovered or
              selected row reads as a band across it rather than a floating pill. `pt-2` is the gap
@@ -157,7 +151,7 @@
       </w-scroll-area>
     </w-drawer>
     <w-drawer class="fileman-right" :model-value="detailsPaneShown" :width="350" side="right">
-      <w-scroll-area :thumb-style="thumbStyle" :bar-style="barStyle" style="height: 100%">
+      <w-scroll-area style="height: 100%">
         <div class="p-4">
           <template v-if="currentFileDetails">
             <img
@@ -252,11 +246,7 @@
               <w-tooltip anchor="bottom middle" self="top middle">{{
                 t(`fileman.viewOptions`)
               }}</w-tooltip>
-              <w-menu
-                transition-show="jump-down"
-                transition-hide="jump-up"
-                anchor="bottom right"
-                self="top right">
+              <w-menu anchor="bottom right" self="top right">
                 <w-card class="p-2">
                   <div class="text-center">
                     <small class="text-grey">{{ t(`fileman.viewOptions`) }}</small>
@@ -403,7 +393,7 @@
               <w-icon name="la:cloud-upload-alt" size="64px" />
               <span>{{ t('fileman.dropToUpload') }}</span>
             </div>
-            <w-scroll-area :thumb-style="thumbStyle" :bar-style="barStyle" style="height: 100%">
+            <w-scroll-area style="height: 100%">
               <div class="fileman-loadinglist" v-if="state.fileListLoading">
                 <w-spinner class="mr-2" color="primary" size="64px" />
                 <span class="text-primary">Fetching folder contents...</span>
@@ -432,13 +422,7 @@
                     <div class="text-caption">{{ item.side }}</div>
                   </w-item-section>
                   <!-- RIGHT-CLICK MENU -->
-                  <w-menu
-                    class="translucent-menu"
-                    touch-position
-                    context-menu
-                    auto-close
-                    transition-show="jump-down"
-                    transition-hide="jump-up">
+                  <w-menu class="translucent-menu" context-menu auto-close>
                     <w-card class="p-2">
                       <w-list dense style="min-width: 150px">
                         <w-item
@@ -701,19 +685,6 @@ watch(
     }
   }
 )
-
-const thumbStyle = {
-  right: '2px',
-  borderRadius: '5px',
-  backgroundColor: '#000',
-  width: '5px',
-  opacity: 0.15
-}
-const barStyle = {
-  backgroundColor: '#FAFAFA',
-  width: '9px',
-  opacity: 1
-}
 
 // REFS
 

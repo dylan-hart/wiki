@@ -13,7 +13,7 @@
       <w-item-section side><w-icon :name="item.icon" color="white" /></w-item-section>
       <w-item-section class="text-wordbreak-all text-white">{{ item.label }}</w-item-section>
     </template>
-    <w-list clickable dense dark>
+    <w-list dense dark>
       <!-- -> One nav item, plus its own expansion behavior if it has children -- rendered for each
               child so a folder nested any number of levels deep still draws its own contents,
               rather than only the first level under the sidebar root -->

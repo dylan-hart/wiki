@@ -14,11 +14,8 @@
       <!-- RIGHT-CLICK MENU -->
       <w-menu
         v-if="contextActionList.length > 0"
-        touch-position
         context-menu
         auto-close
-        transition-show="jump-down"
-        transition-hide="jump-up"
         @before-show="state.isContextMenuShown = true"
         @before-hide="state.isContextMenuShown = false">
         <w-card class="p-2">

@@ -282,12 +282,10 @@
                   rounded />
                 <w-circular-progress
                   v-else-if="props.row.state === `active`"
-                  indeterminate
                   size="sm"
                   :thickness="0.4"
                   color="blue"
-                  track-color="blue-1"
-                  center-color="blue-2" />
+                  track-color="blue-1" />
               </w-td>
             </template>
             <template v-slot:body-cell-task="props">

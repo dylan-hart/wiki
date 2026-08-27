@@ -1,6 +1,6 @@
 <template>
   <w-drawer class="bg-dark-6" :model-value="true" :width="295" dark>
-    <w-scroll-area class="nav-edit" :thumb-style="thumbStyle" :bar-style="barStyle">
+    <w-scroll-area class="nav-edit">
       <!--
         The `q-list q-list--dense q-list--dark` this carried were the old framework's classes and
         nothing defines them any more, which is why the rows had drifted to full height: the density
@@ -318,9 +318,6 @@
               <w-item-section avatar>
                 <w-toggle
                   v-model="state.current.expandByDefault"
-                  color="primary"
-                  checked-icon="la:check"
-                  unchecked-icon="la:times"
                   :aria-label="t(`navEdit.expandByDefault`)" />
               </w-item-section>
             </w-item>
@@ -370,9 +367,6 @@
               <w-item-section avatar>
                 <w-toggle
                   v-model="state.current.openInNewWindow"
-                  color="primary"
-                  checked-icon="la:check"
-                  unchecked-icon="la:times"
                   :aria-label="t(`navEdit.openInNewWindow`)" />
               </w-item-section>
             </w-item>
@@ -688,19 +682,6 @@ const sortableOptions = computed(() => ({
  * holds, per the edge case a single-locale, single-site instance is in by default.
  */
 const canCopyFrom = computed(() => state.copyLocales.length > 1 || state.copyOtherSites.length > 0)
-
-const thumbStyle = {
-  right: '2px',
-  borderRadius: '5px',
-  backgroundColor: '#FFF',
-  width: '5px',
-  opacity: 0.5
-}
-const barStyle = {
-  backgroundColor: '#000',
-  width: '9px',
-  opacity: 0.1
-}
 
 // METHODS
 

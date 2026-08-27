@@ -22,7 +22,6 @@
           style="flex: 1 0 auto" />
         <w-btn
           class="acrylic-btn"
-          dark
           icon="la:pen"
           :label="t(`common.actions.manage`)"
           unelevated
@@ -35,10 +34,7 @@
       <w-tab name="visual" label="Visual" />
       <w-tab name="code" label="YAML" />
     </w-tabs>
-    <w-scroll-area
-      :thumb-style="siteStore.thumbStyle"
-      :bar-style="siteStore.barStyle"
-      style="height: calc(100% - 50px - 75px - 48px)">
+    <w-scroll-area style="height: calc(100% - 50px - 75px - 48px)">
       <w-card-section v-if="state.mode === `visual`">
         <div class="gap-2">
           <w-input label="Attribute Text" dense outlined>
@@ -48,7 +44,7 @@
             <template v-slot:before><w-icon name="la:infinity" color="primary" /></template>
           </w-input>
           <div class="py-1">
-            <w-checkbox label="Attribute Boolean" color="primary" dense size="lg" />
+            <w-checkbox label="Attribute Boolean" color="primary" />
           </div>
         </div>
       </w-card-section>

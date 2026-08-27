@@ -117,7 +117,6 @@
       <div class="col-span-12 lg:col-span-4">
         <w-banner
           class="mb-4"
-          rounded
           :class="dark.isActive ? `bg-dark-4 text-white` : `bg-blue-1 text-dark`">
           {{ t('admin.classification.hint') }}
         </w-banner>

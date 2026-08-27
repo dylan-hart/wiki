@@ -26,9 +26,6 @@
           <w-circular-progress
             v-if="siteStore.searchIsLoading && route.path !== `/_search`"
             class="header-search-lead"
-            instant-feedback
-            indeterminate
-            rounded
             color="primary"
             size="18px" />
           <w-icon v-else class="header-search-lead" name="la:search" />
@@ -145,12 +142,7 @@
 
         <template v-if="state.previewLoading">
           <div class="searchpanel-header searchpanel-status">
-            <w-circular-progress
-              instant-feedback
-              indeterminate
-              rounded
-              color="primary"
-              size="16px" />
+            <w-circular-progress color="primary" size="16px" />
             <span>{{ t('common.header.searchLoading') }}</span>
           </div>
         </template>

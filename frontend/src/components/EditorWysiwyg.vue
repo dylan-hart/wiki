@@ -12,7 +12,6 @@
           :class="{ 'is-active': menuItem.isActive && menuItem.isActive() }"
           :color="menuItem.isActive && menuItem.isActive() ? `primary` : `grey-10`"
           :aria-label="menuItem.title"
-          split
           :disabled="menuItem.disabled && menuItem.disabled()">
           <w-menu>
             <w-list dense padding>
@@ -37,7 +36,7 @@
             </w-list>
           </w-menu>
         </w-btn>
-        <w-btn-group v-else-if="menuItem.type === `btngroup`" :key="`btngrp-` + menuItem.key" flat>
+        <w-btn-group v-else-if="menuItem.type === `btngroup`" :key="`btngrp-` + menuItem.key">
           <w-btn
             v-for="child of menuItem.children"
             :key="child.key"

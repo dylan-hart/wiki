@@ -1,5 +1,5 @@
 <template>
-  <w-layout view="hHh lpR fFf" container>
+  <w-layout container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="img:/_assets/icons/fluent-account.svg" left size="md" />
       <div>
@@ -7,7 +7,7 @@
         <div class="text-caption">{{ state.user.name }}</div>
       </div>
       <w-space />
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
           push
           color="grey-6"
@@ -314,7 +314,6 @@
                     v-model="state.user.meta.notes"
                     type="textarea"
                     :aria-label="t(`admin.users.notes`)"
-                    input-style="min-height: 243px"
                     :hint="t(`admin.users.noteHint`)" />
                 </w-card-section>
               </w-card>
@@ -366,9 +365,6 @@
                   <w-item-section avatar>
                     <w-toggle
                       v-model="localAuth.mustChangePwd"
-                      color="primary"
-                      checked-icon="la:check"
-                      unchecked-icon="la:times"
                       :aria-label="t(`admin.users.mustChangePwd`)" />
                   </w-item-section>
                 </w-item>
@@ -382,9 +378,6 @@
                   <w-item-section avatar>
                     <w-toggle
                       v-model="localAuth.restrictLogin"
-                      color="primary"
-                      checked-icon="la:check"
-                      unchecked-icon="la:times"
                       :aria-label="t(`admin.users.pwdAuthRestrict`)" />
                   </w-item-section>
                 </w-item>
@@ -400,9 +393,6 @@
                   <w-item-section avatar>
                     <w-toggle
                       v-model="localAuth.isTfaRequired"
-                      color="primary"
-                      checked-icon="la:check"
-                      unchecked-icon="la:times"
                       :aria-label="t(`admin.users.tfaRequired`)" />
                   </w-item-section>
                 </w-item>
@@ -435,7 +425,6 @@
                 <w-card-section class="pt-0">
                   <w-banner
                     v-if="state.passkeys.length < 1"
-                    rounded
                     :class="dark.isActive ? `bg-negative text-white` : `bg-grey-2 text-grey-7`"
                     >{{ t('admin.users.passkeysEmpty') }}</w-banner
                   >
@@ -473,7 +462,6 @@
                 <w-card-header>{{ t('admin.users.linkedProviders') }}</w-card-header>
                 <w-card-section v-if="linkedAuthProviders.length < 1" class="pt-0">
                   <w-banner
-                    rounded
                     :class="dark.isActive ? `bg-negative text-white` : `bg-grey-2 text-grey-7`"
                     >{{ t('admin.users.noLinkedProviders') }}</w-banner
                   >

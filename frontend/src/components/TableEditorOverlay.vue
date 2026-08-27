@@ -1,5 +1,5 @@
 <template>
-  <w-layout class="table-editor" view="hHh lpR fFf" container>
+  <w-layout class="table-editor" container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="img:/_assets/icons/color-data-grid.svg" left size="md" />
       <span>{{ t(`editor.tableEditor.title`) }}</span>
@@ -14,7 +14,7 @@
         :href="siteStore.docsBase + `/guide/table-editor`"
         target="_blank"
         type="a" />
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
           push
           color="white"
