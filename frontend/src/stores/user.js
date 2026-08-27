@@ -210,22 +210,32 @@ export const useUserStore = defineStore('user', {
       }
       return false
     },
+    /**
+     * Which page-scoped permissions the caller holds AT `path` — what gates edit/create/etc.
+     * controls for the currently-viewed page. See `userStore.pagePermissions` usage in `App.vue`
+     * (refreshed per route) and `Index.vue`'s `canCreatePage`.
+     *
+     * Clears first, synchronously, rather than only on success: while a fetch for a NEW path is in
+     * flight, `pagePermissions` reads as denied in the meantime — the safe direction for a
+     * permission check to be wrong in, unlike serving the PREVIOUS path's answer while this one is
+     * still loading would be. Mirrors the hardened `fetchSitePermissions` above.
+     */
     async fetchPagePermissions(path, locale) {
+      this.pagePermissions = []
       if (path.startsWith('/_')) {
-        this.pagePermissions = []
         return
       }
       const siteStore = useSiteStore()
       try {
-        this.pagePermissions = await API_CLIENT.post(
-          `sites/${siteStore.id}/pages/userPermissions`,
-          {
-            json: {
-              path,
-              ...(locale ? { locale } : {})
-            }
+        const permissions = await API_CLIENT.post(`sites/${siteStore.id}/pages/userPermissions`, {
+          json: {
+            path,
+            ...(locale ? { locale } : {})
           }
-        ).json()
+        }).json()
+        // -> Guards `.includes()` against a malformed/empty response the same way an absent one is
+        //    already guarded against above.
+        this.pagePermissions = Array.isArray(permissions) ? permissions : []
       } catch (err) {
         console.warn(`Failed to fetch page permissions at path ${path}!`)
       }

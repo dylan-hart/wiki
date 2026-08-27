@@ -145,6 +145,43 @@ describe('user store: fetchPagePermissions() (bug #949, task 995)', () => {
     expect(API_CLIENT.post).not.toHaveBeenCalled()
     expect(store.pagePermissions).toEqual([])
   })
+
+  it('clears rather than throws when the request fails', async () => {
+    const store = useUserStore()
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    store.pagePermissions = ['write:pages']
+    API_CLIENT.post.mockImplementationOnce(() => {
+      throw new Error('network down')
+    })
+
+    await store.fetchPagePermissions('some/page')
+
+    expect(store.pagePermissions).toEqual([])
+  })
+
+  it('fails closed while a fetch for a new path is still in flight', async () => {
+    const store = useUserStore()
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve(['write:pages']) })
+    await store.fetchPagePermissions('some/page')
+    expect(store.pagePermissions).toEqual(['write:pages'])
+
+    // -> A fetch for a different path starts, and has not resolved yet
+    let resolveFetch
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => new Promise((resolve) => (resolveFetch = resolve))
+    })
+    const pending = store.fetchPagePermissions('other/page')
+
+    // -> Already cleared synchronously, before the response has arrived
+    expect(store.pagePermissions).toEqual([])
+
+    resolveFetch(['read:pages'])
+    await pending
+    expect(store.pagePermissions).toEqual(['read:pages'])
+  })
 })
 
 describe('user store: applyProfile() / setToGuest()', () => {
