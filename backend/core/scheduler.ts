@@ -681,10 +681,10 @@ export default {
 
         if (jobLock.rowCount > 0) {
           WIKI.logger.info('Scheduling future planned jobs...')
-          const scheduledJobs = await WIKI.db.select().from(jobScheduleTable)
+          const scheduledJobs = await trx.select().from(jobScheduleTable)
           if (scheduledJobs?.length > 0) {
             // -> Get existing scheduled jobs
-            const existingJobs = await WIKI.db
+            const existingJobs = await trx
               .select()
               .from(jobsTable)
               .where(eq(jobsTable.isScheduled, true))
@@ -719,15 +719,21 @@ export default {
                         j.waitUntil.getTime() === next.getTime()
                     )
                   ) {
-                    this.addJob({
+                    // -> `addJob` swallows its own errors and returns `undefined` on failure (logging
+                    //    its own warning), so awaiting it here and only counting a returned `id` is
+                    //    what keeps this loop's "N scheduled" log reporting actual outcomes rather than
+                    //    intent (OpenProject #1998) -- an insert that never lands must not be counted.
+                    const added = await this.addJob({
                       task: job.task,
                       payload: job.payload,
                       isScheduled: true,
                       waitUntil: new Date(next.getTime()),
                       notify: false
                     })
-                    addedFutureJobs++
-                    totalAdded++
+                    if (added?.id) {
+                      addedFutureJobs++
+                      totalAdded++
+                    }
                   }
                   // -> No more iterations for this period or max iterations count reached
                   if (!plannedIterations.hasNext() || addedFutureJobs >= 10) {

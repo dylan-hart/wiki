@@ -74,8 +74,27 @@ describe('addScheduled (fake WIKI)', () => {
   let existingJobsMock: any[]
   let previousWiki: any
 
+  // -> Set per-test (default: always succeeds) so the failing-insert test below can make every
+  //    `addJob` insert reject without touching the rest of the fixture.
+  let insertShouldFail: boolean
+
   before(() => {
     previousWiki = (globalThis as any).WIKI
+    // -> Shared by both `db.select` and `trx.select` below: OpenProject #1998 requires
+    //    `addScheduled()` to read `scheduledJobs`/`existingJobs` through its own transaction (`trx`),
+    //    not the ambient `WIKI.db` handle, so the fake `trx` handed to the `transaction()` callback
+    //    must expose `select()` too, not just `update().set().where()`.
+    const selectImpl = () => ({
+      from: (table: any) => {
+        if (table === jobScheduleTable) {
+          return scheduleJobsMock
+        }
+        if (table === jobsTable) {
+          return { where: async () => existingJobsMock }
+        }
+        throw new Error(`Unexpected table in test fake: ${String(table)}`)
+      }
+    })
     ;(globalThis as any).WIKI = {
       INSTANCE_ID: 'test-instance',
       config: { scheduler: { maxRetries: 3 } },
@@ -87,21 +106,15 @@ describe('addScheduled (fake WIKI)', () => {
               set: () => ({
                 where: async () => ({ rowCount: 1 })
               })
-            })
+            }),
+            select: selectImpl
           }),
-        select: () => ({
-          from: (table: any) => {
-            if (table === jobScheduleTable) {
-              return scheduleJobsMock
-            }
-            if (table === jobsTable) {
-              return { where: async () => existingJobsMock }
-            }
-            throw new Error(`Unexpected table in test fake: ${String(table)}`)
-          }
-        }),
+        select: selectImpl,
         insert: (_table: any) => ({
           values: async (v: any) => {
+            if (insertShouldFail) {
+              throw new Error('simulated insert failure')
+            }
             insertedJobs.push(v)
             return {}
           }
@@ -119,6 +132,7 @@ describe('addScheduled (fake WIKI)', () => {
 
   beforeEach(() => {
     insertedJobs = []
+    insertShouldFail = false
   })
 
   test('schedules future jobs from a cron even when a job is already scheduled for that task', async () => {
@@ -232,6 +246,24 @@ describe('addScheduled (fake WIKI)', () => {
       assert.equal(job.task, 'testTask')
       assert.ok(job.waitUntil instanceof Date)
     }
+  })
+
+  // -> OpenProject #1998: pre-fix, `addScheduled()` fired `this.addJob(...)` without awaiting it, so
+  //    `addedFutureJobs`/`totalAdded` were incremented from the call itself rather than its outcome --
+  //    a run whose inserts all failed (`addJob` swallows its own errors and returns `undefined`) still
+  //    logged "Scheduled N new future planned jobs". Awaiting each call and counting only a returned
+  //    `id` means a total insert failure must report zero added rows.
+  test('reports zero jobs added when every addJob insert fails', async () => {
+    // -> Hourly rather than minutely: keeps the failing-insert loop's iteration count small (it can no
+    //    longer stop early via the 10-addition cap, since nothing ever succeeds) while still covering
+    //    more than one due iteration in the ~24h05m window.
+    scheduleJobsMock = [{ task: 'testTask', cron: '0 * * * *', payload: {} }]
+    existingJobsMock = []
+    insertShouldFail = true
+
+    await scheduler.addScheduled()
+
+    assert.equal(insertedJobs.length, 0, 'no row should have been inserted')
   })
 })
 
