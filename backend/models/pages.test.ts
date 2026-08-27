@@ -91,6 +91,27 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     )
   })
 
+  /**
+   * `pages.classification` carries no column default (OpenProject #1705) -- the one-time backfill
+   * that justified defaulting to the fixed `classificationPublicId` system row has already run, and
+   * a bare column default would otherwise keep naming that row even after an administrator deletes
+   * it. An insert that omits it entirely must therefore fail loudly (a NOT NULL violation) rather
+   * than silently default to a level that may no longer exist. `as any` bypasses the compile-time
+   * protection the same change gives real callers (`.values()` now requires `classification`), since
+   * this test's whole point is proving the database itself refuses a row without one.
+   */
+  test('an insert omitting classification is rejected, not silently defaulted', async () => {
+    const { classification: _omitted, ...rowWithoutClassification } = rawPageRow({
+      path: 'unique/no-classification',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    await assert.rejects(
+      fixtures.db.insert(pagesTable).values(rowWithoutClassification as any),
+      (err: any) => (err.cause?.code ?? err.code) === '23502'
+    )
+  })
+
   test('the same path in two locales coexists', async () => {
     await pagesModel.createPage(
       fixtures.siteId,

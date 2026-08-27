@@ -7,6 +7,7 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 import {
   assets as assetsTable,
   authentication as authenticationTable,
+  pageEditSubmissions as pageEditSubmissionsTable,
   pages as pagesTable,
   userKeys,
   users as usersTable
@@ -1644,5 +1645,75 @@ describe('users.reassignContent (DB-backed)', { skip: !hasTestDatabase() }, () =
     const result = await usersModel.reassignContent(freshUser!.id, targetUserId)
 
     assert.deepEqual(result, { pagesReassigned: 0, assetsReassigned: 0 })
+  })
+})
+
+describe('users.deleteUser (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let usersModel: typeof import('./users.ts').users
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ users: usersModel } = await import('./users.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  /**
+   * `pageEditSubmissions.authorId` cascades on delete (see `db/schema.ts`) -- a pending suggestion
+   * has no meaning once its author is gone. Before that cascade existed, this delete failed with a
+   * foreign key violation that `api/users.ts` mapped to "Cannot delete a user who still owns pages
+   * or assets" -- wrong here, since `reassignContent` never touches submissions.
+   */
+  test('deleting a user with an open page edit submission succeeds and removes the submission', async () => {
+    const [page] = await fixtures.db
+      .insert(pagesTable)
+      .values({
+        locale: 'en',
+        path: 'delete-user/has-submission',
+        hash: 'delete-user-submission-hash',
+        title: 'Has A Submission',
+        editor: 'markdown',
+        contentType: 'markdown',
+        authorId: fixtures.userId,
+        creatorId: fixtures.userId,
+        ownerId: fixtures.userId,
+        siteId: fixtures.siteId,
+        classification: fixtures.classificationId
+      })
+      .returning()
+
+    const [submitter] = await fixtures.db
+      .insert(usersTable)
+      .values({
+        email: 'submitter@example.com',
+        name: 'Submitter',
+        isActive: true,
+        isVerified: true
+      })
+      .returning({ id: usersTable.id })
+
+    const [submission] = await fixtures.db
+      .insert(pageEditSubmissionsTable)
+      .values({
+        content: '# Suggested edit',
+        patch: '--- a\n+++ b\n',
+        baseHash: 'base-hash',
+        pageId: page!.id,
+        siteId: fixtures.siteId,
+        authorId: submitter!.id
+      })
+      .returning({ id: pageEditSubmissionsTable.id })
+
+    const deleted = await usersModel.deleteUser(submitter!.id)
+    assert.equal(deleted, true)
+
+    const remaining = await fixtures.db
+      .select()
+      .from(pageEditSubmissionsTable)
+      .where(eq(pageEditSubmissionsTable.id, submission!.id))
+    assert.equal(remaining.length, 0)
   })
 })
