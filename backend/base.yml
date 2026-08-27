@@ -40,6 +40,12 @@ defaults:
       # Iconify API the wiki fetches icons from the first time they are used. Point this at a
       # self-hosted Iconify API to keep icon lookups inside your network.
       apiUrl: 'https://api.iconify.design'
+    rendering:
+      # Every headless Chromium launch (page re-render, PDF export, diagram render) is sandboxed by
+      # default. Only set this to true if the host cannot start Chromium's own sandbox (no setuid
+      # sandbox helper, no unprivileged user namespaces) -- see docs/variances.md before enabling it,
+      # since it disables a real security boundary rather than working around a cosmetic error.
+      puppeteerNoSandbox: false
     files:
       # How much of <dataPath>/cache/files the served copies of uploaded files may take up, in bytes.
       # Trimmed back oldest-first once it is exceeded. Set to 0 to serve every request from the
