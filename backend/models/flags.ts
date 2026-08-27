@@ -10,8 +10,13 @@ export const FLAGS = {
   experimental: 'Unfinished features are offered in the interface.',
   /** Consumed by `models/users.ts` and `api/authentication.ts` via `authDebug()` below. */
   authDebug: 'Login and account creation attempts are logged in detail.',
-  /** Consumed by the query logger in `core/db.ts`. */
-  sqlLog: 'Every database query is logged.'
+  /**
+   * Consumed by the query logger in `core/db.ts`. Bound parameter values are redacted there — only
+   * each one's type/length is logged — because a bound parameter can carry a credential (the API
+   * signing key and its passphrase, the session secret, SMTP/LDAP/OAuth secrets, ...). See #2205.
+   */
+  sqlLog:
+    'Every database query is logged, including the type and length of each bound parameter (never its value) — bound parameters can include credentials such as the API signing key, its passphrase, or the session secret, so enable only when needed.'
 } as const
 
 export type Flag = keyof typeof FLAGS

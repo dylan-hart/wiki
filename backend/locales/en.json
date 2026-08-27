@@ -467,7 +467,7 @@
   "admin.flags.saveFailed": "Failed to save system flags.",
   "admin.flags.saveSuccess": "Flags have been updated successfully.",
   "admin.flags.serverLogNotice": "Auth Debug and SQL Query Logging take effect immediately and write to the server log.",
-  "admin.flags.sqlLog.hint": "Log all queries made to the database to console.",
+  "admin.flags.sqlLog.hint": "Logs all queries made to the database to console, including the type and length of each bound parameter (never its value) — bound parameters can include credentials such as the API signing key, its passphrase, or the session secret, so enable only when needed.",
   "admin.flags.sqlLog.label": "SQL Query Logging",
   "admin.flags.subtitle": "Low-level system flags for debugging or experimental purposes",
   "admin.flags.title": "Flags",
