@@ -12,7 +12,6 @@
         dense
         options-dense
         :label="fieldLabel(field)"
-        :aria-label="fieldLabel(field)"
         :required="field.required"
         :hint="fieldHint(field)" />
       <w-toggle
@@ -27,7 +26,6 @@
         dense
         :type="field.type === `number` ? `number` : `text`"
         :label="fieldLabel(field)"
-        :aria-label="fieldLabel(field)"
         :required="field.required"
         :hint="fieldHint(field)" />
     </template>

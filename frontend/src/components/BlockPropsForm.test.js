@@ -57,8 +57,10 @@ describe('BlockPropsForm', () => {
     // -> The raw hint does not: it was replaced, not merely supplemented
     expect(wrapper.text()).not.toContain('The raw hint.')
 
-    // -> aria-label falls through onto WInput's root element the same way the raw string used to
-    expect(wrapper.find('.w-input').attributes('aria-label')).toBe('Localized Server')
+    // -> The localized label is a real <label for> associated with the field, not just visible text
+    const label = wrapper.find('label')
+    expect(label.attributes('for')).toBe(wrapper.find('input').attributes('id'))
+    expect(label.text()).toContain('Localized Server')
   })
 
   it("falls back to the definition's raw string when the key does not resolve", () => {
@@ -68,12 +70,12 @@ describe('BlockPropsForm', () => {
     expect(wrapper.text()).not.toContain('blocks.kroki.props.server.label')
     expect(wrapper.text()).toContain('Server')
     expect(wrapper.text()).toContain('The raw hint.')
-    expect(wrapper.find('.w-input').attributes('aria-label')).toBe('Server')
+    expect(wrapper.find('label').text()).toContain('Server')
   })
 
   it('falls back to the raw string when no tag is given at all', () => {
     const wrapper = mountForm({ props: { tag: null } })
 
-    expect(wrapper.find('.w-input').attributes('aria-label')).toBe('Server')
+    expect(wrapper.find('label').text()).toContain('Server')
   })
 })
