@@ -1,4 +1,4 @@
-import { test, before } from 'node:test'
+import { test, before, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { assets } from './assets.ts'
 import type { StorageTarget } from './storage.ts'
@@ -397,4 +397,174 @@ test('readContent returns null when the asset row is gone, whichever path was ta
   stubStorage({ targets: [target] })
   stubDb(undefined)
   assert.equal(await assets.readContent(testAsset, 'site-1'), null)
+})
+
+// ---------------------------------------------------------------------------------------------
+// upload() / renameAsset() / deleteAsset() — hooks.emit and storage.dispatch are awaited, not
+// detached (OpenProject #1697)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * A `WIKI.db`-shaped stub sufficient for the tests below: every `select(...)` chain terminates at
+ * `.limit()` with a fixed asset row (what `getAsset()` reads), and every `update()`/`delete()`/
+ * `insert()` chain resolves to itself — none of the four methods under test reads back an
+ * update/delete/insert result, only whether the row-mutating call was awaited in sequence.
+ */
+function makeAssetsDbStub(assetRow: unknown) {
+  const chain: any = {
+    from: () => chain,
+    innerJoin: () => chain,
+    where: () => chain,
+    set: () => chain,
+    values: () => chain,
+    limit: () => Promise.resolve([assetRow])
+  }
+  return {
+    select: () => chain,
+    update: () => chain,
+    delete: () => chain,
+    insert: () => chain
+  }
+}
+
+/**
+ * A `hooks.emit`/`storage.dispatch`-shaped mock that only resolves after a real tick
+ * (`setImmediate`), and records into `order` when it does. If the method under test only fired the
+ * call without awaiting it, the method's own promise would resolve — and the assertion below would
+ * run — before this mock's `order` push ever happens.
+ */
+function delayedDispatchMock(order: string[], label: string) {
+  return mock.fn(async () => {
+    await new Promise((resolve) => setImmediate(resolve))
+    order.push(label)
+  })
+}
+
+/** Minimal filesystem-adjacent `WIKI` bits `dropCachedContent()` needs — a cache dir that never
+ *  exists, so its `fs.readdir` throws ENOENT and is silently caught, same as a fresh instance. */
+const cacheFsStubs = {
+  ROOTPATH: '/tmp',
+  config: { dataPath: 'wiki-assets-test-no-such-cache-dir' }
+}
+
+test('upload (new file) awaits both asset:upload hooks.emit and storage.dispatch before resolving', async () => {
+  const order: string[] = []
+  global.WIKI = {
+    ...global.WIKI,
+    ...cacheFsStubs,
+    sites: { 'site-1': { config: { uploads: { conflictBehavior: 'new' } } } },
+    db: makeAssetsDbStub(undefined),
+    models: {
+      ...(global.WIKI as any).models,
+      tree: {
+        addAsset: async () => ({
+          id: 'asset-1',
+          fileName: 'test.txt',
+          folderPath: '',
+          title: 'test.txt',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        })
+      },
+      hooks: { emit: delayedDispatchMock(order, 'hooks') },
+      storage: { dispatch: delayedDispatchMock(order, 'storage') }
+    }
+  } as unknown as WikiGlobal
+
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'test.txt',
+    mimeType: 'text/plain',
+    data: Buffer.from('hello'),
+    authorId: 'user-1'
+  })
+
+  assert.deepEqual(order.sort(), ['hooks', 'storage'])
+  assert.equal((global.WIKI as any).models.hooks.emit.mock.callCount(), 1)
+  assert.equal((global.WIKI as any).models.storage.dispatch.mock.callCount(), 1)
+})
+
+test('upload (overwrite of an existing asset) awaits both asset:edit hooks.emit and storage.dispatch before resolving', async () => {
+  const order: string[] = []
+  global.WIKI = {
+    ...global.WIKI,
+    ...cacheFsStubs,
+    sites: { 'site-1': { config: { uploads: { conflictBehavior: 'overwrite' } } } },
+    db: makeAssetsDbStub(undefined),
+    models: {
+      ...(global.WIKI as any).models,
+      tree: {
+        getEntryAt: async () => ({
+          type: 'asset',
+          id: 'asset-1',
+          fileName: 'test.txt',
+          folderPath: '',
+          title: 'test.txt'
+        }),
+        addAsset: async () => {
+          throw new Error('should not have been called: addAsset (an occupant exists)')
+        }
+      },
+      hooks: { emit: delayedDispatchMock(order, 'hooks') },
+      storage: { dispatch: delayedDispatchMock(order, 'storage') }
+    }
+  } as unknown as WikiGlobal
+
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'test.txt',
+    mimeType: 'text/plain',
+    data: Buffer.from('hello'),
+    authorId: 'user-1'
+  })
+
+  assert.deepEqual(order.sort(), ['hooks', 'storage'])
+  assert.equal((global.WIKI as any).models.hooks.emit.mock.callCount(), 1)
+  assert.equal((global.WIKI as any).models.storage.dispatch.mock.callCount(), 1)
+})
+
+test('renameAsset awaits both asset:rename hooks.emit and storage.dispatch before resolving', async () => {
+  const order: string[] = []
+  global.WIKI = {
+    ...global.WIKI,
+    ...cacheFsStubs,
+    db: makeAssetsDbStub({ ...testAsset, mimeType: 'image/png' }),
+    models: {
+      ...(global.WIKI as any).models,
+      tree: { renameEntry: async () => undefined },
+      hooks: { emit: delayedDispatchMock(order, 'hooks') },
+      storage: { dispatch: delayedDispatchMock(order, 'storage') }
+    }
+  } as unknown as WikiGlobal
+
+  const result = await assets.renameAsset('site-1', 'asset-1', 'y.png')
+
+  assert.ok(result)
+  assert.deepEqual(order.sort(), ['hooks', 'storage'])
+  assert.equal((global.WIKI as any).models.hooks.emit.mock.callCount(), 1)
+  assert.equal((global.WIKI as any).models.storage.dispatch.mock.callCount(), 1)
+})
+
+test('deleteAsset awaits both asset:delete hooks.emit and storage.dispatch before resolving', async () => {
+  const order: string[] = []
+  global.WIKI = {
+    ...global.WIKI,
+    ...cacheFsStubs,
+    db: makeAssetsDbStub({ ...testAsset, mimeType: 'image/png' }),
+    models: {
+      ...(global.WIKI as any).models,
+      tree: { deleteEntry: async () => undefined },
+      hooks: { emit: delayedDispatchMock(order, 'hooks') },
+      storage: { dispatch: delayedDispatchMock(order, 'storage') }
+    }
+  } as unknown as WikiGlobal
+
+  const result = await assets.deleteAsset('site-1', 'asset-1')
+
+  assert.equal(result, true)
+  assert.deepEqual(order.sort(), ['hooks', 'storage'])
+  assert.equal((global.WIKI as any).models.hooks.emit.mock.callCount(), 1)
+  assert.equal((global.WIKI as any).models.storage.dispatch.mock.callCount(), 1)
 })
