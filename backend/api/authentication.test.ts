@@ -595,3 +595,77 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
     assert.equal(res.json().message, 'ERR_RESET_PASSWORD_FAILED')
   })
 })
+
+/**
+ * Task #1680: `GET /sites/:siteId/auth/strategies` used to answer `reply.badRequest('Invalid Site
+ * ID')` (400) for an unknown siteId — the only occurrence of that message in the backend, and out of
+ * step with every other site-scoped route's 404 for the same condition. Fixed to `reply.notFound()`.
+ */
+describe('GET /sites/:siteId/auth/strategies', () => {
+  let app: FastifyInstance
+  const KNOWN_SITE_ID = '33333333-3333-3333-3333-333333333333'
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      models: {
+        sites: {
+          getSiteById: async ({ id }: { id: string }) =>
+            id === KNOWN_SITE_ID ? { id: KNOWN_SITE_ID, config: { authStrategies: [] } } : null
+        },
+        authentication: {
+          getActiveStrategies: async () => []
+        }
+      },
+      data: {
+        authentication: []
+      }
+    }
+
+    app = fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()` is a thrown
+    //    `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that shapes it
+    //    into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
+    app.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerErrorSchema(app)
+    await registerAuthSchema(app)
+    await app.register(authenticationRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('answers 404, not 400, for an unknown siteId', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/sites/00000000-0000-0000-0000-000000000000/auth/strategies'
+    })
+
+    assert.equal(res.statusCode, 404)
+    assert.equal(res.json().message, 'Site does not exist.')
+  })
+
+  test('a known siteId lists its (empty) strategies', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${KNOWN_SITE_ID}/auth/strategies`
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), [])
+  })
+})
