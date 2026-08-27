@@ -1,6 +1,6 @@
-import { after, before, beforeEach, describe, mock, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import {
   hasTestDatabase,
   seedLocale,
@@ -9,9 +9,10 @@ import {
   teardownTestDb,
   type TestFixtures
 } from '../test/db.ts'
-import { generatePathHash } from '../helpers/common.ts'
+import { CustomError, generatePathHash } from '../helpers/common.ts'
 import { groups as groupsTable } from '../db/schema.ts'
 import {
+  pageRenderQueue as pageRenderQueueTable,
   pages as pagesTable,
   pageWatchEvents as pageWatchEventsTable,
   users as usersTable
@@ -30,6 +31,13 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   let fixtures: TestFixtures
   let pagesModel: typeof import('./pages.ts').pages
   let actor: PageActor
+  // -> A single wrap for the whole describe block, its implementation swapped per-test via
+  //    `.mock.mockImplementation()` rather than re-mocking with `mock.method()` again: node:test's
+  //    `mock.restoreAll()` unwinds nested `mock.method()` wraps back to whatever the PREVIOUS wrap's
+  //    "original" was, not all the way to the true original, when a target is re-mocked more than
+  //    once without an intermediate `.mock.restore()` -- one wrap kept alive for the whole block and
+  //    reconfigured in place is what makes `after()`'s `restoreAll()` land back on the real thing.
+  let ensureCanRenderMock: ReturnType<typeof mock.method>
 
   before(async () => {
     fixtures = await setupTestDb()
@@ -40,9 +48,16 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     await seedLocale(fixtures.db, { code: 'fr' })
     ;({ pages: pagesModel } = await import('./pages.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    // -> Puppeteer is never installed in this test environment, so a real `ensureCanRender()` would
+    //    refuse every renderless create/update below -- and almost none of these SQL-orchestration
+    //    tests supply a `render`. Stubbed to succeed here; the refusal itself, and the queued
+    //    rerender it unlocks, get their own dedicated tests further down with a narrower override
+    //    (OpenProject #1716).
+    ensureCanRenderMock = mock.method(WIKI.models.rendering, 'ensureCanRender', async () => {})
   })
 
   after(async () => {
+    mock.restoreAll()
     await teardownTestDb()
   })
 
@@ -1348,6 +1363,184 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     }
   })
 
+  /**
+   * OpenProject #1716: `createPage()`/`updatePage()` used to leave `render`/`toc`/`searchContent`/
+   * `links` untouched (update) or blank forever (create) for a write that carried `content` with no
+   * `render` — no refusal, and no path back to a correct render short of a human re-saving the page
+   * in the browser. This locks down the fold-in: `ensureCanRender()` consulted, and refused up front
+   * rather than after, when it fails; a queued rerender job left behind when it succeeds, with
+   * `render`/`toc`/`searchContent`/`links` blanked in the meantime rather than left pointing at
+   * content that no longer exists.
+   */
+  describe('render-less create/update leave a queued rerender job (OpenProject #1716)', () => {
+    afterEach(() => {
+      // -> Restore the describe-wide success stub (installed in `before()` above) after a test below
+      //    narrows or replaces it -- must not leak into the next test, same discipline the
+      //    watch-notification describe block's own `beforeEach` documents for `mail`. Reconfigures the
+      //    single shared wrap in place (see its own declaration comment) rather than re-mocking.
+      ensureCanRenderMock.mock.mockImplementation(async () => {})
+    })
+
+    test('createPage() with no render consults ensureCanRender (before the write) and leaves a queued rerender job', async () => {
+      const calls: string[] = []
+      ensureCanRenderMock.mock.mockImplementation(async (editor: string) => {
+        calls.push(editor)
+      })
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/render-less-create' }),
+        actor
+      )
+
+      assert.deepEqual(calls, ['markdown'])
+
+      const queued = await fixtures.db
+        .select()
+        .from(pageRenderQueueTable)
+        .where(eq(pageRenderQueueTable.pageId, page.id))
+      assert.equal(queued.length, 1)
+    })
+
+    test('createPage() refuses up front when ensureCanRender fails, and writes no page row', async () => {
+      ensureCanRenderMock.mock.mockImplementation(async () => {
+        throw new CustomError('renderPuppeteerMissing', 'Rendering needs Puppeteer.', 503)
+      })
+
+      await assert.rejects(
+        pagesModel.createPage(
+          fixtures.siteId,
+          pageInput({ path: 'docs/render-less-create-refused' }),
+          actor
+        ),
+        /renderPuppeteerMissing/
+      )
+
+      const rows = await fixtures.db
+        .select({ id: pagesTable.id })
+        .from(pagesTable)
+        .where(
+          and(
+            eq(pagesTable.siteId, fixtures.siteId),
+            eq(pagesTable.locale, 'en'),
+            eq(pagesTable.path, 'docs/render-less-create-refused')
+          )
+        )
+      assert.equal(rows.length, 0)
+    })
+
+    test('createPage() with an explicit render, even an empty one, does not consult ensureCanRender', async () => {
+      const calls: string[] = []
+      ensureCanRenderMock.mock.mockImplementation(async (editor: string) => {
+        calls.push(editor)
+      })
+
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/render-supplied-create', render: '' }),
+        actor
+      )
+
+      assert.deepEqual(calls, [])
+    })
+
+    test('updatePage() with content and no render consults ensureCanRender, blanks render/toc/searchContent/links instead of leaving the previous revision behind, and leaves a queued rerender job', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/render-less-update',
+          content: '# Old\n\nSee the [old target](/docs/old-target).',
+          render: '<h1 id="old">Old</h1><p>See the <a href="/docs/old-target">old target</a>.</p>'
+        }),
+        actor
+      )
+      const [before] = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, page.id))
+      assert.match(before!.searchContent ?? '', /Old/)
+      assert.deepEqual(before!.links, ['docs/old-target'])
+
+      const calls: string[] = []
+      ensureCanRenderMock.mock.mockImplementation(async (editor: string) => {
+        calls.push(editor)
+      })
+
+      await pagesModel.updatePage(
+        fixtures.siteId,
+        page.id,
+        { content: '# New\n\nSee the [new target](/docs/new-target).' },
+        actor
+      )
+
+      assert.deepEqual(calls, ['markdown'])
+
+      const [after] = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, page.id))
+      assert.equal(after!.content, '# New\n\nSee the [new target](/docs/new-target).')
+      // -> Blanked, not left holding the previous revision's render/searchContent/links: the queued
+      //    job (below) is what fills these back in from the content just written.
+      assert.equal(after!.render, '')
+      assert.equal(after!.searchContent, '')
+      assert.deepEqual(after!.links, [])
+
+      const queued = await fixtures.db
+        .select()
+        .from(pageRenderQueueTable)
+        .where(eq(pageRenderQueueTable.pageId, page.id))
+      assert.equal(queued.length, 1)
+    })
+
+    test('updatePage() refuses up front when ensureCanRender fails, and leaves the page unmodified', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/render-less-update-refused',
+          content: '# Original',
+          render: '<h1 id="original">Original</h1>'
+        }),
+        actor
+      )
+
+      ensureCanRenderMock.mock.mockImplementation(async () => {
+        throw new CustomError('renderPuppeteerMissing', 'Rendering needs Puppeteer.', 503)
+      })
+
+      await assert.rejects(
+        pagesModel.updatePage(fixtures.siteId, page.id, { content: '# Changed' }, actor),
+        /renderPuppeteerMissing/
+      )
+
+      const [row] = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, page.id))
+      assert.equal(row!.content, '# Original')
+      assert.match(row!.render ?? '', /Original/)
+    })
+
+    test('updatePage() with an explicit render does not consult ensureCanRender and does not queue a rerender', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/render-supplied-update', render: '<p>ok</p>' }),
+        actor
+      )
+
+      const calls: string[] = []
+      ensureCanRenderMock.mock.mockImplementation(async (editor: string) => {
+        calls.push(editor)
+      })
+
+      await pagesModel.updatePage(
+        fixtures.siteId,
+        page.id,
+        { content: '# Changed', render: '<h1>Changed</h1>' },
+        actor
+      )
+
+      assert.deepEqual(calls, [])
+
+      const queued = await fixtures.db
+        .select()
+        .from(pageRenderQueueTable)
+        .where(eq(pageRenderQueueTable.pageId, page.id))
+      assert.equal(queued.length, 0)
+    })
+  })
+
   describe('listPagesForSitemap', () => {
     /**
      * `fixtures.groupId` stands in for the guests group here: `WIKI.data.systemIds.guestsGroupId` is
@@ -1722,9 +1915,13 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       .values({ email: 'watcher@example.com', name: 'Watcher', isActive: true, isVerified: true })
       .returning({ id: usersTable.id })
     watcherId = watcher!.id
+    // -> Same reasoning as the describe block above: none of these tests supply a `render`, and
+    //    Puppeteer is never installed here (OpenProject #1716).
+    mock.method(WIKI.models.rendering, 'ensureCanRender', async () => {})
   })
 
   after(async () => {
+    mock.restoreAll()
     await teardownTestDb()
   })
 

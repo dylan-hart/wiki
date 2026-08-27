@@ -312,6 +312,13 @@ export async function seedLocale(db: WikiDb, input: SeedLocaleInput) {
  */
 function installTestWiki(db: WikiDb, models: typeof import('../models/index.ts').default): void {
   previousWiki = global.WIKI
+  // -> Puppeteer is never installed in this test environment, so the real `ensureCanRender()` would
+  //    refuse every render-less `createPage()`/`updatePage()` call (OpenProject #1716) -- stubbed out
+  //    here, the same way `cache`/`events`/`scheduler` are below, so a suite with no reason to care
+  //    about server-side rendering doesn't have to mock it just to call `createPage()` with plain
+  //    content. A suite that DOES care (`models/pages.test.ts`'s own describe block) re-wraps this
+  //    with `mock.method()`, which fully replaces this implementation rather than layering on it.
+  models.rendering.ensureCanRender = async () => {}
   global.WIKI = {
     IS_DEBUG: false,
     ROOTPATH: process.cwd(),
