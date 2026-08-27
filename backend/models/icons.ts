@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { and, count, eq, inArray } from 'drizzle-orm'
 import { getIconData, iconToHTML, iconToSVG, replaceIDs } from '@iconify/utils'
+import { LRUCache } from 'lru-cache'
 import { icons as iconsTable, iconSets as iconSetsTable } from '../db/schema.ts'
 import type { IconifyIconCustomisations } from '@iconify/utils'
 import type { IconifyIcon, IconifyInfo, IconifyJSON } from '@iconify/types'
@@ -88,11 +89,9 @@ const UPSTREAM_BUDGET_PER_MINUTE = 60
 const NOT_FOUND_TTL_MS = 60 * 60 * 1000
 
 /**
- * How many "known missing" names to hold before evicting the oldest, the same way `remember()` bounds
- * `memoryCache` (OpenProject #2272). `isKnownMissing()`'s own TTL check only evicts a key that is
- * looked up again after expiring -- nothing walks the map on a timer -- so without a size bound, a
- * public, unmetered route driving a stream of never-repeated misses would grow it forever between
- * restarts.
+ * How many "known missing" names to hold before evicting the oldest (OpenProject #2272).
+ * `notFoundCache` is an `LRUCache` bounded by this `max`, so without it a public, unmetered route
+ * driving a stream of never-repeated misses would grow it forever between restarts.
  */
 export const NOT_FOUND_CACHE_MAX = 5000
 
@@ -130,8 +129,14 @@ class Icons {
   /** Resolved icon data, keyed `prefix:name`. Insertion-ordered, so the oldest entry is evictable. */
   memoryCache = new Map<string, IconifyIcon>()
 
-  /** Names upstream has no icon for, keyed `prefix:name` with the time they were last looked up. */
-  notFoundCache = new Map<string, number>()
+  /**
+   * Names upstream has no icon for, keyed `prefix:name`.
+   *
+   * An `LRUCache` rather than a plain `Map`: `max` bounds it the way `remember()` bounds
+   * `memoryCache` below, and `ttl` replaces the manual same-key check `isKnownMissing()` used to do
+   * itself — `has()` returns `false` for a stale entry without this class needing to know that.
+   */
+  notFoundCache = new LRUCache<string, true>({ max: NOT_FOUND_CACHE_MAX, ttl: NOT_FOUND_TTL_MS })
 
   /** Upstream catalog responses, memoized to keep the admin area and the picker snappy. */
   catalogCache = new Map<string, { fetchedAt: number; data: any }>()
@@ -665,31 +670,20 @@ class Icons {
   }
 
   /**
-   * Remember that upstream has no such icon, evicting the oldest entry when full.
+   * Remember that upstream has no such icon.
+   *
+   * `notFoundCache` is an `LRUCache` with its own `max`/`ttl`, so eviction and expiry are handled by
+   * the cache itself -- this is just the `prefix:name` keying convention every other cache method uses.
    */
   rememberMissing(prefix: string, name: string): void {
-    if (this.notFoundCache.size >= NOT_FOUND_CACHE_MAX) {
-      const oldest = this.notFoundCache.keys().next().value
-      if (oldest) {
-        this.notFoundCache.delete(oldest)
-      }
-    }
-    this.notFoundCache.set(`${prefix}:${name}`, Date.now())
+    this.notFoundCache.set(`${prefix}:${name}`, true)
   }
 
   /**
    * Whether upstream said recently that it has no such icon
    */
   isKnownMissing(prefix: string, name: string): boolean {
-    const at = this.notFoundCache.get(`${prefix}:${name}`)
-    if (at === undefined) {
-      return false
-    }
-    if (Date.now() - at > NOT_FOUND_TTL_MS) {
-      this.notFoundCache.delete(`${prefix}:${name}`)
-      return false
-    }
-    return true
+    return this.notFoundCache.has(`${prefix}:${name}`)
   }
 
   /**

@@ -117,9 +117,9 @@ describe('icons.getSet', () => {
 })
 
 /**
- * `notFoundCache` bound (OpenProject #2272): `rememberMissing()` evicts the oldest entry once the
- * cache reaches `NOT_FOUND_CACHE_MAX`, the same oldest-entry bound `remember()` already applies to
- * `memoryCache`. No `WIKI` needed -- this is plain `Map` bookkeeping with no I/O.
+ * `notFoundCache` bound (OpenProject #2272): it is an `LRUCache` with `max: NOT_FOUND_CACHE_MAX`, so
+ * inserting past that bound through `rememberMissing()` evicts the oldest (least recently used) entry
+ * automatically. No `WIKI` needed -- this exercises the cache directly, with no I/O.
  */
 describe('icons.rememberMissing (notFoundCache bound)', () => {
   afterEach(() => {
