@@ -555,9 +555,14 @@ async function save() {
   state.loading++
   loading.show()
   try {
-    await API_CLIENT.put(`sites/${adminStore.currentSiteId}/comments/providers`, {
+    const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}/comments/providers`, {
       json: payloadFor(selectedProvider.value)
     }).json()
+    // -> The API client does not throw for a 400, so a refusal comes back as a parsed error
+    //    envelope rather than a rejection: without this check it reads as a successful save.
+    if (resp?.ok === false) {
+      throw new Error(resp.message || t('admin.comments.saveFailed'))
+    }
     notify({
       type: 'positive',
       message: t('admin.comments.saveSuccess')
@@ -624,7 +629,14 @@ function confirmDelete(comment) {
     state.loading++
     loading.show()
     try {
-      await API_CLIENT.delete(`sites/${adminStore.currentSiteId}/comments/${comment.id}`)
+      const resp = await API_CLIENT.delete(
+        `sites/${adminStore.currentSiteId}/comments/${comment.id}`
+      )
+      // -> The API client does not throw for a 400, so a refusal comes back as a response with
+      //    `ok: false` rather than a rejection: without this check it reads as a successful delete.
+      if (!resp?.ok) {
+        throw new Error((await resp.json())?.message || t('admin.comments.deleteFailed'))
+      }
       notify({
         type: 'positive',
         message: t('admin.comments.deleteSuccess')
