@@ -87,6 +87,25 @@ export interface AddJobOptions {
   promise?: boolean
 }
 
+/**
+ * The claim step of `reapStaleJobs()`, split out purely so its return type can be named
+ * (`Awaited<ReturnType<typeof claimStrandedJobs>>`) without hand-writing the row shape.
+ *
+ * `UPDATE ... RETURNING` is the claim itself: two instances sweeping at once both filter on
+ * `state = 'active'`, so whichever commits second matches nothing and returns nothing. Left to the
+ * caller: everything after the claim succeeds or fails per job, not as a single unit with this.
+ */
+function claimStrandedJobs(cutoff: Date, staleAfter: number) {
+  return WIKI.db
+    .update(jobHistoryTable)
+    .set({
+      state: 'interrupted',
+      lastErrorMessage: `No instance reported on this job within ${staleAfter}s. Whatever was running it is gone.`
+    })
+    .where(and(eq(jobHistoryTable.state, 'active'), lt(jobHistoryTable.startedAt, cutoff)))
+    .returning()
+}
+
 export default {
   workerPool: null as DynamicThreadPool<any, boolean> | FixedThreadPool<any, boolean> | null,
   pubsubClient: null as PoolClient | null,
@@ -533,22 +552,22 @@ export default {
    * @returns How many jobs were requeued
    */
   async reapStaleJobs(): Promise<number> {
-    try {
-      const staleAfter = WIKI.config.scheduler.staleJobTimeout ?? DEFAULT_STALE_JOB_TIMEOUT
-      const cutoff = new Date(
-        Temporal.Now.instant().subtract({ seconds: staleAfter }).epochMilliseconds
-      )
-      const stranded = await WIKI.db
-        .update(jobHistoryTable)
-        .set({
-          state: 'interrupted',
-          lastErrorMessage: `No instance reported on this job within ${staleAfter}s. Whatever was running it is gone.`
-        })
-        .where(and(eq(jobHistoryTable.state, 'active'), lt(jobHistoryTable.startedAt, cutoff)))
-        .returning()
+    const staleAfter = WIKI.config.scheduler.staleJobTimeout ?? DEFAULT_STALE_JOB_TIMEOUT
+    const cutoff = new Date(
+      Temporal.Now.instant().subtract({ seconds: staleAfter }).epochMilliseconds
+    )
 
-      let requeued = 0
-      for (const job of stranded) {
+    let stranded: Awaited<ReturnType<typeof claimStrandedJobs>>
+    try {
+      stranded = await claimStrandedJobs(cutoff, staleAfter)
+    } catch (err: any) {
+      WIKI.logger.warn(`Failed to requeue interrupted jobs: ${err.message}`)
+      return 0
+    }
+
+    let requeued = 0
+    for (const job of stranded) {
+      try {
         // -> Its remaining attempts are what they were: being interrupted is a failed attempt, and a
         //    job that had already used them up is not owed another one
         if (job.attempt > job.maxRetries) {
@@ -567,38 +586,57 @@ export default {
           )
           continue
         }
-        await WIKI.db.insert(jobsTable).values({
-          id: job.id,
-          task: job.task,
-          useWorker: job.useWorker,
-          payload: job.payload,
-          retries: job.attempt,
-          maxRetries: job.maxRetries,
-          isScheduled: job.wasScheduled,
-          // -> Explicit, not left null: this job already passed whatever `waitUntil` it had before it
-          //    was claimed and interrupted, so it is due again right now regardless. Leaving it null
-          //    would still make `processJob`'s claim query pick it up immediately too (its `WHERE`
-          //    treats null the same as "already due") — but a *scheduled* row with a null `waitUntil`
-          //    crashes `addScheduled()`'s dedupe check the next time it runs (`j.waitUntil.getTime()`
-          //    on `null`), silently pausing cron seeding for this task until this row is claimed
-          //    (OpenProject #929). Setting a real timestamp here keeps every row `isScheduled = true`
-          //    ever produces satisfying that invariant, rather than defending against `null` at every
-          //    site that reads it.
-          waitUntil: new Date(),
-          createdBy: WIKI.INSTANCE_ID
-        })
-        requeued++
+        // -> `.onConflictDoNothing` makes this a no-op, not a duplicate-key throw, when the original
+        //    runner's own retry insert (line ~492's `...job` spread, which reuses the same id) already
+        //    beat this sweep to the punch — a live race, not a hypothetical one. `.returning()` is what
+        //    lets `requeued` below count rows actually inserted rather than rows merely attempted.
+        const inserted = await WIKI.db
+          .insert(jobsTable)
+          .values({
+            id: job.id,
+            task: job.task,
+            useWorker: job.useWorker,
+            payload: job.payload,
+            retries: job.attempt,
+            maxRetries: job.maxRetries,
+            isScheduled: job.wasScheduled,
+            // -> Explicit, not left null: this job already passed whatever `waitUntil` it had before it
+            //    was claimed and interrupted, so it is due again right now regardless. Leaving it null
+            //    would still make `processJob`'s claim query pick it up immediately too (its `WHERE`
+            //    treats null the same as "already due") — but a *scheduled* row with a null `waitUntil`
+            //    crashes `addScheduled()`'s dedupe check the next time it runs (`j.waitUntil.getTime()`
+            //    on `null`), silently pausing cron seeding for this task until this row is claimed
+            //    (OpenProject #929). Setting a real timestamp here keeps every row `isScheduled = true`
+            //    ever produces satisfying that invariant, rather than defending against `null` at every
+            //    site that reads it.
+            waitUntil: new Date(),
+            createdBy: WIKI.INSTANCE_ID
+          })
+          .onConflictDoNothing({ target: jobsTable.id })
+          .returning()
+        requeued += inserted.length
+      } catch (err: any) {
+        // -> One job's requeue failing must not strand every job after it in this array: each still
+        //    has its own `jobHistory` row marked `interrupted`, and without a per-job catch here, a
+        //    single insert failure aborted the whole loop and left the rest permanently unrequeued —
+        //    a later sweep only ever looks at `state = 'active'` rows, so it never revisits them.
+        WIKI.logger.warn(`Failed to requeue job ${job.id}: ${job.task}: ${err.message}`)
       }
-      if (stranded.length > 0) {
-        WIKI.logger.warn(
-          `Found ${stranded.length} interrupted job(s), ${requeued} of them requeued [ OK ]`
-        )
-      }
-      return requeued
-    } catch (err: any) {
-      WIKI.logger.warn(`Failed to requeue interrupted jobs: ${err.message}`)
-      return 0
     }
+
+    // -> `notifier.send` above is deliberately fire-and-forget (see helpers/pubsub.ts) so this
+    //    function can call it from inside a loop with no `await` per iteration. Without draining once
+    //    before returning, an early caller could observe `reapStaleJobs()` as "done" while an
+    //    abandoned job's `jobCompleted` NOTIFY is still queued behind the connection — precisely the
+    //    drop the comment atop this function says this branch exists to avoid.
+    await notifier.drained()
+
+    if (stranded.length > 0) {
+      WIKI.logger.warn(
+        `Found ${stranded.length} interrupted job(s), ${requeued} of them requeued [ OK ]`
+      )
+    }
+    return requeued
   },
   async addScheduled(): Promise<void> {
     try {
