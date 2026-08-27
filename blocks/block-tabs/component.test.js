@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
 import '../block-tab/component.js'
-import './component.js'
+import { BlockTabsElement } from './component.js'
 
 /** Builds `<block-tabs>` around N `<block-tab>` panels, the shape the block reads from its light DOM. */
 async function mountTabs(panels, attrs = {}) {
@@ -28,6 +28,24 @@ describe('block-tabs', () => {
   afterEach(() => {
     document.body.replaceChildren()
     document.body.className = ''
+  })
+
+  it('declares `active` as a number prop with a default of 0, so sanitize-html allows the attribute', () => {
+    const activeProp = BlockTabsElement.definition.props.find((prop) => prop.name === 'active')
+    expect(activeProp).toMatchObject({ type: 'number', default: 0 })
+  })
+
+  it('opens the panel named by an `active` attribute set in markup', async () => {
+    const el = await mountTabs([
+      { label: 'First', content: 'One' },
+      { label: 'Second', content: 'Two' }
+    ])
+    el.setAttribute('active', '1')
+    await el.updateComplete
+
+    const panels = [...el.querySelectorAll('block-tab')]
+    expect(panels[0].style.display).toBe('none')
+    expect(panels[1].style.display).toBe('block')
   })
 
   it('builds the strip from each panel’s label and shows only the first panel', async () => {

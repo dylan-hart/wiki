@@ -36,7 +36,16 @@ Content of the first tab.
 
 ::block-tab{label="Second tab"}
 Content of the second tab.
-::`
+::`,
+    props: [
+      {
+        name: 'active',
+        type: 'number',
+        label: 'Open Panel',
+        hint: 'Which panel is open when the page loads, zero-based.',
+        default: 0
+      }
+    ]
   }
 
   static get styles() {
