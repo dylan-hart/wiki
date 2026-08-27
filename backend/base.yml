@@ -21,13 +21,15 @@ defaults:
       enabled: false
     pool:
       min: 1
-      # Explicit rather than inherited (OpenProject #2276): node-postgres defaults `max` to 10 when
-      # it is left unset, which is also what this instance ran at before this line existed. Stated
-      # here so raising it is a deliberate, documented choice rather than silently discovering the
-      # library's own ceiling -- size it against this Postgres server's own `max_connections` and
-      # how many other pools (worker threads, a second wiki instance in an HA setup) share it, not
-      # against this default alone.
-      max: 10
+      # node-postgres defaults `max` to 10 when unset (OpenProject #2276). A handful of concurrent
+      # requests against any unmetered whole-table surface (sitemap/knowledge-graph generation,
+      # icon-set lookup) can occupy that whole pool, queuing every other query behind them, logins
+      # included. Sized here at 20 (double the library default) to give a single instance real
+      # headroom under such a burst while staying well under Postgres' own default `max_connections`
+      # (100), which also has to cover other app instances, the scheduler's worker-thread pools
+      # (each a separate `{min:0,max:1}` connection — see `workerMode` in `core/db.ts`), and
+      # admin/maintenance connections.
+      max: 20
     bindIP: 0.0.0.0
     logLevel: info
     logFormat: default
@@ -40,12 +42,6 @@ defaults:
       # Iconify API the wiki fetches icons from the first time they are used. Point this at a
       # self-hosted Iconify API to keep icon lookups inside your network.
       apiUrl: 'https://api.iconify.design'
-    rendering:
-      # Every headless Chromium launch (page re-render, PDF export, diagram render) is sandboxed by
-      # default. Only set this to true if the host cannot start Chromium's own sandbox (no setuid
-      # sandbox helper, no unprivileged user namespaces) -- see docs/variances.md before enabling it,
-      # since it disables a real security boundary rather than working around a cosmetic error.
-      puppeteerNoSandbox: false
     files:
       # How much of <dataPath>/cache/files the served copies of uploaded files may take up, in bytes.
       # Trimmed back oldest-first once it is exceeded. Set to 0 to serve every request from the
