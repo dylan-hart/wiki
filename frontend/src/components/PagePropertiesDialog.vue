@@ -115,7 +115,7 @@
             <div class="text-caption">
               <em>{{ t('editor.props.dateRangeHint') }}</em>
             </div>
-            <w-date v-model="publishingRange" range flat bordered landscape minimal />
+            <w-date v-model="publishingRange" range bordered />
           </template>
         </w-form>
       </w-card-section>
@@ -234,7 +234,6 @@
               color="primary"
               :left-label-value="`H` + pageStore.tocDepth.min"
               :right-label-value="`H` + pageStore.tocDepth.max"
-              snap
               label
               markers />
           </div>

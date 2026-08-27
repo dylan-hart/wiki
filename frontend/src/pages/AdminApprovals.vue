@@ -49,7 +49,6 @@
       -->
       <w-banner
         v-if="state.rules.length < 1 && state.loading < 1"
-        rounded
         :class="dark.isActive ? `bg-dark-3 text-grey-4` : `bg-grey-2 text-grey-8`">
         {{ t('admin.approval.noRules') }}
       </w-banner>

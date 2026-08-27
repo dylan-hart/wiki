@@ -15,7 +15,6 @@
         <w-banner
           v-if="state.submissions.length < 1 && state.loading < 1"
           class="mt-6"
-          rounded
           :class="dark.isActive ? `bg-dark-4 text-grey-4` : `bg-grey-2 text-grey-8`">
           {{ t('inbox.reviewNone') }}
         </w-banner>
@@ -146,10 +145,7 @@
         result before accepting, which is exactly what a stale suggestion needs.
       -->
       <!-- Literal colour classes: WBanner has no `color` prop, so one would be silently dropped. -->
-      <w-banner
-        v-if="state.selected.isStale"
-        class="mx-4 mb-2 flex-none bg-warning text-black"
-        rounded>
+      <w-banner v-if="state.selected.isStale" class="mx-4 mb-2 flex-none bg-warning text-black">
         {{ t('inbox.reviewStaleHint') }}
       </w-banner>
       <div class="flex-none px-4 pb-2 text-caption text-grey">

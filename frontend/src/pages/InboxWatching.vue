@@ -12,7 +12,6 @@
       <w-banner
         v-if="state.notifications.length < 1 && state.loadingNotifications < 1"
         class="mt-6"
-        rounded
         :class="dark.isActive ? `bg-dark-4 text-grey-4` : `bg-grey-2 text-grey-8`">
         <div>{{ t('inbox.notificationsNone') }}</div>
       </w-banner>
@@ -66,7 +65,6 @@
       <w-banner
         v-if="state.pages.length < 1 && state.loading < 1"
         class="mt-6"
-        rounded
         :class="dark.isActive ? `bg-dark-4 text-grey-4` : `bg-grey-2 text-grey-8`">
         <div>{{ t('inbox.watchingNone') }}</div>
         <div class="text-caption mt-1 opacity-70">{{ t('inbox.watchingHint') }}</div>

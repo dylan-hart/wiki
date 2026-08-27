@@ -1,5 +1,5 @@
 <template>
-  <w-layout view="hHh lpR fFf" container>
+  <w-layout container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="img:/_assets/icons/ultraviolet-markdown.svg" left size="md" />
       <span>{{ t(`admin.editors.markdownName`) }}</span>
@@ -14,7 +14,7 @@
         :href="siteStore.docsBase + `/admin/editors/markdown`"
         target="_blank"
         type="a" />
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
           push
           color="grey-6"

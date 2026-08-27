@@ -4,7 +4,7 @@
   <w-scroll-area
     class="sidebar-nav"
     :class="siteStore.theme.sidebarPosition === `right` ? `sidebar-nav--flipped` : ``">
-    <w-list class="sidebar-nav-list" clickable dense dark>
+    <w-list class="sidebar-nav-list" dense dark>
       <template v-for="item of siteStore.nav.items" :key="item.id">
         <w-item-label
           class="sidebar-nav-header text-caption text-wordbreak-all"

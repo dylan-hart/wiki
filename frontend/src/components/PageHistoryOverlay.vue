@@ -1,5 +1,5 @@
 <template>
-  <w-layout class="page-history" view="hHh lpR fFf" container>
+  <w-layout class="page-history" container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="la:history" left size="md" />
       <span>{{ t('history.title') }}</span>

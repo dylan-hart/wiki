@@ -1,5 +1,5 @@
 <template>
-  <w-layout class="fileman" view="hHh lpR lFr" container>
+  <w-layout class="fileman" container>
     <!--
       Three toolbars in one flex row, which below ~700px is more than fits: the row overflowed and took the
       last of them -- the one holding Close -- off the side of the screen, so on a phone the overlay could
@@ -7,11 +7,11 @@
       also why each of the three carries a name.
     -->
     <w-header class="card-header">
-      <w-toolbar class="fileman-hdr-title" dark>
+      <w-toolbar class="fileman-hdr-title">
         <w-icon name="img:/_assets/icons/fluent-folder.svg" left size="md" />
         <span>{{ t(`fileman.title`) }}</span>
       </w-toolbar>
-      <w-toolbar class="fileman-hdr-search" dark>
+      <w-toolbar class="fileman-hdr-search">
         <!--
           -> The CONTENT locale being browsed, not the UI language -- `commonStore.locale` /
              `<locale-selector-menu/>` switch that, and mounting it here read as "which locale's
@@ -95,7 +95,7 @@
         -> No right margin on the last control: the toolbar's own 12px is already close to the 9-10px the
            header leaves above and below.
       -->
-      <w-toolbar class="fileman-hdr-actions" dark>
+      <w-toolbar class="fileman-hdr-actions">
         <w-space />
         <w-btn
           class="mr-2"
@@ -420,7 +420,7 @@
                     <div class="text-caption">{{ item.side }}</div>
                   </w-item-section>
                   <!-- RIGHT-CLICK MENU -->
-                  <w-menu class="translucent-menu" touch-position context-menu auto-close>
+                  <w-menu class="translucent-menu" context-menu auto-close>
                     <w-card class="p-2">
                       <w-list dense style="min-width: 150px">
                         <w-item

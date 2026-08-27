@@ -22,7 +22,6 @@
           style="flex: 1 0 auto" />
         <w-btn
           class="acrylic-btn"
-          dark
           icon="la:pen"
           :label="t(`common.actions.manage`)"
           unelevated
@@ -45,7 +44,7 @@
             <template v-slot:before><w-icon name="la:infinity" color="primary" /></template>
           </w-input>
           <div class="py-1">
-            <w-checkbox label="Attribute Boolean" color="primary" dense size="lg" />
+            <w-checkbox label="Attribute Boolean" color="primary" />
           </div>
         </div>
       </w-card-section>

@@ -35,7 +35,6 @@
               <w-checkbox
                 :model-value="isSelected(usr.id)"
                 :aria-label="usr.name"
-                dense
                 @update:model-value="toggle(usr)"
                 @click.stop />
             </w-item-section>

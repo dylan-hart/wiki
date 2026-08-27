@@ -330,7 +330,7 @@
           :aria-label="t(`editor.createPage`)"
           no-caps
           @click="createPage" />
-        <w-btn-group class="ms-2" v-else flat>
+        <w-btn-group class="ms-2" v-else>
           <w-btn
             class="acrylic-btn"
             flat

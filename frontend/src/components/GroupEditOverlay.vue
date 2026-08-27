@@ -1,5 +1,5 @@
 <template>
-  <w-layout view="hHh lpR fFf" container>
+  <w-layout container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="img:/_assets/icons/fluent-people.svg" left size="md" />
       <div>
@@ -7,7 +7,7 @@
         <div class="text-caption">{{ state.group.name }}</div>
       </div>
       <w-space />
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
           push
           color="grey-6"
@@ -222,7 +222,6 @@
         <div class="p-4">
           <w-banner
             v-if="!state.group.rules || state.group.rules.length < 1"
-            rounded
             :class="dark.isActive ? `bg-negative text-white` : `bg-grey-4 text-grey-9`"
             >{{ t('admin.groups.rulesNone') }}</w-banner
           >
@@ -443,7 +442,6 @@
                       <w-input
                         v-else
                         class="mt-2"
-                        standout
                         v-model="rule.path"
                         dense
                         :prefix="[`START`, `REGEX`, `EXACT`].includes(rule.match) ? `/` : null"
@@ -544,7 +542,6 @@
         <div class="p-4">
           <w-banner
             v-if="!state.users || state.users.length < 1"
-            rounded
             :class="dark.isActive ? `bg-negative text-white` : `bg-grey-4 text-grey-9`"
             >{{ t('admin.groups.usersNone') }}</w-banner
           >

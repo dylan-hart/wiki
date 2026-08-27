@@ -9,7 +9,6 @@
           :model-value="groupState(group) === 'all'"
           :indeterminate="groupState(group) === 'mixed'"
           :aria-label="group.verb"
-          dense
           @update:model-value="onGroupToggle(group, $event)" />
         <button
           type="button"
@@ -33,7 +32,6 @@
             :model-value="modelValue"
             :val="scope"
             :label="scope"
-            dense
             @update:model-value="$emit('update:modelValue', $event)" />
         </div>
       </div>
