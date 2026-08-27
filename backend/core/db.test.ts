@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import Emittery from 'emittery'
+import { Pool } from 'pg'
 
 import dbManager, { queryLogger } from './db.ts'
 import configSvc from './config.ts'
@@ -9,6 +10,7 @@ import maintenance from './maintenance.ts'
 import { groups } from '../models/groups.ts'
 import { sites } from '../models/sites.ts'
 import { approvals } from '../models/approvals.ts'
+import { hasTestDatabase } from '../test/db.ts'
 
 /**
  * Task 708 (feature 411): confirms what `core/db.ts`'s `subscribeToNotifications()` /
@@ -398,5 +400,71 @@ describe('dropSchemaIfDev() — WIKI.IS_DEBUG guard (task 2270)', () => {
 
     assert.equal(executeMock.mock.calls.length, 0)
     assert.equal(warnMock.mock.calls.length, 0)
+  })
+})
+
+/**
+ * Task 2249: `init()`'s `new Pool({...})` now carries an explicit `max`, `connectionTimeoutMillis`
+ * and (via the `options` connection string, alongside `search_path`) `statement_timeout`, all sourced
+ * from `WIKI.config.pool` (defaulted in `base.yml`, operator-tunable via `config.yml`). Unset, pg-pool
+ * falls back to `max: 10` with no connect or statement bound at all, so a saturated pool or a runaway
+ * query blocks its caller forever (`docs/audit-2026-08-24/security/12-infrastructure-ops.md` §2).
+ *
+ * These exercise real `pg` `Pool`/Postgres behavior against the config values `db.ts#init()` now
+ * passes through — a mock of `pg-pool`'s internal checkout queue or Postgres's own timeout enforcement
+ * would mostly just restate what's under test rather than verify it, so this is the DB-backed
+ * exception CLAUDE.md's testing guidance carves out. Gated on `DATABASE_URL` like every other
+ * DB-backed suite in this file — `npm run test` reports these as skipped without one.
+ */
+describe('main pool bounds (task 2249)', { skip: !hasTestDatabase() }, () => {
+  let pool: Pool | undefined
+
+  afterEach(async () => {
+    await pool?.end()
+    pool = undefined
+  })
+
+  test('a third concurrent checkout on a max:2 pool rejects within connectionTimeoutMillis rather than hanging forever', async () => {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 2,
+      connectionTimeoutMillis: 300
+    })
+
+    // -> Check out both connections and never release them, saturating the pool exactly the way a
+    //    stuck query or a leaked client would in production.
+    const held = await Promise.all([pool.connect(), pool.connect()])
+
+    const startedAt = Date.now()
+    await assert.rejects(
+      () => pool!.connect(),
+      /timeout exceeded when trying to connect/,
+      'a third checkout on a saturated max:2 pool must reject, not hang'
+    )
+    const elapsedMs = Date.now() - startedAt
+    assert.ok(
+      elapsedMs < 2000,
+      `expected the rejection at ~connectionTimeoutMillis (300ms), took ${elapsedMs}ms`
+    )
+
+    for (const client of held) {
+      client.release()
+    }
+  })
+
+  test('a query exceeding statement_timeout is cancelled by Postgres rather than running unbounded', async () => {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 1,
+      // -> Mirrors how `db.ts#init()` appends `statement_timeout` to the `options` connection string
+      //    alongside `search_path`, rather than a dedicated pg-pool config key (there isn't one).
+      options: '-c statement_timeout=300'
+    })
+
+    await assert.rejects(
+      () => pool!.query('SELECT pg_sleep(2)'),
+      /statement timeout/,
+      'a query past statement_timeout must be cancelled by Postgres, not left to run to completion'
+    )
   })
 })
