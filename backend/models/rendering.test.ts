@@ -54,6 +54,29 @@ const DIAGRAM_BLOCKS: BlockDefinition[] = [
   }
 ]
 
+/*
+ * Two more fixtures, alongside the diagram blocks above: one whose declared prop is camelCase (the
+ * DOM -- and an author typing it, or Lit reflecting it -- only ever spells this lowercase), and a
+ * second block declaring no such prop at all, to prove `blockAllowances()` widening one tag's
+ * allow-list doesn't leak onto another's.
+ */
+const CAMEL_PROP_BLOCKS: BlockDefinition[] = [
+  {
+    block: 'checklist',
+    name: 'Checklist',
+    description: 'A checklist.',
+    icon: 'list-checks',
+    props: [{ name: 'runKey', type: 'string' }]
+  },
+  {
+    block: 'gallery',
+    name: 'Gallery',
+    description: 'An image gallery.',
+    icon: 'images',
+    props: [{ name: 'thumbnailSize', type: 'number' }]
+  }
+]
+
 let enabledBlocks = new Set<string>()
 
 // -> A minimal stub rather than `test/db.ts`'s full `installTestWiki`: nothing under test here
@@ -61,7 +84,7 @@ let enabledBlocks = new Set<string>()
 ;(global as any).WIKI = {
   models: {
     blocks: {
-      definitions: DIAGRAM_BLOCKS,
+      definitions: [...DIAGRAM_BLOCKS, ...CAMEL_PROP_BLOCKS],
       async getEnabledKeys(_siteId: string) {
         return enabledBlocks
       }
@@ -150,6 +173,29 @@ describe('rendering.postProcess: diagram block-vs-fence handoff', () => {
 
     assert.match(result.render, /<block-diagram theme="auto">/)
     assert.doesNotMatch(result.render, /onclick/)
+  })
+})
+
+describe('rendering.postProcess: lowercase spelling of a camelCase block prop (OpenProject #1707)', () => {
+  test('keeps a camelCase-declared prop written in its lowercase DOM spelling', async () => {
+    enabledBlocks = new Set(['checklist'])
+    const html = '<block-checklist runkey="daily"></block-checklist>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /<block-checklist runkey="daily">/)
+  })
+
+  test('still strips a prop declared on one block tag when written on a different block tag', async () => {
+    enabledBlocks = new Set(['checklist', 'gallery'])
+    // -> `runKey`/`runkey` is declared on block-checklist, not block-gallery -- widening
+    //    block-checklist's allow-list must not leak the attribute onto a sibling tag
+    const html = '<block-gallery runkey="daily"></block-gallery>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /^<block-gallery>/)
+    assert.doesNotMatch(result.render, /runkey/)
   })
 })
 

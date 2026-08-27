@@ -479,7 +479,17 @@ class Rendering {
       }
       const tag = `block-${definition.block}`
       tags.push(tag)
-      attributes[tag] = (definition.props ?? []).map((prop) => prop.name)
+      /*
+        `sanitize()` runs with `lowerCaseAttributeNames: false` (kept so SVG/MathML names like
+        `viewBox` survive), so it compares attribute names byte-for-byte. A camelCase-declared prop
+        (`runKey`) is what the block picker and definition.yml write, but the DOM -- and therefore
+        what an author actually types or Lit reflects -- only ever spells it lowercase (`runkey`).
+        Emit both spellings so either survives; a prop whose name is already all-lowercase just
+        dedupes against itself.
+      */
+      attributes[tag] = [
+        ...new Set((definition.props ?? []).flatMap((prop) => [prop.name, prop.name.toLowerCase()]))
+      ]
     }
     return { tags, attributes }
   }
