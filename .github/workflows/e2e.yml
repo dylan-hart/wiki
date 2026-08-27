@@ -13,6 +13,8 @@ jobs:
   e2e:
     name: Playwright smoke suite
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     services:
       # A fresh service container per run is what makes "seeded test database" true every time --
@@ -35,7 +37,12 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
     steps:
+      # This job only reads the repo and runs PR-controlled code (npm ci against the PR's
+      # lockfiles, then its own webServer.command) -- it never pushes, so there's no reason for
+      # the checkout to leave a credentialed .git/config on the runner for that code to find.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js environment
         uses: actions/setup-node@v7
