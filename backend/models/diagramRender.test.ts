@@ -413,7 +413,7 @@ describe('DiagramRender.render', () => {
       assert.equal(result.data.toString('hex'), '090909')
     })
 
-    test('honors a custom server, trimmed of trailing slashes, and the png format', async () => {
+    test('renders with the png format', async () => {
       const fetchMock = mock.fn(
         async (_url: string) => new Response(new Uint8Array([1]), { status: 200 })
       )
@@ -422,12 +422,30 @@ describe('DiagramRender.render', () => {
       await diagramRender.render({
         type: 'plantuml',
         source: '@startuml\nA -> B\n@enduml',
-        server: 'https://plantuml.example.com/plantuml///',
         format: 'png'
       })
 
       const url = fetchMock.mock.calls[0].arguments[0] as string
-      assert.match(url, /^https:\/\/plantuml\.example\.com\/plantuml\/png\//)
+      assert.match(url, /^https:\/\/www\.plantuml\.com\/plantuml\/png\//)
+    })
+
+    test('ignores a caller-supplied `server` in the request — always fetches the default server (OpenProject #2219)', async () => {
+      const fetchMock = mock.fn(
+        async (_url: string) => new Response(new Uint8Array([1]), { status: 200 })
+      )
+      ;(globalThis as any).fetch = fetchMock
+
+      await diagramRender.render({
+        type: 'plantuml',
+        source: '@startuml\nA -> B\n@enduml',
+        // -> Not part of `DiagramRenderRequest` anymore; cast to prove a stray/forwarded field
+        //    still cannot redirect the fetch even if one somehow reached this method.
+        server: 'https://attacker.example.com/steal'
+      } as any)
+
+      const url = fetchMock.mock.calls[0].arguments[0] as string
+      assert.match(url, /^https:\/\/www\.plantuml\.com\/plantuml\/svg\//)
+      assert.doesNotMatch(url, /attacker\.example\.com/)
     })
 
     test('surfaces the X-PlantUML-Diagram-Error header as the failure reason', async () => {

@@ -84,8 +84,7 @@ test('forwards the request body to the model unchanged', async () => {
   const body = {
     type: 'plantuml',
     source: '@startuml\nA -> B\n@enduml',
-    format: 'png',
-    server: 'https://x.example.com'
+    format: 'png'
   }
 
   const res = await app.inject({ method: 'POST', url: '/render', payload: body })
@@ -93,6 +92,26 @@ test('forwards the request body to the model unchanged', async () => {
   assert.equal(res.statusCode, 200)
   assert.equal(render.mock.callCount(), 1)
   assert.deepEqual(render.mock.calls[0].arguments[0], body)
+})
+
+test('the body schema no longer accepts a `server` override — it is stripped before reaching the model (OpenProject #2219)', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/render',
+    payload: {
+      type: 'plantuml',
+      source: '@startuml\nA -> B\n@enduml',
+      server: 'https://attacker.example.com/steal'
+    }
+  })
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(render.mock.callCount(), 1)
+  assert.deepEqual(render.mock.calls[0].arguments[0], {
+    type: 'plantuml',
+    source: '@startuml\nA -> B\n@enduml',
+    format: 'svg'
+  })
 })
 
 test("answers with the model's bytes under its own content type, uncached", async () => {

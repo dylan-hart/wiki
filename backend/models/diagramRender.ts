@@ -50,8 +50,6 @@ export interface DiagramRenderRequest {
   /** Mermaid only. One of `MERMAID_THEMES`; anything else (including `auto`) falls back to `default`. */
   theme?: string
   format?: DiagramFormat
-  /** PlantUML only. The public server when left empty, same as the block's own default. */
-  server?: string
 }
 
 export interface DiagramRenderResult {
@@ -183,7 +181,7 @@ class DiagramRender {
       throw new CustomError('diagramRenderEmpty', 'There is no diagram source to render.', 400)
     }
     if (request.type === 'plantuml') {
-      return this.renderPlantuml(request.source, request.server, format)
+      return this.renderPlantuml(request.source, format)
     }
     if (request.type === 'mermaid') {
       return this.renderMermaid(request.source, request.theme, format)
@@ -271,7 +269,6 @@ class DiagramRender {
    */
   private async renderPlantuml(
     source: string,
-    server: string | undefined,
     format: DiagramFormat
   ): Promise<DiagramRenderResult> {
     if (WIKI.config.offline) {
@@ -282,7 +279,7 @@ class DiagramRender {
       )
     }
 
-    const url = this.plantumlUrl(source, server, format)
+    const url = this.plantumlUrl(source, format)
     if (url.length > MAX_PLANTUML_URL_LENGTH) {
       throw new CustomError(
         'diagramRenderTooLarge',
@@ -322,9 +319,16 @@ class DiagramRender {
     return { contentType: format === 'png' ? 'image/png' : 'image/svg+xml', data }
   }
 
-  /** The URL `block-plantuml` itself would set as an `<img src>` for this source. */
-  private plantumlUrl(source: string, server: string | undefined, format: DiagramFormat): string {
-    const base = (server?.trim() || DEFAULT_PLANTUML_SERVER).replace(/\/+$/, '')
+  /**
+   * The URL this instance fetches a PlantUML render from. Always `DEFAULT_PLANTUML_SERVER` — no
+   * caller-supplied override reaches this (removed as OpenProject #2219, an SSRF fix: a `server`
+   * string here was string-concatenated with no `new URL()` parse, no protocol check and no
+   * allowlist, so any caller could redirect this instance's outbound fetch anywhere). A per-site
+   * admin-configured server is the intended replacement; until that lands, every render goes to the
+   * one built-in default the block itself falls back to.
+   */
+  private plantumlUrl(source: string, format: DiagramFormat): string {
+    const base = DEFAULT_PLANTUML_SERVER.replace(/\/+$/, '')
     return `${base}/${format}/${this.encodeForUrl(source)}`
   }
 
