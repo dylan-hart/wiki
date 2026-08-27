@@ -505,8 +505,7 @@ export const usePageStore = defineStore('page', {
           this).
         */
         updatedAt: '',
-        createdAt: '',
-        mode: 'edit'
+        createdAt: ''
       })
     },
     /**

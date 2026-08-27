@@ -804,6 +804,23 @@ describe('page store: pageCreate()', () => {
 
     expect(pageStore.tags).toEqual([])
   })
+
+  /**
+   * OpenProject #1792: the page store's `state()` declares no `mode` -- that key belongs to
+   * `editorStore`, which this same call already patches to `mode: 'create'`. A stray
+   * `mode: 'edit'` on the page-store `$patch` used to grow the state with an untyped, unread
+   * property asserting the post-save state at the moment a create session begins.
+   */
+  it('does not add a mode key to the page store state', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter('/_create/markdown')
+
+    await pageStore.pageCreate({ editor: 'markdown' })
+
+    expect(pageStore.$state).not.toHaveProperty('mode')
+  })
 })
 
 /**
