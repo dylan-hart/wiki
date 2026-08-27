@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { and, count, eq, inArray } from 'drizzle-orm'
 import { getIconData, iconToHTML, iconToSVG, replaceIDs } from '@iconify/utils'
+import { LRUCache } from 'lru-cache'
 import { icons as iconsTable, iconSets as iconSetsTable } from '../db/schema.ts'
 import type { IconifyIconCustomisations } from '@iconify/utils'
 import type { IconifyIcon, IconifyInfo, IconifyJSON } from '@iconify/types'
@@ -80,6 +81,16 @@ const UPSTREAM_BUDGET_PER_MINUTE = 60
 const NOT_FOUND_TTL_MS = 60 * 60 * 1000
 
 /**
+ * Upper bound on how many "upstream doesn't have this" names are held at once.
+ *
+ * `UPSTREAM_BUDGET_PER_MINUTE` × `MAX_ICONS_PER_REQUEST` (`controllers/icons.ts`) allows up to
+ * ~7,680 new entries per minute, so a size cap is what actually keeps this from growing unbounded
+ * across a long-lived instance — `NOT_FOUND_TTL_MS` alone only expires an entry lazily, the next
+ * time something happens to check that exact key, and nothing ever swept the rest.
+ */
+export const NOT_FOUND_CACHE_MAX = 5000
+
+/**
  * Reject anything that could execute when an icon is opened directly rather than drawn into a page.
  *
  * Icon bodies come from a third-party API, and while Iconify publishes shape markup, a compromised or
@@ -113,8 +124,14 @@ class Icons {
   /** Resolved icon data, keyed `prefix:name`. Insertion-ordered, so the oldest entry is evictable. */
   memoryCache = new Map<string, IconifyIcon>()
 
-  /** Names upstream has no icon for, keyed `prefix:name` with the time they were last looked up. */
-  notFoundCache = new Map<string, number>()
+  /**
+   * Names upstream has no icon for, keyed `prefix:name`.
+   *
+   * An `LRUCache` rather than a plain `Map`: `max` bounds it the way `remember()` bounds
+   * `memoryCache` below, and `ttl` replaces the manual same-key check `isKnownMissing()` used to do
+   * itself — `has()` returns `false` for a stale entry without this class needing to know that.
+   */
+  notFoundCache = new LRUCache<string, true>({ max: NOT_FOUND_CACHE_MAX, ttl: NOT_FOUND_TTL_MS })
 
   /** Upstream catalog responses, memoized to keep the admin area and the picker snappy. */
   catalogCache = new Map<string, { fetchedAt: number; data: any }>()
@@ -170,9 +187,23 @@ class Icons {
 
   /**
    * A single set, or null when it has not been added
+   *
+   * A single row-scoped query, deliberately not routed through `getSets()`: that method also runs a
+   * `count()`/`groupBy()` aggregate over the entire `icons` table, which this path (called on every
+   * public batch request, and again for any unresolved name — see `controllers/icons.ts` and
+   * `fetchIconsUpstream()`) cannot afford to pay for. `iconCount` is therefore always `0` here; only
+   * `getSets()` computes a real one, which is all the admin listing needs it for.
    */
   async getSet(prefix: string): Promise<IconSet | null> {
-    return (await this.getSets()).find((set) => set.prefix === prefix) ?? null
+    const [row] = await WIKI.db
+      .select()
+      .from(iconSetsTable)
+      .where(eq(iconSetsTable.prefix, prefix))
+      .limit(1)
+    if (!row) {
+      return null
+    }
+    return { ...row, info: (row.info ?? {}) as IconifyInfo, iconCount: 0 } as IconSet
   }
 
   /**
@@ -497,7 +528,7 @@ class Icons {
       const data = getIconData(iconSet, name)
       if (!data?.body) {
         notFound.push(name)
-        this.notFoundCache.set(`${prefix}:${name}`, Date.now())
+        this.notFoundCache.set(`${prefix}:${name}`, true)
         continue
       }
       if (!isSafeIconBody(data.body)) {
@@ -634,15 +665,7 @@ class Icons {
    * Whether upstream said recently that it has no such icon
    */
   isKnownMissing(prefix: string, name: string): boolean {
-    const at = this.notFoundCache.get(`${prefix}:${name}`)
-    if (at === undefined) {
-      return false
-    }
-    if (Date.now() - at > NOT_FOUND_TTL_MS) {
-      this.notFoundCache.delete(`${prefix}:${name}`)
-      return false
-    }
-    return true
+    return this.notFoundCache.has(`${prefix}:${name}`)
   }
 
   /**
