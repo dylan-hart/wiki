@@ -1,4 +1,10 @@
-FROM node:26
+# Digest-pinned rather than just version-pinned: this is the base of the image
+# docker/build-push-action publishes, and a floating tag (even a specific one, since Docker Hub
+# repoints "26.x.y-bookworm" itself on a Debian base refresh) means two builds of the same commit
+# can start from different base layers with nothing recording which one a published image used.
+# Bump alongside the rest of the repo's normal currency pass -- `docker pull node:26-bookworm` then
+# `docker inspect --format='{{index .RepoDigests 0}}' node:26-bookworm` gives the new digest.
+FROM node:26.7.0-bookworm@sha256:e929171d35b9df7773a3ec5b068e387fa109441dc90f91e6560af5d39b7e9bf1
 LABEL maintainer="requarks.io"
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -qy --no-install-recommends \
