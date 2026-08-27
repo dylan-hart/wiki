@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import '../block-tab/component.js'
 import { BlockTabsElement } from './component.js'
@@ -9,9 +9,12 @@ async function mountTabs(panels, attrs = {}) {
   for (const [key, value] of Object.entries(attrs)) {
     el[key] = value
   }
-  for (const { label, content } of panels) {
+  for (const { label, content, icon } of panels) {
     const tab = document.createElement('block-tab')
     tab.setAttribute('label', label)
+    if (icon) {
+      tab.setAttribute('icon', icon)
+    }
     tab.innerHTML = `<p>${content}</p>`
     el.appendChild(tab)
   }
@@ -141,6 +144,56 @@ describe('block-tabs', () => {
     await el.updateComplete
 
     expect(el.active).toBe(1)
+  })
+
+  /*
+   * OpenProject #1768: `_loadIcons` used to `await` each tab's `fetchIcon` in sequence and call
+   * `requestUpdate()` after every one -- a strip with several icons re-rendered once per icon
+   * instead of once for the whole batch. It now fetches them all via `Promise.all`, matching
+   * `block-index`'s `_loadIcons`, and updates once.
+   */
+  it('fetches every tab icon concurrently and triggers a single update', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, text: async () => '<svg>icon</svg>' })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    // -> Built by hand rather than through `mountTabs`, so both the spy and the handle on
+    //    `_loadIcons`' own promise are in place *before* `connectedCallback` fires `_collectTabs`'
+    //    (fire-and-forget) call to it — the one this test is actually about.
+    const el = document.createElement('block-tabs')
+    for (const [index, icon] of [
+      'mdi:tabs-first-1768',
+      'mdi:tabs-second-1768',
+      'mdi:tabs-third-1768'
+    ].entries()) {
+      const tab = document.createElement('block-tab')
+      tab.setAttribute('label', `Tab ${index + 1}`)
+      tab.setAttribute('icon', icon)
+      tab.innerHTML = `<p>Content ${index + 1}</p>`
+      el.appendChild(tab)
+    }
+    const originalLoadIcons = el._loadIcons.bind(el)
+    let loadIconsPromise
+    el._loadIcons = () => (loadIconsPromise = originalLoadIcons())
+    const updateSpy = vi.spyOn(el, 'requestUpdate')
+
+    document.body.appendChild(el)
+    await el.updateComplete
+    // -> The first render is already accounted for above (triggered by `_collectTabs` setting the
+    //    reactive `_tabs` property, not by `_loadIcons`); clear it so only `_loadIcons`' own
+    //    `requestUpdate()` call(s) are counted below.
+    updateSpy.mockClear()
+    await loadIconsPromise
+
+    expect(fetchSpy).toHaveBeenCalledTimes(3)
+    expect(el._tabs.map((t) => t.svg)).toEqual([
+      '<svg>icon</svg>',
+      '<svg>icon</svg>',
+      '<svg>icon</svg>'
+    ])
+    // -> Exactly one `requestUpdate()` call for the whole batch, not one per icon.
+    expect(updateSpy).toHaveBeenCalledTimes(1)
+
+    vi.unstubAllGlobals()
   })
 
   describe('dark mode', () => {
