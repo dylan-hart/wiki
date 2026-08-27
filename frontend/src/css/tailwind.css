@@ -165,6 +165,20 @@ html.theme-transition-suppress *::after {
   --color-grey-9: #424242;
   --color-grey-10: #212121;
 
+  /*
+    Muted/secondary body text, split by ground the same way `--color-primary-light` splits headings:
+    `grey-6` on white is 2.68:1 and `grey-7` on `dark-3` is 3.43:1 -- both below AA, and the two
+    grounds need opposite fixes (darker for white, lighter for dark-3), so no single grey ramp step
+    covers both. Raising `grey-6`/`grey-7` themselves isn't an option either -- `grey-6` reads
+    lighter than `grey-7` everywhere else they're both used (`PageToc.vue`'s ink/ink-soft pair is the
+    clearest example), and darkening `grey-6` enough to pass on white while lightening `grey-7`
+    enough to pass on `dark-3` would invert that ordering. `grey-8`/`grey-6` already clear AA on
+    their respective grounds (6.19:1, 5.90:1 -- pinned in `accessibility.test.js`) without any new
+    hex, so these just name that pairing for reuse: `text-muted dark:text-muted-dark`.
+  */
+  --color-muted: var(--color-grey-8);
+  --color-muted-dark: var(--color-grey-6);
+
   --color-blue-grey: #607d8b;
   --color-blue-grey-1: #eceff1;
   --color-blue-grey-2: #cfd8dc;

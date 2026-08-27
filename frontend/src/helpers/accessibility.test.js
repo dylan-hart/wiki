@@ -80,3 +80,60 @@ describe('contrastRatio() / meetsWcagAA()', () => {
     expect(contrastRatio('#fff9c4', '#ffffff')).toBeLessThan(WCAG_AA_CONTRAST)
   })
 })
+
+// Task 1687: pins the placeholder and muted-text tokens above AA in both themes, so a future edit
+// to any of these shipped values fails the suite instead of silently regressing back below AA.
+describe('placeholder and muted-text token pinning', () => {
+  /**
+   * Composites `fg` over `bg` at `alphaPercent`% opacity the same way a `text-<color>/<alpha>`
+   * Tailwind utility renders -- a plain per-channel lerp in sRGB space, no gamma correction -- so a
+   * pinned value here matches what the browser actually paints for `WInput.vue`'s placeholder.
+   */
+  function compositeOpacity(fgHex, bgHex, alphaPercent) {
+    const alpha = alphaPercent / 100
+    const channel = (hex, start) => Number.parseInt(hex.slice(start, start + 2), 16)
+    const mix = (start) =>
+      Math.round(channel(fgHex, start) * alpha + channel(bgHex, start) * (1 - alpha))
+    return `#${[1, 3, 5].map((start) => mix(start).toString(16).padStart(2, '0')).join('')}`
+  }
+
+  // frontend/src/css/tailwind.css's dark surface ramp -- the ground WInput.vue's dark-theme
+  // placeholder and `--color-muted-dark` are measured against.
+  const DARK_3 = '#1e232a'
+
+  describe('WInput.vue placeholder (`/54`, up from the `/40` that failed AA)', () => {
+    it('clears AA for black-on-white in light theme', () => {
+      const rendered = compositeOpacity('#000000', '#ffffff', 54)
+      expect(meetsWcagAA(rendered, '#ffffff')).toBe(true)
+      expect(contrastRatio(rendered, '#ffffff')).toBeGreaterThanOrEqual(WCAG_AA_CONTRAST)
+    })
+
+    it('clears AA for white-on-dark-3 in dark theme', () => {
+      const rendered = compositeOpacity('#ffffff', DARK_3, 54)
+      expect(meetsWcagAA(rendered, DARK_3)).toBe(true)
+      expect(contrastRatio(rendered, DARK_3)).toBeGreaterThanOrEqual(WCAG_AA_CONTRAST)
+    })
+  })
+
+  describe('`--color-muted` / `--color-muted-dark` (tailwind.css)', () => {
+    // Same values as `--color-grey-8` / `--color-grey-6` -- see the token comment in tailwind.css
+    // for why the muted pair is its own tokens rather than a raised `grey-6`/`grey-7`.
+    const MUTED = '#616161'
+    const MUTED_DARK = '#9e9e9e'
+
+    it('`--color-muted` clears AA on a white (light-theme) ground', () => {
+      expect(meetsWcagAA(MUTED, '#ffffff')).toBe(true)
+      expect(contrastRatio(MUTED, '#ffffff')).toBeGreaterThanOrEqual(WCAG_AA_CONTRAST)
+    })
+
+    it('`--color-muted-dark` clears AA on the dark-3 (dark-theme) ground', () => {
+      expect(meetsWcagAA(MUTED_DARK, DARK_3)).toBe(true)
+      expect(contrastRatio(MUTED_DARK, DARK_3)).toBeGreaterThanOrEqual(WCAG_AA_CONTRAST)
+    })
+
+    it('would have failed before this task -- grey-6 on white, grey-7 on dark-3', () => {
+      expect(meetsWcagAA('#9e9e9e', '#ffffff')).toBe(false)
+      expect(meetsWcagAA('#757575', DARK_3)).toBe(false)
+    })
+  })
+})
