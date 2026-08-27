@@ -52,13 +52,33 @@ export function corsOrigin(security: {
     case 'REFLECT':
       return true
     case 'HOSTNAMES':
-      return (security.corsConfig ?? '')
-        .split(/[\n,]/)
-        .map((entry) => entry.trim())
-        .filter(Boolean)
+      return (
+        (security.corsConfig ?? '')
+          .split(/[\n,]/)
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+          // -> `@fastify/cors` compares this list against the complete `Origin` header
+          //    (`https://wiki.example.com`) with `===`, so a bare hostname an operator enters here
+          //    can never match — normalise it into a full `https://` origin. An entry that already
+          //    names a scheme (`://` present) is left as written.
+          .map((entry) => (entry.includes('://') ? entry : `https://${entry}`))
+      )
     case 'REGEX':
       try {
-        return new RegExp(security.corsConfig ?? '')
+        // -> `@fastify/cors` runs `.test()` against the complete `Origin` header, so an
+        //    unanchored pattern also matches as a substring anywhere in it (e.g.
+        //    `https://wiki.example.com.attacker.test` or `https://evil.test/?x=wiki.example.com`
+        //    both satisfy a bare `wiki\.example\.com`). Anchor it on the operator's behalf,
+        //    stripping any `^`/`$` they already added so a pattern they anchored themselves is
+        //    left as written rather than double-wrapped.
+        let pattern = security.corsConfig ?? ''
+        if (pattern.startsWith('^')) {
+          pattern = pattern.slice(1)
+        }
+        if (pattern.endsWith('$')) {
+          pattern = pattern.slice(0, -1)
+        }
+        return new RegExp(`^${pattern}$`)
       } catch (err: any) {
         WIKI.logger.warn(
           `The CORS regex pattern is invalid (${err.message}) — falling back to same-origin only.`

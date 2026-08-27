@@ -132,7 +132,7 @@ class Security {
         .map((entry: string) => entry.trim())
         .filter(Boolean)
       if (hostnames.length < 1) {
-        return 'The hostname whitelist mode needs at least one hostname.'
+        return 'The origin whitelist mode needs at least one origin, such as https://wiki.example.com.'
       }
     }
 
