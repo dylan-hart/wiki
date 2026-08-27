@@ -15,7 +15,7 @@ import maintenance from '../core/maintenance.ts'
 import { purgeTimeframes } from '../models/pageHistory.ts'
 import type { PurgeTimeframe } from '../models/pageHistory.ts'
 import { JOB_STATES } from '../models/jobs.ts'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 /**
  * Every node of this cluster connected to this database, with how it is using the connection pool.
@@ -82,20 +82,17 @@ async function routes(app: FastifyInstance) {
   //    Registered inside this plugin, so every other route keeps rejecting this body outright. The
   //    accepted types cover what a browser reports for a `.tar.gz` across platforms.
   //
-  //    No `parseAs` (OpenProject #2213): that option only supports `'string'`/`'buffer'`, both of
-  //    which have Fastify collect the *entire* body into memory before this route ever sees it —
-  //    exactly the ~500 MB-per-request buffering this was fixed to stop doing. Omitting it hands the
-  //    parser function the raw request stream instead, which `WIKI.models.import.streamUpload` pipes
-  //    straight to `<dataPath>/imports/`; `bodyLimit` is therefore no longer Fastify's own job for
-  //    this route either — `streamUpload` enforces `importUploadLimit` itself as bytes arrive.
+  // -> No `parseAs` here, deliberately: that's what hands the parser the raw request stream instead
+  //    of a fully-buffered `Buffer` (Fastify only auto-buffers for `parseAs: 'buffer' | 'string'`).
+  //    `saveUpload` streams it straight to `<dataPath>/imports/`, so a 500 MB archive never sits
+  //    resident in the request thread's memory as one allocation — see `models/siteImport.ts`. It
+  //    also takes over enforcing `bodyLimit` as bytes arrive, since Fastify's own automatic
+  //    `Content-Length` check only runs for the buffered parser kinds.
   app.addContentTypeParser(
     ['application/gzip', 'application/x-gzip', 'application/octet-stream'],
-    (req, payload, done) => {
-      WIKI.models.import.streamUpload(payload, importUploadLimit).then(
-        (result) => done(null, result),
-        (err) => done(err, undefined)
-      )
-    }
+    { bodyLimit: importUploadLimit },
+    (req: FastifyRequest, payload: NodeJS.ReadableStream) =>
+      WIKI.models.import.saveUpload(payload, importUploadLimit)
   )
 
   /**
@@ -1456,7 +1453,7 @@ async function routes(app: FastifyInstance) {
   /**
    * IMPORT CONTENT
    */
-  app.post<{ Querystring: { targetSiteId: string } }>(
+  app.post<{ Querystring: { targetSiteId: string }; Body: string }>(
     '/import',
     {
       config: {
@@ -1505,11 +1502,10 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> Already written to disk, gzip-magic-checked and non-empty by the time the content-type
-      //    parser above handed control here — `streamUpload` did all three as the bytes arrived. The
-      //    archive's actual structure and format version are validated inside the queued job, which
-      //    is where it is really read apart.
-      const { filePath } = req.body as { filePath: string; size: number }
+      // -> The content-type parser above already streamed the body to disk — validating it (gzip
+      //    magic number, non-empty) as part of that same save, since there is no in-memory buffer
+      //    left here to check. `req.body` is the path it landed at.
+      const filePath = req.body
 
       const targetSite = await WIKI.models.sites.getSiteById({ id: req.query.targetSiteId })
       if (!targetSite) {

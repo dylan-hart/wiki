@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, mock, test } from 'node:test'
-import fs from 'node:fs/promises'
+import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import zlib from 'node:zlib'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
@@ -282,32 +281,31 @@ describe('GET /system/extensions/status', () => {
 })
 
 /**
- * Route-level test for `POST /system/import` (OpenProject #2213).
- *
- * The whole point of the fix is that the request body is never buffered as one `Buffer` in memory —
- * so rather than asserting an absence (hard to observe from outside the process), this exercises the
- * real `WIKI.models.import` (`streamUpload`/`deleteUpload`, unmocked) against a real temp directory
- * and asserts the archive genuinely reaches disk with the right bytes, that a non-gzip/empty upload
- * is refused before ever reaching the handler, and that a file written for a request which turns out
- * to target a missing site is cleaned up rather than left behind. `sites.getSiteById` and
- * `scheduler.addJob` are the only two things mocked — everything about the upload path itself is
- * real.
+ * Task 2213: `POST /import`'s content-type parser used to be `parseAs: 'buffer'`, materialising the
+ * whole archive as one in-memory `Buffer` before a single byte reached `<dataPath>/imports/`. It now
+ * has no `parseAs` at all, which is what hands the parser the raw request stream instead — this
+ * suite runs the real `systemRoutes` plugin with the real `importModel` (against a throwaway
+ * `dataPath`) rather than mocking either, so what it actually asserts is that the archive lands on
+ * disk at all, with the exact bytes sent, and that `req.body` resolves to that file's path rather
+ * than a `Buffer` — the architectural change this task made. Only `WIKI.models.sites.getSiteById` and
+ * `WIKI.scheduler.addJob` are mocked, since a real target site and a real job queue are their own
+ * suites' concerns.
  */
-describe('POST /system/import', () => {
+describe('POST /import (streamed upload)', () => {
   let app: FastifyInstance
   let dataPath: string
+  let currentSite: any
   let getSiteById: ReturnType<typeof mock.fn>
   let addJob: ReturnType<typeof mock.fn>
 
-  const TARGET_SITE_ID = '11111111-1111-1111-1111-111111111111'
-
   before(async () => {
-    dataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-import-route-test-'))
-    getSiteById = mock.fn(async ({ id }: { id: string }) => (id === TARGET_SITE_ID ? { id } : null))
+    dataPath = await fsp.mkdtemp(path.join(os.tmpdir(), 'wiki-import-route-test-'))
+
+    getSiteById = mock.fn(async () => currentSite)
     addJob = mock.fn(async () => ({ id: 'job-1' }))
 
     ;(globalThis as any).WIKI = {
-      ROOTPATH: '.',
+      ROOTPATH: process.cwd(),
       config: { dataPath },
       models: {
         sites: { getSiteById },
@@ -336,81 +334,75 @@ describe('POST /system/import', () => {
 
   after(async () => {
     await app.close()
-    await fs.rm(dataPath, { recursive: true, force: true })
+    await fsp.rm(dataPath, { recursive: true, force: true })
     delete (globalThis as any).WIKI
   })
 
   beforeEach(() => {
+    currentSite = { id: 'site-1' }
     getSiteById.mock.resetCalls()
     addJob.mock.resetCalls()
   })
 
-  /** Every file this suite writes under `<dataPath>/imports/`, so a leak (or a cleanup) is visible. */
-  async function importedFiles(): Promise<string[]> {
-    return fs.readdir(path.join(dataPath, 'imports')).catch(() => [])
-  }
-
-  test('a real archive reaches disk with its exact bytes, and the job is queued with its path', async () => {
-    const archive = zlib.gzipSync(Buffer.from('a fake but valid gzip payload'))
+  test('streams the upload straight to disk and queues a job pointing at the saved path, not a Buffer', async () => {
+    const gzipHeader = Buffer.from([0x1f, 0x8b, 0x08, 0x00])
+    const body = Buffer.concat([gzipHeader, Buffer.from('a fake archive body, not a real tarball')])
 
     const res = await app.inject({
       method: 'POST',
-      url: `/import?targetSiteId=${TARGET_SITE_ID}`,
+      url: '/import?targetSiteId=00000000-0000-0000-0000-000000000001',
       headers: { 'content-type': 'application/gzip' },
-      payload: archive
+      payload: body
     })
 
     assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), {
+      ok: true,
+      message: 'Content import queued successfully.',
+      id: 'job-1'
+    })
+
     assert.equal(addJob.mock.callCount(), 1)
-    const [{ payload }] = addJob.mock.calls[0].arguments as [{ payload: { filePath: string } }]
-    const onDisk = await fs.readFile(payload.filePath)
-    assert.deepEqual(onDisk, archive)
-
-    await fs.unlink(payload.filePath).catch(() => {})
+    const jobPayload = (addJob.mock.calls[0]!.arguments[0] as any).payload
+    // -> The content-type parser resolved `req.body` (what `addJob`'s payload carries as `filePath`)
+    //    to a string path on disk, never a `Buffer` -- proof the archive was streamed to
+    //    `<dataPath>/imports/` rather than held whole in the request thread's memory.
+    assert.equal(typeof jobPayload.filePath, 'string')
+    assert.match(jobPayload.filePath, /imports[/\\].+\.tar\.gz$/)
+    assert.deepEqual(await fsp.readFile(jobPayload.filePath), body)
   })
 
-  test('an empty body is refused before the handler ever runs, and nothing is left on disk', async () => {
+  test('rejects a body whose first bytes are not gzip, and never queues a job for it', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: `/import?targetSiteId=${TARGET_SITE_ID}`,
+      url: '/import?targetSiteId=00000000-0000-0000-0000-000000000001',
       headers: { 'content-type': 'application/gzip' },
-      payload: Buffer.alloc(0)
+      payload: Buffer.from('not a gzip archive at all')
     })
 
     assert.equal(res.statusCode, 400)
     assert.equal(addJob.mock.callCount(), 0)
-    assert.deepEqual(await importedFiles(), [])
   })
 
-  test('a non-gzip body is refused, and the partial file it was streamed to is removed', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: `/import?targetSiteId=${TARGET_SITE_ID}`,
-      headers: { 'content-type': 'application/gzip' },
-      payload: Buffer.from('definitely not a gzip archive')
-    })
-
-    assert.equal(res.statusCode, 400)
-    assert.equal(addJob.mock.callCount(), 0)
-    assert.deepEqual(await importedFiles(), [])
-  })
-
-  test('an archive for a target site that does not exist is deleted rather than left behind', async () => {
-    const archive = zlib.gzipSync(Buffer.from('irrelevant content'))
+  test('deletes the saved upload when the target site does not exist, and never queues a job', async () => {
+    currentSite = null
+    const before = await fsp.readdir(path.join(dataPath, 'imports')).catch(() => [] as string[])
 
     const res = await app.inject({
       method: 'POST',
-      url: '/import?targetSiteId=00000000-0000-0000-0000-000000000000',
+      url: '/import?targetSiteId=00000000-0000-0000-0000-000000000002',
       headers: { 'content-type': 'application/gzip' },
-      payload: archive
+      payload: Buffer.from([0x1f, 0x8b, 0x08, 0x00])
     })
 
     assert.equal(res.statusCode, 404)
     assert.equal(addJob.mock.callCount(), 0)
-    assert.deepEqual(
-      await importedFiles(),
-      [],
-      'the archive streamed to disk before the site lookup must be cleaned up, not leaked'
+
+    const after = await fsp.readdir(path.join(dataPath, 'imports'))
+    assert.equal(
+      after.length,
+      before.length,
+      'expected the upload to have been deleted since the target site does not exist'
     )
   })
 })

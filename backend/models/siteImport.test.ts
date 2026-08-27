@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { create as createTarball, list as listTarball } from 'tar'
 import { and, eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
@@ -14,6 +15,164 @@ import {
   sites as sitesTable,
   tree as treeTable
 } from '../db/schema.ts'
+
+/** Stages a `{ name: Buffer }` map to real files under `dir`, then tars them into a fresh archive. */
+async function buildArchive(dir: string, entries: Record<string, Buffer>): Promise<string> {
+  const stagingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-import-test-build-'))
+  try {
+    for (const [name, data] of Object.entries(entries)) {
+      const entryPath = path.join(stagingDir, name)
+      await fs.mkdir(path.dirname(entryPath), { recursive: true })
+      await fs.writeFile(entryPath, data)
+    }
+    const filePath = path.join(dir, `${crypto.randomUUID()}.tar.gz`)
+    await createTarball({ gzip: true, file: filePath, cwd: stagingDir }, Object.keys(entries))
+    return filePath
+  } finally {
+    await fs.rm(stagingDir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * `readArchive`'s size ceilings, in isolation — no database, no `WIKI` global. Custom `maxEntryBytes`
+ * / `maxTotalBytes` are what make this fast: tripping the real production ceilings (500 MB / 2 GB)
+ * would mean building gigabyte fixtures, where a handful of small archives and a tiny override prove
+ * the exact same abort logic.
+ */
+describe('readArchive size ceilings (pure, no DB)', () => {
+  let readArchive: typeof import('./siteImport.ts').readArchive
+  let tmpDir: string
+
+  before(async () => {
+    ;({ readArchive } = await import('./siteImport.ts'))
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-import-readarchive-test-'))
+  })
+
+  after(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  test('readArchive aborts once a single entry exceeds the per-entry cap', async () => {
+    const filePath = await buildArchive(tmpDir, {
+      'manifest.json': Buffer.from('{}'),
+      'assets/oversized.data': Buffer.alloc(50, 'x')
+    })
+
+    await assert.rejects(
+      readArchive(filePath, { maxEntryBytes: 20, maxTotalBytes: 1000 }),
+      /assets\/oversized\.data is 50 decompressed bytes, over the 20-byte single-entry limit/
+    )
+  })
+
+  test('readArchive aborts once the running decompressed total exceeds the ceiling', async () => {
+    const filePath = await buildArchive(tmpDir, {
+      'a.json': Buffer.alloc(20, 'a'),
+      'b.json': Buffer.alloc(20, 'b'),
+      'c.json': Buffer.alloc(20, 'c')
+    })
+
+    await assert.rejects(
+      readArchive(filePath, { maxEntryBytes: 1000, maxTotalBytes: 30 }),
+      /decompressed size exceeds the 30-byte import limit/
+    )
+  })
+
+  test('readArchive stays under both ceilings when the archive is within budget', async () => {
+    const filePath = await buildArchive(tmpDir, {
+      'manifest.json': Buffer.from('{"ok":true}'),
+      'assets/abc.data': Buffer.from('asset bytes'),
+      'assets/abc.preview': Buffer.from('preview bytes')
+    })
+
+    const result = await readArchive(filePath, { maxEntryBytes: 1000, maxTotalBytes: 1000 })
+
+    // -> The JSON entry is kept in memory ...
+    assert.deepEqual(result.entries['manifest.json'], Buffer.from('{"ok":true}'))
+    // -> ... but the asset blobs are staged to disk instead, not held as in-memory Buffers at all
+    assert.equal(result.entries['assets/abc.data'], undefined)
+    assert.equal(result.entries['assets/abc.preview'], undefined)
+
+    const dataPath = result.assetBlobs['assets/abc.data']
+    const previewPath = result.assetBlobs['assets/abc.preview']
+    assert.ok(dataPath, 'expected assets/abc.data to have been staged to a file')
+    assert.ok(previewPath, 'expected assets/abc.preview to have been staged to a file')
+    assert.equal((await fs.readFile(dataPath)).toString('utf8'), 'asset bytes')
+    assert.equal((await fs.readFile(previewPath)).toString('utf8'), 'preview bytes')
+
+    await fs.rm(result.stagingDir, { recursive: true, force: true })
+  })
+})
+
+/**
+ * `importModel.saveUpload` in isolation — no database, no real HTTP request. Feeds it a plain
+ * `Readable` the way `api/system.ts`'s content-type parser hands it the raw request stream, and
+ * checks the same things that parser used to check against a fully-buffered `Buffer` before this
+ * task streamed the save.
+ */
+describe('importModel.saveUpload (pure, no DB)', () => {
+  let importModel: typeof import('./siteImport.ts').importModel
+  let dataPath: string
+  let Readable: typeof import('node:stream').Readable
+
+  before(async () => {
+    ;({ importModel } = await import('./siteImport.ts'))
+    ;({ Readable } = await import('node:stream'))
+    dataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-import-saveupload-test-'))
+    ;(globalThis as any).WIKI = { ROOTPATH: process.cwd(), config: { dataPath } }
+  })
+
+  after(async () => {
+    await fs.rm(dataPath, { recursive: true, force: true })
+    delete (globalThis as any).WIKI
+  })
+
+  test('saveUpload streams the body to a file under <dataPath>/imports rather than buffering it', async () => {
+    const gzipHeader = Buffer.from([0x1f, 0x8b, 0x08, 0x00])
+    const body = Buffer.concat([gzipHeader, Buffer.from('rest of the archive bytes')])
+
+    const filePath = await importModel.saveUpload(Readable.from([body]), 1024 * 1024)
+
+    assert.match(filePath, /imports[/\\].+\.tar\.gz$/)
+    assert.deepEqual(await fs.readFile(filePath), body)
+  })
+
+  test('saveUpload rejects a body over bodyLimit and removes the partial file', async () => {
+    const chunks = [Buffer.from([0x1f, 0x8b]), Buffer.alloc(100, 'a'), Buffer.alloc(100, 'b')]
+    const before = await fs.readdir(path.join(dataPath, 'imports'))
+
+    let caught: any
+    try {
+      await importModel.saveUpload(Readable.from(chunks), 50)
+    } catch (err) {
+      caught = err
+    }
+    assert.ok(caught, 'expected saveUpload to reject')
+    assert.equal(caught.statusCode, 413)
+
+    const after = await fs.readdir(path.join(dataPath, 'imports'))
+    assert.equal(after.length, before.length, 'expected the partial upload to have been removed')
+  })
+
+  test('saveUpload rejects a body whose first bytes are not the gzip magic number', async () => {
+    const before = await fs.readdir(path.join(dataPath, 'imports'))
+
+    let caught: any
+    try {
+      await importModel.saveUpload(Readable.from([Buffer.from('not a gzip archive at all')]), 1024)
+    } catch (err) {
+      caught = err
+    }
+    assert.ok(caught, 'expected saveUpload to reject')
+    assert.equal(caught.statusCode, 400)
+
+    const after = await fs.readdir(path.join(dataPath, 'imports'))
+    assert.equal(after.length, before.length, 'expected the rejected upload to have been removed')
+  })
+
+  test('saveUpload rejects an empty body', async () => {
+    await assert.rejects(importModel.saveUpload(Readable.from([]), 1024), /No archive was sent/)
+  })
+})
 
 /**
  * `readArchive`'s two ceilings (OpenProject #2213), exercised directly against real tar fixtures
