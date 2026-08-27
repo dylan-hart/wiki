@@ -126,7 +126,12 @@ class Settings {
       {
         key: 'pageviews',
         value: {
-          isEnabled: true
+          isEnabled: true,
+          // -> Keys `hashVisitor()`'s HMAC (`models/pageviews.ts`) -- generated fresh here, same as
+          //    `auth.secret` above, and deliberately its own independent value rather than reused
+          //    from it: the two protect different things (session cookies vs. pageview
+          //    pseudonymisation), and sharing one would mean rotating either also breaks the other.
+          hashKey: crypto.randomBytes(32).toString('hex')
         }
       },
       {

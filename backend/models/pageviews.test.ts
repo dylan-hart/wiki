@@ -1,23 +1,112 @@
 import assert from 'node:assert/strict'
-import { after, before, describe, test } from 'node:test'
+import { after, before, describe, mock, test } from 'node:test'
+import crypto from 'node:crypto'
 import { eq, sql } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { pageviews as pageviewsTable } from '../db/schema.ts'
 import { hashVisitor } from './pageviews.ts'
 import type { PageActor } from './pages.ts'
 
+// `Settings.init()` -> `generateSigningCertificates()` calls `Temporal.Now.instant()` unconditionally.
+// Node ships `Temporal` as a global from v26 -- but not every environment running this test has that
+// landed yet, and `@js-temporal/polyfill` (already pulled in transitively by drizzle-kit) is a
+// faithful ponyfill, so install it as the global only when it is genuinely missing, exactly as
+// `models/security.test.ts` does for the same reason.
+if (typeof Temporal === 'undefined') {
+  const { Temporal: TemporalPolyfill } = await import('@js-temporal/polyfill')
+  ;(globalThis as any).Temporal = TemporalPolyfill
+}
+
+/** A fixed test key so DB-backed tests below get deterministic, reproducible hashes. */
+const TEST_HASH_KEY = 'test-hash-key-0123456789abcdef'
+
 /**
  * `hashVisitor` needs no database at all -- it's a pure function -- so it gets its own top-level
  * tests rather than living inside the DB-backed `describe` below.
  */
-test('hashVisitor never returns the raw id, and is deterministic per input', () => {
-  const a = hashVisitor('secret-key-id')
-  const b = hashVisitor('secret-key-id')
-  const c = hashVisitor('a-different-key-id')
+test('hashVisitor never returns the raw id, and is deterministic per input under one key', () => {
+  const a = hashVisitor('secret-key-id', TEST_HASH_KEY)
+  const b = hashVisitor('secret-key-id', TEST_HASH_KEY)
+  const c = hashVisitor('a-different-key-id', TEST_HASH_KEY)
 
-  assert.equal(a, b, 'the same raw id should hash to the same visitor')
+  assert.equal(a, b, 'the same raw id under the same key should hash to the same visitor')
   assert.notEqual(a, c, 'two different raw ids should hash to two different visitors')
   assert.ok(!a.includes('secret-key-id'), 'the raw id must never appear in the stored hash')
+})
+
+test('hashVisitor differs from a bare unkeyed sha256 digest of the same input', () => {
+  const rawId = 'session-abc'
+  const bareDigest = crypto.createHash('sha256').update(rawId).digest('hex')
+
+  assert.notEqual(
+    hashVisitor(rawId, TEST_HASH_KEY),
+    bareDigest,
+    'a keyed HMAC must not collapse to the same output as an unkeyed digest -- otherwise the key is decorative'
+  )
+})
+
+test('hashVisitor produces different output for the same raw id under two different keys', () => {
+  const rawId = 'session-abc'
+  const otherKey = 'a-completely-different-key-fedcba9876'
+
+  assert.notEqual(
+    hashVisitor(rawId, TEST_HASH_KEY),
+    hashVisitor(rawId, otherKey),
+    'the same raw id must hash to unrelated outputs under two different keys, or the two are correlatable'
+  )
+})
+
+/**
+ * `Settings.init()` is what seeds `pageviews.hashKey` at first boot (mirroring `auth.secret`) --
+ * verified here as a pure unit test the same way `hooks.test.ts` stubs `WIKI.db` rather than
+ * standing up a real database, since what's under test is the JS-level shape of the seeded value,
+ * not SQL orchestration.
+ */
+describe('Settings.init seeds pageviews.hashKey', () => {
+  test('a fresh boot seeds a non-empty hashKey that is not shared with auth.secret', async () => {
+    const inserted: { key: string; value: any }[] = []
+    ;(globalThis as any).WIKI = {
+      logger: { info: mock.fn(), warn: mock.fn() },
+      version: 'test',
+      releaseDate: 'test',
+      db: {
+        insert: () => ({
+          values: (rows: { key: string; value: any }[]) => {
+            inserted.push(...rows)
+            return Promise.resolve()
+          }
+        })
+      }
+    }
+
+    const { settings } = await import('./settings.ts')
+    await settings.init({
+      groupAdminId: 'group-admin',
+      groupUserId: 'group-user',
+      groupGuestId: 'group-guest',
+      siteId: 'site-1',
+      authModuleId: 'auth-module',
+      userAdminId: 'user-admin',
+      userGuestId: 'user-guest',
+      classificationPublicId: 'classification-public',
+      classificationInternalId: 'classification-internal',
+      classificationRestrictedId: 'classification-restricted'
+    } as any)
+
+    const authRow = inserted.find((row) => row.key === 'auth')
+    const pageviewsRow = inserted.find((row) => row.key === 'pageviews')
+
+    assert.ok(pageviewsRow, 'a pageviews settings row must be seeded')
+    assert.ok(
+      typeof pageviewsRow!.value.hashKey === 'string' && pageviewsRow!.value.hashKey.length > 0,
+      'pageviews.hashKey must be seeded non-empty'
+    )
+    assert.notEqual(
+      pageviewsRow!.value.hashKey,
+      authRow!.value.secret,
+      'pageviews.hashKey must not be the same value as auth.secret'
+    )
+  })
 })
 
 /**
@@ -51,7 +140,7 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
   })
 
   test('record() inserts a row with a hashed visitor id when tracking is enabled', async () => {
-    WIKI.config.pageviews = { isEnabled: true }
+    WIKI.config.pageviews = { isEnabled: true, hashKey: TEST_HASH_KEY }
 
     await pageviewsModel.record({
       siteId: fixtures.siteId,
@@ -66,12 +155,12 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
       .where(eq(pageviewsTable.pageId, pageId))
     assert.equal(rows.length, 1)
     assert.equal(rows[0]!.clientType, 'browser')
-    assert.equal(rows[0]!.visitorHash, hashVisitor('session-abc'))
+    assert.equal(rows[0]!.visitorHash, hashVisitor('session-abc', TEST_HASH_KEY))
     assert.notEqual(rows[0]!.visitorHash, 'session-abc')
   })
 
   test('record() no-ops entirely -- no row inserted -- while tracking is disabled', async () => {
-    WIKI.config.pageviews = { isEnabled: false }
+    WIKI.config.pageviews = { isEnabled: false, hashKey: TEST_HASH_KEY }
     const before = await fixtures.db.$count(pageviewsTable, eq(pageviewsTable.pageId, pageId))
 
     await pageviewsModel.record({
@@ -86,7 +175,7 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
   })
 
   test('record() never throws when the insert itself fails', async () => {
-    WIKI.config.pageviews = { isEnabled: true }
+    WIKI.config.pageviews = { isEnabled: true, hashKey: TEST_HASH_KEY }
 
     // -> A page that does not exist trips the `pageId` foreign key -- record() must swallow that,
     //    not propagate it, since a logging failure must never break serving the page it rides along
@@ -107,14 +196,14 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
         siteId: fixtures.siteId,
         pageId,
         clientType: 'mcp',
-        visitorHash: hashVisitor('old-visitor'),
+        visitorHash: hashVisitor('old-visitor', TEST_HASH_KEY),
         viewedAt: sql`now() - interval '3 years'`
       },
       {
         siteId: fixtures.siteId,
         pageId,
         clientType: 'mcp',
-        visitorHash: hashVisitor('recent-visitor'),
+        visitorHash: hashVisitor('recent-visitor', TEST_HASH_KEY),
         viewedAt: sql`now() - interval '1 day'`
       }
     ] as any)
@@ -126,8 +215,14 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
       .from(pageviewsTable)
       .where(eq(pageviewsTable.pageId, pageId))
     const hashes = remaining.map((r) => r.visitorHash)
-    assert.ok(!hashes.includes(hashVisitor('old-visitor')), 'a 3-year-old row should be purged')
-    assert.ok(hashes.includes(hashVisitor('recent-visitor')), 'a 1-day-old row should survive')
+    assert.ok(
+      !hashes.includes(hashVisitor('old-visitor', TEST_HASH_KEY)),
+      'a 3-year-old row should be purged'
+    )
+    assert.ok(
+      hashes.includes(hashVisitor('recent-visitor', TEST_HASH_KEY)),
+      'a 1-day-old row should survive'
+    )
   })
 
   describe('countsForGraph', () => {
@@ -153,21 +248,21 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
           siteId: fixtures.siteId,
           pageId: countsPageId,
           clientType: 'browser',
-          visitorHash: hashVisitor('graph-session-1'),
+          visitorHash: hashVisitor('graph-session-1', TEST_HASH_KEY),
           viewedAt: sql`now() - interval '5 days'`
         },
         {
           siteId: fixtures.siteId,
           pageId: countsPageId,
           clientType: 'browser',
-          visitorHash: hashVisitor('graph-session-1'),
+          visitorHash: hashVisitor('graph-session-1', TEST_HASH_KEY),
           viewedAt: sql`now() - interval '1 day'`
         },
         {
           siteId: fixtures.siteId,
           pageId: countsPageId,
           clientType: 'browser',
-          visitorHash: hashVisitor('graph-session-2'),
+          visitorHash: hashVisitor('graph-session-2', TEST_HASH_KEY),
           viewedAt: sql`now() - interval '3 months'`
         },
         // -> One `api` visitor, outside the 30d window but inside 6mo/2yr.
@@ -175,7 +270,7 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
           siteId: fixtures.siteId,
           pageId: countsPageId,
           clientType: 'api',
-          visitorHash: hashVisitor('graph-api-key-1'),
+          visitorHash: hashVisitor('graph-api-key-1', TEST_HASH_KEY),
           viewedAt: sql`now() - interval '2 months'`
         },
         // -> One `mcp` visitor, outside every window but the 2yr one.
@@ -183,7 +278,7 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
           siteId: fixtures.siteId,
           pageId: countsPageId,
           clientType: 'mcp',
-          visitorHash: hashVisitor('graph-mcp-key-1'),
+          visitorHash: hashVisitor('graph-mcp-key-1', TEST_HASH_KEY),
           viewedAt: sql`now() - interval '18 months'`
         }
       ] as any)
