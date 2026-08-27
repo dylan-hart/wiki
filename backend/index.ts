@@ -32,6 +32,7 @@ import collab from './core/collab.ts'
 import configSvc from './core/config.ts'
 import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
+import { registerUnhandledRejectionHandler, runBootPhaseOrExit } from './core/processGuards.ts'
 import scheduler from './core/scheduler.ts'
 import { resolveAppShellLocale, templateAppShell } from './helpers/appShell.ts'
 import {
@@ -163,6 +164,10 @@ await WIKI.configSvc.init()
 // ----------------------------------------
 
 WIKI.logger = logger.init()
+
+// -> Registered as early as `WIKI.logger` exists, so nothing between here and the end of boot can
+//    crash the process unlogged via a rejection nobody's `.catch` caught.
+registerUnhandledRejectionHandler(WIKI.logger, { debug: WIKI.IS_DEBUG })
 
 // ----------------------------------------
 // Init Server
@@ -943,4 +948,6 @@ async function initHTTPServer() {
 
 await preBoot()
 await initHTTPServer()
-await postBoot()
+await runBootPhaseOrExit(postBoot, 'Post-Boot Initialization Error', WIKI.logger, {
+  debug: WIKI.IS_DEBUG
+})
