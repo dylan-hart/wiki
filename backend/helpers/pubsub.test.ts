@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { after, before, beforeEach, describe, test } from 'node:test'
-import { connectListener } from './pubsub.ts'
+import { connectListener, createNotifier } from './pubsub.ts'
 
 /**
  * Regression coverage for `connectListener` (task 703): none of the three dedicated LISTEN/NOTIFY
@@ -223,5 +223,24 @@ describe('connectListener', () => {
     client.emit('error', new Error('late error after shutdown'))
     await new Promise((resolve) => setTimeout(resolve, 10))
     assert.equal(pool.connectCalls, connectCallsBeforeLateError)
+  })
+})
+
+describe('createNotifier', () => {
+  /**
+   * Regression coverage for task 2015: `core/db.ts`'s module-scope notifier reads
+   * `WIKI.dbManager.pubsubClient` in its client getter, a member the worker thread's minimal `WIKI`
+   * never sets (`worker.ts`'s literal is asserted to the full `WikiGlobal`, so `tsc` cannot catch the
+   * gap). The fix makes the getter itself defensive; this exercises `createNotifier`'s own contract
+   * that a getter returning `null` is a silent no-op, which is what makes that defensiveness safe to
+   * rely on regardless of which caller's getter it is.
+   */
+  test('send() against a getter returning null resolves as a no-op and logs nothing', async () => {
+    const notifier = createNotifier(() => null, 'test channel')
+
+    notifier.send('wiki', '{"a":1}')
+    await notifier.drained()
+
+    assert.deepEqual(warnings, [])
   })
 })

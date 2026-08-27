@@ -23,7 +23,7 @@ import maintenance from './maintenance.ts'
  * listener and so has no `this` to reach it through. The client is read per send for the same reason
  * it is elsewhere: it does not exist until `subscribeToNotifications`.
  */
-const notifier = createNotifier(() => WIKI.dbManager.pubsubClient, 'event bus')
+const notifier = createNotifier(() => WIKI.dbManager?.pubsubClient ?? null, 'event bus')
 
 /**
  * Postgres extensions the schema depends on, installed before the migrations run.
