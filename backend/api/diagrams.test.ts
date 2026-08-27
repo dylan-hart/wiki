@@ -84,8 +84,7 @@ test('forwards the request body to the model unchanged', async () => {
   const body = {
     type: 'plantuml',
     source: '@startuml\nA -> B\n@enduml',
-    format: 'png',
-    server: 'https://x.example.com'
+    format: 'png'
   }
 
   const res = await app.inject({ method: 'POST', url: '/render', payload: body })
@@ -93,6 +92,25 @@ test('forwards the request body to the model unchanged', async () => {
   assert.equal(res.statusCode, 200)
   assert.equal(render.mock.callCount(), 1)
   assert.deepEqual(render.mock.calls[0].arguments[0], body)
+})
+
+test('strips a `server` field from the request body — the schema no longer accepts it (OpenProject #2219)', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/render',
+    payload: {
+      type: 'plantuml',
+      source: '@startuml\nA -> B\n@enduml',
+      server: 'http://169.254.169.254/latest/meta-data/'
+    }
+  })
+
+  // -> `additionalProperties: false` plus Fastify's default `removeAdditional: true` means an
+  //    undeclared field like this is silently dropped from `req.body` rather than failing
+  //    validation outright — the request still succeeds, but the model never sees a `server` value.
+  assert.equal(res.statusCode, 200)
+  assert.equal(render.mock.callCount(), 1)
+  assert.equal((render.mock.calls[0].arguments[0] as any).server, undefined)
 })
 
 test("answers with the model's bytes under its own content type, uncached", async () => {
