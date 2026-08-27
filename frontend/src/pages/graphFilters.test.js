@@ -4,7 +4,8 @@ import {
   buildPathHierarchyEdges,
   buildTagHubEdges,
   computeVisibleSubset,
-  deriveFilterOptions
+  deriveFilterOptions,
+  nodeId
 } from './graphFilters.js'
 
 const NODES = [
@@ -12,6 +13,24 @@ const NODES = [
   { path: 'b', locale: 'fr', tags: ['foo'] },
   { path: 'c', locale: 'en', tags: [] }
 ]
+
+describe('nodeId (OpenProject #1629/#1632)', () => {
+  it('keys a real node (one with a locale) on the composite `${locale}:${path}`', () => {
+    expect(nodeId({ path: 'docs/intro', locale: 'en' })).toBe('en:docs/intro')
+    expect(nodeId({ path: 'docs/intro', locale: 'fr' })).toBe('fr:docs/intro')
+  })
+
+  it('gives two locales of the same path two distinct ids', () => {
+    const en = nodeId({ path: 'docs/intro', locale: 'en' })
+    const fr = nodeId({ path: 'docs/intro', locale: 'fr' })
+    expect(en).not.toBe(fr)
+  })
+
+  it('keeps a synthetic node (no locale) on its already-unique bare path', () => {
+    expect(nodeId({ path: '__tag__foo', synthetic: true })).toBe('__tag__foo')
+    expect(nodeId({ path: '', synthetic: true })).toBe('')
+  })
+})
 
 describe('deriveFilterOptions (OpenProject #899)', () => {
   it('collects every distinct tag across all nodes, sorted', () => {
@@ -193,6 +212,25 @@ describe('buildPathHierarchyEdges (OpenProject #998)', () => {
   it('produces nothing for an empty node set', () => {
     expect(buildPathHierarchyEdges([])).toEqual({ syntheticNodes: [], edges: [] })
   })
+
+  it('gives two locales of the same leaf path their own distinct, separately-addressed edges (OpenProject #1629/#1632)', () => {
+    const { syntheticNodes, edges } = buildPathHierarchyEdges([
+      { path: 'docs/intro', locale: 'en' },
+      { path: 'docs/intro', locale: 'fr' }
+    ])
+    // -> Both leaf edges climb the SAME shared folder chain (bare-path ids, since neither locale's
+    //    duplicate owns 'docs' as a real page here), but each ends at its own composite-id target
+    //    rather than colliding on the bare 'docs/intro' the pre-fix accessor would have produced.
+    expect(syntheticNodes.map((n) => n.path).sort()).toEqual(['', 'docs'])
+    expect(edges).toEqual(
+      expect.arrayContaining([
+        { source: 'docs', target: 'en:docs/intro', type: 'path' },
+        { source: 'docs', target: 'fr:docs/intro', type: 'path' },
+        { source: '', target: 'docs', type: 'path' }
+      ])
+    )
+    expect(edges).toHaveLength(3)
+  })
 })
 
 describe('buildTagHubEdges (OpenProject #999)', () => {
@@ -241,6 +279,18 @@ describe('buildTagHubEdges (OpenProject #999)', () => {
     const { syntheticNodes, edges } = buildTagHubEdges([{ path: 'a' }])
     expect(syntheticNodes).toEqual([])
     expect(edges).toEqual([])
+  })
+
+  it('gives two locales of the same path sharing a tag two distinct edges (OpenProject #1629/#1632)', () => {
+    const { syntheticNodes, edges } = buildTagHubEdges([
+      { path: 'a', locale: 'en', tags: ['foo'] },
+      { path: 'a', locale: 'fr', tags: ['foo'] }
+    ])
+    expect(syntheticNodes).toEqual([{ path: '__tag__foo', title: 'foo', synthetic: true }])
+    expect(edges).toEqual([
+      { source: '__tag__foo', target: 'en:a', type: 'tag' },
+      { source: '__tag__foo', target: 'fr:a', type: 'tag' }
+    ])
   })
 })
 
@@ -345,5 +395,19 @@ describe('buildClassificationHubEdges (OpenProject #1217)', () => {
 
   it('produces nothing for an empty node set', () => {
     expect(buildClassificationHubEdges([])).toEqual({ syntheticNodes: [], edges: [] })
+  })
+
+  it('gives two locales of the same path sharing a classification two distinct edges (OpenProject #1629/#1632)', () => {
+    const { syntheticNodes, edges } = buildClassificationHubEdges([
+      { path: 'a', locale: 'en', classification: 'Public' },
+      { path: 'a', locale: 'fr', classification: 'Public' }
+    ])
+    expect(syntheticNodes).toEqual([
+      { path: '__classification__Public', title: 'Public', synthetic: true }
+    ])
+    expect(edges).toEqual([
+      { source: '__classification__Public', target: 'en:a', type: 'classification' },
+      { source: '__classification__Public', target: 'fr:a', type: 'classification' }
+    ])
   })
 })

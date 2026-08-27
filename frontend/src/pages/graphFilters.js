@@ -22,6 +22,23 @@ export function deriveFilterOptions(nodes) {
 }
 
 /**
+ * The id a node is addressed by inside the d3-force simulation (`Graph.vue`'s `forceLink().id()`
+ * accessor) and, below, from every synthetic edge's `source`/`target` this module builds. A real
+ * node's `path` alone is not unique -- two locales' translations of the same page share it by
+ * design (`docs/decisions/locale-translation-linking.md`, "Same-path-by-convention"), so d3-force's
+ * `nodeById` map would otherwise collapse them onto whichever the map kept last, with no error: N
+ * duplicate dots on top of each other, all edges attached to just one of them (OpenProject
+ * #1629/#1632). A real node (one carrying a `locale`) is therefore keyed on `${locale}:${path}`; a
+ * synthetic node (folder/tag/classification hub) has no `locale` of its own and keeps its
+ * already-unique synthetic `path` as its id, unchanged -- which is also why a node fixture with no
+ * `locale` field (every pre-existing test in this file) round-trips through this function as its
+ * own bare `path`, byte-for-byte.
+ */
+export function nodeId(node) {
+  return node.locale ? `${node.locale}:${node.path}` : node.path
+}
+
+/**
  * An edge's endpoint as fetched is a plain node-id string, but `d3-force`'s `forceLink` mutates
  * `edge.source`/`edge.target` in place into a reference to the actual node object the moment
  * `.links()` resolves ids against `.nodes()` (Task 26 feeds `Graph.vue`'s live `allEdges`/`edges`
@@ -75,6 +92,16 @@ export function computeVisibleSubset(nodes, edges, filters) {
  * climb through the same parent segment -- cheap to always climb every node fully to root rather than
  * short-circuiting on "already wired," given the graph's confirmed real-world scale (low hundreds to
  * low thousands of pages).
+ *
+ * Every edge endpoint is addressed by `nodeId()`, not the bare `path` a plain climb would produce
+ * (OpenProject #1629/#1632) -- otherwise two locales' same-path pages would climb into edges whose
+ * `target` collides on the same string, which is exactly the bug this module exists to not have.
+ * The node actually being climbed FROM is always known precisely (it's `node` itself), so its own
+ * leaf edge uses `nodeId(node)` directly; an ancestor folder is looked up by `byPath`'s bare-path
+ * key alone (`idForPath`, below) since nothing at this point remembers which specific locale's page
+ * a shared folder path belongs to -- picking whichever one `byPath` retained is enough to avoid
+ * handing d3-force an id that resolves to no node at all, but not enough to give two locales fully
+ * separate hierarchies; that separation is OpenProject #1632's own scope.
  */
 export function buildPathHierarchyEdges(nodes) {
   const byPath = new Map(nodes.map((n) => [n.path, n]))
@@ -98,17 +125,24 @@ export function buildPathHierarchyEdges(nodes) {
     })
   }
 
+  function idForPath(path) {
+    return nodeId(byPath.get(path) ?? synthesized.get(path))
+  }
+
   for (const node of nodes) {
     let current = node.path
+    let currentId = nodeId(node)
     while (current !== '') {
       const parent = parentOf(current)
       ensureFolderNode(parent)
-      const key = `${parent} ${current}`
+      const parentId = idForPath(parent)
+      const key = `${parentId} ${currentId}`
       if (!edgeKeys.has(key)) {
         edgeKeys.add(key)
-        edges.push({ source: parent, target: current, type: 'path' })
+        edges.push({ source: parentId, target: currentId, type: 'path' })
       }
       current = parent
+      currentId = parentId
     }
   }
 
@@ -120,7 +154,9 @@ export function buildPathHierarchyEdges(nodes) {
  * distinct tag (`path: '__tag__' + tag`), with an edge from the hub to every page carrying that tag.
  * Unlike Feature 874's clustering (which buckets a node under only its first tag for a color group),
  * a multi-tagged page gets one edge per tag here -- simpler than `buildPathHierarchyEdges` above,
- * since there's no chaining and no root.
+ * since there's no chaining and no root. Each edge's `target` is `nodeId(node)`, not the bare
+ * `node.path` (OpenProject #1629/#1632), so two locales' same-path pages carrying the same tag get
+ * two distinct edges instead of colliding on one.
  */
 export function buildTagHubEdges(nodes) {
   const hubs = new Map()
@@ -132,7 +168,7 @@ export function buildTagHubEdges(nodes) {
       if (!hubs.has(hubPath)) {
         hubs.set(hubPath, { path: hubPath, title: tag, synthetic: true })
       }
-      edges.push({ source: hubPath, target: node.path, type: 'tag' })
+      edges.push({ source: hubPath, target: nodeId(node), type: 'tag' })
     }
   }
 
@@ -148,7 +184,9 @@ export function buildTagHubEdges(nodes) {
  * `buildTagHubEdges`'s variable fan-out. A node with no resolved classification name (backend
  * `GraphNode.classification` is null when the id no longer matches a configured level) is grouped
  * under a shared `'(unclassified)'` hub rather than dropped, the same fallback `Graph.vue`'s
- * `groupKeyFor()` uses for the Classification grouping.
+ * `groupKeyFor()` uses for the Classification grouping. Each edge's `target` is `nodeId(node)`, not
+ * the bare `node.path` (OpenProject #1629/#1632), so two locales' same-path pages sharing a
+ * classification get two distinct edges instead of colliding on one.
  */
 export function buildClassificationHubEdges(nodes) {
   const hubs = new Map()
@@ -160,7 +198,7 @@ export function buildClassificationHubEdges(nodes) {
     if (!hubs.has(hubPath)) {
       hubs.set(hubPath, { path: hubPath, title: classification, synthetic: true })
     }
-    edges.push({ source: hubPath, target: node.path, type: 'classification' })
+    edges.push({ source: hubPath, target: nodeId(node), type: 'classification' })
   }
 
   return { syntheticNodes: [...hubs.values()], edges }
