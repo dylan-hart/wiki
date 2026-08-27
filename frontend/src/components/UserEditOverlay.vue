@@ -281,7 +281,7 @@
                   <w-item-section>
                     <w-item-label>{{ t(`common.field.createdOn`) }}</w-item-label>
                     <w-item-label>
-                      <strong>{{ formattedDate(state.user.createdAt) }}</strong>
+                      <strong>{{ humanizeDate(t, state.user.createdAt) }}</strong>
                     </w-item-label>
                   </w-item-section>
                 </w-item>
@@ -291,7 +291,7 @@
                   <w-item-section>
                     <w-item-label>{{ t(`common.field.lastUpdated`) }}</w-item-label>
                     <w-item-label>
-                      <strong>{{ formattedDate(state.user.updatedAt) }}</strong>
+                      <strong>{{ humanizeDate(t, state.user.updatedAt) }}</strong>
                     </w-item-label>
                   </w-item-section>
                 </w-item>
@@ -301,7 +301,7 @@
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.lastLoginAt`) }}</w-item-label>
                     <w-item-label>
-                      <strong>{{ formattedDate(state.user.lastLoginAt) }}</strong>
+                      <strong>{{ humanizeDate(t, state.user.lastLoginAt) }}</strong>
                     </w-item-label>
                   </w-item-section>
                 </w-item>
@@ -450,7 +450,7 @@
                         <strong>{{ pkey.name }}</strong>
                         <div class="text-caption">{{ pkey.siteHostname }}</div>
                         <div class="text-caption text-grey-7">
-                          {{ formattedDate(pkey.createdAt) }}
+                          {{ humanizeDate(t, pkey.createdAt) }}
                         </div>
                       </w-item-section>
                       <w-item-section side>
@@ -716,6 +716,7 @@ import { useFlagsStore } from '@/stores/flags'
 import { useUserStore } from '@/stores/user'
 
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 
 import UserChangePwdDialog from './UserChangePwdDialog.vue'
 import UtilCodeEditor from './UtilCodeEditor.vue'
@@ -863,20 +864,6 @@ function checkRoute() {
   if (route.params.section === 'metadata') {
     state.metadataInvalidJSON = false
   }
-}
-
-function formattedDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
 }
 
 function assignGroup() {

@@ -563,7 +563,6 @@ import { notify } from '@/composables/notify'
 import { useMinWidth, useScreen } from '@/composables/screen'
 import { useDark } from '@/composables/dark'
 
-import { useCommonStore } from '@/stores/common'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
@@ -573,6 +572,7 @@ import NewMenu from './PageNewMenu.vue'
 import Tree from './TreeNav.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { assetUrl } from '@/helpers/assets'
+import { humanizeDate } from '@/helpers/datetime'
 import fileTypes from '@/helpers/fileTypes'
 import { isHomePath, localizedPagePath } from '@/helpers/pagePaths'
 import FolderCreateDialog from '@/components/FolderCreateDialog.vue'
@@ -587,7 +587,6 @@ const screen = useScreen()
 
 // STORES
 
-const commonStore = useCommonStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
@@ -843,11 +842,11 @@ const currentFileDetails = computed(() => {
       })
       items.push({
         label: t('fileman.detailsPageUpdated'),
-        value: formatDateTime(item.updatedAt)
+        value: humanizeDate(t, item.updatedAt)
       })
       items.push({
         label: t('fileman.detailsPageCreated'),
-        value: formatDateTime(item.createdAt)
+        value: humanizeDate(t, item.createdAt)
       })
       break
     }
@@ -909,15 +908,6 @@ function dismissTreeOverlay(ev) {
 
 function close() {
   siteStore.overlay = null
-}
-
-function formatDateTime(value) {
-  if (!value) {
-    return ''
-  }
-  return Temporal.Instant.from(value)
-    .toZonedDateTimeISO(Temporal.Now.timeZoneId())
-    .toLocaleString(commonStore.locale, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 function insertItem(item) {

@@ -1,5 +1,16 @@
-import { describe, expect, it } from 'vitest'
-import { humanizeDuration, humanizeIsoDuration, relativeDate } from './datetime.js'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+
+import { useUserStore } from '@/stores/user'
+
+import { humanizeDate, humanizeDuration, humanizeIsoDuration, relativeDate } from './datetime.js'
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+})
+
+// -> Mirrors real i18n interpolation for `common.datetime`: `"{date} at {time}"`
+const t = (key, params) => (key === 'common.datetime' ? `${params.date} at ${params.time}` : key)
 
 describe('humanizeIsoDuration', () => {
   it('renders a single-unit ISO-8601 duration in words', () => {
@@ -16,6 +27,32 @@ describe('humanizeIsoDuration', () => {
     expect(humanizeIsoDuration(false)).toBe('---')
     expect(humanizeIsoDuration(null)).toBe('---')
     expect(humanizeIsoDuration('')).toBe('---')
+  })
+})
+
+describe('humanizeDate', () => {
+  it('returns the placeholder for a nullish or empty value', () => {
+    expect(humanizeDate(t, null)).toBe('---')
+    expect(humanizeDate(t, undefined)).toBe('---')
+    expect(humanizeDate(t, '')).toBe('---')
+  })
+
+  it('renders in the stored timezone and date/time format', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '24h'
+    store.timezone = 'UTC'
+
+    expect(humanizeDate(t, '2026-03-04T15:30:00Z')).toBe('2026-03-04 at 15:30')
+  })
+
+  it('renders the same instant differently for a non-UTC stored timezone', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '24h'
+    store.timezone = 'Asia/Tokyo'
+
+    expect(humanizeDate(t, '2026-03-04T15:30:00Z')).toBe('2026-03-05 at 00:30')
   })
 })
 

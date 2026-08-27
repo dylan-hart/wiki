@@ -1,16 +1,20 @@
 /**
  * Date and duration rendering for the admin tables, in the reader's own locale.
  *
- * Shared because three screens had grown their own copy of the same walk down a units table — one of
- * them under a different name — and the copies had already started to drift. What stays local to a
- * screen is ABSOLUTE formatting: the scheduler spells out seconds because a job's timing is the point,
- * where the instances table does not, and anything a user chose a pattern for goes through
- * `userStore.formatDate()` instead.
+ * Shared because several screens had grown their own copy of the same walk down a units table — some
+ * under a different name — and the copies had already started to drift. `humanizeDate` below is the
+ * same story for ABSOLUTE formatting: most screens want exactly `userStore.formatDateTime()` (the
+ * user's stored timezone, date format and time format) with a placeholder for "nothing to show", so
+ * that pairing lives here once rather than copied per screen. What stays local is precision that is
+ * genuinely the point of one particular screen — the scheduler and the webhook history spell out
+ * seconds because a job's timing IS the point, where every other absolute timestamp does not.
  *
  * `Intl` rather than a formatting library: the browser already knows how the reader's locale words
  * "3 minutes ago" and "1h 4m 32s", which is what luxon's `toRelative()` and `Duration.toHuman()` were
  * here for.
  */
+
+import { useUserStore } from '@/stores/user'
 
 /*
   Largest first, so the first unit the difference clears is the one it reads best in. `week` is
@@ -105,4 +109,26 @@ export function humanizeIsoDuration(value) {
     }).format(dur[unit])
   )
   return parts.length > 0 ? isoDurationListFormat.format(parts) : '0 seconds'
+}
+
+/**
+ * An absolute moment, in this user's stored timezone, date format and time format -- the shared
+ * minute-precision case. Delegates straight to `userStore.formatDateTime`, so every screen that
+ * needs nothing more than "when did this happen" renders identically and stays in step when the
+ * user changes a profile preference.
+ *
+ * A screen where the precision itself is the point (a job's start/end time, a webhook attempt) keeps
+ * its own seconds-precision formatter rather than using this one -- see the file header above.
+ *
+ * @param {(key: string, params?: object) => string} t The active `vue-i18n` translate function,
+ *   needed to word-order the date and time parts per locale.
+ * @param {string|Date|Temporal.Instant|null} val A moment in any form `userStore.formatDateTime`
+ *   accepts.
+ * @returns {string} e.g. `March 4, 2026 at 3:45 PM`, or `---` for nothing at all.
+ */
+export function humanizeDate(t, val) {
+  if (!val) {
+    return '---'
+  }
+  return useUserStore().formatDateTime(t, val)
 }
