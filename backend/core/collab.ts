@@ -115,6 +115,17 @@ const PEER_PRESENCE_TTL = 15 * 1000
 const PING_INTERVAL = 30 * 1000
 
 /**
+ * Ceiling on `session.pending` — the frames a socket has sent before it has a room to hand them to
+ * (see {@link capture}) — checked on both axes: entry count and total bytes. That buffer only ever
+ * needs to hold one well-behaved client's opening handshake (a sync step 1, occasionally an awareness
+ * update alongside it), which is a few hundred bytes in one or two frames, so a cap of a few kilobytes
+ * across a handful of entries is generous headroom, not a tight fit. Exported for
+ * `core/collab.test.ts`, which checks the real constants rather than hardcoded copies of them.
+ */
+export const MAX_PENDING_FRAMES = 16
+export const MAX_PENDING_BYTES = 32 * 1024
+
+/**
  * Marks a document or awareness change as having arrived over the relay, so that applying it here does
  * not send it straight back out to the instance it came from.
  */
@@ -130,8 +141,10 @@ interface CollabConn {
 interface CollabSession {
   /** The room this socket ended up in, or null while it is still being decided. */
   room: CollabRoom | null
-  /** Frames that arrived before there was a room to hand them to. */
+  /** Frames that arrived before there was a room to hand them to. Capped — see {@link capture}. */
   pending: Uint8Array[]
+  /** Running total of `pending`'s byte length, kept alongside it so the cap check is O(1) per frame. */
+  pendingBytes: number
 }
 
 interface CollabRoom {
@@ -354,17 +367,34 @@ export default {
    * empty document, because it is never going to ask twice.
    *
    * So the frames are collected here and replayed by {@link join} once there is a room to put them to.
+   *
+   * `pending` is capped on both axes ({@link MAX_PENDING_FRAMES}, {@link MAX_PENDING_BYTES}) because
+   * this listener is live before either the session or the site's feature flag has been checked — a
+   * request that never proves it may even open the door still gets to talk. Since a real handshake
+   * fits comfortably inside the cap, the only way to hit it is a client that keeps writing well past
+   * what a legitimate one ever would, and there is nothing worth buffering for that: it is hung up on
+   * immediately, `terminate()` rather than `close()` so it gets no closing-handshake grace period
+   * either.
    */
   capture(conn: WebSocket): CollabSession {
-    const session: CollabSession = { room: null, pending: [] }
+    const session: CollabSession = { room: null, pending: [], pendingBytes: 0 }
     conn.on('message', (data: unknown) => {
       if (session.room) {
         this.onMessage(session.room, conn, toBytes(data))
-      } else {
-        // -> Copied, not referenced: `toBytes` hands back a view into a buffer `ws` owns, which is
-        //    only good for the length of this event
-        session.pending.push(new Uint8Array(toBytes(data)))
+        return
       }
+      // -> Copied, not referenced: `toBytes` hands back a view into a buffer `ws` owns, which is
+      //    only good for the length of this event
+      const bytes = new Uint8Array(toBytes(data))
+      if (
+        session.pending.length >= MAX_PENDING_FRAMES ||
+        session.pendingBytes + bytes.byteLength > MAX_PENDING_BYTES
+      ) {
+        conn.terminate()
+        return
+      }
+      session.pending.push(bytes)
+      session.pendingBytes += bytes.byteLength
     })
     conn.on('close', () => {
       if (session.room) {
@@ -459,6 +489,7 @@ export default {
       this.onMessage(room, conn, message)
     }
     session.pending = []
+    session.pendingBytes = 0
   },
 
   /**

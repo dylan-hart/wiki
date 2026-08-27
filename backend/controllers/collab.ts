@@ -37,28 +37,33 @@ async function routes(app: FastifyInstance) {
       const session = WIKI.collab.capture(socket)
 
       /*
-        Refusals close the socket rather than answering with anything: the client is y-websocket, which
-        speaks the sync protocol and nothing else, and it treats a close as the signal to back off.
-        The codes are in the private 4000 range, where the browser hands them to the page — which is
-        how the editor tells "you may not edit this" apart from "the connection dropped" and knows not
-        to reconnect. See `composables/collab.js`.
+        Refusals terminate the socket outright rather than closing it. `close()` only starts the
+        closing handshake — `ws` sends a close frame, marks the socket CLOSING, and arms a 30s timeout
+        before actually tearing down the connection, all while `capture`'s message listener above is
+        still installed and still live. A client is not obligated to honour that close frame, so
+        `close()` here would hand an unauthenticated, unauthorized or otherwise refused caller up to 30
+        more seconds of a socket it has already been told it may not use — exactly the grace window
+        `capture`'s own pending-frame cap (`core/collab.ts`) exists to not need. `terminate()` drops the
+        connection immediately instead, at the cost of the close code that would otherwise have told
+        the browser "you may not edit this" versus "the connection dropped" (see `composables/collab.js`)
+        — a real client sees an ordinary disconnect and may retry, and is refused again just as fast.
       */
       if (!isValidUuid(siteId) || !isValidUuid(pageId)) {
-        return socket.close(4400, 'Invalid site or page id')
+        return socket.terminate()
       }
       if (!req.session?.authenticated) {
-        return socket.close(4401, 'Authentication is required')
+        return socket.terminate()
       }
       if (!WIKI.sites[siteId]?.config?.features?.collaborativeEditing) {
-        return socket.close(4403, 'Collaborative editing is disabled on this site')
+        return socket.terminate()
       }
 
       const page = await WIKI.models.pages.getPage({ siteId, id: pageId })
       if (!page) {
-        return socket.close(4404, 'This page does not exist')
+        return socket.terminate()
       }
       if (!mayOnPage(req, 'write:pages', siteId, page)) {
-        return socket.close(4403, 'You are not allowed to edit this page')
+        return socket.terminate()
       }
 
       await WIKI.collab.join(socket, { id: pageId, siteId }, session)

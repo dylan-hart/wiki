@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import { Worker } from 'node:worker_threads'
 import * as awarenessProtocol from 'y-protocols/awareness'
 import * as Y from 'yjs'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import collab, {
+  MAX_PENDING_BYTES,
+  MAX_PENDING_FRAMES,
   PEER_STATE_TIMEOUT,
   RELAY_CHUNK_SIZE,
   RELAY_REASSEMBLY_TIMEOUT,
@@ -96,6 +99,100 @@ describe('collab.participantInfo', () => {
     } finally {
       collab.rooms.delete('page-2')
       destroy(room, anon)
+    }
+  })
+})
+
+/**
+ * `capture()`'s pending-frame cap (task 2196, from the 2026-08-24 security audit,
+ * `docs/audit-2026-08-24/security/09-dos-resource.md` §3): before a socket has a room to hand its
+ * frames to, every message it sends is copied into `session.pending`. That listener is live the
+ * instant the socket opens — well before authentication or the site's feature flag is checked — so an
+ * unauthenticated caller that just keeps writing must not be able to grow that array without bound.
+ * `capture` is exercised directly here, against a minimal stand-in for a `ws` `WebSocket` (an
+ * `EventEmitter` plus a mocked `terminate()`), rather than through the real socket lifecycle in
+ * `controllers/collab.ts` — nothing under test here needs an actual network connection.
+ */
+describe('collab.capture: pending-frame cap', () => {
+  /** The minimal shape `capture()` actually uses: `.on()` (via EventEmitter) and `.terminate()`. */
+  function makeConn() {
+    const conn = new EventEmitter() as EventEmitter & { terminate: ReturnType<typeof mock.fn> }
+    conn.terminate = mock.fn()
+    return conn
+  }
+
+  function send(conn: EventEmitter, byteLength: number): void {
+    conn.emit('message', Buffer.alloc(byteLength))
+  }
+
+  test('buffers frames as long as both the entry-count and byte caps are unexceeded', () => {
+    const conn = makeConn()
+    const session = collab.capture(conn as any)
+
+    send(conn, 8)
+    send(conn, 8)
+
+    assert.equal(session.pending.length, 2)
+    assert.equal(session.pendingBytes, 16)
+    assert.equal(conn.terminate.mock.callCount(), 0)
+  })
+
+  test('terminates the connection once the entry-count cap is exceeded, without buffering the frame that tipped it over', () => {
+    const conn = makeConn()
+    const session = collab.capture(conn as any)
+
+    for (let i = 0; i < MAX_PENDING_FRAMES; i++) {
+      send(conn, 1)
+    }
+    assert.equal(session.pending.length, MAX_PENDING_FRAMES)
+    assert.equal(conn.terminate.mock.callCount(), 0)
+
+    send(conn, 1)
+
+    assert.equal(session.pending.length, MAX_PENDING_FRAMES)
+    assert.equal(conn.terminate.mock.callCount(), 1)
+  })
+
+  test('terminates the connection once the byte cap is exceeded, without buffering the frame that tipped it over', () => {
+    const conn = makeConn()
+    const session = collab.capture(conn as any)
+
+    send(conn, MAX_PENDING_BYTES)
+    assert.equal(session.pendingBytes, MAX_PENDING_BYTES)
+    assert.equal(conn.terminate.mock.callCount(), 0)
+
+    send(conn, 1)
+
+    assert.equal(session.pendingBytes, MAX_PENDING_BYTES)
+    assert.equal(conn.terminate.mock.callCount(), 1)
+  })
+
+  test('a frame arriving after the cap has already tripped is also refused, not silently buffered', () => {
+    const conn = makeConn()
+    const session = collab.capture(conn as any)
+
+    for (let i = 0; i < MAX_PENDING_FRAMES + 3; i++) {
+      send(conn, 1)
+    }
+
+    assert.equal(session.pending.length, MAX_PENDING_FRAMES)
+    assert.equal(conn.terminate.mock.callCount(), 3)
+  })
+
+  test('once a room is attached, messages are handed off live and never touch the pending buffer', () => {
+    const conn = makeConn()
+    const session = collab.capture(conn as any)
+    const onMessageMock = mock.method(collab, 'onMessage', () => {})
+    try {
+      session.room = {} as any
+      send(conn, 8)
+
+      assert.equal(onMessageMock.mock.callCount(), 1)
+      assert.equal(session.pending.length, 0)
+      assert.equal(session.pendingBytes, 0)
+      assert.equal(conn.terminate.mock.callCount(), 0)
+    } finally {
+      onMessageMock.mock.restore()
     }
   })
 })
