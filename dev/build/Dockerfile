@@ -29,6 +29,17 @@ USER node
 
 ENV NODE_ENV=production
 
+# Chromium's own process sandbox (see backend/helpers/puppeteer.ts) needs either the setuid sandbox
+# helper or unprivileged user namespaces to start. This image relies on the *host's* kernel allowing
+# unprivileged user namespace creation (Linux's `kernel.unprivileged_userns_clone` /
+# `kernel.apparmor_restrict_unprivileged_userns` sysctls -- the default on most distributions, but
+# disabled by some hardened ones and by Docker's default seccomp profile on older engines) rather than
+# installing the setuid helper here, so no extra root-owned binary/capability is added to the image on
+# top of the existing `USER node`. An operator whose container runtime blocks unprivileged user
+# namespaces should instead fall back to an unsandboxed launch (a config-driven opt-in, tracked
+# separately -- see backend/helpers/puppeteer.ts) and record that choice in docs/variances.md, rather
+# than expect the sandbox to start here.
+
 # The browser the Puppeteer extension drives, installed above rather than downloaded by Puppeteer: the
 # distro keeps it patched, it exists for arm64 as well as amd64, and the image does not carry two copies
 # of Chromium. `PUPPETEER_SKIP_DOWNLOAD` has to be set before the install below for that to hold.
