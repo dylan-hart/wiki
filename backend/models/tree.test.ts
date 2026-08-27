@@ -292,6 +292,143 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * OpenProject #1692: `renameFolder`'s cascade (`refreshDescendantPaths`) used to rewrite
+   * `pages.path`/`pages.hash` for every descendant page and stop there — unlike `pages.ts#movePage`,
+   * which follows the same write with `recordMoveSideEffects` (search reindex, storage dispatch,
+   * glossary cache invalidation). These lock the fix: renaming a folder now fires those side effects
+   * for every descendant page, once each, with the correct old/new paths — and fires none of them for
+   * a title-only rename, which changes no page's path (the early return at `tree.ts:960-966`).
+   *
+   * Spies on `WIKI.models.search`/`storage`/`glossary` directly, the same pattern
+   * `models/pages.test.ts`'s search-dispatcher coverage uses: shadow the real singleton's method as an
+   * own property, restore it (`delete`) in `finally` so the next test sees the real implementation
+   * again.
+   */
+  describe('renameFolder fires descendant page move side effects (OpenProject #1692)', () => {
+    test('fires search.renamed + storage.dispatch per descendant page, and glossary.invalidateCache once', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'movable',
+        title: 'Movable',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const pageOne = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'movable/one', title: 'One', locale: 'en' }),
+        actor
+      )
+      const pageTwo = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'movable/two', title: 'Two', locale: 'en' }),
+        actor
+      )
+
+      const searchModel = (globalThis as any).WIKI.models.search
+      const storageModel = (globalThis as any).WIKI.models.storage
+      const glossaryModel = (globalThis as any).WIKI.models.glossary
+      const searchCalls: any[] = []
+      const storageCalls: any[] = []
+      const glossaryCalls: string[] = []
+      searchModel.renamed = async (
+        siteId: string,
+        page: any,
+        previousPath: string,
+        previousLocale: string
+      ) => {
+        searchCalls.push({ siteId, id: page.id, path: page.path, previousPath, previousLocale })
+      }
+      storageModel.dispatch = async (event: string, data: any) => {
+        storageCalls.push({ event, ...data })
+        return 0
+      }
+      glossaryModel.invalidateCache = (siteId: string) => {
+        glossaryCalls.push(siteId)
+      }
+
+      try {
+        await treeModel.renameFolder({ folderId: folder.id, pathName: 'moved', title: 'Movable' })
+
+        assert.deepEqual(new Set(searchCalls.map((c) => c.id)), new Set([pageOne.id, pageTwo.id]))
+        for (const call of searchCalls) {
+          assert.equal(call.siteId, fixtures.siteId)
+          assert.equal(call.previousLocale, 'en')
+        }
+        const oneRenamed = searchCalls.find((c) => c.id === pageOne.id)!
+        assert.equal(oneRenamed.previousPath, 'movable/one')
+        assert.equal(oneRenamed.path, 'moved/one')
+        const twoRenamed = searchCalls.find((c) => c.id === pageTwo.id)!
+        assert.equal(twoRenamed.previousPath, 'movable/two')
+        assert.equal(twoRenamed.path, 'moved/two')
+
+        assert.equal(storageCalls.length, 2)
+        assert.deepEqual(new Set(storageCalls.map((c) => c.id)), new Set([pageOne.id, pageTwo.id]))
+        for (const call of storageCalls) {
+          assert.equal(call.event, 'page:rename')
+          assert.equal(call.siteId, fixtures.siteId)
+          assert.equal(call.locale, 'en')
+          assert.equal(call.previousLocale, 'en')
+        }
+        const oneDispatched = storageCalls.find((c) => c.id === pageOne.id)!
+        assert.equal(oneDispatched.previousPath, 'movable/one')
+        assert.equal(oneDispatched.path, 'moved/one')
+
+        assert.deepEqual(glossaryCalls, [fixtures.siteId])
+      } finally {
+        delete searchModel.renamed
+        delete storageModel.dispatch
+        delete glossaryModel.invalidateCache
+      }
+    })
+
+    test('fires none of the move side effects for a title-only rename', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'untouched',
+        title: 'Untouched',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'untouched/inside', title: 'Inside', locale: 'en' }),
+        actor
+      )
+
+      const searchModel = (globalThis as any).WIKI.models.search
+      const storageModel = (globalThis as any).WIKI.models.storage
+      const glossaryModel = (globalThis as any).WIKI.models.glossary
+      let searchCalled = false
+      let storageCalled = false
+      let glossaryCalled = false
+      searchModel.renamed = async () => {
+        searchCalled = true
+      }
+      storageModel.dispatch = async () => {
+        storageCalled = true
+        return 0
+      }
+      glossaryModel.invalidateCache = () => {
+        glossaryCalled = true
+      }
+
+      try {
+        await treeModel.renameFolder({
+          folderId: folder.id,
+          pathName: 'untouched',
+          title: 'Renamed Title Only'
+        })
+
+        assert.equal(searchCalled, false)
+        assert.equal(storageCalled, false)
+        assert.equal(glossaryCalled, false)
+      } finally {
+        delete searchModel.renamed
+        delete storageModel.dispatch
+        delete glossaryModel.invalidateCache
+      }
+    })
+  })
+
+  /**
    * OpenProject #1128: `getTree()`/`browse()`/`listPages()` used to carry no classification at all —
    * the caller (`api/tree.ts`'s permission filter) had nothing to check a CLASSIFICATION rule
    * against and always passed a hardcoded `null`. Each now joins `pages.classification` in directly,
