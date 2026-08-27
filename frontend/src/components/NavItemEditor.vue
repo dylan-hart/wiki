@@ -800,7 +800,7 @@ async function loadGroups() {
     notify({
       type: 'warning',
       message: t('navEdit.groupsFailed'),
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   state.loading--
@@ -820,7 +820,7 @@ async function loadMenuItems() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
     emit('load-error')
   }
@@ -903,7 +903,7 @@ async function copyFrom(sourceSiteId, sourceNavId) {
     }).json()
     // -> The API client does not throw on 400, so a refusal comes back as a parsed error
     if (resp?.ok === false) {
-      throw new Error(resp.message || 'An unexpected error occured.')
+      throw new Error(resp.message || t('common.error.unexpected'))
     }
     await loadMenuItems()
     // -> OpenProject #1012: this already persisted server-side, unlike the rest of this editor's
@@ -916,7 +916,7 @@ async function copyFrom(sourceSiteId, sourceNavId) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   state.loading--

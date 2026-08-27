@@ -467,7 +467,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.mail.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.mail.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     notify({
@@ -502,7 +502,7 @@ async function sendTest() {
       json: { recipientEmail: state.testEmail || '' }
     }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',
@@ -511,7 +511,7 @@ async function sendTest() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   state.testLoading = false

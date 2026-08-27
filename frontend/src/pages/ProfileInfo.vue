@@ -339,7 +339,7 @@ async function save() {
       }
     }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     if (resp.profile) {
       applyProfile(resp.profile)

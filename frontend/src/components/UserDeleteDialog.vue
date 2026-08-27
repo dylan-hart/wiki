@@ -130,13 +130,13 @@ async function confirm() {
         json: { targetUserId: state.targetUser.id }
       })
       if (!reassignResp?.ok) {
-        throw new Error((await reassignResp.json())?.message || 'An unexpected error occured.')
+        throw new Error((await reassignResp.json())?.message || t('common.error.unexpected'))
       }
     }
 
     const resp = await API_CLIENT.delete(`users/${props.user.id}`)
     if (!resp?.ok) {
-      throw new Error((await resp.json())?.message || 'An unexpected error occured.')
+      throw new Error((await resp.json())?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

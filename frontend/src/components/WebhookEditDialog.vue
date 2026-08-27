@@ -435,7 +435,7 @@ async function create() {
     }
     const resp = await API_CLIENT.post('hooks', { json: writableFields() }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',
@@ -460,7 +460,7 @@ async function save() {
     }
     const resp = await API_CLIENT.put(`hooks/${props.hookId}`, { json: writableFields() }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',
