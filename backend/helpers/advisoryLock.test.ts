@@ -1,4 +1,4 @@
-import { test, before, after } from 'node:test'
+import { test, describe, before, after, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { setTimeout as delay } from 'node:timers/promises'
 import { Pool } from 'pg'
@@ -104,3 +104,44 @@ test(
     assert.equal(acquired, 'acquired')
   }
 )
+
+/**
+ * Unlike the suite above, this needs no real Postgres: the whole point is to control which of the
+ * two queries rejects, which a real connection gives no way to steer deliberately. A fake `Pool`/
+ * `Client` pair is exactly what `WIKI.db.$client` is expected to be shaped like — not a mock of
+ * locking semantics themselves, just of which query fails.
+ */
+describe('when the unlock query itself rejects', () => {
+  test('propagates the error thrown by fn unchanged, and discards rather than returns the client', async () => {
+    const query = mock.fn(async (sql: string) => {
+      if (sql.includes('_unlock(')) {
+        throw new Error('connection terminated unexpectedly')
+      }
+    })
+    const release = mock.fn()
+    const client = { query, release }
+    const connect = mock.fn(async () => client)
+    const warn = mock.fn()
+
+    const previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = { db: { $client: { connect } }, logger: { warn } }
+    try {
+      await assert.rejects(
+        withAdvisoryLock('some-key', async () => {
+          throw new Error('boom from fn')
+        }),
+        /boom from fn/
+      )
+    } finally {
+      ;(globalThis as any).WIKI = previousWiki
+    }
+
+    // -> `fn`'s own error survives unchanged — not replaced by the unlock query's rejection.
+    // -> The client is discarded (`release(true)`), not returned to the pool with an uncertain lock
+    //    state.
+    assert.equal(release.mock.calls.length, 1)
+    assert.equal(release.mock.calls[0].arguments[0], true)
+    // -> The unlock failure is logged rather than silently dropped.
+    assert.equal(warn.mock.calls.length, 1)
+  })
+})

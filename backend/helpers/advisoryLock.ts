@@ -35,14 +35,31 @@ import type { Pool } from 'pg'
 export async function withAdvisoryLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const pool = WIKI.db.$client as Pool
   const client = await pool.connect()
+  // -> Set when the unlock query itself fails, so the outer `finally` knows the connection's lock
+  //    state is uncertain and must discard it rather than return it to the pool.
+  let unlockFailed = false
   try {
     await client.query('SELECT pg_advisory_lock(hashtext($1))', [key])
     try {
       return await fn()
     } finally {
-      await client.query('SELECT pg_advisory_unlock(hashtext($1))', [key])
+      try {
+        await client.query('SELECT pg_advisory_unlock(hashtext($1))', [key])
+      } catch (err: any) {
+        // -> Never rethrow here: an abrupt completion from a `finally` replaces whatever `fn` was
+        //    propagating, and `fn`'s own error (most likely the same dead connection) is the one the
+        //    caller needs — see `dispatch-storage.ts`, which rethrows to drive `jobHistory` state.
+        unlockFailed = true
+        WIKI.logger.warn(
+          `withAdvisoryLock: failed to release advisory lock for key '${key}', discarding connection: ${err.message}`
+        )
+      }
     }
   } finally {
-    client.release()
+    // -> `true` destroys the connection instead of returning it to the pool. When the unlock failed
+    //    the session may still be alive and still hold the lock (`pg_advisory_lock` is re-entrant per
+    //    session), so a returned connection would hand a later borrower the lock for free while every
+    //    other session blocks on it forever.
+    client.release(unlockFailed)
   }
 }
