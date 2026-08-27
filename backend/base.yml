@@ -21,6 +21,13 @@ defaults:
       enabled: false
     pool:
       min: 1
+      # Explicit rather than inherited (OpenProject #2276): node-postgres defaults `max` to 10 when
+      # it is left unset, which is also what this instance ran at before this line existed. Stated
+      # here so raising it is a deliberate, documented choice rather than silently discovering the
+      # library's own ceiling -- size it against this Postgres server's own `max_connections` and
+      # how many other pools (worker threads, a second wiki instance in an HA setup) share it, not
+      # against this default alone.
+      max: 10
     bindIP: 0.0.0.0
     logLevel: info
     logFormat: default
