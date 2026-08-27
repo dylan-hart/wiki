@@ -1,7 +1,22 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createI18n } from 'vue-i18n'
 
 import PageToc from './PageToc.vue'
+
+function mountToc(props, options = {}) {
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    fallbackWarn: false,
+    messages: { en: { common: { page: { toc: 'Table of Contents' } } } }
+  })
+  return mount(PageToc, { props, global: { plugins: [i18n] }, ...options })
+}
 
 /**
  * `PageToc.vue`'s `<style lang="scss">` reaches for bare `$grey-9` / `$grey-7` / ... (see the file),
@@ -24,7 +39,7 @@ describe('PageToc', () => {
   ]
 
   it('flattens the tree into one list, and marks the selected heading active', () => {
-    const wrapper = mount(PageToc, { props: { nodes, selected: '#usage-basic' } })
+    const wrapper = mountToc({ nodes, selected: '#usage-basic' })
 
     const links = wrapper.findAll('.page-toc-link')
     expect(links.map((link) => link.text())).toEqual(['Introduction', 'Usage', 'Basic'])
@@ -35,7 +50,7 @@ describe('PageToc', () => {
   })
 
   it('respects minDepth/maxDepth, hiding headings outside the range', () => {
-    const wrapper = mount(PageToc, { props: { nodes, minDepth: 2, maxDepth: 2 } })
+    const wrapper = mountToc({ nodes, minDepth: 2, maxDepth: 2 })
 
     const links = wrapper.findAll('.page-toc-link')
     expect(links.map((link) => link.text())).toEqual(['Basic'])
@@ -46,7 +61,7 @@ describe('PageToc', () => {
     heading.id = 'usage'
     document.body.appendChild(heading)
 
-    const wrapper = mount(PageToc, { props: { nodes, selected: null }, attachTo: document.body })
+    const wrapper = mountToc({ nodes, selected: null }, { attachTo: document.body })
     try {
       const link = wrapper.findAll('.page-toc-link').at(1)
       await link.trigger('click')
@@ -56,5 +71,25 @@ describe('PageToc', () => {
       wrapper.unmount()
       heading.remove()
     }
+  })
+
+  /**
+   * OpenProject #1640: the `<nav>` landmark's `aria-label` used to be a hardcoded English string
+   * (`"Table of contents"`), so a non-English reader's landmarks rotor announced it in English
+   * regardless of locale. Asserted two ways: the rendered label tracks whatever the active locale's
+   * `common.page.toc` resolves to (not a fixed string baked into the template), and the source no
+   * longer contains a literal `aria-label="..."` at all.
+   */
+  it("localizes the <nav> landmark's aria-label instead of hardcoding English", () => {
+    const wrapper = mountToc({ nodes })
+    expect(wrapper.find('nav.page-toc').attributes('aria-label')).toBe('Table of Contents')
+  })
+
+  it('does not hardcode a literal aria-label string in the template', () => {
+    const dir = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(join(dir, 'PageToc.vue'), 'utf-8')
+    // -> Bound (`:aria-label="…"`) to a `t()` call, not a plain `aria-label="Some English text"`
+    expect(source).not.toMatch(/(?<!:)aria-label="/)
+    expect(source).toMatch(/:aria-label="t\(`common\.page\.toc`\)"/)
   })
 })

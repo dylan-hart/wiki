@@ -1,5 +1,5 @@
 <template>
-  <nav class="page-toc" aria-label="Table of contents">
+  <nav class="page-toc" :aria-label="t(`common.page.toc`)">
     <ul class="page-toc-list">
       <li
         v-for="item of visibleItems"
@@ -25,6 +25,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { scrollToAnchor } from '@/helpers/anchors'
 import { flattenToc } from '@/helpers/toc'
@@ -65,6 +66,8 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:selected'])
+
+const { t } = useI18n()
 
 /*
   Where the page counts as being "at" a heading: the first heading whose top has passed this line,
