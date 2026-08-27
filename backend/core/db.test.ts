@@ -11,6 +11,7 @@ import { groups } from '../models/groups.ts'
 import { sites } from '../models/sites.ts'
 import { approvals } from '../models/approvals.ts'
 import { locales } from '../models/locales.ts'
+import { glossary } from '../models/glossary.ts'
 
 /**
  * Task 708 (feature 411): confirms what `core/db.ts`'s `subscribeToNotifications()` /
@@ -18,7 +19,8 @@ import { locales } from '../models/locales.ts'
  * channel, and whether any current subscriber (`core/config.ts`'s `reloadConfig`,
  * `core/maintenance.ts`'s `disconnectWebsockets`/`flushCaches`, — added by OpenProject #966 —
  * `models/groups.ts`/`sites.ts`/`approvals.ts`'s `reloadGroups`/`reloadSites`/`reloadApprovals`,
- * and — added by OpenProject #2042 — `models/locales.ts`'s `reloadLocales`) depends on more than
+ * — added by OpenProject #2042 — `models/locales.ts`'s `reloadLocales`, and — added by OpenProject
+ * #2038 — `models/glossary.ts`'s `invalidateGlossaryCache`) depends on more than
  * that.
  *
  * Postgres NOTIFY has no persistence and no delivery guarantee: a message published while nobody
@@ -88,6 +90,7 @@ let groupsReloadCacheMock: any
 let sitesReloadCacheMock: any
 let approvalsReloadCacheMock: any
 let localesReloadCacheMock: any
+let glossaryDropLocalCacheMock: any
 
 before(() => {
   previousWiki = (globalThis as any).WIKI
@@ -106,6 +109,10 @@ beforeEach(() => {
   sitesReloadCacheMock = mock.fn(async () => {})
   approvalsReloadCacheMock = mock.fn(async () => {})
   localesReloadCacheMock = mock.fn(async () => {})
+  // -> OpenProject #2038: `subscribeToNotifications()` also wires `glossary.subscribeToEvents()` now
+  //    (see `core/db.ts`) -- stubbed the same way, though its local effect is a cache delete rather
+  //    than a DB re-fetch, so the stubbed method is `dropLocalCache`, not `reloadCache`.
+  glossaryDropLocalCacheMock = mock.fn(() => {})
   configSvc.loadFromDb = loadFromDbMock
   maintenance.flushCaches = flushCachesMock
   maintenance.disconnectWebsockets = disconnectWebsocketsMock
@@ -113,6 +120,7 @@ beforeEach(() => {
   sites.reloadCache = sitesReloadCacheMock
   approvals.reloadCache = approvalsReloadCacheMock
   locales.reloadCache = localesReloadCacheMock
+  glossary.dropLocalCache = glossaryDropLocalCacheMock
 
   ;(globalThis as any).WIKI = {
     INSTANCE_ID: 'instance-a',
@@ -120,7 +128,7 @@ beforeEach(() => {
     events: { inbound: new Emittery(), outbound: new Emittery() },
     configSvc,
     dbManager,
-    models: { groups, sites, approvals, locales }
+    models: { groups, sites, approvals, locales, glossary }
   }
 
   dbManager.pool = null
@@ -212,7 +220,7 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.deepEqual(received, [{ event: 'reloadConfig', value: null }])
   })
 
-  test('wires all six current subscribers, each purely reactive to the notify with no independent re-check', async () => {
+  test('wires all seven current subscribers, each purely reactive to the notify with no independent re-check', async () => {
     const pool = new FakePool()
     const client = new FakeClient()
     pool.queueClient(client)
@@ -250,6 +258,15 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
       channel: 'wiki',
       payload: JSON.stringify({ source: 'instance-b', event: 'reloadLocales', value: null })
     })
+    // -> OpenProject #2038: glossary cache invalidation propagates the same way now
+    client.emit('notification', {
+      channel: 'wiki',
+      payload: JSON.stringify({
+        source: 'instance-b',
+        event: 'invalidateGlossaryCache',
+        value: { siteId: 'site-1' }
+      })
+    })
 
     // -> Emittery's inbound handlers run as microtasks; give them a tick.
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -261,6 +278,8 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.equal(sitesReloadCacheMock.mock.calls.length, 1)
     assert.equal(approvalsReloadCacheMock.mock.calls.length, 1)
     assert.equal(localesReloadCacheMock.mock.calls.length, 1)
+    assert.equal(glossaryDropLocalCacheMock.mock.calls.length, 1)
+    assert.deepEqual(glossaryDropLocalCacheMock.mock.calls[0].arguments, ['site-1'])
   })
 })
 

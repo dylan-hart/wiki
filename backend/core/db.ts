@@ -242,11 +242,11 @@ export default {
    * mirror that faithfully on the sending side rather than trying to paper over it: a send with no
    * live client is a silent no-op, never buffered.
    *
-   * All five current subscribers below already tolerate a missed notification, but not for the same
+   * All seven current subscribers below already tolerate a missed notification, but not for the same
    * reason a naive read of their code might suggest — none re-checks the DB on a timer:
    *  - `configSvc.subscribeToEvents()`'s `reloadConfig` handler, `maintenance.subscribeToEvents()`'s
-   *    `flushCaches`/`disconnectWebsockets` handlers, and `groups`/`sites`/`approvals`'
-   *    `reloadGroups`/`reloadSites`/`reloadApprovals` handlers (each model's own `broadcastReload()`
+   *    `flushCaches`/`disconnectWebsockets` handlers, and `groups`/`sites`/`approvals`/`locales`'
+   *    `reloadGroups`/`reloadSites`/`reloadApprovals`/`reloadLocales` handlers (each model's own `broadcastReload()`
    *    is what emits the matching outbound event, right after refreshing this instance's own cache —
    *    see `models/groups.ts`'s `broadcastReload()` for the shape every one of them follows) are
    *    purely edge-triggered. A missed one has no independent side channel back except another
@@ -268,6 +268,13 @@ export default {
    *    regression coverage. A future subscriber that needs stronger guarantees should re-sync from
    *    the DB itself (on an interval, or at least on its own boot) rather than assume this channel
    *    ever redelivers.
+   *  - `glossary.subscribeToEvents()`'s `invalidateGlossaryCache` handler (OpenProject #2038) is the
+   *    seventh, and needs no boot-time re-sync at all to close the same gap: its cache is lazily
+   *    populated per site on first read rather than warmed at boot, so a fresh `WIKI.cache` (a new
+   *    `LRUCache` every process start, `index.ts`) simply has nothing stale to miss-invalidate right
+   *    after a restart. The residual reconnect-window gap above still applies while the instance
+   *    stays up, which is what `models/glossary.ts`'s bounded `CACHE_TTL_MS` on each cache entry is
+   *    the belt for — see its own doc comment.
    */
   async subscribeToNotifications(): Promise<void> {
     const connectionAppName = `Wiki.js - ${WIKI.INSTANCE_ID}:EVENTS`
@@ -313,6 +320,7 @@ export default {
     WIKI.models.sites.subscribeToEvents()
     WIKI.models.approvals.subscribeToEvents()
     WIKI.models.locales.subscribeToEvents()
+    WIKI.models.glossary.subscribeToEvents()
     // WIKI.db.pages.subscribeToEvents()
 
     WIKI.logger.info('Event Listener initialized successfully: [ OK ]')
