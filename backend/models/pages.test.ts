@@ -1202,6 +1202,91 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     }
   })
 
+  /**
+   * OpenProject #1702: a bare `UPDATE` here left external search modules indexing the pre-raise
+   * classification (they decide `read:pages` visibility per-hit off the indexed copy — see
+   * `modules/search/algolia/search.ts`), and left `glossary.ts#getRawCachedTerms`'s cached
+   * `pageClassification` stale for any term canonically linked to one of these pages. This asserts
+   * both post-write effects: one `search.updated` call per id in the batch, and exactly one
+   * `glossary.invalidateCache` for the site, not one per page.
+   */
+  test('bulkSetClassification calls search.updated per page and invalidates the glossary cache once for the whole batch', async () => {
+    const { classificationLevels } = await import('./classificationLevels.ts')
+    const restrictedId = classificationLevels.list().find((l) => l.name === 'Restricted')!.id
+
+    const updatedIds: string[] = []
+    let invalidateCalls = 0
+    const searchModel = (globalThis as any).WIKI.models.search
+    const glossaryModel = (globalThis as any).WIKI.models.glossary
+    searchModel.updated = async (page: any) => {
+      updatedIds.push(page.id)
+    }
+    const originalInvalidateCache = glossaryModel.invalidateCache
+    glossaryModel.invalidateCache = (siteId: string) => {
+      assert.equal(siteId, fixtures.siteId)
+      invalidateCalls++
+    }
+
+    try {
+      const pageA = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/bulk-classify-one' }),
+        actor
+      )
+      const pageB = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/bulk-classify-two', title: 'Two' }),
+        actor
+      )
+
+      const updatedCount = await pagesModel.bulkSetClassification(
+        fixtures.siteId,
+        [pageA.id, pageB.id],
+        restrictedId
+      )
+
+      assert.equal(updatedCount, 2)
+      assert.deepEqual(new Set(updatedIds), new Set([pageA.id, pageB.id]))
+      assert.equal(invalidateCalls, 1)
+
+      const fetchedA = await pagesModel.getPage({ siteId: fixtures.siteId, id: pageA.id })
+      const fetchedB = await pagesModel.getPage({ siteId: fixtures.siteId, id: pageB.id })
+      assert.equal(fetchedA!.classification, restrictedId)
+      assert.equal(fetchedB!.classification, restrictedId)
+    } finally {
+      delete searchModel.updated
+      glossaryModel.invalidateCache = originalInvalidateCache
+    }
+  })
+
+  test('bulkSetClassification calls neither the search dispatcher nor the glossary cache for an empty id list', async () => {
+    let searchCalls = 0
+    let invalidateCalls = 0
+    const searchModel = (globalThis as any).WIKI.models.search
+    const glossaryModel = (globalThis as any).WIKI.models.glossary
+    searchModel.updated = async () => {
+      searchCalls++
+    }
+    const originalInvalidateCache = glossaryModel.invalidateCache
+    glossaryModel.invalidateCache = () => {
+      invalidateCalls++
+    }
+
+    try {
+      const updatedCount = await pagesModel.bulkSetClassification(
+        fixtures.siteId,
+        [],
+        fixtures.classificationId
+      )
+      assert.equal(updatedCount, 0)
+      assert.equal(searchCalls, 0)
+      assert.equal(invalidateCalls, 0)
+    } finally {
+      delete searchModel.updated
+      glossaryModel.invalidateCache = originalInvalidateCache
+    }
+  })
+
   describe('listPagesForSitemap', () => {
     /**
      * `fixtures.groupId` stands in for the guests group here: `WIKI.data.systemIds.guestsGroupId` is
