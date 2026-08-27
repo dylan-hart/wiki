@@ -27,6 +27,15 @@ const MAX_MERMAID_SOURCE_LENGTH = 20000
 const DEFAULT_PLANTUML_SERVER = 'https://www.plantuml.com/plantuml'
 
 /**
+ * How long the PlantUML fetch gets before it is treated as unreachable — the same guard, and the
+ * same value, `models/liveData.ts#FETCH_TIMEOUT_MS` uses for exactly the same reason: an outbound
+ * request this instance did not choose the destination for (today, the fixed default server; once
+ * OpenProject #2223 lands, a site-configured one) must not be able to tie up a `limitRenders` slot
+ * indefinitely.
+ */
+const PLANTUML_FETCH_TIMEOUT_MS = 10000
+
+/**
  * PlantUML's own alphabet for the text it carries in a URL — mirrored from
  * `blocks/block-plantuml/component.js`'s `ALPHABET`. Base64 by shape but not by order, so the
  * standard encoders cannot be used.
@@ -50,8 +59,6 @@ export interface DiagramRenderRequest {
   /** Mermaid only. One of `MERMAID_THEMES`; anything else (including `auto`) falls back to `default`. */
   theme?: string
   format?: DiagramFormat
-  /** PlantUML only. The public server when left empty, same as the block's own default. */
-  server?: string
 }
 
 export interface DiagramRenderResult {
@@ -183,7 +190,7 @@ class DiagramRender {
       throw new CustomError('diagramRenderEmpty', 'There is no diagram source to render.', 400)
     }
     if (request.type === 'plantuml') {
-      return this.renderPlantuml(request.source, request.server, format)
+      return this.renderPlantuml(request.source, format)
     }
     if (request.type === 'mermaid') {
       return this.renderMermaid(request.source, request.theme, format)
@@ -271,7 +278,6 @@ class DiagramRender {
    */
   private async renderPlantuml(
     source: string,
-    server: string | undefined,
     format: DiagramFormat
   ): Promise<DiagramRenderResult> {
     if (WIKI.config.offline) {
@@ -282,7 +288,7 @@ class DiagramRender {
       )
     }
 
-    const url = this.plantumlUrl(source, server, format)
+    const url = this.plantumlUrl(source, format)
     if (url.length > MAX_PLANTUML_URL_LENGTH) {
       throw new CustomError(
         'diagramRenderTooLarge',
@@ -293,7 +299,15 @@ class DiagramRender {
 
     let response: Response
     try {
-      response = await fetch(url)
+      // -> `redirect: 'error'` and a bounded timeout, the same hardening
+      //    `models/liveData.ts#resolve` applies to its own caller-influenced fetch — a redirecting
+      //    or hanging PlantUML server must not be able to bounce this request elsewhere, or hold a
+      //    `limitRenders` slot open indefinitely. See `LiveData#resolve`'s comment for the full
+      //    reasoning; it applies here unchanged.
+      response = await fetch(url, {
+        redirect: 'error',
+        signal: AbortSignal.timeout(PLANTUML_FETCH_TIMEOUT_MS)
+      })
     } catch (err: any) {
       throw new CustomError(
         'diagramRenderFailed',
@@ -322,9 +336,13 @@ class DiagramRender {
     return { contentType: format === 'png' ? 'image/png' : 'image/svg+xml', data }
   }
 
-  /** The URL `block-plantuml` itself would set as an `<img src>` for this source. */
-  private plantumlUrl(source: string, server: string | undefined, format: DiagramFormat): string {
-    const base = (server?.trim() || DEFAULT_PLANTUML_SERVER).replace(/\/+$/, '')
+  /**
+   * The URL `block-plantuml` itself would set as an `<img src>` for this source, against the fixed
+   * default server. There is no caller-supplied override any more — see OpenProject #2219 — so this
+   * always targets `DEFAULT_PLANTUML_SERVER` until #2223 gives it a site-configured destination.
+   */
+  private plantumlUrl(source: string, format: DiagramFormat): string {
+    const base = DEFAULT_PLANTUML_SERVER.replace(/\/+$/, '')
     return `${base}/${format}/${this.encodeForUrl(source)}`
   }
 
