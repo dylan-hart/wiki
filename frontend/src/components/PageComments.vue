@@ -98,8 +98,7 @@
                 :hint="t(`common.comments.markdownFormat`)"
                 :rules="editContentRules"
                 lazy-rules="ondemand"
-                :aria-label="t(`common.comments.fieldContent`)"
-                autofocus />
+                :aria-label="t(`common.comments.fieldContent`)" />
               <div class="page-comments-edit-actions mt-2 flex flex-wrap items-center gap-3">
                 <w-btn
                   unelevated
@@ -140,7 +139,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import CommentComposer from '@/components/CommentComposer.vue'
@@ -350,6 +349,14 @@ const editContentRules = [
 function startEdit(comment) {
   editDrafts.value[comment.id] = comment.content
   editingIds.value.add(comment.id)
+  /*
+    The textarea doesn't exist until this reactive update lands (it's `v-if`, swapping in for the
+    rendered body), so the `ref` callback -- `setEditInputRef` -- hasn't populated `editInputRefs` for
+    this id yet at this point in the same tick. `nextTick` waits for that render before looking it up.
+  */
+  nextTick(() => {
+    editInputRefs.get(comment.id)?.focus()
+  })
 }
 
 function cancelEdit(id) {

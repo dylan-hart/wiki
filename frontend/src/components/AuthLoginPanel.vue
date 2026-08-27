@@ -30,7 +30,6 @@
         <w-input
           ref="loginEmailIpt"
           v-model="state.username"
-          autofocus
           outlined
           :label="
             t(`auth.fields.` + (selectedStrategy.activeStrategy?.strategy?.usernameType ?? `email`))
@@ -1095,10 +1094,22 @@ async function finishSetupTFA() {
 // MOUNTED
 
 onMounted(async () => {
+  /*
+    Ahead of `fetchStrategies()`'s network round trip, not after it: `detectResetToken()` only reads
+    `window.location.pathname` and needs nothing it fetches, so running it first lets the caret land
+    on first paint rather than waiting on a response. Guarded on `state.screen` staying `login`
+    afterwards -- a reset-password link switches screens itself (and focuses its own field via
+    `switchTo()`), and this would otherwise steal focus right back.
+  */
+  detectResetToken()
+  if (state.screen === 'login') {
+    nextTick(() => {
+      loginEmailIpt.value?.focus()
+    })
+  }
   await fetchStrategies()
   reportRedirectLoginError()
   reportVerifiedSuccess()
-  detectResetToken()
 })
 
 /**
