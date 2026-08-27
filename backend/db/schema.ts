@@ -1273,11 +1273,14 @@ export const pageWatchEvents = pgTable(
  * bearer API key), `mcp` (an MCP tool call, which is the same bearer-key mechanism under the hood but
  * counted apart per #1140's explicit "web browser vs. API/MCP access" breakdown).
  *
- * `visitorHash` is a stored hash, never the raw session id or API key id it was computed from --
+ * `visitorHash` is a pseudonymised HMAC, never the raw session id or API key id it was computed from --
  * unique-visitor counting needs to tell two visitors apart, not know who either one is. A browser view
  * hashes the session's own id (so two views in the same session/cookie are one visitor); an `api`/`mcp`
  * view hashes the calling key's id (so two calls on the same key are one visitor, and a different key
- * is a different one, regardless of which human or agent is actually holding it).
+ * is a different one, regardless of which human or agent is actually holding it). Keyed with
+ * `WIKI.config.pageviews.hashKey` (`models/pageviews.ts#hashVisitor()`) rather than a bare digest --
+ * both preimages (`sessions.id`, an API key's UUID) live unsecret in this same database, so without
+ * that key the column would be trivially reversible by anyone with read access, not merely pseudonymous.
  *
  * `pageId` IS a foreign key here, unlike `pageHistory.pageId`/`pageWatchEvents.pageId`: those exist to
  * outlive the page they describe (recovering or notifying about one that's gone), but a view count for
@@ -1296,7 +1299,9 @@ export const pageviews = pgTable(
       .references(() => pages.id, { onDelete: 'cascade' }),
     /** `browser` | `api` | `mcp` -- see this table's own doc comment. */
     clientType: varchar({ length: 16 }).notNull(),
-    /** A sha256 hex digest, never the raw session id or API key id it was computed from. */
+    /** A keyed HMAC-SHA256 hex digest, never the raw session id or API key id it was computed from --
+     *  see this table's own doc comment for why a keyed hash, not a bare one, is what makes it
+     *  actually pseudonymous. */
     visitorHash: text().notNull(),
     viewedAt: timestamp().notNull().defaultNow()
   },
