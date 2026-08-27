@@ -62,7 +62,17 @@ export const useEditorStore = defineStore('editor', {
      * content, authorName }` -- and read by `EditorMarkdown.vue`, which watches it to put up the
      * resolution dialog. Null the rest of the time, which is what the watcher gates on.
      */
-    saveConflict: null
+    saveConflict: null,
+    /**
+     * The author's own pending content, stashed immediately before a save-conflict "Discard" choice
+     * overwrites it with the server's snapshot (OpenProject #2073) -- a sibling of `saveConflict`
+     * above: that field is the server's copy offered during the choice, this is the author's copy
+     * discarded by it. `EditorMarkdown.vue` stashes it via `stashDiscardedContent()` right before the
+     * overwrite, and offers it back through an "undo" action on the toast that follows -- restoring
+     * it into both `pageStore.content` and the live Monaco model, then clearing it via
+     * `clearDiscardedContent()`. Null whenever nothing is currently offered back.
+     */
+    discardedContent: null
   }),
   getters: {
     hasPendingChanges: (state) => {
@@ -174,6 +184,21 @@ export const useEditorStore = defineStore('editor', {
         console.warn(err)
         throw err
       }
+    },
+    /**
+     * Stashes the author's pending content before a save-conflict "Discard" choice overwrites it --
+     * see `discardedContent` above. Overwrites any content already stashed: only the most recent
+     * discard is ever offered back.
+     */
+    stashDiscardedContent(content) {
+      this.discardedContent = content
+    },
+    /**
+     * Clears the stashed content -- called once it has been restored via the undo action, or once a
+     * fresh discard/save has made offering it back stale.
+     */
+    clearDiscardedContent() {
+      this.discardedContent = null
     }
   }
 })

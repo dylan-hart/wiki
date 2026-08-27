@@ -16,6 +16,13 @@
             <div v-if="n.caption" class="text-caption break-words opacity-75">{{ n.caption }}</div>
           </div>
           <button
+            v-if="n.action"
+            type="button"
+            class="w-unstyled shrink-0 cursor-pointer rounded px-1 py-1 text-body2 font-medium underline-offset-2 hover:underline"
+            @click="runAction(n)">
+            {{ n.action.label }}
+          </button>
+          <button
             type="button"
             :aria-label="t('common.actions.close')"
             class="w-unstyled shrink-0 cursor-pointer rounded-full p-1 leading-none opacity-70 transition-opacity hover:opacity-100"
@@ -69,6 +76,14 @@ import { dismiss, queue } from '@/composables/notify'
 // I18N
 
 const { t } = useI18n()
+
+/** Runs a notification's action (OpenProject #2073's undo-discard toast is the first caller), then
+ * dismisses it -- one click both acts and clears the toast, rather than leaving it to auto-dismiss
+ * or requiring a second click on the close button. */
+function runAction(n) {
+  n.action.onClick()
+  dismiss(n.id)
+}
 </script>
 
 <style scoped>
