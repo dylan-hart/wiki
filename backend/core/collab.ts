@@ -111,6 +111,21 @@ export const PEER_STATE_TIMEOUT = 500
 /** How long the "is anyone else running?" answer is trusted before it is looked up again. */
 const PEER_PRESENCE_TTL = 15 * 1000
 
+/**
+ * Per-user and per-address ceilings on concurrent collaboration sockets.
+ *
+ * Nothing else caps how many `Y.Doc` rooms one account (or one address) can pin in memory:
+ * `room.conns` only tracks a room's own lifetime, and `/_collab` sits outside `/_api/`, so neither of
+ * `index.ts`'s `onRequest` rate limiters ever sees this traffic. One authenticated account holding
+ * `write:pages` could otherwise open arbitrarily many rooms just by opening arbitrarily many editors.
+ *
+ * Deliberately small relative to any real editing session (a handful of tabs/pages at once) rather
+ * than tuned to a specific deployment's capacity — the goal is bounding an unbounded resource, not
+ * modeling how many any legitimate user actually needs.
+ */
+export const MAX_CONNECTIONS_PER_USER = 8
+export const MAX_CONNECTIONS_PER_ADDRESS = 32
+
 /** Keepalive interval. An idle websocket is what a reverse proxy cuts first. */
 const PING_INTERVAL = 30 * 1000
 
@@ -120,11 +135,19 @@ const PING_INTERVAL = 30 * 1000
  */
 const RELAYED = Symbol('collabRelayed')
 
+/** Who a socket belongs to, for the connection-cap bookkeeping in {@link join}/{@link onClose}. */
+export interface ConnIdentity {
+  userId: string
+  address: string
+}
+
 interface CollabConn {
   /** Awareness client ids this socket is responsible for, so a disconnect can retract exactly those. */
   clients: Set<number>
   /** Answered the last keepalive ping. */
   alive: boolean
+  /** Whose connection-cap slot this socket is holding — released once by {@link onClose}. */
+  identity: ConnIdentity
 }
 
 interface CollabSession {
@@ -234,6 +257,10 @@ export default {
   partials: new Map<string, PartialRelay>(),
   /** Rooms this instance is waiting on a peer's state for, by page id. */
   awaitingState: new Map<string, (update: Uint8Array) => void>(),
+  /** Live connection counts per user id, for the {@link MAX_CONNECTIONS_PER_USER} ceiling. */
+  userConnections: new Map<string, number>(),
+  /** Live connection counts per address, for the {@link MAX_CONNECTIONS_PER_ADDRESS} ceiling. */
+  addressConnections: new Map<string, number>(),
   relaySeq: 0,
   peerPresence: { known: false, checkedAt: 0 },
   pingTimer: null as NodeJS.Timeout | null,
@@ -408,12 +435,24 @@ export default {
    *
    * The caller is responsible for having decided that this user may edit this page — see
    * `controllers/collab.ts`. Nothing below re-checks it.
+   *
+   * A connection-cap slot is reserved for `identity` *before* {@link ensureRoom} ever runs, so a
+   * refusal never allocates — or reuses — a room: past either ceiling the socket is simply closed
+   * (code 4429) and `session.room` is left null. The slot is released by {@link onClose} once the
+   * socket is actually registered in a room's `conns`, or right here if the socket went away (or the
+   * cap was hit) before that ever happened.
    */
   async join(
     conn: WebSocket,
     page: { id: string; siteId: string },
-    session: CollabSession
+    session: CollabSession,
+    identity: ConnIdentity
   ): Promise<void> {
+    if (!this.reserveSlot(identity)) {
+      conn.close(4429, 'Too many concurrent collaboration connections')
+      return
+    }
+
     /*
       Asked for repeatedly, because a room can be dropped while this socket was waiting for it: another
       socket that gave up during the same setup takes the still-empty room down with it. Joining that
@@ -426,11 +465,12 @@ export default {
 
     // -> The socket may well have gone away while the room was being set up
     if (conn.readyState !== conn.OPEN) {
+      this.releaseSlot(identity)
       this.closeRoomIfEmpty(room)
       return
     }
 
-    const state: CollabConn = { clients: new Set(), alive: true }
+    const state: CollabConn = { clients: new Set(), alive: true, identity }
     room.conns.set(conn, state)
     conn.on('pong', () => {
       state.alive = true
@@ -623,12 +663,48 @@ export default {
   onClose(room: CollabRoom, conn: WebSocket): void {
     const state = room.conns.get(conn)
     room.conns.delete(conn)
-    if (state && state.clients.size > 0) {
-      // -> Announced as an awareness change, which is what takes the avatar out of the header and the
-      //    cursor out of the text for everyone else, here and on every other instance
-      awarenessProtocol.removeAwarenessStates(room.awareness, [...state.clients], null)
+    if (state) {
+      // -> `ws` delivers `terminate()` as a `close` event exactly like a graceful close, so this one
+      //    site covers both paths: a legitimate reconnect loop can never exhaust its own ceiling.
+      this.releaseSlot(state.identity)
+      if (state.clients.size > 0) {
+        // -> Announced as an awareness change, which is what takes the avatar out of the header and
+        //    the cursor out of the text for everyone else, here and on every other instance
+        awarenessProtocol.removeAwarenessStates(room.awareness, [...state.clients], null)
+      }
     }
     this.closeRoomIfEmpty(room)
+  },
+
+  /**
+   * Reserve one connection-cap slot for `identity`, refusing once either ceiling is already at its
+   * limit. Both counts are checked before either is incremented, so a refusal never partially reserves.
+   */
+  reserveSlot(identity: ConnIdentity): boolean {
+    const userCount = this.userConnections.get(identity.userId) ?? 0
+    const addressCount = this.addressConnections.get(identity.address) ?? 0
+    if (userCount >= MAX_CONNECTIONS_PER_USER || addressCount >= MAX_CONNECTIONS_PER_ADDRESS) {
+      return false
+    }
+    this.userConnections.set(identity.userId, userCount + 1)
+    this.addressConnections.set(identity.address, addressCount + 1)
+    return true
+  },
+
+  /** Release one connection-cap slot for `identity`, dropping the map entry once it reaches zero. */
+  releaseSlot(identity: ConnIdentity): void {
+    const userCount = this.userConnections.get(identity.userId) ?? 0
+    if (userCount <= 1) {
+      this.userConnections.delete(identity.userId)
+    } else {
+      this.userConnections.set(identity.userId, userCount - 1)
+    }
+    const addressCount = this.addressConnections.get(identity.address) ?? 0
+    if (addressCount <= 1) {
+      this.addressConnections.delete(identity.address)
+    } else {
+      this.addressConnections.set(identity.address, addressCount - 1)
+    }
   },
 
   /**
