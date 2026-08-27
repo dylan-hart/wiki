@@ -247,6 +247,25 @@ describe('AdminGlossary: saveGlossary()', () => {
 
     expect(wrapper.vm.isDirty).toBe(false)
   })
+
+  it('leaves the staged edit in place and surfaces the server message on refusal', async () => {
+    const wrapper = mountAdminGlossary()
+    await flushPromises()
+    wrapper.vm.state.terms[0].definition = 'Changed.'
+    const getCallsBefore = API_CLIENT.get.mock.calls.length
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.reject({ data: { message: 'That definition is too long.' } })
+    })
+
+    await wrapper.vm.saveGlossary()
+
+    // -> No reload on refusal, so the staged edit -- and the dirty flag it produced -- both survive.
+    expect(wrapper.vm.state.terms[0].definition).toBe('Changed.')
+    expect(wrapper.vm.isDirty).toBe(true)
+    expect(API_CLIENT.get.mock.calls.length).toBe(getCallsBefore)
+    expect(wrapper.vm.state.saving).toBe(false)
+  })
 })
 
 describe('AdminGlossary: discardChanges()', () => {

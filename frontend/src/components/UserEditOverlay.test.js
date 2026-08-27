@@ -180,6 +180,28 @@ describe('UserEditOverlay admin passkeys panel', () => {
     expect(wrapper.text()).not.toContain("Jane's Laptop")
   })
 
+  it('surfaces the server message and keeps the passkey listed on refusal', async () => {
+    const wrapper = await mountOverlay()
+    const notifyCountBefore = notifyQueue.length
+
+    API_CLIENT.delete.mockReturnValueOnce(
+      Promise.reject({ data: { message: 'This passkey was already removed.' } })
+    )
+
+    const revokeBtn = wrapper
+      .findAll('button')
+      .find((b) => b.attributes('aria-label') === 'common.actions.delete')
+    await revokeBtn.trigger('click')
+    await openDialogs[openDialogs.length - 1].handlers.ok[0]()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("Jane's Laptop")
+    expect(notifyQueue.length).toBe(notifyCountBefore + 1)
+    const lastNotification = notifyQueue[notifyQueue.length - 1]
+    expect(lastNotification.type).toBe('negative')
+    expect(lastNotification.caption).toBe('This passkey was already removed.')
+  })
+
   it('does not render the passkeys panel or its actions when the caller lacks manage:users', async () => {
     const wrapper = await mountOverlay({ canManage: false })
 
