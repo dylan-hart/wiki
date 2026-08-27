@@ -38,6 +38,8 @@
       :aria-valuemax="handle === 'min' ? model.max : max"
       :aria-valuenow="model[handle]"
       :aria-valuetext="labelFor(handle)"
+      :disabled="isDisabled"
+      :aria-disabled="isDisabled || undefined"
       @keydown="onKeydown(handle, $event)">
       <span
         v-if="label"
@@ -208,6 +210,9 @@ const KEY_STEPS = {
 }
 
 function onKeydown(handle, ev) {
+  if (isDisabled.value) {
+    return
+  }
   if (ev.key === 'Home' || ev.key === 'End') {
     ev.preventDefault()
     update(handle, ev.key === 'Home' ? props.min : props.max)
