@@ -6,6 +6,7 @@ import { useSiteStore } from './site'
 import { useEditorStore } from './editor'
 import { useUserStore } from './user'
 import { isHomePath, localizedPagePath } from '@/helpers/pagePaths'
+import { apiErrorBody } from '@/helpers/apiError'
 
 /**
  * The icon a page starts with.
@@ -892,8 +893,7 @@ export const usePageStore = defineStore('page', {
           up the resolution dialog.
         */
         if (err.response?.status === 409) {
-          const conflictBody = await err.response.json().catch(() => null)
-          editorStore.saveConflict = conflictBody?.page ?? null
+          editorStore.saveConflict = apiErrorBody(err)?.page ?? null
           throw new Error('ERR_SAVE_CONFLICT')
         }
         console.warn(err)

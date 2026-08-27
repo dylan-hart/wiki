@@ -150,10 +150,10 @@ describe('page store: pageSave() concurrency', () => {
       authorName: 'Ada Lovelace'
     }
     const conflictErr = new Error('Conflict')
-    conflictErr.response = {
-      status: 409,
-      json: () => Promise.resolve({ ok: false, message: 'conflict', page: conflictSnapshot })
-    }
+    // -> Shaped as ky's real `HTTPError`: `data` is what ky parsed from the body before throwing,
+    //    and `response`'s own body stream is already consumed by then -- no working `json()` on it.
+    conflictErr.data = { ok: false, message: 'conflict', page: conflictSnapshot }
+    conflictErr.response = { status: 409 }
     API_CLIENT.patch.mockReturnValueOnce({
       json: () => Promise.reject(conflictErr)
     })
@@ -194,10 +194,10 @@ describe('page store: pageSave() concurrency', () => {
       authorName: 'Ada Lovelace'
     }
     const conflictErr = new Error('Conflict')
-    conflictErr.response = {
-      status: 409,
-      json: () => Promise.resolve({ ok: false, message: 'conflict', page: conflictSnapshot })
-    }
+    // -> Shaped as ky's real `HTTPError`: `data` is what ky parsed from the body before throwing,
+    //    and `response`'s own body stream is already consumed by then -- no working `json()` on it.
+    conflictErr.data = { ok: false, message: 'conflict', page: conflictSnapshot }
+    conflictErr.response = { status: 409 }
     API_CLIENT.patch.mockReturnValueOnce({
       json: () => Promise.reject(conflictErr)
     })
