@@ -10,14 +10,14 @@
           <blueprint-icon icon="password" />
           <w-item-section>
             <w-input
+              ref="iptPassword"
               v-model="state.userPassword"
               outlined
               dense
               :rules="userPasswordValidation"
               hide-bottom-space
               :label="t(`admin.users.password`)"
-              lazy-rules="ondemand"
-              autofocus>
+              lazy-rules="ondemand">
               <template #append>
                 <div class="flex flex-nowrap items-center">
                   <w-badge :color="passwordStrength.color" :label="passwordStrength.label" />
@@ -97,7 +97,9 @@ defineEmits([...dialogComponentEmits])
 
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => iptPassword.value
+})
 
 // I18N
 
@@ -114,6 +116,7 @@ const state = reactive({
 // REFS
 
 const changeUserPwdForm = ref(null)
+const iptPassword = ref(null)
 
 // COMPUTED
 

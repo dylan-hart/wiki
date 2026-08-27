@@ -11,21 +11,21 @@
         </p>
         <w-input
           v-if="mode === 'create'"
+          ref="iptName"
           outlined
           v-model="state.name"
           :label="t('admin.blocks.credentialName')"
           :hint="t('admin.blocks.credentialNameHint')"
-          autofocus
           class="mb-2" />
         <w-input
           v-if="mode !== 'domains'"
+          ref="iptSecret"
           outlined
           v-model="state.secret"
           type="password"
           revealable
           :reveal-label="t('admin.blocks.credentialSecretReveal')"
           :hide-label="t('admin.blocks.credentialSecretHide')"
-          :autofocus="mode === 'rotate'"
           :label="t('admin.blocks.credentialSecret')"
           :hint="t('admin.blocks.credentialSecretHint')"
           class="mb-2" />
@@ -45,7 +45,6 @@
             ref="domainInputRef"
             outlined
             v-model="state.domainInput"
-            :autofocus="mode === 'domains'"
             :label="t('admin.blocks.credentialAllowedDomains')"
             :hint="t('admin.blocks.credentialAllowedDomainsHint')"
             :rules="domainValidation"
@@ -116,7 +115,17 @@ defineEmits([...dialogComponentEmits])
 
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+/**
+ * Which field is "first" depends on `mode`: create shows the name field, rotate shows the secret
+ * field (the only one it renders), domains shows the allowed-domains input.
+ */
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => {
+    if (props.mode === 'create') return iptName.value
+    if (props.mode === 'rotate') return iptSecret.value
+    return domainInputRef.value
+  }
+})
 
 // STORES
 
@@ -137,6 +146,8 @@ const state = reactive({
 })
 
 const domainInputRef = ref(null)
+const iptName = ref(null)
+const iptSecret = ref(null)
 
 /**
  * Matches `hostnameMatchesAllowlist`'s own accepted syntax (see `helpers/domainPattern.js`) rather

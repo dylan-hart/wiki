@@ -11,12 +11,12 @@
           <blueprint-icon icon="key" />
           <w-item-section>
             <w-input
+              ref="iptName"
               v-model="state.name"
               outlined
               dense
               hide-bottom-space
               :label="t(`profile.passkeysName`)"
-              autofocus
               @keyup:enter="save" />
           </w-item-section>
         </w-item>
@@ -46,15 +46,21 @@ import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
-import { reactive } from 'vue'
+import { reactive, ref } from 'vue'
 
 // EMITS
 
 defineEmits([...dialogComponentEmits])
 
+// REFS
+
+const iptName = ref(null)
+
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => iptName.value
+})
 
 // I18N
 
