@@ -114,6 +114,8 @@ class Pageviews {
         clientType: params.clientType,
         visitorHash: hashVisitor(params.visitorRawId)
       })
+      // -> The knowledge graph's cache (OpenProject #2269) holds this page's visit-volume counts too
+      WIKI.models.graph.invalidate(params.siteId)
     } catch (err: any) {
       WIKI.logger.warn(`Failed to record a pageview: ${err.message}`)
     }

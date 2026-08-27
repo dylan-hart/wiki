@@ -137,6 +137,8 @@ const siteIdParam = {
  *
  * No route-level `permissions`: `read:pages` is a page-rule permission, checked per page inside
  * `assembleGraph`'s `canRead` predicate below, not the group-wide list `config.permissions` reads.
+ * The response IS cached (OpenProject #2269, see `models/graph.ts`), so a request answered from a
+ * warm cache still needs no session -- only rebuilding a cold entry does, checked explicitly below.
  */
 async function routes(app: FastifyInstance) {
   /**
@@ -160,23 +162,51 @@ async function routes(app: FastifyInstance) {
       if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
         return
       }
-      const [rows, contributorCounts, pageviewCounts] = await Promise.all([
-        WIKI.models.pages.listAllForGraph(req.params.siteId),
-        WIKI.models.pageHistory.contributorCountsForGraph(req.params.siteId),
-        WIKI.models.pageviews.countsForGraph(req.params.siteId)
-      ])
+      const siteId = req.params.siteId
+
+      // -> Cached per site (OpenProject #2269): the three queries behind a cold rebuild are a
+      //    site-wide, unbounded page scan and two full-table aggregates, so a request that finds a
+      //    warm entry runs none of them. What's cached is the raw material below, never the
+      //    assembled/filtered `Graph` -- see `models/graph.ts`'s class comment for why permission
+      //    filtering has to run fresh on every request regardless of cache state.
+      let data = WIKI.models.graph.get(siteId)
+      if (!data) {
+        // -> A cold rebuild is refused to an anonymous caller, matching the reasoning
+        //    `docs/variances.md` gives for `/diagrams/render`'s own session requirement: the work
+        //    behind a miss is expensive enough (an unbounded page scan plus two full-table
+        //    aggregates) that leaving it reachable with no session would make this endpoint a
+        //    standing invitation to force repeated cold rebuilds for free.
+        if (!req.session?.authenticated) {
+          return reply.unauthorized(
+            'Rebuilding the knowledge graph cache requires a logged in user.'
+          )
+        }
+        const pageviewsEnabled = WIKI.config.pageviews?.isEnabled === true
+        const [rows, contributorCounts, pageviewCounts] = await Promise.all([
+          WIKI.models.pages.listAllForGraph(siteId),
+          WIKI.models.pageHistory.contributorCountsForGraph(siteId),
+          // -> Skipped entirely while pageviews are disabled -- there is nothing logged to
+          //    aggregate, and running the query anyway would just confirm an empty table.
+          pageviewsEnabled
+            ? WIKI.models.pageviews.countsForGraph(siteId)
+            : Promise.resolve(new Map<string, PageviewCountsForGraph>())
+        ])
+        data = { rows, contributorCounts, pageviewCounts }
+        WIKI.models.graph.set(siteId, data)
+      }
+
       return assembleGraph(
-        rows,
-        (row) => mayOnPage(req, 'read:pages', req.params.siteId, row),
+        data.rows,
+        (row) => mayOnPage(req, 'read:pages', siteId, row),
         (id) => WIKI.models.classificationLevels.byId(id)?.name ?? null,
         (pageId) =>
-          contributorCounts.get(pageId) ?? {
+          data!.contributorCounts.get(pageId) ?? {
             editor: 0,
             mcp: 0,
             all: 0,
             total: { editor: 0, mcp: 0, all: 0 }
           },
-        (pageId) => pageviewCounts.get(pageId) ?? zeroPageviewCountsForGraph()
+        (pageId) => data!.pageviewCounts.get(pageId) ?? zeroPageviewCountsForGraph()
       )
     }
   )

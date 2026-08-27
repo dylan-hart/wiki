@@ -1,6 +1,12 @@
-import { describe, test } from 'node:test'
+import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { assembleGraph, folderOf, type GraphPageRow } from './graph.ts'
+import fastify from 'fastify'
+import type { FastifyInstance } from 'fastify'
+import fastifySensible from '@fastify/sensible'
+import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import graphRoutes, { assembleGraph, folderOf, type GraphPageRow } from './graph.ts'
+import { registerSchemas as registerGraphSchema } from './schemas/graph.ts'
+import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 
 function makeRow(overrides: Partial<GraphPageRow> = {}): GraphPageRow {
   // -> `id` defaults to `path` (not a fixed constant) so a test giving several rows distinct
@@ -251,3 +257,120 @@ describe('assembleGraph', () => {
     assert.deepEqual(result.nodes[0]!.pageviews, ZERO_PAGEVIEWS)
   })
 })
+
+/**
+ * OpenProject #2269: the route's caching, cold-rebuild session gate, and disabled-pageviews skip.
+ * Real route, real DB, real `pages`/`pageHistory`/`pageviews`/`groups`/`classificationLevels`
+ * models (`setupTestDb()`) -- `mock.method` spies on the three aggregate-query methods without
+ * replacing them, so the query still runs the one time it should and this only has to count calls,
+ * not fake a result shape. No pages are seeded: these tests are about whether the aggregate queries
+ * run at all, not what `assembleGraph` does with their output (covered above with fixture rows).
+ */
+describe(
+  'GET /sites/:siteId/graph — caching (OpenProject #2269)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let app: FastifyInstance
+    /** Read by the `onRequest` hook below on every request -- flipped per-test rather than baked
+     *  into the app, since the cold-rebuild gate needs both an authenticated and an anonymous
+     *  caller against the very same route registration. */
+    let sessionAuthenticated = true
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      // -> `groups.groupIdsForRequest` falls back to this for an anonymous request; unrelated to any
+      //    seeded group, but `checkAccess` never gets far enough to look it up here since no pages
+      //    are seeded for it to be asked about.
+      WIKI.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
+
+      app = fastify()
+      await app.register(fastifySensible)
+      app.setErrorHandler((error: any, req, reply) => {
+        reply.code(error.statusCode ?? 500).send({
+          ok: false,
+          error: error.name,
+          statusCode: error.statusCode ?? 500,
+          message: error.message
+        })
+      })
+      app.addHook('onRequest', async (req) => {
+        ;(req as any).session = sessionAuthenticated
+          ? {
+              authenticated: true,
+              user: { id: fixtures.userId },
+              permissions: ['manage:system']
+            }
+          : { authenticated: false }
+      })
+      await registerErrorSchema(app)
+      await registerGraphSchema(app)
+      await app.register(graphRoutes)
+      await app.ready()
+    })
+
+    after(async () => {
+      await app.close()
+      await teardownTestDb()
+    })
+
+    beforeEach(() => {
+      sessionAuthenticated = true
+      WIKI.cache.clear()
+      WIKI.config.pageviews = { isEnabled: true }
+      mock.restoreAll()
+    })
+
+    test('a warm request performs no aggregate query', async () => {
+      const listAllForGraph = mock.method(WIKI.models.pages, 'listAllForGraph')
+      const contributorCounts = mock.method(WIKI.models.pageHistory, 'contributorCountsForGraph')
+      const pageviewCounts = mock.method(WIKI.models.pageviews, 'countsForGraph')
+
+      const cold = await app.inject({ method: 'GET', url: `/sites/${fixtures.siteId}/graph` })
+      assert.equal(cold.statusCode, 200)
+      assert.equal(listAllForGraph.mock.callCount(), 1)
+      assert.equal(contributorCounts.mock.callCount(), 1)
+      assert.equal(pageviewCounts.mock.callCount(), 1)
+
+      const warm = await app.inject({ method: 'GET', url: `/sites/${fixtures.siteId}/graph` })
+      assert.equal(warm.statusCode, 200)
+      assert.equal(listAllForGraph.mock.callCount(), 1)
+      assert.equal(contributorCounts.mock.callCount(), 1)
+      assert.equal(pageviewCounts.mock.callCount(), 1)
+    })
+
+    test('an anonymous cold rebuild is refused, and runs no aggregate query', async () => {
+      sessionAuthenticated = false
+      const listAllForGraph = mock.method(WIKI.models.pages, 'listAllForGraph')
+
+      const res = await app.inject({ method: 'GET', url: `/sites/${fixtures.siteId}/graph` })
+
+      assert.equal(res.statusCode, 401)
+      assert.equal(listAllForGraph.mock.callCount(), 0)
+    })
+
+    test('an anonymous request against an already-warm cache still succeeds', async () => {
+      const warmup = await app.inject({ method: 'GET', url: `/sites/${fixtures.siteId}/graph` })
+      assert.equal(warmup.statusCode, 200)
+
+      sessionAuthenticated = false
+      const listAllForGraph = mock.method(WIKI.models.pages, 'listAllForGraph')
+      const res = await app.inject({ method: 'GET', url: `/sites/${fixtures.siteId}/graph` })
+
+      assert.equal(res.statusCode, 200)
+      assert.equal(listAllForGraph.mock.callCount(), 0)
+    })
+
+    test('no pageview aggregate runs with pageviews disabled', async () => {
+      WIKI.config.pageviews = { isEnabled: false }
+      const listAllForGraph = mock.method(WIKI.models.pages, 'listAllForGraph')
+      const pageviewCounts = mock.method(WIKI.models.pageviews, 'countsForGraph')
+
+      const res = await app.inject({ method: 'GET', url: `/sites/${fixtures.siteId}/graph` })
+
+      assert.equal(res.statusCode, 200)
+      assert.equal(listAllForGraph.mock.callCount(), 1)
+      assert.equal(pageviewCounts.mock.callCount(), 0)
+    })
+  }
+)

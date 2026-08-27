@@ -16,6 +16,7 @@ import { exportModel } from './export.ts'
 import { extensions } from './extensions.ts'
 import { flags } from './flags.ts'
 import { glossary } from './glossary.ts'
+import { graph } from './graph.ts'
 import { groups } from './groups.ts'
 import { hooks } from './hooks.ts'
 import { icons } from './icons.ts'
@@ -65,6 +66,7 @@ export default {
   extensions,
   flags,
   glossary,
+  graph,
   groups,
   hooks,
   icons,
