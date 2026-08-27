@@ -615,6 +615,105 @@ describe(
     })
 
     /**
+     * OpenProject #2009: `.onConflictDoNothing({ target: jobsTable.id })` is what makes a job the
+     * original (still-alive) runner already re-queued a silent no-op instead of a duplicate-key
+     * throw. `runJob`'s own retry insert (line ~492) spreads `...job` and therefore reuses the same
+     * id, so a runner finishing its retry-scheduling just as this sweep claims the same history row
+     * is a real race, not a hypothetical one.
+     */
+    test('a job the original runner already requeued is a conflict no-op, not a duplicate-key throw', async () => {
+      const row = await insertActiveHistory({ maxRetries: 5 })
+      historyIds.push(row.id)
+      jobIds.push(row.id)
+
+      // -> Stands in for the still-alive original runner's own retry insert reaching `jobs` first.
+      await fixtures.db.insert(jobsTable).values({
+        id: row.id,
+        task: row.task,
+        useWorker: row.useWorker,
+        retries: row.attempt,
+        maxRetries: row.maxRetries,
+        isScheduled: row.wasScheduled,
+        waitUntil: new Date(),
+        createdBy: 'other-instance'
+      })
+
+      const requeued = await scheduler.reapStaleJobs()
+
+      assert.equal(requeued, 0, 'a conflicting id must not be double-counted as requeued')
+      const rows = await fixtures.db.select().from(jobsTable).where(eq(jobsTable.id, row.id))
+      assert.equal(rows.length, 1, 'the conflict must be a no-op, not a second row or a crash')
+      assert.equal(
+        rows[0]!.createdBy,
+        'other-instance',
+        'onConflictDoNothing must leave the existing row untouched'
+      )
+    })
+
+    /**
+     * OpenProject #2009: before this fix, the whole per-job requeue loop and the initial claiming
+     * `UPDATE` shared one outer `try`/`catch` -- a single failing insert aborted the loop, silently
+     * stranding every job after it in the array (marked `interrupted` in history, absent from `jobs`,
+     * and invisible to a later sweep, which only ever looks at `state = 'active'` rows).
+     *
+     * `WIKI.db.insert` is temporarily wrapped to reject only the middle job's insert, modelling
+     * whatever real failure (a constraint violation, a dropped connection) the outer catch used to
+     * treat as fatal for the whole batch.
+     */
+    test('one job failing to requeue does not strand the stale jobs after it', async () => {
+      const rowA = await insertActiveHistory({ task: 'reap2009TaskA' })
+      const rowB = await insertActiveHistory({ task: 'reap2009TaskB' })
+      const rowC = await insertActiveHistory({ task: 'reap2009TaskC' })
+      historyIds.push(rowA.id, rowB.id, rowC.id)
+      jobIds.push(rowA.id, rowB.id, rowC.id)
+
+      const originalInsert = WIKI.db.insert.bind(WIKI.db)
+      ;(WIKI.db as any).insert = (table: any) => {
+        if (table !== jobsTable) return originalInsert(table)
+        return {
+          values: (vals: any) => {
+            if (vals.task === 'reap2009TaskB') {
+              return {
+                onConflictDoNothing: () => ({
+                  returning: () => Promise.reject(new Error('simulated insert failure'))
+                })
+              }
+            }
+            return originalInsert(table).values(vals)
+          }
+        }
+      }
+
+      const warnCalls: string[] = []
+      const originalWarn = WIKI.logger.warn
+      WIKI.logger.warn = ((msg: string) => {
+        warnCalls.push(String(msg))
+      }) as any
+
+      let requeued: number
+      try {
+        requeued = await scheduler.reapStaleJobs()
+      } finally {
+        WIKI.db.insert = originalInsert
+        WIKI.logger.warn = originalWarn
+      }
+
+      assert.equal(requeued, 2, 'only the two successful inserts should count toward the total')
+
+      const queuedA = await fixtures.db.select().from(jobsTable).where(eq(jobsTable.id, rowA.id))
+      const queuedB = await fixtures.db.select().from(jobsTable).where(eq(jobsTable.id, rowB.id))
+      const queuedC = await fixtures.db.select().from(jobsTable).where(eq(jobsTable.id, rowC.id))
+      assert.equal(queuedA.length, 1, 'the job before the failure must still be requeued')
+      assert.equal(queuedB.length, 0, 'the failing job itself was never inserted')
+      assert.equal(queuedC.length, 1, 'the job after the failure must not be stranded by it')
+
+      assert.ok(
+        warnCalls.some((msg) => msg.includes(rowB.id) && msg.includes('simulated insert failure')),
+        'the warning must name the failing job id'
+      )
+    })
+
+    /**
      * Bug found by this verification task: `processJob()`'s claim step re-inserts a `jobHistory` row
      * with a fresh `attempt` count, but on a *reclaim* (the row already exists — exactly the case right
      * after `reapStaleJobs()` has interrupted it) that insert conflicts, and the `onConflictDoUpdate`
