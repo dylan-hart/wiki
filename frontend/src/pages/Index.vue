@@ -811,6 +811,12 @@ watch(
       // -> Load Blocks. `?.` because a locked page draws its lock screen in place of the article, so
       //    there is no content element to scan -- and nothing in it to scan for.
       nextTick(() => {
+        // -> Collected by tag first, one `loadBlocks()` call after the loop, rather than one call
+        //    per element -- matching the batched call `EditorMarkdown.vue`'s own preview render
+        //    makes. A page can embed the same block tag many times (a gallery repeated three times
+        //    down the page, say); the `Map` also dedupes those to one entry before `loadBlocks()`
+        //    ever sees them.
+        const toLoad = new Map()
         for (const block of pageContents.value?.querySelectorAll(':not(:defined)') ?? []) {
           const tag = block.tagName.toLowerCase()
           // -> Resolved off `siteStore.blocksIndex` (a public field on the site-info response
@@ -825,8 +831,9 @@ watch(
           const record = tag.startsWith('block-')
             ? siteStore.blocksIndex[tag.slice('block-'.length)]
             : undefined
-          commonStore.loadBlocks([record ? { tag, isCustom: record.isCustom, id: record.id } : tag])
+          toLoad.set(tag, record ? { tag, isCustom: record.isCustom, id: record.id } : tag)
         }
+        commonStore.loadBlocks([...toLoad.values()])
         /*
           Then the heading in the URL, if there is one. The browser tried it the moment it had the
           document, which was long before this render existed, so nothing happened — following a link
