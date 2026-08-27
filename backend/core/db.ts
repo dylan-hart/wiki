@@ -205,10 +205,7 @@ export default {
     WIKI.logger.info(`Using PostgreSQL v${dbVersion.version} [ OK ]`)
 
     // DEV - Drop schema
-    if (WIKI.config.dev?.dropSchema) {
-      WIKI.logger.warn(`DEV MODE - Dropping schema ${WIKI.config.db.schema}...`)
-      await db.execute(`DROP SCHEMA IF EXISTS ${WIKI.config.db.schema} CASCADE;`)
-    }
+    await this.dropSchemaIfDev(db)
 
     // Run Migrations
     if (!workerMode) {
@@ -216,6 +213,38 @@ export default {
     }
 
     return db
+  },
+  /**
+   * DEV - Drop schema, gated on `WIKI.IS_DEBUG` (OpenProject task 2270).
+   *
+   * `dev.dropSchema` is presented in `config.sample.yml` under a "Dev Mode" heading, but the config
+   * value alone used to be trusted in every mode: `config.yml` is merged over `base.yml` with no
+   * environment condition, and `helpers/config.ts#parseConfigValue` also lets the value arrive from
+   * an environment variable, so an operator who reasonably reads that heading as "inert outside dev"
+   * would be wrong. Left ungated, a config carried into production intact -- or an env var aimed at
+   * the wrong layer -- drops the schema, total and irreversible, on the very next boot.
+   *
+   * `WIKI.IS_DEBUG` (`index.ts`) is derived solely from `NODE_ENV === 'development'`, not from any
+   * wiki config or `dev.*` env var, so it cannot be flipped by the same misconfiguration this guards
+   * against. When the key is set but the guard blocks it, an explicit refusal is logged instead of
+   * silently doing nothing, so a developer running with the wrong `NODE_ENV` is not left wondering
+   * why their schema was not dropped.
+   *
+   * `dev.logQueries` (the other member of `dev`, consulted by `queryLogger` above) is intentionally
+   * left ungated here -- it is handled by the `sqlLog` redaction work tracked separately.
+   */
+  async dropSchemaIfDev(db: WikiDb): Promise<void> {
+    if (!WIKI.config.dev?.dropSchema) {
+      return
+    }
+    if (!WIKI.IS_DEBUG) {
+      WIKI.logger.warn(
+        `DEV MODE - dev.dropSchema is set but was refused: WIKI.IS_DEBUG is false. Schema ${WIKI.config.db.schema} was NOT dropped.`
+      )
+      return
+    }
+    WIKI.logger.warn(`DEV MODE - Dropping schema ${WIKI.config.db.schema}...`)
+    await db.execute(`DROP SCHEMA IF EXISTS ${WIKI.config.db.schema} CASCADE;`)
   },
   /**
    * Subscribe to database LISTEN / NOTIFY for multi-instances events
