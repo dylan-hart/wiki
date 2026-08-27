@@ -710,7 +710,10 @@ make the endpoint a standing invitation to burn CPU/memory on a public instance 
 per-page integration (e.g. pre-rendering a page's own diagrams as part of PDF export, instead of
 waiting on the live view to draw them one at a time) is left as a followup rather than built here —
 the win is real but unproven without profiling data on where PDF export time actually goes, and nothing
-about the model's shape forecloses wiring it in later.
+about the model's shape forecloses wiring it in later. `GET /sites/:siteId/pages/:pageId/export/pdf`
+(`models/pdfExport.ts`) launches the identical kind of per-request headless browser and, until task
+2262, disagreed with this route by allowing an anonymous caller to trigger one — see that
+reconciliation in "PDF export: two competing implementations reconciled at merge-review time" below.
 
 **Reconciled with PDF export (OpenProject #2258/#2262).** Until the 2026-08-24 audit, `GET
 /sites/:siteId/pages/:pageId/export/pdf` (`api/pages.ts`) disagreed with this route and with the page
@@ -757,6 +760,24 @@ two copies of the same flags/error handling.
 `WIKI.models.rendering.isAvailable()` rather than `WIKI.models.pdfExport.isAvailable()` — both ask the
 identical question (is the `puppeteer` extension installed) so this is not a correctness bug, just a
 naming nicety left for a future pass rather than bundled into this reconciliation.
+
+**Anonymous access reconciled (task 2262).** The route originally answered an anonymous caller for
+any published, unlocked page — `read:pages` was checked, but nothing else — while the re-render route
+directly above it in `api/pages.ts`, and `POST /_api/diagrams/render` (see task 785's entry above),
+both refuse an anonymous session outright, on the stated grounds that a per-request headless browser
+launch is too cheap for an anonymous caller to repeat and too expensive for the instance to keep
+absorbing for free. PDF export drives the exact same kind of launch — the _full_ SPA page view, not
+even the cheaper `/_render` shell — so allowing it anonymously while its two siblings refuse it was an
+inconsistency the audit that opened task 2262 called out, not a deliberate product decision anyone had
+made. Settled the same way, for the same reason: `GET /sites/:siteId/pages/:pageId/export/pdf` now
+requires `req.session?.authenticated` before it ever calls `loadReadablePage`, matching its siblings
+exactly. `models/pdfExport.ts#exportPdf()` itself is unchanged and still accepts a `null`
+`sessionCookie` — that capability was never the problem; only the route's willingness to reach it
+without a session was. The alternative on the table (serving the page's already-stored `render` HTML
+for an anonymous request instead of driving a live browser) was rejected: it would have resurrected the
+"Retired" `models/rendering.ts#renderPdf()` path above, PDF-with-no-diagrams regression and all, for a
+capability (anonymous PDF export) nothing had actually asked for — refusing anonymous outright is both
+simpler and consistent with what this instance already decided for diagram rendering.
 
 ## 2026-08-17 — Epic 13 (Migration & Upgrade Path from 2.5.x) will not carry forward 2.5.x API tokens or Slack/Discord notification config
 

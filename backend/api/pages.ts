@@ -1915,6 +1915,7 @@ async function routes(app: FastifyInstance) {
             }
           },
           401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
           404: { $ref: 'ApiError#' }
         }
       }
