@@ -9,6 +9,7 @@ import maintenance from './maintenance.ts'
 import { groups } from '../models/groups.ts'
 import { sites } from '../models/sites.ts'
 import { approvals } from '../models/approvals.ts'
+import { classificationLevels } from '../models/classificationLevels.ts'
 
 /**
  * Task 708 (feature 411): confirms what `core/db.ts`'s `subscribeToNotifications()` /
@@ -27,6 +28,9 @@ import { approvals } from '../models/approvals.ts'
  * only other instance is down and during this instance's own listener reconnect window
  * (`helpers/pubsub.ts`'s `connectListener`, task 703) after a dropped connection and before the
  * next one lands.
+ *
+ * OpenProject #2030 added a sixth subscriber, `classificationLevels`'s `reloadClassificationLevels`
+ * — same shape as `groups`/`sites`/`approvals`, stubbed and asserted the same way below.
  *
  * A fake `Pool`/`PoolClient` pair stands in for postgres, matching `helpers/pubsub.test.ts`'s
  * fixtures — this is event-bus wiring and delivery-loss semantics, not SQL, so a mock is the right
@@ -83,6 +87,7 @@ let disconnectWebsocketsMock: any
 let groupsReloadCacheMock: any
 let sitesReloadCacheMock: any
 let approvalsReloadCacheMock: any
+let classificationLevelsReloadCacheMock: any
 
 before(() => {
   previousWiki = (globalThis as any).WIKI
@@ -99,12 +104,14 @@ beforeEach(() => {
   groupsReloadCacheMock = mock.fn(async () => {})
   sitesReloadCacheMock = mock.fn(async () => {})
   approvalsReloadCacheMock = mock.fn(async () => {})
+  classificationLevelsReloadCacheMock = mock.fn(async () => {})
   configSvc.loadFromDb = loadFromDbMock
   maintenance.flushCaches = flushCachesMock
   maintenance.disconnectWebsockets = disconnectWebsocketsMock
   groups.reloadCache = groupsReloadCacheMock
   sites.reloadCache = sitesReloadCacheMock
   approvals.reloadCache = approvalsReloadCacheMock
+  classificationLevels.reloadCache = classificationLevelsReloadCacheMock
 
   ;(globalThis as any).WIKI = {
     INSTANCE_ID: 'instance-a',
@@ -112,7 +119,7 @@ beforeEach(() => {
     events: { inbound: new Emittery(), outbound: new Emittery() },
     configSvc,
     dbManager,
-    models: { groups, sites, approvals }
+    models: { groups, sites, approvals, classificationLevels }
   }
 
   dbManager.pool = null
@@ -204,7 +211,7 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.deepEqual(received, [{ event: 'reloadConfig', value: null }])
   })
 
-  test('wires all five current subscribers, each purely reactive to the notify with no independent re-check', async () => {
+  test('wires all six current subscribers, each purely reactive to the notify with no independent re-check', async () => {
     const pool = new FakePool()
     const client = new FakeClient()
     pool.queueClient(client)
@@ -237,6 +244,15 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
       channel: 'wiki',
       payload: JSON.stringify({ source: 'instance-b', event: 'reloadApprovals', value: null })
     })
+    // -> OpenProject #2030: classification-level cache reloads propagate the same way now
+    client.emit('notification', {
+      channel: 'wiki',
+      payload: JSON.stringify({
+        source: 'instance-b',
+        event: 'reloadClassificationLevels',
+        value: null
+      })
+    })
 
     // -> Emittery's inbound handlers run as microtasks; give them a tick.
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -247,5 +263,6 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.equal(groupsReloadCacheMock.mock.calls.length, 1)
     assert.equal(sitesReloadCacheMock.mock.calls.length, 1)
     assert.equal(approvalsReloadCacheMock.mock.calls.length, 1)
+    assert.equal(classificationLevelsReloadCacheMock.mock.calls.length, 1)
   })
 })

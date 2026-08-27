@@ -298,6 +298,7 @@ export default {
     WIKI.models.groups.subscribeToEvents()
     WIKI.models.sites.subscribeToEvents()
     WIKI.models.approvals.subscribeToEvents()
+    WIKI.models.classificationLevels.subscribeToEvents()
     // WIKI.db.pages.subscribeToEvents()
 
     WIKI.logger.info('Event Listener initialized successfully: [ OK ]')
