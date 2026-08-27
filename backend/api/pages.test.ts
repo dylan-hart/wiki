@@ -12,7 +12,7 @@ import { registerSchemas as registerApprovalSchemas } from './schemas/approval.t
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
 import pagesRoutes, { mayOnPage, pagePermissionsFor } from './pages.ts'
-import { MAX_IMPORT_SIZE } from '../models/import.ts'
+import { MAX_IMPORT_BATCH_BYTES, MAX_IMPORT_SIZE } from '../models/import.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { CustomError } from '../helpers/common.ts'
 import type { GroupRule } from '../models/groups.ts'
@@ -1647,6 +1647,36 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
     for (const call of convertToMarkdown.mock.calls) {
       assert.equal((call.arguments[0] as { format: string }).format, 'markdown')
     }
+  })
+
+  /**
+   * OpenProject #2204: the aggregate ceiling that backstops the whole batch, distinct from the
+   * per-file `MAX_IMPORT_SIZE` regression test above — five files, each right at (not over) the
+   * per-file limit so none is individually truncated, whose sum is still well past
+   * `MAX_IMPORT_BATCH_BYTES` (four times a single file's own limit). The whole request must be
+   * refused rather than converting the files that fit before the ceiling was crossed.
+   */
+  test('a batch exceeding the aggregate byte ceiling is refused, not partially converted', async () => {
+    const perFile = 'x'.repeat(MAX_IMPORT_SIZE)
+    const { payload, contentType } = await buildMultipartPayload(
+      Array.from({ length: 5 }, (_, i) => ({
+        fileName: `file-${i}.mediawiki`,
+        content: perFile
+      }))
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+
+    assert.equal(res.statusCode, 400)
+    const body = res.json()
+    assert.match(body.message, /aggregate limit/)
+    assert.match(body.message, new RegExp(`${Math.round(MAX_IMPORT_BATCH_BYTES / 1024 / 1024)} MB`))
+    assert.equal(convertToMarkdown.mock.callCount(), 0, 'no file should be converted once refused')
   })
 })
 

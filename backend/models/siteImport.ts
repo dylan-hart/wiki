@@ -1,5 +1,8 @@
 import fs from 'node:fs/promises'
+import fsSync from 'node:fs'
 import path from 'node:path'
+import { Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { list as listTarball } from 'tar'
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
@@ -14,6 +17,21 @@ import { EXPORT_FORMAT_VERSION } from './export.ts'
 
 /** How long an uploaded import sits on disk before `purgeExpired` sweeps it, in seconds. */
 const IMPORT_TTL_SECONDS = 24 * 60 * 60
+
+/**
+ * Ceiling on one tar entry's decompressed size, and on the archive's total decompressed size across
+ * every entry combined. `readArchive` used to hold both with no limit at all: a crafted or merely
+ * very large archive (compression ratios well past 100:1 are ordinary for repetitive text) could
+ * exhaust the process's heap decompressing a single entry, in-process, before a single database row
+ * was ever touched (OpenProject #2213, audit `06-files-uploads-storage.md` §5). The route this backs
+ * requires `manage:system`, so this is a robustness ceiling against a genuinely oversized *legitimate*
+ * archive rather than a defense against an untrusted caller — sized generously above what a real
+ * site's content should ever decompress to.
+ */
+const MAX_ENTRY_BYTES = 200 * 1024 * 1024
+
+/** See {@link MAX_ENTRY_BYTES}. */
+const MAX_ARCHIVE_DECOMPRESSED_BYTES = 1024 * 1024 * 1024
 
 export interface ImportResult {
   pages: number
@@ -32,9 +50,29 @@ export interface ImportResult {
  * gzip-decompresses `filePath` itself, handing each entry back as a readable stream via
  * `onReadEntry` — the promise it returns resolves only once every entry has been fully parsed out of
  * the underlying file, by which point every `data`/`end` pair below has already fired.
+ *
+ * Bounded by {@link MAX_ENTRY_BYTES} (one entry) and {@link MAX_ARCHIVE_DECOMPRESSED_BYTES} (every
+ * entry combined) — see those constants' own doc comment. Tripping either stops accumulating bytes
+ * immediately (so the offending/remaining data is never actually held), but still lets `tar` finish
+ * walking the underlying file before throwing, rather than tearing the read down mid-entry: this is a
+ * robustness ceiling, not something that needs to react within the same tick, and finishing the walk
+ * is simpler than reasoning about `tar`'s own cleanup of a `list()` aborted partway through. Exported
+ * for `models/siteImport.test.ts`, which exercises it directly against real tar fixtures rather than
+ * through the far more expensive, DB-backed `importSite` round trip the rest of this file's tests
+ * use. `limits` defaults to the real, module-level ceilings — `importSite` never passes it — and
+ * exists so that test can exercise the ceiling logic itself against small fixtures instead of
+ * needing to actually build a multi-hundred-megabyte archive per assertion.
  */
-async function readArchive(filePath: string): Promise<Record<string, Buffer>> {
+export async function readArchive(
+  filePath: string,
+  limits: { maxEntryBytes?: number; maxTotalBytes?: number } = {}
+): Promise<Record<string, Buffer>> {
+  const maxEntryBytes = limits.maxEntryBytes ?? MAX_ENTRY_BYTES
+  const maxTotalBytes = limits.maxTotalBytes ?? MAX_ARCHIVE_DECOMPRESSED_BYTES
   const entries: Record<string, Buffer> = {}
+  let totalBytes = 0
+  let overflow: Error | null = null
+
   await listTarball({
     file: filePath,
     onReadEntry: (entry) => {
@@ -44,12 +82,40 @@ async function readArchive(filePath: string): Promise<Record<string, Buffer>> {
         return
       }
       const chunks: Buffer[] = []
-      entry.on('data', (chunk) => chunks.push(chunk))
+      let entryBytes = 0
+      let entryOverflowed = false
+      entry.on('data', (chunk) => {
+        if (overflow || entryOverflowed) {
+          return
+        }
+        entryBytes += chunk.length
+        totalBytes += chunk.length
+        if (entryBytes > maxEntryBytes) {
+          entryOverflowed = true
+          overflow ??= new Error(
+            `Malformed or oversized import archive: entry '${entry.path}' decompresses past the ${Math.round(maxEntryBytes / 1024 / 1024)} MB per-entry limit.`
+          )
+          return
+        }
+        if (totalBytes > maxTotalBytes) {
+          overflow ??= new Error(
+            `Malformed or oversized import archive: total decompressed size exceeds the ${Math.round(maxTotalBytes / 1024 / 1024)} MB limit.`
+          )
+          return
+        }
+        chunks.push(chunk)
+      })
       entry.on('end', () => {
-        entries[entry.path] = Buffer.concat(chunks)
+        if (!overflow && !entryOverflowed) {
+          entries[entry.path] = Buffer.concat(chunks)
+        }
       })
     }
   })
+
+  if (overflow) {
+    throw overflow
+  }
   return entries
 }
 
@@ -109,14 +175,66 @@ class ImportModel {
   }
 
   /**
-   * Save an uploaded archive to `<dataPath>/imports/`, returning the path the queued job reads it
-   * back from.
+   * Stream an uploaded archive straight to `<dataPath>/imports/` rather than buffering the whole
+   * request body in memory first (OpenProject #2213): `api/system.ts`'s content-type parser for this
+   * route hands over the raw request stream, not a `Buffer` — the route's own `bodyLimit` machinery
+   * only applies to Fastify's `parseAs: 'buffer'`/`'string'` fast paths, so this method is what
+   * actually enforces `maxBytes` now, destroying the partial file the moment the running total passes
+   * it rather than letting the whole upload land on disk first. The gzip magic number is checked
+   * against the first bytes actually written, not trusted from the `Content-Type` header alone — the
+   * same check the old buffered version made against `data[0]`/`data[1]`.
+   *
+   * @returns The path the queued job reads the archive back from, and its size in bytes.
    */
-  async saveUpload(data: Buffer): Promise<string> {
+  async streamUpload(
+    payload: NodeJS.ReadableStream,
+    maxBytes: number
+  ): Promise<{ filePath: string; size: number }> {
     await fs.mkdir(this.importsPath, { recursive: true })
     const filePath = path.join(this.importsPath, `${crypto.randomUUID()}.tar.gz`)
-    await fs.writeFile(filePath, data)
-    return filePath
+
+    let size = 0
+    let firstBytes = Buffer.alloc(0)
+    const limiter = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        if (firstBytes.length < 2) {
+          firstBytes = Buffer.concat([firstBytes, chunk]).subarray(0, 2)
+        }
+        size += chunk.length
+        if (size > maxBytes) {
+          callback(
+            Object.assign(
+              new Error(
+                `The archive is larger than the ${Math.round(maxBytes / 1024 / 1024)} MB limit.`
+              ),
+              { statusCode: 400 }
+            )
+          )
+          return
+        }
+        callback(null, chunk)
+      }
+    })
+
+    try {
+      await pipeline(payload, limiter, fsSync.createWriteStream(filePath))
+    } catch (err) {
+      await fs.unlink(filePath).catch(() => {})
+      throw err
+    }
+
+    if (size < 1) {
+      await fs.unlink(filePath).catch(() => {})
+      throw Object.assign(new Error('No archive was sent.'), { statusCode: 400 })
+    }
+    if (firstBytes[0] !== 0x1f || firstBytes[1] !== 0x8b) {
+      await fs.unlink(filePath).catch(() => {})
+      throw Object.assign(new Error('Not a gzip archive, whatever the request said it was.'), {
+        statusCode: 400
+      })
+    }
+
+    return { filePath, size }
   }
 
   /**
@@ -162,7 +280,7 @@ class ImportModel {
   /**
    * Restore a tarball produced by `exportModel.exportSite` into `targetSiteId`.
    *
-   * @param filePath Path to the uploaded archive, as returned by `saveUpload`.
+   * @param filePath Path to the uploaded archive, as returned by `streamUpload`.
    * @param targetSiteId The site pages/tree/assets are restored into. Must already exist.
    * @param importedById The account performing the import — every restored page/asset's
    *   author/creator/owner columns are rewritten to this id, since accounts are not part of the

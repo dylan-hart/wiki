@@ -1,15 +1,45 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import { Worker } from 'node:worker_threads'
 import * as awarenessProtocol from 'y-protocols/awareness'
 import * as Y from 'yjs'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import collab, {
+  MAX_PENDING_BYTES,
+  MAX_PENDING_FRAMES,
   PEER_STATE_TIMEOUT,
+  REFUSAL_GRACE_PERIOD,
   RELAY_CHUNK_SIZE,
   RELAY_REASSEMBLY_TIMEOUT,
   buildSeed
 } from './collab.ts'
+
+/**
+ * A minimal stand-in for `ws`'s `WebSocket`, just enough of its surface for `capture()` and
+ * `refuse()`: `on`/`emit` (real, via `EventEmitter`, so `capture`'s own listeners work unmodified),
+ * the three `readyState` constants and the field they set, and `close()`/`terminate()` recorded so a
+ * test can assert which one a given path called.
+ */
+class FakeSocket extends EventEmitter {
+  readonly OPEN = 1
+  readonly CLOSING = 2
+  readonly CLOSED = 3
+  readyState = 1
+  closeCalls: { code: number; reason: string }[] = []
+  terminated = false
+
+  close(code: number, reason: string): void {
+    this.closeCalls.push({ code, reason })
+    this.readyState = this.CLOSING
+  }
+
+  terminate(): void {
+    this.terminated = true
+    this.readyState = this.CLOSED
+    this.emit('close')
+  }
+}
 
 /**
  * Unit test for `participantInfo()` (task 546): a cheap "someone else has this page open" signal read
@@ -434,6 +464,112 @@ describe('(d) pageSaved() to an instance with no open room for that page', () =>
     inst.receiveRelay({ i: 'X', r: 'page-8', t: 'saved', p: JSON.stringify(info) })
 
     assert.deepEqual(doc.getMap('meta').get('lastSave'), info)
+  })
+})
+
+/**
+ * (e) OpenProject #2196: `capture()`'s pre-auth `session.pending` buffer is bounded by both entry
+ * count and total bytes, terminating (not merely closing) a connection that exceeds either — and
+ * `refuse()`, the helper `controllers/collab.ts`'s five refusal points now call instead of
+ * `conn.close()` directly, sends the close frame a cooperating client needs but no longer leaves a
+ * non-cooperating one sitting in `CLOSING` for `ws`'s full 30s default.
+ */
+describe('(e) collab pre-auth frame buffer cap and refusal termination', () => {
+  test('buffers ordinary frames normally, well under the cap', () => {
+    const socket = new FakeSocket()
+    const session = collab.capture(socket as any)
+
+    socket.emit('message', Buffer.from('sync step 1'))
+    socket.emit('message', Buffer.from('sync step 2'))
+
+    assert.equal(session.pending.length, 2)
+    assert.equal(socket.terminated, false)
+  })
+
+  test('terminates the connection once the entry-count cap is exceeded, dropping the buffer', () => {
+    const socket = new FakeSocket()
+    const session = collab.capture(socket as any)
+
+    for (let i = 0; i < MAX_PENDING_FRAMES; i++) {
+      socket.emit('message', Buffer.from(`frame ${i}`))
+    }
+    assert.equal(session.pending.length, MAX_PENDING_FRAMES, 'every frame up to the cap is kept')
+    assert.equal(socket.terminated, false)
+
+    // -> One frame past the cap terminates the connection rather than growing the buffer further
+    socket.emit('message', Buffer.from('one too many'))
+    assert.equal(socket.terminated, true)
+    assert.equal(
+      session.pending.length,
+      MAX_PENDING_FRAMES,
+      'the frame that tripped the cap is never itself buffered'
+    )
+  })
+
+  test('terminates the connection once the total-byte cap is exceeded, even in very few frames', () => {
+    const socket = new FakeSocket()
+    const session = collab.capture(socket as any)
+
+    socket.emit('message', Buffer.alloc(MAX_PENDING_BYTES))
+    assert.equal(socket.terminated, false)
+    assert.equal(session.pending.length, 1)
+
+    socket.emit('message', Buffer.from('a'))
+    assert.equal(socket.terminated, true)
+    assert.equal(session.pending.length, 1)
+  })
+
+  test('a message arriving after a room is attached is handled normally, not buffered or capped', () => {
+    const socket = new FakeSocket()
+    const session = collab.capture(socket as any)
+    const onMessage = mock.method(collab, 'onMessage', () => {})
+    const room = { pageId: 'p' } as any
+    session.room = room
+
+    try {
+      socket.emit('message', Buffer.from('post-join message'))
+      assert.equal(onMessage.mock.calls.length, 1)
+      assert.equal(onMessage.mock.calls[0].arguments[0], room)
+      assert.equal(session.pending.length, 0)
+    } finally {
+      onMessage.mock.restore()
+    }
+  })
+
+  test('refuse() sends the close frame immediately, for a cooperating client to act on', () => {
+    const socket = new FakeSocket()
+    collab.refuse(socket as any, 4403, 'You are not allowed to edit this page')
+
+    assert.deepEqual(socket.closeCalls, [
+      { code: 4403, reason: 'You are not allowed to edit this page' }
+    ])
+  })
+
+  test('refuse() terminates a non-cooperating socket once the grace period elapses', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const socket = new FakeSocket()
+
+    collab.refuse(socket as any, 4401, 'Authentication is required')
+    assert.equal(
+      socket.terminated,
+      false,
+      'not terminated immediately - close() gets its grace period'
+    )
+
+    t.mock.timers.tick(REFUSAL_GRACE_PERIOD)
+    assert.equal(socket.terminated, true)
+  })
+
+  test('refuse() does not terminate a socket that already finished closing on its own', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const socket = new FakeSocket()
+
+    collab.refuse(socket as any, 4404, 'This page does not exist')
+    // -> The cooperating client's own close frame arrives well inside the grace period
+    socket.readyState = socket.CLOSED
+
+    t.mock.timers.tick(REFUSAL_GRACE_PERIOD)
+    assert.equal(socket.terminated, false, 'terminate() is never called once already CLOSED')
   })
 })
 
