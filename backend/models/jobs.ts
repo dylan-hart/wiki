@@ -63,9 +63,14 @@ export const JOB_SCHEDULE_SEED = [
     cron: '25 0 * * *',
     type: 'system'
   },
+  // -> Offset from checkVersion (also midnight) so the two aren't claimed in the same batch --
+  //    updateLocales's `WIKI.config.update.locales` opt-out is read synchronously at the top of its
+  //    task, while checkVersion only assigns into that same namespace after its fetch resolves, so
+  //    if they shared a tick a batch containing both would race checkVersion overwriting the flag it
+  //    hadn't seen updateLocales still needed.
   {
     task: 'updateLocales',
-    cron: '0 0 * * *',
+    cron: '30 0 * * *',
     type: 'system'
   },
   // -> Trims audit log entries older than the configured retention window (default

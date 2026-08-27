@@ -14,6 +14,7 @@ export async function task(): Promise<void> {
       resp.tag_name.indexOf('v') === 0 ? resp.tag_name.substring(1) : resp.tag_name
     WIKI.logger.info(`Latest version is ${resp.tag_name}.`)
     WIKI.config.update = {
+      ...WIKI.config.update,
       lastCheckedAt: new Date().toISOString(),
       version: strictVersion,
       versionDate: resp.published_at
