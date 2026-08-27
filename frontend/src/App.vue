@@ -27,6 +27,7 @@ import WDialogHost from '@/components/shared/WDialogHost.vue'
 import WLoadingOverlay from '@/components/shared/WLoadingOverlay.vue'
 import WNotifications from '@/components/shared/WNotifications.vue'
 
+import { useAdminStore } from '@/stores/admin'
 import { useCommonStore } from './stores/common'
 import { useEditorStore } from '@/stores/editor'
 import { useFlagsStore } from '@/stores/flags'
@@ -57,6 +58,7 @@ const direction = useDirection()
 
 // STORES
 
+const adminStore = useAdminStore()
 const commonStore = useCommonStore()
 const editorStore = useEditorStore()
 const flagsStore = useFlagsStore()
@@ -118,8 +120,16 @@ async function applyLocale(locale) {
     boot, so a component mounted across navigations (`PageHeader.vue`'s review-queue menu, via
     `composables/direction.js`) needs a reactive read of whatever this last resolved to, not a stale
     one from whenever it happened to first mount.
+
+    Falls back to `adminStore.locales` (OpenProject #1696) for a `locale` that is the *interface*
+    language but not one of the site's active *content* locales -- the admin language switcher can
+    pick any installed locale, RTL ones included, independently of what the site's content is
+    translated into. By the time this runs for such a locale, the router guard below has already
+    awaited `adminStore.fetchLocales()` to validate it, so the catalogue is populated here too.
   */
-  const localeInfo = siteStore.locales.active.find((entry) => entry.code === locale)
+  const localeInfo =
+    siteStore.locales.active.find((entry) => entry.code === locale) ??
+    adminStore.locales.find((entry) => entry.code === locale)
   direction.set(Boolean(localeInfo?.isRTL))
   document.documentElement.setAttribute('lang', locale)
 
@@ -469,12 +479,28 @@ router.beforeEach(async (to, from) => {
     )
   }
 
-  // -> Locale
-  if (
-    !commonStore.desiredLocale ||
-    !siteStore.locales.active.some((l) => l.code === commonStore.desiredLocale)
-  ) {
+  /*
+    -> Locale
+    Interface language and content locale are two independent axes (OpenProject #1696):
+    `desiredLocale` is the UI-strings language, chosen from `adminStore.locales` -- every locale
+    installed on the instance -- by the admin area's own switcher (`AdminLayout.vue`), while
+    `siteStore.locales.active` is the (usually much smaller) set of locales this site's *content* is
+    written in. A reader/admin picking a UI-only locale is common and intentional, not a stale or
+    invalid value to revert.
+
+    Checked against `siteStore.locales.active` first since that is already loaded and covers the
+    overwhelming majority of navigations with no extra request. Only a `desiredLocale` that misses
+    THAT check goes on to ask whether it is nonetheless a real installed locale -- fetching (once;
+    `adminStore.fetchLocales()` is idempotent after its first resolve) and checking against the full
+    catalogue -- before concluding it really is unknown and falling back to the site's primary.
+  */
+  if (!commonStore.desiredLocale) {
     commonStore.setLocale(siteStore.locales.primary)
+  } else if (!siteStore.locales.active.some((l) => l.code === commonStore.desiredLocale)) {
+    await adminStore.fetchLocales()
+    if (!adminStore.locales.some((l) => l.code === commonStore.desiredLocale)) {
+      commonStore.setLocale(siteStore.locales.primary)
+    }
   }
   applyLocale(commonStore.desiredLocale)
 

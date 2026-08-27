@@ -916,7 +916,11 @@ LTR. Reasoning:
 - `AdminLayout.vue`'s own header carries a locale switcher (`commonStore.setLocale(lang.code)`) that
   lets an operator pick _any_ installed locale, RTL ones included, directly from within the admin
   area — the admin UI is evidently meant to render in whatever locale is active, not assumed
-  English/LTR-only.
+  English/LTR-only. (This held as an intent, not yet as fact, until OpenProject #1696: `App.vue`'s
+  router guard used to validate `desiredLocale` against the site's active *content* locales only, so
+  a UI-only interface locale picked here reverted on the very next navigation, direction included.
+  The guard now also accepts any locale from the instance's installed catalogue
+  (`adminStore.locales`), which is what makes this bullet's claim actually true today.)
 - Forcing LTR chrome around genuinely RTL-translated `admin.*` label text (which does render in
   Arabic once `ar` is the active locale, per the same `t()` mechanism as everywhere else) would
   produce mismatched, not merely conservative, layout — worse than mirroring, not safer.

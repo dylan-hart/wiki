@@ -27,6 +27,10 @@ export const useAdminStore = defineStore('admin', {
     overlayOpts: {},
     sites: [],
     locales: [{ code: 'en', name: 'English' }],
+    /** Set once `fetchLocales` has actually resolved -- lets a caller outside the admin area (e.g.
+     *  `App.vue`'s router guard, OpenProject #1696) ask for the instance's installed locale catalogue
+     *  without re-fetching it on every navigation once it is already known. */
+    localesLoaded: false,
     /** Classification levels (OpenProject #1079), most-open first. What the group rule editor's
      *  CLASSIFICATION match picker and the page properties classification picker both read. */
     classificationLevels: []
@@ -52,9 +56,23 @@ export const useAdminStore = defineStore('admin', {
     }
   },
   actions: {
+    /**
+     * Fetches the instance's full installed-locale catalogue (every locale the interface can be
+     * rendered in, not just the site's active content locales -- see `siteStore.locales.active`).
+     *
+     * Idempotent once it has resolved: `AdminLayout.vue`'s mount and `App.vue`'s router guard (which
+     * only needs this the moment a reader's `desiredLocale` isn't one of the site's active content
+     * locales, OpenProject #1696) can both call it freely without doubling up the request on every
+     * navigation. Nothing in this app mutates the installed-locale set mid-session (adding one is an
+     * instance restart away), so there is no cache-invalidation case to handle here.
+     */
     async fetchLocales() {
+      if (this.localesLoaded) {
+        return
+      }
       const resp = await API_CLIENT.get('locales').json()
       this.locales = sortBy(cloneDeep(resp ?? []), ['nativeName', 'name'])
+      this.localesLoaded = true
     },
     async fetchInfo() {
       const resp = await API_CLIENT.get('system/info').json()

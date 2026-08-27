@@ -29,6 +29,7 @@ import {
 import App from './App.vue'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
+import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 import { useEditorStore } from '@/stores/editor'
 import { useFlagsStore } from '@/stores/flags'
@@ -407,6 +408,118 @@ describe('App.vue applyLocale() en fallback eager-load', () => {
     //    resolve `common.actions.save` from instead of echoing the raw key.
     expect(i18n.global.availableLocales).toEqual(['en'])
     expect(i18n.global.t('common.actions.save')).toBe('Save')
+  })
+})
+
+/**
+ * Regression coverage for OpenProject #1696: interface language and content locale are two
+ * independent axes. The router guard used to validate `commonStore.desiredLocale` against
+ * `siteStore.locales.active` alone -- the site's *content* locales -- so a UI-only interface locale
+ * (the admin language switcher's whole reason to read `adminStore.locales`, the instance's full
+ * installed catalogue, rather than the site's active set) reverted to the site's primary on the very
+ * next navigation, RTL direction included.
+ */
+describe('App.vue router guard: interface locale independent of content locale', () => {
+  it('a UI-only locale not in the site’s active content locales survives navigation, with its own direction applied', async () => {
+    const siteStore = useSiteStore()
+    const flagsStore = useFlagsStore()
+    const userStore = useUserStore()
+    const commonStore = useCommonStore()
+    const adminStore = useAdminStore()
+
+    // -> Bootstrap already "loaded" (see mountAppWithLocale above), and the site's only content
+    //    locale is English -- 'fa' below is never one of its active locales
+    siteStore.$patch({
+      id: 'site-1',
+      locales: {
+        primary: 'en',
+        showMenu: true,
+        active: [
+          { code: 'en', language: 'en', name: 'English', nativeName: 'English', isRTL: false }
+        ]
+      }
+    })
+    flagsStore.loaded = true
+    userStore.profileLoaded = true
+    // -> An interface-only locale, picked from the admin switcher on some earlier visit and persisted
+    commonStore.setLocale('fa')
+
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'locales') {
+        return {
+          json: () =>
+            Promise.resolve([
+              { code: 'fa', language: 'fa', name: 'Persian', nativeName: 'فارسی', isRTL: true }
+            ])
+        }
+      }
+      // -> Locale-strings fetch: never resolves, same as mountAppWithLocale() above -- proves the
+      //    dir/lang flip does not wait on it
+      return { json: () => new Promise(() => {}) }
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    currentWrapper = mount(App, { global: { plugins: [router, i18n] } })
+
+    await router.push('/')
+    await router.isReady()
+
+    // -> Not reverted to the site's primary ('en')
+    expect(commonStore.desiredLocale).toBe('fa')
+    // -> The instance catalogue was consulted (and cached) to validate it
+    expect(adminStore.locales.some((l) => l.code === 'fa')).toBe(true)
+    expect(adminStore.localesLoaded).toBe(true)
+    // -> applyLocale() resolved direction from that same catalogue, not just the (English-only)
+    //    active content locales
+    expect(document.documentElement.getAttribute('lang')).toBe('fa')
+    expect(document.documentElement.getAttribute('dir')).toBe('rtl')
+  })
+
+  it('an unrecognised locale (not in content nor installed) still falls back to the site primary', async () => {
+    const siteStore = useSiteStore()
+    const flagsStore = useFlagsStore()
+    const userStore = useUserStore()
+    const commonStore = useCommonStore()
+
+    siteStore.$patch({
+      id: 'site-1',
+      locales: {
+        primary: 'en',
+        showMenu: true,
+        active: [
+          { code: 'en', language: 'en', name: 'English', nativeName: 'English', isRTL: false }
+        ]
+      }
+    })
+    flagsStore.loaded = true
+    userStore.profileLoaded = true
+    commonStore.setLocale('xx-bogus')
+
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'locales') {
+        // -> The instance's installed catalogue does not know this code either
+        return { json: () => Promise.resolve([]) }
+      }
+      return { json: () => new Promise(() => {}) }
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    currentWrapper = mount(App, { global: { plugins: [router, i18n] } })
+
+    await router.push('/')
+    await router.isReady()
+
+    expect(commonStore.desiredLocale).toBe('en')
   })
 })
 
