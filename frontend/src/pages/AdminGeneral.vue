@@ -2,7 +2,7 @@
   <w-page class="admin-general">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-web.svg" />
+        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-web.svg" alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.general.title') }}</div>
@@ -360,12 +360,15 @@
                 -->
                 <w-btn dense flat v-if="state.config.id">
                   <w-avatar v-if="state.config.logoText" size="34px" square>
-                    <img :src="`/_site/` + state.config.id + `/logo?` + state.assetTimestamp" />
+                    <img
+                      :src="`/_site/` + state.config.id + `/logo?` + state.assetTimestamp"
+                      :alt="t(`admin.general.logo`)" />
                   </w-avatar>
                   <img
                     v-else
                     :src="`/_site/` + state.config.id + `/logo?` + state.assetTimestamp"
-                    style="height: 34px" />
+                    style="height: 34px"
+                    :alt="t(`admin.general.logo`)" />
                 </w-btn>
                 <w-toolbar-title class="text-h6" v-if="state.config.logoText">{{
                   state.config.title
@@ -424,7 +427,9 @@
                   <!-- Same reasoning as the logo preview toolbar above: keyed off `state.config.id`
                        so this can never show a new site's favicon beside the old site's title. -->
                   <w-avatar v-if="state.config.id" size="24px" square>
-                    <img :src="`/_site/` + state.config.id + `/favicon?` + state.assetTimestamp" />
+                    <img
+                      :src="`/_site/` + state.config.id + `/favicon?` + state.assetTimestamp"
+                      :alt="t(`admin.general.favicon`)" />
                   </w-avatar>
                   <div class="text-caption ml-2">{{ state.config.title }}</div>
                 </div>

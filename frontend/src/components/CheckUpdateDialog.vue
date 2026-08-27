@@ -10,7 +10,8 @@
           <img
             src="/_assets/illustrations/undraw_going_up.svg"
             class="mx-auto"
-            style="width: 150px" />
+            style="width: 150px"
+            alt="" />
         </div>
         <template v-if="state.isLoading">
           <w-linear-progress indeterminate size="lg" rounded />

@@ -7,7 +7,7 @@
       </w-card-section>
       <w-card-section>
         <div class="p-4 text-center">
-          <img src="/_assets/illustrations/undraw_upload.svg" style="width: 150px" />
+          <img src="/_assets/illustrations/undraw_upload.svg" style="width: 150px" alt="" />
         </div>
         <w-linear-progress indeterminate size="lg" rounded />
         <div class="mt-2 text-center text-caption">{{ state.current }} / {{ state.total }}</div>

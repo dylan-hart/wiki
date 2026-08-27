@@ -4,7 +4,8 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-message-settings-animated.svg" />
+          src="/_assets/icons/fluent-message-settings-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.mail.title') }}</div>

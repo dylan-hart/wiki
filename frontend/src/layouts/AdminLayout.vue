@@ -4,7 +4,7 @@
       <div class="flex flex-nowrap">
         <w-toolbar style="height: 64px">
           <w-btn dense flat to="/">
-            <w-avatar size="34px" square><img src="/_assets/logo-wikijs.svg" /></w-avatar>
+            <w-avatar size="34px" square><img src="/_assets/logo-wikijs.svg" alt="" /></w-avatar>
           </w-btn>
           <w-toolbar-title class="text-h6">Wiki.js</w-toolbar-title>
         </w-toolbar>

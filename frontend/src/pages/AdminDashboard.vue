@@ -4,7 +4,8 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-apps-tab-animated.svg" />
+          src="/_assets/icons/fluent-apps-tab-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.dashboard.title') }}</div>
@@ -39,7 +40,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-change-theme.svg" />
+            <img src="/_assets/icons/fluent-change-theme.svg" alt="" />
             <div>
               <strong>{{ t('admin.sites.title') }}</strong>
               <span>{{ adminStore.sites.length }}</span>
@@ -68,7 +69,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-people.svg" />
+            <img src="/_assets/icons/fluent-people.svg" alt="" />
             <div>
               <strong>{{ t('admin.groups.title') }}</strong>
               <span>{{ adminStore.info.groupsTotal }}</span>
@@ -97,7 +98,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-account.svg" />
+            <img src="/_assets/icons/fluent-account.svg" alt="" />
             <div>
               <strong>{{ t('admin.users.title') }}</strong>
               <span>{{ adminStore.info.usersTotal }}</span>
@@ -126,7 +127,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-document-in-folder.svg" />
+            <img src="/_assets/icons/fluent-document-in-folder.svg" alt="" />
             <div>
               <strong>{{ t('admin.pages.title') }}</strong>
               <span>{{ adminStore.info.pagesTotal }}</span>
@@ -146,7 +147,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-female-working-with-a-laptop.svg" />
+            <img src="/_assets/icons/fluent-female-working-with-a-laptop.svg" alt="" />
             <div>
               <strong>{{ t(`admin.dashboard.logins`) }}</strong>
               <small
@@ -169,7 +170,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img :src="versionCard.icon" />
+            <img :src="versionCard.icon" alt="" />
             <div>
               <strong>{{ t(`admin.dashboard.wikiVersion`) }}</strong>
               <small :class="{ pending: versionCard.pending }"
@@ -207,7 +208,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-bot.svg" />
+            <img src="/_assets/icons/fluent-bot.svg" alt="" />
             <div>
               <strong>{{ t('admin.dashboard.activeWorkers') }}</strong>
               <span>{{ adminStore.info.activeWorkers }}</span>
@@ -228,7 +229,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-network.svg" />
+            <img src="/_assets/icons/fluent-network.svg" alt="" />
             <div>
               <strong>{{ t('admin.cluster.title') }}</strong>
               <span>{{ adminStore.info.clusterTotal }}</span>
@@ -249,7 +250,7 @@
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
-            <img src="/_assets/icons/fluent-lightning-bolt.svg" />
+            <img src="/_assets/icons/fluent-lightning-bolt.svg" alt="" />
             <div>
               <strong>{{ t('admin.webhooks.title') }}</strong>
               <span>{{ adminStore.info.webhooksTotal }}</span>
@@ -270,7 +271,7 @@
       <div class="col-span-12 lg:col-span-6">
         <w-card>
           <w-card-section class="admin-dashboard-panel">
-            <img src="/_assets/icons/fluent-key-2.svg" />
+            <img src="/_assets/icons/fluent-key-2.svg" alt="" />
             <strong>{{ t('admin.dashboard.lastLogins') }}</strong>
           </w-card-section>
           <w-separator />
