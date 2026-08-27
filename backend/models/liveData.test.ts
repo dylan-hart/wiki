@@ -25,6 +25,7 @@ describe('LiveData.resolve', () => {
     }
     ;(globalThis as any).WIKI = {
       cache: createCacheStub(),
+      config: { offline: false },
       models: {
         blockCredentials: {
           getCredentialForResolve: mock.fn(async () => undefined)
@@ -36,6 +37,7 @@ describe('LiveData.resolve', () => {
   beforeEach(() => {
     getCredentialForResolve = mock.fn(async () => undefined)
     ;(WIKI.models.blockCredentials.getCredentialForResolve as any) = getCredentialForResolve
+    WIKI.config.offline = false
     // -> Stubbed to a public address by default so the SSRF guard (`assertNotPrivateAddress`) never
     //    blocks a test that isn't specifically exercising it, and so no test here makes a real DNS
     //    lookup. Individual tests below override this via `mock.method` again to exercise the guard
@@ -46,6 +48,29 @@ describe('LiveData.resolve', () => {
   afterEach(() => {
     mock.restoreAll()
     ;(WIKI.cache as any).clear()
+  })
+
+  test('refuses with 503 when WIKI.config.offline is set, before any fetch', async () => {
+    WIKI.config.offline = true
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    await assert.rejects(
+      liveData.resolve('site-1', { url: 'https://example.com/metrics', jsonPath: '$.v' }),
+      (err: any) => {
+        assert.equal(err.statusCode, 503)
+        return true
+      }
+    )
+    assert.equal(fetchMock.mock.calls.length, 0)
+  })
+
+  test('still serves a cache hit while offline, with no fetch attempted', async () => {
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 7 }))
+    const request = { url: 'https://example.com/metrics', jsonPath: '$.v', refreshInterval: 60 }
+    const first = await liveData.resolve('site-1', request)
+    WIKI.config.offline = true
+    const second = await liveData.resolve('site-1', request)
+    assert.deepEqual(second, first)
+    assert.equal(fetchMock.mock.calls.length, 1)
   })
 
   test('extracts the JSONPath value from a plain (no-credential) endpoint', async () => {

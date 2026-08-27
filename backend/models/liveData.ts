@@ -94,6 +94,11 @@ function clampRefreshSeconds(seconds: number | undefined): number {
  * caller who has merely learned a credential's id could vary the url/jsonPath on every request to
  * bypass the response cache and drive unlimited fresh fetches against whatever the allowed domain
  * hosts. See {@link RATE_LIMIT_MAX_PER_WINDOW}.
+ *
+ * `WIKI.config.offline` gates the fresh (cache-miss) path the same way it gates
+ * `diagramRender.ts`'s PlantUML fetch: a cache hit is still served (nothing is reached), but a
+ * fresh fetch refuses with a 503 rather than reaching out, since an operator who has put the
+ * instance in offline mode expects nothing on this path to touch the internet either.
  */
 class LiveData {
   /**
@@ -101,8 +106,9 @@ class LiveData {
    *   URL resolving to a private/loopback/link-local address, or a URL outside a given credential's
    *   allowed domains, `Not Found` (404) for a `credentialId` with no matching row on this site,
    *   `Too Many Requests` (429) once a credential has exceeded its fresh-fetch rate limit,
-   *   `Bad Gateway` (502) for a network failure, a non-2xx response, or a response body that isn't
-   *   JSON.
+   *   `Service Unavailable` (503) when `WIKI.config.offline` is set and this would be a fresh
+   *   (cache-miss) fetch, `Bad Gateway` (502) for a network failure, a non-2xx response, or a
+   *   response body that isn't JSON.
    */
   async resolve(siteId: string, request: LiveDataRequest): Promise<LiveDataResult> {
     let url: URL
@@ -120,6 +126,14 @@ class LiveData {
     const cached = WIKI.cache.get(cacheKey) as LiveDataResult | undefined
     if (cached) {
       return cached
+    }
+
+    if (WIKI.config.offline) {
+      throw new CustomError(
+        'liveDataOffline',
+        'Wiki.js is in offline mode and cannot reach this endpoint to resolve live data.',
+        503
+      )
     }
 
     await this.assertNotPrivateAddress(url)
