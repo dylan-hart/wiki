@@ -305,7 +305,8 @@ export const blocks = pgTable(
       .notNull()
       .references(() => sites.id)
   },
-  (table) => [index('blocks_siteId_idx').on(table.siteId)]
+  // -> Covers lookups by site as well, being the leading column
+  (table) => [uniqueIndex('blocks_composite_idx').on(table.siteId, table.block)]
 )
 
 // COMMENT PROVIDERS --------------------

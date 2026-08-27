@@ -1,6 +1,6 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { blockCode as blockCodeTable, blocks as blocksTable } from '../db/schema.ts'
 import type { BlockDefinition } from './blocks.ts'
@@ -174,6 +174,31 @@ describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }
     assert.equal(await blocksModel.isTagTaken(otherSite!.id, 'other-site-widget'), false)
   })
 
+  test('syncSite is safe to call concurrently for the same site: exactly one row per block key', async () => {
+    // -> Regression for task 1659: two instances booting together both read the same "not present
+    //    yet" snapshot and both reach the insert. `blocks_composite_idx` +
+    //    `onConflictDoNothing` is what keeps that from writing two rows for the same block.
+    blocksModel.definitions = [
+      { block: 'boot-race-widget', name: 'Boot Race Widget', description: 'x', icon: 'mdi:cube' }
+    ]
+    try {
+      await Promise.all([
+        blocksModel.syncSite(fixtures.siteId),
+        blocksModel.syncSite(fixtures.siteId)
+      ])
+
+      const rows = await fixtures.db
+        .select()
+        .from(blocksTable)
+        .where(
+          and(eq(blocksTable.siteId, fixtures.siteId), eq(blocksTable.block, 'boot-race-widget'))
+        )
+      assert.equal(rows.length, 1, 'exactly one row should exist for the block key')
+    } finally {
+      blocksModel.definitions = []
+    }
+  })
+
   test('createCustomBlock writes the blocks row and its code together, enabled by default', async () => {
     const created = await blocksModel.createCustomBlock(
       fixtures.siteId,
@@ -221,6 +246,34 @@ describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }
 
     assert.deepEqual(created.props, [])
     assert.equal(created.template, '')
+  })
+
+  test('a createCustomBlock race on the same tag surfaces as a 409 CustomError, not a raw 23505', async () => {
+    // -> `isTagTaken()` is only a pre-check, not an atomic reservation: two uploads for the same tag
+    //    can both pass it and both reach the insert, so `blocks_composite_idx` (task 1659) is what
+    //    actually decides the winner. Exactly one of the two should succeed either way.
+    const definition = (): BlockDefinition => ({
+      block: 'race-widget',
+      name: 'Race Widget',
+      description: 'Uploaded twice at once',
+      icon: 'mdi:cube'
+    })
+    const results = await Promise.allSettled([
+      blocksModel.createCustomBlock(fixtures.siteId, definition(), Buffer.from('a')),
+      blocksModel.createCustomBlock(fixtures.siteId, definition(), Buffer.from('b'))
+    ])
+    const rejected = results.filter((r) => r.status === 'rejected') as PromiseRejectedResult[]
+    assert.equal(results.length - rejected.length, 1, 'exactly one upload should win the race')
+    for (const r of rejected) {
+      assert.equal((r.reason as any).statusCode, 409)
+      assert.equal((r.reason as any).name, 'blockTagTaken')
+    }
+
+    const rows = await fixtures.db
+      .select()
+      .from(blocksTable)
+      .where(and(eq(blocksTable.siteId, fixtures.siteId), eq(blocksTable.block, 'race-widget')))
+    assert.equal(rows.length, 1, 'exactly one row should have been written for the tag')
   })
 
   test('deleteCustomBlock returns false and leaves everything alone for a built-in block', async () => {
