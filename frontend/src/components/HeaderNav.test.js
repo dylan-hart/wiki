@@ -5,6 +5,7 @@ import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import HeaderNav from './HeaderNav.vue'
+import { useMinWidth } from '@/composables/screen'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
@@ -132,6 +133,17 @@ describe('HeaderNav "Browse by tags" entry point (OpenProject #1218)', () => {
 describe('HeaderNav inbox badge destination (OpenProject #2024)', () => {
   it('points the badged inbox button at the route that lists notifications', async () => {
     const { wrapper, userStore } = await mountHeaderNav()
+    /*
+      `useMinWidth`'s shared `matchMedia` cache (`composables/screen.js`) is seeded by whichever test
+      in this file asks for the 600/900px breakpoints FIRST -- the OpenProject #2050 describe block
+      above deliberately does that with `matches: false`, so by the time this test runs the cache is
+      already pinned there and this file's top-level `beforeEach` (which only affects a NEW
+      `matchMedia` call, not the already-cached ref) can't undo it. Setting the shared refs directly
+      is what `WDrawer.test.js` does for the same cache; forced back to wide/expanded here since this
+      button only renders in that branch of the template, not `HeaderActionsMenu`'s overflow menu.
+    */
+    useMinWidth(600).value = true
+    useMinWidth(900).value = true
     userStore.authenticated = true
     await wrapper.vm.$nextTick()
 
