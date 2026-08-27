@@ -10,14 +10,16 @@ import maintenance from './maintenance.ts'
 import { groups } from '../models/groups.ts'
 import { sites } from '../models/sites.ts'
 import { approvals } from '../models/approvals.ts'
+import { locales } from '../models/locales.ts'
 
 /**
  * Task 708 (feature 411): confirms what `core/db.ts`'s `subscribeToNotifications()` /
  * `notifyViaDB()` actually guarantee for a cross-instance event relayed over the `wiki` NOTIFY
  * channel, and whether any current subscriber (`core/config.ts`'s `reloadConfig`,
- * `core/maintenance.ts`'s `disconnectWebsockets`/`flushCaches`, and — added by OpenProject #966 —
- * `models/groups.ts`/`sites.ts`/`approvals.ts`'s `reloadGroups`/`reloadSites`/`reloadApprovals`)
- * depends on more than that.
+ * `core/maintenance.ts`'s `disconnectWebsockets`/`flushCaches`, — added by OpenProject #966 —
+ * `models/groups.ts`/`sites.ts`/`approvals.ts`'s `reloadGroups`/`reloadSites`/`reloadApprovals`,
+ * and — added by OpenProject #2042 — `models/locales.ts`'s `reloadLocales`) depends on more than
+ * that.
  *
  * Postgres NOTIFY has no persistence and no delivery guarantee: a message published while nobody
  * is LISTENing on that channel is dropped by the server, not queued for later delivery. `notifier`
@@ -39,8 +41,9 @@ import { approvals } from '../models/approvals.ts'
  * *permanently* missed event, because `index.ts`'s `preBoot()` calls `configSvc.loadFromDb()` and
  * `postBoot()` calls `groups`/`sites`/`locales`/`approvals` `.reloadCache()` unconditionally on
  * every boot — not gated on any notification ever having arrived. An instance that missed a
- * `reloadConfig`/`flushCaches`/`reloadGroups`/`reloadSites`/`reloadApprovals` notify while it was
- * down (or mid-restart) is fully resynced the moment it comes back, regardless of what it missed. The
+ * `reloadConfig`/`flushCaches`/`reloadGroups`/`reloadSites`/`reloadApprovals`/`reloadLocales` notify
+ * while it was down (or mid-restart) is fully resynced the moment it comes back, regardless of what
+ * it missed. The
  * narrower residual gap is an instance that stays up throughout but loses one specific
  * notification during its own listener's brief reconnect window: nothing re-checks the DB for it
  * independently until the next matching event (another settings save, another manual "flush
@@ -84,6 +87,7 @@ let disconnectWebsocketsMock: any
 let groupsReloadCacheMock: any
 let sitesReloadCacheMock: any
 let approvalsReloadCacheMock: any
+let localesReloadCacheMock: any
 
 before(() => {
   previousWiki = (globalThis as any).WIKI
@@ -97,15 +101,18 @@ beforeEach(() => {
   //    `.subscribeToEvents()` now (see `core/db.ts`), which is real model code reachable off
   //    `WIKI.models` — stubbed here the same way `configSvc.loadFromDb`/`maintenance.flushCaches`
   //    already are, so this suite's minimal `WIKI` needs a `models` object at all.
+  // -> OpenProject #2042: `locales` joins the same wiring.
   groupsReloadCacheMock = mock.fn(async () => {})
   sitesReloadCacheMock = mock.fn(async () => {})
   approvalsReloadCacheMock = mock.fn(async () => {})
+  localesReloadCacheMock = mock.fn(async () => {})
   configSvc.loadFromDb = loadFromDbMock
   maintenance.flushCaches = flushCachesMock
   maintenance.disconnectWebsockets = disconnectWebsocketsMock
   groups.reloadCache = groupsReloadCacheMock
   sites.reloadCache = sitesReloadCacheMock
   approvals.reloadCache = approvalsReloadCacheMock
+  locales.reloadCache = localesReloadCacheMock
 
   ;(globalThis as any).WIKI = {
     INSTANCE_ID: 'instance-a',
@@ -113,7 +120,7 @@ beforeEach(() => {
     events: { inbound: new Emittery(), outbound: new Emittery() },
     configSvc,
     dbManager,
-    models: { groups, sites, approvals }
+    models: { groups, sites, approvals, locales }
   }
 
   dbManager.pool = null
@@ -205,7 +212,7 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.deepEqual(received, [{ event: 'reloadConfig', value: null }])
   })
 
-  test('wires all five current subscribers, each purely reactive to the notify with no independent re-check', async () => {
+  test('wires all six current subscribers, each purely reactive to the notify with no independent re-check', async () => {
     const pool = new FakePool()
     const client = new FakeClient()
     pool.queueClient(client)
@@ -238,6 +245,11 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
       channel: 'wiki',
       payload: JSON.stringify({ source: 'instance-b', event: 'reloadApprovals', value: null })
     })
+    // -> OpenProject #2042: locale cache reloads propagate the same way now
+    client.emit('notification', {
+      channel: 'wiki',
+      payload: JSON.stringify({ source: 'instance-b', event: 'reloadLocales', value: null })
+    })
 
     // -> Emittery's inbound handlers run as microtasks; give them a tick.
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -248,6 +260,7 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.equal(groupsReloadCacheMock.mock.calls.length, 1)
     assert.equal(sitesReloadCacheMock.mock.calls.length, 1)
     assert.equal(approvalsReloadCacheMock.mock.calls.length, 1)
+    assert.equal(localesReloadCacheMock.mock.calls.length, 1)
   })
 })
 
