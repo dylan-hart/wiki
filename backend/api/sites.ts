@@ -983,12 +983,20 @@ async function routes(app: FastifyInstance) {
           reply.badRequest('Site does not exist.')
         }
       } catch (err: any) {
-        // -> Pages, assets, navigation, tags and the page tree all reference the site without a
-        //    cascade, so a site still holding content cannot be removed. That is a conflict to
-        //    report, not a server fault.
+        // -> `deleteSite()` precounts pages/assets/pageviews/tags and refuses before touching
+        //    anything, so this is the normal way a still-content-holding site is refused -- reported
+        //    as a conflict, not a server fault.
+        if (err.name === 'siteHasContent') {
+          return reply.conflict(err.message)
+        }
+        // -> Backstop only: pages, assets, navigation, tags and the page tree all reference the site
+        //    without a cascade, so a FK violation here means content was inserted in the race between
+        //    `deleteSite()`'s precheck and its transaction actually committing -- still a conflict to
+        //    report, not a server fault. `deleteSite()`'s own transaction has already rolled back
+        //    everything else it touched.
         if (err.cause?.code === '23503' || err.code === '23503') {
           return reply.conflict(
-            'Cannot delete a site that still holds content. Delete its pages and assets first.'
+            'Cannot delete this site: it still holds pages, assets, page views or tags.'
           )
         }
         reply.send(err)

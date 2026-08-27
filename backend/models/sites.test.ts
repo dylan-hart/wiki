@@ -4,7 +4,15 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { detectImageMime, svgMimeType } from '../helpers/images.ts'
-import { navigation as navigationTable, sites as sitesTable } from '../db/schema.ts'
+import {
+  blockCredentials as blockCredentialsTable,
+  blocks as blocksTable,
+  glossaryTerms as glossaryTermsTable,
+  navigation as navigationTable,
+  siteAssets as siteAssetsTable,
+  sites as sitesTable,
+  storage as storageTable
+} from '../db/schema.ts'
 import { sites, siteAssetKinds } from './sites.ts'
 import type { SiteAssetKind } from './sites.ts'
 import { navigation as navigationModel } from './navigation.ts'
@@ -472,6 +480,15 @@ describe('sites.getSiteByHostname (in-memory cache, no DB)', () => {
  * that reason (OpenProject #1046): querying `eq(navigationTable.id, siteId)` would return zero rows
  * whether or not `deleteSite` ever ran, since a random nav-row id practically never collides with a
  * site id — that query would pass even if `deleteSite` had never been fixed at all.
+ *
+ * OpenProject #1741: `deleteSite` used to issue six unconditional deletes (blocks, block credentials,
+ * storage, site assets, glossary terms, navigation) with nothing wrapping them, before ever finding
+ * out whether the site's final delete would even succeed — so a refusal (a page, asset, pageview or
+ * tag still referencing the site) left every one of those six torn down anyway, autocommitted one
+ * statement at a time, while the site itself survived. The "still holds a page" case below is the
+ * regression test for the fix: it seeds one row in every one of those six non-content tables, asserts
+ * the refusal is now a precheck (a `siteHasContent` error, not a raw `23503`) rather than a
+ * partially-destructive FK failure, and then asserts all six rows are still there afterwards.
  */
 describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -516,7 +533,7 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(remainingNav.length, 0)
   })
 
-  test('a site holding a page is still refused with a FK conflict', async () => {
+  test('a site holding a page is refused up front, and its non-content rows survive', async () => {
     const siteId = await makeSite()
     await pagesModel.createPage(
       siteId,
@@ -529,10 +546,54 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
+    // -> One row in every table `deleteSite` unconditionally tears down, so a refusal that still let
+    //    them through would be caught here.
+    await fixtures.db.insert(blocksTable).values({
+      block: 'markdown',
+      name: 'Test Block',
+      description: '',
+      icon: 'mdi:cube',
+      siteId
+    })
+    await fixtures.db.insert(blockCredentialsTable).values({
+      siteId,
+      name: 'Test Credential',
+      secret: 'shh'
+    })
+    await fixtures.db.insert(storageTable).values({ module: 'disk', siteId })
+    await fixtures.db
+      .insert(siteAssetsTable)
+      .values({ siteId, kind: 'logo', data: Buffer.from('fake-logo') })
+    await fixtures.db.insert(glossaryTermsTable).values({
+      term: 'Test Term',
+      definition: 'A term used only by this test.',
+      siteId
+    })
+
     await assert.rejects(sites.deleteSite(siteId), (err: any) => {
-      assert.equal(err.code === '23503' || err.cause?.code === '23503', true)
+      assert.equal(err.name, 'siteHasContent')
+      assert.equal(err.statusCode, 409)
       return true
     })
+
+    const [blocksLeft, credsLeft, storageLeft, assetsLeft, glossaryLeft, navLeft] =
+      await Promise.all([
+        fixtures.db.select().from(blocksTable).where(eq(blocksTable.siteId, siteId)),
+        fixtures.db
+          .select()
+          .from(blockCredentialsTable)
+          .where(eq(blockCredentialsTable.siteId, siteId)),
+        fixtures.db.select().from(storageTable).where(eq(storageTable.siteId, siteId)),
+        fixtures.db.select().from(siteAssetsTable).where(eq(siteAssetsTable.siteId, siteId)),
+        fixtures.db.select().from(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, siteId)),
+        fixtures.db.select().from(navigationTable).where(eq(navigationTable.siteId, siteId))
+      ])
+    assert.equal(blocksLeft.length, 1, 'blocks row should survive a refused delete')
+    assert.equal(credsLeft.length, 1, 'blockCredentials row should survive a refused delete')
+    assert.equal(storageLeft.length, 1, 'storage row should survive a refused delete')
+    assert.equal(assetsLeft.length, 1, 'siteAssets row should survive a refused delete')
+    assert.equal(glossaryLeft.length, 1, 'glossaryTerms row should survive a refused delete')
+    assert.equal(navLeft.length, 1, 'navigation row should survive a refused delete')
   })
 })
 

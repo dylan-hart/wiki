@@ -1,15 +1,20 @@
 import { mergeWith, toMerged } from 'es-toolkit/object'
 import { keyBy } from 'es-toolkit/array'
 import {
+  assets as assetsTable,
   blockCredentials as blockCredentialsTable,
   blocks as blocksTable,
   glossaryTerms as glossaryTermsTable,
   navigation as navigationTable,
+  pages as pagesTable,
+  pageviews as pageviewsTable,
   siteAssets as siteAssetsTable,
   sites as sitesTable,
-  storage as storageTable
+  storage as storageTable,
+  tags as tagsTable
 } from '../db/schema.ts'
 import { and, eq } from 'drizzle-orm'
+import { CustomError } from '../helpers/common.ts'
 import { detectImageMime, detectSvg, normalizeImage, svgMimeType } from '../helpers/images.ts'
 import type { ImageNormalization } from '../helpers/images.ts'
 import type { SystemIds } from './types.ts'
@@ -374,28 +379,54 @@ class Sites {
   }
 
   async deleteSite(id: string): Promise<boolean> {
+    // -> Pages, uploaded assets, pageview history and tags are the tables kept under a site's
+    //    RESTRICT FK that this method never clears itself (see the conflict handling in the route) --
+    //    counted up front, before anything is touched, so a refused delete is refused cleanly rather
+    //    than after the six unconditional deletes below have already run. Checking here rather than
+    //    only letting the final delete's FK violation happen is what makes the refusal atomic: nothing
+    //    this method does can be observed to have happened when it returns/throws a refusal.
+    const [pageCount, assetCount, pageviewCount, tagCount] = await Promise.all([
+      WIKI.db.$count(pagesTable, eq(pagesTable.siteId, id)),
+      WIKI.db.$count(assetsTable, eq(assetsTable.siteId, id)),
+      WIKI.db.$count(pageviewsTable, eq(pageviewsTable.siteId, id)),
+      WIKI.db.$count(tagsTable, eq(tagsTable.siteId, id))
+    ])
+    if (pageCount + assetCount + pageviewCount + tagCount > 0) {
+      throw new CustomError(
+        'siteHasContent',
+        'Cannot delete this site: it still holds pages, assets, page views or tags.',
+        409
+      )
+    }
+
     // -> Block, block-credential, storage, uploaded image and glossary term rows belong to the site
     //    rather than to its content, and their FK has no cascade, so they would otherwise block the
     //    delete. Every navigation row this site owns — one per active locale's site-wide menu
     //    (`navigation.ensureSiteNav`'s row, addressed by its own `defaultRandom()` id, never `id ===
     //    siteId`) plus any per-page override/hide row still standing — is the same story and is
     //    cleaned up the same way, filtered by the `siteId` column the FK constraint actually checks.
-    //    Content tables (pages, assets, the page tree) deliberately still lack a cascade — see the
-    //    conflict handling in the route.
-    await WIKI.db.delete(blocksTable).where(eq(blocksTable.siteId, id))
-    await WIKI.db.delete(blockCredentialsTable).where(eq(blockCredentialsTable.siteId, id))
-    await WIKI.db.delete(storageTable).where(eq(storageTable.siteId, id))
-    await WIKI.db.delete(siteAssetsTable).where(eq(siteAssetsTable.siteId, id))
-    await WIKI.db.delete(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, id))
-    await WIKI.db.delete(navigationTable).where(eq(navigationTable.siteId, id))
+    //    Wrapped in a transaction (with the precheck above as the normal path, and this as a backstop
+    //    against a race where content is inserted between the count and here) so a FK violation on the
+    //    final delete rolls every one of these back instead of leaving the site's non-content settings
+    //    destroyed while the site row itself survives.
+    const deleted = await WIKI.db.transaction(async (tx) => {
+      await tx.delete(blocksTable).where(eq(blocksTable.siteId, id))
+      await tx.delete(blockCredentialsTable).where(eq(blockCredentialsTable.siteId, id))
+      await tx.delete(storageTable).where(eq(storageTable.siteId, id))
+      await tx.delete(siteAssetsTable).where(eq(siteAssetsTable.siteId, id))
+      await tx.delete(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, id))
+      await tx.delete(navigationTable).where(eq(navigationTable.siteId, id))
 
-    const deletedResult = await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, id))
-    if ((deletedResult.rowCount ?? 0) < 1) {
-      return false
+      const deletedResult = await tx.delete(sitesTable).where(eq(sitesTable.id, id))
+      return (deletedResult.rowCount ?? 0) >= 1
+    })
+
+    if (deleted) {
+      // -> Outside the transaction, after commit: other instances should only be told to reload once
+      //    the delete is actually durable.
+      await WIKI.models.sites.broadcastReload()
     }
-
-    await WIKI.models.sites.broadcastReload()
-    return true
+    return deleted
   }
 
   async countSites() {
