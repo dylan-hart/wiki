@@ -822,6 +822,19 @@ class Pages {
     //    not-yet-existing page fails closed rather than reaching for a value that describes the page
     //    it is about to become.
     const pageRef: RulePageRef = { path, locale, siteId, tags: input.tags, classification: null }
+
+    /*
+      A create with no render moves the source with nothing to show for it: refuse up front when
+      nothing here could ever produce one, rather than land a page whose render, search text and
+      outbound links never catch up to its content. `queueRerender()` (below, once the row exists)
+      is what actually fills them in. Mirrors `models/approvals.ts`'s own `ensureCanRender`/
+      `queueRerender` pairing (OpenProject #1716).
+    */
+    const hasRenderInput = input.render !== undefined
+    if (!hasRenderInput) {
+      await WIKI.models.rendering.ensureCanRender(editor)
+    }
+
     const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
       siteId,
       input.render ?? '',
@@ -931,6 +944,12 @@ class Pages {
       siteId,
       authorId: actor.id
     })
+
+    if (!hasRenderInput) {
+      // -> Briefly blank rather than wrong: the browser is a queue away, and this is what actually
+      //    fills in `render`/`toc`/`searchContent`/`links` from the content just written.
+      await this.queueRerender(siteId, page.id, actor)
+    }
 
     return (await this.getPage({ siteId, id: page.id })) as Page
   }
@@ -1047,11 +1066,27 @@ class Pages {
       classification: existing.classification
     }
 
-    // -> A render only means anything next to the content it came from, so the two move together
-    if (patch.render !== undefined) {
+    /*
+      New content with nothing to show for it: refuse up front when this instance could never produce
+      a render, so the caller gets an actionable error instead of a page whose HTML, search text and
+      outbound links stay pinned to the revision being replaced. Mirrors `models/approvals.ts`'s own
+      `ensureCanRender`/`queueRerender` pairing (OpenProject #1716).
+    */
+    const hasRenderInput = patch.render !== undefined
+    const needsRerenderQueue = patch.content !== undefined && !hasRenderInput
+    if (needsRerenderQueue) {
+      await WIKI.models.rendering.ensureCanRender(existing.editor)
+    }
+
+    // -> A render only means anything next to the content it came from, so the two move together --
+    //    the real one when this save carried one, or a blank placeholder (the same one a renderless
+    //    `createPage()` gives a brand new page) when it didn't, so nothing here goes on matching text
+    //    or outbound links the new content no longer has. `queueRerender()` below is what actually
+    //    catches `render`/`toc`/`searchContent`/`links` up to the real thing once its job drains.
+    if (hasRenderInput || needsRerenderQueue) {
       const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
         siteId,
-        patch.render,
+        patch.render ?? '',
         {
           scripts: hasPermission(actor, 'write:scripts', existingRef),
           styles: hasPermission(actor, 'write:styles', existingRef)
@@ -1145,6 +1180,12 @@ class Pages {
       siteId,
       authorId: actor.id
     })
+
+    if (needsRerenderQueue) {
+      // -> Briefly blank rather than wrong: the browser is a queue away, and this is what actually
+      //    fills `render`/`toc`/`searchContent`/`links` back in from the content just written.
+      await this.queueRerender(siteId, id, actor)
+    }
 
     return updated
   }
