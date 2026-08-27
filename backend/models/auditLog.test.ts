@@ -117,18 +117,30 @@ describe('auditLog record/list/listActors/purge (DB-backed)', { skip: !hasTestDa
     assert.ok(actors.some((a) => a.id === fixtures.userId && a.name === 'Fixture User'))
   })
 
-  test('purge() drops nothing when every entry is inside the retention window', async () => {
+  test('purge() drops nothing when every entry is inside the retention window, but still records itself', async () => {
     const before = (await auditLogModel.list()).total
     const purged = await auditLogModel.purge(365)
     assert.equal(purged, 0)
-    assert.equal((await auditLogModel.list()).total, before)
+    // OpenProject #2237: purge() always writes its own `auditLog.purged` entry, even a zero-count
+    // run, so the log shows the job ran rather than staying silent.
+    const after = await auditLogModel.list()
+    assert.equal(after.total, before + 1)
+    assert.equal(after.entries[0]!.event, 'auditLog.purged')
+    assert.equal(after.entries[0]!.detail.count, 0)
+    assert.ok(after.entries[0]!.detail.cutoff)
   })
 
-  test('purge() drops entries older than the retention window', async () => {
+  test('purge() drops entries older than the retention window, then records its own purge', async () => {
     const before = (await auditLogModel.list()).total
     assert.ok(before > 0)
     const purged = await auditLogModel.purge(0)
     assert.equal(purged, before)
-    assert.equal((await auditLogModel.list()).total, 0)
+    // Only the purge's own new entry survives -- everything that existed before it, including the
+    // previous test's `auditLog.purged` row, was older than the (empty) retention window.
+    const after = await auditLogModel.list()
+    assert.equal(after.total, 1)
+    assert.equal(after.entries[0]!.event, 'auditLog.purged')
+    assert.equal(after.entries[0]!.detail.count, purged)
+    assert.ok(after.entries[0]!.detail.cutoff)
   })
 })

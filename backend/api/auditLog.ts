@@ -1,5 +1,10 @@
 import type { FastifyInstance } from 'fastify'
-import { AUDIT_EVENTS, type AuditEvent } from '../models/auditLog.ts'
+import {
+  actorFromRequest,
+  AUDIT_EVENTS,
+  AUDIT_LOG_RETENTION_DAYS_FLOOR,
+  type AuditEvent
+} from '../models/auditLog.ts'
 
 /**
  * Audit Log API Routes
@@ -152,7 +157,11 @@ async function routes(app: FastifyInstance) {
           type: 'object',
           required: ['retentionDays'],
           properties: {
-            retentionDays: { type: 'integer', minimum: 1, maximum: 3650 }
+            retentionDays: {
+              type: 'integer',
+              minimum: AUDIT_LOG_RETENTION_DAYS_FLOOR,
+              maximum: 3650
+            }
           }
         },
         response: {
@@ -172,7 +181,16 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!(await WIKI.models.auditLog.setRetentionDays(req.body.retentionDays))) {
+      const from = WIKI.models.auditLog.getRetentionDays()
+      const to = req.body.retentionDays
+      // OpenProject #2237: write the record BEFORE the new retention takes effect, so a shortened
+      // window cannot swallow the record of its own shortening.
+      await WIKI.models.auditLog.record({
+        event: 'auditLog.retentionChanged',
+        actor: actorFromRequest(req),
+        detail: { from, to }
+      })
+      if (!(await WIKI.models.auditLog.setRetentionDays(to))) {
         return reply.internalServerError('Failed to save the audit log retention setting.')
       }
       return {
