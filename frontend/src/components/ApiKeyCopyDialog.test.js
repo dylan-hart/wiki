@@ -11,10 +11,19 @@ import ApiKeyCopyDialog from './ApiKeyCopyDialog.vue'
  * `--scope local` (never `project`, which would write the bearer token into a committed `.mcp.json`
  * -- see the component's own doc comment).
  */
-function mountDialog(keyValue = 'wiki_abc123.def456') {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+function mountDialog(props = {}) {
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    messages: {
+      en: {
+        admin: { api: { copyKeyTitle: 'Copy API Key', key: 'API Key' } },
+        profile: { api: { copyKeyTitle: 'Copy Access Token', key: 'Access Token' } }
+      }
+    }
+  })
   return mount(ApiKeyCopyDialog, {
-    props: { keyValue },
+    props: { keyValue: 'wiki_abc123.def456', ...props },
     global: {
       plugins: [i18n],
       components: { BlueprintIcon }
@@ -40,7 +49,7 @@ describe('ApiKeyCopyDialog mcp install command', () => {
   })
 
   it('builds a claude mcp add command with the origin, key, and --scope local', () => {
-    const wrapper = mountDialog('wiki_abc123.def456')
+    const wrapper = mountDialog({ keyValue: 'wiki_abc123.def456' })
 
     expect(wrapper.vm.mcpInstallCommand).toBe(
       'claude mcp add --transport http wikijs https://wiki.example.com/_mcp ' +
@@ -54,7 +63,7 @@ describe('ApiKeyCopyDialog mcp install command', () => {
       writable: true
     })
 
-    const wrapper = mountDialog('another-key')
+    const wrapper = mountDialog({ keyValue: 'another-key' })
 
     expect(wrapper.vm.mcpInstallCommand).toContain('http://localhost:3000/_mcp')
     expect(wrapper.vm.mcpInstallCommand).toContain('--scope local')
@@ -68,9 +77,31 @@ describe('ApiKeyCopyDialog mcp install command', () => {
       configurable: true
     })
 
-    const wrapper = mountDialog('wiki_abc123.def456')
+    const wrapper = mountDialog({ keyValue: 'wiki_abc123.def456' })
     await wrapper.vm.copyMcpInstallCommand()
 
     expect(writeText).toHaveBeenCalledWith(wrapper.vm.mcpInstallCommand)
+  })
+})
+
+/**
+ * OpenProject #2052: the dialog is reused by both the admin API-key form and the user Personal
+ * Access Token form via a `labelPrefix` prop, mirroring `ApiKeyRevokeDialog`'s own prop of the same
+ * name. Default reproduces the dialog's original, pre-#2052 `admin.api.*` wording exactly.
+ */
+describe('ApiKeyCopyDialog labelPrefix', () => {
+  it('defaults to the admin label namespace, unchanged from before this prop existed', () => {
+    const wrapper = mountDialog()
+
+    expect(wrapper.vm.labelPrefix).toBe('admin.api')
+    expect(wrapper.vm.t(`${wrapper.vm.labelPrefix}.copyKeyTitle`)).toBe('Copy API Key')
+    expect(wrapper.vm.t(`${wrapper.vm.labelPrefix}.key`)).toBe('API Key')
+  })
+
+  it('reads its labels from the given prefix, for a personal access token', () => {
+    const wrapper = mountDialog({ labelPrefix: 'profile.api' })
+
+    expect(wrapper.vm.t(`${wrapper.vm.labelPrefix}.copyKeyTitle`)).toBe('Copy Access Token')
+    expect(wrapper.vm.t(`${wrapper.vm.labelPrefix}.key`)).toBe('Access Token')
   })
 })
