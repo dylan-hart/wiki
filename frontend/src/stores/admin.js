@@ -75,7 +75,7 @@ export const useAdminStore = defineStore('admin', {
     },
     async fetchSites() {
       this.sites = (await API_CLIENT.get('sites').json()) ?? []
-      if (!this.currentSiteId) {
+      if (!this.currentSiteId && this.sites.length > 0) {
         this.currentSiteId = this.sites[0].id
       }
     },
