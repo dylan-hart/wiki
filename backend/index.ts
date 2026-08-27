@@ -41,7 +41,12 @@ import {
   stripPageExtension
 } from './helpers/common.ts'
 import { OPENAPI_SECURITY, OPENAPI_SECURITY_SCHEMES } from './helpers/openapi.ts'
-import { limitApiKey, limitApiRequests } from './helpers/rateLimit.ts'
+import {
+  isRootMountedPublicPath,
+  limitApiKey,
+  limitApiRequests,
+  limitPublicRequests
+} from './helpers/rateLimit.ts'
 import { corsOptions, parseCspDirectives } from './helpers/security.ts'
 
 // -> `Temporal` is not yet a real native global on any currently-shipping Node 26.x build (V8 has not
@@ -635,10 +640,16 @@ async function initHTTPServer() {
     // -> After the API-key hook above, so `req.apiKey` is populated for the key it builds its
     //    counter from. See `helpers/rateLimit.ts#limitApiRequests` for the key/exemption/double-count
     //    reasoning.
-    if (!req.url.startsWith('/_api/')) {
-      return
+    if (req.url.startsWith('/_api/')) {
+      return limitApiRequests(req, reply)
     }
-    return limitApiRequests(req, reply)
+    // -> Task 2274: the root-mounted public controllers (`/sitemap.xml`, `/robots.txt`, `/_icons`,
+    //    `/_files`, `/_thumb`, `/_site`) carried no throttle of any kind before this branch existed.
+    //    Counted on their own, looser budget rather than `/_api/`'s — see
+    //    `helpers/rateLimit.ts#limitPublicRequests`.
+    if (isRootMountedPublicPath(req.url)) {
+      return limitPublicRequests(req, reply)
+    }
   })
 
   // ----------------------------------------

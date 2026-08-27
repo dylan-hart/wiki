@@ -29,6 +29,97 @@ const API_DEFAULTS: RateLimitPolicy = {
 }
 
 /**
+ * Defaults for the root-mounted public routes' limit (task 2274), used since this policy has no
+ * admin-configurable fields of its own — see {@link limitPublicRequests}.
+ *
+ * Deliberately much looser than {@link API_DEFAULTS}: `/_icons`, `/_files`, `/_thumb` and `/_site` are
+ * fetched implicitly, many times per page view, by every anonymous visitor rendering a page — an
+ * ordinary browsing session can easily cost dozens of these in the time it makes one `/_api/` call.
+ * 1200 in five minutes is generous enough not to trip on real browsing traffic while still bounding a
+ * client hammering one of these endpoints directly.
+ */
+const PUBLIC_DEFAULTS: RateLimitPolicy = {
+  max: 1200,
+  windowSeconds: 300,
+  banSeconds: 900
+}
+
+/**
+ * The root-mounted public routes covered by {@link limitPublicRequests} (task 2274, from the
+ * 2026-08-24 audit's `09-dos-resource.md` §5/§6): `/sitemap.xml` and `/robots.txt`
+ * (`controllers/seo.ts`), plus the `/_icons`, `/_files`, `/_thumb` and `/_site` prefixes
+ * (`index.ts`'s `app.register` calls). Every one of these serves an unauthenticated request with no
+ * permission hook and no limiter of its own, unlike everything under `/_api/`.
+ *
+ * Deliberately NOT the whole of `SERVER_ROUTE_SEGMENTS` in `index.ts`: `/_blocks`, `/_collab`,
+ * `/_mcp`, `/_render`, `/_terminal` and `/_user` are out of this task's scope — some already sit
+ * behind a session or a different check, and widening the list is a decision for whoever owns those
+ * routes, not a side effect of this one.
+ */
+const PUBLIC_ROOT_EXACT_PATHS = new Set(['/sitemap.xml', '/robots.txt'])
+const PUBLIC_ROOT_PREFIXES = ['/_icons', '/_files', '/_thumb', '/_site']
+
+/**
+ * Whether a request URL addresses one of the root-mounted public routes {@link limitPublicRequests}
+ * covers. Pure and side-effect free so `index.ts`'s dispatch and this file's own tests can both use it
+ * without needing `WIKI` set up — see `index.test.ts`.
+ *
+ * Query strings are stripped before matching, the same way `index.ts`'s own SEO/site-resolution hooks
+ * split `req.raw.url` before comparing it against a fixed path.
+ */
+export function isRootMountedPublicPath(url: string): boolean {
+  const path = url.split('?')[0] ?? url
+  if (PUBLIC_ROOT_EXACT_PATHS.has(path)) {
+    return true
+  }
+  return PUBLIC_ROOT_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))
+}
+
+/**
+ * Refuse a request to one of the root-mounted public routes ({@link isRootMountedPublicPath}) once
+ * its caller has made too many, regardless of which one.
+ *
+ * Wired into the same `onRequest` hook as {@link limitApiRequests} in `index.ts`, as the branch taken
+ * when the request is NOT under `/_api/` but does match `isRootMountedPublicPath` — extending that
+ * hook's coverage (task 2274) rather than leaving these routes uncounted, without touching
+ * `limitApiRequests`/{@link apiPolicy} at all. Same `apiRateLimitEnabled === false` short-circuit and
+ * `manage:system` exemption as that hook, since this is still the one operator-facing "general rate
+ * limit" toggle rather than a second setting nobody has asked to add.
+ *
+ * Keyed and bucketed exactly like `limitApiRequests` (`apiKey:<id>` / `user:<id>` / `ip:<address>`)
+ * but under a `public:` prefix rather than `api:` — a client scraping `/sitemap.xml` hard is
+ * accounted on its own budget, not deducted from (or padded onto) whatever it has left under
+ * `/_api/`, and vice versa.
+ */
+export async function limitPublicRequests(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (WIKI.config.security?.apiRateLimitEnabled === false) {
+    return
+  }
+  if (
+    req.apiKey?.permissions?.includes('manage:system') ||
+    req.session?.permissions?.includes('manage:system')
+  ) {
+    return
+  }
+  const key = req.apiKey
+    ? `apiKey:${req.apiKey.id}`
+    : req.session?.authenticated
+      ? `user:${req.session.user!.id}`
+      : `ip:${req.ip}`
+  const verdict = await WIKI.models.rateLimits.consume(`public:${key}`, PUBLIC_DEFAULTS)
+  if (verdict.allowed) {
+    return
+  }
+  WIKI.logger.debug(
+    `Rate limit: refused ${req.method} ${req.url} from ${key}, ${verdict.retryAfter}s left of its ban.`
+  )
+  reply.header('Retry-After', String(verdict.retryAfter))
+  return reply.tooManyRequests(
+    `Too many requests. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
+  )
+}
+
+/**
  * The limit on asking for a page to be rendered.
  *
  * Not configurable, unlike the authentication limit above: what this protects is the host rather than
