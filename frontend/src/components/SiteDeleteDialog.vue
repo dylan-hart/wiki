@@ -16,6 +16,12 @@
         <div class="text-body2 mt-4">
           <strong class="text-negative">{{ t(`admin.sites.deleteConfirmWarn`) }}</strong>
         </div>
+        <w-input
+          v-model="state.confirmText"
+          class="mt-4"
+          outlined
+          dense
+          :label="t(`admin.sites.deleteConfirmType`, { siteTitle: props.site.title })" />
       </w-card-section>
       <w-card-actions class="card-actions">
         <w-space />
@@ -31,6 +37,7 @@
           :label="t(`common.actions.delete`)"
           color="negative"
           padding="xs md"
+          :disable="!isConfirmed"
           :loading="state.isLoading"
           @click="confirm" />
       </w-card-actions>
@@ -44,7 +51,7 @@ import { useI18n } from 'vue-i18n'
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
-import { reactive } from 'vue'
+import { computed, reactive } from 'vue'
 
 import { useAdminStore } from '../stores/admin'
 
@@ -76,12 +83,20 @@ const { t } = useI18n()
 // DATA
 
 const state = reactive({
-  isLoading: false
+  isLoading: false,
+  confirmText: ''
 })
+
+// COMPUTED
+
+const isConfirmed = computed(() => state.confirmText === props.site.title)
 
 // METHODS
 
 async function confirm() {
+  if (!isConfirmed.value) {
+    return
+  }
   state.isLoading = true
   try {
     const resp = await API_CLIENT.delete(`sites/${props.site.id}`)
