@@ -102,6 +102,12 @@ defaults:
       apiRateLimitMax: 300
       apiRateLimitWindow: '5m'
       apiRateLimitBan: '15m'
+      # Off by default: every headless Chromium launch (page re-render, PDF export, diagram render)
+      # runs sandboxed. Set true only when the deployment environment cannot give Chromium its own
+      # sandbox (typically a container without the setuid helper) -- this drops Chromium's own process
+      # sandbox for every one of those launches, including the two that render attacker-influenced
+      # content (a live page view with the requester's session cookie, and POSTed Mermaid source).
+      allowPuppeteerNoSandbox: false
     flags:
       experimental: false
       authDebug: false

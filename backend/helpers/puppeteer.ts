@@ -4,12 +4,30 @@ import { CustomError } from './common.ts'
  * Browser flags every headless launch in this codebase uses, so a page re-render and a PDF export
  * behave identically as far as the browser they run in is concerned.
  *
- * `--no-sandbox` because this runs as a background service — typically containerized, often without
- * the setuid sandbox helper Chromium's own sandbox needs — and `--disable-dev-shm-usage` because a
- * container's default `/dev/shm` is far smaller than Chromium expects, which otherwise crashes it on
- * a page heavy enough to need more shared memory than that.
+ * `--disable-dev-shm-usage` is always included: a container's default `/dev/shm` is far smaller than
+ * Chromium expects, which otherwise crashes it on a page heavy enough to need more shared memory than
+ * that.
+ *
+ * `--no-sandbox` is NOT included by default. It drops Chromium's own process sandbox, which matters
+ * here because two of the three callers feed the browser attacker-influenced content: `pdfExport`
+ * drives the live SPA page view with the requester's own session cookie (so page markdown, block
+ * components and a `write:scripts` author's `scriptJsLoad`/`scriptJsUnload` bodies all execute), and
+ * `diagramRender.renderMermaid` mounts `block-diagram` around a POST-body Mermaid source. An operator
+ * whose deployment environment cannot give Chromium its own sandbox (typically a container without
+ * the setuid sandbox helper) opts into it via `security.allowPuppeteerNoSandbox` — see
+ * `docs/variances.md` for the posture this default was chosen against.
  */
-export const PUPPETEER_LAUNCH_ARGS = ['--no-sandbox', '--disable-dev-shm-usage']
+export function getPuppeteerLaunchArgs(): string[] {
+  const args = ['--disable-dev-shm-usage']
+  if (WIKI.config.security.allowPuppeteerNoSandbox) {
+    WIKI.logger.warn(
+      'Launching Puppeteer with --no-sandbox (security.allowPuppeteerNoSandbox is enabled). This disables ' +
+        "Chromium's own process sandbox for every page render, PDF export and diagram render this instance performs."
+    )
+    args.push('--no-sandbox')
+  }
+  return args
+}
 
 /**
  * Load Puppeteer and open a browser with this instance's standard flags.
@@ -42,6 +60,6 @@ export async function launchPuppeteerBrowser(errorName: string): Promise<any> {
 
   return puppeteer.launch({
     headless: true,
-    args: PUPPETEER_LAUNCH_ARGS
+    args: getPuppeteerLaunchArgs()
   })
 }

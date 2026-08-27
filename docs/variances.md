@@ -1457,3 +1457,34 @@ stays on `@twemoji/api` 17.0.2 with an explicit `overrides` entry pinning `@twem
 artwork, separately pinned to upstream tag v17.0.3) despite the version-number mismatch looking like
 drift. Revisit once a `@twemoji/parser` release ships that restores the ten shortcodes' matching —
 until then, do not bump `@twemoji/api` past 17.0.2 in an automated currency pass.
+
+## OpenProject #2250 — Chromium `--no-sandbox` is now opt-in, not an unconditional launch arg
+
+**Date:** 2026-08-26
+**Feature:** Epic #2244, Task #2250 (from the 2026-08-24 audit,
+`docs/audit-2026-08-24/security/05-ssrf-outbound.md` §7)
+
+`backend/helpers/puppeteer.ts` previously baked `--no-sandbox` into every headless Chromium launch
+unconditionally, with no config key, env check or fallback. All three launch sites
+(`models/pdfExport.ts`, `models/rendering.ts`, `models/diagramRender.ts`) go through the shared
+`launchPuppeteerBrowser()`, and two of them feed the browser attacker-influenced content:
+`pdfExport` drives the live SPA page view with the requester's own session cookie (so page
+markdown, block components and a `write:scripts` author's `scriptJsLoad`/`scriptJsUnload` bodies
+all execute), and `diagramRender.renderMermaid` mounts `block-diagram` around a POST-body Mermaid
+source. Running that content through a Chromium instance with its own process sandbox disabled by
+default was a needless widening of what a compromise of either path could reach.
+
+**Posture chosen:** sandboxed by default. `--no-sandbox` is now gated behind a new
+`security.allowPuppeteerNoSandbox` config key (`backend/base.yml`, default `false`), read at launch
+time by `helpers/puppeteer.ts#getPuppeteerLaunchArgs()` rather than baked into a module-level
+constant — the same "read `WIKI.config.security.*` at the point of use" pattern
+`index.ts`'s `trustProxy` and the rate-limit config already use. `--disable-dev-shm-usage` stays
+unconditional; it addresses a container's undersized `/dev/shm`, not an attack surface. Taking the
+opt-in path logs a `WIKI.logger.warn()` naming the config key, so an operator who did flip it sees a
+standing reminder in logs rather than a silent posture change. Sequenced after the Dockerfile
+child's own work, since flipping the default to sandboxed first — before the shipped image gained
+whatever setuid sandbox support it needs — would have broken the shipped image; that ordering
+constraint is now moot since the code lands with the opt-in already defaulting to sandboxed.
+
+Covered by `backend/helpers/puppeteer.test.ts`, asserting the launch args omit `--no-sandbox` by
+default and include it only once `security.allowPuppeteerNoSandbox` is set.
