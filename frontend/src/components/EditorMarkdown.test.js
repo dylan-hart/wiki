@@ -306,6 +306,103 @@ describe('EditorMarkdown content flusher (OpenProject #806)', () => {
 })
 
 /*
+  OpenProject #1889: `flushEditorContent()` used to call `processContent(value)` unconditionally on
+  every 500ms debounced edit -- running the full markdown-it + KaTeX + highlight.js pipeline over the
+  whole document and immediately discarding the result whenever there was no preview pane open to show
+  it. These are the fix's three verification points: a closed-pane debounced flush skips the renderer
+  entirely (while still syncing `pageStore.content`, so a save is never reading stale text), reopening
+  the pane catches up the pending render, and the save-path flusher (`editorStore.contentFlusher`, now
+  `flushEditorContentForSave`) still renders a stale document before `pageStore.pageSave()` reads
+  `render` -- see that call site in `stores/page.js`.
+*/
+describe('EditorMarkdown skips rendering while the preview pane is closed (OpenProject #1889)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  async function closePreview(wrapper) {
+    const hideButton = wrapper
+      .findAllComponents(WBtn)
+      .find((candidate) => candidate.props('icon') === 'mdi:eye-off-outline')
+    await hideButton.trigger('click')
+  }
+
+  it('does not run the renderer on a debounced edit while the pane is closed', async () => {
+    const { wrapper, pageStore } = await mountEditor('Initial content.')
+    await closePreview(wrapper)
+    // -> `md` is only assigned once `onMounted` resolves (see `mountEditor`'s own comment on why this
+    //    test file mounts the real markdown pipeline rather than stubbing it out)
+    const renderSpy = vi.spyOn(wrapper.vm.md, 'render')
+
+    fakeModel.applyEdit({
+      range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 },
+      text: 'EDITED '
+    })
+    // -> The handler `onDidChangeModelContent` was registered with -- same as the OpenProject #808
+    //    tests above use to arm the debounce
+    const contentChangeHandler = fakeEditor.onDidChangeModelContent.mock.calls[0][0]
+    contentChangeHandler({})
+    vi.advanceTimersByTime(500)
+
+    // -> Content still syncs on every debounced edit -- a save must never read stale `content`
+    expect(pageStore.content).toContain('EDITED')
+    // -> But the render pipeline itself never ran, and the flag records the render this owes
+    expect(renderSpy).not.toHaveBeenCalled()
+    expect(wrapper.vm.state.renderIsStale).toBe(true)
+  })
+
+  it('renders the pending content once the preview pane is reopened', async () => {
+    const { wrapper, pageStore } = await mountEditor('Initial content.')
+    await closePreview(wrapper)
+
+    fakeModel.applyEdit({
+      range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 },
+      text: 'EDITED '
+    })
+    const contentChangeHandler = fakeEditor.onDidChangeModelContent.mock.calls[0][0]
+    contentChangeHandler({})
+    vi.advanceTimersByTime(500)
+    expect(wrapper.vm.state.renderIsStale).toBe(true)
+
+    const showButton = wrapper
+      .findAllComponents(WBtn)
+      .find((candidate) => candidate.props('icon') === 'mdi:view-split-vertical')
+    await showButton.trigger('click')
+
+    expect(pageStore.render).toContain('EDITED')
+    expect(wrapper.vm.state.renderIsStale).toBe(false)
+  })
+
+  it('the save-path flusher renders a stale document before pageSave reads pageStore.render', async () => {
+    const { wrapper, pageStore } = await mountEditor('Initial content.')
+    const editorStore = useEditorStore()
+    await closePreview(wrapper)
+    const renderBeforeEdit = pageStore.render
+
+    fakeModel.applyEdit({
+      range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 },
+      text: 'SAVE-PATH-EDIT '
+    })
+
+    // -> What `pageStore.pageSave()` calls synchronously before it reads `render` -- proves the save
+    //    path renders even with nothing yet flushed through the debounced handler: the flusher itself
+    //    both syncs `content` from the live editor value and, because the pane is closed, catches up
+    //    the render too -- unlike the plain debounced flush the first test above covers.
+    editorStore.contentFlusher()
+
+    expect(pageStore.content).toContain('SAVE-PATH-EDIT')
+    expect(pageStore.render).not.toBe(renderBeforeEdit)
+    expect(pageStore.render).toContain('SAVE-PATH-EDIT')
+    expect(wrapper.vm.state.renderIsStale).toBe(false)
+  })
+})
+
+/*
   OpenProject #806 follow-up: every browser hands a clipboard-pasted file the same literal name,
   "image.png" -- so `addPendingAsset` mints a fresh unique name for a pasted `File`, but a dropped
   `File`'s name is real user intent and must stay untouched. These are the component-side proof that
