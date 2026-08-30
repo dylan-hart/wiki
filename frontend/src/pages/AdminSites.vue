@@ -52,20 +52,33 @@
               >
               <w-item-section>
                 <div>
-                  <w-chip
-                    class="mx-0"
-                    v-if="site.hostname !== `*`"
-                    square
-                    color="blue-7"
-                    text-color="white"
-                    size="sm">
-                    <w-avatar icon="la:angle-right" color="blue-5" text-color="white" />
-                    <span>{{ site.hostname }}</span>
-                  </w-chip>
-                  <w-chip class="mx-0" v-else square color="indigo-7" text-color="white" size="sm">
-                    <w-avatar icon="la:asterisk" color="indigo-5" text-color="white" />
-                    <span>catch-all</span>
-                  </w-chip>
+                  <a
+                    class="site-hostname-link"
+                    :href="siteUrl(site)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    :aria-label="t(`admin.sites.openSite`, { hostname: site.hostname })">
+                    <w-chip
+                      class="mx-0"
+                      v-if="site.hostname !== `*`"
+                      square
+                      color="blue-7"
+                      text-color="white"
+                      size="sm">
+                      <w-avatar icon="la:angle-right" color="blue-5" text-color="white" />
+                      <span>{{ site.hostname }}</span>
+                    </w-chip>
+                    <w-chip
+                      class="mx-0"
+                      v-else
+                      square
+                      color="indigo-7"
+                      text-color="white"
+                      size="sm">
+                      <w-avatar icon="la:asterisk" color="indigo-5" text-color="white" />
+                      <span>catch-all</span>
+                    </w-chip>
+                  </a>
                 </div>
               </w-item-section>
               <w-item-section side>
@@ -81,6 +94,18 @@
               </w-item-section>
               <w-separator class="ml-4" vertical />
               <w-item-section side style="flex-direction: row; align-items: center">
+                <w-btn
+                  class="acrylic-btn mr-2"
+                  flat
+                  :href="siteUrl(site)"
+                  target="_blank"
+                  icon="la:external-link-alt"
+                  color="grey"
+                  :aria-label="t(`admin.sites.openSite`, { hostname: site.hostname })">
+                  <w-tooltip>{{
+                    t(`admin.sites.openSite`, { hostname: site.hostname })
+                  }}</w-tooltip>
+                </w-btn>
                 <w-btn
                   class="acrylic-btn mr-2"
                   flat
@@ -147,6 +172,15 @@ useMeta(() => ({
 
 // METHODS
 
+/**
+ * The URL to open a site in a new tab. Sites are resolved purely by the request's `Host`
+ * header (WIKI.sitesMappings[req.hostname]), so opening one just means navigating to its
+ * hostname. The `*` catch-all row has no hostname of its own, so it falls back to whatever
+ * host is currently serving this admin page.
+ */
+function siteUrl(site) {
+  return `//${site.hostname === '*' ? window.location.host : site.hostname}`
+}
 async function refresh() {
   await adminStore.fetchSites()
   notify({
@@ -191,3 +225,10 @@ onMounted(async () => {
   await adminStore.fetchSites()
 })
 </script>
+
+<style lang="scss" scoped>
+.site-hostname-link {
+  display: inline-flex;
+  text-decoration: none;
+}
+</style>

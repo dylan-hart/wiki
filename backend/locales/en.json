@@ -1031,6 +1031,7 @@
   "admin.sites.nameInvalidChars": "Site name has invalid characters.",
   "admin.sites.nameMissing": "Site name is missing.",
   "admin.sites.new": "New Site",
+  "admin.sites.openSite": "Open {hostname} in a new tab",
   "admin.sites.refreshSuccess": "List of sites refreshed successfully.",
   "admin.sites.subtitle": "Manage your wiki sites",
   "admin.sites.title": "Sites",
