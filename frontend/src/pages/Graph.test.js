@@ -488,6 +488,34 @@ describe('Graph.vue (OpenProject #891)', () => {
     expect(maxHullDist).toBeGreaterThan(distToNodeA + wrapper.vm.radiusFor(nodeA))
   })
 
+  it("drawLabels offsets each label by that node's own drawn radius, not a fixed constant (OpenProject #2297)", async () => {
+    const wrapper = await mountGraph()
+    wrapper.vm.zoomTransform = { k: 1.2, x: 0, y: 0 }
+
+    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
+    nodeA.x = 100
+    nodeA.y = 100
+    nodeB.x = 200
+    nodeB.y = 200
+
+    const radiusA = wrapper.vm.radiusFor(nodeA)
+    const radiusB = wrapper.vm.radiusFor(nodeB)
+    // -> The fixture's two nodes have different contributor counts, so their radii differ --
+    //    otherwise this test couldn't distinguish "offset tracks radius" from "offset is still
+    //    a constant that happens to equal both radii plus the gap".
+    expect(radiusA).not.toBe(radiusB)
+
+    wrapper.vm.ctx.fillText.mockClear()
+    wrapper.vm.drawLabels()
+
+    const callA = wrapper.vm.ctx.fillText.mock.calls.find(([text]) => text === nodeA.title)
+    const callB = wrapper.vm.ctx.fillText.mock.calls.find(([text]) => text === nodeB.title)
+
+    expect(callA[1]).toBe(nodeA.x + radiusA + wrapper.vm.LABEL_GAP)
+    expect(callB[1]).toBe(nodeB.x + radiusB + wrapper.vm.LABEL_GAP)
+  })
+
   it('recovers from a fetch failure without throwing', async () => {
     setActivePinia(createPinia())
     const siteStore = useSiteStore()

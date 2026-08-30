@@ -543,6 +543,12 @@ const LABEL_VISIBILITY_ZOOM_THRESHOLD = 0.75
  *  `scaleExtent`). `24` reads as roughly what a label already looks like comfortably zoomed in. */
 const LABEL_MAX_EFFECTIVE_FONT_PX = 24
 
+/** Breathing room between a node's edge and the start of its label, on top of the node's own
+ *  drawn radius (`radiusFor()`) -- matches the gap the old fixed `8` offset left beyond the
+ *  smallest node (`MIN_CONTRIBUTOR_RADIUS`/`MIN_PAGEVIEW_RADIUS`, both `5`), but now scales with
+ *  the node so a label never overlaps a larger node's fill (OpenProject #2297). */
+const LABEL_GAP = 3
+
 function drawLabels() {
   const scale = zoomTransform.value?.k ?? 1
   if (scale < LABEL_VISIBILITY_ZOOM_THRESHOLD) {
@@ -555,7 +561,7 @@ function drawLabels() {
     if (node.x === undefined) {
       continue
     }
-    ctx.fillText(node.title ?? node.path, node.x + 8, node.y + 3)
+    ctx.fillText(node.title ?? node.path, node.x + radiusFor(node) + LABEL_GAP, node.y + 3)
   }
 }
 
