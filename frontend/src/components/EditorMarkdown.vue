@@ -618,7 +618,17 @@ const state = reactive({
     pixel width this session or a past one committed by dragging the divider, and it is left alone by
     hiding the pane -- only overwritten by another drag, or restored from a saved value on mount.
   */
-  previewWidth: null
+  previewWidth: null,
+  /*
+    Set by `flushEditorContent` whenever it skips `processContent` because the preview pane is
+    closed (OpenProject #1889) -- the debounced content sync still has to happen every 500ms so a
+    save is never reading stale `pageStore.content`, but re-running the markdown-it/KaTeX/
+    highlight.js pipeline for a preview nobody can see is pure waste. `flushStaleRenderIfNeeded`
+    clears it the moment the render is actually needed: reopening the pane (the `previewShown`
+    watcher below) or saving (`flushEditorContentForSave`, what's registered as
+    `editorStore.contentFlusher`).
+  */
+  renderIsStale: false
 })
 
 /**
@@ -1522,8 +1532,14 @@ function processContent(newContent) {
     render: html
   })
   nextTick(async () => {
-    // -> With the preview pane closed there is no DOM to attend to. The render is stored either way, so
-    //    the store still holds what a save would send
+    /*
+      With the preview pane closed there is often no DOM to attend to -- and, since `flushEditorContent`
+      (OpenProject #1889) now skips calling this at all while `state.previewShown` is false, most
+      closed-pane edits never even reach this line any more. What still can: the post-init and
+      conflict-resolution callers below run unconditionally, and the `previewShown` watcher's
+      catch-up render can land before Vue has mounted the pane's `v-if` in the same tick. Either way
+      the render is stored, so the store still holds what a save would send.
+    */
     if (!container) {
       return
     }
@@ -1679,18 +1695,60 @@ function reloadEditorContent({ replacements = [] } = {}) {
 /**
  * Copy the editor's current text into the store right now, rather than on the usual 500ms debounce.
  *
- * Shared by the change handler below, on every debounced edit, and by `editorStore.contentFlusher`,
- * which `pageSave()` calls synchronously before it reads `content` -- see the call site there for why
- * a save can otherwise land inside that debounce window. Deliberately leaves `contentLoaded` and
+ * Called by the change handler below on every debounced edit. Deliberately leaves `contentLoaded` and
  * `lastChangeTimestamp` alone: those describe an actual edit having happened, which is true every time
  * the change handler below calls this, but is not true of a save that runs this on a page nobody has
  * touched since it loaded -- `pageSave()`'s own guard is what a wrongly-forced `contentLoaded` would
  * defeat.
+ *
+ * The render is skipped, not just deferred, while the preview pane is closed (OpenProject #1889):
+ * `processContent` runs the full markdown-it/KaTeX/highlight.js pipeline over the whole document, and
+ * with no preview DOM to patch the result was being computed and immediately discarded, twice a
+ * second, for as long as an author kept typing with the pane shut. `renderIsStale` records that the
+ * store's `content` has moved on since the last render, so whichever of `flushStaleRenderIfNeeded`'s
+ * two callers needs a current render next -- reopening the pane, or a save -- can catch it up.
  */
 function flushEditorContent() {
   const value = editor.getValue()
   pageStore.content = value
+  if (!state.previewShown) {
+    state.renderIsStale = true
+    return
+  }
   processContent(value)
+}
+
+/**
+ * Runs `processContent` against whatever `flushEditorContent` left un-rendered, if anything.
+ *
+ * Called from the two moments a current render actually matters while the preview pane is closed: the
+ * `previewShown` watcher below (an author reopening the pane wants to see it, not the last thing that
+ * rendered before they closed it) and `flushEditorContentForSave` (a save reads `pageStore.render`,
+ * which `pageStore.content` alone does not keep current -- see that function's own comment). A no-op
+ * when nothing is stale, so calling it after every ordinary render is harmless.
+ */
+function flushStaleRenderIfNeeded() {
+  if (!state.renderIsStale) {
+    return
+  }
+  processContent(pageStore.content)
+  state.renderIsStale = false
+}
+
+/**
+ * What's registered as `editorStore.contentFlusher`, which `pageSave()` calls synchronously before it
+ * reads `content` -- see the call site there for why a save can otherwise land inside the 500ms
+ * debounce window `flushEditorContent` above exists to close.
+ *
+ * A save needs more than that, though: with the preview pane closed, `flushEditorContent` alone would
+ * leave `pageStore.render` stale, and `pageSave()`'s body is built from `render`, not `content` --
+ * an unrendered edit would otherwise ship the previous save's HTML under this one's markdown. Flushing
+ * first and then catching up the render (if `flushEditorContent` just marked it stale) is what keeps
+ * both in step at the one moment that matters even with nobody watching the preview.
+ */
+function flushEditorContentForSave() {
+  flushEditorContent()
+  flushStaleRenderIfNeeded()
 }
 
 /**
@@ -1730,6 +1788,8 @@ function resolveSaveConflict(snapshot) {
         })
         editor.setValue(snapshot.content)
         processContent(pageStore.content)
+        // -> This render is current as of the line above, whatever was pending before it
+        state.renderIsStale = false
         // -> Adopting the server's copy leaves nothing of this author's pending; see `hasPendingChanges`
         const now = Temporal.Now.instant()
         editorStore.$patch({ lastChangeTimestamp: now, lastSaveTimestamp: now })
@@ -1790,6 +1850,18 @@ watch(
   (snapshot) => {
     if (snapshot) {
       resolveSaveConflict(snapshot)
+    }
+  }
+)
+
+// -> Catches up a render that `flushEditorContent` skipped while the pane was closed (OpenProject
+//    #1889), so an author who reopens it sees what they just typed rather than what was on screen
+//    when they closed it
+watch(
+  () => state.previewShown,
+  (shown) => {
+    if (shown) {
+      flushStaleRenderIfNeeded()
     }
   }
 )
@@ -2167,8 +2239,8 @@ onMounted(async () => {
   EVENT_BUS.on('insertBlock', insertBlockClb)
   EVENT_BUS.on('reloadEditorContent', reloadEditorContent)
 
-  // -> See `flushEditorContent` and `pageSave()` in `stores/page.js` for why this exists
-  editorStore.contentFlusher = flushEditorContent
+  // -> See `flushEditorContentForSave` and `pageSave()` in `stores/page.js` for why this exists
+  editorStore.contentFlusher = flushEditorContentForSave
 })
 
 onBeforeUnmount(() => {
@@ -2181,7 +2253,7 @@ onBeforeUnmount(() => {
   monacoRef.value?.removeEventListener('drop', onEditorDrop)
   // -> Only clear it if it is still this instance's -- guards against a second mount's registration
   //    being torn down by the first's unmount in whatever order they settle in
-  if (editorStore.contentFlusher === flushEditorContent) {
+  if (editorStore.contentFlusher === flushEditorContentForSave) {
     editorStore.contentFlusher = null
   }
   // -> Registered against the markdown language, not this editor, so nothing else takes it down

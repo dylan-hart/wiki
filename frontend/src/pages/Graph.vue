@@ -127,7 +127,16 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import {
+  computed,
+  markRaw,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  shallowRef,
+  watch
+} from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from 'd3-force'
@@ -162,16 +171,27 @@ const { t } = useI18n()
 const containerRef = ref(null)
 const canvasRef = ref(null)
 
-/** Raw payload from `GET sites/{siteId}/graph` -- see `backend/api/graph.ts#Graph`. */
-const nodes = ref([])
-const edges = ref([])
+/** Raw payload from `GET sites/{siteId}/graph` -- see `backend/api/graph.ts#Graph`.
+ *
+ *  `shallowRef` (not `ref`) plus `markRaw()` on every element (see `loadGraph()`/`applyFilters()`)
+ *  keeps these arrays and the node/edge objects inside them out of Vue's reactivity system
+ *  entirely (OpenProject #1837). Nothing renders off them reactively -- the graph is canvas-only --
+ *  but `forceSimulation`/`forceLink` write `x`/`y`/`vx`/`vy` on every node on every tick and
+ *  `forceCollide`/`forceManyBody` read node properties constantly inside their quadtrees; with a
+ *  plain `ref`, every one of those reads/writes goes through a reactive proxy's get/set traps for
+ *  data nothing ever subscribes to. Both assignment sites below (`loadGraph()`,
+ *  `applyFilters()`) reassign `.value` wholesale rather than mutating in place, so the two real
+ *  consumers -- `legendEntries` and `hoveredNode`, both plain reads -- still update correctly off a
+ *  shallow ref with no explicit `triggerRef()` needed. */
+const nodes = shallowRef([])
+const edges = shallowRef([])
 const isLoading = ref(true)
 const loadError = ref(null)
 
 /** The full, unfiltered graph as fetched -- kept separate from `nodes.value`/`edges.value`, which
  *  after Task 26 (#901) are the CURRENTLY VISIBLE subset the simulation actually runs on. */
-const allNodes = ref([])
-const allEdges = ref([])
+const allNodes = shallowRef([])
+const allEdges = shallowRef([])
 
 /** 'site' is deliberately not an option here -- see the spec's architecture note: a single loaded
  *  graph has exactly one site value, so grouping by it would be a no-op UI control. */
@@ -574,7 +594,14 @@ function drawLabels() {
   }
 }
 
-function redraw() {
+/** Recomputes everything derived from node POSITION: rebuilds the hit-test quadtree over the
+ *  current `x`/`y`s and re-colors/re-hulls clusters via `recomputeClusters()`. Call whenever nodes
+ *  may have moved or the visible set may have changed -- a simulation tick, a resize, a sizing
+ *  change -- never for a pan/zoom alone, where no node's position changed, only the canvas
+ *  transform (OpenProject #1837; `recomputeClusters()`'s O(n log n) quadtree build plus per-group
+ *  `polygonHull` work used to run at pointer/wheel frequency for a picture whose geometry hadn't
+ *  changed). Always call `repaint()` afterward to actually draw the result. */
+function relayout() {
   nodeQuadtree = d3quadtree(
     nodes.value,
     (d) => d.x,
@@ -582,7 +609,12 @@ function redraw() {
   )
 
   recomputeClusters()
+}
 
+/** Paints the current layout to the canvas -- the `ctx` save/clear/transform/draw/restore sequence
+ *  only, no layout recomputation. Safe to call on every zoom/pan frame since it reads
+ *  `nodeQuadtree`/`clusters.value` as they last stood rather than rebuilding either. */
+function repaint() {
   if (!ctx) {
     return
   }
@@ -687,7 +719,10 @@ function startSimulation() {
     .force('collide', forceCollide(collideRadiusFor))
     .force('center', forceCenter(width / 2, height / 2))
     .force('cluster', clusterForce(groupKeyFor, 0.05))
-    .on('tick', redraw)
+    .on('tick', () => {
+      relayout()
+      repaint()
+    })
 }
 
 /*
@@ -738,14 +773,17 @@ function computeClusters() {
     }
     const cx = groupNodes.reduce((s, n) => s + n.x, 0) / groupNodes.length
     const cy = groupNodes.reduce((s, n) => s + n.y, 0) / groupNodes.length
-    const maxDist = Math.max(...groupNodes.map((n) => Math.hypot(n.x - cx, n.y - cy)), 0)
+    // -> A `reduce`, not `Math.max(...groupNodes.map(...))` -- the spread form blows V8's ~100-125k
+    //    argument limit at large group sizes (OpenProject #1837, a latent hazard only; no group has
+    //    come close to that in practice).
+    const maxDist = groupNodes.reduce((max, n) => Math.max(max, Math.hypot(n.x - cx, n.y - cy)), 0)
     result.push({ key, color, circle: { x: cx, y: cy, r: maxDist + HULL_PADDING } })
   }
   clusters.value = result
 }
 
 /** Single entry point Task 18's coloring and Task 20's hull computation both funnel through --
- *  called every tick (from `redraw()`) so hulls/colors stay in step with the live layout, and
+ *  called every tick (from `relayout()`) so hulls/colors stay in step with the live layout, and
  *  whenever the grouping dimension or the visible node set changes. */
 function recomputeClusters() {
   for (const node of nodes.value) {
@@ -765,7 +803,8 @@ function attachZoom() {
     .scaleExtent([0.1, 8])
     .on('zoom', (event) => {
       zoomTransform.value = event.transform
-      redraw()
+      // -> Only the canvas transform changed, no node moved -- repaint only (OpenProject #1837).
+      repaint()
     })
   selection.call(behavior)
   zoomTransform.value = zoomIdentity
@@ -776,8 +815,8 @@ async function loadGraph() {
   loadError.value = null
   try {
     const graph = await API_CLIENT.get(`sites/${siteStore.id}/graph`).json()
-    allNodes.value = graph.nodes ?? []
-    allEdges.value = graph.edges ?? []
+    allNodes.value = (graph.nodes ?? []).map((n) => markRaw(n))
+    allEdges.value = (graph.edges ?? []).map((e) => markRaw(e))
     applyFilters()
     sizeCanvas()
     startSimulation()
@@ -818,8 +857,14 @@ function applyFilters() {
       : edgeMode.value === 'classification'
         ? buildClassificationHubEdges(visibleNodes)
         : buildPathHierarchyEdges(visibleNodes)
-  nodes.value = [...visibleNodes, ...syntheticNodes]
-  edges.value = syntheticEdges
+  // -> `visibleNodes` are already-raw objects filtered from `allNodes.value` (markRaw'd in
+  //    `loadGraph()`); `syntheticNodes`/`syntheticEdges` are freshly built plain objects on every
+  //    call (see `graphFilters.js`) that have never passed through `markRaw()` yet. Mapping the
+  //    whole assembled array/list through it here is what keeps every node/edge the simulation
+  //    sees out of Vue's reactivity system, regardless of which builder produced it -- `markRaw()`
+  //    is a no-op on an object already marked, so re-marking the reused ones costs nothing.
+  nodes.value = [...visibleNodes, ...syntheticNodes].map((n) => markRaw(n))
+  edges.value = syntheticEdges.map((e) => markRaw(e))
 }
 
 watch(groupBy, () => {
@@ -835,7 +880,8 @@ watch(groupBy, () => {
 watch([sizeBy, sizeCountMode, contributorTypes, pageviewsWindow, pageviewClientTypes], () => {
   simulation?.force('collide', forceCollide(collideRadiusFor))
   simulation?.alpha(0.3).restart()
-  redraw()
+  relayout()
+  repaint()
 })
 
 /** OpenProject #1140's own scope decision: while pageview tracking is off, 'visits' sizing has no
@@ -883,7 +929,8 @@ watch(edgeMode, () => {
 onMounted(() => {
   resizeObserver = new ResizeObserver(() => {
     sizeCanvas()
-    redraw()
+    relayout()
+    repaint()
   })
   resizeObserver.observe(containerRef.value)
   loadGraph()

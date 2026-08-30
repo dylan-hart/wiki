@@ -249,6 +249,32 @@ async function recordClassificationChange(
 }
 
 /**
+ * Batched form of `recordClassificationChange`, for a caller that already knows every (from, to)
+ * pair up front and wants one INSERT instead of N — the classification-conflicts resolve route
+ * (OpenProject #1902), bumping many pages in one request. `from === to` entries are dropped rather
+ * than written, the same no-op `recordClassificationChange` documents.
+ */
+async function recordClassificationChanges(
+  req: FastifyRequest,
+  siteId: string,
+  changes: { page: { id: string; path: string }; from: string; to: string }[]
+): Promise<void> {
+  const actor = actorFromRequest(req)
+  const entries = changes
+    .filter(({ from, to }) => from !== to)
+    .map(({ page, from, to }) => ({
+      event: 'page.classificationChanged' as const,
+      actor,
+      targetType: 'page' as const,
+      targetId: page.id,
+      targetLabel: page.path,
+      detail: { from, to },
+      siteId
+    }))
+  await WIKI.models.auditLog.recordMany(entries)
+}
+
+/**
  * Every page permission this requester holds at a path.
  *
  * What the interface hides its controls by, and the reason it is a list rather than a question: each
@@ -1378,7 +1404,12 @@ async function routes(app: FastifyInstance) {
           type: 'object',
           required: ['pageIds', 'classification'],
           properties: {
-            pageIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
+            pageIds: {
+              type: 'array',
+              items: { type: 'string', format: 'uuid' },
+              minItems: 1,
+              maxItems: 500
+            },
             classification: { type: 'string', format: 'uuid' }
           }
         },
@@ -1400,12 +1431,31 @@ async function routes(app: FastifyInstance) {
       if (!WIKI.models.classificationLevels.byId(req.body.classification)) {
         return reply.badRequest('This classification level does not exist.')
       }
+      // -> De-duplicate before processing: a repeated id would otherwise be fetched, permission-checked
+      //    and audit-logged once per occurrence instead of once per page.
+      const pageIds = [...new Set(req.body.pageIds)]
+      // -> ONE batched select instead of a per-id `getPage` loop (OpenProject #1902): `getPage`'s
+      //    full two-LEFT-JOIN select pulls `content`, `render`, `searchContent` and the tsvector,
+      //    none of which `mayOnPage`/`meetsFloor` below need -- `getPagesByIds` projects only the
+      //    five columns that do.
+      const pageMap = await WIKI.models.pages.getPagesByIds(req.params.siteId, pageIds)
+      const missingId = pageIds.find((pageId) => !pageMap.has(pageId))
+      if (missingId) {
+        return reply.notFound('One of these pages does not exist.')
+      }
+      // -> Preserves `pageIds`' own (de-duplicated) order exactly the way the original per-id loop
+      //    iterated -- the per-page checks below still run one target at a time, in this same order,
+      //    and bail on the same first violation. Only the READS moved: what each check evaluates is
+      //    unchanged.
+      const orderedTargets = pageIds.map((pageId) => pageMap.get(pageId)!)
+      // -> ONE batched parent-classification lookup instead of one `parentClassification` call per
+      //    target, over the distinct (locale, parent path) pairs among them.
+      const floorByTarget = await WIKI.models.pages.parentClassifications(
+        req.params.siteId,
+        orderedTargets.map((target) => ({ locale: target.locale, path: target.path }))
+      )
       const targets: { id: string; path: string; classification: string }[] = []
-      for (const pageId of req.body.pageIds) {
-        const target = await WIKI.models.pages.getPage({ siteId: req.params.siteId, id: pageId })
-        if (!target) {
-          return reply.notFound('One of these pages does not exist.')
-        }
+      for (const target of orderedTargets) {
         if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
           return reply.forbidden('You are not allowed to edit one of these pages.')
         }
@@ -1426,11 +1476,7 @@ async function routes(app: FastifyInstance) {
         // -> Same floor invariant every other classification write enforces: this bulk write does
         //    not get to leave a page below its own immediate parent's floor just because it arrived
         //    through the resolve flow rather than a single PATCH.
-        const floorId = await WIKI.models.pages.parentClassification(
-          req.params.siteId,
-          target.locale,
-          target.path
-        )
+        const floorId = floorByTarget.get(`${target.locale}\0${target.path}`) ?? null
         if (
           floorId &&
           !WIKI.models.classificationLevels.meetsFloor(req.body.classification, floorId)
@@ -1443,18 +1489,19 @@ async function routes(app: FastifyInstance) {
       }
       const updated = await WIKI.models.pages.bulkSetClassification(
         req.params.siteId,
-        req.body.pageIds,
+        pageIds,
         req.body.classification
       )
-      for (const target of targets) {
-        await recordClassificationChange(
-          req,
-          req.params.siteId,
-          target,
-          target.classification,
-          req.body.classification
-        )
-      }
+      // -> ONE multi-row audit INSERT instead of one `record()` call per target.
+      await recordClassificationChanges(
+        req,
+        req.params.siteId,
+        targets.map((target) => ({
+          page: target,
+          from: target.classification,
+          to: req.body.classification
+        }))
+      )
       return { ok: true, updated }
     }
   )

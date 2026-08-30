@@ -90,6 +90,19 @@ describe('common store: fetchLocaleStrings()', () => {
 
     await expect(store.fetchLocaleStrings('xx')).rejects.toThrow(/xx/)
   })
+
+  it('propagates a rejected API_CLIENT.get() to the caller without swallowing it', async () => {
+    const store = useCommonStore()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    API_CLIENT.get.mockImplementationOnce(() => {
+      throw new Error('network')
+    })
+
+    await expect(store.fetchLocaleStrings('en')).rejects.toThrow('network')
+    expect(warnSpy).not.toHaveBeenCalled()
+
+    warnSpy.mockRestore()
+  })
 })
 
 describe('common store: loadBlocks()', () => {

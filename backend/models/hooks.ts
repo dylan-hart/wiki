@@ -257,21 +257,23 @@ class Hooks {
       eq(jobHistoryTable.task, 'dispatchWebhook'),
       sql`${jobHistoryTable.payload} ->> 'hookId' = ${hookId}`
     )
-    const totals = await WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
-    const deliveries = await WIKI.db
-      .select({
-        event: sql<string>`${jobHistoryTable.payload} ->> 'event'`,
-        state: jobHistoryTable.state,
-        attempt: jobHistoryTable.attempt,
-        maxRetries: jobHistoryTable.maxRetries,
-        lastErrorMessage: jobHistoryTable.lastErrorMessage,
-        startedAt: jobHistoryTable.startedAt,
-        completedAt: jobHistoryTable.completedAt
-      })
-      .from(jobHistoryTable)
-      .where(where)
-      .orderBy(desc(jobHistoryTable.startedAt))
-      .limit(limit)
+    const [deliveries, totals] = await Promise.all([
+      WIKI.db
+        .select({
+          event: sql<string>`${jobHistoryTable.payload} ->> 'event'`,
+          state: jobHistoryTable.state,
+          attempt: jobHistoryTable.attempt,
+          maxRetries: jobHistoryTable.maxRetries,
+          lastErrorMessage: jobHistoryTable.lastErrorMessage,
+          startedAt: jobHistoryTable.startedAt,
+          completedAt: jobHistoryTable.completedAt
+        })
+        .from(jobHistoryTable)
+        .where(where)
+        .orderBy(desc(jobHistoryTable.startedAt))
+        .limit(limit),
+      WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
+    ])
 
     return {
       total: totals[0]?.total ?? 0,

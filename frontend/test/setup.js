@@ -11,10 +11,15 @@ import { createApiClientStub } from './mocks.js'
  * 25.9, which lacks it -- loaded the same way `src/boot/temporal.js` lazily polyfills it for
  * pre-Temporal Safari, except eagerly here since a test can reach `stores/user.js`'s date formatting
  * before anything else would trigger the boot check. A no-op on a real Node 26 runtime.
+ *
+ * The `/global` entry point, not the plain `temporal-polyfill` export: it also patches
+ * `Intl.DateTimeFormat` to accept Temporal types (`Intl.DateTimeFormat.prototype.format(zoned.
+ * toPlainDateTime())`, what `stores/user.js`'s hoisted formatters call) -- exactly what
+ * `src/boot/temporal.js` loads in the real app, so a test sees the same runtime shape production
+ * does rather than a Temporal that formats but can't be formatted.
  */
 if (typeof Temporal === 'undefined') {
-  const { Temporal } = await import('temporal-polyfill')
-  globalThis.Temporal = Temporal
+  await import('temporal-polyfill/global')
 }
 
 /*

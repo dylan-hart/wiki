@@ -6,6 +6,16 @@ import { useSiteStore } from './site'
 
 const pad = (value) => String(value).padStart(2, '0')
 
+// -> Built once rather than once per `formatDatePart()` call landing on the locale-default branch.
+//    `Intl.DateTimeFormat.format()` won't take a `Temporal.ZonedDateTime` directly (its own zone
+//    would conflict with a formatter that has none configured), so callers pass `.toPlainDateTime()`
+//    -- dropping the zone is fine here since it was already applied by `toUserZone()`.
+const localeDateFormat = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric'
+})
+
 /**
  * Render the date part of a moment the way the user asked for it.
  *
@@ -26,7 +36,7 @@ function formatDatePart(zoned, dateFormat) {
       return `${zoned.year}/${pad(zoned.month)}/${pad(zoned.day)}`
     default:
       // -> Numeric parts rather than `dateStyle: 'short'`, which abbreviates the year to two digits
-      return zoned.toLocaleString(undefined, { year: 'numeric', month: 'numeric', day: 'numeric' })
+      return localeDateFormat.format(zoned.toPlainDateTime())
   }
 }
 
@@ -52,30 +62,41 @@ function toUserZone(date, timezone) {
   }
 }
 
+/*
+  Four variants built once, keyed by `timeFormat` and whether seconds are shown, rather than one per
+  `formatTimePart()` call. `hourCycle` rather than `hour12: false`, which some locales render as
+  24:00 where they mean 00:00.
+*/
+const timeFormats = {
+  '12h': new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', hour12: true }),
+  '24h': new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }),
+  '12h-seconds': new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  }),
+  '24h-seconds': new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  })
+}
+
 /**
- * Render the time part. `hourCycle` rather than `hour12: false`, which some locales render as 24:00
- * where they mean 00:00.
+ * Render the time part -- see `localeDateFormat` above for why `.toPlainDateTime()`.
  *
  * @param seconds Append `:ss` — for a screen where sub-minute precision is the point (a webhook
  *   delivery log, a scan report, a scheduler run), not the default for a reader's everyday timestamp.
  */
 function formatTimePart(zoned, timeFormat, { seconds = false } = {}) {
-  return zoned.toLocaleString(
-    undefined,
-    timeFormat === '24h'
-      ? {
-          hour: '2-digit',
-          minute: '2-digit',
-          ...(seconds ? { second: '2-digit' } : {}),
-          hourCycle: 'h23'
-        }
-      : {
-          hour: 'numeric',
-          minute: '2-digit',
-          ...(seconds ? { second: '2-digit' } : {}),
-          hour12: true
-        }
-  )
+  const key = `${timeFormat === '24h' ? '24h' : '12h'}${seconds ? '-seconds' : ''}`
+  return timeFormats[key].format(zoned.toPlainDateTime())
 }
 
 export const useUserStore = defineStore('user', {

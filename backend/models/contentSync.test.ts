@@ -302,6 +302,37 @@ test(
   }
 )
 
+test(
+  'getTargetSummary counts every page and asset for a target that has never synced',
+  { skip },
+  async () => {
+    // -> A brand-new target has no contentSyncState rows at all, so every page and asset on the site
+    //    matches through the `isNull(lastSyncedAt)` disjunct -- this is what pins `getTargetSummary`
+    //    to the `countOutOfDatePages`/`countOutOfDateAssets` aggregate path (WIKI.db.$count over the
+    //    same LEFT JOIN) rather than silently falling back to fetching and counting rows.
+    const targets = await WIKI.db
+      .insert(storageTable)
+      .values({ siteId, module: 'test-summary-never-synced' })
+      .returning({ id: storageTable.id })
+    const targetId = targets[0].id
+    await makePage('never-synced-summary-page')
+    await makeAsset('never-synced-summary-asset.png')
+
+    const [summary, outOfDatePages, outOfDateAssets] = await Promise.all([
+      contentSync.getTargetSummary(targetId, { siteId }),
+      contentSync.getOutOfDatePages(targetId, { siteId }),
+      contentSync.getOutOfDateAssets(targetId, { siteId })
+    ])
+
+    // -> Every page/asset ever created against this shared `siteId` (across earlier tests in this
+    //    file too) counts as out of date for a target this fresh, so there's no fixed number to
+    //    assert against -- instead, cross-check the aggregate count against the row-returning
+    //    queries' own length, which is exactly what the count path is supposed to reproduce.
+    assert.equal(summary.outOfDateCount, outOfDatePages.length + outOfDateAssets.length)
+    assert.ok(summary.outOfDateCount >= 2)
+  }
+)
+
 test('getTargetSummary surfaces the most recent error', { skip }, async () => {
   const targets = await WIKI.db
     .insert(storageTable)

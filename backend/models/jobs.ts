@@ -245,13 +245,15 @@ class Jobs {
     limit = 100
   }: { states?: JobState[]; limit?: number } = {}): Promise<JobHistoryPage> {
     const where = states.length > 0 ? inArray(jobHistoryTable.state, states) : undefined
-    const totals = await WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
-    const jobs = await WIKI.db
-      .select()
-      .from(jobHistoryTable)
-      .where(where)
-      .orderBy(desc(jobHistoryTable.startedAt))
-      .limit(limit)
+    const [jobs, totals] = await Promise.all([
+      WIKI.db
+        .select()
+        .from(jobHistoryTable)
+        .where(where)
+        .orderBy(desc(jobHistoryTable.startedAt))
+        .limit(limit),
+      WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
+    ])
 
     return {
       total: totals[0]?.total ?? 0,

@@ -217,7 +217,6 @@ export interface SeedTreeEntryInput {
   type?: 'folder' | 'page' | 'asset'
   locale?: string
   title?: string
-  hash?: string
   navigationMode?: NavigationMode
   navigationId?: string | null
   tags?: string[]
@@ -242,7 +241,6 @@ export async function seedTreeEntry(db: WikiDb, input: SeedTreeEntryInput) {
       siteId: input.siteId,
       folderPath,
       fileName,
-      hash: input.hash ?? `test-hash-${fileName}`,
       type: input.type ?? 'page',
       locale: input.locale ?? 'en',
       title: input.title ?? fileName,

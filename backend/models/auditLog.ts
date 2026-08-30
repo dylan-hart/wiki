@@ -203,6 +203,49 @@ class AuditLog {
   }
 
   /**
+   * Record N events in one INSERT — the batched form of `record()`, for a caller that already has a
+   * whole set of entries in hand and would otherwise write them one at a time (the
+   * classification-conflicts resolve route, OpenProject #1902, bumping many pages in one request).
+   *
+   * An empty array is a no-op, same as `bulkSetClassification`'s own empty-input short-circuit,
+   * rather than an error or a zero-row INSERT. A failure here is logged and swallowed, same as
+   * `record()` — the log is a record of what happened, and losing entries is never a reason to fail
+   * the write that produced them.
+   */
+  async recordMany(
+    entries: {
+      event: AuditEvent
+      actor: AuditActor
+      targetType?: AuditTargetType | ''
+      targetId?: string
+      targetLabel?: string
+      detail?: Record<string, any>
+      siteId?: string | null
+    }[]
+  ): Promise<void> {
+    if (entries.length < 1) {
+      return
+    }
+    try {
+      await WIKI.db.insert(auditLogTable).values(
+        entries.map((entry) => ({
+          event: entry.event,
+          actorId: entry.actor.id,
+          actorName: entry.actor.name,
+          actorIp: entry.actor.ip ?? '',
+          targetType: entry.targetType ?? '',
+          targetId: entry.targetId ?? '',
+          targetLabel: entry.targetLabel ?? '',
+          detail: entry.detail ?? {},
+          siteId: entry.siteId ?? null
+        }))
+      )
+    } catch (err: any) {
+      WIKI.logger.warn(`Failed to record ${entries.length} audit log entr(ies): ${err.message}`)
+    }
+  }
+
+  /**
    * A page of the log, newest first, filtered by whichever of actor/event/date range the caller
    * supplied.
    */
@@ -229,26 +272,28 @@ class AuditLog {
     ].filter((c) => c !== undefined)
     const where = conditions.length > 0 ? and(...conditions) : undefined
 
-    const totals = await WIKI.db.select({ total: count() }).from(auditLogTable).where(where)
-    const rows = await WIKI.db
-      .select({
-        id: auditLogTable.id,
-        event: auditLogTable.event,
-        actorId: auditLogTable.actorId,
-        actorName: auditLogTable.actorName,
-        actorIp: auditLogTable.actorIp,
-        targetType: auditLogTable.targetType,
-        targetId: auditLogTable.targetId,
-        targetLabel: auditLogTable.targetLabel,
-        detail: auditLogTable.detail,
-        siteId: auditLogTable.siteId,
-        createdAt: auditLogTable.createdAt
-      })
-      .from(auditLogTable)
-      .where(where)
-      .orderBy(desc(auditLogTable.createdAt))
-      .limit(limit)
-      .offset(offset)
+    const [rows, totals] = await Promise.all([
+      WIKI.db
+        .select({
+          id: auditLogTable.id,
+          event: auditLogTable.event,
+          actorId: auditLogTable.actorId,
+          actorName: auditLogTable.actorName,
+          actorIp: auditLogTable.actorIp,
+          targetType: auditLogTable.targetType,
+          targetId: auditLogTable.targetId,
+          targetLabel: auditLogTable.targetLabel,
+          detail: auditLogTable.detail,
+          siteId: auditLogTable.siteId,
+          createdAt: auditLogTable.createdAt
+        })
+        .from(auditLogTable)
+        .where(where)
+        .orderBy(desc(auditLogTable.createdAt))
+        .limit(limit)
+        .offset(offset),
+      WIKI.db.select({ total: count() }).from(auditLogTable).where(where)
+    ])
 
     return {
       total: totals[0]?.total ?? 0,

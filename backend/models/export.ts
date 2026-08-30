@@ -34,17 +34,12 @@ export interface ExportResult {
 }
 
 /**
- * Drop columns that are either regenerated from the rest of a row (`ts`, `isSearchableComputed`) or
- * only ever meaningful to the instance that computed them (`searchContent`), rather than to what an
- * import would need to recreate the row.
+ * Drop columns that are either regenerated from the rest of a row (`ts`) or only ever meaningful to
+ * the instance that computed them (`searchContent`), rather than to what an import would need to
+ * recreate the row.
  */
 function stripDerived<T extends Record<string, any>>(row: T): Partial<T> {
-  const {
-    ts: _ts,
-    isSearchableComputed: _isSearchableComputed,
-    searchContent: _searchContent,
-    ...rest
-  } = row as any
+  const { ts: _ts, searchContent: _searchContent, ...rest } = row as any
   return rest
 }
 

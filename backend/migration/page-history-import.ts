@@ -288,9 +288,8 @@ const NOT_DIFFED: ReadonlySet<keyof ComparableVersionState> = new Set(['extra'])
  * Diffs two consecutive versions over the same field set `changedFields()` in
  * `backend/models/pageHistory.ts` compares, restricted to what `ComparableVersionState` actually
  * tracks. `NOT_REPORTED_AS_CHANGED` excludes bookkeeping (`render`/`toc`/`searchContent`/`ts`/`hash`/
- * `authorId`/`updatedAt`/rating/`historyData`/`isSearchableComputed`) — none of which is a field this
- * module diffs to begin with, so every key here (besides `NOT_DIFFED`) is compared; nothing needs
- * excluding a second time.
+ * `authorId`/`updatedAt`/rating/`historyData`) — none of which is a field this module diffs to begin
+ * with, so every key here (besides `NOT_DIFFED`) is compared; nothing needs excluding a second time.
  */
 function diffComparableStates(
   previous: ComparableVersionState,

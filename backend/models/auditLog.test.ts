@@ -130,6 +130,45 @@ describe('auditLog record/list/listActors/purge (DB-backed)', { skip: !hasTestDa
     assert.ok(after.entries[0]!.detail.cutoff)
   })
 
+  /*
+    OpenProject #1902: the classification-conflicts resolve route writes its audit entries through
+    this batched path instead of one `record()` call per page.
+  */
+  test('recordMany() writes N entries in one call, matching N record() calls', async () => {
+    const before = (await auditLogModel.list()).total
+    await auditLogModel.recordMany([
+      {
+        event: 'page.classificationChanged',
+        actor: { id: fixtures.userId, name: 'Fixture User' },
+        targetType: 'page',
+        targetId: 'page-1',
+        targetLabel: 'batch/one',
+        detail: { from: 'a', to: 'b' }
+      },
+      {
+        event: 'page.classificationChanged',
+        actor: { id: fixtures.userId, name: 'Fixture User' },
+        targetType: 'page',
+        targetId: 'page-2',
+        targetLabel: 'batch/two',
+        detail: { from: 'a', to: 'b' }
+      }
+    ])
+    const { total, entries } = await auditLogModel.list({ event: 'page.classificationChanged' })
+    assert.equal(total, before + 2)
+    const targetIds = entries.map((e) => e.targetId).sort()
+    assert.deepEqual(targetIds.filter((id) => id === 'page-1' || id === 'page-2').sort(), [
+      'page-1',
+      'page-2'
+    ])
+  })
+
+  test('recordMany() with an empty array writes nothing', async () => {
+    const before = (await auditLogModel.list()).total
+    await auditLogModel.recordMany([])
+    assert.equal((await auditLogModel.list()).total, before)
+  })
+
   test('purge() drops entries older than the retention window, then records its own purge', async () => {
     const before = (await auditLogModel.list()).total
     assert.ok(before > 0)

@@ -22,12 +22,13 @@ const SITE_ASSET_FALLBACKS: Record<SiteAssetKind, string> = {
  * version — so it is always revalidated, and the ETag turns that into an empty 304 rather than a
  * re-download.
  *
- * Only the uploaded branch below sends this (plus the ETag): the `replyWithFile` fallback further
- * down sends neither. That is intentional, not a gap this file forgot to close — the fallback's
- * bytes are a fixed path under this repo's own `assets/_assets/`, which only ever changes via a
- * redeploy (a new build, a new process), not a request an administrator can make against a running
- * instance the way an upload is. There is no per-instance revalidation problem to solve for content
- * that cannot change out from under a live process.
+ * Only the uploaded branch below sends this constant (plus its own strong sha1 ETag) — the
+ * `replyWithFile` fallback further down sends its own, longer-lived `Cache-Control` instead (see
+ * `helpers/common.ts`). That split is intentional, not an oversight: the fallback's bytes are a
+ * fixed path under this repo's own `assets/_assets/`, which only ever changes via a redeploy (a new
+ * build, a new process), not a request an administrator can make against a running instance the way
+ * an upload is — so it can be cached long instead of always-revalidated, while `replyWithFile` still
+ * gives it a validator for the rare revalidation (a forced reload, or the cache window elapsing).
  */
 const SITE_ASSET_CACHE = 'public, no-cache'
 
@@ -98,11 +99,12 @@ async function routes(app: FastifyInstance) {
         ? await WIKI.models.sites.getAsset(site.id, kind)
         : null
       if (!asset) {
-        // -> No SVG_CSP/ETag/Cache-Control here either, and for the same reason for each: this file's
-        //    bytes are picked by the codebase (`SITE_ASSET_FALLBACKS`), never by anything a request
-        //    can influence, so none of the risks those headers guard against — an admin-uploaded
-        //    payload, content changing under an unversioned URL — apply to it.
-        return replyWithFile(reply, path.join(WIKI.ROOTPATH, fallback))
+        // -> No SVG_CSP here: this file's bytes are picked by the codebase (`SITE_ASSET_FALLBACKS`),
+        //    never by anything a request can influence, so the admin-upload risk that header guards
+        //    against doesn't apply to it. Cache-Control/ETag/Last-Modified DO apply — `replyWithFile`
+        //    sends all three — since this is still a same-origin file every hard load would otherwise
+        //    re-download in full.
+        return replyWithFile(req, reply, path.join(WIKI.ROOTPATH, fallback))
       }
 
       const etag = `"${crypto.createHash('sha1').update(asset.data).digest('hex')}"`

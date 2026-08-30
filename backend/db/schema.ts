@@ -1,4 +1,4 @@
-import { sql, type SQL } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import {
   type AnyPgColumn,
   bigint,
@@ -496,7 +496,7 @@ export const glossaryVersions = pgTable(
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
-    // -> Covers lookups by site as well, being the leading column
+    // -> Covers lookups by site alone as well, being the leading column
     index('glossaryVersions_siteId_createdAt_idx').on(table.siteId, table.createdAt)
   ]
 )
@@ -614,7 +614,17 @@ export const jobHistory = pgTable(
     //    also writes to.
     index('jobHistory_dispatchWebhook_hookId_idx')
       .on(sql`(payload ->> 'hookId')`)
-      .where(sql`${table.task} = 'dispatchWebhook'`)
+      .where(sql`${table.task} = 'dispatchWebhook'`),
+    // -> Backs `core/scheduler.ts#reapStaleJobs`'s `WHERE state = 'active' AND startedAt < cutoff`.
+    //    Partial and scoped to `startedAt` alone rather than a `(state, startedAt)` composite: the
+    //    other two `state` filters (the admin Scheduler listing's `state IN (...)`, and
+    //    `models/jobs.ts#cleanHistory`'s `state != 'active'`) don't share this predicate --
+    //    `cleanHistory`'s is a negation a btree leading on `state` wouldn't use selectively anyway --
+    //    and `active` rows are transient, so this index stays near-empty no matter how large the
+    //    (bounded, `historyExpiration`-pruned) table itself grows.
+    index('jobHistory_active_idx')
+      .on(table.startedAt)
+      .where(sql`${table.state} = 'active'`)
   ]
 )
 
@@ -807,11 +817,6 @@ export const pages = pgTable(
     contentType: varchar({ length: 255 }).notNull(),
     isBrowsable: boolean().notNull().default(true),
     isSearchable: boolean().notNull().default(true),
-    // -> The generated expression references its own table, so the return type must be annotated
-    //    explicitly to break the circular inference (TS7022/TS7024).
-    isSearchableComputed: boolean('isSearchableComputed').generatedAlwaysAs(
-      (): SQL => sql`${pages.publishState} != 'draft' AND ${pages.isSearchable}`
-    ),
     // -> A `bcrypt` verifier, never the cleartext (OpenProject #2232) -- `models/pages.ts` hashes it
     //    on write and checks a guess against it with `bcrypt.compare` on read; nothing reads this
     //    column back as a value to hand to a caller.
@@ -855,7 +860,6 @@ export const pages = pgTable(
     index('pages_classification_idx').on(table.classification),
     index('pages_ts_idx').using('gin', table.ts),
     index('pages_tags_idx').using('gin', table.tags),
-    index('pages_isSearchableComputed_idx').on(table.isSearchableComputed),
     // -> Backs `search.suggestTitle()`'s `similarity(title, …)` "did you mean" fallback, which runs
     //    only when full-text search found nothing — `pg_trgm` is already a required extension (see
     //    `core/db.ts`), this is the first index that actually uses it.
@@ -863,10 +867,10 @@ export const pages = pgTable(
     // -> The invariant every probe in models/pages.ts assumes ("path unique within (site, locale)"),
     //    finally held by the database itself. On path, not hash: the hash is cyrb53 (53-bit,
     //    non-cryptographic), so two distinct paths may legitimately collide. Covers lookups by site
-    //    alone as well, being the leading column -- no separate pages_siteId_idx is needed.
+    //    alone as well, being the leading column -- no separate `pages_siteId_idx` needed.
     uniqueIndex('pages_siteId_locale_path_idx').on(table.siteId, table.locale, table.path),
     // -> Backs getPage's hottest read (siteId + hash + locale equality). Plain, not unique — see above.
-    //    Covers lookups by site as well, being the leading column
+    //    Also covers lookups by site alone, being the leading column.
     index('pages_siteId_locale_hash_idx').on(table.siteId, table.locale, table.hash)
   ]
 )
@@ -1379,9 +1383,19 @@ export const pageviews = pgTable(
     viewedAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
   (table) => [
-    // -> "Distinct visitorHash for this page within a trailing window" -- the one query this table
-    //    exists for (#1140's graph sizing).
-    index('pageviews_pageId_viewedAt_idx').on(table.pageId, table.viewedAt),
+    // -> `countsForGraph()` (`models/pageviews.ts`, this table's only reader besides the purge below)
+    //    is the one query this table exists for (#1140's graph sizing), and its actual predicate is
+    //    `WHERE siteId = ? GROUP BY pageId, clientType` with six conditional aggregates over
+    //    `viewedAt`/`visitorHash` -- not a `pageId` lookup, which nothing here does. Leading with
+    //    `siteId` and carrying every column the aggregates touch is what lets the planner satisfy the
+    //    whole query from the index instead of scanning the table.
+    index('pageviews_siteId_pageId_clientType_viewedAt_visitorHash_idx').on(
+      table.siteId,
+      table.pageId,
+      table.clientType,
+      table.viewedAt,
+      table.visitorHash
+    ),
     // -> How the retention purge (`tasks/simple/purge-pageviews.ts`) finds rows older than 2 years,
     //    mirroring `rateLimits_updatedAt_idx`'s same purge-by-timestamp shape.
     index('pageviews_viewedAt_idx').on(table.viewedAt)
@@ -1557,7 +1571,7 @@ export const tags = pgTable(
       .references(() => sites.id, { onDelete: 'cascade' })
   },
   (table) => [
-    // -> Covers lookups by site as well, being the leading column
+    // -> Covers lookups by site alone as well, being the leading column
     uniqueIndex('tags_composite_idx').on(table.siteId, table.tag)
   ]
 )
@@ -1579,7 +1593,6 @@ export const tree = pgTable(
     //    for. The locale beside it is not, and is a plain string.
     folderPath: ltree('folderPath').notNull().default(''),
     fileName: varchar({ length: 255 }).notNull(),
-    hash: varchar({ length: 255 }).notNull(),
     type: treeTypeEnum('tree').notNull(),
     locale: varchar({ length: 255 }).notNull(),
     title: varchar({ length: 255 }).notNull(),
@@ -1602,7 +1615,6 @@ export const tree = pgTable(
     index('tree_folderpath_idx').on(table.folderPath),
     index('tree_folderpath_gist_idx').using('gist', table.folderPath),
     index('tree_fileName_idx').on(table.fileName),
-    index('tree_hash_idx').on(table.hash),
     index('tree_type_idx').on(table.type),
     // -> A plain btree: the locale is a string compared for equality, and GiST — which is what an
     //    ltree column wanted — has no operator class for varchar at all
@@ -1688,8 +1700,11 @@ export const userGroups = pgTable(
   (table) => [
     // -> Covers lookups by userId alone as well, being the leading column of the PK itself
     primaryKey({ columns: [table.userId, table.groupId] }),
-    // -> The non-leading PK column, genuinely needed by sessions.clearSessionsForGroup's
-    //    `WHERE groupId = ?`.
+    // -> `userId` alone is already covered by the primary key's own index, being its leading column,
+    //    and a plain `(userId, groupId)` composite would be byte-for-byte identical to the PK's index
+    //    -- both dropped as redundant. `groupId` is kept: it's the PK's non-leading column, and the
+    //    PK's index cannot serve a lookup on it alone. Genuinely needed by
+    //    `sessions.clearSessionsForGroup`'s `WHERE groupId = ?`.
     index('userGroups_groupId_idx').on(table.groupId)
   ]
 )

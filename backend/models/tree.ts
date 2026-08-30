@@ -6,7 +6,6 @@ import {
   CustomError,
   decodeTreePath,
   encodeTreePath,
-  generateHash,
   generatePathHash,
   normalizePagePath
 } from '../helpers/common.ts'
@@ -931,16 +930,12 @@ class Tree {
         WIKI.logger.debug(
           `Creating missing parent folder ${ancestor.fileName} at path /${decodeTreePath(ancestor.folderPath)}...`
         )
-        const ancestorFullPath = ancestor.folderPath
-          ? `${decodeTreePath(ancestor.folderPath)}/${ancestor.fileName}`
-          : ancestor.fileName
         try {
           await db.insert(treeTable).values({
             folderPath: ancestor.folderPath,
             fileName: ancestor.fileName,
             type: 'folder',
             title: ancestor.fileName,
-            hash: generateHash(ancestorFullPath),
             locale: effectiveLocale,
             siteId,
             meta: { children: 0 }
@@ -961,7 +956,6 @@ class Tree {
       }
     }
 
-    const fullPath = path ? `${decodeTreePath(path)}/${name}` : name
     let inserted
     try {
       inserted = await db
@@ -971,7 +965,6 @@ class Tree {
           fileName: name,
           type: 'folder',
           title,
-          hash: generateHash(fullPath),
           locale: effectiveLocale,
           siteId,
           meta: { children: 0 }
@@ -1163,10 +1156,9 @@ class Tree {
           )
         )
 
-      const fullPath = folder.folderPath ? `${decodeTreePath(folder.folderPath)}/${name}` : name
       const renamed = await tx
         .update(treeTable)
-        .set({ fileName: name, title, hash: generateHash(fullPath), updatedAt: sql`now()` })
+        .set({ fileName: name, title, updatedAt: sql`now()` })
         .where(eq(treeTable.id, folder.id))
         .returning()
 
@@ -1195,20 +1187,18 @@ class Tree {
   }
 
   /**
-   * Rewrite where everything at or below a folder now sits.
+   * Rewrite every page's stored path after a folder move.
    *
-   * Two rows carry a path and both have to be redone. The tree's own `hash` is how an entry is found
-   * by its path, so leaving it would make every page and asset under the folder unreachable by URL.
-   * A page then keeps a second copy of its path on `pages` -- the `path` itself and the `hash` a
-   * reader's request is actually resolved through -- so leaving that would move the page in the tree
-   * while still serving it from where it used to be, and nothing at all from where it now is.
+   * A page keeps a second copy of its path on `pages` -- the `path` itself and the `hash` a reader's
+   * request is actually resolved through -- so leaving it after a folder move would keep serving the
+   * page from where it used to sit, not where it now is. The tree row itself needs no further work
+   * here: the bulk ltree `UPDATE` just above the caller of this method already rewrote every
+   * descendant's `folderPath`, folders and assets included, and neither of those has a path of its
+   * own beyond that.
    *
-   * An asset has no path of its own: its tree row is the only thing that places it, and moving that
-   * row is the whole job.
-   *
-   * The two hashes are not the same function and neither exists in postgres, so each row is rewritten
-   * from here. What is deliberately not touched is `updatedAt`: the folder moved, the pages under it
-   * did not change, and marking a few hundred of them as freshly edited would say otherwise.
+   * `generatePathHash` does not exist in postgres, so each page's hash is recomputed here, row by
+   * row. What is deliberately not touched is `updatedAt`: the folder moved, the pages under it did
+   * not change, and marking a few hundred of them as freshly edited would say otherwise.
    *
    * @returns Every page this call repathed -- its full post-update row plus where it used to live, for
    *          `renameFolder` to fire the move side effects (search reindex, storage dispatch) once the
@@ -1224,7 +1214,6 @@ class Tree {
     const rows = await db
       .select({
         id: treeTable.id,
-        type: treeTable.type,
         folderPath: treeTable.folderPath,
         fileName: treeTable.fileName
       })
@@ -1233,14 +1222,16 @@ class Tree {
         and(
           eq(treeTable.siteId, siteId),
           eq(treeTable.locale, locale),
+          eq(treeTable.type, 'page'),
           sql`${treeTable.folderPath} <@ ${path}::ltree`
         )
       )
 
     // -> Read before anything below overwrites it: `pages.path` is a second, independent copy of
     //    where the page sits (see the class comment above), and this is the only place its
-    //    pre-rename value is still around to read.
-    const pageIds = rows.filter((row) => row.type === 'page').map((row) => row.id)
+    //    pre-rename value is still around to read. Every row here is already a page (the select
+    //    above filters on it), so no per-row type check is needed.
+    const pageIds = rows.map((row) => row.id)
     const previousPaths = new Map<string, string>()
     if (pageIds.length > 0) {
       const previousRows = await db
@@ -1252,32 +1243,22 @@ class Tree {
       }
     }
 
-    let pageCount = 0
     const movedPages: MovedDescendantPage[] = []
     for (const row of rows) {
       const folderPath = decodeTreePath(row.folderPath ?? '')
       const fullPath = folderPath ? `${folderPath}/${row.fileName}` : row.fileName
-      await db
-        .update(treeTable)
-        .set({ hash: generateHash(fullPath) })
-        .where(eq(treeTable.id, row.id))
-      if (row.type === 'page') {
-        const [updated] = await db
-          .update(pagesTable)
-          .set({ path: fullPath, hash: generatePathHash(fullPath) })
-          .where(eq(pagesTable.id, row.id))
-          .returning()
-        const previousPath = previousPaths.get(row.id)
-        if (updated && previousPath !== undefined) {
-          movedPages.push({ page: updated, previousPath, previousLocale: locale })
-        }
-        pageCount++
+      const [updated] = await db
+        .update(pagesTable)
+        .set({ path: fullPath, hash: generatePathHash(fullPath) })
+        .where(eq(pagesTable.id, row.id))
+        .returning()
+      const previousPath = previousPaths.get(row.id)
+      if (updated && previousPath !== undefined) {
+        movedPages.push({ page: updated, previousPath, previousLocale: locale })
       }
     }
     if (rows.length > 0) {
-      WIKI.logger.debug(
-        `Refreshed the path of ${rows.length} moved entrie(s), ${pageCount} of them page(s).`
-      )
+      WIKI.logger.debug(`Refreshed the path of ${rows.length} moved page(s).`)
     }
     return movedPages
   }
@@ -1597,14 +1578,11 @@ class Tree {
       }
     }
 
-    const folderPath = decodeTreePath(entry.folderPath ?? '')
-    const fullPath = folderPath ? `${folderPath}/${fileName}` : fileName
     const updated = await WIKI.db
       .update(treeTable)
       .set({
         fileName,
         title: title ?? entry.title,
-        hash: generateHash(fullPath),
         updatedAt: sql`now()`
       })
       .where(eq(treeTable.id, entry.id))
@@ -1691,7 +1669,6 @@ class Tree {
           // -> A title that was only ever the file name follows it when the name had to change, so that
           //    two uploads of `photo.png` do not both show up called `photo.png`
           title: title === fileName ? name : title,
-          hash: generateHash(fullPath),
           locale,
           siteId,
           tags,
@@ -1720,9 +1697,9 @@ class Tree {
   /**
    * Settle on a file name that nothing in the folder is already using.
    *
-   * Two entries with the same name in the same folder would share a path, and therefore a hash — the
-   * second one would shadow the first everywhere it is looked up by URL. An upload takes the next free
-   * `name-1.ext`, the way a file manager is expected to; anything else says so instead.
+   * Two entries with the same name in the same folder would share a path — the second one would
+   * shadow the first everywhere it is looked up by URL. An upload takes the next free `name-1.ext`,
+   * the way a file manager is expected to; anything else says so instead.
    *
    * A page is the exception: a page and the folder of the pages below it are *meant* to share a name,
    * which is what `/guide` being both a page and the way into `/guide/…` is. Nothing shadows anything

@@ -924,31 +924,32 @@ class Groups {
     }
     const where = and(...conditions)
 
-    const totals = await WIKI.db
-      .select({ total: count() })
-      .from(userGroups)
-      .innerJoin(usersTable, eq(usersTable.id, userGroups.userId))
-      .where(where)
-
-    const users = await WIKI.db
-      .select({
-        id: usersTable.id,
-        name: usersTable.name,
-        email: usersTable.email,
-        hasAvatar: usersTable.hasAvatar,
-        isSystem: usersTable.isSystem,
-        isActive: usersTable.isActive,
-        isVerified: usersTable.isVerified,
-        createdAt: usersTable.createdAt,
-        updatedAt: usersTable.updatedAt,
-        lastLoginAt: usersTable.lastLoginAt
-      })
-      .from(userGroups)
-      .innerJoin(usersTable, eq(usersTable.id, userGroups.userId))
-      .where(where)
-      .orderBy(usersTable.name)
-      .limit(limit)
-      .offset((page - 1) * limit)
+    const [users, totals] = await Promise.all([
+      WIKI.db
+        .select({
+          id: usersTable.id,
+          name: usersTable.name,
+          email: usersTable.email,
+          hasAvatar: usersTable.hasAvatar,
+          isSystem: usersTable.isSystem,
+          isActive: usersTable.isActive,
+          isVerified: usersTable.isVerified,
+          createdAt: usersTable.createdAt,
+          updatedAt: usersTable.updatedAt,
+          lastLoginAt: usersTable.lastLoginAt
+        })
+        .from(userGroups)
+        .innerJoin(usersTable, eq(usersTable.id, userGroups.userId))
+        .where(where)
+        .orderBy(usersTable.name)
+        .limit(limit)
+        .offset((page - 1) * limit),
+      WIKI.db
+        .select({ total: count() })
+        .from(userGroups)
+        .innerJoin(usersTable, eq(usersTable.id, userGroups.userId))
+        .where(where)
+    ])
 
     return {
       total: totals[0]?.total ?? 0,

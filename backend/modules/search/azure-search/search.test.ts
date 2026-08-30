@@ -141,7 +141,6 @@ function page(overrides: Partial<SearchIndexablePage> = {}): SearchIndexablePage
     contentType: 'markdown',
     isBrowsable: true,
     isSearchable: true,
-    isSearchableComputed: true,
     classification: 'classification-1',
     password: null,
     ratingScore: 0,
