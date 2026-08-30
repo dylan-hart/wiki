@@ -474,18 +474,6 @@ export function generateHash(str: string): string {
   return crypto.createHash('sha1').update(str).digest('hex')
 }
 
-/**
- * Compare two secrets without leaking which character stopped the comparison.
- *
- * `===` on strings returns as soon as it finds a difference, and the time that takes is measurable
- * across enough attempts. Both sides are digested first because `timingSafeEqual` throws on operands
- * of different lengths — the digest is a fixed 32 bytes, so the length of the candidate says nothing.
- */
-export function timingSafeCompare(a: string, b: string): boolean {
-  const digest = (value: string) => crypto.createHash('sha256').update(value).digest()
-  return crypto.timingSafeEqual(digest(a), digest(b))
-}
-
 /** RFC 4122 UUID, versions 1-8, case-insensitive -- matches what the removed `uuid` package's own `validate()` accepted. */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 

@@ -214,7 +214,17 @@ async function handle(
         syncProtocol.writeUpdate(encoder, update)
         collab.onMessage(current.room, current.conn, encoding.toUint8Array(encoder))
       })
-      await collab.join(conn, { id: pageId, siteId }, { room: null, pending: [] })
+      // -> Each simulated session is its own account from its own address, so the load test's several
+      //    concurrent sessions never collide with one another against the per-user/per-address cap.
+      await collab.join(
+        conn,
+        { id: pageId, siteId },
+        { room: null, pending: [] },
+        {
+          userId: sessionId,
+          address: sessionId
+        }
+      )
       const step1 = encoding.createEncoder()
       encoding.writeVarUint(step1, MESSAGE_SYNC)
       syncProtocol.writeSyncStep1(step1, doc)
@@ -250,7 +260,15 @@ async function handle(
       const room = await collab.ensureRoom({ id: pageId, siteId })
       const conn = makeSessionSocket(collab, session.doc, room)
       sessions.set(sessionId, { conn, doc: session.doc, room, connected: true })
-      await collab.join(conn, { id: pageId, siteId }, { room: null, pending: [] })
+      await collab.join(
+        conn,
+        { id: pageId, siteId },
+        { room: null, pending: [] },
+        {
+          userId: sessionId,
+          address: sessionId
+        }
+      )
       const step1 = encoding.createEncoder()
       encoding.writeVarUint(step1, MESSAGE_SYNC)
       syncProtocol.writeSyncStep1(step1, session.doc)

@@ -119,10 +119,10 @@ describe('fixture: 2.5x-settings.json -> mapSiteSettings', () => {
         // renamed AND polarity-inverted: source had both flags `true`
         disallowOpenRedirect: false,
         disallowIframe: false,
-        // moved tables: 2.x `uploads.*` -> 3.0 `settings.security.*`
+        // moved tables: 2.x `uploads.*` -> 3.0 `settings.security.*`. The fixture's `maxFiles`/
+        // `scanSVG` have no 3.0 counterpart (OpenProject #1360/#2152 deleted both as dead settings)
+        // and are dropped rather than mapped.
         uploadMaxFileSize: 200,
-        uploadMaxFiles: 20,
-        uploadScanSVG: true,
         forceAssetDownload: false
       }
     })

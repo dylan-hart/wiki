@@ -1,5 +1,5 @@
 import proxyAddr from '@fastify/proxy-addr'
-import { CORS_MODES, parseCspDirectives } from '../helpers/security.ts'
+import { CORS_MODES, findUnknownCspDirective, parseCspDirectives } from '../helpers/security.ts'
 
 /** Fields stored in the `security` settings blob. */
 export const SECURITY_FIELDS = [
@@ -22,9 +22,7 @@ export const SECURITY_FIELDS = [
   'forceAssetDownload',
   'hstsDuration',
   'trustProxy',
-  'uploadMaxFileSize',
-  'uploadMaxFiles',
-  'uploadScanSVG'
+  'uploadMaxFileSize'
 ] as const
 
 /** A duration as the admin area writes it: `30m`, `14d`, `1y`. */
@@ -67,11 +65,19 @@ class Security {
    * request showed the classic reverse-proxy cookie misconfiguration (upstream discussion #6866,
    * task 833) -- the proxy says the original connection was HTTPS (`X-Forwarded-Proto: https`),
    * but this instance neither trusts that header (`trustProxy` is off) nor terminated TLS itself.
-   * `request.protocol` can only ever reflect the raw, plaintext connection in that case, so the
-   * `secure: 'auto'` session cookie (see the `Sessions` section of `index.ts`) resolves to
-   * `false` even though every browser in front of the proxy is really talking HTTPS. Reset only by
-   * a restart -- it describes how the process was started, not something that self-heals while it
-   * keeps running the same way.
+   * `request.protocol` can only ever reflect the raw, plaintext connection in that case.
+   *
+   * Task 2109 / WP 2105 §2 made the session cookie's own `Secure`/`SameSite` attributes
+   * unconditional (`index.ts`'s `fastifySession` registration no longer uses `secure: 'auto'` --
+   * see the comment there for why the `__Host-` cookie-name prefix requires that), so this
+   * misconfiguration no longer risks the session cookie specifically: it is marked `Secure`
+   * either way, and every browser in front of the proxy is really talking HTTPS regardless of
+   * whether this instance believes it. What the misconfiguration still gets wrong is every OTHER
+   * place `request.protocol` (or `trustProxy`) feeds scheme-sensitive decisions elsewhere in the
+   * app -- absolute URL / redirect generation, HSTS enforcement -- which is why this diagnostic is
+   * still worth surfacing rather than deleted along with the risk it originally described. Reset
+   * only by a restart -- it describes how the process was started, not something that self-heals
+   * while it keeps running the same way.
    */
   private insecureCookieRiskAt: string | null = null
 
@@ -164,6 +170,18 @@ class Security {
     if (merged.enforceCsp) {
       if (Object.keys(parseCspDirectives(merged.cspDirectives ?? '')).length < 1) {
         return 'Enforcing a Content-Security-Policy needs at least one directive.'
+      }
+    }
+    /*
+      Checked whenever ANY directive string is stored, not only while `enforceCsp` is on: a typo
+      saved while CSP is off would otherwise sit silently wrong until the moment an operator flips
+      the toggle, which is exactly the wrong time to discover it (OpenProject #1360/#2154, 2026-08-24
+      security audit §10).
+    */
+    if (merged.cspDirectives) {
+      const unknown = findUnknownCspDirective(merged.cspDirectives)
+      if (unknown) {
+        return `"${unknown}" is not a Content-Security-Policy directive a browser recognises.`
       }
     }
 

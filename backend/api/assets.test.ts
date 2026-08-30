@@ -39,10 +39,16 @@ describe('download route: byte-serving behavior', () => {
 
   let readContentResult: any
   let readContentCalledWith: any
+  let resolvedAsset: any
 
-  async function buildApp() {
+  /**
+   * `forceAssetDownload: true` matches `base.yml`'s real default, the same reason
+   * `controllers/files.test.ts`'s own `buildApp()` defaults it — this stub bypasses the base.yml
+   * merge entirely, so a test wanting realistic behavior needs it set explicitly.
+   */
+  async function buildApp(security: Record<string, unknown> = { forceAssetDownload: true }) {
     global.WIKI = {
-      config: {},
+      config: { security },
       sites: {
         [siteId]: { id: siteId, isEnabled: true }
       },
@@ -52,7 +58,7 @@ describe('download route: byte-serving behavior', () => {
           checkAccess: () => true
         },
         assets: {
-          getAsset: async () => asset,
+          getAsset: async () => resolvedAsset ?? asset,
           readContent: async (a: any, sId: string) => {
             readContentCalledWith = { a, sId }
             return readContentResult
@@ -132,6 +138,69 @@ describe('download route: byte-serving behavior', () => {
       url: `/sites/${siteId}/assets/${assetId}/content`
     })
     assert.equal(res.statusCode, 404)
+    await app.close()
+  })
+
+  /**
+   * OpenProject #1360/#2152 (2026-08-24 security audit §3): this route's `Content-Disposition`
+   * predicate used to be inverted relative to `/_files/*`'s — `forceAssetDownload ||
+   * !INLINE_EXTS.has(ext)` forced every image to download whenever `forceAssetDownload` was on (the
+   * shipped default), and forced every non-image extension to download regardless of the setting.
+   * Both routes now call the one shared `models/assets.ts#shouldForceDownload` predicate.
+   */
+  test('never forces an image to download, even with forceAssetDownload on', async () => {
+    resolvedAsset = { ...asset, fileName: 'photo.png', fileExt: 'png', mimeType: 'image/png' }
+    readContentResult = { body: Buffer.from('the bytes'), size: 9 }
+    const app = await buildApp({ forceAssetDownload: true })
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${siteId}/assets/${assetId}/content`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.headers['content-disposition'], undefined)
+    resolvedAsset = undefined
+    await app.close()
+  })
+
+  test('does not force a non-image extension to download when forceAssetDownload is off', async () => {
+    readContentResult = { body: Buffer.from('the bytes'), size: 9 }
+    const app = await buildApp({ forceAssetDownload: false })
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${siteId}/assets/${assetId}/content`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.headers['content-disposition'], undefined)
+    await app.close()
+  })
+
+  test('attaches the sandboxing CSP to an SVG asset, with and without forceAssetDownload', async () => {
+    resolvedAsset = { ...asset, fileName: 'diagram.svg', fileExt: 'svg', mimeType: 'image/svg+xml' }
+    readContentResult = { body: Buffer.from('<svg><script>alert(1)</script></svg>'), size: 37 }
+    for (const forceAssetDownload of [true, false]) {
+      const app = await buildApp({ forceAssetDownload })
+      const res = await app.inject({
+        method: 'GET',
+        url: `/sites/${siteId}/assets/${assetId}/content`
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(
+        res.headers['content-security-policy'],
+        "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+      )
+      await app.close()
+    }
+    resolvedAsset = undefined
+  })
+
+  test('sets no Content-Security-Policy header on an ordinary, non-dangerous asset', async () => {
+    readContentResult = { body: Buffer.from('the bytes'), size: 9 }
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${siteId}/assets/${assetId}/content`
+    })
+    assert.equal(res.headers['content-security-policy'], undefined)
     await app.close()
   })
 })

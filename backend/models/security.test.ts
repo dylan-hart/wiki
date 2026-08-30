@@ -17,8 +17,9 @@ if (typeof Temporal === 'undefined') {
  * `insecureCookieRiskAt` on `GET /system/security`, the diagnostic that warns when this instance
  * sits behind a reverse proxy terminating TLS while `trustProxy` is off -- see the doc comment on
  * `models/security.ts` for the full mechanism (`request.protocol` never reflects
- * `X-Forwarded-Proto` in that configuration, so `secure: 'auto'` on the session cookie in
- * `index.ts` resolves to `false`).
+ * `X-Forwarded-Proto` in that configuration). Since task 2109 / WP 2105 §2 made the session
+ * cookie's `Secure` attribute unconditional, this no longer risks that cookie specifically -- see
+ * the updated doc comment on `insecureCookieRiskAt` for what it still catches.
  *
  * Exercises the model directly against a minimal `WIKI.config.security` stand-in rather than a
  * real Fastify request, since `observeRequest` only ever reads two things: the raw header bag and
@@ -169,5 +170,46 @@ describe("Security#validate — the widened 'trustProxy' field", () => {
       /CORS mode/
     )
     assert.match(security.validate({ corsMode: 'OFF', trustProxy: 'garbage' })!, /trusted proxy/i)
+  })
+})
+
+/**
+ * OpenProject #1360/#2154 (2026-08-24 security audit §10): `validate()` now refuses an unknown CSP
+ * directive name whenever `cspDirectives` is being saved at all, not only while `enforceCsp` is on
+ * — a typo saved while CSP is off would otherwise sit silently wrong until the moment an operator
+ * flips the toggle.
+ */
+describe('Security#validate — CSP directive names', () => {
+  let security: typeof import('./security.ts').security
+
+  beforeEach(async () => {
+    // -> `corsMode: 'OFF'` so `validate()`'s CORS-mode check (unrelated to this describe block)
+    //    passes before its CSP check is ever reached.
+    ;(globalThis as any).WIKI = { config: { security: { corsMode: 'OFF' } } }
+    ;({ security } = await import(`./security.ts?t=${Math.random()}`))
+  })
+
+  test('accepts a patch with only recognised directive names, enforceCsp off', () => {
+    assert.equal(
+      security.validate({ cspDirectives: "default-src 'self'; object-src 'none'" }),
+      null
+    )
+  })
+
+  test('refuses an unknown directive name even while enforceCsp is off', () => {
+    const reason = security.validate({ cspDirectives: "scirpt-src 'self'" })
+    assert.match(reason ?? '', /scirpt-src/)
+  })
+
+  test('refuses an unknown directive name when enforceCsp is being turned on in the same patch', () => {
+    const reason = security.validate({
+      enforceCsp: true,
+      cspDirectives: "default-src 'self'; not-a-directive 'x'"
+    })
+    assert.match(reason ?? '', /not-a-directive/)
+  })
+
+  test('an empty cspDirectives patch is not checked against the directive allowlist at all', () => {
+    assert.equal(security.validate({ cspDirectives: '' }), null)
   })
 })

@@ -1,6 +1,65 @@
+import { LRUCache } from 'lru-cache'
 import { durationToSeconds } from './common.ts'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import type { RateLimitPolicy, RateLimitVerdict } from '../models/rateLimits.ts'
+/**
+ * In-process memo of currently-banned keys, so a request from a key that is already serving a ban
+ * can be refused without the round trip `WIKI.models.rateLimits.consume()` would otherwise make to
+ * Postgres for every single request — an UPDATE against the same hot row, on the pool every other
+ * request shares, purely to re-confirm a ban that was already established.
+ *
+ * Refusal-only, deliberately: only a *banned* verdict is ever written here, never an allowed one.
+ * `models/rateLimits.ts`'s header comment is explicit that the real counter has to stay a shared,
+ * database-backed one so two instances behind a load balancer agree on it — a grant-side cache would
+ * let one instance keep answering "allowed" out of a stale local memo after another instance's
+ * database write should have banned the key. A refusal can never go stale in the dangerous direction:
+ * the worst a missed refusal-memo does is one avoidable database write, not a bypassed ban, and the
+ * entry's TTL (set to the ban's own `retryAfter`) means it is never wrong for longer than the ban
+ * itself already runs.
+ *
+ * Shared by every caller of {@link consumeWithBanMemo} below — `limitAuthAttempts`, `limitApiRequests`,
+ * `limitRenders` and `limitApiKey` all key into the same instance rather than each keeping its own,
+ * since the underlying key strings are already namespaced (`auth:`, `api:`, `render:`, `apikey:`) and
+ * nothing is gained by splitting the memo four ways.
+ *
+ * Exported so `rateLimit.test.ts` can `.clear()` it between test cases that reuse the same IP/key
+ * across otherwise-independent tests; nothing else needs to reach in.
+ */
+export const activeBanMemo = new LRUCache<string, number>({
+  max: 5000,
+  // `ttlResolution` defaults to 1ms, debouncing repeated staleness checks onto one cached
+  // `perf.now()` reading within that window. Fine for most uses, but the reported `Retry-After`
+  // recomputed from `getRemainingTTL` below is worth keeping exact rather than off by up to a
+  // millisecond, and a rate-limit hook is never called often enough for the extra `perf.now()`
+  // calls this costs to matter.
+  ttlResolution: 0
+})
+
+/**
+ * `WIKI.models.rateLimits.consume()`, fronted by {@link activeBanMemo}.
+ *
+ * A key already in the memo is refused immediately, with `retryAfter` recomputed from the memo
+ * entry's own remaining TTL (so it counts down correctly across repeated refused requests, rather
+ * than reporting whatever `retryAfter` the ban started with) and `hits` carried over from the verdict
+ * that created the memo entry — accurate for the whole ban, since a banned key does not accumulate
+ * further hits.
+ *
+ * Otherwise this reaches the database exactly as before. A verdict that comes back banned is written
+ * into the memo, TTL'd to its own `retryAfter`; an allowed verdict is returned as-is and never
+ * memoized, so a permitted request always reaches SQL.
+ */
+async function consumeWithBanMemo(key: string, policy: RateLimitPolicy): Promise<RateLimitVerdict> {
+  const memoizedHits = activeBanMemo.get(key)
+  if (memoizedHits !== undefined) {
+    const retryAfter = Math.max(1, Math.ceil(activeBanMemo.getRemainingTTL(key) / 1000))
+    return { allowed: false, hits: memoizedHits, retryAfter }
+  }
+  const verdict = await WIKI.models.rateLimits.consume(key, policy)
+  if (!verdict.allowed && verdict.retryAfter > 0) {
+    activeBanMemo.set(key, verdict.hits, { ttl: verdict.retryAfter * 1000 })
+  }
+  return verdict
+}
 
 /**
  * Defaults for the limit on the authentication endpoints, used until an administrator saves their own
@@ -81,7 +140,7 @@ export async function limitAuthAttempts(req: FastifyRequest, reply: FastifyReply
   if (WIKI.config.security?.authRateLimitEnabled === false) {
     return
   }
-  const verdict = await WIKI.models.rateLimits.consume(`auth:${req.ip}`, authPolicy())
+  const verdict = await consumeWithBanMemo(`auth:${req.ip}`, authPolicy())
   if (verdict.allowed) {
     return
   }
@@ -192,7 +251,7 @@ export async function limitApiRequests(req: FastifyRequest, reply: FastifyReply)
     : req.session?.authenticated
       ? `user:${req.session.user!.id}`
       : `ip:${req.ip}`
-  const verdict = await WIKI.models.rateLimits.consume(`api:${key}`, apiPolicy())
+  const verdict = await consumeWithBanMemo(`api:${key}`, apiPolicy())
   if (verdict.allowed) {
     return
   }
@@ -221,7 +280,7 @@ export async function limitRenders(req: FastifyRequest, reply: FastifyReply): Pr
   if (req.session?.permissions?.includes('manage:system')) {
     return
   }
-  const verdict = await WIKI.models.rateLimits.consume(
+  const verdict = await consumeWithBanMemo(
     `render:${req.session?.user?.id ?? req.ip}`,
     RENDER_LIMIT
   )
@@ -280,7 +339,7 @@ export async function limitApiKey(req: FastifyRequest, reply: FastifyReply): Pro
   if (!req.apiKey) {
     return
   }
-  const verdict = await WIKI.models.rateLimits.consume(`apikey:${req.apiKey.id}`, API_KEY_LIMIT)
+  const verdict = await consumeWithBanMemo(`apikey:${req.apiKey.id}`, API_KEY_LIMIT)
   if (verdict.allowed) {
     return
   }

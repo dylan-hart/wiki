@@ -16,6 +16,7 @@ import {
 } from '../helpers/common.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
 import { PAGE_PERMISSIONS } from '../helpers/permissions.ts'
+import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 
 /**
@@ -78,7 +79,8 @@ const pageIdParam = {
  * tokens existed to fill it with something real. `write:scripts`/`write:styles` are page-rule-scoped
  * (see CLAUDE.md's Permissions section), so `groupIds` travels along too — it is what
  * `models/pages.ts`'s `hasPermission()` resolves a page rule against, the same way `mayOnPage()` does
- * here.
+ * here. `siteId` travels along for the same reason (OpenProject #2189): a personal token pinned to
+ * one site must not gain a `write:scripts`/`write:styles` grant on another's page through this path.
  */
 export function actorFrom(req: FastifyRequest): PageActor | null {
   if (req.apiKey?.userId) {
@@ -657,7 +659,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       // -> A site-scoped key may not reach a site it isn't scoped to -- now enforced globally by
-      //    `apiKeySitePinPreHandler` in `index.ts` for every `/sites/:siteId/...` route, this one
+      //    `apiKeySitePinHook` in `index.ts` for every `/sites/:siteId/...` route, this one
       //    included; see `helpers/apiKeySite.ts`.
       const isId = isValidUuid(req.params.pageIdOrHash)
       const actor = actorFrom(req)
@@ -854,7 +856,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       // -> A site-scoped key may not reach a site it isn't scoped to -- now enforced globally by
-      //    `apiKeySitePinPreHandler` in `index.ts` for every `/sites/:siteId/...` route, this one
+      //    `apiKeySitePinHook` in `index.ts` for every `/sites/:siteId/...` route, this one
       //    included; see `helpers/apiKeySite.ts`.
       const actor = actorFrom(req)
       if (!actor) {
@@ -1892,7 +1894,7 @@ async function routes(app: FastifyInstance) {
         path: page.path,
         // -> The raw, still-signed cookie value exactly as the browser sent it — see the AUTH comment
         //    on `PdfExport.exportPdf` for why forwarding it is safe and sufficient
-        sessionCookie: req.cookies?.wikiSession ?? null
+        sessionCookie: req.cookies?.[SESSION_COOKIE_NAME] ?? null
       })
 
       reply.header(

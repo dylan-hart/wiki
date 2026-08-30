@@ -149,7 +149,7 @@ const groupSelection = {
  * `models/apiKeys.ts`) — `null`/absent means instance-wide (a session, or an unpinned key).
  * OpenProject #2189/#2199: this is the engine-level half of the site-pin fix, closing
  * `checkAccess()`/`checkSiteAccess()` themselves rather than relying only on the routing-layer
- * `preHandler` (`helpers/apiKeySite.ts#apiKeySitePinPreHandler`) to have already refused a
+ * `preHandler` (`helpers/apiKeySite.ts#apiKeySitePinHook`) to have already refused a
  * mismatched `:siteId`. Checked the same way `allowedClassifications` is: a ref whose own `siteId`
  * disagrees with the pin is refused before `manage:system` is even consulted, for the identical
  * reason -- a site pin is the administrator's own choice at mint time, not a page rule
@@ -339,6 +339,19 @@ class Groups {
   }
 
   /**
+   * Whether `siteId` survives this actor's site pin, if it has one.
+   *
+   * `null`/absent `actor.siteId` is unrestricted (a session, or a key issued with no pin). A pin that
+   * IS set refuses every OTHER site outright — see the `AccessActor.siteId` doc comment. `siteId` is
+   * `null` for a page ref with no site context at all (a caller that generically has none — see
+   * `RulePageRef`'s own doc comment on failing closed); a pinned actor fails closed there too, the
+   * same as a site-scoped rule would against the same `null`.
+   */
+  private withinSitePin(actor: AccessActor, siteId: string | null): boolean {
+    return !actor.siteId || actor.siteId === siteId
+  }
+
+  /**
    * Whether this caller may do this to this page.
    *
    * The one place page permissions are decided. Everything page-scoped asks this rather than reading
@@ -481,6 +494,11 @@ class Groups {
       return true
     }
     if (!this.withinScope(actor, permission)) {
+      return false
+    }
+    // -> OpenProject #2189/#2199: a site-pinned key may never be granted a site-admin permission on
+    //    a different site, regardless of what its groups' rules say.
+    if (!this.withinSitePin(actor, siteId)) {
       return false
     }
     const rule = resolveSiteRule(this.rulesForGroups(actor.groupIds), permission, siteId)

@@ -21,15 +21,12 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
  * }
  * ```
  *
- * OpenProject #2189/#2194: EVERY `/sites/:siteId/...` route is now covered automatically by
- * `apiKeySitePinPreHandler()` below, registered once as a global `preHandler` in `index.ts` — that
- * is what closed the gap this helper's own doc comment used to describe as future work (117 routes,
- * 2 of them remembering to call this). This direct function stays exported, and still has to be
- * called explicitly, ONLY for the handful of routes that resolve the site they act on from
- * somewhere other than `req.params.siteId` — a request body or querystring field, since the global
- * hook has no way to know which field on an arbitrary route means "the site" (`api/system.ts`'s
- * `/export`/`/import` are the two today). A route addressed as `/sites/:siteId/...` needs no call
- * to this at all: the global hook already covers it.
+ * Most of the `/sites/:siteId/...` REST surface never calls this directly any more — `apiKeySitePinHook`
+ * below is registered once, globally, in `index.ts` and covers all of it. This stays exported, and is
+ * still called explicitly, for the handful of routes that resolve their site some other way than a
+ * `:siteId` path parameter — a hostname (`controllers/files.ts`, `controllers/site.ts`,
+ * `controllers/render.ts`) or a request body — which the params-only hook cannot see (OpenProject
+ * #2201).
  */
 export function enforceApiKeySite(
   req: FastifyRequest,
@@ -44,30 +41,44 @@ export function enforceApiKeySite(
 }
 
 /**
- * The global preHandler `index.ts` registers once, covering every `/sites/:siteId/...` route at
- * once rather than requiring each one to remember its own `enforceApiKeySite()` call — the shape
- * the fix deliberately avoided (OpenProject #2189's own audit finding was exactly that the
- * route-by-route approach produced a 2-of-117 gap).
- *
- * Reads `siteId` off `req.params` the plain way (`(req.params as any)?.siteId`) rather than typing
- * every possible route's params shape: this runs before any one route's own generic narrows
- * `req.params`, so it has to work across the whole app. A route with no `:siteId` segment at all —
- * the overwhelming majority under `/_api/` that address a group, a user, the instance itself — has
- * no `siteId` here and this is a no-op for it, exactly as `enforceApiKeySite()` already was for a
- * caller that had nothing to check against.
+ * The literal prefix every `/sites/:siteId/...` REST route is mounted under: `api/index.ts` registers
+ * every resource file (`pages.ts`, `assets.ts`, `sites.ts`, `tree.ts`, ...) under `/_api`, and each one
+ * writes its own path starting with either `/sites/:siteId/...` or (`sites.ts` itself, whose file
+ * writes bare `/:siteId/...` under an `{ prefix: '/sites' }` registration) the same thing once the
+ * prefix is applied. `test/apiKeySitePinCoverage.test.ts` asserts, against the real registered route
+ * table, that this really is every route carrying a `:siteId` param — so a route added under some
+ * other prefix that still happens to read a `:siteId` param (paths OUTSIDE this prefix that also
+ * happen to have a same-named parameter — `controllers/site.ts`'s `/:siteId/:resource`, whose
+ * `:siteId` can be the literal sentinel `'current'` or a hostname rather than a real site id — are
+ * deliberately NOT matched by this prefix, and must call `enforceApiKeySite()` explicitly instead)
+ * fails that test rather than silently going unchecked.
  */
-export function apiKeySitePinPreHandler(
+const SITE_SCOPED_API_PREFIX = '/_api/sites/'
+
+/**
+ * Global `preHandler` enforcing the API key `siteId` pin across every `/sites/:siteId/...` REST route
+ * in one place (OpenProject #2194), rather than the one-liner-per-route approach that produced the gap
+ * this closes: `enforceApiKeySite()` above was invoked at exactly two of 117+ call sites before this
+ * existed. Registered once in `index.ts`, beside the permissions hook, so a route added later under
+ * `SITE_SCOPED_API_PREFIX` is covered automatically rather than by remembering to add a call.
+ *
+ * Cheap on the overwhelming majority of requests: an unpinned key (`req.apiKey.siteId` null, or no key
+ * at all — session auth, or none) returns before even looking at the URL.
+ */
+export function apiKeySitePinHook(
   req: FastifyRequest,
   reply: FastifyReply,
   done: (err?: Error) => void
 ): void {
-  const targetSiteId = (req.params as Record<string, unknown> | undefined)?.siteId
-  if (
-    req.apiKey?.siteId &&
-    typeof targetSiteId === 'string' &&
-    req.apiKey.siteId !== targetSiteId
-  ) {
-    reply.forbidden('This API key is not scoped to this site.')
+  if (!req.apiKey?.siteId) {
+    return done()
+  }
+  if (!req.url.startsWith(SITE_SCOPED_API_PREFIX)) {
+    return done()
+  }
+  const siteId = (req.params as { siteId?: string } | undefined)?.siteId
+  if (siteId && !enforceApiKeySite(req, reply, siteId)) {
+    // -> enforceApiKeySite() already wrote the 403; do not call done() again.
     return
   }
   done()

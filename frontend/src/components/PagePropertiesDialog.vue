@@ -362,7 +362,10 @@
           </div>
           <div v-if="state.requirePassword" style="padding-left: 40px">
             <!-- -> Masked, with WInput's own reveal toggle: this is a secret to hand out rather than
-                    one to remember, so the author has to be able to read back what they typed -->
+                    one to remember, so the author has to be able to read back what they typed.
+                    Always starts empty -- the server never hands an existing password back
+                    (OpenProject #2232), so there is nothing here to prefill even when the page
+                    already has one; leaving it blank on save just keeps that one as it is. -->
             <w-input
               ref="iptPagePassword"
               v-model="pageStore.password"
@@ -370,7 +373,11 @@
               revealable
               autocomplete="off"
               :label="t(`editor.props.password`)"
-              :hint="t(`editor.props.passwordHint`)"
+              :hint="
+                pageStore.hasPassword
+                  ? t(`editor.props.passwordKeepHint`)
+                  : t(`editor.props.passwordHint`)
+              "
               outlined
               dense />
           </div>
@@ -529,22 +536,28 @@ function jumpToSection(id) {
 /*
   Watched rather than read once in `onMounted` (OpenProject #1133): this panel can mount before
   `pageStore.pageLoad()` resolves, and a one-time read left `state.requirePassword` stuck at whatever
-  it saw at that moment even after the real password arrived. `immediate: true` still covers the
+  it saw at that moment even after the real answer arrived. `immediate: true` still covers the
   already-loaded case `onMounted` used to handle, so nothing here depends on load ordering any more.
-  `toggleRequirePassword` below also writes `pageStore.password`, but only ever to `''` while turning
-  the toggle off -- `state.requirePassword` is already `false` by then from the toggle's own
-  `v-model`, so this watcher re-deriving the same value is a no-op, not a fight over who owns it.
+  Watches `hasPassword` rather than `password` (OpenProject #2232): the server never hands the actual
+  password back, so `password` alone cannot tell "this page has one" from "the field is empty" --
+  `hasPassword` is the informational flag it sends instead. `toggleRequirePassword` below also writes
+  `pageStore.password`, but only ever to `''` while turning the toggle off -- `state.requirePassword`
+  is already `false` by then from the toggle's own `v-model`, so this watcher re-deriving the same
+  value is a no-op, not a fight over who owns it.
 */
 watch(
-  () => pageStore.password,
+  () => pageStore.hasPassword,
   (newValue) => {
-    state.requirePassword = newValue?.length > 0
+    state.requirePassword = Boolean(newValue)
   },
   { immediate: true }
 )
 
 function toggleRequirePassword(newValue) {
   if (newValue) {
+    // -> Undoes an accidental off-then-back-on before saving; see `pageStore.removePassword`'s own
+    //    doc comment for what turning the toggle off records instead.
+    pageStore.removePassword = false
     nextTick(() => {
       iptPagePassword.value.focus()
       iptPagePassword.value.$el.scrollIntoView({
@@ -553,6 +566,10 @@ function toggleRequirePassword(newValue) {
     })
   } else {
     pageStore.password = ''
+    // -> The explicit "take the password off" signal `pageSave` needs (OpenProject #2232): once the
+    //    server stopped echoing the password back, an empty `password` field alone is ambiguous
+    //    between "never touched" and "just cleared it".
+    pageStore.removePassword = true
   }
 }
 

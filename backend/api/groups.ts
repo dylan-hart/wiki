@@ -1,4 +1,5 @@
 import { CustomError } from '../helpers/common.ts'
+import { isFollowableRedirect } from '../helpers/redirect.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 import { SYSTEM_PERMISSION } from '../models/groups.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
@@ -293,14 +294,33 @@ async function routes(app: FastifyInstance) {
       if (req.body.name !== undefined) {
         patch.name = req.body.name
       }
-      if (req.body.redirectOnLogin !== undefined) {
-        patch.redirectOnLogin = req.body.redirectOnLogin
-      }
-      if (req.body.redirectOnFirstLogin !== undefined) {
-        patch.redirectOnFirstLogin = req.body.redirectOnFirstLogin
-      }
-      if (req.body.redirectOnLogout !== undefined) {
-        patch.redirectOnLogout = req.body.redirectOnLogout
+      /*
+        Empty string is the seeded default (`db/schema.ts`'s column default) and means "no redirect
+        configured" -- not a target to validate. Anything else must be a rooted, same-origin path or
+        (unless `security.disallowOpenRedirect` is on) a complete http(s) URL: OpenProject #1360/#2208,
+        2026-08-24 security audit -- `PUT /_api/groups/:groupId`'s guard against a `manage:groups`
+        holder reaching `manage:system` (below) protects only that one permission bit, and previously
+        let ANY string through here, including `javascript:…`, which `AuthLoginPanel.vue`'s
+        `window.location.replace()` would execute in the next administrator's session on login.
+      */
+      const allowExternal = !WIKI.config.security?.disallowOpenRedirect
+      for (const field of [
+        'redirectOnLogin',
+        'redirectOnFirstLogin',
+        'redirectOnLogout'
+      ] as const) {
+        const value = req.body[field]
+        if (value === undefined) {
+          continue
+        }
+        if (value !== '' && !isFollowableRedirect(value, { allowExternal })) {
+          throw new CustomError(
+            'groupRedirectInvalid',
+            `${field} must be a same-origin path (starting with a single /) or a complete http(s) URL.`,
+            400
+          )
+        }
+        patch[field] = value
       }
       if (req.body.permissions !== undefined) {
         patch.permissions = req.body.permissions

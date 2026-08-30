@@ -355,6 +355,40 @@ class Users {
   }
 
   /**
+   * A user's permissions and group memberships, shaped as the `AccessActor`/`PageActor`
+   * `WIKI.models.groups.checkAccess()` (and `models/pages.ts#hasPermission`) expect — the same
+   * flattening `updateSession()` does for the session, computed fresh here instead of read off a
+   * live session, for a caller that has only a user id on hand (`models/approvals.ts#approveSubmission`
+   * resolving an edit suggestion's *submitter*, who is not the request's own actor and so has no
+   * session to read).
+   *
+   * @returns `null` for an id that resolves to no user.
+   */
+  async getPageActor(
+    id: string
+  ): Promise<{ id: string; permissions: string[]; groupIds: string[] } | null> {
+    const groups: any[] | null = await WIKI.db.query.users
+      .findFirst({
+        columns: {},
+        where: { id },
+        with: {
+          groups: {
+            columns: { id: true, permissions: true }
+          }
+        }
+      })
+      .then((r: any) => r?.groups ?? null)
+    if (groups === null) {
+      return null
+    }
+    return {
+      id,
+      permissions: uniq(flatten(groups.map((g: any) => g.permissions as string[]))),
+      groupIds: groups.map((g: any) => g.id)
+    }
+  }
+
+  /**
    * Fetch the users who logged in most recently, most recent first.
    *
    * Identity and the moment only — this answers a dashboard panel readable by anyone in the admin area,
@@ -1431,10 +1465,37 @@ class Users {
 
   /**
    * Whether a security code matches the 2FA secret stored for a user under one strategy.
+   *
+   * A TOTP code is single-use: `verifyTotpCode` returns which counter (30s window) it matched, and a
+   * match is only accepted if that counter is newer than the last one this strategy entry recorded
+   * (`tfaLastCounter`). On acceptance the counter is persisted before returning, which is what makes
+   * the same code refused on a second presentation for the rest of its ~90s drift-allowed span — RFC
+   * 6238 §5.2's replay requirement. A recovery-code-shaped input never reaches here; see
+   * `verifyAndConsumeRecoveryCode` for that path's own single-use handling.
+   *
+   * @param user The user row, whose `auth` blob is updated in place as well as saved on acceptance
    */
-  verifyTfaCode(user: any, strategyId: string, securityCode: string): boolean {
-    const secret = ((user.auth ?? {}) as Record<string, any>)[strategyId]?.tfaSecret
-    return Boolean(secret) && verifyTotpCode(secret, securityCode)
+  async verifyTfaCode(user: any, strategyId: string, securityCode: string): Promise<boolean> {
+    const auth = (user.auth ?? {}) as Record<string, any>
+    const secret = auth[strategyId]?.tfaSecret
+    if (!secret) {
+      return false
+    }
+    const matchedCounter = verifyTotpCode(secret, securityCode)
+    if (matchedCounter < 0) {
+      return false
+    }
+    const lastCounter = auth[strategyId]?.tfaLastCounter ?? -1
+    if (matchedCounter <= lastCounter) {
+      return false
+    }
+
+    user.auth[strategyId] = { ...auth[strategyId], tfaLastCounter: matchedCounter }
+    await WIKI.db
+      .update(usersTable)
+      .set({ auth: user.auth, updatedAt: sql`now()` })
+      .where(eq(usersTable.id, user.id))
+    return true
   }
 
   /**
@@ -2211,7 +2272,7 @@ class Users {
     }
 
     // Set Session Data
-    this.updateSession(user, req)
+    await this.updateSession(user, req)
 
     WIKI.models.flags.authDebug(
       `User ${user.id} <${user.email}> logged in with ${user.groups.length} group(s) and ${req?.session?.permissions?.length ?? 0} permission(s), redirecting to ${redirect}`
@@ -2325,7 +2386,7 @@ class Users {
 
     let verified: boolean
     if (isTotpShape) {
-      verified = this.verifyTfaCode(user, strategyId, securityCode)
+      verified = await this.verifyTfaCode(user, strategyId, securityCode)
     } else {
       const auth = (user.auth ?? {}) as Record<string, any>
       const entries = (auth[strategyId]?.recoveryCodes ?? []) as RecoveryCodeEntry[]
@@ -2437,7 +2498,7 @@ class Users {
     if (strategyId !== expectedStrategyId) {
       throw new Error('ERR_INVALID_STRATEGY')
     }
-    if (!this.verifyTfaCode(user, strategyId, securityCode)) {
+    if (!(await this.verifyTfaCode(user, strategyId, securityCode))) {
       await countTfaFailure(continuationToken)
       throw new Error('ERR_TFA_INCORRECT_TOKEN')
     }
@@ -2639,7 +2700,24 @@ class Users {
     return this.afterLoginChecks(user, strategyId, { ip, siteId }, { skipChangePwd: true }, req)
   }
 
-  updateSession(user: any, req: any): void {
+  /**
+   * Mark a session authenticated for `user` — the one place every login path (local, provider,
+   * passkey, and the 2FA / password-change continuations) ends up, via `afterLoginChecks`.
+   *
+   * Regenerates the session id first (task 2115 / WP 2105 §4, session fixation): without this, an
+   * attacker who can plant a session id on a victim before they log in — `saveUninitialized: false`
+   * does not prevent it, since two public pre-login endpoints already force a store write and a
+   * `Set-Cookie` (`POST /sites/:siteId/auth/passkey/challenge` and `GET /auth/:strategyId/authorize`
+   * in `api/authentication.ts`) — ends up sharing the victim's now-authenticated session once they
+   * do. `@fastify/session#regenerate()` mints a fresh session id and store row and reassigns it onto
+   * `req.session` in place, so every read of `req.session` after this line — in this method, and
+   * back up the call chain in `afterLoginChecks` — already sees the regenerated one. Nothing needs
+   * carrying across: the only things a pre-login session ever holds (`authFlow`, `passkeyLogin`) are
+   * already cleared by their own callers once the ceremony they were for finishes.
+   */
+  async updateSession(user: any, req: any): Promise<void> {
+    await req.session.regenerate()
+
     req.session.authenticated = true
     req.session.user = {
       id: user.id,

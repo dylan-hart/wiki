@@ -1,5 +1,6 @@
-import { INLINE_EXTS } from '../models/assets.ts'
+import { shouldForceDownload } from '../models/assets.ts'
 import { guardSiteEnabled } from '../helpers/common.ts'
+import { SVG_CSP, isDangerousInlineType } from '../helpers/security.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -44,6 +45,12 @@ async function routes(app: FastifyInstance) {
 
     const asset = await WIKI.models.assets.resolveAssetPath(site.id, req.params['*'] ?? '')
     // -> Not readable is answered as not there, so the URL cannot be used to probe for files
+    //
+    // -> Resolved by hostname, not a `:siteId` path param, so `apiKeySitePinHook`
+    //    (`helpers/apiKeySite.ts`) never sees this route -- but a site-pinned API key is refused
+    //    here anyway, one layer down: `actorForRequest()` carries the pin onto `checkAccess()`'s
+    //    actor, which refuses a `siteId` other than the pin before any rule is even consulted
+    //    (OpenProject #2189/#2199/#2201). No separate `enforceApiKeySite()` call needed.
     if (
       !asset ||
       !WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), 'read:assets', {
@@ -82,7 +89,14 @@ async function routes(app: FastifyInstance) {
       return reply.redirect(content.redirectUrl, 302)
     }
 
-    if (!INLINE_EXTS.has(asset.fileExt) && WIKI.config.security?.forceAssetDownload) {
+    // -> SVG/HTML-typed bytes are active content the moment this URL is opened directly rather than
+    //    referenced from an <img>, so this response gets the same sandboxing CSP the admin-uploaded
+    //    site logo/favicon path does — regardless of the Content-Disposition decision below, since an
+    //    attachment header is only ever a hint a browser is free to ignore on direct navigation.
+    if (isDangerousInlineType(asset.mimeType)) {
+      reply.header('Content-Security-Policy', SVG_CSP)
+    }
+    if (shouldForceDownload(asset.fileExt, !!WIKI.config.security?.forceAssetDownload)) {
       reply.header(
         'Content-Disposition',
         `attachment; filename="${encodeURIComponent(asset.fileName)}"`

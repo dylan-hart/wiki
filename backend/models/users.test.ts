@@ -27,6 +27,14 @@ import { ProvisionableLoginError } from './authentication.ts'
  * flattened across every group the user belongs to, and the group ids kept alongside them since
  * navigation is filtered per group. It touches neither `WIKI` nor the database, so this is a pure
  * unit test: no fixture from `test/db.ts` needed.
+ *
+ * Task 2115 / WP 2105 §4: `updateSession` also has to regenerate the session id before writing the
+ * authenticated state, closing session fixation. `makeReq()`'s stub session mimics the one load-
+ * bearing thing the real `@fastify/session#regenerate()` does that matters here — reassigning
+ * `req.session` to a brand-new object with a fresh id (`node_modules/@fastify/session/lib/
+ * session.js`'s own `regenerate()` does `this[requestKey].session = session` inside its store
+ * callback) — so a test can tell whether `updateSession` awaited it before proceeding to set fields
+ * on what is, post-await, a different object than the one it started with.
  */
 
 function makeUser(overrides: Partial<any> = {}): any {
@@ -41,12 +49,44 @@ function makeUser(overrides: Partial<any> = {}): any {
   }
 }
 
+/**
+ * Stand-in for `@fastify/session`'s `Session#regenerate()` (`lib/session.js`): records that it was
+ * called, then swaps `req.session` for a fresh object carrying only a new `id` — same shape the real
+ * store does by replacing `this[requestKey].session` with a brand-new `Session` instance whose id
+ * differs from the one it started with.
+ */
 function makeReq(): any {
-  return { session: {} }
+  const req: any = { session: { id: 'pre-login-session-id' } }
+  req.session.regenerate = mock.fn(async () => {
+    // -> A fresh object, not a mutation of the old one — matches the real plugin reassigning
+    //    `req.session` wholesale, and is what lets a test tell the two apart by reference/id.
+    req.session = { id: 'post-login-session-id', regenerate: req.session.regenerate }
+  })
+  return req
 }
 
 describe('users.updateSession', () => {
-  test('marks the session authenticated and copies the core user fields', () => {
+  test('regenerates the session id before writing any authenticated state', async () => {
+    const user = makeUser()
+    const req = makeReq()
+    const preLoginSession = req.session
+    const regenerate = preLoginSession.regenerate
+
+    await users.updateSession(user, req)
+
+    assert.equal(regenerate.mock.callCount(), 1)
+    assert.notEqual(req.session, preLoginSession, 'expected a new session object post-login')
+    assert.notEqual(
+      req.session.id,
+      preLoginSession.id,
+      'expected the post-login session id to differ from the pre-login one'
+    )
+    // -> Landed on the regenerated session, not stranded on the discarded pre-login one
+    assert.equal(req.session.authenticated, true)
+    assert.equal(preLoginSession.authenticated, undefined)
+  })
+
+  test('marks the session authenticated and copies the core user fields', async () => {
     const user = makeUser({
       hasAvatar: true,
       prefs: {
@@ -59,7 +99,7 @@ describe('users.updateSession', () => {
     })
     const req = makeReq()
 
-    users.updateSession(user, req)
+    await users.updateSession(user, req)
 
     assert.equal(req.session.authenticated, true)
     assert.deepEqual(req.session.user, {
@@ -76,7 +116,7 @@ describe('users.updateSession', () => {
     })
   })
 
-  test('flattens permissions across every group the user belongs to', () => {
+  test('flattens permissions across every group the user belongs to', async () => {
     const user = makeUser({
       groups: [
         { id: 'group-a', permissions: ['read:pages', 'write:comments'] },
@@ -85,7 +125,7 @@ describe('users.updateSession', () => {
     })
     const req = makeReq()
 
-    users.updateSession(user, req)
+    await users.updateSession(user, req)
 
     assert.deepEqual(
       new Set(req.session.permissions),
@@ -94,7 +134,7 @@ describe('users.updateSession', () => {
     assert.equal(req.session.permissions.length, 3)
   })
 
-  test('deduplicates a permission granted by more than one group', () => {
+  test('deduplicates a permission granted by more than one group', async () => {
     const user = makeUser({
       groups: [
         { id: 'group-a', permissions: ['read:pages', 'manage:users'] },
@@ -103,7 +143,7 @@ describe('users.updateSession', () => {
     })
     const req = makeReq()
 
-    users.updateSession(user, req)
+    await users.updateSession(user, req)
 
     assert.deepEqual(
       new Set(req.session.permissions),
@@ -112,7 +152,7 @@ describe('users.updateSession', () => {
     assert.equal(req.session.permissions.length, 3)
   })
 
-  test('carries group ids alongside their permissions, in membership order', () => {
+  test('carries group ids alongside their permissions, in membership order', async () => {
     const user = makeUser({
       groups: [
         { id: 'group-a', permissions: ['read:pages'] },
@@ -121,16 +161,16 @@ describe('users.updateSession', () => {
     })
     const req = makeReq()
 
-    users.updateSession(user, req)
+    await users.updateSession(user, req)
 
     assert.deepEqual(req.session.groups, ['group-a', 'group-b'])
   })
 
-  test('a user in no groups gets an authenticated session with nothing granted', () => {
+  test('a user in no groups gets an authenticated session with nothing granted', async () => {
     const user = makeUser({ groups: [] })
     const req = makeReq()
 
-    users.updateSession(user, req)
+    await users.updateSession(user, req)
 
     assert.equal(req.session.authenticated, true)
     assert.deepEqual(req.session.permissions, [])
@@ -196,7 +236,12 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   const MODULE_KEY = 'local-test'
 
   function req(): any {
-    return { session: {} }
+    // -> `regenerate` is a no-op stub, not a full `@fastify/session` fake: these tests assert on
+    //    `afterLoginChecks`'s outcome (`nextAction`, `redirect`, ...), not on session-id churn --
+    //    that is `users.updateSession`'s own describe block's job (see the stub there for the real
+    //    reassignment behavior). This just needs to exist so `updateSession`'s `await
+    //    req.session.regenerate()` (task 2115 / WP 2105 §4) doesn't throw on a path that reaches it.
+    return { session: { regenerate: async () => {} } }
   }
 
   async function createStrategy({
@@ -489,7 +534,12 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
   const MODULE_KEY = 'local-reset-test'
 
   function req(): any {
-    return { session: {} }
+    // -> `regenerate` is a no-op stub, not a full `@fastify/session` fake: these tests assert on
+    //    `afterLoginChecks`'s outcome (`nextAction`, `redirect`, ...), not on session-id churn --
+    //    that is `users.updateSession`'s own describe block's job (see the stub there for the real
+    //    reassignment behavior). This just needs to exist so `updateSession`'s `await
+    //    req.session.regenerate()` (task 2115 / WP 2105 §4) doesn't throw on a path that reaches it.
+    return { session: { regenerate: async () => {} } }
   }
 
   async function createStrategy({
@@ -1216,6 +1266,59 @@ describe('users recovery codes (DB-backed)', { skip: !hasTestDatabase() }, () =>
       await usersModel.verifyAndConsumeRecoveryCode(user, strategyId, 'ZZZZ-ZZZZ-ZZZZ-ZZZZ'),
       false
     )
+  })
+
+  test('verifyTfaCode refuses a code on a second presentation, while the next window is still accepted', async () => {
+    const strategyId = freshStrategyId()
+    // -> RFC 6238 Appendix B's SHA-1 test vector (same secret `helpers/totp.test.ts` uses): at
+    //    Time=59s (counter 1) the code is 287082; the next 30s window (counter 2) is 359152.
+    const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
+    const owner = (await usersModel.getById(fixtures.userId)) as any
+    owner.auth[strategyId] = { tfaSecret: secret, tfaIsActive: true }
+    await fixtures.db
+      .update(usersTable)
+      .set({ auth: owner.auth })
+      .where(eq(usersTable.id, fixtures.userId))
+
+    mock.timers.enable({ apis: ['Date'], now: 59_000 })
+    try {
+      const firstAttempt = await usersModel.getById(fixtures.userId)
+      assert.equal(await usersModel.verifyTfaCode(firstAttempt, strategyId, '287082'), true)
+
+      // -> Same code, presented again inside the same ±30s drift window: refused, since its counter
+      //    was already recorded as `tfaLastCounter` by the accepted attempt above.
+      const replayAttempt = await usersModel.getById(fixtures.userId)
+      assert.equal(await usersModel.verifyTfaCode(replayAttempt, strategyId, '287082'), false)
+
+      // -> A different code from the next window is not a replay of the same counter, so it is still
+      //    accepted -- single-use blocks the matched counter, not the whole secret.
+      const nextWindowAttempt = await usersModel.getById(fixtures.userId)
+      assert.equal(await usersModel.verifyTfaCode(nextWindowAttempt, strategyId, '359152'), true)
+    } finally {
+      mock.timers.reset()
+    }
+  })
+
+  test('verifyTfaCode persists the matched counter so it survives a reload, not just in-process', async () => {
+    const strategyId = freshStrategyId()
+    const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
+    const owner = (await usersModel.getById(fixtures.userId)) as any
+    owner.auth[strategyId] = { tfaSecret: secret, tfaIsActive: true }
+    await fixtures.db
+      .update(usersTable)
+      .set({ auth: owner.auth })
+      .where(eq(usersTable.id, fixtures.userId))
+
+    mock.timers.enable({ apis: ['Date'], now: 59_000 })
+    try {
+      const attempt = await usersModel.getById(fixtures.userId)
+      assert.equal(await usersModel.verifyTfaCode(attempt, strategyId, '287082'), true)
+
+      const reloaded = (await usersModel.getById(fixtures.userId)) as any
+      assert.equal(reloaded.auth[strategyId].tfaLastCounter, 1)
+    } finally {
+      mock.timers.reset()
+    }
   })
 
   test('getRecoveryCodesStatus reports total/remaining and drops by one per consumed code', async () => {

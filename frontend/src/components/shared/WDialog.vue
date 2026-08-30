@@ -41,7 +41,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, nextTick, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 /**
  * Modal dialog shell.
@@ -108,6 +108,8 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'hide'])
 
+const panelRef = ref(null)
+
 // COMPUTED
 
 const TRANSITIONS = {
@@ -145,102 +147,6 @@ const panelStyle = computed(() =>
   !props.fullWidth && props.maxWidth ? { maxWidth: props.maxWidth } : undefined
 )
 
-// FOCUS TRAP
-
-const panelRef = ref(null)
-
-/** The element focused right before this dialog opened -- restored to it on close/unmount. */
-let previouslyFocusedElement = null
-
-/**
- * This instance's own `wDialogDepth` value, captured the moment it opens. Comparing it against the
- * live counter is how `trapTabKey()` tells whether it is the topmost of a stack of open dialogs --
- * every open dialog's `keydown` listener runs on every keypress (they all target `document`), so a
- * dialog underneath the top one has to recognise that and get out of the way rather than fight it
- * for the Tab key.
- */
-let myDepth = 0
-
-/*
-  Elements Tab can reach natively. `[tabindex]:not([tabindex="-1"])` picks up anything an author
-  opted into or out of the sequence explicitly; the panel's own `tabindex="-1"` (see the template)
-  is why that exclusion matters -- without it the panel would count as one of its own tabbable
-  descendants.
-*/
-const FOCUSABLE_SELECTOR = [
-  'a[href]',
-  'area[href]',
-  'input:not([disabled]):not([type="hidden"])',
-  'select:not([disabled])',
-  'textarea:not([disabled])',
-  'button:not([disabled])',
-  'iframe',
-  'object',
-  'embed',
-  '[contenteditable]:not([contenteditable="false"])',
-  '[tabindex]:not([tabindex="-1"])'
-].join(',')
-
-function isElementVisible(el) {
-  const style = getComputedStyle(el)
-  return style.display !== 'none' && style.visibility !== 'hidden'
-}
-
-function getTabbableElements() {
-  if (!panelRef.value) {
-    return []
-  }
-  return Array.from(panelRef.value.querySelectorAll(FOCUSABLE_SELECTOR)).filter(isElementVisible)
-}
-
-/**
- * Places initial focus once the panel has rendered. Skipped if focus has already landed somewhere
- * inside the panel by the time this runs -- which is what lets a dialog's own `useDialogComponent({
- * autofocus })` win the race and put focus on a specific field instead of the first tabbable one,
- * without this needing to know that composable exists.
- */
-function focusInitialElement() {
-  if (!panelRef.value || panelRef.value.contains(document.activeElement)) {
-    return
-  }
-  const [first] = getTabbableElements()
-  ;(first ?? panelRef.value).focus()
-}
-
-function restoreFocus() {
-  const target = previouslyFocusedElement
-  previouslyFocusedElement = null
-  if (target && typeof target.focus === 'function' && document.contains(target)) {
-    target.focus()
-  }
-}
-
-/** Cycles Tab/Shift+Tab between the panel's first and last tabbable descendants. */
-function trapTabKey(ev) {
-  if (myDepth !== Number(document.body.dataset.wDialogDepth ?? 0)) {
-    // -> Not the topmost dialog -- leave the key for whichever one is
-    return
-  }
-  const tabbable = getTabbableElements()
-  if (tabbable.length === 0) {
-    ev.preventDefault()
-    panelRef.value?.focus()
-    return
-  }
-  const first = tabbable[0]
-  const last = tabbable[tabbable.length - 1]
-  const active = document.activeElement
-  if (ev.shiftKey) {
-    if (active === first || !panelRef.value.contains(active)) {
-      ev.preventDefault()
-      last.focus()
-    }
-  } else if (active === last || !panelRef.value.contains(active)) {
-    ev.preventDefault()
-    first.focus()
-  }
-}
-
 // METHODS
 
 function close() {
@@ -260,8 +166,8 @@ function onKeydown(ev) {
     close()
     return
   }
-  if (ev.key === 'Tab') {
-    trapTabKey(ev)
+  if (ev.key === 'Tab' && isTopmost()) {
+    trapTab(ev)
   }
 }
 
@@ -274,32 +180,120 @@ function getAppRoot() {
   return document.getElementById('app')
 }
 
+/*
+  This dialog's own depth, captured the moment it opened -- compared against the live counter to tell
+  whether a later dialog has since stacked on top. Tab must cycle within only the topmost dialog; an
+  outer one still holds a real depth but is no longer the frontmost panel.
+*/
+let ownDepth = 0
+let previouslyFocused = null
+
+function isTopmost() {
+  return Number(document.body.dataset.wDialogDepth ?? 0) === ownDepth
+}
+
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'textarea:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+  '[contenteditable="true"]',
+  '[contenteditable="plaintext-only"]'
+].join(',')
+
+/** Tabbable descendants of the panel, in document order -- the panel itself is never included. */
+function getFocusable() {
+  const panel = panelRef.value
+  if (!panel) {
+    return []
+  }
+  return Array.from(panel.querySelectorAll(FOCUSABLE_SELECTOR))
+}
+
+/**
+ * Moves focus into the panel: its first tabbable descendant, or the panel itself (`tabindex="-1"`)
+ * when it has none. Called from the `flush: 'post'` watcher below, which is what lets this run with
+ * no tick of its own to wait out -- the panel (mounted by `v-if="modelValue"`) already exists in the
+ * DOM by the time a post-flush callback runs, unlike the default `pre` timing every other watcher in
+ * this file still uses for the (DOM-independent) scroll lock and `inert` bookkeping.
+ *
+ * That synchronousness is also what makes `composables/dialog.js`'s `autofocus` a true override
+ * rather than a race: its own `onMounted -> nextTick -> nextTick` chain necessarily resolves in a
+ * later microtask than a same-flush, synchronous callback, so its `.focus()` always lands after --
+ * and therefore wins over -- this default placement.
+ */
+function placeInitialFocus() {
+  previouslyFocused = document.activeElement
+  const [first] = getFocusable()
+  if (first) {
+    first.focus()
+  } else {
+    panelRef.value?.focus()
+  }
+}
+
+/** Returns focus to whatever had it before the dialog opened -- the trigger, in the common case. */
+function restoreFocus() {
+  if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+    previouslyFocused.focus()
+  }
+  previouslyFocused = null
+}
+
+/** Cycles Tab/Shift+Tab between the panel's first and last tabbable descendants. */
+function trapTab(ev) {
+  const panel = panelRef.value
+  if (!panel) {
+    return
+  }
+  const focusable = getFocusable()
+  if (focusable.length === 0) {
+    // -> Nothing to cycle between; keep focus pinned to the panel itself
+    ev.preventDefault()
+    panel.focus()
+    return
+  }
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  const withinPanel = panel.contains(document.activeElement)
+  if (ev.shiftKey) {
+    if (!withinPanel || document.activeElement === first) {
+      ev.preventDefault()
+      last.focus()
+    }
+  } else if (!withinPanel || document.activeElement === last) {
+    ev.preventDefault()
+    first.focus()
+  }
+}
+
 // WATCHERS
 
 /**
- * Escape handling, focus trapping, scroll-locking and backgrounding are bound only while open, so
- * stacked dialogs do not each keep a listener alive. The scroll lock and `inert` are reference-counted
- * on the same data attribute because a dialog can open on top of another -- releasing on the first
- * close would unlock/un-inert the page while a dialog is still up. The same counter makes the dialog
- * depth-aware for focus: only the topmost one captures/restores focus and traps Tab. Only the
- * outermost dialog (depth 0 -> 1 opening, 1 -> 0 closing) actually toggles `inert`; a stacked dialog
- * just rides the existing count.
+ * Escape handling, scroll-locking, backgrounding and focus are bound only while open, so stacked
+ * dialogs do not each keep a listener alive. Both the scroll lock and `inert` are reference-counted on
+ * the same data attribute because a dialog can open on top of another -- releasing on the first close
+ * would unlock/un-inert the page while a dialog is still up. Only the outermost dialog (depth 0 -> 1
+ * opening, 1 -> 0 closing) actually toggles `inert`; a stacked dialog just rides the existing count.
+ * Every dialog places and restores its own focus regardless of depth (each is its own trigger/return
+ * pair), but only the topmost one traps Tab -- `ownDepth` records each instance's own depth at open
+ * time, and `isTopmost()` compares it against the live counter.
  */
 watch(
   () => props.modelValue,
   (isOpen) => {
     if (isOpen) {
-      previouslyFocusedElement = document.activeElement
       document.addEventListener('keydown', onKeydown, true)
       const depth = Number(document.body.dataset.wDialogDepth ?? 0) + 1
       document.body.dataset.wDialogDepth = String(depth)
-      myDepth = depth
+      ownDepth = depth
       document.body.style.overflow = 'hidden'
-      // -> Waits for the panel's v-if to actually render before looking for content inside it
-      nextTick(() => focusInitialElement())
       if (depth === 1) {
         getAppRoot()?.setAttribute('inert', '')
       }
+      placeInitialFocus()
     } else {
       document.removeEventListener('keydown', onKeydown, true)
       const depth = Math.max(0, Number(document.body.dataset.wDialogDepth ?? 0) - 1)
@@ -311,11 +305,13 @@ watch(
       restoreFocus()
     }
   },
-  { immediate: true }
+  // -> `post`, not the default `pre`: `placeInitialFocus()` needs the panel (`v-if="modelValue"`)
+  //    already in the DOM, which `pre` timing -- callback runs before this render -- would not give it.
+  { immediate: true, flush: 'post' }
 )
 
 onBeforeUnmount(() => {
-  // -> An unmount while open (route change, host teardown) would otherwise leak all three
+  // -> An unmount while open (route change, host teardown) would otherwise leak all four
   if (props.modelValue) {
     document.removeEventListener('keydown', onKeydown, true)
     const depth = Math.max(0, Number(document.body.dataset.wDialogDepth ?? 0) - 1)

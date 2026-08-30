@@ -36,10 +36,13 @@ export function useNavSidebarDestination() {
    *
    * Two typed-address cases worth calling out explicitly (task 466 verified both rather than assuming):
    *
-   *   - `mailto:` needs no special-casing here. `routableHref`'s protocol check (`/^https?:$/`) already
-   *     declines anything that is not http(s), so a `mailto:` address falls straight through to the plain
-   *     `href` branch below and the browser opens it with the reader's mail client, same as any other
-   *     link on the page.
+   *   - `mailto:`/`tel:` are explicitly allowed on the plain `href` fallback below (OpenProject
+   *     #1360/#2208, 2026-08-24 security audit): `routableHref`'s protocol check (`/^https?:$/`)
+   *     declines anything that is not http(s), including these, so falling through to the fallback is
+   *     still the right first step — but the fallback itself used to return WHATEVER the author typed
+   *     with no check of its own, which is what let `javascript:…` execute on click. It now allows
+   *     only `http:`/`https:`/`mailto:`/`tel:`, mirroring `Index.vue#relationLink`'s identical
+   *     fallback for a page's own relation links.
    *   - A bare domain typed without a scheme -- `example.com` rather than `https://example.com` -- is NOT
    *     declined. `new URL('example.com', location.href)` resolves it as a same-origin PATH relative to
    *     whatever page is open, so `routableHref` hands it to the router, which then renders "page not
@@ -53,16 +56,27 @@ export function useNavSidebarDestination() {
   function destination(item) {
     const address = item.target ?? '/'
     const target = item.openInNewWindow ? '_blank' : undefined
-    let routable = null
+    let url
     try {
-      routable = routableHref(
-        { href: new URL(address, globalThis.location.href).href, target },
-        globalThis.location
-      )
+      url = new URL(address, globalThis.location.href)
     } catch {
-      // -> Not a URL at all: nothing to route to, so it goes out as the author wrote it
+      // -> Not a URL at all -- nothing to route to and nothing safe to bind as an href either
+      return {}
     }
-    return routable ? { to: routable } : { href: address, target }
+    const routable = routableHref({ href: url.href, target }, globalThis.location)
+    if (routable) {
+      return { to: routable }
+    }
+    /*
+      Not routable (cross-origin, a non-http(s) scheme, or a server path `routableHref` declines) --
+      falls through to a plain anchor, but ONLY for a scheme a browser treats as inert to bind as
+      `href`. `javascript:` parses as a valid URL against any base -- `new URL('javascript:…', base)`
+      does not throw, it just reports `.protocol === 'javascript:'` -- so this check has to look at
+      what came back, not just that something parsed (OpenProject #1360/#2208, 2026-08-24 security
+      audit). Mirrors `Index.vue#relationLink`'s identical fallback for a page's own relation links,
+      with `mailto:`/`tel:` added per this composable's own doc comment above.
+    */
+    return /^(https?|mailto|tel):$/.test(url.protocol) ? { href: address, target } : {}
   }
 
   /**

@@ -458,7 +458,7 @@ import { passwordStrengthScore } from '@/helpers/passwordStrength'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-import Cookies from 'js-cookie'
+import { isFollowableRedirectTarget } from '@/helpers/pageRedirect'
 import { browserSupportsWebAuthn, startAuthentication } from '@simplewebauthn/browser'
 import VOtpInput from 'vue3-otp-input'
 
@@ -665,16 +665,6 @@ async function fetchStrategies(showAll = false) {
  */
 function authorizeUrl(str) {
   const params = new URLSearchParams({ siteId: siteStore.id })
-  /*
-    The same cookie a form login reads on its way out: whatever sent the reader to the login screen
-    left where they were going in it. The provider flow cannot come back through the code above — it
-    lands on the callback route, which redirects — so the destination travels with the request and is
-    handed back by the callback instead.
-  */
-  const loginRedirect = Cookies.get('loginRedirect')
-  if (loginRedirect) {
-    params.set('redirect', loginRedirect)
-  }
   return `/_api/auth/${str.id}/authorize?${params.toString()}`
 }
 
@@ -728,18 +718,17 @@ async function handleLoginResponse(resp) {
         message: t('auth.loginSuccess')
       })
       setTimeout(() => {
-        const loginRedirect = Cookies.get('loginRedirect')
-        if (loginRedirect === '/' && resp.redirect) {
-          Cookies.remove('loginRedirect')
-          window.location.replace(resp.redirect)
-        } else if (loginRedirect) {
-          Cookies.remove('loginRedirect')
-          window.location.replace(loginRedirect)
-        } else if (resp.redirect) {
-          window.location.replace(resp.redirect)
-        } else {
-          window.location.replace('/')
-        }
+        /*
+          `resp.redirect` is a group's `redirectOnLogin` (`models/users.ts`), validated server-side on
+          the way in (`api/groups.ts`) -- but checked again here, the same defence-in-depth reasoning
+          `api/authentication.ts#finishProviderLogin` applies server-side, against a row written before
+          that validation existed. `javascript:…` parses as a valid `URL` with no error, so this cannot
+          be a bare try/catch around `new URL()` -- it has to look at what scheme came back
+          (OpenProject #1360/#2208, 2026-08-24 security audit §2, §9).
+        */
+        window.location.replace(
+          resp.redirect && isFollowableRedirectTarget(resp.redirect) ? resp.redirect : '/'
+        )
       }, 1000)
       break
     }

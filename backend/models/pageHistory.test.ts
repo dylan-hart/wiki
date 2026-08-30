@@ -193,6 +193,42 @@ describe(
       )
     })
 
+    /**
+     * OpenProject #2232: `meta.password`, copied verbatim off the deleted row, is already a `bcrypt`
+     * verifier by the time it reaches `recoverDeletedPage` -- not a plaintext for `createPage()` to
+     * hash again. Feeding it through as an ordinary `PageInput.password` would hash the hash, and the
+     * original password would never unlock the recovered page again. This proves the real one still
+     * works after a delete/recover round trip.
+     */
+    test('recoverDeletedPage preserves a working password, without re-hashing the stored verifier', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/recover-with-password', password: 'sw0rdfish' }),
+        actor
+      )
+      await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = recoverable.find((row) => row.path === 'docs/recover-with-password')
+      assert.ok(entry)
+
+      const recovered = await pageHistoryModel.recoverDeletedPage(fixtures.siteId, entry!.id, actor)
+
+      const unlocked = await pagesModel.unlockPage({
+        siteId: fixtures.siteId,
+        id: recovered.id,
+        password: 'sw0rdfish'
+      })
+      assert.ok(unlocked, 'the original password must still unlock the recovered page')
+
+      const rejected = await pagesModel.unlockPage({
+        siteId: fixtures.siteId,
+        id: recovered.id,
+        password: 'wrong-guess'
+      })
+      assert.equal(rejected, null)
+    })
+
     test('recoverDeletedPage applies a path/locale override', async () => {
       const page = await pagesModel.createPage(
         fixtures.siteId,

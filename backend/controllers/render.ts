@@ -25,6 +25,12 @@ const SHELL = `<!doctype html>
  * Only ever fetched over the loopback interface by this instance's own headless browser, but served
  * like the other static shells rather than gated: there is nothing here to protect, and a session the
  * browser does not have could not be checked anyway.
+ *
+ * No `enforceApiKeySite()` call belongs here (OpenProject #2201's enumeration named this file, but
+ * this route resolves no site at all — the fixed shell below is identical for every site, and the
+ * headless browser that fetches it carries no API key). The actual per-page render happens inside
+ * that headless browser via `models/rendering.ts`'s own `page.evaluate()`, never as a second HTTP
+ * request back through this server.
  */
 async function routes(app: FastifyInstance) {
   app.get('/', async (_req, reply) => {

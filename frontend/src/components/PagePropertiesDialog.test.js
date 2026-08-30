@@ -59,7 +59,8 @@ const i18n = createI18n({
           isSearchable: 'Searchable',
           requirePassword: 'Require Password',
           password: 'Password',
-          passwordHint: ''
+          passwordHint: '',
+          passwordKeepHint: ''
         }
       },
       iconPicker: { open: 'Open Icon Picker' },
@@ -179,19 +180,47 @@ describe('PagePropertiesDialog', () => {
 
   /**
    * Regression coverage for OpenProject #1133 item 4: `state.requirePassword` used to be set once in
-   * `onMounted`, with nothing keeping it in sync if `pageStore.password` arrived afterwards (e.g. this
-   * panel mounting before `pageStore.pageLoad()` resolves).
+   * `onMounted`, with nothing keeping it in sync if `pageStore.hasPassword` arrived afterwards (e.g.
+   * this panel mounting before `pageStore.pageLoad()` resolves). Watches `hasPassword` rather than
+   * `password` itself (OpenProject #2232): the API never hands the actual password back, so
+   * `hasPassword` is the only signal that a page already has one.
    */
-  it('keeps requirePassword in sync when pageStore.password arrives after mount', async () => {
+  it('keeps requirePassword in sync when pageStore.hasPassword arrives after mount', async () => {
     const { wrapper, pageStore } = mountDialog()
     await flushPromises()
 
     // -> The password field itself is only rendered once `state.requirePassword` reads true
     expect(wrapper.find('input[type="password"]').exists()).toBe(false)
 
-    pageStore.password = 'sup3r-secret'
+    pageStore.hasPassword = true
     await nextTick()
 
     expect(wrapper.find('input[type="password"]').exists()).toBe(true)
+  })
+
+  /**
+   * OpenProject #2232: the password field never prefills from the server (it never sends the value
+   * back), so it must start empty even when the page already has a password set -- and turning the
+   * toggle off has to record an explicit removal, since an empty field alone cannot say "take it off"
+   * apart from "never touched".
+   */
+  it('starts the password field empty and marks removePassword when the toggle is turned off', async () => {
+    const { wrapper, pageStore } = mountDialog()
+    await flushPromises()
+    pageStore.hasPassword = true
+    await nextTick()
+
+    const pwdInput = wrapper.find('input[type="password"]')
+    expect(pwdInput.exists()).toBe(true)
+    expect(pwdInput.element.value).toBe('')
+    expect(pageStore.removePassword).toBe(false)
+
+    const toggles = wrapper.findAll('button[role="switch"]')
+    const requirePasswordToggle = toggles.find((t) => t.text().includes('Require Password'))
+    await requirePasswordToggle.trigger('click')
+    await nextTick()
+
+    expect(pageStore.password).toBe('')
+    expect(pageStore.removePassword).toBe(true)
   })
 })

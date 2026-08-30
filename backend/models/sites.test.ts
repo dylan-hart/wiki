@@ -4,10 +4,26 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { detectImageMime, svgMimeType } from '../helpers/images.ts'
-import { navigation as navigationTable, sites as sitesTable } from '../db/schema.ts'
+import {
+  apiKeys as apiKeysTable,
+  approvalRules as approvalRulesTable,
+  assets as assetsTable,
+  blockCredentials as blockCredentialsTable,
+  blocks as blocksTable,
+  commentProviders as commentProvidersTable,
+  glossaryTerms as glossaryTermsTable,
+  glossaryVersions as glossaryVersionsTable,
+  migrationRecords as migrationRecordsTable,
+  navigation as navigationTable,
+  pageHistory as pageHistoryTable,
+  pageviews as pageviewsTable,
+  pageWatchEvents as pageWatchEventsTable,
+  sites as sitesTable,
+  storage as storageTable,
+  tags as tagsTable
+} from '../db/schema.ts'
 import { sites, siteAssetKinds } from './sites.ts'
 import type { SiteAssetKind } from './sites.ts'
-import { navigation as navigationModel } from './navigation.ts'
 import { pages as pagesModel } from './pages.ts'
 import type { PageActor } from './pages.ts'
 
@@ -511,20 +527,24 @@ describe(
 )
 
 /**
- * Regression test for task 686: `createSite` unconditionally gives every site its own root
- * navigation row (`navigation.ensureSiteNav`), but until this fix `deleteSite` never cleaned it up —
- * so a brand-new site with zero pages still hit the `navigation` table's FK (no cascade) and failed
- * to delete with a 23503, reported by the route as a 409 "still holds content" conflict. This suite
- * runs the real `deleteSite`/`createPage` methods against a migrated, per-run-fresh database (see
- * `test/db.ts`) rather than mocking the query builder, since the behavior under test is the FK
- * interaction itself.
+ * Regression coverage for OpenProject #1733 ("Make site deletion transactional and pre-checked, and
+ * clean every non-content RESTRICT FK") and its predecessor, task 686.
+ *
+ * `makeSite()` goes through the real `createSite()` rather than inserting the `sites` row directly —
+ * that used to be this suite's own shape (before #1737), and it hid the bug: `createSite()` calls
+ * `commentProviders.syncSite()`, which seeds one row per discovered comment module, and that FK is
+ * the very first one a real `deleteSite()` call hits, unconditionally, on a site with nothing else on
+ * it. A raw `db.insert(sitesTable)` fixture never runs that seeding, so a suite built on one can pass
+ * with `deleteSite()` still broken. `commentProviders.refreshFromDisk()` / `storage.refreshFromDisk()`
+ * in `before()` load the real module definitions off disk — the same ones a real boot would — since
+ * `setupTestDb()`'s minimal `WIKI` global otherwise leaves both empty.
  *
  * Since #990 (locale-scoped site menus), `ensureSiteNav`'s row is addressed by its own
  * `defaultRandom()` `id` and by the `siteId` column the FK constraint actually checks — `id` is
- * never `= siteId`. The "deletes cleanly" case below asserts against `siteId`, not `id`, for exactly
- * that reason (OpenProject #1046): querying `eq(navigationTable.id, siteId)` would return zero rows
- * whether or not `deleteSite` ever ran, since a random nav-row id practically never collides with a
- * site id — that query would pass even if `deleteSite` had never been fixed at all.
+ * never `= siteId`. Every assertion below is against `siteId`, not `id`, for exactly that reason
+ * (OpenProject #1046): querying `eq(navigationTable.id, siteId)` would return zero rows whether or
+ * not `deleteSite` ever ran, since a random nav-row id practically never collides with a site id —
+ * that query would pass even if `deleteSite` had never been fixed at all.
  */
 describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -533,59 +553,228 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   before(async () => {
     fixtures = await setupTestDb()
     actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
+    WIKI.data.systemIds = { localAuthId: randomUUID() }
+    await WIKI.models.commentProviders.refreshFromDisk()
+    await WIKI.models.storage.refreshFromDisk()
   })
 
   after(async () => {
     await teardownTestDb()
   })
 
-  /** Inserts a site row directly (bypassing `createSite`'s default-config/system-id assembly, which
-   *  this suite has no need of) and gives it a root nav row exactly as `createSite` does. */
   async function makeSite(): Promise<string> {
     const hostname = `test-${randomBytes(6).toString('hex')}.localhost`
-    const [site] = await fixtures.db
-      .insert(sitesTable)
-      .values({
-        hostname,
-        isEnabled: true,
-        config: { locales: { primary: 'en' } }
-      })
-      .returning({ id: sitesTable.id })
-    await sites.reloadCache()
-    await navigationModel.ensureSiteNav(site!.id, 'en')
-    return site!.id
+    const site = await sites.createSite(hostname)
+    return site.id
   }
 
-  test('a freshly created site with no pages deletes cleanly', async () => {
+  /** Row counts for every non-content table `deleteSite()`'s transaction is responsible for, keyed
+   *  by `siteId` — used both to prove a refused delete destroyed nothing and that a successful one
+   *  left nothing behind. */
+  async function nonContentRowCounts(siteId: string) {
+    const [
+      blocksRows,
+      blockCredentialsRows,
+      storageRows,
+      glossaryTermsRows,
+      navigationRows,
+      commentProvidersRows,
+      pageHistoryRows,
+      pageWatchEventsRows,
+      glossaryVersionsRows,
+      approvalRulesRows,
+      migrationRecordsRows,
+      apiKeysRows,
+      tagsRows
+    ] = await Promise.all([
+      fixtures.db.select().from(blocksTable).where(eq(blocksTable.siteId, siteId)),
+      fixtures.db
+        .select()
+        .from(blockCredentialsTable)
+        .where(eq(blockCredentialsTable.siteId, siteId)),
+      fixtures.db.select().from(storageTable).where(eq(storageTable.siteId, siteId)),
+      fixtures.db.select().from(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, siteId)),
+      fixtures.db.select().from(navigationTable).where(eq(navigationTable.siteId, siteId)),
+      fixtures.db
+        .select()
+        .from(commentProvidersTable)
+        .where(eq(commentProvidersTable.siteId, siteId)),
+      fixtures.db.select().from(pageHistoryTable).where(eq(pageHistoryTable.siteId, siteId)),
+      fixtures.db
+        .select()
+        .from(pageWatchEventsTable)
+        .where(eq(pageWatchEventsTable.siteId, siteId)),
+      fixtures.db
+        .select()
+        .from(glossaryVersionsTable)
+        .where(eq(glossaryVersionsTable.siteId, siteId)),
+      fixtures.db.select().from(approvalRulesTable).where(eq(approvalRulesTable.siteId, siteId)),
+      fixtures.db
+        .select()
+        .from(migrationRecordsTable)
+        .where(eq(migrationRecordsTable.siteId, siteId)),
+      fixtures.db.select().from(apiKeysTable).where(eq(apiKeysTable.siteId, siteId)),
+      fixtures.db.select().from(tagsTable).where(eq(tagsTable.siteId, siteId))
+    ])
+    return {
+      blocks: blocksRows.length,
+      blockCredentials: blockCredentialsRows.length,
+      storage: storageRows.length,
+      glossaryTerms: glossaryTermsRows.length,
+      navigation: navigationRows.length,
+      commentProviders: commentProvidersRows.length,
+      pageHistory: pageHistoryRows.length,
+      pageWatchEvents: pageWatchEventsRows.length,
+      glossaryVersions: glossaryVersionsRows.length,
+      approvalRules: approvalRulesRows.length,
+      migrationRecords: migrationRecordsRows.length,
+      apiKeys: apiKeysRows.length,
+      tags: tagsRows.length
+    }
+  }
+
+  test('a freshly created site with no pages deletes cleanly, cleaning up every non-content row', async () => {
     const siteId = await makeSite()
+
+    // -> Sanity: createSite() really did seed rows that need cleaning up — otherwise every assertion
+    //    below would pass vacuously, exactly the #1737 failure mode this suite exists to avoid.
+    const seeded = await nonContentRowCounts(siteId)
+    assert.ok(seeded.commentProviders > 0, 'sanity: createSite() should seed commentProviders rows')
+    assert.ok(seeded.storage > 0, 'sanity: createSite() should seed storage rows')
+    assert.ok(seeded.navigation > 0, 'sanity: createSite() should seed a root navigation row')
+
+    // -> Rows nothing seeds automatically, standing in for the non-content tables that have no
+    //    delete call site at all (see `deleteSite()`'s own doc comment) — planted directly, matching
+    //    this suite's existing convention for setup that has no dedicated model method.
+    await fixtures.db.insert(glossaryVersionsTable).values({ siteId, snapshot: {}, termCount: 0 })
+    await fixtures.db.insert(approvalRulesTable).values({ siteId })
+    await fixtures.db.insert(migrationRecordsTable).values({
+      siteId,
+      sourceSystem: 'test',
+      sourceTable: 'pages',
+      sourceId: '1',
+      destTable: 'pages',
+      destId: randomUUID()
+    })
+    await fixtures.db.insert(pageWatchEventsTable).values({
+      siteId,
+      action: 'edited',
+      pageId: randomUUID(),
+      pageTitle: 'Test',
+      pagePath: 'test',
+      userId: fixtures.userId,
+      notifyMode: 'immediate'
+    })
+    await fixtures.db
+      .insert(apiKeysTable)
+      .values({ name: 'site key', keyShort: 'abcd1234', siteId })
+    // -> A tag left over from a page that's since been removed: `tags` carries no `pageId` FK, so
+    //    nothing about deleting a page ever cleans this up on its own (OpenProject #1749).
+    await fixtures.db.insert(tagsTable).values({ siteId, tag: 'orphaned' })
 
     const deleted = await sites.deleteSite(siteId)
     assert.equal(deleted, true)
 
-    const remainingNav = await fixtures.db
-      .select({ id: navigationTable.id })
-      .from(navigationTable)
-      .where(eq(navigationTable.siteId, siteId))
-    assert.equal(remainingNav.length, 0)
+    const remaining = await nonContentRowCounts(siteId)
+    for (const [table, count] of Object.entries(remaining)) {
+      assert.equal(count, 0, `expected no remaining ${table} rows after deleteSite`)
+    }
   })
 
-  test('a site holding a page is still refused with a FK conflict', async () => {
+  test('create page, delete page, then delete the site succeeds (pageHistory no longer blocks it)', async () => {
+    const siteId = await makeSite()
+    const page = await pagesModel.createPage(
+      siteId,
+      { path: 'home', title: 'Home', editor: 'markdown', content: '# Hello' },
+      actor
+    )
+    await pagesModel.deletePage(siteId, page.id, actor)
+
+    const historyBefore = await fixtures.db
+      .select()
+      .from(pageHistoryTable)
+      .where(eq(pageHistoryTable.siteId, siteId))
+    assert.ok(
+      historyBefore.length > 0,
+      'sanity: deletePage() should have written a deleted pageHistory row'
+    )
+
+    const deleted = await sites.deleteSite(siteId)
+    assert.equal(deleted, true)
+
+    const historyAfter = await fixtures.db
+      .select()
+      .from(pageHistoryTable)
+      .where(eq(pageHistoryTable.siteId, siteId))
+    assert.equal(historyAfter.length, 0)
+  })
+
+  /**
+   * `pageviews.pageId` already cascades from `pages.id` (`db/schema.ts`), so a pageview row is
+   * always gone by the time its own page is — the `pageviews.siteId` cascade #1749 added is defense
+   * in depth for the schema's own shape, not something a leftover row can be observed through here.
+   * What this proves end to end is the realistic sequence: a page gets viewed, then deleted, then the
+   * now-empty site deletes cleanly with nothing left pinning it.
+   */
+  test('a page view recorded against a page does not survive that page, or block deleting the site', async () => {
+    const siteId = await makeSite()
+    const page = await pagesModel.createPage(
+      siteId,
+      { path: 'viewed', title: 'Viewed', editor: 'markdown', content: '# Hi' },
+      actor
+    )
+    await fixtures.db.insert(pageviewsTable).values({
+      siteId,
+      pageId: page.id,
+      clientType: 'browser',
+      visitorHash: 'test-visitor-hash'
+    })
+    await pagesModel.deletePage(siteId, page.id, actor)
+
+    const deleted = await sites.deleteSite(siteId)
+    assert.equal(deleted, true)
+  })
+
+  test('a site holding a page is refused with a 409 siteHasContent conflict, and destroys nothing', async () => {
     const siteId = await makeSite()
     await pagesModel.createPage(
       siteId,
-      {
-        path: 'home',
-        title: 'Home',
-        editor: 'markdown',
-        content: '# Hello'
-      },
+      { path: 'home', title: 'Home', editor: 'markdown', content: '# Hello' },
       actor
     )
 
     await assert.rejects(sites.deleteSite(siteId), (err: any) => {
-      assert.equal(err.code === '23503' || err.cause?.code === '23503', true)
+      assert.equal(err.name, 'siteHasContent')
+      assert.equal(err.statusCode, 409)
       return true
     })
+
+    const remaining = await nonContentRowCounts(siteId)
+    assert.ok(remaining.storage > 0, 'storage rows must survive a refused delete')
+    assert.ok(remaining.navigation > 0, 'navigation rows must survive a refused delete')
+    assert.ok(remaining.commentProviders > 0, 'commentProviders rows must survive a refused delete')
+  })
+
+  test('a site holding only an asset (no pages) is also refused', async () => {
+    const siteId = await makeSite()
+    await fixtures.db.insert(assetsTable).values({
+      fileName: 'file',
+      fileExt: 'png',
+      authorId: fixtures.userId,
+      siteId
+    })
+
+    await assert.rejects(sites.deleteSite(siteId), (err: any) => {
+      assert.equal(err.name, 'siteHasContent')
+      assert.equal(err.statusCode, 409)
+      return true
+    })
+
+    const remainingAssets = await fixtures.db
+      .select()
+      .from(assetsTable)
+      .where(eq(assetsTable.siteId, siteId))
+    assert.equal(remainingAssets.length, 1, 'the asset must survive a refused delete')
   })
 })
 
@@ -622,10 +811,11 @@ describe('sites.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () =
   })
 
   test('deleteSite broadcasts reloadSites after refreshing this instance', async () => {
-    // -> Inserted directly rather than through `createSite()`, which also creates a root navigation
-    //    row — deliberately sidestepped here (a pre-existing, unrelated FK issue between
-    //    `deleteSite()` and that row is tracked separately; see the note in the WP966 report) so this
-    //    test isolates exactly what it's meant to check: the broadcast, not navigation cleanup.
+    // -> Inserted directly rather than through `createSite()` (which also seeds a root navigation
+    //    row, comment providers, storage, ...) — `deleteSite()` cleans all of that up fine now
+    //    (OpenProject #1733), this is just kept minimal so the test isolates exactly what it's meant
+    //    to check: the broadcast, not the cleanup that `sites.deleteSite (DB-backed)` above already
+    //    covers.
     const hostname = `broadcast-delete-${randomBytes(6).toString('hex')}.localhost`
     const [created] = await fixtures.db
       .insert(sitesTable)

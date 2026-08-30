@@ -152,7 +152,7 @@ export interface ApiKeyIdentity {
   //    the `userId` column comment in `db/schema.ts`.
   userId: string | null
   // -> The site this key is pinned to, taken from the token's `site` claim, or null for
-  //    instance-wide (every site). Enforced by the global `apiKeySitePinPreHandler`
+  //    instance-wide (every site). Enforced by the global `apiKeySitePinHook`
   //    (`helpers/apiKeySite.ts`, registered in `index.ts`) against every `/sites/:siteId/...`
   //    route's own `:siteId`, and by `models/groups.ts`'s `AccessActor.siteId` inside
   //    `checkAccess()`/`checkSiteAccess()` themselves (OpenProject #2189).

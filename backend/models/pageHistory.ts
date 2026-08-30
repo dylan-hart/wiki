@@ -637,6 +637,12 @@ class PageHistory {
     const config = (meta.config ?? {}) as Record<string, any>
     const scripts = (meta.scripts ?? {}) as Record<string, any>
 
+    // -> `meta.password`, when present, is already a `bcrypt` verifier (OpenProject #2232) copied
+    //    verbatim off the deleted row's own `password` column -- not a plaintext to hash again. It is
+    //    deliberately left out of `input` below: `createPage()`'s `password` field is a fresh
+    //    plaintext that it hashes itself, and feeding it an already-hashed value would hash the hash,
+    //    silently locking the recovered page behind a password nobody can ever type. It is written
+    //    straight to the new row's `password` column instead, once the id exists to write it to.
     const input: PageInput = {
       path: overrides?.path ?? row.path,
       locale: overrides?.locale ?? row.locale,
@@ -651,7 +657,6 @@ class PageHistory {
       publishEndDate: meta.publishEndDate ?? null,
       isBrowsable: meta.isBrowsable,
       isSearchable: meta.isSearchable,
-      password: meta.password ?? undefined,
       relations: meta.relations ?? [],
       tags: meta.tags ?? [],
       allowComments: config.allowComments,
@@ -666,7 +671,15 @@ class PageHistory {
       scriptCss: scripts.css
     }
 
-    return WIKI.models.pages.createPage(siteId, input, actor)
+    const page = await WIKI.models.pages.createPage(siteId, input, actor)
+    if (meta.password) {
+      await WIKI.db
+        .update(pagesTable)
+        .set({ password: meta.password })
+        .where(eq(pagesTable.id, page.id))
+      return (await WIKI.models.pages.getPage({ siteId, id: page.id })) as Page
+    }
+    return page
   }
 
   /**

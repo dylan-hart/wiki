@@ -170,6 +170,44 @@ describe('groups.actorForRequest', () => {
     } as unknown as FastifyRequest
     assert.equal(groups.actorForRequest(req).scope, null)
   })
+
+  test("carries a site-pinned API key's siteId through onto the actor (OpenProject #2189)", () => {
+    const req = {
+      apiKey: {
+        id: 'key-1',
+        userId: null,
+        permissions: ['read:pages'],
+        groupIds: ['key-group'],
+        siteId: 'pinned-site-id'
+      }
+    } as unknown as FastifyRequest
+    assert.equal(groups.actorForRequest(req).siteId, 'pinned-site-id')
+  })
+
+  test("an unpinned API key's null siteId comes through as null, not absent", () => {
+    const req = {
+      apiKey: {
+        id: 'key-1',
+        userId: null,
+        permissions: ['read:pages'],
+        groupIds: ['key-group'],
+        siteId: null
+      }
+    } as unknown as FastifyRequest
+    assert.equal(groups.actorForRequest(req).siteId, null)
+  })
+
+  test('a session-authenticated request (no API key) always gets a null siteId', () => {
+    const req = {
+      session: {
+        authenticated: true,
+        user: { id: 'user-1' },
+        groups: ['g'],
+        permissions: ['read:pages']
+      }
+    } as unknown as FastifyRequest
+    assert.equal(groups.actorForRequest(req).siteId, null)
+  })
 })
 
 /**
@@ -679,6 +717,52 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * OpenProject #2189/#2199: an actor built from an API key pinned to one site (`AccessActor.siteId`)
+   * must never be granted a page permission on a DIFFERENT site's page, even when a rule would
+   * otherwise grant it everywhere (`sites: []`) — the same "narrow, never grant beyond" guarantee
+   * `scope`/`allowedClassifications` already enforce, now for the site pin.
+   */
+  test('a siteId-pinned actor is refused checkAccess on a different site, even though a rule grants it everywhere', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW', sites: [] })])
+
+    const pinnedPage = {
+      path: 'some-page',
+      locale: 'en',
+      siteId: fixtures.siteId,
+      classification: null
+    }
+    const otherSitePage = {
+      path: 'some-page',
+      locale: 'en',
+      siteId: 'a-different-site-id',
+      classification: null
+    }
+
+    const pinned = { groupIds: [fixtures.groupId], permissions: [], siteId: fixtures.siteId }
+    assert.equal(groupsModel.checkAccess(pinned, 'read:pages', pinnedPage), true)
+    assert.equal(groupsModel.checkAccess(pinned, 'read:pages', otherSitePage), false)
+
+    // -> An actor with a null/absent site pin is unaffected -- the same rule grants it on both
+    const unpinned = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(groupsModel.checkAccess(unpinned, 'read:pages', otherSitePage), true)
+  })
+
+  test('a siteId-pinned actor is refused checkAccess on a page ref with no site context at all (null)', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW', sites: [] })])
+
+    const pinned = { groupIds: [fixtures.groupId], permissions: [], siteId: fixtures.siteId }
+    assert.equal(
+      groupsModel.checkAccess(pinned, 'read:pages', {
+        path: 'some-page',
+        locale: 'en',
+        siteId: null,
+        classification: null
+      }),
+      false
+    )
+  })
+
+  /**
    * Feature 357 / task 448: the realistic guests-group ALLOW/DENY/FORCEALLOW scenario from the task
    * description, run through the full stack this time — the same `GUEST_SCENARIO_RULES` from
    * `test/permissionScenario.ts` written to a real group row, reloaded through the real in-memory
@@ -937,6 +1021,25 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
 
     const actor = { groupIds: [fixtures.groupId], permissions: [], scope: null }
     assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', fixtures.siteId), true)
+  })
+
+  /**
+   * OpenProject #2189/#2199: the `checkSiteAccess` counterpart to the `checkAccess` siteId-pin test
+   * above -- a site-pinned actor is refused for every OTHER site, even one a rule grants everywhere.
+   */
+  test('a siteId-pinned actor is refused checkSiteAccess on a different site, is allowed on its own, and an unpinned actor is unaffected', async () => {
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [rule({ sites: [] })] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    const pinned = { groupIds: [fixtures.groupId], permissions: [], siteId: fixtures.siteId }
+    assert.equal(groupsModel.checkSiteAccess(pinned, 'site:theme', fixtures.siteId), true)
+    assert.equal(groupsModel.checkSiteAccess(pinned, 'site:theme', 'a-different-site-id'), false)
+
+    const unpinned = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(groupsModel.checkSiteAccess(unpinned, 'site:theme', 'a-different-site-id'), true)
   })
 })
 

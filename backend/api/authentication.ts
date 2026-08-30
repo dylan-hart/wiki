@@ -2,6 +2,8 @@ import { nanoid } from 'nanoid'
 import { normalizeHostname } from '../helpers/common.ts'
 import { limitAuthAttempts } from '../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
+import { isFollowableRedirect } from '../helpers/redirect.ts'
+import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 /**
@@ -142,7 +144,16 @@ async function finishProviderLogin(
       { siteId: flow.siteId, strategy, profile, ip: req.ip },
       req
     )
-    return reply.redirect(result.redirect || redirect)
+    /*
+      `result.redirect` is a group's `redirectOnLogin` (OpenProject #1360/#2208, 2026-08-24 security
+      audit) -- validated at write time by `api/groups.ts`'s update route, but checked again here as
+      defence in depth against a row written before that validation existed (a direct DB write, or a
+      2.5.x import). `redirect` (the flow's own return path, already validated at #1035 below) is the
+      fallback either way.
+    */
+    const target =
+      result.redirect && isFollowableRedirect(result.redirect) ? result.redirect : redirect
+    return reply.redirect(target)
   } catch (err: any) {
     WIKI.models.flags.authDebug(
       `Login through ${strategy.module} strategy ${strategy.id} failed: ${err.message}`
@@ -1032,8 +1043,17 @@ async function routes(app: FastifyInstance) {
         state: nanoid(32),
         nonce: nanoid(32),
         codeVerifier: nanoid(64),
-        // -> Only a path on this wiki: an open redirect is how a login page is turned into a lure
-        redirect: (req.query.redirect ?? '').startsWith('/') ? req.query.redirect! : '/',
+        /*
+          Only a same-origin path on this wiki: an open redirect is how a login page is turned into a
+          lure. `startsWith('/')` alone (the previous check) let `//evil.example` through --
+          `'//evil.example'.startsWith('/')` is `true`, and a browser normalizes a leading `/\` to `//`
+          the same way, resolving either as an absolute, off-origin URL rather than a path
+          (OpenProject #1360/#2208, 2026-08-24 security audit). `allowExternal: false` because this is
+          purely a return-to-where-you-were path within the wiki, never a legitimate off-site target.
+        */
+        redirect: isFollowableRedirect(req.query.redirect, { allowExternal: false })
+          ? req.query.redirect!
+          : '/',
         startedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
       }
       req.session.authFlow = flow
@@ -1289,8 +1309,11 @@ async function routes(app: FastifyInstance) {
         await req.session.destroy()
       }
       // -> And clear that cookie too: `destroy()` detaches the session, which leaves the plugin's own
-      //    save hook with nothing to do. Name and options match the registration in `index.ts`.
-      reply.clearCookie('wikiSession')
+      //    save hook with nothing to do. Name and options match the registration in `index.ts`: the
+      //    `__Host-` prefix requires a clearing `Set-Cookie` to still carry `Secure; Path=/` (task
+      //    2109 / WP 2105 §2) or the browser rejects the clear the same way it would a real one,
+      //    leaving the stale (now-orphaned) cookie sitting in the browser.
+      reply.clearCookie(SESSION_COOKIE_NAME, { path: '/', secure: true })
 
       if (user) {
         WIKI.models.flags.authDebug(

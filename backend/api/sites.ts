@@ -2,6 +2,7 @@ import { and, count, eq, inArray } from 'drizzle-orm'
 import { pages as pagesTable } from '../db/schema.ts'
 import { CustomError, isValidUuid } from '../helpers/common.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
+import { isFollowableRedirect } from '../helpers/redirect.ts'
 import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 import { siteAssetKinds } from '../models/sites.ts'
@@ -748,6 +749,29 @@ async function routes(app: FastifyInstance) {
         config.features.ratings = config.features.ratingsMode !== 'off'
       }
 
+      /*
+        OpenProject #1360/#2208, 2026-08-24 security audit: these three fields have the identical
+        shape and risk as a group's `redirectOnLogin`/`redirectOnFirstLogin`/`redirectOnLogout` (see
+        `api/groups.ts`'s update route) -- writable by `manage:sites` or the delegated `site:login`
+        permission, and unvalidated until now.
+      */
+      if (config.auth) {
+        const allowExternal = !WIKI.config.security?.disallowOpenRedirect
+        for (const field of ['loginRedirect', 'welcomeRedirect', 'logoutRedirect'] as const) {
+          const value = config.auth[field]
+          if (value === undefined) {
+            continue
+          }
+          if (!isFollowableRedirect(value, { allowExternal })) {
+            throw new CustomError(
+              'siteRedirectInvalid',
+              `${field} must be a same-origin path (starting with a single /) or a complete http(s) URL.`,
+              400
+            )
+          }
+        }
+      }
+
       // -> Update site
       try {
         await WIKI.models.sites.updateSite(req.params.siteId, {
@@ -983,9 +1007,15 @@ async function routes(app: FastifyInstance) {
           reply.badRequest('Site does not exist.')
         }
       } catch (err: any) {
-        // -> Pages, assets, navigation, tags and the page tree all reference the site without a
-        //    cascade, so a site still holding content cannot be removed. That is a conflict to
-        //    report, not a server fault.
+        // -> The normal path: `deleteSite()` counts pages and assets up front and throws a
+        //    `CustomError` (statusCode 409) before deleting anything, so `reply.send(err)` below
+        //    already answers with the right conflict and message — no special-casing needed here.
+        //
+        //    The `23503` branch is a backstop, not the primary path: pages, assets and the page tree
+        //    all reference the site without a cascade, and if some other, not-yet-cleaned-up table
+        //    were ever added with the same shape, its FK would raise this at the final `sites` delete
+        //    inside `deleteSite()`'s transaction — which rolls the whole thing back, so nothing is
+        //    destroyed either way.
         if (err.cause?.code === '23503' || err.code === '23503') {
           return reply.conflict(
             'Cannot delete a site that still holds content. Delete its pages and assets first.'

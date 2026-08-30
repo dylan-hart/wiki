@@ -997,6 +997,177 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     }
   })
 
+  /**
+   * OpenProject #2232: `pages.password` used to store the page's password in cleartext, and
+   * `unlockPage()` compared a guess against it with a timing-safe string comparison. Anyone with read
+   * access to Postgres or a backup could recover every page password with no work factor. This suite
+   * covers the fix: the column now holds a `bcrypt` verifier, `createPage`/`updatePage` hash whatever
+   * plaintext they are given before it touches the database, and `unlockPage()` checks a guess against
+   * the hash with `bcrypt.compare` instead.
+   */
+  describe('page passwords (OpenProject #2232)', () => {
+    test('createPage() stores a bcrypt verifier, not the submitted password', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/pwd-create', password: 'correct horse battery staple' }),
+        actor
+      )
+
+      const stored = await fixtures.db
+        .select({ password: pagesTable.password })
+        .from(pagesTable)
+        .where(eq(pagesTable.id, page.id))
+        .limit(1)
+
+      const hash = stored[0]!.password
+      assert.ok(hash)
+      assert.notEqual(hash, 'correct horse battery staple')
+      // -> bcrypt's own encoded format ($<algorithm version>$<cost>$<salt+hash>), not just "some other
+      //    string" -- proof this went through `bcrypt.hash`, not some other transform.
+      assert.match(hash!, /^\$2[aby]?\$\d{2}\$/)
+    })
+
+    test('createPage() with no password leaves the column null', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/pwd-none' }),
+        actor
+      )
+
+      const stored = await fixtures.db
+        .select({ password: pagesTable.password })
+        .from(pagesTable)
+        .where(eq(pagesTable.id, page.id))
+        .limit(1)
+
+      assert.equal(stored[0]!.password, null)
+    })
+
+    test('updatePage() replaces the stored hash when the patch sets a new password', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/pwd-update', password: 'first-password' }),
+        actor
+      )
+      const before = await fixtures.db
+        .select({ password: pagesTable.password })
+        .from(pagesTable)
+        .where(eq(pagesTable.id, page.id))
+        .limit(1)
+
+      await pagesModel.updatePage(fixtures.siteId, page.id, { password: 'second-password' }, actor)
+      const after = await fixtures.db
+        .select({ password: pagesTable.password })
+        .from(pagesTable)
+        .where(eq(pagesTable.id, page.id))
+        .limit(1)
+
+      assert.notEqual(after[0]!.password, before[0]!.password)
+      assert.notEqual(after[0]!.password, 'second-password')
+      assert.match(after[0]!.password!, /^\$2[aby]?\$\d{2}\$/)
+    })
+
+    test('updatePage() with an empty string patch removes the password', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/pwd-clear', password: 'take-me-off' }),
+        actor
+      )
+
+      await pagesModel.updatePage(fixtures.siteId, page.id, { password: '' }, actor)
+
+      const stored = await fixtures.db
+        .select({ password: pagesTable.password })
+        .from(pagesTable)
+        .where(eq(pagesTable.id, page.id))
+        .limit(1)
+      assert.equal(stored[0]!.password, null)
+    })
+
+    test('getPage() with withPassword never returns the password itself, only hasPassword', async () => {
+      const protectedPage = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/pwd-haspassword', password: 'sup3r-secret' }),
+        actor
+      )
+      const openPage = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/pwd-nopassword' }),
+        actor
+      )
+
+      const fetchedProtected = await pagesModel.getPage({
+        siteId: fixtures.siteId,
+        id: protectedPage.id,
+        withPassword: true
+      })
+      const fetchedOpen = await pagesModel.getPage({
+        siteId: fixtures.siteId,
+        id: openPage.id,
+        withPassword: true
+      })
+
+      assert.equal((fetchedProtected as any).hasPassword, true)
+      assert.equal((fetchedOpen as any).hasPassword, false)
+      assert.equal('password' in (fetchedProtected as any), false)
+      assert.equal('password' in (fetchedOpen as any), false)
+    })
+
+    test('unlockPage() accepts the correct password and hands back the body', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/pwd-unlock-correct',
+          content: '# Secret content',
+          password: 'sw0rdfish'
+        }),
+        actor
+      )
+
+      const unlocked = await pagesModel.unlockPage({
+        siteId: fixtures.siteId,
+        id: page.id,
+        password: 'sw0rdfish'
+      })
+
+      assert.ok(unlocked)
+      assert.equal(unlocked!.id, page.id)
+      assert.equal(unlocked!.isLocked, false)
+    })
+
+    test('unlockPage() rejects a wrong password', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/pwd-unlock-wrong', password: 'sw0rdfish' }),
+        actor
+      )
+
+      const result = await pagesModel.unlockPage({
+        siteId: fixtures.siteId,
+        id: page.id,
+        password: 'wrong-guess'
+      })
+
+      assert.equal(result, null)
+    })
+
+    test('unlockPage() returns null for a page with no password at all', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/pwd-unlock-none' }),
+        actor
+      )
+
+      const result = await pagesModel.unlockPage({
+        siteId: fixtures.siteId,
+        id: page.id,
+        password: 'anything'
+      })
+
+      assert.equal(result, null)
+    })
+  })
+
   describe('listPagesForSitemap', () => {
     /**
      * `fixtures.groupId` stands in for the guests group here: `WIKI.data.systemIds.guestsGroupId` is

@@ -490,14 +490,26 @@ function labelSvg(label, box, props) {
   return `<text text-anchor="${anchor}" dominant-baseline="middle" font-size="${fontSize}" font-weight="${weight}" font-style="${style}" text-decoration="${decoration}" fill="${escapeXml(color)}">${tspans}</text>`
 }
 
+/**
+ * `stroke` + `stroke-width`, the one escaping site for both — shared by `paintAttrs()` and by the
+ * shapes below (`cylinder`, `swimlane`) that draw a second, fill-less stroke of their own rather than
+ * duplicating the color/width handling (and its escaping) at each call site. `strokeWidth` is coerced
+ * with `Number()`, the same idiom `startSize` uses just below, rather than interpolated as a string:
+ * `style` comes from `parseStyle()` splitting `cell.style` on `;`/`=` with no validation at all, so an
+ * unescaped numeric-looking property is exactly as attacker-controlled as any other.
+ */
+function strokeAttrs(props) {
+  const stroke = colorOr(props.strokeColor, '#000000')
+  const strokeWidth = Number(props.strokeWidth) || 1
+  return `stroke="${escapeXml(stroke)}" stroke-width="${strokeWidth}"`
+}
+
 /** Common presentation attributes every filled/stroked shape below shares. */
 function paintAttrs(props) {
   const fill = colorOr(props.fillColor, '#ffffff')
-  const stroke = colorOr(props.strokeColor, '#000000')
-  const strokeWidth = props.strokeWidth ?? '1'
   const dash = props.dashed === '1' ? ` stroke-dasharray="5,5"` : ''
   const opacity = props.opacity !== undefined ? ` opacity="${Number(props.opacity) / 100}"` : ''
-  return `fill="${escapeXml(fill)}" stroke="${escapeXml(stroke)}" stroke-width="${escapeXml(strokeWidth)}"${dash}${opacity}`
+  return `fill="${escapeXml(fill)}" ${strokeAttrs(props)}${dash}${opacity}`
 }
 
 /**
@@ -541,13 +553,13 @@ const SHAPES = {
     const ry = Math.min(h / 6, 10)
     const attrs = paintAttrs(props)
     return `<path d="M ${x} ${y + ry} A ${w / 2} ${ry} 0 0 1 ${x + w} ${y + ry} L ${x + w} ${y + h - ry} A ${w / 2} ${ry} 0 0 1 ${x} ${y + h - ry} Z" ${attrs} />
-      <path d="M ${x} ${y + ry} A ${w / 2} ${ry} 0 0 0 ${x + w} ${y + ry}" fill="none" stroke="${escapeXml(colorOr(props.strokeColor, '#000000'))}" stroke-width="${props.strokeWidth ?? '1'}" />`
+      <path d="M ${x} ${y + ry} A ${w / 2} ${ry} 0 0 0 ${x + w} ${y + ry}" fill="none" ${strokeAttrs(props)} />`
   },
   swimlane(box, props) {
     const startSize = Number(props.startSize) || 20
     const attrs = paintAttrs(props)
     return `<rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}" ${attrs} />
-      <line x1="${box.x}" y1="${box.y + startSize}" x2="${box.x + box.width}" y2="${box.y + startSize}" stroke="${escapeXml(colorOr(props.strokeColor, '#000000'))}" stroke-width="${props.strokeWidth ?? '1'}" />`
+      <line x1="${box.x}" y1="${box.y + startSize}" x2="${box.x + box.width}" y2="${box.y + startSize}" ${strokeAttrs(props)} />`
   },
   text() {
     // -> A label with no border or fill: the label itself is added by `renderVertex` for every shape
@@ -590,9 +602,8 @@ function renderEdge({ cell, start, end, waypoints }) {
   const points = [start, ...waypoints, end]
   const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
   const stroke = colorOr(props.strokeColor, '#000000')
-  const strokeWidth = props.strokeWidth ?? '1'
   const dash = props.dashed === '1' ? ` stroke-dasharray="5,5"` : ''
-  const path = `<path d="${d}" fill="none" stroke="${escapeXml(stroke)}" stroke-width="${escapeXml(strokeWidth)}"${dash} />`
+  const path = `<path d="${d}" fill="none" ${strokeAttrs(props)}${dash} />`
   const endArrow =
     props.endArrow !== 'none' ? arrowheadFill(arrowhead(points.at(-2), end), stroke) : ''
   const startArrow =

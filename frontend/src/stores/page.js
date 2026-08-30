@@ -64,7 +64,22 @@ export const usePageStore = defineStore('page', {
      * not a page that failed to load with the previous one's title and body still in it.
      */
     notFound: false,
+    /**
+     * A new password to protect the page with, in plaintext, never a value the server sent back
+     * (OpenProject #2232 -- the API only ever hashes this and never returns it again, see
+     * `hasPassword`). Empty means "no change" on save unless `removePassword` is also set; the server
+     * hashes whatever is typed here before it touches the database.
+     */
     password: '',
+    /** Whether the page currently has a password set, as the server last reported it. Informational
+     *  only -- `password` above is what actually changes it on save. */
+    hasPassword: false,
+    /**
+     * Set when the password toggle is turned off in the editor, to tell `pageSave` this save means
+     * "take the password off", distinct from "the field was never touched" -- which `password` alone
+     * cannot say once the server stopped echoing the current value back (OpenProject #2232).
+     */
+    removePassword: false,
     path: '',
     publishEndDate: '',
     publishStartDate: '',
@@ -193,7 +208,12 @@ export const usePageStore = defineStore('page', {
           relations: pageData.relations.map((r) =>
             pick(r, ['id', 'position', 'label', 'caption', 'icon', 'target'])
           ),
-          tocDepth: pick(pageData.tocDepth, ['min', 'max'])
+          tocDepth: pick(pageData.tocDepth, ['min', 'max']),
+          // -> `pageData` never carries a `password` -- the API only ever hashes it, never returns it
+          //    (OpenProject #2232) -- so without this the field would keep whatever the PREVIOUS page
+          //    left typed into it rather than starting empty for this one.
+          password: '',
+          removePassword: false
         })
         this.applyViewerState(pageData.viewer)
         // Update editor state timestamps
@@ -335,6 +355,9 @@ export const usePageStore = defineStore('page', {
         publishState: '',
         classification: '',
         isLocked: false,
+        password: '',
+        hasPassword: false,
+        removePassword: false,
         canSuggestEdits: false,
         hasOpenSuggestion: false,
         canReview: false,
@@ -481,6 +504,11 @@ export const usePageStore = defineStore('page', {
           than deciding it.
         */
         isSearchable: editor !== 'redirect',
+        // -> A page being created has never had a password set, and nothing here should carry the
+        //    previously-open page's typed-but-unsaved value into a brand new one
+        password: '',
+        hasPassword: false,
+        removePassword: false,
         // -> The page being created is very often the one that was missing, and it is not missing now
         notFound: false,
         /*
@@ -745,7 +773,6 @@ export const usePageStore = defineStore('page', {
             'icon',
             'isBrowsable',
             'isSearchable',
-            'password',
             'publishEndDate',
             'publishStartDate',
             'publishState',
@@ -767,6 +794,21 @@ export const usePageStore = defineStore('page', {
             `pageSave` is called, and cleared below once it has gone up.
           */
           reasonForChange: editorStore.reasonForChange ?? ''
+        }
+
+        /*
+          The password is write-only and never round-trips from the server (OpenProject #2232), so
+          unlike every other field above it cannot simply be picked off `this` -- an untouched field
+          reads as `''` here whether the page has a password or not, and sending that on every save
+          would silently strip one every time an author changed the title. Sent only on an actual
+          intent: a new value to hash and store, or an explicit removal from the password toggle
+          being turned off (`toggleRequirePassword` in `PagePropertiesDialog.vue`). Anything else
+          omits the key entirely, which `updatePage` reads as "leave the stored password alone".
+        */
+        if (this.password) {
+          body.password = this.password
+        } else if (this.removePassword) {
+          body.password = ''
         }
 
         /*
@@ -842,7 +884,12 @@ export const usePageStore = defineStore('page', {
           relations: (pageData.relations ?? []).map((r) =>
             pick(r, ['id', 'position', 'label', 'caption', 'icon', 'target'])
           ),
-          tocDepth: pick(pageData.tocDepth, ['min', 'max'])
+          tocDepth: pick(pageData.tocDepth, ['min', 'max']),
+          // -> Whatever was just sent has already been written, and `pageData` carries no `password`
+          //    back to keep it in sync with (OpenProject #2232) -- so this is cleared explicitly
+          //    rather than left holding a plaintext secret, and pending, past the save it was for.
+          password: '',
+          removePassword: false
         })
 
         /*

@@ -149,6 +149,7 @@ async function countEnabledSites() {
 
 before(async () => {
   ;(globalThis as any).WIKI = {
+    config: {},
     models: {
       sites: {
         getSiteByHostname,
@@ -554,6 +555,48 @@ test('site:login on this site may save auth and authStrategies', async () => {
   })
   assert.equal(res.statusCode, 200)
   assert.equal(updateSiteCalls.length, 1)
+})
+
+/**
+ * OpenProject #1360/#2208 (2026-08-24 security audit §2): `auth.loginRedirect`/`welcomeRedirect`/
+ * `logoutRedirect` had the identical shape and risk as a group's `redirectOnLogin` (see
+ * `api/groups.test.ts`) — writable by `manage:sites` or the delegated `site:login` permission, and
+ * unvalidated until now.
+ */
+test('rejects a javascript: auth.loginRedirect with 400, and never reaches updateSite', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { auth: { loginRedirect: 'javascript:alert(1)' } }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+test('rejects a scheme-relative //host auth.welcomeRedirect with 400', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { auth: { welcomeRedirect: '//attacker.example' } }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+test('accepts a rooted path and a complete https:// URL for auth.logoutRedirect', async () => {
+  for (const target of ['/', 'https://example.com/goodbye']) {
+    updateSiteCalls = []
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/${PUT_SITE_ID}`,
+      headers: { 'x-test-permissions': 'manage:sites' },
+      payload: { auth: { logoutRedirect: target } }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(updateSiteCalls[0].patch.config.auth.logoutRedirect, target)
+  }
 })
 
 test('site:locale on this site may save locales', async () => {
