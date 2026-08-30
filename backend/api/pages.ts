@@ -1380,7 +1380,12 @@ async function routes(app: FastifyInstance) {
           type: 'object',
           required: ['pageIds', 'classification'],
           properties: {
-            pageIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
+            pageIds: {
+              type: 'array',
+              items: { type: 'string', format: 'uuid' },
+              minItems: 1,
+              maxItems: 500
+            },
             classification: { type: 'string', format: 'uuid' }
           }
         },
@@ -1402,8 +1407,11 @@ async function routes(app: FastifyInstance) {
       if (!WIKI.models.classificationLevels.byId(req.body.classification)) {
         return reply.badRequest('This classification level does not exist.')
       }
+      // -> De-duplicate before processing: a repeated id would otherwise be fetched, permission-checked
+      //    and audit-logged once per occurrence instead of once per page.
+      const pageIds = [...new Set(req.body.pageIds)]
       const targets: { id: string; path: string; classification: string }[] = []
-      for (const pageId of req.body.pageIds) {
+      for (const pageId of pageIds) {
         const target = await WIKI.models.pages.getPage({ siteId: req.params.siteId, id: pageId })
         if (!target) {
           return reply.notFound('One of these pages does not exist.')
@@ -1445,7 +1453,7 @@ async function routes(app: FastifyInstance) {
       }
       const updated = await WIKI.models.pages.bulkSetClassification(
         req.params.siteId,
-        req.body.pageIds,
+        pageIds,
         req.body.classification
       )
       for (const target of targets) {
