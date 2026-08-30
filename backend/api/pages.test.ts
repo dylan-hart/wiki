@@ -16,6 +16,7 @@ import { MAX_IMPORT_SIZE } from '../models/import.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { CustomError, siteEnabledPreHandler } from '../helpers/common.ts'
 import type { GroupRule } from '../models/groups.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 
 /**
  * Task 601: `GET /sites/:siteId/pages/:pageIdOrHash` — the page-read route — must carry a real
@@ -307,33 +308,6 @@ describe('pages API — apiKeySitePinHook site-scoping', () => {
 })
 
 describe('pages API — concurrent-edit safety and search rule-permission audit', () => {
-  let previousTemporal: any
-  let previousToTemporalInstant: any
-
-  /**
-   * Minimal stand-in for the subset of `Temporal` the route under test calls: `Temporal.Instant.from()`
-   * plus `.epochMilliseconds` for the concurrency check, and `Date#toTemporalInstant().toString({
-   * smallestUnit })` for the collab-save notification the handler already sends.
-   *
-   * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
-   * older and doesn't expose it (same environment gap noted in `core/scheduler.test.ts` — not a spec
-   * deviation). Installed only when genuinely missing, so a real Node 26 run exercises the native API.
-   */
-  function installFakeTemporal(): void {
-    ;(globalThis as any).Temporal = {
-      Instant: {
-        from: (iso: string) => ({ epochMilliseconds: Date.parse(iso) })
-      }
-    }
-    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-      const epochMilliseconds = this.getTime()
-      return {
-        epochMilliseconds,
-        toString: () => new Date(epochMilliseconds).toISOString()
-      }
-    }
-  }
-
   /**
    * Regression test for the optimistic-concurrency check on `PATCH /sites/:siteId/pages/:pageId`
    * (task 542): the handler already fetches the current row before calling `updatePage()` for the
@@ -382,11 +356,7 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
   }
 
   before(async () => {
-    previousTemporal = (globalThis as any).Temporal
-    previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
-    if (typeof previousTemporal === 'undefined') {
-      installFakeTemporal()
-    }
+    await ensureTemporal()
     ;(globalThis as any).WIKI = {
       models: {
         pages: {
@@ -472,8 +442,6 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
   after(async () => {
     await app.close()
     delete (globalThis as any).WIKI
-    ;(globalThis as any).Temporal = previousTemporal
-    ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
   })
 
   beforeEach(() => {
@@ -1834,16 +1802,18 @@ describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)',
    * preHandler itself (which `index.test.ts` already covers directly, across every `:siteId` route in
    * every `api/` file, discovered structurally rather than named one by one).
    *
-   * Widened past the original three routes to the rest of `pages.ts`'s previously-*unguarded* surface
-   * named in the audit this task closes (`docs/audit-2026-08-24/correctness-api-routes.md` §1): GET
-   * PAGE, page history, a single history version, and export. (`UNLOCK` is covered structurally in
-   * `index.test.ts`'s route-surface scan instead of here, since it carries its own `onRequest`
-   * rate-limit hook ahead of this preHandler, which would need its own stub setup to exercise safely.)
-   * Every case below asserts a disabled site is refused before the handler runs — a stubbed model
-   * method's call count staying at 0 is the proof of that, the same technique the original three
-   * cases already used. The enabled-site pass-through case is kept only for the original three, which
-   * already had inexpensive stubs for it; the newly-added routes would need considerably more model
-   * scaffolding to reach 200 that adds nothing to what this task is actually regression-testing.
+   * Widened past the original three routes (of which LIST was deleted by OpenProject #1986 as a
+   * permanently-empty stub with no caller — SEARCH and INCLUDE are what remain of the original
+   * three here) to the rest of `pages.ts`'s previously-*unguarded* surface named in the audit this
+   * task closes (`docs/audit-2026-08-24/correctness-api-routes.md` §1): GET PAGE, page history, a
+   * single history version, and export. (`UNLOCK` is covered structurally in `index.test.ts`'s
+   * route-surface scan instead of here, since it carries its own `onRequest` rate-limit hook ahead
+   * of this preHandler, which would need its own stub setup to exercise safely.) Every case below
+   * asserts a disabled site is refused before the handler runs — a stubbed model method's call
+   * count staying at 0 is the proof of that, the same technique the original three cases already
+   * used. The enabled-site pass-through case is kept only for the original three, which already had
+   * inexpensive stubs for it; the newly-added routes would need considerably more model scaffolding
+   * to reach 200 that adds nothing to what this task is actually regression-testing.
    */
 
   const ENABLED_SITE_ID = '11111111-1111-4111-8111-111111111111'
@@ -1928,18 +1898,6 @@ describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)',
   after(async () => {
     await app.close()
     delete (globalThis as any).WIKI
-  })
-
-  test('LIST: answers 403 for a disabled site', async () => {
-    const res = await app.inject({ method: 'GET', url: `/sites/${DISABLED_SITE_ID}/pages` })
-    assert.equal(res.statusCode, 403)
-    assert.match(res.json().message, /disabled/i)
-  })
-
-  test('LIST: an enabled site still answers its (currently always-empty) list', async () => {
-    const res = await app.inject({ method: 'GET', url: `/sites/${ENABLED_SITE_ID}/pages` })
-    assert.equal(res.statusCode, 200)
-    assert.deepEqual(res.json(), [])
   })
 
   test('SEARCH: answers 403 for a disabled site, without ever calling searchPages', async () => {

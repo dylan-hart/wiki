@@ -21,7 +21,7 @@ import {
   assetRenamed,
   assetDeleted
 } from './content.ts'
-import { ensureRepo } from './storage.ts'
+import { ensureRepo } from './repo.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 const SITE_ID = 'site-1'

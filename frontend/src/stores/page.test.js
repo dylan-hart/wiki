@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { usePageStore } from './page.js'
 import { useEditorStore } from './editor.js'
 import { useSiteStore } from './site.js'
+import { pagePathHash } from '@/helpers/pagePaths'
 
 function stubPageResponse(overrides = {}) {
   return {
@@ -524,6 +525,21 @@ describe('page store: pageLoad()', () => {
 
     const [, opts] = API_CLIENT.get.mock.calls[0]
     expect(opts.searchParams).toEqual({ withContent: false, locale: 'fr' })
+  })
+
+  it('normalizes an embedded space the same way the backend does before hashing (OpenProject #1933)', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    API_CLIENT.get.mockReturnValueOnce(stubPageResponse())
+
+    const pageStore = usePageStore()
+    await pageStore.pageLoad({ path: '/my page' })
+
+    const [url] = API_CLIENT.get.mock.calls[0]
+    // -> `normalizePagePath('/my page')` -> `'my-page'`, matching `backend/api/pages.ts`'s by-path
+    //    lookup for the same input. A drifted local copy that skipped the whitespace-to-hyphen step
+    //    would hash `'my page'` instead, resolving to a hash the server never assigns.
+    expect(url).toBe(`sites/site-1/pages/${pagePathHash('my-page')}`)
   })
 })
 

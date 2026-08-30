@@ -23,9 +23,9 @@ if (!process.env.DATABASE_URL) {
       'database and relies on its first-run seeding for the admin login and default site -- ' +
       'point it at an empty database, e.g.:\n\n' +
       '  docker run --rm -d --name wiki-e2e-db -p 56002:5432 \\\n' +
-      '    -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:17\n' +
+      '    -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:18\n' +
       '  DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56002/postgres npm test\n\n' +
-      'In CI, a fresh `postgres:17` service container per run is what makes "seeded test ' +
+      'In CI, a fresh `postgres:18` service container per run is what makes "seeded test ' +
       'database" true on every invocation -- see CLAUDE.md\'s "Testing (e2e)" section.'
   )
 }
@@ -56,17 +56,24 @@ export default defineConfig({
     baseURL: BASE_URL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
-    // -> Pinned rather than left to the `chromium` project's device default: the markdown editor's
-    //    preview pane -- which `tests/page-publish.spec.js` and `tests/multi-site.spec.js` both
-    //    wait on as their signal that typed content has synced to the store -- only renders above a
-    //    1024px-wide viewport (`EditorMarkdown.vue`'s `useMinWidth(1024)`).
-    viewport: { width: 1280, height: 800 }
+    video: 'retain-on-failure'
   },
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] }
+      use: {
+        ...devices['Desktop Chrome'],
+        // -> Pinned rather than left to the `chromium` project's own device default: the markdown
+        //    editor's preview pane -- which `tests/page-publish.spec.js` and `tests/multi-site.spec.js`
+        //    both wait on as their signal that typed content has synced to the store -- only renders
+        //    above a 1024px-wide viewport (`EditorMarkdown.vue`'s `useMinWidth(1024)`). This has to
+        //    live in the project's own `use`, not the config-level `use` above: Playwright merges
+        //    `config.use` and `projectConfig.use` shallowly per key with the project's value winning,
+        //    and `devices['Desktop Chrome']` already sets its own `viewport` (1280x720) -- a
+        //    config-level `viewport` here would lose that merge silently, which is exactly what
+        //    happened before this comment was written (task 2026).
+        viewport: { width: 1280, height: 800 }
+      }
     }
   ],
   /*

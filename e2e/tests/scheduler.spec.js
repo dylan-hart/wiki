@@ -357,9 +357,16 @@ test.describe('admin scheduler', () => {
     // -> `HISTORY_LIMIT` (100) caps what the tab requests regardless of how many actually match.
     await expect(page.locator('table tbody tr')).toHaveCount(100)
 
-    const expectedTotal = before.total + 110
-    await expect(
-      page.getByText(`Showing the 100 most recent of ${expectedTotal} jobs.`)
-    ).toBeVisible()
+    // -> The exact total is not asserted: a live `storageSyncTick` cron (`* * * * *`) deposits its
+    // own `completed` rows for the whole duration of the run (see `backend/models/jobs.ts`), so the
+    // real total can grow between the `before.total` read above and this assertion. Match the shape
+    // and assert the captured number is at least what was seeded, which still proves the caption
+    // renders, that the cap is 100 and that the seeded rows are counted -- without pinning a number
+    // the running system owns.
+    const captionLocator = page.getByText(/Showing the 100 most recent of (\d+) jobs\./)
+    await expect(captionLocator).toBeVisible()
+    const captionText = await captionLocator.textContent()
+    const [, totalText] = captionText.match(/Showing the 100 most recent of (\d+) jobs\./)
+    expect(Number(totalText)).toBeGreaterThanOrEqual(before.total + 110)
   })
 })

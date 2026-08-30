@@ -16,6 +16,7 @@ import { assets } from '../../../models/assets.ts'
 import { tree } from '../../../models/tree.ts'
 import dbStorageModule, { purge } from './storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
+import { ensureTemporal } from '../../../test/temporal.ts'
 
 /**
  * Exercises `purge()` against a real Postgres instance rather than a mocked `WIKI.db` chain, because
@@ -42,10 +43,7 @@ before(async () => {
   if (!DATABASE_URL) {
     return
   }
-  if (typeof Temporal === 'undefined') {
-    const polyfill = await import('@js-temporal/polyfill')
-    ;(globalThis as any).Temporal = polyfill.Temporal
-  }
+  await ensureTemporal()
 
   pool = new Pool({ connectionString: DATABASE_URL })
   const db = drizzle({ client: pool, relations })

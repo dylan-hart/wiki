@@ -15,29 +15,11 @@ import {
   teardownTestDb,
   type TestFixtures
 } from '../test/db.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 
 // -> `refreshFromDisk()` compares mtimes via the native `Temporal` API (`Date#toTemporalInstant()` +
-//    `Temporal.Instant.compare()`), per CLAUDE.md's "Backend patterns". That is only a runtime global
-//    on Node 26+; this sandbox's Node is 25.9 (a pre-existing, already-documented mismatch — see
-//    feature 410's continuity notes), where both are simply absent and every `stat()` result would
-//    otherwise throw and get misreported as "not found on disk". Feature-detected so this is a no-op
-//    wherever the real thing already exists (Node 26+, i.e. everywhere this actually ships).
-if (typeof Temporal === 'undefined') {
-  class FakeInstant {
-    epochMs: number
-    constructor(epochMs: number) {
-      this.epochMs = epochMs
-    }
-  }
-  ;(globalThis as any).Temporal = {
-    Instant: { compare: (a: FakeInstant, b: FakeInstant) => a.epochMs - b.epochMs }
-  }
-  if (!(Date.prototype as any).toTemporalInstant) {
-    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-      return new FakeInstant(this.getTime())
-    }
-  }
-}
+//    `Temporal.Instant.compare()`), per CLAUDE.md's "Backend patterns".
+await ensureTemporal()
 
 /**
  * `refreshFromDisk` (see `locales.ts`) logs a `[ SKIPPED ]` warning at boot for every language
@@ -425,6 +407,39 @@ describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () 
 
     WIKI.config.dataPath = previousDataPath
     await rm(missingRoot, { recursive: true, force: true })
+  })
+})
+
+/**
+ * `getLocales()` (OpenProject #2005): used to write one extra `locale:<code>` cache entry per
+ * installed locale, alongside the `locales` list it actually serves and freshness-checks (`has
+ * ('locales')`). Nothing ever read that prefix back, so it was dead writes that could drift from the
+ * `locales` list with no reader to notice. Asserts the cache only ever receives the one `locales` key.
+ */
+describe('getLocales() (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let localesModel: typeof import('./locales.ts').locales
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ locales: localesModel } = await import('./locales.ts'))
+    await seedLocale(fixtures.db, { code: 'en' })
+    await seedLocale(fixtures.db, { code: 'fr' })
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('writes only the "locales" cache key, no per-locale entries', async () => {
+    const cacheSetCalls = (WIKI.cache.set as any).mock.calls.length
+    await localesModel.getLocales({ cache: false })
+
+    const newCalls = (WIKI.cache.set as any).mock.calls.slice(cacheSetCalls)
+    assert.deepEqual(
+      newCalls.map((call: any) => call.arguments[0]),
+      ['locales']
+    )
   })
 })
 

@@ -94,63 +94,12 @@ body::-webkit-scrollbar-thumb {
   line-height: 1.4;
 }
 
-.q-field.denser .q-field__control {
-  height: 36px;
-
-  .q-field__prepend {
-    height: 36px;
-  }
-}
-
-.q-field.fill-outline .q-field__control {
-  background-color: #fff;
-
-  @at-root .body--light & {
-    background-color: #fff;
-  }
-  @at-root .body--dark & {
-    background-color: theme.$dark;
-  }
-}
-
-.q-field--dark .q-field__control:before {
-  background-color: theme.$dark-5;
-  border-color: rgba(255, 255, 255, 0.25);
-}
-
-// ------------------------------------------------------------------
-// ICONS SIZE FIX
-// ------------------------------------------------------------------
-
-.q-btn .q-icon {
-  &.fa-solid,
-  &.fa-regular {
-    font-size: 1.3em;
-  }
-}
-
-.q-select__dropdown-icon {
-  font-size: 16px;
-}
-
 // ------------------------------------------------------------------
 // BUTTONS
 // ------------------------------------------------------------------
 
-.q-btn.acrylic-btn {
-  .q-focus-helper {
-    background-color: currentColor;
-    opacity: 0.1;
-  }
-
-  &:hover .q-focus-helper {
-    opacity: 0.3 !important;
-  }
-}
-
-// The same frosted treatment for WBtn, which has no focus-helper child to tint -- it draws its
-// own hover state -- so the tint is a background on the button itself. Kept alongside the rule
-// above rather than replacing it, because both kinds of button are in play until Quasar is gone.
+// The frosted treatment for WBtn, which has no focus-helper child to tint -- it draws its
+// own hover state -- so the tint is a background on the button itself.
 //
 // Unlayered (this file is plain CSS, not a Tailwind layer), so it beats the `hover:bg-current/10`
 // utility WBtn carries for its flat variant, which would otherwise cancel the hover step out.
@@ -345,28 +294,6 @@ body::-webkit-scrollbar-thumb {
 }
 
 // ------------------------------------------------------------------
-// CARDS
-// ------------------------------------------------------------------
-
-.q-card {
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.2),
-    0 1px 1px rgba(0, 0, 0, 0.14),
-    0 2px 1px -1px rgba(0, 0, 0, 0.12);
-
-  &.q-card--dark {
-    box-shadow:
-      0 1px 3px rgba(0, 0, 0, 0.2),
-      0 1px 1px rgba(0, 0, 0, 0.14),
-      0 2px 1px -1px rgba(0, 0, 0, 0.12);
-  }
-
-  .q-separator--dark {
-    background-color: rgba(0, 0, 0, 0.7);
-  }
-}
-
-// ------------------------------------------------------------------
 // DROPDOWN MENUS
 // ------------------------------------------------------------------
 
@@ -397,18 +324,10 @@ body::-webkit-scrollbar-thumb {
   }
 
   // The panel inside has to let the blur through. `!important` because WCard sets its background
-  // with a utility class; both spellings are listed while q-card and w-card coexist.
-  > .q-card,
+  // with a utility class.
   > .w-card {
     background-color: transparent !important;
   }
-}
-
-.q-menu--dark {
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.2),
-    0 1px 1px rgba(0, 0, 0, 0.14),
-    0 2px 1px -1px rgba(0, 0, 0, 0.12);
 }
 
 // ------------------------------------------------------------------
@@ -427,11 +346,5 @@ body::-webkit-scrollbar-thumb {
   }
   100% {
     opacity: 1;
-  }
-}
-
-.loading-darker {
-  .q-loading__backdrop {
-    opacity: 0.75;
   }
 }

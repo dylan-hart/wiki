@@ -933,13 +933,6 @@ async function toggleWatch() {
     })
   }
 }
-
-function notImplemented() {
-  notify({
-    type: 'negative',
-    message: 'Not implemented'
-  })
-}
 </script>
 
 <style scoped lang="scss">

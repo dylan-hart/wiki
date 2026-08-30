@@ -108,21 +108,12 @@ export const useUserStore = defineStore('user', {
     profileLoaded: false
   }),
   actions: {
-    async refreshProfile() {
-      try {
-        this.applyProfile(
-          await API_CLIENT.get('users/whoami', {
-            cache: 'no-store'
-          }).json()
-        )
-      } catch (err) {
-        console.warn(err)
-      }
-    },
     /**
      * Take in a session that arrived with something else — `bootstrap` hands it over with the site and
-     * the flags, which is how an app load asks who is logged in without a request of its own. Asking
-     * again is what `refreshProfile` above is for, once a login or a logout has changed the answer.
+     * the flags, which is how an app load asks who is logged in without a request of its own. A login
+     * instead re-answers this by reloading the app entirely: `AuthLoginPanel.vue` does a full
+     * `window.location.replace()` on success, so the next answer arrives the same way, through
+     * `bootstrap` calling this again on the fresh page load.
      */
     applyProfile(resp) {
       if (!resp?.authenticated) {

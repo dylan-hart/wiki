@@ -54,17 +54,11 @@ import {
 } from './helpers/security.ts'
 import { withAdvisoryLock } from './helpers/advisoryLock.ts'
 
-// -> `Temporal` is not yet a real native global on any currently-shipping Node 26.x build (V8 has not
-//    landed it even behind `--harmony-temporal`, despite the flag existing) — every call site in this
-//    codebase assumes otherwise, per this repo's own CLAUDE.md. `@js-temporal/polyfill` is already a
-//    dependency for exactly this gap, but until now it was only ever installed inside individual test
-//    files' own local guards, never on the real boot path — so every real `node backend` start throws
-//    `ReferenceError: Temporal is not defined` the moment `WIKI.startedAt` below is assembled. Installed
-//    here, before anything else runs, once native support actually lands this becomes a no-op.
-if (typeof Temporal === 'undefined') {
-  const { Temporal: TemporalPolyfill } = await import('@js-temporal/polyfill')
-  ;(globalThis as any).Temporal = TemporalPolyfill
-}
+// `Temporal` has been a real native global since Node 26.0.0 (unflagged, per Node's own release notes)
+// — the `engines` floor this repo requires — so the real boot path needs no polyfill install here.
+// `@js-temporal/polyfill` stays a devDependency purely for unit tests that still run under an older
+// local Node (see e.g. `models/security.test.ts`'s own local guard); that has nothing to do with this
+// file.
 
 const nanoid = customAlphabet('1234567890abcdef', 10)
 

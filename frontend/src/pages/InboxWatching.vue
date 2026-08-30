@@ -1,10 +1,11 @@
 <template>
   <w-page class="py-4">
     <!--
-      Notifications first, Watching second: this is the page the bell in `InboxLayout`'s sidebar
-      points at (task 535 reuses its `la:bell` icon rather than adding a second nav item), and what
-      that bell is FOR is unread notifications — the list of watched pages underneath is the source
-      those notifications come from, not the more urgent of the two.
+      Notifications first, Watching second: this is the page `InboxLayout`'s sidebar rail's first
+      entry ("Inbox") now points at directly (OpenProject #2000 repointed it here once the dead
+      `/_inbox/messages` stub it used to point at was deleted). What that entry is FOR is unread
+      notifications — the list of watched pages underneath is the source those notifications come
+      from, not the more urgent of the two.
     -->
     <div class="w-section-header">{{ t('inbox.notificationsTitle') }}</div>
     <div class="p-4">

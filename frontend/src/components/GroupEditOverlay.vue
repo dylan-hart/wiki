@@ -843,6 +843,12 @@ const RULES_DATA = [
   { permission: 'read:comments', warning: false, restrictedForSystem: false, disabled: false },
   { permission: 'write:comments', warning: false, restrictedForSystem: false, disabled: false },
   { permission: 'manage:comments', warning: false, restrictedForSystem: true, disabled: false },
+  {
+    permission: 'manage:classification',
+    warning: false,
+    restrictedForSystem: true,
+    disabled: false
+  },
   { permission: 'site:general', warning: false, restrictedForSystem: true, disabled: false },
   { permission: 'site:theme', warning: false, restrictedForSystem: true, disabled: false },
   { permission: 'site:navigation', warning: false, restrictedForSystem: true, disabled: false },

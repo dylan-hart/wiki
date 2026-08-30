@@ -7,9 +7,11 @@ import {
   userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
-import { apiKeys, generateSigningCertificates, narrowToScope } from './apiKeys.ts'
+import { apiKeys, generateSigningCertificates, KEY_EXPIRATIONS, narrowToScope } from './apiKeys.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 import type { GroupRule } from './groups.ts'
+import type { KeyExpiration } from './apiKeys.ts'
 
 /**
  * `narrowToScope` is the intersection at the heart of API key scoping: a scope can only take
@@ -46,46 +48,6 @@ describe('apiKeys.narrowToScope', () => {
 })
 
 /**
- * Minimal stand-in for the subset of `Temporal` that `createKey()`/`verify()` touch (`Now.instant()`,
- * `Now.zonedDateTimeISO().add().toInstant()`, `Instant.compare()`, plus a `Date.prototype
- * .toTemporalInstant()` polyfill for the `expiration` column value).
- *
- * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
- * v25.9.0, which doesn't expose it (same environment gap noted in `core/scheduler.test.ts` and tasks
- * 753/756/757/760/761 — not a spec deviation). Stubbing just what this code path touches keeps the
- * test independent of that runtime gap without changing what's actually exercised.
- */
-function installFakeTemporal(): void {
-  const durationToMs = (d: { days?: number; years?: number }) =>
-    (d.days ?? 0) * 86_400_000 + (d.years ?? 0) * 365 * 86_400_000
-  const makeInstant = (epochMs: number): any => ({
-    epochMilliseconds: epochMs,
-    toString: () => new Date(epochMs).toISOString()
-  })
-  const makeZonedDateTime = (epochMs: number): any => ({
-    add: (d: any) => makeZonedDateTime(epochMs + durationToMs(d)),
-    toInstant: () => makeInstant(epochMs)
-  })
-  ;(globalThis as any).Temporal = {
-    Now: {
-      instant: () => makeInstant(Date.now()),
-      zonedDateTimeISO: (_tz: string) => makeZonedDateTime(Date.now())
-    },
-    Instant: {
-      compare: (a: any, b: any) =>
-        a.epochMilliseconds < b.epochMilliseconds
-          ? -1
-          : a.epochMilliseconds > b.epochMilliseconds
-            ? 1
-            : 0
-    }
-  }
-  ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-    return makeInstant(this.getTime())
-  }
-}
-
-/**
  * `siteId` propagation: `createKey()` signs the given site (or `null`, for instance-wide) into the
  * token's `site` claim, and `verify()` reads it back onto `ApiKeyIdentity` so a route handler can read
  * `req.apiKey.siteId`. `WIKI.db` is a minimal in-memory stub (no Postgres) — just enough of
@@ -97,13 +59,9 @@ describe('apiKeys siteId propagation through JWT claims', () => {
   const SITE_ID = '33333333-3333-4333-8333-333333333333'
   const GROUP_ID = '44444444-4444-4444-8444-444444444444'
   let insertedRows: any[] = []
-  let previousTemporal: any
-  let previousToTemporalInstant: any
 
-  before(() => {
-    previousTemporal = (globalThis as any).Temporal
-    previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
-    installFakeTemporal()
+  before(async () => {
+    await ensureTemporal()
     ;(globalThis as any).WIKI = {
       config: {
         api: { isEnabled: true },
@@ -144,12 +102,6 @@ describe('apiKeys siteId propagation through JWT claims', () => {
 
   after(() => {
     delete (globalThis as any).WIKI
-    ;(globalThis as any).Temporal = previousTemporal
-    if (previousToTemporalInstant === undefined) {
-      delete (Date.prototype as any).toTemporalInstant
-    } else {
-      ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
-    }
   })
 
   test('createKey signs the given siteId into the token, and verify() returns it on the identity', async () => {
@@ -179,6 +131,132 @@ describe('apiKeys siteId propagation through JWT claims', () => {
 })
 
 /**
+ * OpenProject #2043 / #2033: `models/apiKeys.ts`'s `KEY_EXPIRATIONS` defines five lifetimes (`30d`,
+ * `90d`, `180d`, `1y`, `3y`), but every `createKey()` call in the rest of this file passes `'30d'` --
+ * so the `{ years: 1 }` / `{ years: 3 }` branches were never actually exercised, and a hand-rolled fake
+ * Temporal reducing `{ years: n }` to a flat `n * 365` days would silently disagree with real calendar
+ * arithmetic across a leap year -- exactly the case a `1y`/`3y` key's expiry can cross. This suite runs
+ * under `ensureTemporal()`'s real (polyfilled on this sandbox's pre-Temporal Node 25, native on Node
+ * 26) `Temporal`, not a fake, so both problems are genuinely exercised rather than hidden.
+ */
+describe('apiKeys.createKey expiration lifetimes', () => {
+  const GROUP_ID = '55555555-5555-4555-8555-555555555555'
+  let insertedRows: any[] = []
+
+  before(async () => {
+    await ensureTemporal()
+    ;(globalThis as any).WIKI = {
+      config: {
+        api: { isEnabled: true },
+        auth: { certs: generateSigningCertificates() }
+      },
+      db: {
+        insert: (table: any) => ({
+          values: async (row: any) => {
+            if (table === apiKeysTable) {
+              insertedRows.push(row)
+            }
+            return { rowCount: 1 }
+          }
+        }),
+        select: (_selection: any) => ({
+          from: (table: any) => {
+            const rows = table === apiKeysTable ? insertedRows : []
+            return {
+              // -> Same minimal `.where().limit()` shape as the siteId-propagation suite above --
+              //    `getKeyById` is all this describe needs to read back.
+              where: () => {
+                const result: any = Promise.resolve(rows)
+                result.limit = async () => rows
+                return result
+              }
+            }
+          }
+        })
+      }
+    }
+  })
+
+  after(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    insertedRows = []
+  })
+
+  for (const lifetime of Object.keys(KEY_EXPIRATIONS) as KeyExpiration[]) {
+    test(`createKey computes the '${lifetime}' expiry via real Temporal.ZonedDateTime.add()`, async () => {
+      // -> Bracket the live-clock computation immediately around the call with the exact same
+      //    expression `createKey()` itself evaluates. Compared at millisecond granularity (what the
+      //    `expiration` column -- a JS `Date` -- actually persists), not as full-precision `Temporal
+      //    .Instant` objects: `Now.zonedDateTimeISO()` carries sub-millisecond precision that the
+      //    stored value never does, so comparing whole `Instant`s here can spuriously see the
+      //    millisecond-truncated stored value as "before" a bound read a sub-millisecond-fraction
+      //    earlier in the very same millisecond. Truncating every side to whole milliseconds is what
+      //    the persisted value actually is, so that's the granularity this bounds it at.
+      const lowerBoundMs = Temporal.Now.zonedDateTimeISO('UTC')
+        .add(KEY_EXPIRATIONS[lifetime])
+        .toInstant().epochMilliseconds
+      const { id } = await apiKeys.createKey({
+        name: `${lifetime} key`,
+        expiration: lifetime,
+        groups: [GROUP_ID]
+      })
+      const upperBoundMs = Temporal.Now.zonedDateTimeISO('UTC')
+        .add(KEY_EXPIRATIONS[lifetime])
+        .toInstant().epochMilliseconds
+
+      const row = await apiKeys.getKeyById(id)
+      const actualMs = row!.expiration.getTime()
+
+      assert.ok(actualMs >= lowerBoundMs)
+      assert.ok(actualMs <= upperBoundMs)
+    })
+  }
+
+  /**
+   * A deterministic regression check on the leap-year bug itself, rather than relying on the
+   * suite happening to run across one: `Temporal.Now.zonedDateTimeISO` is swapped for a fixed date
+   * chosen so the added span crosses 2028-02-29, `createKey()` is driven from that frozen clock, and
+   * the resulting expiry is asserted equal to real calendar-aware `add({ years })` -- and unequal to
+   * what the removed fake's flat `n * 365` days would have produced.
+   */
+  for (const { lifetime, fixedNowIso } of [
+    { lifetime: '1y', fixedNowIso: '2027-12-01T00:00:00+00:00[UTC]' },
+    { lifetime: '3y', fixedNowIso: '2026-01-01T00:00:00+00:00[UTC]' }
+  ] as const) {
+    test(`createKey's '${lifetime}' expiry is calendar-aware across a leap year, not a flat 365-day multiple`, async () => {
+      const realTemporal = globalThis.Temporal
+      const fixedNow = realTemporal.ZonedDateTime.from(fixedNowIso)
+      ;(globalThis as any).Temporal = {
+        ...realTemporal,
+        Now: { ...realTemporal.Now, zonedDateTimeISO: () => fixedNow }
+      }
+      try {
+        const { id } = await apiKeys.createKey({
+          name: `${lifetime} key from a fixed leap-crossing date`,
+          expiration: lifetime,
+          groups: [GROUP_ID]
+        })
+        const row = await apiKeys.getKeyById(id)
+        const actual = row!.expiration.getTime()
+
+        const calendarAware = fixedNow.add(KEY_EXPIRATIONS[lifetime]).toInstant().epochMilliseconds
+        const flatDaysMath = fixedNow
+          .add({ days: KEY_EXPIRATIONS[lifetime].years * 365 })
+          .toInstant().epochMilliseconds
+
+        assert.equal(actual, calendarAware)
+        assert.notEqual(actual, flatDaysMath)
+      } finally {
+        ;(globalThis as any).Temporal = realTemporal
+      }
+    })
+  }
+})
+
+/**
  * OpenProject #788: a personal access token's whole point is that its permissions are resolved LIVE
  * from the owning user's CURRENT group membership on every `verify()` call, never a snapshot taken at
  * `createKey()` time — the design decision this module's own doc comment explains at length. That is
@@ -188,11 +266,9 @@ describe('apiKeys siteId propagation through JWT claims', () => {
  */
 describe('apiKeys personal access tokens (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
-  let previousTemporal: any
 
   before(async () => {
-    previousTemporal = (globalThis as any).Temporal
-    installFakeTemporal()
+    await ensureTemporal()
     fixtures = await setupTestDb()
     WIKI.config.api = { isEnabled: true }
     WIKI.config.auth = { certs: generateSigningCertificates() }
@@ -200,7 +276,6 @@ describe('apiKeys personal access tokens (DB-backed)', { skip: !hasTestDatabase(
 
   after(async () => {
     await teardownTestDb()
-    ;(globalThis as any).Temporal = previousTemporal
   })
 
   // -> `fixtures` (and its one seeded user/group) are shared across every test in this describe, so
@@ -353,13 +428,9 @@ describe(
   () => {
     let fixtures: TestFixtures
     let groupsModel: typeof import('./groups.ts').groups
-    let previousTemporal: any
-    let previousToTemporalInstant: any
 
     before(async () => {
-      previousTemporal = (globalThis as any).Temporal
-      previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
-      installFakeTemporal()
+      await ensureTemporal()
 
       fixtures = await setupTestDb()
       ;({ groups: groupsModel } = await import('./groups.ts'))
@@ -375,12 +446,6 @@ describe(
 
     after(async () => {
       await teardownTestDb()
-      ;(globalThis as any).Temporal = previousTemporal
-      if (previousToTemporalInstant === undefined) {
-        delete (Date.prototype as any).toTemporalInstant
-      } else {
-        ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
-      }
     })
 
     test('a key issued for a group whose only rule grants read:pages succeeds on a page read, with no elevated permission needed anywhere', async () => {

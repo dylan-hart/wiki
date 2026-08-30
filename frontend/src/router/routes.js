@@ -47,8 +47,7 @@ const routes = [
     path: '/_inbox',
     component: () => import('@/layouts/InboxLayout.vue'),
     children: [
-      { path: '', redirect: '/_inbox/messages' },
-      { path: 'messages', component: () => import('@/pages/InboxMessages.vue') },
+      { path: '', redirect: '/_inbox/watching' },
       { path: 'watching', component: () => import('@/pages/InboxWatching.vue') },
       /*
         The submission being reviewed is in the URL, so a review can be linked to -- which is what a

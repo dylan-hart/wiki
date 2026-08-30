@@ -9,44 +9,13 @@ import {
   jobHistory as jobHistoryTable
 } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-
-/**
- * Minimal stand-in for the subset of `Temporal.Instant` this file's code under test calls
- * (`Now.instant()`, `.add()`, `.subtract()`, `.toString({ smallestUnit })`, `.epochMilliseconds`).
- *
- * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
- * v25.9.0, which doesn't expose it (same environment gap noted in tasks 753/756/757/760/761 — not a
- * spec deviation). Stubbing just what these code paths touch keeps the tests independent of that
- * runtime gap without changing what's actually exercised.
- */
-function installFakeTemporal(): void {
-  const durationToMs = (d: { hours?: number; minutes?: number; seconds?: number }) =>
-    (d.hours ?? 0) * 3_600_000 + (d.minutes ?? 0) * 60_000 + (d.seconds ?? 0) * 1_000
-  const makeInstant = (epochMs: number): any => ({
-    epochMilliseconds: epochMs,
-    add: (d: any) => makeInstant(epochMs + durationToMs(d)),
-    subtract: (d: any) => makeInstant(epochMs - durationToMs(d)),
-    toString: () => new Date(epochMs).toISOString()
-  })
-  ;(globalThis as any).Temporal = {
-    Now: { instant: () => makeInstant(Date.now()) },
-    // -> `expireCompletionPromises()` (OpenProject #928) compares two instants with `Instant.compare`,
-    //    per CLAUDE.md's own note that Temporal types have no `valueOf` and `<` throws.
-    Instant: { compare: (a: any, b: any) => Math.sign(a.epochMilliseconds - b.epochMilliseconds) }
-  }
-}
+import { ensureTemporal } from '../test/temporal.ts'
 
 let scheduler: any
-let previousTemporal: any
 
 before(async () => {
-  previousTemporal = (globalThis as any).Temporal
-  installFakeTemporal()
+  await ensureTemporal()
   scheduler = (await import('./scheduler.ts')).default
-})
-
-after(() => {
-  ;(globalThis as any).Temporal = previousTemporal
 })
 
 /**

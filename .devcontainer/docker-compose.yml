@@ -13,6 +13,17 @@ services:
       - ..:/workspace
       - wiki-vscode-ext:/root/.vscode-server/extensions
 
+    # Matches the `db` service's own credentials below (reachable at localhost:5432, since this
+    # container runs on `network_mode: service:db`) and config.sample.yml's db defaults exactly, so
+    # `npm run dev` / `npm run start` keep connecting exactly as they always have -- as long as
+    # config.yml's own `db:` block is left at its default values (see README.md's "Usage" steps).
+    # What this actually changes is backend/test/db.ts's `hasTestDatabase()` gate: with it set,
+    # `npm run test` in backend/ runs the DB-backed suites instead of silently skipping them.
+    # If you edit config.yml's `db:` block to point somewhere else, unset this in your own shell
+    # first -- core/db.ts prefers DATABASE_URL outright over WIKI.config.db.* whenever it's set.
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
     # Overrides default command so things don't shut down after the process ends.
     command: sleep infinity
 

@@ -241,6 +241,82 @@ describe('GroupEditOverlay global permissions: hint resolves from the i18n dicti
   })
 })
 
+/**
+ * OpenProject #1942: `manage:classification` (the 16th and last entry of `PAGE_PERMISSIONS`,
+ * `backend/helpers/permissions.ts`) was enforced by the API but absent from the group editor's
+ * `rules` catalog, so it was grantable only by hand-crafting group-rule JSON against
+ * `PUT /groups/:id` -- no non-`manage:system` user could ever lower a page's classification through
+ * the UI. Mirrors the `site:` permission vocabulary test above: a rule already holding the
+ * permission in its `roles` must render a chip labelled with the catalog's title.
+ */
+describe('GroupEditOverlay rule editor: manage:classification permission', () => {
+  async function mountWithClassificationPermissionRule() {
+    setActivePinia(createPinia())
+    const adminStore = useAdminStore()
+    adminStore.overlayOpts = { id: 'group-manage-classification' }
+    adminStore.sites = []
+    adminStore.locales = []
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'group-manage-classification',
+          name: 'Test Group',
+          userCount: 0,
+          permissions: [],
+          rules: [
+            {
+              id: 'rule-1',
+              name: 'Declassify rule',
+              mode: 'ALLOW',
+              roles: ['write:pages', 'manage:classification'],
+              sites: [],
+              match: 'START',
+              path: '',
+              locales: []
+            }
+          ]
+        })
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:section', component: { template: '<div />' } }]
+    })
+    router.push('/rules')
+    await router.isReady()
+
+    // -> Task #1602's i18n conversion of the `rules` catalog means the rendered chip title now comes
+    //    from this mounted dictionary, not a component literal -- see the `site:` permission test
+    //    above for the same requirement.
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: {
+        en: {
+          'admin.groups.permissions.manage:classification.title': 'Manage Classification'
+        }
+      }
+    })
+
+    const wrapper = mount(GroupEditOverlay, {
+      global: {
+        plugins: [router, i18n]
+      }
+    })
+
+    await flushPromises()
+
+    return wrapper
+  }
+
+  it('renders a rule holding manage:classification with its catalog title', async () => {
+    const wrapper = await mountWithClassificationPermissionRule()
+
+    expect(wrapper.text()).toContain('Manage Classification')
+  })
+})
+
 describe('GroupEditOverlay assignUser partial failure', () => {
   it('assigns the successes, reports the failure by name+reason, and refetches true membership', async () => {
     const wrapper = await mountWithGroup()

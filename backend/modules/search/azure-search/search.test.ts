@@ -1,6 +1,7 @@
-import { describe, test } from 'node:test'
+import { before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mock } from 'node:test'
+import { ensureTemporal } from '../../../test/temporal.ts'
 import {
   AzureSearchModule,
   buildFilter,
@@ -18,21 +19,13 @@ import type { SearchIndex } from '@azure/search-documents'
 import type { SearchIndexablePage } from '../../../models/search.ts'
 
 /**
- * Minimal stand-in for `Date.prototype.toTemporalInstant()`, which `toIndexDocument` calls to build
- * the document's `updatedAt` field.
+ * `toIndexDocument` calls `Date.prototype.toTemporalInstant()` to build the document's `updatedAt`
+ * field.
  *
  * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
  * v25.9.0, which doesn't expose it yet (same environment gap `core/scheduler.test.ts` stubs around).
- * `toISOString()` already gives millisecond precision with a `Z` suffix, so it's an exact stand-in for
- * what `toTemporalInstant().toString({ smallestUnit: 'millisecond' })` produces. Guarded so it's a
- * no-op on a runtime where the native method already exists.
  */
-if (typeof (Date.prototype as any).toTemporalInstant !== 'function') {
-  ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-    const iso = this.toISOString()
-    return { toString: () => iso }
-  }
-}
+before(() => ensureTemporal())
 
 /**
  * `init()` is task #553's scope — the SDK dependency, `definition.yml`, and idempotent index

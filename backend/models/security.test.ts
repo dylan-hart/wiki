@@ -1,16 +1,11 @@
 import assert from 'node:assert/strict'
 import { beforeEach, describe, test } from 'node:test'
 import { validateTrustProxySpec } from './security.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 
-// `observeRequest` calls `Temporal.Now.instant()` unconditionally. Node ships `Temporal` as a
-// global from v26 -- but not every environment running this test has that landed yet, and
-// `@js-temporal/polyfill` (already pulled in transitively by drizzle-kit) is a faithful ponyfill,
-// so install it as the global only when it is genuinely missing, exactly as `api/system.test.ts`
-// does for the same reason.
-if (typeof Temporal === 'undefined') {
-  const { Temporal: TemporalPolyfill } = await import('@js-temporal/polyfill')
-  ;(globalThis as any).Temporal = TemporalPolyfill
-}
+// `observeRequest` calls `Temporal.Now.instant()` unconditionally; `ensureTemporal()` polyfills the
+// global for real on this sandbox's Node, which lacks it natively.
+await ensureTemporal()
 
 /**
  * Unit test for task 833: `Security#observeRequest` is the runtime detector behind

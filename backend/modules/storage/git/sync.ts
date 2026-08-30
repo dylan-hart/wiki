@@ -30,7 +30,7 @@ import { generatePathHash, stripLocalePrefix } from '../../../helpers/common.ts'
 import { getContentTypeFromExtension } from '../../../models/storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 import { getEditorForContentType } from '../../../models/pages.ts'
-import { ensureRepo } from './storage.ts'
+import { ensureRepo } from './repo.ts'
 import { covers, fileExists } from './content.ts'
 
 /**

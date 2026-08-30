@@ -274,61 +274,35 @@ describe(
 
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
-import { load } from 'js-yaml'
 
 /**
- * Regression test for the dead `kroki`/`plantuml` config surface: `base.yml`'s
- * `editors.markdown.config` carried `kroki: true` and `plantuml: true` even though nothing in the
- * codebase ever read either key — diagram rendering moved to `block-kroki`/`block-plantuml`, which
- * take their server/language settings as block props on the page, not from site-wide config. Locks
- * the keys gone so they cannot silently reappear.
+ * Regression test for the dead `kroki`/`plantuml`/`latexEngine` config surface on the per-site
+ * markdown editor default: diagram rendering moved to `block-kroki`/`block-plantuml`, which take
+ * their server/language settings as block props on the page rather than from site-wide config, and
+ * math rendering is `block-katex`/`block-mathjax`'s own per-site `isEnabled` toggles -- so none of
+ * the three ever had a reader. Locks the keys gone so they cannot silently reappear.
  *
- * `latexEngine` was originally left alone here, out of scope for task 476's own kroki/plantuml
- * cleanup and deferred to whichever task actually owned its future (Feature 366, "Math Rendering
- * Parity & Engine Selection"). That task has since made its call -- see `base.test.ts`'s "base.yml
- * editors.markdown.config has no latexEngine key" and its own extensive `docs/variances.md` entry --
- * and removed it too, superseded by `block-katex`/`block-mathjax`'s own per-site `isEnabled` toggles.
- * Reflected here rather than left asserting the pre-Feature-366 boundary.
+ * Since OpenProject #1991, the editors default (asciidoc/code/markdown/wysiwyg) is a single
+ * `DEFAULT_SITE_EDITORS` object shared by `createSite()` and `init()` rather than duplicated
+ * verbatim in both, so this asserts there is exactly one such literal in the source.
  */
 
 const rootPath = path.resolve(import.meta.dirname, '../..')
 
-test('base.yml no longer carries the dead kroki/plantuml/latexEngine markdown editor config keys', async () => {
-  const raw = await readFile(path.join(rootPath, 'backend/base.yml'), 'utf8')
-  const parsed = load(raw) as any
-  const markdownConfig = parsed.editors.markdown.config
-
-  assert.equal(
-    'kroki' in markdownConfig,
-    false,
-    'base.yml should no longer define editors.markdown.config.kroki'
-  )
-  assert.equal(
-    'plantuml' in markdownConfig,
-    false,
-    'base.yml should no longer define editors.markdown.config.plantuml'
-  )
-  assert.equal(
-    'latexEngine' in markdownConfig,
-    false,
-    'latexEngine is dead too (superseded by block-katex/block-mathjax per-site isEnabled) -- see base.test.ts'
-  )
-})
-
 test('models/sites.ts default markdown editor config still omits kroki, plantuml and latexEngine', async () => {
   const raw = await readFile(path.join(rootPath, 'backend/models/sites.ts'), 'utf8')
 
-  // -> Both default-config object literals (site creation, and the existing-site default merge in
-  // init()) write `markdown: { isActive: true, config: { ...primitives... } }` with no nested object
-  // inside `config`, so the text up to the first `}` after `config: {` is exactly that block.
+  // -> The single shared default-config literal writes `markdown: { isActive: true, config: {
+  // ...primitives... } }` with no nested object inside `config`, so the text up to the first `}`
+  // after `config: {` is exactly that block.
   const markdownConfigBlocks = [
     ...raw.matchAll(/markdown:\s*{\s*isActive:\s*true,\s*config:\s*{([^}]*)}/g)
   ]
 
   assert.equal(
     markdownConfigBlocks.length,
-    2,
-    'expected exactly two markdown default-config literals in sites.ts'
+    1,
+    'expected exactly one markdown default-config literal in sites.ts (shared DEFAULT_SITE_EDITORS)'
   )
 
   for (const [, body] of markdownConfigBlocks) {

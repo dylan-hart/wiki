@@ -101,11 +101,6 @@ export function collabUserColor(userId) {
   return USER_COLORS[Math.abs(hash) % USER_COLORS.length]
 }
 
-/** Whether a session is currently open. */
-export function isCollabActive() {
-  return doc !== null
-}
-
 /**
  * What a `collabStore.status` change means for the editor it gates -- whether to (re)bind it to the
  * shared document, and whether it may still be typed in.

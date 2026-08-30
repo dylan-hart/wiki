@@ -2,6 +2,7 @@ import { LitElement, html } from 'lit'
 import { unsafeHTML } from 'lit/directives/unsafe-html.js'
 import { getBlockImportUrl } from '../shared/config.js'
 import { t } from '../shared/i18n.js'
+import { getSiteId, getCurrentPage } from '../shared/site.js'
 
 /** How many includes may nest before the chain is treated as a mistake. */
 const MAX_DEPTH = 3
@@ -132,15 +133,18 @@ export class BlockIncludeElement extends LitElement {
    * a mutual pair only trips on the second lap, after fetching and drawing one pointless extra copy
    * of each page. With it, the loop is refused at the exact point it would close, before a request
    * goes out.
+   *
+   * @param {string} currentPath This page's own bare path -- `../shared/site.js`'s `getCurrentPage()`,
+   *   read off `location.pathname` rather than a page store this block cannot reach.
    */
-  _ancestorPaths() {
+  _ancestorPaths(currentPath) {
     const paths = []
     let parent = this.parentElement?.closest('block-include')
     while (parent) {
       paths.push(normalizePath(parent.getAttribute('path')))
       parent = parent.parentElement?.closest('block-include')
     }
-    paths.push(normalizePath(WIKI_STATE.page.path))
+    paths.push(normalizePath(currentPath))
     return paths
   }
 
@@ -171,9 +175,14 @@ export class BlockIncludeElement extends LitElement {
   async connectedCallback() {
     super.connectedCallback()
 
+    // -> No site id or session threaded down to this block -- see `../shared/site.js`'s header for
+    //    the convention every block now follows to learn both.
+    const [siteId, current] = await Promise.all([getSiteId(), getCurrentPage()])
     const path = normalizePath(this.path)
-    const chain = this._ancestorPaths()
-    if (chain.includes(path)) {
+    const chain = this._ancestorPaths(current.path)
+    if (!siteId) {
+      this._error = 'Could not determine the current site.'
+    } else if (chain.includes(path)) {
       // -> A page naming itself is its author's own doing; anything longer went round other pages,
       //    and saying which one closes the loop is the part that helps
       this._error =
@@ -184,31 +193,46 @@ export class BlockIncludeElement extends LitElement {
       this._error = `Includes are nested more than ${MAX_DEPTH} pages deep.`
     } else {
       try {
-        const page = await API_CLIENT.get(`sites/${WIKI_STATE.site.id}/pages/include`, {
-          searchParams: {
-            path,
-            locale: this.locale || WIKI_STATE.page.locale
-          }
-        }).json()
-        if (page.isLocked) {
-          // -> Withheld by the server, which is the same answer this reader gets by opening the page.
-          //    The unlock prompt lives there, so this points at it rather than asking for a password.
-          this._error = `The page "${path}" is password protected. Open it to enter the password.`
-        } else {
-          this._title = page.title
-          this._render = page.render
+        const params = new URLSearchParams({ path })
+        const locale = this.locale || current.locale
+        if (locale) {
+          params.set('locale', locale)
         }
-      } catch (err) {
-        this._error =
-          err.response?.status === 404
-            ? await t('blocks.include.errors.pageNotFound', `There is no page at "${path}".`, {
-                path
-              })
-            : await t(
-                'blocks.include.errors.includeFailed',
-                `The page "${path}" could not be included.`,
-                { path }
-              )
+        // -> `fetch` carries the session cookie same-origin, same as `API_CLIENT` did -- the
+        //    server's own `mayOnPage` check on this route is what actually decides what comes back.
+        const resp = await fetch(`/_api/sites/${siteId}/pages/include?${params}`)
+        if (resp.status === 404) {
+          this._error = await t(
+            'blocks.include.errors.pageNotFound',
+            `There is no page at "${path}".`,
+            {
+              path
+            }
+          )
+        } else if (!resp.ok) {
+          this._error = await t(
+            'blocks.include.errors.includeFailed',
+            `The page "${path}" could not be included.`,
+            { path }
+          )
+        } else {
+          const page = await resp.json()
+          if (page.isLocked) {
+            // -> Withheld by the server, which is the same answer this reader gets by opening the
+            //    page. The unlock prompt lives there, so this points at it rather than asking for a
+            //    password.
+            this._error = `The page "${path}" is password protected. Open it to enter the password.`
+          } else {
+            this._title = page.title
+            this._render = page.render
+          }
+        }
+      } catch {
+        this._error = await t(
+          'blocks.include.errors.includeFailed',
+          `The page "${path}" could not be included.`,
+          { path }
+        )
       }
     }
 

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -8,6 +10,21 @@ import PageHeader from './PageHeader.vue'
 import { usePageStore } from '@/stores/page'
 import { useDirection } from '@/composables/direction'
 import WMenu from '@/components/shared/WMenu.vue'
+
+/**
+ * Regression test for OpenProject #2000: `notImplemented()` showed a red toast with the untranslated
+ * literal 'Not implemented' and was never called from anywhere in this component -- dead code left
+ * over from an earlier stub. Reads the raw source rather than mounting, matching
+ * `EditorMarkdown.deadcode.test.js`'s reasoning: this asserts an identifier is simply gone, and also
+ * guards against it quietly being reintroduced.
+ */
+describe('PageHeader dead code', () => {
+  it('has no notImplemented() helper', () => {
+    const source = readFileSync(join(import.meta.dirname, 'PageHeader.vue'), 'utf-8')
+
+    expect(source).not.toMatch(/notImplemented/)
+  })
+})
 
 /**
  * Regression coverage for feature 413 ("RTL support end-to-end"), task 721: this row is a plain flex

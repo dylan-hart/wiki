@@ -16,7 +16,7 @@ generated bundle is machine output no one hand-edits).
 A TODO or FIXME marker is not automatically a lint failure or a bug to close on sight — CLAUDE.md's
 "Pre-existing bugs are preserved, not fixed" convention deliberately leaves some in place, narrowly
 cast, until their real fix lands. This entry is the audit trail so a marker sitting in the tree reads
-as "reviewed and intentional" rather than "forgotten." `backend/docs-todo-fixme-drift.test.ts` re-scans the tree on every `npm run test` and fails if a file
+as "reviewed and intentional" rather than "forgotten." `backend/test/docs-todo-fixme-drift.test.ts` re-scans the tree on every `npm run test` and fails if a file
 carrying a marker isn't named here, so this list cannot silently drift out of date.
 
 - **`backend/index.ts`** (FIXME) — `WIKI.config.auth.secret` is read once at plugin registration, not
@@ -41,9 +41,6 @@ carrying a marker isn't named here, so this list cannot silently drift out of da
 - **`backend/types/global.d.ts`** (TODO) — `WIKI.sites` is typed `Record<string, any>` though `sites`
   has been a real Drizzle table for a while now; tightening it to the row type is a real but
   low-priority cleanup, not a design gap.
-- **`frontend/src/layouts/AdminLayout.vue`** (TODO) — a "Reflect site storage status" indicator the nav
-  doesn't render yet. Cosmetic, deferred, and self-evident from the comment; no tracking item exists
-  for it because no feature currently depends on it.
 - **`frontend/src/helpers/monacoTypes.js`** (TODO, in a commented-out line) — `this._edits =
 coalesce(this._edits)` is dead code left commented out with a bare `TODO`, ported through from
   Monaco's own upstream type-definition source this file adapts. Not this project's own deferred
@@ -610,77 +607,21 @@ throw and fall to the error panel, which is a separate, already-tracked gap betw
 `::block-katex`, not something this task's audit re-derives. Everything else in the table above
 applies equally to the literal path, since it uses the same KaTeX engine and default options.
 
-## Feature 402 — Puppeteer: server-side diagram pre-rendering descoped
-
-**Decided in:** Task 666 ("Decide and record scope per promised capability; correct definition.yml
-wording for whatever is descoped"), part of Feature 402 ("Extension-to-Feature Wiring: Pandoc Import
-& Puppeteer PDF/Diagram Export").
-
-Feature 402 covers three capabilities that `backend/modules/extensions/pandoc/definition.yml` and
-`backend/modules/extensions/puppeteer/definition.yml` promised but that nothing in the codebase
-actually implemented:
-
-1. **Pandoc multi-format page import** (MediaWiki, AsciiDoc, Textile, DocBook, …) — **building now**
-   (Feature 402 tasks 667/668). A straightforward `execFile` shell-out, comparable in shape to the
-   extension-install pattern already used elsewhere in `models/extensions.ts`.
-2. **Puppeteer PDF export** of a page — **building now** (Feature 402 tasks 669/670). A headless
-   Chromium print-to-PDF against the real, live page-view URL, waiting for async block components
-   (Mermaid, PlantUML) to settle before calling `page.pdf()`. This collided at merge-review time with
-   a materially simpler competing PDF export from `feature/page-version-export` (Feature 371, task
-   496); see "PDF export: two competing implementations reconciled" below for how that was resolved.
-3. **Puppeteer server-side pre-rendered Mermaid/PlantUML diagrams** — deferred at the time as
-   OpenProject task 785 ("Puppeteer: server-side pre-rendered Mermaid/PlantUML diagrams (deferred
-   from Feature #402)"), **since shipped** on `feature/puppeteer-diagram-prerender`
-   (`backend/models/diagramRender.ts`). See "Task 785 — server-side diagram pre-rendering" below for
-   the design it landed on, which sidesteps the architectural problem described in "Why #3 is
-   deferred" rather than solving it as originally framed.
-
-### Why #3 is deferred and #1/#2 are not
-
-Web research (recorded on Feature 402) confirms none of the three ever shipped in Wiki.js 2.5.x —
-each surfaces only as a community feature request, never a delivered feature. So none of the three
-required migration or compatibility handling; the only question was whether to build each for real
-now or correct the `definition.yml` claim.
-
-\#1 and #2 are both straightforward: a CLI conversion piped through `execFile`, and a headless-browser
-print of a page that already renders correctly in a live browser context. Both fit cleanly into
-existing patterns in this codebase.
-
-\#3 is architecturally heavier. Mermaid, PlantUML, and Kroki diagrams are drawn entirely client-side
-today by `block-diagram` / `block-plantuml` / `block-kroki` — Lit web components that read their
-fenced source out of the page and render at _view time_, inside a live browser page that has loaded
-the full block-component runtime. The existing headless surface
-(`backend/controllers/render.ts` `/_render`, driven by `models/rendering.ts`) only re-runs the
-markdown-to-HTML pass (`frontend/src/renderers/headless.js` → `window.__wikiRender`); it is a bare
-shell that does not load block components at all, so it cannot produce pre-rendered diagram markup
-today even in principle. Making it do so means running Lit block components inside a headless
-context outside their current view-time-only execution model — a real design problem (how a headless
-pass instantiates the block, waits for its diagram library to settle, extracts or rasterizes the
-result, and where that output is cached relative to stored `page.render` HTML), not a shell-out or a
-print job. That is out of proportion for this Feature, so it is descoped to task 785 rather than
-built now.
-
-### Correction made, then reverted once task 785 shipped
-
-`backend/modules/extensions/puppeteer/definition.yml`'s `description` originally mentioned
-server-side diagram rendering; Feature 402 narrowed it to PDF export only, since that was all it
-built. Task 785 (below) restored a mention of diagram pre-rendering once that capability actually
-existed again.
-
 ## Task 785 — server-side diagram pre-rendering
 
 **Built on:** `feature/puppeteer-diagram-prerender`, closing OpenProject task 785. Delivers
 `backend/models/diagramRender.ts` (`WIKI.models.diagramRender.render()`) plus `POST
 /_api/diagrams/render`.
 
-**The design problem this sidesteps, not solves.** "Why #3 is deferred" above framed the blocker as
-making the headless `/_render` shell run Lit block components as part of rendering a whole _page_ —
-a real design problem (block lifecycle inside a non-view context, cache invalidation against stored
-`page.render` HTML) genuinely out of proportion for Feature 402. This task never takes on that
-problem: it renders one diagram from raw source, independent of any page, so there is no page-render
-pipeline to extend and no render cache to invalidate. That framing — page-level pre-rendering wired
-into `models/rendering.ts`'s stored-HTML pipeline — remains unbuilt and would be its own future task
-if ever wanted.
+**The design problem this sidesteps, not solves.** `docs/decisions/diagram-prerendering-scope.md`
+(the record of Feature 402's original descope decision) frames the blocker as making the headless
+`/_render` shell run Lit block components as part of rendering a whole _page_ — a real design
+problem (block lifecycle inside a non-view context, cache invalidation against stored `page.render`
+HTML) genuinely out of proportion for that Feature's scope. This task never takes on that problem:
+it renders one diagram from raw source, independent of any page, so there is no page-render pipeline
+to extend and no render cache to invalidate. That framing — page-level pre-rendering wired into
+`models/rendering.ts`'s stored-HTML pipeline — remains unbuilt and would be its own future task if
+ever wanted.
 
 **Mermaid** still needs a real browser — `mermaid` lays out and paints via the DOM, so there is no way
 around one. Rather than adding a second `mermaid` dependency to the backend (liable to drift from the
@@ -757,7 +698,7 @@ a specific query surface. This fork's `apiKeys` table (`backend/db/schema.ts`) i
 entirely: keys are bound to a list of **groups** (`groups` jsonb column), not a user, and authorize
 REST endpoints under the group's ordinary permission set rather than a GraphQL scope list (see
 `backend/models/apiKeys.ts`, `backend/api/apiKeys.ts`). There is no GraphQL server left in this fork
-to scope a token against in the first place (see CLAUDE.md, "GraphQL is being removed"). Because the
+to scope a token against in the first place (see CLAUDE.md, "GraphQL was removed"). Because the
 two token models have no field-for-field mapping — user-bound vs. group-bound, GraphQL scopes vs.
 REST/group permissions, and a different signing scheme (this fork's keys are JWTs signed by an
 instance-local keypair generated at migration time, per `SigningCertificates` in
@@ -1425,11 +1366,16 @@ before.
 
 ### `@js-temporal/polyfill` (backend, dev-only)
 
-A devDependency, dynamically imported at runtime by `index.ts`/`worker.ts` only when the `Temporal`
-global is missing. `engines` requires Node ≥26, which has `Temporal` natively, so production code
-never reaches that import — it exists solely to keep backend dev/test working on an older local Node.
-Recorded so a future pass doesn't try to either remove it (breaks pre-26 dev sandboxes) or promote it
-to a regular dependency (production never needs it).
+A devDependency only — `index.ts`/`worker.ts` install no polyfill at all on the real boot path.
+`engines` requires Node ≥26, and Node's own v26.0.0 release notes confirm `Temporal` shipped as a
+real, unflagged native global in that release (no `--harmony-temporal`/`--experimental-temporal`
+flag needed) — the official `node:26` image `dev/build/Dockerfile:1` builds from is that same
+release line, so production code never needs this package. It stays a devDependency solely so a
+handful of unit tests can self-install it when run under an older local Node below that floor (e.g.
+this sandbox's Node 25.9) — each such test guards its own import individually (see
+`models/security.test.ts`), independent of anything in `index.ts`/`worker.ts`. Recorded so a future
+pass doesn't try to either remove it (breaks those pre-26 dev sandboxes) or promote it to a regular
+dependency (production never needs it).
 
 ### Stale-but-functionally-complete libraries kept as-is
 
@@ -1475,3 +1421,32 @@ stays on `@twemoji/api` 17.0.2 with an explicit `overrides` entry pinning `@twem
 artwork, separately pinned to upstream tag v17.0.3) despite the version-number mismatch looking like
 drift. Revisit once a `@twemoji/parser` release ships that restores the ten shortcodes' matching —
 until then, do not bump `@twemoji/api` past 17.0.2 in an automated currency pass.
+
+## Elasticsearch smoke suite is deliberately manual, not run in CI (OpenProject #2016)
+
+**Date:** 2026-08-25
+**Feature:** #2016 (part of #2004, "Make the four never-executing test suites run, or delete them")
+
+`backend/modules/search/elasticsearch/search.smoke.test.ts` gates its 12 tests on
+`ELASTICSEARCH_TEST_URL`, which no workflow sets — a real Elasticsearch service container on every
+`quality.yml` run (which already carries a `postgres:18` service for the DB-backed model suites)
+is a meaningfully heavier cost for a module only a site that opts into `config.search.engine:
+elasticsearch` ever exercises, unlike Postgres, which the whole backend depends on to boot at all.
+A nightly/`workflow_dispatch` job was the alternative considered; deferred rather than built now
+because nothing here needs the suite to run on a fixed schedule to catch a regression before it
+ships — `search.test.ts`'s fake-client suite already runs on every PR and covers the query DSL and
+hook wiring this module owns, leaving only "does a real cluster actually accept this DSL" as
+untested, which is unlikely to regress silently between manual runs.
+
+Run it locally or in an ad hoc CI job with a real cluster:
+
+```sh
+docker compose -f dev/docker-compose.search-test.yml up -d --wait
+ELASTICSEARCH_TEST_URL=http://127.0.0.1:59200 \
+  node --test modules/search/elasticsearch/search.smoke.test.ts   # from backend/
+docker compose -f dev/docker-compose.search-test.yml down -v
+```
+
+Revisit if the Elasticsearch module gains active development (new query features, a mapping change)
+frequent enough that a manual run stops being a reliable gate — at that point a scheduled
+`workflow_dispatch`/nightly job earns its ongoing service-container cost.

@@ -1,4 +1,7 @@
-FROM node:26
+# Pinned to a concrete release rather than the floating `node:26` major tag, per this project's
+# Currency standard — bump deliberately, checking Node's own release notes for the target version
+# before moving it (see docs/variances.md's `@js-temporal/polyfill` entry for why that matters here).
+FROM node:26.7.0
 LABEL maintainer="requarks.io"
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -qy --no-install-recommends \

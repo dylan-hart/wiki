@@ -5,7 +5,7 @@ import { createI18n } from 'vue-i18n'
 
 import BlueprintIcon from './BlueprintIcon.vue'
 import ApiKeyCreateDialog from './ApiKeyCreateDialog.vue'
-import { chromium, measureClassificationGrid } from '../../test/realGridLayout.js'
+import { chromium, hasChromium, measureClassificationGrid } from '../../test/realGridLayout.js'
 
 afterEach(() => {
   document.body.innerHTML = ''
@@ -236,7 +236,7 @@ describe('ApiKeyCreateDialog layout', () => {
  * than the ~310px half-row the profile dialog's field shares with Permission Scopes -- confirming
  * this width was never broken, and stays that way.
  */
-describe('ApiKeyCreateDialog classification grid — real layout', () => {
+describe('ApiKeyCreateDialog classification grid — real layout', { skip: !hasChromium() }, () => {
   let browser
 
   beforeAll(async () => {
@@ -244,7 +244,7 @@ describe('ApiKeyCreateDialog classification grid — real layout', () => {
   })
 
   afterAll(async () => {
-    await browser.close()
+    await browser?.close()
   })
 
   it('lays out all 3 default classification levels on one row at the real ~618px admin-form width', async () => {

@@ -175,8 +175,3 @@ export function useDialogComponent({ autofocus } = {}) {
     }
   }
 }
-
-/** Composable-style accessor, for symmetry with the other `use*` helpers. */
-export function useDialog() {
-  return dialog
-}

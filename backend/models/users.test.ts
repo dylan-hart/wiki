@@ -21,6 +21,7 @@ import {
 } from '../db/schema.ts'
 import type { RecoveryCodeEntry } from './users.ts'
 import { ProvisionableLoginError } from './authentication.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 
 /**
  * `updateSession` is the one place a login turns a user row into session state — permissions
@@ -179,48 +180,6 @@ describe('users.updateSession', () => {
 })
 
 /**
- * Minimal stand-in for the subset of `Temporal` that `generateToken()` and `validateToken()` call
- * between them: `Now.instant()`, `.add()`, `.toString({ smallestUnit })` on the write side, plus
- * `Instant.compare()` and `Date.prototype.toTemporalInstant()` on the read side (`validateToken()`
- * compares against the `Date` drizzle hands back for the `timestamp` column).
- *
- * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
- * v25.9.0, which doesn't expose it (same environment gap `core/scheduler.test.ts` works around, not
- * a spec deviation). Shared at module scope, not local to one `describe`, since both the register and
- * the forgot/reset-password suites below exercise `generateToken()`, and the latter also exercises
- * `validateToken()`.
- */
-function installFakeTemporal(): void {
-  const durationToMs = (d: { hours?: number }) => (d.hours ?? 0) * 3_600_000
-  const makeInstant = (epochMs: number): any => ({
-    epochMilliseconds: epochMs,
-    add: (d: any) => makeInstant(epochMs + durationToMs(d)),
-    toString: () => new Date(epochMs).toISOString()
-  })
-  ;(globalThis as any).Temporal = {
-    Now: { instant: () => makeInstant(Date.now()) },
-    Instant: {
-      compare: (a: any, b: any) =>
-        a.epochMilliseconds < b.epochMilliseconds
-          ? -1
-          : a.epochMilliseconds > b.epochMilliseconds
-            ? 1
-            : 0,
-      from: (s: string) => makeInstant(new Date(s).getTime())
-    }
-  }
-  ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-    return makeInstant(this.getTime())
-  }
-}
-
-/** Undoes `installFakeTemporal()`'s `Date.prototype` patch, alongside restoring `globalThis.Temporal`. */
-function uninstallFakeTemporal(previousTemporal: any): void {
-  ;(globalThis as any).Temporal = previousTemporal
-  delete (Date.prototype as any).toTemporalInstant
-}
-
-/**
  * `register()` is SQL orchestration -- a strategy lookup, an existence check, then coordinating the
  * `users`, `userGroups` and `userKeys` tables -- so this runs the real method against a migrated,
  * per-run-fresh database (see `test/db.ts`), the same DB-backed pattern `models/pages.test.ts` uses.
@@ -231,7 +190,6 @@ function uninstallFakeTemporal(previousTemporal: any): void {
 describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let sendVerifyEmailMock: ReturnType<typeof mock.fn>
-  let previousTemporal: any
 
   const MODULE_KEY = 'local-test'
 
@@ -277,8 +235,9 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   }
 
   before(async () => {
-    previousTemporal = (globalThis as any).Temporal
-    installFakeTemporal()
+    // -> `generateToken()`/`validateToken()` call `Now.instant()`, `.add()`, `Instant.compare()` and
+    //    `Date.prototype.toTemporalInstant()` between them.
+    await ensureTemporal()
 
     fixtures = await setupTestDb()
     const { mail } = await import('./mail.ts')
@@ -306,7 +265,6 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   after(async () => {
     mock.restoreAll()
     await teardownTestDb()
-    uninstallFakeTemporal(previousTemporal)
   })
 
   beforeEach(() => {
@@ -529,7 +487,6 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
   let fixtures: TestFixtures
   let sendForgotPasswordMock: ReturnType<typeof mock.fn>
   let sendPasswordResetConfirmedMock: ReturnType<typeof mock.fn>
-  let previousTemporal: any
 
   const MODULE_KEY = 'local-reset-test'
 
@@ -582,8 +539,7 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
   }
 
   before(async () => {
-    previousTemporal = (globalThis as any).Temporal
-    installFakeTemporal()
+    await ensureTemporal()
 
     fixtures = await setupTestDb()
     const { mail } = await import('./mail.ts')
@@ -609,7 +565,6 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
   after(async () => {
     mock.restoreAll()
     await teardownTestDb()
-    uninstallFakeTemporal(previousTemporal)
   })
 
   beforeEach(() => {
@@ -803,20 +758,17 @@ describe(
   { skip: !hasTestDatabase() },
   () => {
     let fixtures: TestFixtures
-    let previousTemporal: any
     let previousTz: string | undefined
 
     before(async () => {
       previousTz = process.env.TZ
       process.env.TZ = 'America/New_York'
-      previousTemporal = (globalThis as any).Temporal
-      installFakeTemporal()
+      await ensureTemporal()
       fixtures = await setupTestDb()
     })
 
     after(async () => {
       await teardownTestDb()
-      uninstallFakeTemporal(previousTemporal)
       if (previousTz === undefined) {
         delete process.env.TZ
       } else {
@@ -1250,17 +1202,14 @@ describe('users.loginTFA', () => {
 describe('users recovery codes (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let usersModel: typeof import('./users.ts').users
-  let previousTemporal: any
 
   before(async () => {
     fixtures = await setupTestDb()
     ;({ users: usersModel } = await import('./users.ts'))
-    previousTemporal = (globalThis as any).Temporal
-    installFakeTemporal()
+    await ensureTemporal()
   })
 
   after(async () => {
-    uninstallFakeTemporal(previousTemporal)
     await teardownTestDb()
   })
 

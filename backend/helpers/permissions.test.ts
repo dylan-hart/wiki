@@ -1,6 +1,10 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ALL_PERMISSIONS, GLOBAL_PERMISSIONS, PAGE_PERMISSIONS } from './permissions.ts'
+import { SITE_PERMISSIONS } from './siteRules.ts'
 
 describe('helpers/permissions', () => {
   test('GLOBAL_PERMISSIONS matches the exact list the group editor offers', () => {
@@ -63,5 +67,76 @@ describe('helpers/permissions', () => {
     for (const stale of ['read:sites', 'create:sites', 'create:users', 'write:groups']) {
       assert.ok(!ALL_PERMISSIONS.includes(stale), `${stale} must not be in the closed vocabulary`)
     }
+  })
+})
+
+/**
+ * Cross-workspace drift guard (OpenProject #1938, replacing the circular check that used to live in
+ * `frontend/src/helpers/apiKeyScopes.test.js`). That test retyped this file's own union as a
+ * frontend literal (`BACKEND_ALL_PERMISSIONS`) and compared it to `API_KEY_SCOPES` -- two files in
+ * the same directory, neither ever reading this one. `GLOBAL_PERMISSIONS`/`PAGE_PERMISSIONS`/
+ * `SITE_PERMISSIONS` above are the real source of truth; this suite reads the two frontend files
+ * that are supposed to mirror them **as text** (a backend TS test cannot import frontend JS/Vue
+ * across the workspace boundary, and vice versa -- see CLAUDE.md's "Permissions" section) and
+ * extracts their permission string literals for comparison.
+ *
+ * Verify by adding a throwaway permission to `GLOBAL_PERMISSIONS` or `PAGE_PERMISSIONS` above: this
+ * suite fails until both `apiKeyScopes.js` and `GroupEditOverlay.vue` are updated to match.
+ */
+describe('cross-workspace permission vocabulary (OpenProject #1938)', () => {
+  const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+  const apiKeyScopesPath = path.join(REPO_ROOT, 'frontend/src/helpers/apiKeyScopes.js')
+  const groupEditOverlayPath = path.join(REPO_ROOT, 'frontend/src/components/GroupEditOverlay.vue')
+
+  /** The `[...]` array literal following the first occurrence of `marker`, matched by bracket depth. */
+  function extractArrayLiteral(text: string, marker: string): string {
+    const markerIdx = text.indexOf(marker)
+    assert.ok(markerIdx !== -1, `marker not found: ${marker}`)
+    const bracketStart = text.indexOf('[', markerIdx)
+    let depth = 0
+    for (let i = bracketStart; i < text.length; i++) {
+      if (text[i] === '[') depth++
+      else if (text[i] === ']') {
+        depth--
+        if (depth === 0) return text.slice(bracketStart, i + 1)
+      }
+    }
+    throw new Error(`unterminated array literal for marker: ${marker}`)
+  }
+
+  /** Bare quoted permission-shaped string literals (`'verb:noun'`) anywhere in the given text. */
+  function extractBarePermissionLiterals(text: string): string[] {
+    return [...text.matchAll(/'([a-zA-Z]+:[a-zA-Z]+)'/g)].map((m) => m[1])
+  }
+
+  /** `permission: '...'`-keyed literals, the shape both GroupEditOverlay.vue arrays use. */
+  function extractKeyedPermissionLiterals(text: string): string[] {
+    return [...text.matchAll(/permission:\s*'([a-zA-Z]+:[a-zA-Z]+)'/g)].map((m) => m[1])
+  }
+
+  const apiKeyScopesSrc = readFileSync(apiKeyScopesPath, 'utf8')
+  const groupEditOverlaySrc = readFileSync(groupEditOverlayPath, 'utf8')
+
+  const apiKeyScopes = extractBarePermissionLiterals(
+    extractArrayLiteral(apiKeyScopesSrc, 'export const API_KEY_SCOPES = ')
+  )
+  const groupEditGlobalPermissions = extractKeyedPermissionLiterals(
+    extractArrayLiteral(groupEditOverlaySrc, 'const permissions = ')
+  )
+  const groupEditRules = extractKeyedPermissionLiterals(
+    extractArrayLiteral(groupEditOverlaySrc, 'const rules = ')
+  )
+
+  test("apiKeyScopes.js's API_KEY_SCOPES matches ALL_PERMISSIONS (GLOBAL_PERMISSIONS + PAGE_PERMISSIONS) exactly", () => {
+    assert.deepEqual([...apiKeyScopes].sort(), [...ALL_PERMISSIONS].sort())
+  })
+
+  test("GroupEditOverlay.vue's `permissions` array matches GLOBAL_PERMISSIONS exactly", () => {
+    assert.deepEqual([...groupEditGlobalPermissions].sort(), [...GLOBAL_PERMISSIONS].sort())
+  })
+
+  test("GroupEditOverlay.vue's `rules` array matches PAGE_PERMISSIONS union SITE_PERMISSIONS exactly", () => {
+    const expected = [...PAGE_PERMISSIONS, ...SITE_PERMISSIONS]
+    assert.deepEqual([...groupEditRules].sort(), [...expected].sort())
   })
 })

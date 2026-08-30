@@ -2,31 +2,10 @@ import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 import { groups as groupsTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 import type { AccessActor } from './groups.ts'
-
-// -> The versioning tests below compare `GlossaryVersionSummary.createdAt` via `Date#toTemporalInstant()`
-//    + `Temporal.Instant.compare()`, matching CLAUDE.md's "Backend patterns". That is only a runtime
-//    global on Node 26+; this sandbox's Node is 25.9, where both are simply absent -- see
-//    `locales.test.ts`'s identical shim for the fuller explanation. Feature-detected so this is a no-op
-//    wherever the real thing already exists (Node 26+, i.e. everywhere this actually ships).
-if (typeof Temporal === 'undefined') {
-  class FakeInstant {
-    epochMs: number
-    constructor(epochMs: number) {
-      this.epochMs = epochMs
-    }
-  }
-  ;(globalThis as any).Temporal = {
-    Instant: { compare: (a: FakeInstant, b: FakeInstant) => a.epochMs - b.epochMs }
-  }
-  if (!(Date.prototype as any).toTemporalInstant) {
-    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-      return new FakeInstant(this.getTime())
-    }
-  }
-}
 
 /**
  * `models/glossary.ts` is almost entirely SQL — an insert with a case-insensitive uniqueness
@@ -41,6 +20,9 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
   let actor: PageActor
 
   before(async () => {
+    // -> The versioning tests below compare `GlossaryVersionSummary.createdAt` via
+    //    `Date#toTemporalInstant()` + `Temporal.Instant.compare()`, per CLAUDE.md's "Backend patterns".
+    await ensureTemporal()
     fixtures = await setupTestDb()
     ;({ glossary: glossaryModel } = await import('./glossary.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
@@ -500,6 +482,23 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       const remaining = await glossaryModel.listTerms(fixtures.siteId)
       assert.ok(remaining.some((t) => t.term === 'SurvivesFailedImport'))
       assert.ok(!remaining.some((t) => t.term === 'BadPath'))
+    })
+
+    test('importTerms() rejects a bare "/" path rather than defaulting it to the home page (OpenProject #1936)', async () => {
+      // -> Unlike `api/pages.ts`'s page-view route and `mcp/tools/getPage.ts`, `resolvePagePath()`
+      //    does NOT fall back to `generatePathHash('home')` for a path that normalizes to empty --
+      //    see the comment on `resolvePagePath()` in `models/glossary.ts`. A home page existing on
+      //    the site must not change that: "/" still fails to resolve.
+      await pagesModel.createPage(fixtures.siteId, pageInput({ path: 'home' }), actor)
+
+      await assert.rejects(
+        () =>
+          glossaryModel.importTerms(fixtures.siteId, {
+            formatVersion: 1,
+            terms: [{ term: 'RootPath', definition: 'Points at "/".', aliases: [], path: '/' }]
+          }),
+        /does not resolve/
+      )
     })
 
     test('importTerms() rejects two entries in the same payload sharing a surface form', async () => {

@@ -1,6 +1,6 @@
-import { defineComponent } from 'vue'
+import { defineComponent, nextTick } from 'vue'
 import { afterEach, describe, expect, it } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { DOMWrapper, mount, flushPromises } from '@vue/test-utils'
 
 import WMenu from './WMenu.vue'
 
@@ -126,14 +126,16 @@ describe('WMenu focus management', () => {
  * show() }`. The panel is teleported to `body`, outside the mounted subtree `@vue/test-utils`
  * tracks, so every assertion below queries `document` rather than `wrapper`.
  */
+let rovingFocusWrapper = null
+
 async function mountMenu(slotHtml) {
-  const wrapper = mount(WMenu, {
+  rovingFocusWrapper = mount(WMenu, {
     props: { modelValue: true },
     attachTo: document.body,
     slots: { default: slotHtml }
   })
-  await wrapper.vm.$nextTick()
-  return wrapper
+  await rovingFocusWrapper.vm.$nextTick()
+  return rovingFocusWrapper
 }
 
 function panel() {
@@ -150,6 +152,11 @@ async function press(key) {
 
 describe('WMenu roving focus', () => {
   afterEach(() => {
+    // -> Explicitly unmounted, not just DOM-wiped: `WMenu` binds its Escape listener on `document`
+    //    itself while open, and a bare `document.body.innerHTML = ''` leaves that listener (and the
+    //    component's live reactive effects) dangling to fire against later tests' own DOM.
+    rovingFocusWrapper?.unmount()
+    rovingFocusWrapper = null
     document.body.innerHTML = ''
   })
 
@@ -284,5 +291,117 @@ describe('WMenu roving focus', () => {
 
     expect(document.activeElement).toBe(one)
     expect(event.defaultPrevented).toBe(false)
+  })
+})
+
+/**
+ * `WMenu` renders its panel behind a `<teleport to="body">`, same as `WDialog` -- see that file's
+ * test for the same `DOMWrapper(document.body)` pattern this one reuses.
+ *
+ * It resolves its own trigger element by climbing from a hidden placeholder to the nearest
+ * `button, a, .w-btn, .w-item` ancestor (`onMounted`), which is why every test here mounts against a
+ * real `<button>` via `attachTo` rather than a bare container -- that is the shape every real call
+ * site (`<w-btn><w-menu>...</w-menu></w-btn>`) actually provides.
+ */
+
+let mountedWrappers = []
+let triggerButtons = []
+
+afterEach(() => {
+  for (const wrapper of mountedWrappers) {
+    wrapper.unmount()
+  }
+  mountedWrappers = []
+  for (const button of triggerButtons) {
+    button.remove()
+  }
+  triggerButtons = []
+  document.body.innerHTML = ''
+})
+
+function mountBasicMenu(props = {}) {
+  const button = document.createElement('button')
+  document.body.appendChild(button)
+  triggerButtons.push(button)
+
+  const wrapper = mount(WMenu, {
+    props,
+    slots: { default: '<div class="menu-item">Item one</div>' },
+    attachTo: button
+  })
+  mountedWrappers.push(wrapper)
+  return { wrapper, button }
+}
+
+function body() {
+  return new DOMWrapper(document.body)
+}
+
+describe('WMenu', () => {
+  it('is closed until its trigger is clicked', () => {
+    mountBasicMenu()
+
+    expect(body().find('.w-menu').exists()).toBe(false)
+  })
+
+  it('opens on a trigger click, rendering its content through the teleport', async () => {
+    const { button } = mountBasicMenu()
+
+    await new DOMWrapper(button).trigger('click')
+
+    const panel = body().find('.w-menu')
+    expect(panel.exists()).toBe(true)
+    expect(panel.text()).toContain('Item one')
+  })
+
+  it('closes on an outside click, via its own full-screen catcher', async () => {
+    const { wrapper, button } = mountBasicMenu()
+    await new DOMWrapper(button).trigger('click')
+    expect(body().find('.w-menu').exists()).toBe(true)
+
+    // -> The click-away catcher: a `fixed inset-0` div rendered just below the panel while shown.
+    await body().find('.fixed.inset-0').trigger('click')
+
+    expect(body().find('.w-menu').exists()).toBe(false)
+    expect(wrapper.emitted('hide')).toBeTruthy()
+  })
+
+  it('closes on Escape', async () => {
+    const { button } = mountBasicMenu()
+    await new DOMWrapper(button).trigger('click')
+    expect(body().find('.w-menu').exists()).toBe(true)
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await nextTick()
+
+    expect(body().find('.w-menu').exists()).toBe(false)
+  })
+
+  it('toggles closed on a second trigger click', async () => {
+    const { button } = mountBasicMenu()
+
+    await new DOMWrapper(button).trigger('click')
+    expect(body().find('.w-menu').exists()).toBe(true)
+
+    await new DOMWrapper(button).trigger('click')
+    expect(body().find('.w-menu').exists()).toBe(false)
+  })
+
+  it('with autoClose, dismisses itself when its own content is clicked', async () => {
+    const { button } = mountBasicMenu({ autoClose: true })
+    await new DOMWrapper(button).trigger('click')
+
+    await body().find('.menu-item').trigger('click')
+
+    expect(body().find('.w-menu').exists()).toBe(false)
+  })
+
+  it('without autoClose, a click on its content does not dismiss it', async () => {
+    const { button } = mountBasicMenu({ autoClose: false })
+    await new DOMWrapper(button).trigger('click')
+
+    await body().find('.menu-item').trigger('click')
+
+    expect(body().find('.w-menu').exists()).toBe(true)
   })
 })

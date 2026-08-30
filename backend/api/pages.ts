@@ -351,36 +351,6 @@ async function routes(app: FastifyInstance) {
   })
 
   /**
-   * LIST PAGES
-   */
-  app.get<{ Params: { siteId: string } }>(
-    '/sites/:siteId/pages',
-    {
-      /*
-        No route-level `permissions`: page permissions come from a group's RULES, and this would have
-        to filter per page against them. It has nothing to filter yet — see the description.
-      */
-      schema: {
-        summary: 'List all pages',
-        description:
-          'Not implemented yet — always answers with an empty list. Browse the tree instead, which is what the file manager and the navigation use, and which filters what it lists by the page rules.',
-        tags: ['Pages'],
-        params: siteIdParam,
-        response: {
-          200: {
-            description: 'List of pages',
-            type: 'array',
-            items: { $ref: 'Page#' }
-          }
-        }
-      }
-    },
-    async () => {
-      return []
-    }
-  )
-
-  /**
    * SEARCH PAGES
    */
   app.get<{

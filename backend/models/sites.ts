@@ -51,6 +51,38 @@ const SITE_ASSET_NORMALIZATION: Record<SiteAssetKind, ImageNormalization> = {
 }
 
 /**
+ * Per-site editor defaults, seeded onto every site's config by both `createSite()` and `init()`
+ * (the first-run default site). Previously duplicated verbatim in both places.
+ */
+const DEFAULT_SITE_EDITORS = {
+  asciidoc: {
+    isActive: true,
+    config: {}
+  },
+  code: {
+    isActive: true,
+    config: {}
+  },
+  markdown: {
+    isActive: true,
+    config: {
+      allowHTML: true,
+      lineBreaks: true,
+      linkify: true,
+      multimdTable: true,
+      quotes: 'english',
+      tabWidth: 2,
+      typographer: false,
+      underline: true
+    }
+  },
+  wysiwyg: {
+    isActive: true,
+    config: {}
+  }
+}
+
+/**
  * Sites model
  */
 class Sites {
@@ -201,33 +233,7 @@ class Sites {
               baseFont: 'roboto',
               contentFont: 'roboto'
             },
-            editors: {
-              asciidoc: {
-                isActive: true,
-                config: {}
-              },
-              code: {
-                isActive: true,
-                config: {}
-              },
-              markdown: {
-                isActive: true,
-                config: {
-                  allowHTML: true,
-                  lineBreaks: true,
-                  linkify: true,
-                  multimdTable: true,
-                  quotes: 'english',
-                  tabWidth: 2,
-                  typographer: false,
-                  underline: true
-                }
-              },
-              wysiwyg: {
-                isActive: true,
-                config: {}
-              }
-            },
+            editors: DEFAULT_SITE_EDITORS,
             uploads: {
               conflictBehavior: 'overwrite'
             },
@@ -529,33 +535,7 @@ class Sites {
           favicon: false,
           loginBg: false
         },
-        editors: {
-          asciidoc: {
-            isActive: true,
-            config: {}
-          },
-          code: {
-            isActive: true,
-            config: {}
-          },
-          markdown: {
-            isActive: true,
-            config: {
-              allowHTML: true,
-              lineBreaks: true,
-              linkify: true,
-              multimdTable: true,
-              quotes: 'english',
-              tabWidth: 2,
-              typographer: false,
-              underline: true
-            }
-          },
-          wysiwyg: {
-            isActive: true,
-            config: {}
-          }
-        },
+        editors: DEFAULT_SITE_EDITORS,
         theme: {
           dark: false,
           codeBlocksTheme: 'github-dark',

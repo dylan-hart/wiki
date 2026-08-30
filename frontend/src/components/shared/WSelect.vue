@@ -1,5 +1,4 @@
 <template>
-  <!-- sized via `size` (inline style): a font-size CLASS is defeated by Quasar's unlayered `.q-icon { font-size: inherit }` -->
   <!--
     `max-w-full`: the field is often a flex item in a fixed-width track -- the admin rows put one
     in a `flex: 0 0 120px` section. `align-items: stretch` only ever GROWS an item to fill its

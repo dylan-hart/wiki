@@ -22,6 +22,64 @@ on:
   workflow_dispatch:
 
 jobs:
+  production-boot-smoke-test:
+    name: Production Install Smoke Boot
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    # No postgres service here, deliberately: the whole point of this job is that the database is
+    # unreachable, so the boot path's own retry-then-fail behavior (core/db.ts's `connect()`) is what
+    # gets asserted on, not a real connection succeeding. `npm ci` (full, with devDependencies) is
+    # never run in backend/ in this job -- only `npm ci --omit=dev`, the exact tree
+    # dev/build/Dockerfile and the release tarball step in build.yml's `Prepare build archive` both
+    # actually ship. Task 1994/1999/2007: nothing before this job ever exercised that install shape,
+    # which is how a devDependency-only import on the real boot path (`@js-temporal/polyfill`, until
+    # #1999) went unnoticed by CI entirely -- see docs/variances.md's `@js-temporal/polyfill` entry
+    # for the concrete case that prompted this job.
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26.x
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install Backend Dependencies (production shape)
+        working-directory: backend
+        run: npm ci --omit=dev
+
+      - name: Use sample config
+        run: cp config.sample.yml config.yml
+
+      # `node backend` must run from the repo root (index.ts refuses otherwise) -- see CLAUDE.md.
+      # Bounded with `timeout` rather than left to core/db.ts's own 10-attempt/3s retry loop running
+      # to completion (~30s+): the very first connection attempt against an unreachable database
+      # fails immediately, so a couple of seconds is enough to see either the module-resolution
+      # crash we're guarding against or the first "Database connection error" log line -- whichever
+      # comes first tells us everything this step needs to know.
+      - name: Boot smoke test (production install, unreachable database)
+        run: |
+          set +e
+          timeout 20s node backend > boot.log 2>&1
+          echo "--- boot output ---"
+          cat boot.log
+          echo "--------------------"
+
+          if grep -qE 'ERR_MODULE_NOT_FOUND|Cannot find (package|module)' boot.log; then
+            echo "::error::Production install (npm ci --omit=dev) cannot resolve a module the boot path imports -- a devDependency has leaked onto the real boot path. See docs/variances.md's @js-temporal/polyfill entry for the shape of defect this catches."
+            exit 1
+          fi
+
+          if ! grep -q 'Database connection error' boot.log; then
+            echo "::error::Boot did not reach the database-connect stage at all, so this step asserted nothing useful -- investigate the boot log above."
+            exit 1
+          fi
+
+          echo "OK: production install resolved every module the boot path imports, and boot reached the (expectedly unreachable) database-connect stage."
+
   quality:
     name: Typecheck, Lint, Format & Unit Tests
     runs-on: ubuntu-latest
@@ -65,6 +123,22 @@ jobs:
         working-directory: backend
         run: npm ci
 
+      # git-cliff is a standalone binary, not an npm dependency of any workspace (see
+      # backend/test/changelog.test.ts's header comment and docs/versioning.md) -- pinned to a
+      # concrete release rather than a floating tag, per this project's Currency standard.
+      # release.yml's own generation step uses orhun/git-cliff-action@v4 instead, which runs in
+      # that action's own container and never executes this unit suite.
+      - name: Install git-cliff
+        run: |
+          curl -sL https://github.com/orhun/git-cliff/releases/download/v2.13.1/git-cliff-2.13.1-x86_64-unknown-linux-gnu.tar.gz \
+            | tar xz --strip-components=1 -C /usr/local/bin git-cliff-2.13.1/git-cliff
+          git-cliff --version
+
+      # backend/models/import.test.ts's real-pandoc test (gated on `pandocAvailable`) is the only
+      # thing in the unit suites that needs the actual binary -- everything else mocks `runPandoc`.
+      - name: Install pandoc
+        run: sudo apt-get update && sudo apt-get install -y pandoc
+
       - name: Backend Typecheck
         working-directory: backend
         run: npm run typecheck
@@ -72,6 +146,22 @@ jobs:
       - name: Backend Lint
         working-directory: backend
         run: npx oxlint --deny-warnings
+
+      # git-cliff is a standalone binary, not an npm dependency of any workspace (see
+      # backend/test/changelog.test.ts's header comment and docs/versioning.md) -- pinned to a
+      # concrete release rather than a floating tag, per this project's Currency standard.
+      # release.yml's own generation step uses orhun/git-cliff-action@v4 instead, which runs in
+      # that action's own container and never executes this unit suite.
+      - name: Install git-cliff
+        run: |
+          curl -sL https://github.com/orhun/git-cliff/releases/download/v2.13.1/git-cliff-2.13.1-x86_64-unknown-linux-gnu.tar.gz \
+            | tar xz --strip-components=1 -C /usr/local/bin git-cliff-2.13.1/git-cliff
+          git-cliff --version
+
+      # backend/models/import.test.ts's real-pandoc test (gated on `pandocAvailable`) is the only
+      # thing in the unit suites that needs the actual binary -- everything else mocks `runPandoc`.
+      - name: Install pandoc
+        run: sudo apt-get update && sudo apt-get install -y pandoc
 
       - name: Backend Tests
         working-directory: backend
