@@ -479,9 +479,47 @@ class Pages {
       return null
     }
 
+    // -> Narrowed to exactly what `toPage` reads (plus `password`, needed here for the `locked`
+    //    check below even when `withPassword` is off) -- not `{ page: pagesTable, ... }`, which
+    //    pulled every column including `content`, `searchContent`, the `ts` tsvector, `links` and
+    //    `historyData` on every page view and every permission pre-check (OpenProject #1834).
+    //    `content` is the one column whose presence a row's own data decides: a redirection has no
+    //    other payload (see `toPage`), so its content comes back even when `withContent` is off --
+    //    decided in SQL rather than after the fact, since the row's `editor` isn't known until the
+    //    query has already run.
     const results = await WIKI.db
       .select({
-        page: pagesTable,
+        id: pagesTable.id,
+        path: pagesTable.path,
+        hash: pagesTable.hash,
+        alias: pagesTable.alias,
+        title: pagesTable.title,
+        description: pagesTable.description,
+        icon: pagesTable.icon,
+        locale: pagesTable.locale,
+        editor: pagesTable.editor,
+        contentType: pagesTable.contentType,
+        publishState: pagesTable.publishState,
+        publishStartDate: pagesTable.publishStartDate,
+        publishEndDate: pagesTable.publishEndDate,
+        isBrowsable: pagesTable.isBrowsable,
+        isSearchable: pagesTable.isSearchable,
+        password: pagesTable.password,
+        relations: pagesTable.relations,
+        tags: pagesTable.tags,
+        toc: pagesTable.toc,
+        render: pagesTable.render,
+        content: withContent
+          ? pagesTable.content
+          : sql<
+              string | null
+            >`CASE WHEN ${pagesTable.editor} = ${REDIRECT_EDITOR} THEN ${pagesTable.content} ELSE NULL END`,
+        config: pagesTable.config,
+        scripts: pagesTable.scripts,
+        authorId: pagesTable.authorId,
+        createdAt: pagesTable.createdAt,
+        updatedAt: pagesTable.updatedAt,
+        classification: pagesTable.classification,
         authorName: usersTable.name,
         navigationId: treeTable.navigationId,
         navigationMode: treeTable.navigationMode
@@ -497,28 +535,20 @@ class Pages {
       return null
     }
     const unlockRef: UnlockPageRef = {
-      id: row.page.id,
-      path: row.page.path,
-      locale: row.page.locale,
-      tags: row.page.tags,
-      classification: row.page.classification
+      id: row.id,
+      path: row.path,
+      locale: row.locale,
+      tags: row.tags,
+      classification: row.classification
     }
     const isUnlocked = typeof unlocked === 'function' ? unlocked(unlockRef) : unlocked
     const includePassword =
       typeof withPassword === 'function' ? withPassword(unlockRef) : withPassword
-    return this.toPage(
-      {
-        ...row.page,
-        authorName: row.authorName,
-        navigationId: row.navigationId,
-        navigationMode: row.navigationMode
-      },
-      {
-        withContent,
-        withPassword: includePassword,
-        locked: Boolean(row.page.password) && !isUnlocked
-      }
-    )
+    return this.toPage(row, {
+      withContent,
+      withPassword: includePassword,
+      locked: Boolean(row.password) && !isUnlocked
+    })
   }
 
   /**
