@@ -1246,19 +1246,6 @@ class Approvals {
     }
 
     /*
-      The render has to move with the content, or the page keeps serving HTML that no longer matches
-      its source. The markdown pipeline lives in the frontend, so the reviewer's browser produces it
-      the same way the editor does on any other save, and it arrives with the approval.
-
-      Falling back to the server-side renderer covers an API client that has no pipeline of its own.
-      That one needs the Puppeteer extension and says so before the content is written if it is
-      missing, rather than leaving a stale render on a page somebody just changed with no prospect of
-      it being corrected.
-    */
-    if (!render) {
-      await WIKI.models.rendering.ensureCanRender(page.editor)
-    }
-    /*
       The markup being sanitized here is the SUBMITTER's, not the reviewer's -- `updatePage()` is
       called with `actor: reviewer` below because the reviewer is who performed the write (page
       history, `authorId`, notifications all still attribute to them), but sanitizing an edit

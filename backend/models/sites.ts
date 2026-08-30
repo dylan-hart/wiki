@@ -425,25 +425,33 @@ class Sites {
    * at creation and re-seeded at every boot), `pageHistory` (a `deleted` row is written before every
    * page delete, so removing every page guarantees rows remain), `pageWatchEvents`, `glossaryVersions`,
    * `approvalRules` and `migrationRecords` are the same story: none is content, none cascades, and
-   * nothing else ever deletes their rows. `apiKeys.siteId` is deleted rather than nulled to
-   * instance-wide — nulling it would silently widen a site-scoped key to every site once its site is
-   * gone, which is a privilege escalation, not a cleanup.
+   * nothing else ever deletes their rows. `apiKeys.siteId` is already nullable (OpenProject #2189 — a
+   * null `siteId` is an ordinary, intentional "instance-wide" key, the pre-#2189 default every key
+   * used to be), so a key scoped to this site is widened to instance-wide rather than destroyed: it is
+   * a credential an administrator issued and may still want to use, not a record of the site itself.
    *
-   * Pages, assets and the page tree deliberately still lack a cascade and are what the up-front check
-   * below refuses on — see the conflict handling in the route. `pageviews` and `tags` are derived data
-   * about the site rather than content, so they cascade at the schema level instead of being cleaned
-   * up here (`db/schema.ts`); a site that has only ever been viewed or tagged is not "still holding
-   * content".
+   * Pages and assets deliberately still lack a cascade and are what the up-front check below refuses
+   * on — see the conflict handling in the route. `pageviews` and `tags` are derived data about the
+   * site rather than content, so their `siteId` FK cascades at the schema level instead (`db/schema.ts`
+   * — see `tags`'/`pageviews`' own column comments); a site that has only ever been viewed or tagged is
+   * not "still holding content", and both are removed for free by Postgres once the final `sites`
+   * delete below commits, with nothing to check or clean up here.
    *
    * @throws {CustomError} named `siteHasContent`, statusCode 409, when the site still has pages or
    *   assets — thrown before anything is deleted.
    */
   async deleteSite(id: string): Promise<boolean> {
+    // -> Pages and uploaded assets are the tables kept under a site's RESTRICT FK that this method
+    //    never clears itself (see the conflict handling in the route) -- counted up front, before
+    //    anything is touched, so a refused delete is refused cleanly rather than after the six
+    //    unconditional deletes below have already run. Checking here rather than only letting the
+    //    final delete's FK violation happen is what makes the refusal atomic: nothing this method does
+    //    can be observed to have happened when it returns/throws a refusal.
     const [pageCount, assetCount] = await Promise.all([
       WIKI.db.$count(pagesTable, eq(pagesTable.siteId, id)),
       WIKI.db.$count(assetsTable, eq(assetsTable.siteId, id))
     ])
-    if (pageCount > 0 || assetCount > 0) {
+    if (pageCount + assetCount > 0) {
       throw new CustomError(
         'siteHasContent',
         'Cannot delete a site that still holds content. Delete its pages and assets first.',
@@ -451,6 +459,16 @@ class Sites {
       )
     }
 
+    // -> Block, block-credential, storage, uploaded image and glossary term rows belong to the site
+    //    rather than to its content, and their FK has no cascade, so they would otherwise block the
+    //    delete. Every navigation row this site owns — one per active locale's site-wide menu
+    //    (`navigation.ensureSiteNav`'s row, addressed by its own `defaultRandom()` id, never `id ===
+    //    siteId`) plus any per-page override/hide row still standing — is the same story and is
+    //    cleaned up the same way, filtered by the `siteId` column the FK constraint actually checks.
+    //    Wrapped in a transaction (with the precheck above as the normal path, and this as a backstop
+    //    against a race where content is inserted between the count and here) so a FK violation on the
+    //    final delete rolls every one of these back instead of leaving the site's non-content settings
+    //    destroyed while the site row itself survives.
     const deleted = await WIKI.db.transaction(async (tx) => {
       await tx.delete(blocksTable).where(eq(blocksTable.siteId, id))
       await tx.delete(blockCredentialsTable).where(eq(blockCredentialsTable.siteId, id))
@@ -458,24 +476,38 @@ class Sites {
       await tx.delete(siteAssetsTable).where(eq(siteAssetsTable.siteId, id))
       await tx.delete(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, id))
       await tx.delete(navigationTable).where(eq(navigationTable.siteId, id))
+      // -> None of the six below is content the delete route means to guard on (see the conflict
+      //    handling in the route): `commentProviders` is seeded per site at creation
+      //    (`createSite()`'s `commentProviders.syncSite()`) and again at every boot, so it blocks even
+      //    a brand-new, otherwise-empty site; `pageHistory` outlives every page it describes by design
+      //    (`pages.deletePage()` writes a `deleted` row *before* removing the page); `glossaryVersions`,
+      //    `pageWatchEvents`, `approvalRules` and `migrationRecords` are all derived/audit data about
+      //    the site rather than content, with no cascade and no other delete call site that would ever
+      //    clear them on their own. `tags` and `pageviews` are deliberately NOT cleared here either —
+      //    both cascade at the schema level (`db/schema.ts`), so Postgres removes them on its own once
+      //    the final `sites` delete below commits.
       await tx.delete(commentProvidersTable).where(eq(commentProvidersTable.siteId, id))
       await tx.delete(pageHistoryTable).where(eq(pageHistoryTable.siteId, id))
-      await tx.delete(pageWatchEventsTable).where(eq(pageWatchEventsTable.siteId, id))
       await tx.delete(glossaryVersionsTable).where(eq(glossaryVersionsTable.siteId, id))
+      await tx.delete(pageWatchEventsTable).where(eq(pageWatchEventsTable.siteId, id))
       await tx.delete(approvalRulesTable).where(eq(approvalRulesTable.siteId, id))
       await tx.delete(migrationRecordsTable).where(eq(migrationRecordsTable.siteId, id))
-      await tx.delete(apiKeysTable).where(eq(apiKeysTable.siteId, id))
+      // -> `apiKeys.siteId` is already nullable — null means instance-wide, not "no site" — so a key
+      //    that was scoped to this site is widened to instance-wide rather than destroyed: it is a
+      //    credential an administrator issued and may still want to use, not a record of the site
+      //    itself.
+      await tx.update(apiKeysTable).set({ siteId: null }).where(eq(apiKeysTable.siteId, id))
 
       const deletedResult = await tx.delete(sitesTable).where(eq(sitesTable.id, id))
       return (deletedResult.rowCount ?? 0) >= 1
     })
 
-    if (!deleted) {
-      return false
+    if (deleted) {
+      // -> Outside the transaction, after commit: other instances should only be told to reload once
+      //    the delete is actually durable.
+      await WIKI.models.sites.broadcastReload()
     }
-
-    await WIKI.models.sites.broadcastReload()
-    return true
+    return deleted
   }
 
   async countSites() {

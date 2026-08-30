@@ -13,6 +13,45 @@ function jsonResponse(body: unknown, init: { status?: number; ok?: boolean } = {
   } as Response
 }
 
+/**
+ * A minimal `WIKI.models.rateLimits`-shaped stand-in for `assertWithinRateLimit`'s durable limiter
+ * (OpenProject #1700) — a real Map, deliberately NOT `WIKI.cache`, so a test can prove the rate-limit
+ * window survives cache churn (clears, evictions) rather than sharing storage with it the way the old
+ * LRU-backed counter did. Mirrors `models/rateLimits.ts#consume()`'s fixed-window-plus-ban semantics
+ * closely enough for this model's purposes (`models/hooks.test.ts`'s `createFakeRateLimits` is the
+ * sibling stub for the webhook path, minus the ban half this one also needs).
+ */
+function createFakeRateLimits() {
+  const store = new Map<string, { windowStart: number; hits: number; bannedUntil: number }>()
+  return {
+    consume: async (
+      key: string,
+      policy: { max: number; windowSeconds: number; banSeconds: number }
+    ) => {
+      const now = Date.now()
+      let entry = store.get(key)
+      if (entry && entry.bannedUntil > now) {
+        return {
+          allowed: false,
+          hits: entry.hits,
+          retryAfter: Math.max(1, Math.ceil((entry.bannedUntil - now) / 1000))
+        }
+      }
+      if (!entry || now - entry.windowStart >= policy.windowSeconds * 1000) {
+        entry = { windowStart: now, hits: 0, bannedUntil: 0 }
+      }
+      entry.hits++
+      const overCap = entry.hits > policy.max
+      if (overCap) {
+        entry.bannedUntil = now + policy.banSeconds * 1000
+      }
+      store.set(key, entry)
+      return { allowed: !overCap, hits: entry.hits, retryAfter: overCap ? policy.banSeconds : 0 }
+    },
+    clear: () => store.clear()
+  }
+}
+
 describe('LiveData.resolve', () => {
   let getCredentialForResolve: ReturnType<typeof mock.fn>
 
@@ -24,7 +63,8 @@ describe('LiveData.resolve', () => {
       models: {
         blockCredentials: {
           getCredentialForResolve: mock.fn(async () => undefined)
-        }
+        },
+        rateLimits: createFakeRateLimits()
       }
     }
   })
@@ -469,6 +509,7 @@ describe('LiveData.resolve rate limiting (OpenProject #1050, #2185)', () => {
   afterEach(() => {
     mock.restoreAll()
     ;(WIKI.cache as any).clear()
+    ;(WIKI.models.rateLimits as any).clear()
   })
 
   /** Exhausts a credential's per-window cap, always missing the response cache (a distinct url each
@@ -629,5 +670,30 @@ describe('LiveData.resolve rate limiting (OpenProject #1050, #2185)', () => {
       jsonPath: '$.v'
     })
     assert.equal(result.value, 1)
+  })
+
+  test('filling WIKI.cache between calls does not reset the credential window (OpenProject #1700)', async () => {
+    // -> The rate-limit counter used to live in `WIKI.cache` alongside the response cache, so ordinary
+    //    cache churn (capacity eviction of the counter's own key) could silently reset a credential's
+    //    window. It now lives in `WIKI.models.rateLimits` instead (a real durable store; `createFakeRateLimits`
+    //    stands in for it here) — clearing `WIKI.cache` between requests, simulating that churn, must
+    //    have no effect on the counter.
+    mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    await exhaust('cred-rate-6', 120)
+    // -> Simulates the response cache (and every other unrelated WIKI.cache key) being evicted or
+    //    flushed between requests -- the exact scenario that used to reset this credential's rate-limit
+    //    window when the counter shared that cache.
+    ;(WIKI.cache as any).clear()
+    await assert.rejects(
+      liveData.resolve('site-1', {
+        credentialId: 'cred-rate-6',
+        url: 'https://example.com/metrics?i=after-cache-clear',
+        jsonPath: '$.v'
+      }),
+      (err: any) => {
+        assert.equal(err.statusCode, 429)
+        return true
+      }
+    )
   })
 })

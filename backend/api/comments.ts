@@ -647,7 +647,7 @@ async function routes(app: FastifyInstance) {
    */
   app.patch<{
     Params: { siteId: string; pageId: string; commentId: string }
-    Body: { content: string }
+    Body: { content: string; replyTo?: string | null; guestName?: string; guestEmail?: string }
   }>(
     '/sites/:siteId/pages/:pageId/comments/:commentId',
     {
@@ -661,7 +661,7 @@ async function routes(app: FastifyInstance) {
           'be edited via `manage:comments`.',
         tags: ['Comments'],
         params: pageCommentIdParam,
-        body: { $ref: 'CommentInput#' },
+        body: { $ref: 'CommentUpdateInput#' },
         response: {
           200: {
             description: 'The comment as stored, updated',
@@ -692,6 +692,17 @@ async function routes(app: FastifyInstance) {
 
       if (!maySelfModerate(req, req.params.siteId, page, comment, actor)) {
         return reply.forbidden('You are not allowed to edit this comment.')
+      }
+
+      // -> WP 1691: PATCH edits `content` only -- `replyTo`/`guestName`/`guestEmail` are declared on
+      //    `CommentUpdateInput#` (see `api/schemas/comment.ts`) purely so they survive ajv's
+      //    `removeAdditional` instead of vanishing, and are rejected here rather than silently
+      //    ignored: a caller trying to reparent a comment or correct a guest's name via PATCH gets a
+      //    clear 400 instead of a 200 that changed nothing.
+      if (req.body.replyTo != null || req.body.guestName != null || req.body.guestEmail != null) {
+        return reply.badRequest(
+          'replyTo, guestName and guestEmail may not be changed via PATCH; only content can be edited.'
+        )
       }
 
       const updated = await WIKI.models.comments.update(comment.id, { content: req.body.content })

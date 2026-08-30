@@ -765,16 +765,15 @@ class Navigation {
    * The menu a tree entry falls back to: the nearest ancestor that overrides or hides, or the
    * site-wide menu for its locale when nothing above it does either.
    *
+   * Public so `TreeModel#addEntry` can resolve a new or moved page's `navigationId` from its
+   * folder ancestry at insert time, rather than defaulting it to the site-wide menu.
+   *
    * @param siteId Site the entry belongs to, since paths are only unique within one
    * @param locale Locale the entry belongs to — an ancestor override in a different locale that
    *               happens to share the same path is not this entry's ancestor
    * @param folderPath Encoded ltree path of the folder holding the entry, empty at the site root
    */
-  private async ancestorNavId(
-    siteId: string,
-    locale: string,
-    folderPath: string
-  ): Promise<string | null> {
+  async ancestorNavId(siteId: string, locale: string, folderPath: string): Promise<string | null> {
     if (!folderPath) {
       return this.ensureSiteNav(siteId, locale)
     }

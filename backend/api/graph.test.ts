@@ -178,6 +178,34 @@ describe('assembleGraph', () => {
     )
   })
 
+  // -> OpenProject #1626: translations share a `path` by design
+  //    (`docs/decisions/locale-translation-linking.md`), so the composite `${locale}:${path}` id is
+  //    what actually distinguishes an `en` page from its `fr` twin at the same path -- and what a
+  //    link/relation target must resolve against, or an `en` page's link would count as visible
+  //    when only a `fr`-locale page occupies that path.
+  test('gives same-path translations distinct ids, and does not link across locales', () => {
+    const rows = [
+      makeRow({ id: 'page-en', path: 'docs/intro', locale: 'en', links: ['docs/only-in-fr'] }),
+      makeRow({ id: 'page-fr', path: 'docs/intro', locale: 'fr' }),
+      makeRow({ id: 'page-fr-2', path: 'docs/only-in-fr', locale: 'fr' })
+    ]
+
+    const result = assembleGraph(rows, () => true)
+
+    assert.deepEqual(
+      result.nodes.map((n) => n.id).sort(),
+      ['en:docs/intro', 'fr:docs/intro', 'fr:docs/only-in-fr'].sort()
+    )
+    // -> The `en` and `fr` copies of `docs/intro` are distinct nodes, not one collapsed onto the
+    //    other -- both keep the same display `path`.
+    assert.equal(new Set(result.nodes.map((n) => n.id)).size, result.nodes.length)
+    assert.ok(result.nodes.every((n) => n.path === 'docs/intro' || n.path === 'docs/only-in-fr'))
+    // -> `en:docs/intro` links to `docs/only-in-fr`, which only exists in `fr` -- no edge, because
+    //    the link resolves against the source row's own locale (`en`), not any locale holding the
+    //    path.
+    assert.deepEqual(result.edges, [])
+  })
+
   // -> OpenProject #1126: a CLASSIFICATION rule must be able to hide a page from the graph, the same
   //    way it already hides it from direct view, search and the sitemap. `canRead` here stands in
   //    for `mayOnPage()`, which resolves a CLASSIFICATION DENY against `row.classification` -- so

@@ -1014,12 +1014,9 @@ async function routes(app: FastifyInstance) {
           204: {
             description: 'Site deleted successfully'
           },
-          400: {
-            $ref: 'ApiError#',
-            description: 'Site does not exist. (Pre-existing: a 400 rather than a 404.)'
-          },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
           409: {
             $ref: 'ApiError#',
             description: 'This is the last remaining site, or it still holds content.'
@@ -1034,22 +1031,22 @@ async function routes(app: FastifyInstance) {
         } else if (await WIKI.models.sites.deleteSite(req.params.siteId)) {
           reply.code(204)
         } else {
-          reply.badRequest('Site does not exist.')
+          reply.notFound('Site does not exist.')
         }
       } catch (err: any) {
-        // -> The normal path: `deleteSite()` counts pages and assets up front and throws a
-        //    `CustomError` (statusCode 409) before deleting anything, so `reply.send(err)` below
-        //    already answers with the right conflict and message — no special-casing needed here.
-        //
-        //    The `23503` branch is a backstop, not the primary path: pages, assets and the page tree
-        //    all reference the site without a cascade, and if some other, not-yet-cleaned-up table
-        //    were ever added with the same shape, its FK would raise this at the final `sites` delete
-        //    inside `deleteSite()`'s transaction — which rolls the whole thing back, so nothing is
-        //    destroyed either way.
+        // -> `deleteSite()` precounts pages/assets and refuses before touching anything, so this is
+        //    the normal way a still-content-holding site is refused -- reported as a conflict, not a
+        //    server fault.
+        if (err.name === 'siteHasContent') {
+          return reply.conflict(err.message)
+        }
+        // -> Backstop only: pages, assets, navigation and the page tree all reference the site without
+        //    a cascade, so a FK violation here means content was inserted in the race between
+        //    `deleteSite()`'s precheck and its transaction actually committing -- still a conflict to
+        //    report, not a server fault. `deleteSite()`'s own transaction has already rolled back
+        //    everything else it touched.
         if (err.cause?.code === '23503' || err.code === '23503') {
-          return reply.conflict(
-            'Cannot delete a site that still holds content. Delete its pages and assets first.'
-          )
+          return reply.conflict('Cannot delete this site: it still holds pages or assets.')
         }
         reply.send(err)
       }

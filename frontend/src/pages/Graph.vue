@@ -157,7 +157,8 @@ import {
   buildPathHierarchyEdges,
   buildTagHubEdges,
   computeVisibleSubset,
-  deriveFilterOptions
+  deriveFilterOptions,
+  nodeId
 } from './graphFilters.js'
 import { clusterForce } from './graphForces.js'
 
@@ -640,7 +641,14 @@ function startSimulation() {
     .force(
       'link',
       forceLink(edges.value)
-        .id((d) => d.id)
+        // -> Composite `${locale}:${path}` id (OpenProject #1621/#1629), not bare `path`: two locales'
+        //    translations of the same page share a `path` by design, and d3-force's `nodeById`
+        //    map (built from this accessor) would otherwise collapse them onto whichever node it
+        //    kept last -- N duplicate dots on top of each other, every edge attached to just one
+        //    of them. `graphFilters.js`'s edge builders key their `source`/`target` on the same
+        //    `nodeId()` helper, which is what keeps this accessor's output resolvable against
+        //    every edge actually fed into `edges.value` below.
+        .id((d) => nodeId(d))
         .distance(60)
     )
     .force('charge', forceManyBody().strength(-120))

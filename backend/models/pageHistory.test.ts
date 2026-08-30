@@ -1,8 +1,12 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { eq } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { users as usersTable } from '../db/schema.ts'
+import {
+  classificationLevels as classificationLevelsTable,
+  users as usersTable
+} from '../db/schema.ts'
+import { CustomError } from '../helpers/common.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
@@ -19,12 +23,23 @@ describe(
     let pagesModel: typeof import('./pages.ts').pages
     let pageHistoryModel: typeof import('./pageHistory.ts').pageHistory
     let actor: PageActor
+    /** The strictest configured level (highest `sortOrder`) -- distinct from `fixtures.classificationId`
+     *  (the most-open one, which is also what a fallback to `defaultLevel()` would silently produce), so
+     *  a recovery test that checks this round-trips proves the original level was actually preserved. */
+    let restrictedLevelId: string
 
     before(async () => {
       fixtures = await setupTestDb()
       ;({ pages: pagesModel } = await import('./pages.ts'))
       ;({ pageHistory: pageHistoryModel } = await import('./pageHistory.ts'))
       actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+
+      const [strictest] = await fixtures.db
+        .select({ id: classificationLevelsTable.id })
+        .from(classificationLevelsTable)
+        .orderBy(desc(classificationLevelsTable.sortOrder))
+        .limit(1)
+      restrictedLevelId = strictest!.id
     })
 
     after(async () => {
@@ -158,17 +173,25 @@ describe(
       )
     })
 
-    test('recoverDeletedPage recreates the page from its deleted version', async () => {
+    test('recoverDeletedPage recreates the page from its deleted version, preserving classification and queuing a re-render', async (t) => {
+      const queueRerenderCalls: unknown[][] = []
+      t.mock.method(pagesModel, 'queueRerender', async (...args: unknown[]) => {
+        queueRerenderCalls.push(args)
+        return true
+      })
+
       const page = await pagesModel.createPage(
         fixtures.siteId,
         pageInput({
           path: 'docs/recover-me',
           title: 'Recover Me',
           content: '# Recover Me\n\nOriginal content.',
-          tags: ['keep-me']
+          tags: ['keep-me'],
+          classification: restrictedLevelId
         }),
         actor
       )
+      assert.equal(page.classification, restrictedLevelId)
       await pagesModel.deletePage(fixtures.siteId, page.id, actor)
 
       const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
@@ -183,6 +206,15 @@ describe(
       assert.deepEqual(recovered.tags, ['keep-me'])
       assert.equal(recovered.description, 'A test page')
       assert.equal(recovered.icon, 'mdi:file')
+      // -> OpenProject #1672: not `fixtures.classificationId` (the most-open level, and what a silent
+      //    fallback to `resolveCreateClassification`'s default branch would have produced instead).
+      assert.equal(recovered.classification, restrictedLevelId)
+
+      // -> A re-render is queued for the recovered page rather than left with the empty
+      //    render/toc/searchContent `createPage` wrote (deleted versions never stored the rendered
+      //    HTML -- see `EXCLUDED_FROM_META`).
+      assert.equal(queueRerenderCalls.length, 1)
+      assert.deepEqual(queueRerenderCalls[0], [fixtures.siteId, recovered.id, actor])
 
       const fetched = await pagesModel.getPage({
         siteId: fixtures.siteId,
@@ -234,6 +266,31 @@ describe(
         password: 'wrong-guess'
       })
       assert.equal(rejected, null)
+    })
+
+    test('recoverDeletedPage still succeeds when queueRerender throws', async (t) => {
+      t.mock.method(pagesModel, 'queueRerender', async () => {
+        throw new CustomError('renderPuppeteerMissing', 'Puppeteer is not installed.', 503)
+      })
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/recover-rerender-fails' }),
+        actor
+      )
+      await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = recoverable.find((row) => row.path === 'docs/recover-rerender-fails')
+      assert.ok(entry)
+
+      // -> Must not reject or leave the page uncreated: queueRerender is best-effort, caught and
+      //    logged, not a hard dependency of a successful recovery.
+      const recovered = await pageHistoryModel.recoverDeletedPage(fixtures.siteId, entry!.id, actor)
+      assert.equal(recovered.path, 'docs/recover-rerender-fails')
+
+      const fetched = await pagesModel.getPage({ siteId: fixtures.siteId, id: recovered.id })
+      assert.ok(fetched)
     })
 
     test('recoverDeletedPage applies a path/locale override', async () => {

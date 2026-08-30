@@ -105,8 +105,10 @@ const FIXTURE_GRAPH = {
 
 /** Options for `API_CLIENT.get('system/pageviews')` -- defaults to tracking enabled so the
  *  'visits' sizing option is available in the default `mountGraph()` fixture; a test asserting the
- *  disabled case passes `{ pageviewsEnabled: false }`. */
-async function mountGraph({ pageviewsEnabled = true } = {}) {
+ *  disabled case passes `{ pageviewsEnabled: false }`. `graph` defaults to `FIXTURE_GRAPH`; a test
+ *  exercising a different node/edge shape (OpenProject #1629's locale-duplicate case) passes its
+ *  own. */
+async function mountGraph({ pageviewsEnabled = true, graph = FIXTURE_GRAPH } = {}) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
@@ -118,7 +120,7 @@ async function mountGraph({ pageviewsEnabled = true } = {}) {
   router.push('/')
   await router.isReady()
 
-  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_GRAPH) })
+  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(graph) })
   API_CLIENT.get.mockReturnValueOnce({
     json: () => Promise.resolve({ isEnabled: pageviewsEnabled })
   })
@@ -202,6 +204,40 @@ describe('Graph.vue (OpenProject #891)', () => {
     expect(wrapper.vm.edgeMode).toBe('paths')
     expect(wrapper.vm.nodes.length).toBeGreaterThan(FIXTURE_GRAPH.nodes.length)
     expect(wrapper.vm.nodes.some((node) => node.synthetic === true)).toBe(true)
+  })
+
+  it('keys the force layout on the composite locale:path id, giving same-path translations distinct simulation nodes and their own edges (OpenProject #1629)', async () => {
+    const enIntro = {
+      path: 'intro',
+      locale: 'en',
+      title: 'Intro (EN)',
+      icon: null,
+      tags: [],
+      folder: '',
+      contributors: { editor: 0, mcp: 0, all: 0, total: { editor: 0, mcp: 0, all: 0 } },
+      pageviews: ZERO_PAGEVIEWS
+    }
+    const frIntro = { ...enIntro, locale: 'fr', title: 'Intro (FR)' }
+
+    // -> The default 'paths' edgeMode and the default (null) locale filter are what actually
+    //    exercised the pre-fix bug in production -- both translations visible together, chained
+    //    into the path-hierarchy simulation by `startSimulation()`'s `forceLink().id()` accessor.
+    const wrapper = await mountGraph({ graph: { nodes: [enIntro, frIntro], edges: [] } })
+
+    const simNodes = wrapper.vm.nodes.filter((n) => n.path === 'intro')
+    expect(simNodes).toHaveLength(2)
+    expect(simNodes[0]).not.toBe(simNodes[1])
+
+    // -> d3-force's link force resolves each edge's `source`/`target` to the actual node object it
+    //    matched by id the moment it's attached to the simulation -- before the pre-fix accessor
+    //    (`.id((d) => d.path)`), both translations' leaf edges would have resolved `target` to
+    //    whichever one `nodeById` kept last, i.e. the exact same object twice.
+    const introLinks = wrapper.vm.simulation
+      .force('link')
+      .links()
+      .filter((link) => link.target.path === 'intro')
+    expect(introLinks).toHaveLength(2)
+    expect(introLinks[0].target).not.toBe(introLinks[1].target)
   })
 
   it('switching edgeMode does not throw', async () => {

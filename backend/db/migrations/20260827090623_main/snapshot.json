@@ -1,9 +1,10 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "e394d818-ae92-46a5-ad68-72d56b88fd41",
+  "id": "cf3d3334-b065-464e-9068-49dfeec72217",
   "prevIds": [
-    "84322327-993d-43c4-9eb1-12093a080bd8"
+    "f34080a4-1b99-4f9a-8bc4-b5d01b3aeb1a",
+    "fa2bbb43-001b-4e06-99e9-2a14131b99e7"
   ],
   "ddl": [
     {
@@ -4595,11 +4596,11 @@
       "table": "pages"
     },
     {
-      "type": "timestamp with time zone",
+      "type": "integer",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "now()",
+      "default": "0",
       "generated": null,
       "identity": null,
       "name": "ratingCount",
@@ -4716,7 +4717,7 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
-      "default": "'30000000-0000-4000-8000-000000000001'",
+      "default": null,
       "generated": null,
       "identity": null,
       "name": "classification",
@@ -6022,14 +6023,21 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
+        },
+        {
+          "value": "block",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
         }
       ],
-      "isUnique": false,
+      "isUnique": true,
       "where": null,
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "blocks_siteId_idx",
+      "name": "blocks_composite_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "blocks"
@@ -8446,7 +8454,7 @@
         "id"
       ],
       "onUpdate": "NO ACTION",
-      "onDelete": "NO ACTION",
+      "onDelete": "CASCADE",
       "name": "pageEditSubmissions_authorId_users_id_fkey",
       "entityType": "fks",
       "schema": "public",

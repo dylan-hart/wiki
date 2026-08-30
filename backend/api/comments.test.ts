@@ -865,6 +865,31 @@ describe('page-scoped comment routes', () => {
     assert.equal(emittedEvents[0].data.content, 'Updated content')
   })
 
+  // -> WP 1691: PATCH's body schema is `CommentUpdateInput#`, not the POST-shaped `CommentInput#` --
+  //    a `replyTo` (or `guestName`/`guestEmail`) field in the body must 400 rather than be silently
+  //    ignored, since the handler only ever reads `content` off it.
+  test('PATCH: 400 when the body includes replyTo instead of silently ignoring it', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${EXISTING_COMMENT_ID}`,
+      headers: { 'x-test-user-id': 'author-1', 'x-test-permissions': 'read:pages,read:comments' },
+      payload: { content: 'Updated content', replyTo: EXISTING_COMMENT_ID }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.deepEqual(updatedIds, [])
+  })
+
+  test('PATCH: 400 when the body includes guestName instead of silently ignoring it', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${EXISTING_COMMENT_ID}`,
+      headers: { 'x-test-user-id': 'author-1', 'x-test-permissions': 'read:pages,read:comments' },
+      payload: { content: 'Updated content', guestName: 'Someone Else' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.deepEqual(updatedIds, [])
+  })
+
   test('DELETE: 204 and actually removes the comment', async () => {
     const res = await app.inject({
       method: 'DELETE',

@@ -198,17 +198,28 @@ class Blocks {
     for (const definition of registrable) {
       const row = existing.find((entry: any) => entry.block === definition.block)
       if (!row) {
-        await WIKI.db.insert(blocksTable).values({
-          siteId,
-          block: definition.block,
-          name: definition.name,
-          description: definition.description,
-          icon: definition.icon,
-          isEnabled: true,
-          isCustom: false,
-          config: {}
-        })
-        added++
+        // -> `onConflictDoNothing` rather than a plain insert: this runs from `syncAllSites()` at
+        //    every instance's boot, so two instances syncing the same site concurrently both read
+        //    `existing` with nothing there and both reach this insert. Without the conflict target
+        //    the second write would 23505 on `blocks_composite_idx` and abort `postBoot()`; with it,
+        //    the loser silently no-ops and the row it would have written is already there.
+        const [inserted] = await WIKI.db
+          .insert(blocksTable)
+          .values({
+            siteId,
+            block: definition.block,
+            name: definition.name,
+            description: definition.description,
+            icon: definition.icon,
+            isEnabled: true,
+            isCustom: false,
+            config: {}
+          })
+          .onConflictDoNothing({ target: [blocksTable.siteId, blocksTable.block] })
+          .returning({ id: blocksTable.id })
+        if (inserted) {
+          added++
+        }
         continue
       }
       // -> Written only when it would change something, so that a boot that found nothing new is a
@@ -579,8 +590,10 @@ class Blocks {
    * block an administrator just uploaded is one they meant to make available, not one to leave hidden
    * behind a second step.
    *
-   * Callers are expected to have already resolved the tag collision with `isTagTaken()`: this method
-   * does not check again, so it is not itself safe to call twice concurrently for the same tag.
+   * Callers are expected to have already resolved the tag collision with `isTagTaken()`, which this
+   * still races against: two uploads for the same tag can both pass that check and both reach this
+   * insert, so `blocks_composite_idx` is what actually decides the winner. The loser's `23505` is
+   * surfaced as a 409 `CustomError` rather than an unhandled raw error.
    *
    * @param definition The block's own static definition, as `helpers/blockDefinition.ts` extracted it.
    * @param code The uploaded `component.js` source, stored verbatim for `getCustomBlockCode()` to serve back.
@@ -591,20 +604,32 @@ class Blocks {
     code: Buffer
   ): Promise<SiteBlock> {
     return WIKI.db.transaction(async (tx) => {
-      const [row] = await tx
-        .insert(blocksTable)
-        .values({
-          siteId,
-          block: definition.block,
-          name: definition.name,
-          description: definition.description,
-          icon: definition.icon,
-          isEnabled: true,
-          isCustom: true,
-          props: definition.props ?? [],
-          template: definition.template ?? ''
-        })
-        .returning()
+      let row
+      try {
+        ;[row] = await tx
+          .insert(blocksTable)
+          .values({
+            siteId,
+            block: definition.block,
+            name: definition.name,
+            description: definition.description,
+            icon: definition.icon,
+            isEnabled: true,
+            isCustom: true,
+            props: definition.props ?? [],
+            template: definition.template ?? ''
+          })
+          .returning()
+      } catch (err: any) {
+        if (err.cause?.code === '23505' || err.code === '23505') {
+          throw new CustomError(
+            'blockTagTaken',
+            `A block already registers the tag "block-${definition.block}" on this site.`,
+            409
+          )
+        }
+        throw err
+      }
       await tx.insert(blockCodeTable).values({ blockId: row!.id, code })
       return {
         id: row!.id,

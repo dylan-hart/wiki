@@ -321,7 +321,8 @@ export const blocks = pgTable(
       .notNull()
       .references(() => sites.id)
   },
-  (table) => [index('blocks_siteId_idx').on(table.siteId)]
+  // -> Covers lookups by site as well, being the leading column
+  (table) => [uniqueIndex('blocks_composite_idx').on(table.siteId, table.block)]
 )
 
 // COMMENT PROVIDERS --------------------
@@ -816,7 +817,7 @@ export const pages = pgTable(
     //    column back as a value to hand to a caller.
     password: varchar({ length: 255 }),
     ratingScore: integer().notNull().default(0),
-    ratingCount: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    ratingCount: integer().notNull().default(0),
     historyData: jsonb().notNull().default({}),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -835,15 +836,16 @@ export const pages = pgTable(
     // -> Every page always has a classification -- there is no unclassified state (OpenProject
     //    #1079). `models/pages.ts#createPage` always resolves and supplies one explicitly (the
     //    floor-invariant value against the parent, or the most-open level) on every real insert, so
-    //    this default is never read by application code -- it exists purely so that ADDING this
-    //    column to a table that may already hold pages (this branch's own dev database included, not
-    //    just a hypothetical prior release) backfills them to the fixed `classificationPublicId`
-    //    system row (`base.yml`) instead of the migration itself failing outright on existing rows.
+    //    this column carries no default -- the one-time backfill that justified defaulting to the
+    //    fixed `classificationPublicId` system row (`base.yml`) has already run, and a bare column
+    //    default would otherwise keep naming that row even after an administrator deletes it (nothing
+    //    in `models/classificationLevels.ts#delete` checks whether a column default points at the
+    //    level being removed), silently pointing new rows at a level that no longer exists instead of
+    //    failing loudly on whatever inserted without supplying one.
     //    No `onDelete` clause, so the FK's default RESTRICT is what stops an administrator deleting a
     //    level still in use -- see `models/classificationLevels.ts#delete`.
     classification: uuid()
       .notNull()
-      .default('30000000-0000-4000-8000-000000000001')
       .references(() => classificationLevels.id)
   },
   (table) => [
@@ -1120,7 +1122,11 @@ export const pageEditSubmissions = pgTable(
     siteId: uuid()
       .notNull()
       .references(() => sites.id),
-    authorId: uuid().references(() => users.id)
+    // -> A pending suggestion has no meaning once its author is gone -- there is nobody left to
+    //    review it against, and no audit trail reason to keep it around orphaned. Matches
+    //    `apiKeys.userId`'s reasoning, not `pageHistory.authorId`'s `set null`: a suggestion isn't a
+    //    record of something that already happened the way a merged history entry is.
+    authorId: uuid().references(() => users.id, { onDelete: 'cascade' })
   },
   (table) => [
     index('pageEditSubmissions_pageId_idx').on(table.pageId),

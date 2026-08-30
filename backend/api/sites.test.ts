@@ -147,6 +147,20 @@ async function countEnabledSites() {
   return enabledSiteCount
 }
 
+/**
+ * Task #1680: `DELETE /:siteId` for an unknown siteId must answer 404, not the pre-existing 400.
+ * `countSites` is separate from `countEnabledSites` above (the last-remaining-site guard counts all
+ * sites, not just enabled ones) and `deleteSite` returning falsy is what the handler reads as "no
+ * such site" -- mirroring `models/sites.ts#deleteSite`'s own not-found return shape.
+ */
+let siteCount = 2
+async function countSites() {
+  return siteCount
+}
+async function deleteSite(id: string) {
+  return Boolean(sites[id])
+}
+
 before(async () => {
   ;(globalThis as any).WIKI = {
     config: { security: { disallowOpenRedirect: true } },
@@ -159,7 +173,9 @@ before(async () => {
         clearAsset,
         isHostnameUnique,
         createSite,
-        countEnabledSites
+        countEnabledSites,
+        countSites,
+        deleteSite
       },
       groups: {
         actorForRequest,
@@ -734,6 +750,23 @@ test('site:general does not grant DELETE /:siteId, which stays manage:sites-only
     }
   })
   assert.equal(res.statusCode, 403)
+})
+
+/**
+ * Task #1680: an unknown siteId used to fall through to `reply.badRequest()` (400) here -- the only
+ * site-scoped route in the API answering that way instead of the 404 every sibling route
+ * (`approvals.ts`, `blocks.ts`, `comments.ts`, `blockCredentials.ts`, `search.ts`, `storage.ts`,
+ * `glossary.ts`, and `GET /:siteIdorHostname` itself) uses for the same condition.
+ */
+test('DELETE /:siteId answers 404, not 400, for an unknown siteId', async () => {
+  const res = await app.inject({
+    method: 'DELETE',
+    url: '/00000000-0000-0000-0000-000000000000',
+    headers: {
+      'x-test-permissions': 'manage:sites'
+    }
+  })
+  assert.equal(res.statusCode, 404)
 })
 
 /**

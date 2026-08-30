@@ -784,6 +784,16 @@ class Pages {
    * chose to bring up to the new floor. No floor/permission checks here: the API route is the one
    * place that decides who may call this and validates the target level, the same layering
    * `updatePage`'s own caller (`api/pages.ts`) already follows for the declassification guardrail.
+   *
+   * `.returning()` gets the raw rows for free off the same write -- exactly what
+   * `WIKI.models.search.updated` wants (`SearchIndexablePage`, `updatePage`'s own comment above
+   * explains why), and without it every external search module keeps indexing the old
+   * classification, so a raise leaves those pages searchable at their prior, more open level (an
+   * external module decides `read:pages` visibility per-hit off the indexed copy -- see
+   * `modules/search/algolia/search.ts`). And since `pageClassification` is part of what
+   * `glossary.ts#getRawCachedTerms` caches per term, a batch that changes it needs the cache dropped
+   * too -- one call after the loop covers the whole batch, same as `deleteOrphaned`'s glossary
+   * invalidation.
    */
   async bulkSetClassification(
     siteId: string,
@@ -793,11 +803,18 @@ class Pages {
     if (ids.length < 1) {
       return 0
     }
-    const result = await WIKI.db
+    const rows = await WIKI.db
       .update(pagesTable)
       .set({ classification, updatedAt: sql`now()` })
       .where(and(eq(pagesTable.siteId, siteId), inArray(pagesTable.id, ids)))
-    return result.rowCount ?? 0
+      .returning()
+    for (const row of rows) {
+      await WIKI.models.search.updated(row)
+    }
+    if (rows.length > 0) {
+      WIKI.models.glossary.invalidateCache(siteId)
+    }
+    return rows.length
   }
 
   /**
@@ -871,6 +888,19 @@ class Pages {
     //    not-yet-existing page fails closed rather than reaching for a value that describes the page
     //    it is about to become.
     const pageRef: RulePageRef = { path, locale, siteId, tags: input.tags, classification: null }
+
+    /*
+      A create with no render moves the source with nothing to show for it: refuse up front when
+      nothing here could ever produce one, rather than land a page whose render, search text and
+      outbound links never catch up to its content. `queueRerender()` (below, once the row exists)
+      is what actually fills them in. Mirrors `models/approvals.ts`'s own `ensureCanRender`/
+      `queueRerender` pairing (OpenProject #1716).
+    */
+    const hasRenderInput = input.render !== undefined
+    if (!hasRenderInput) {
+      await WIKI.models.rendering.ensureCanRender(editor)
+    }
+
     const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
       siteId,
       input.render ?? '',
@@ -988,7 +1018,17 @@ class Pages {
     //    point at existing pages) -- the cached graph bundle has to reflect it too.
     invalidateGraphCache(siteId)
 
-    return (await this.getPage({ siteId, id: page.id })) as Page
+    const finalPage = (await this.getPage({ siteId, id: page.id })) as Page
+
+    if (!hasRenderInput) {
+      // -> Briefly blank rather than wrong: the browser is a queue away, and this is what actually
+      //    fills in `render`/`toc`/`searchContent`/`links` from the content just written.
+      //    `ensureCanRender()` was already confirmed above, before the write, so this enqueues
+      //    directly rather than going back through `queueRerender()`'s own copy of that check.
+      await this.enqueueRerender(siteId, finalPage, actor)
+    }
+
+    return finalPage
   }
 
   /**
@@ -1114,11 +1154,27 @@ class Pages {
       classification: existing.classification
     }
 
-    // -> A render only means anything next to the content it came from, so the two move together
-    if (patch.render !== undefined) {
+    /*
+      New content with nothing to show for it: refuse up front when this instance could never produce
+      a render, so the caller gets an actionable error instead of a page whose HTML, search text and
+      outbound links stay pinned to the revision being replaced. Mirrors `models/approvals.ts`'s own
+      `ensureCanRender`/`queueRerender` pairing (OpenProject #1716).
+    */
+    const hasRenderInput = patch.render !== undefined
+    const needsRerenderQueue = patch.content !== undefined && !hasRenderInput
+    if (needsRerenderQueue) {
+      await WIKI.models.rendering.ensureCanRender(existing.editor)
+    }
+
+    // -> A render only means anything next to the content it came from, so the two move together --
+    //    the real one when this save carried one, or a blank placeholder (the same one a renderless
+    //    `createPage()` gives a brand new page) when it didn't, so nothing here goes on matching text
+    //    or outbound links the new content no longer has. `queueRerender()` below is what actually
+    //    catches `render`/`toc`/`searchContent`/`links` up to the real thing once its job drains.
+    if (hasRenderInput || needsRerenderQueue) {
       const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
         siteId,
-        patch.render,
+        patch.render ?? '',
         renderPermissions ?? {
           scripts: hasPermission(actor, 'write:scripts', existingRef),
           styles: hasPermission(actor, 'write:styles', existingRef)
@@ -1178,19 +1234,30 @@ class Pages {
       changedFields
     )
 
-    if (treeTitle !== null || patch.tags !== undefined) {
-      await WIKI.db
-        .update(treeTable)
-        .set({
-          ...(treeTitle !== null ? { title: treeTitle } : {}),
-          ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
-          meta: this.treeMeta(updated),
-          updatedAt: sql`now()`
-        })
-        .where(eq(treeTable.id, id))
-    }
+    // -> `meta` and `updatedAt` move on every save, not only when `title`/`tags` did -- otherwise a
+    //    description-only edit (handled above, touching nothing tree-side) leaves the tree row's
+    //    `meta` (which the file manager reads `description` out of) and sort-by-`updatedAt` ordering
+    //    stale. Matches `movePage` (:1223) and `createPage` (:896), which write `meta` unconditionally.
+    await WIKI.db
+      .update(treeTable)
+      .set({
+        ...(treeTitle !== null ? { title: treeTitle } : {}),
+        ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
+        meta: this.treeMeta(updated),
+        updatedAt: sql`now()`
+      })
+      .where(eq(treeTable.id, id))
 
     await WIKI.models.search.updated(rawUpdated)
+    // -> A glossary term's cached canonical-page mapping (`models/glossary.ts`'s `getRawCachedTerms`)
+    //    caches the page's classification and tags alongside its path/locale, and `getCachedTerms`
+    //    runs the actor's `read:pages` check against that cached copy -- so a classification or tags
+    //    change here has to drop it the same way a term CRUD does, or a reader keeps seeing a term
+    //    resolve to a page whose access just changed (OpenProject #1706). Path/locale are covered by
+    //    `movePage`, not here.
+    if (patch.classification !== undefined || patch.tags !== undefined) {
+      WIKI.models.glossary.invalidateCache(siteId)
+    }
     await WIKI.models.hooks.emit('page:edit', siteId, {
       id,
       path: updated.path,
@@ -1217,6 +1284,14 @@ class Pages {
     //    unconditionally, same as the graph cache above, is what keeps the cached list from ever
     //    describing a page as it was rather than as it is now (OpenProject #2267).
     this.invalidateSitemapCache(siteId)
+
+    if (needsRerenderQueue) {
+      // -> Briefly blank rather than wrong: the browser is a queue away, and this is what actually
+      //    fills `render`/`toc`/`searchContent`/`links` back in from the content just written.
+      //    `ensureCanRender()` was already confirmed above, before the write, so this enqueues
+      //    directly rather than going back through `queueRerender()`'s own copy of that check.
+      await this.enqueueRerender(siteId, updated, actor, renderPermissions)
+    }
 
     return updated
   }
@@ -1292,7 +1367,11 @@ class Pages {
       locale: destLocale,
       siteId,
       tags: current.tags,
-      meta: this.treeMeta({ ...current, path: newPath }),
+      // -> The freshly-updated raw row, not `current` (the pre-move snapshot): `current.authorId`
+      //    is stale the instant this transaction sets it to `actor.id` above (OpenProject #1703).
+      //    None of `treeMeta`'s other fields are touched by this update, so `rawMovedRows[0]` and
+      //    `current` agree on everything else.
+      meta: this.treeMeta(rawMovedRows[0]!),
       db: tx
     })
 
@@ -1351,9 +1430,10 @@ class Pages {
     //    relations/links against `row.path`), so a move can silently break edges in a stale bundle.
     invalidateGraphCache(siteId)
     // -> A glossary term's cached canonical-page mapping (`models/glossary.ts`'s `getRawCachedTerms`)
-    //    caches the page's path/locale, so a canonical page's path or locale changing has to drop it
-    //    too, the same way a term CRUD does -- otherwise the cache would keep resolving a link to
-    //    where the page used to live (OpenProject #870).
+    //    caches the page's path, locale, classification and tags, so a canonical page's path or
+    //    locale changing has to drop it too, the same way a term CRUD does -- otherwise the cache
+    //    would keep resolving a link to where the page used to live (OpenProject #870). A
+    //    classification or tags change is `updatePage`'s to invalidate, not this one's.
     if (moved.path !== previous.path || moved.locale !== previous.locale) {
       WIKI.models.glossary.invalidateCache(siteId)
     }
@@ -1591,8 +1671,10 @@ class Pages {
     //    key), so nothing at the database level removes the tree row when the page row goes. A
     //    failure between two separate statements here would leave a tree entry pointing at a page
     //    that no longer exists -- still rendering in the file manager, 404ing when opened, and
-    //    permanently blocking a future page at the same path via `tree_composite_page_idx`. Passing
-    //    `tx` into `deleteEntry` is why its `db` parameter defaults to `WIKI.db` but accepts a `tx`.
+    //    permanently blocking a future page at the same path via `tree_composite_page_idx`
+    //    (OpenProject #1739). Passing `tx` into `deleteEntry` is why its `db` parameter defaults to
+    //    `WIKI.db` but accepts a `tx`. `movePage` draws the same boundary for its own
+    //    delete-and-reinsert of the tree entry.
     await WIKI.db.transaction(async (tx) => {
       await tx.delete(pagesTable).where(eq(pagesTable.id, id))
       await WIKI.models.tree.deleteEntry(id, tx)
@@ -1759,7 +1841,22 @@ class Pages {
       return false
     }
     await WIKI.models.rendering.ensureCanRender(page.editor)
+    await this.enqueueRerender(siteId, page, actor, renderPermissions)
+    return true
+  }
 
+  /**
+   * The actual enqueue `queueRerender()` performs once it has confirmed `ensureCanRender()` --
+   * factored out so `createPage()`/`updatePage()` can call it directly after their own up-front
+   * `ensureCanRender()` guard (OpenProject #1716), rather than going back through `queueRerender()`
+   * and paying for that same consult a second time for the write that just landed.
+   */
+  private async enqueueRerender(
+    siteId: string,
+    page: Page,
+    actor: PageActor,
+    renderPermissions?: RenderPermissions
+  ): Promise<void> {
     await WIKI.models.rendering.queuePage({
       siteId,
       pageId: page.id,
@@ -1769,7 +1866,6 @@ class Pages {
       },
       requestedById: actor.id
     })
-    return true
   }
 
   /**
@@ -2088,16 +2184,35 @@ class Pages {
 
   /**
    * What a page's tree entry carries about it, so a folder listing needs no join.
+   *
+   * Deliberately narrower than `typeof pagesTable.$inferSelect` or the full `Page` interface: it
+   * names exactly the fields written below, so either a raw inserted/updated `pages` row
+   * (`createPage`, and `{ ...current, path: newPath }` in `moveOnePageInTx`) or the flattened `Page`
+   * shape `toPage()` produces (`updatePage`) satisfies it structurally. `creatorId`/`ownerId` used to
+   * be read here too, defaulting to `authorId` when absent -- but `Page` never carried either column,
+   * so every caller except `createPage` silently recorded the *acting* editor as creator/owner
+   * instead of leaving them alone. Nothing in this repo reads `meta.creatorId`/`meta.ownerId`
+   * (OpenProject #1703), so they are dropped rather than plumbed correctly through every caller.
    */
-  private treeMeta(page: any): Record<string, any> {
+  private treeMeta(
+    page: Pick<
+      Page,
+      | 'authorId'
+      | 'contentType'
+      | 'description'
+      | 'editor'
+      | 'isBrowsable'
+      | 'publishState'
+      | 'publishEndDate'
+      | 'publishStartDate'
+    >
+  ): Record<string, any> {
     return {
       authorId: page.authorId,
       contentType: page.contentType,
-      creatorId: page.creatorId ?? page.authorId,
       description: page.description ?? '',
       editor: page.editor,
       isBrowsable: page.isBrowsable,
-      ownerId: page.ownerId ?? page.authorId,
       publishState: page.publishState,
       publishEndDate: page.publishEndDate ?? null,
       publishStartDate: page.publishStartDate ?? null

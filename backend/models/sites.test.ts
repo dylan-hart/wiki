@@ -18,6 +18,7 @@ import {
   pageHistory as pageHistoryTable,
   pageviews as pageviewsTable,
   pageWatchEvents as pageWatchEventsTable,
+  siteAssets as siteAssetsTable,
   sites as sitesTable,
   storage as storageTable,
   tags as tagsTable
@@ -519,6 +520,15 @@ describe(
  * (OpenProject #1046): querying `eq(navigationTable.id, siteId)` would return zero rows whether or
  * not `deleteSite` ever ran, since a random nav-row id practically never collides with a site id —
  * that query would pass even if `deleteSite` had never been fixed at all.
+ *
+ * OpenProject #1741: `deleteSite` used to issue six unconditional deletes (blocks, block credentials,
+ * storage, site assets, glossary terms, navigation) with nothing wrapping them, before ever finding
+ * out whether the site's final delete would even succeed — so a refusal (a page, asset, pageview or
+ * tag still referencing the site) left every one of those six torn down anyway, autocommitted one
+ * statement at a time, while the site itself survived. The "still holds a page" case below is the
+ * regression test for the fix: it seeds one row in every one of those six non-content tables, asserts
+ * the refusal is now a precheck (a `siteHasContent` error, not a raw `23503`) rather than a
+ * partially-destructive FK failure, and then asserts all six rows are still there afterwards.
  */
 describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -527,6 +537,10 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   before(async () => {
     fixtures = await setupTestDb()
     actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
+    // -> `createSite()` reads `WIKI.data.systemIds.localAuthId` to seed the default auth strategy —
+    //    real values come from `base.yml` via `core/config.ts`, neither of which the minimal test
+    //    `WIKI` global in `test/db.ts` populates. Only the cases below that call `createSite()` need
+    //    this; `makeSite()`'s direct insert doesn't.
     WIKI.data.systemIds = { localAuthId: randomUUID() }
     await WIKI.models.commentProviders.refreshFromDisk()
     await WIKI.models.storage.refreshFromDisk()
@@ -709,7 +723,7 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(deleted, true)
   })
 
-  test('a site holding a page is refused with a 409 siteHasContent conflict, and destroys nothing', async () => {
+  test('a site holding a page is refused up front, and its non-content rows survive', async () => {
     const siteId = await makeSite()
     await pagesModel.createPage(
       siteId,
@@ -717,16 +731,56 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
+    // -> One row in every table `deleteSite` unconditionally tears down, so a refusal that still let
+    //    them through would be caught here.
+    await fixtures.db.insert(blocksTable).values({
+      block: 'markdown',
+      name: 'Test Block',
+      description: '',
+      icon: 'mdi:cube',
+      siteId
+    })
+    await fixtures.db.insert(blockCredentialsTable).values({
+      siteId,
+      name: 'Test Credential',
+      secret: 'shh'
+    })
+    // -> No manual insert here: `makeSite()` -> `createSite()` -> `storage.syncSite()` already seeded
+    //    one row per discovered storage module (`refreshFromDisk()` in `before()` above), so a fixed
+    //    row count below asserts `> 0`, not a specific number that depends on how many modules exist.
+    await fixtures.db
+      .insert(siteAssetsTable)
+      .values({ siteId, kind: 'logo', data: Buffer.from('fake-logo'), hash: 'fake-hash' })
+    await fixtures.db.insert(glossaryTermsTable).values({
+      term: 'Test Term',
+      definition: 'A term used only by this test.',
+      siteId
+    })
+
     await assert.rejects(sites.deleteSite(siteId), (err: any) => {
       assert.equal(err.name, 'siteHasContent')
       assert.equal(err.statusCode, 409)
       return true
     })
 
-    const remaining = await nonContentRowCounts(siteId)
-    assert.ok(remaining.storage > 0, 'storage rows must survive a refused delete')
-    assert.ok(remaining.navigation > 0, 'navigation rows must survive a refused delete')
-    assert.ok(remaining.commentProviders > 0, 'commentProviders rows must survive a refused delete')
+    const [blocksLeft, credsLeft, storageLeft, assetsLeft, glossaryLeft, navLeft] =
+      await Promise.all([
+        fixtures.db.select().from(blocksTable).where(eq(blocksTable.siteId, siteId)),
+        fixtures.db
+          .select()
+          .from(blockCredentialsTable)
+          .where(eq(blockCredentialsTable.siteId, siteId)),
+        fixtures.db.select().from(storageTable).where(eq(storageTable.siteId, siteId)),
+        fixtures.db.select().from(siteAssetsTable).where(eq(siteAssetsTable.siteId, siteId)),
+        fixtures.db.select().from(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, siteId)),
+        fixtures.db.select().from(navigationTable).where(eq(navigationTable.siteId, siteId))
+      ])
+    assert.equal(blocksLeft.length, 1, 'blocks row should survive a refused delete')
+    assert.equal(credsLeft.length, 1, 'blockCredentials row should survive a refused delete')
+    assert.ok(storageLeft.length > 0, 'storage rows should survive a refused delete')
+    assert.equal(assetsLeft.length, 1, 'siteAssets row should survive a refused delete')
+    assert.equal(glossaryLeft.length, 1, 'glossaryTerms row should survive a refused delete')
+    assert.equal(navLeft.length, 1, 'navigation row should survive a refused delete')
   })
 
   test('a site holding only an asset (no pages) is also refused', async () => {
@@ -749,6 +803,100 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .from(assetsTable)
       .where(eq(assetsTable.siteId, siteId))
     assert.equal(remainingAssets.length, 1, 'the asset must survive a refused delete')
+  })
+
+  /**
+   * OpenProject #1744: `deleteSite()` used to clean only six site-owned tables, on the theory that
+   * everything else left standing was content the route deliberately blocks on. That theory failed
+   * for six non-content tables whose rows outlive the content they describe (`commentProviders`,
+   * seeded per site by `createSite()`'s `commentProviders.syncSite()`, being the most immediate —
+   * it blocked even a brand-new, otherwise-empty site) or that content routes were never meant to
+   * guard at all (`glossaryVersions`, `pageWatchEvents`, `approvalRules`, `migrationRecords`).
+   * `tags` is deliberately NOT among them: OpenProject #1741's precheck already treats it as content
+   * (alongside pages, assets and pageviews) and refuses the delete up front while a tag still
+   * references the site, so a leftover tag row is covered by the "refused up front" test above, not
+   * this one. Going through `sites.createSite()` rather than the `makeSite()` helper above is
+   * deliberate: only `createSite()` seeds the `commentProviders` rows that made the delete fail
+   * unconditionally.
+   */
+  test('a site created via createSite(), with a page created and deleted, deletes cleanly with every extended-cleanup table left empty', async () => {
+    const hostname = `full-cleanup-${randomBytes(6).toString('hex')}.localhost`
+    const site = await sites.createSite(hostname)
+    const siteId = site.id
+
+    const page = await pagesModel.createPage(
+      siteId,
+      {
+        path: 'home',
+        title: 'Home',
+        editor: 'markdown',
+        content: '# Hello'
+      },
+      actor
+    )
+    await pagesModel.deletePage(siteId, page.id, actor)
+
+    // -> `commentProviders` (seeded above by `createSite()`) and `pageHistory` (written above by
+    //    `deletePage()`) are populated through the real app flow; the other four have no such call
+    //    site under test, so they're seeded directly to prove the cleanup covers them too.
+    await fixtures.db.insert(glossaryVersionsTable).values({ siteId, snapshot: {}, termCount: 0 })
+    await fixtures.db.insert(approvalRulesTable).values({ siteId })
+    await fixtures.db.insert(migrationRecordsTable).values({
+      siteId,
+      sourceSystem: 'test',
+      sourceTable: 'pages',
+      sourceId: '1',
+      destTable: 'pages',
+      destId: randomUUID()
+    })
+    await fixtures.db.insert(pageWatchEventsTable).values({
+      action: 'updated',
+      pageId: randomUUID(),
+      pageTitle: 'Home',
+      pagePath: 'home',
+      siteId,
+      userId: fixtures.userId,
+      notifyMode: 'immediate'
+    })
+
+    const deleted = await sites.deleteSite(siteId)
+    assert.equal(deleted, true)
+
+    const remainingCommentProviders = await fixtures.db
+      .select({ id: commentProvidersTable.id })
+      .from(commentProvidersTable)
+      .where(eq(commentProvidersTable.siteId, siteId))
+    assert.equal(remainingCommentProviders.length, 0)
+
+    const remainingPageHistory = await fixtures.db
+      .select({ id: pageHistoryTable.id })
+      .from(pageHistoryTable)
+      .where(eq(pageHistoryTable.siteId, siteId))
+    assert.equal(remainingPageHistory.length, 0)
+
+    const remainingGlossaryVersions = await fixtures.db
+      .select({ id: glossaryVersionsTable.id })
+      .from(glossaryVersionsTable)
+      .where(eq(glossaryVersionsTable.siteId, siteId))
+    assert.equal(remainingGlossaryVersions.length, 0)
+
+    const remainingPageWatchEvents = await fixtures.db
+      .select({ id: pageWatchEventsTable.id })
+      .from(pageWatchEventsTable)
+      .where(eq(pageWatchEventsTable.siteId, siteId))
+    assert.equal(remainingPageWatchEvents.length, 0)
+
+    const remainingApprovalRules = await fixtures.db
+      .select({ id: approvalRulesTable.id })
+      .from(approvalRulesTable)
+      .where(eq(approvalRulesTable.siteId, siteId))
+    assert.equal(remainingApprovalRules.length, 0)
+
+    const remainingMigrationRecords = await fixtures.db
+      .select({ id: migrationRecordsTable.id })
+      .from(migrationRecordsTable)
+      .where(eq(migrationRecordsTable.siteId, siteId))
+    assert.equal(remainingMigrationRecords.length, 0)
   })
 })
 

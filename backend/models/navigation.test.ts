@@ -2761,3 +2761,100 @@ describe('tree.navigationId FK onDelete set null (DB-backed)', { skip: !hasTestD
     )
   })
 })
+
+/**
+ * OpenProject #1698: `tree.addEntry` used to resolve a new/moved page's `navigationId` by calling
+ * `ensureSiteNav` directly (hardcoded at the old `addPage` call site), ignoring any overriding/hiding
+ * folder above it. It now calls `ancestorNavId` -- the same ltree-ancestry walk `inheritedNavId` uses
+ * -- after the folder is resolved, so a page landing under an `override`d folder picks up that
+ * folder's menu immediately, not the site-wide one. `movePage` deletes and re-inserts the tree entry
+ * through the same `addPage`, so it gets this for free; the second case here proves that directly
+ * rather than assuming it from the shared code path.
+ */
+describe(
+  'navigation navigationId resolves from folder ancestry in tree.addEntry (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let navigationModel: typeof import('./navigation.ts').navigation
+    let pagesModel: typeof import('./pages.ts').pages
+    let actor: PageActor
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ navigation: navigationModel } = await import('./navigation.ts'))
+      ;({ pages: pagesModel } = await import('./pages.ts'))
+      actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test("a page created under a folder with navigationMode='override' inherits that folder's menu, not the site-wide one", async () => {
+      const folder = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'ancestry-create',
+        type: 'folder'
+      })
+      const { navigationId: folderNavId } = await navigationModel.updateNavigation({
+        siteId: fixtures.siteId,
+        pageId: folder.id,
+        mode: 'override',
+        items: [{ id: 'folder-item', type: 'link', label: 'Folder Menu', target: '/' }]
+      })
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'ancestry-create/child',
+          title: 'Child',
+          editor: 'markdown',
+          content: '# Child'
+        },
+        actor
+      )
+
+      const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+      assert.equal(page.navigationId, folderNavId)
+      assert.notEqual(page.navigationId, siteNavId)
+    })
+
+    test("moving a page under a folder with navigationMode='override' resolves it to that folder's menu too", async () => {
+      const folder = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'ancestry-move',
+        type: 'folder'
+      })
+      const { navigationId: folderNavId } = await navigationModel.updateNavigation({
+        siteId: fixtures.siteId,
+        pageId: folder.id,
+        mode: 'override',
+        items: [{ id: 'folder-item', type: 'link', label: 'Folder Menu', target: '/' }]
+      })
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'ancestry-move-source',
+          title: 'Elsewhere',
+          editor: 'markdown',
+          content: '# Elsewhere'
+        },
+        actor
+      )
+      const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+      // -> Sanity: it starts on the site-wide menu, as a root-level page should
+      assert.equal(page.navigationId, siteNavId)
+
+      const moved = await pagesModel.movePage(
+        fixtures.siteId,
+        page.id,
+        { path: 'ancestry-move/moved-child' },
+        actor
+      )
+
+      assert.equal(moved!.navigationId, folderNavId)
+    })
+  }
+)

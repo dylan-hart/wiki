@@ -140,7 +140,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       id: {
         type: 'string',
         description:
-          'Synthetic `${locale}:${path}` composite identifying this node uniquely across locales (OpenProject #1621) -- translations share `path` by design, so `path` alone cannot key a node or an edge endpoint. `GraphEdge.source`/`GraphEdge.target` reference this field, not `path`.'
+          'Composite `${locale}:${path}` id (OpenProject #1621/#1626) -- unique across locales, since translations share a path by design. Edges are keyed on this, not on `path`.'
       },
       path: { type: 'string' },
       locale: { type: 'string' },

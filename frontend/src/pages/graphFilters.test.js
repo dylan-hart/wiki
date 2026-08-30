@@ -4,14 +4,33 @@ import {
   buildPathHierarchyEdges,
   buildTagHubEdges,
   computeVisibleSubset,
-  deriveFilterOptions
+  deriveFilterOptions,
+  nodeId
 } from './graphFilters.js'
 
 const NODES = [
-  { id: 'en:a', path: 'a', locale: 'en', tags: ['foo', 'bar'] },
-  { id: 'fr:b', path: 'b', locale: 'fr', tags: ['foo'] },
-  { id: 'en:c', path: 'c', locale: 'en', tags: [] }
+  { path: 'a', locale: 'en', tags: ['foo', 'bar'] },
+  { path: 'b', locale: 'fr', tags: ['foo'] },
+  { path: 'c', locale: 'en', tags: [] }
 ]
+
+describe('nodeId (OpenProject #1629/#1632)', () => {
+  it('keys a real node (one with a locale) on the composite `${locale}:${path}`', () => {
+    expect(nodeId({ path: 'docs/intro', locale: 'en' })).toBe('en:docs/intro')
+    expect(nodeId({ path: 'docs/intro', locale: 'fr' })).toBe('fr:docs/intro')
+  })
+
+  it('gives two locales of the same path two distinct ids', () => {
+    const en = nodeId({ path: 'docs/intro', locale: 'en' })
+    const fr = nodeId({ path: 'docs/intro', locale: 'fr' })
+    expect(en).not.toBe(fr)
+  })
+
+  it('keeps a synthetic node (no locale) on its already-unique bare path', () => {
+    expect(nodeId({ path: '__tag__foo', synthetic: true })).toBe('__tag__foo')
+    expect(nodeId({ path: '', synthetic: true })).toBe('')
+  })
+})
 
 describe('deriveFilterOptions (OpenProject #899)', () => {
   it('collects every distinct tag across all nodes, sorted', () => {
@@ -33,10 +52,12 @@ describe('deriveFilterOptions (OpenProject #899)', () => {
 // single segment for Feature 874's clustering) -- the depth filter derives depth from `path`, so the
 // fixture needs real multi-level paths to exercise that (OpenProject #898/#900).
 const NODES2 = [
-  { id: 'en:a', path: 'a', locale: 'en', tags: ['foo'], folder: '' },
-  { id: 'fr:docs/b', path: 'docs/b', locale: 'fr', tags: ['bar'], folder: 'docs' },
-  { id: 'en:docs/deep/c', path: 'docs/deep/c', locale: 'en', tags: [], folder: 'docs' }
+  { path: 'a', locale: 'en', tags: ['foo'], folder: '' },
+  { path: 'docs/b', locale: 'fr', tags: ['bar'], folder: 'docs' },
+  { path: 'docs/deep/c', locale: 'en', tags: [], folder: 'docs' }
 ]
+// Sources/targets are composite `${locale}:${path}` ids, matching what the graph API emits
+// (OpenProject #1626) and what `computeVisibleSubset` now keys visibility by (OpenProject #1632).
 const EDGES2 = [
   { source: 'en:a', target: 'fr:docs/b', type: 'link' },
   { source: 'en:a', target: 'en:docs/deep/c', type: 'link' }
@@ -135,52 +156,32 @@ describe('computeVisibleSubset (OpenProject #900)', () => {
     expect(visibleEdges).toEqual(resolvedEdges)
   })
 
-  // -> OpenProject #1621/#1632: translations share `path` by design, so filtering to one locale must
-  //    drop an edge whose target exists only in the OTHER locale, not keep it alive because a
-  //    same-path node in the filtered-out locale still occupies that path.
-  describe('same-path translations (OpenProject #1621)', () => {
-    const enIntro = { id: 'en:docs/intro', path: 'docs/intro', locale: 'en', tags: [] }
-    const frIntro = { id: 'fr:docs/intro', path: 'docs/intro', locale: 'fr', tags: [] }
-    const enHome = { id: 'en:home', path: 'home', locale: 'en', tags: [] }
-    const twoLocaleNodes = [enHome, enIntro, frIntro]
-    // -> `en:home` links to `docs/intro`, but ONLY the `fr` copy exists as a link target here --
-    //    matches the backend fixture in `graph.test.ts`'s own same-path-translations case.
-    const twoLocaleEdges = [{ source: 'en:home', target: 'fr:docs/intro', type: 'link' }]
+  it('drops an edge whose target exists only in the other locale, even though a same-path node in the active locale survives the filter (OpenProject #1632)', () => {
+    const nodes = [
+      { path: 'a', locale: 'en', tags: [] },
+      { path: 'shared', locale: 'en', tags: [] },
+      { path: 'shared', locale: 'fr', tags: [] }
+    ]
+    // The edge's real target is the `fr` copy of 'shared' -- bare-path matching would have wrongly
+    // kept this edge once the `en` copy of 'shared' also passed the filter.
+    const edges = [{ source: 'en:a', target: 'fr:shared', type: 'link' }]
 
-    it('keeps both same-path translations as distinct visible nodes with no locale filter', () => {
-      const { visibleNodes } = computeVisibleSubset(twoLocaleNodes, twoLocaleEdges, {
-        tags: [],
-        folderDepth: null,
-        locale: null
-      })
-      expect(visibleNodes.map((n) => n.id).sort()).toEqual([
-        'en:docs/intro',
-        'en:home',
-        'fr:docs/intro'
-      ])
+    const { visibleNodes, visibleEdges } = computeVisibleSubset(nodes, edges, {
+      tags: [],
+      folderDepth: null,
+      locale: 'en'
     })
-
-    it('under a single-locale filter, drops an edge whose target exists only in the other locale', () => {
-      const { visibleNodes, visibleEdges } = computeVisibleSubset(twoLocaleNodes, twoLocaleEdges, {
-        tags: [],
-        folderDepth: null,
-        locale: 'en'
-      })
-      expect(visibleNodes.map((n) => n.id)).toEqual(['en:home', 'en:docs/intro'])
-      // -> The edge's target (`fr:docs/intro`) is not among the en-only visible ids, even though an
-      //    `en:docs/intro` node exists at the same PATH -- a bare-path Set would have wrongly kept
-      //    this edge alive.
-      expect(visibleEdges).toEqual([])
-    })
+    expect(visibleNodes.map((n) => n.path)).toEqual(['a', 'shared'])
+    expect(visibleEdges).toEqual([])
   })
 })
 
 describe('buildPathHierarchyEdges (OpenProject #998)', () => {
   it('climbs a nested path to a synthetic root, synthesizing every missing segment', () => {
     const { syntheticNodes, edges } = buildPathHierarchyEdges([
-      { id: 'en:docs/child/page', path: 'docs/child/page', locale: 'en' }
+      { path: 'docs/child/page', locale: 'en' }
     ])
-    expect(syntheticNodes.map((n) => n.id).sort()).toEqual(['en:', 'en:docs', 'en:docs/child'])
+    expect(syntheticNodes.map((n) => n.path).sort()).toEqual(['', 'docs', 'docs/child'])
     expect(edges).toEqual([
       { source: 'en:docs/child', target: 'en:docs/child/page', type: 'path' },
       { source: 'en:docs', target: 'en:docs/child', type: 'path' },
@@ -189,21 +190,17 @@ describe('buildPathHierarchyEdges (OpenProject #998)', () => {
   })
 
   it('gives a root-level page a single edge straight to the synthetic root', () => {
-    const { syntheticNodes, edges } = buildPathHierarchyEdges([
-      { id: 'en:about', path: 'about', locale: 'en' }
-    ])
-    expect(syntheticNodes).toEqual([
-      { id: 'en:', path: '', locale: 'en', title: '(root)', synthetic: true }
-    ])
+    const { syntheticNodes, edges } = buildPathHierarchyEdges([{ path: 'about', locale: 'en' }])
+    expect(syntheticNodes).toEqual([{ path: '', locale: 'en', title: '(root)', synthetic: true }])
     expect(edges).toEqual([{ source: 'en:', target: 'en:about', type: 'path' }])
   })
 
   it('de-dupes the shared parent edge for sibling pages under the same folder', () => {
     const { syntheticNodes, edges } = buildPathHierarchyEdges([
-      { id: 'en:docs/a', path: 'docs/a', locale: 'en' },
-      { id: 'en:docs/b', path: 'docs/b', locale: 'en' }
+      { path: 'docs/a', locale: 'en' },
+      { path: 'docs/b', locale: 'en' }
     ])
-    expect(syntheticNodes.map((n) => n.id).sort()).toEqual(['en:', 'en:docs'])
+    expect(syntheticNodes.map((n) => n.path).sort()).toEqual(['', 'docs'])
     expect(edges).toEqual([
       { source: 'en:docs', target: 'en:docs/a', type: 'path' },
       { source: 'en:', target: 'en:docs', type: 'path' },
@@ -213,12 +210,10 @@ describe('buildPathHierarchyEdges (OpenProject #998)', () => {
 
   it('reuses a real page as its own folder node instead of synthesizing a duplicate', () => {
     const { syntheticNodes, edges } = buildPathHierarchyEdges([
-      { id: 'en:docs', path: 'docs', locale: 'en', title: 'Docs Index' },
-      { id: 'en:docs/child', path: 'docs/child', locale: 'en' }
+      { path: 'docs', title: 'Docs Index', locale: 'en' },
+      { path: 'docs/child', locale: 'en' }
     ])
-    expect(syntheticNodes).toEqual([
-      { id: 'en:', path: '', locale: 'en', title: '(root)', synthetic: true }
-    ])
+    expect(syntheticNodes).toEqual([{ path: '', locale: 'en', title: '(root)', synthetic: true }])
     expect(edges).toHaveLength(2)
     expect(edges).toEqual(
       expect.arrayContaining([
@@ -230,8 +225,8 @@ describe('buildPathHierarchyEdges (OpenProject #998)', () => {
 
   it('reuses a real home page (path "") as the root instead of synthesizing one', () => {
     const { syntheticNodes, edges } = buildPathHierarchyEdges([
-      { id: 'en:', path: '', locale: 'en', title: 'Home' },
-      { id: 'en:about', path: 'about', locale: 'en' }
+      { path: '', title: 'Home', locale: 'en' },
+      { path: 'about', locale: 'en' }
     ])
     expect(syntheticNodes).toEqual([])
     expect(edges).toEqual([{ source: 'en:', target: 'en:about', type: 'path' }])
@@ -241,20 +236,19 @@ describe('buildPathHierarchyEdges (OpenProject #998)', () => {
     expect(buildPathHierarchyEdges([])).toEqual({ syntheticNodes: [], edges: [] })
   })
 
-  // -> OpenProject #1621/#1632: translations share `path` by design, so two locales' pages must
-  //    climb to two SEPARATE, locale-qualified hierarchies rather than merging into one tree keyed
-  //    on the bare path.
-  it('produces a separate hierarchy per locale rather than one merged tree', () => {
+  it('gives two locales of the same leaf path their own distinct, separately-addressed edges (OpenProject #1629/#1632)', () => {
     const { syntheticNodes, edges } = buildPathHierarchyEdges([
-      { id: 'en:docs/intro', path: 'docs/intro', locale: 'en' },
-      { id: 'fr:docs/intro', path: 'docs/intro', locale: 'fr' }
+      { path: 'docs/intro', locale: 'en' },
+      { path: 'docs/intro', locale: 'fr' }
     ])
-    expect(syntheticNodes.map((n) => n.id).sort()).toEqual(['en:', 'en:docs', 'fr:', 'fr:docs'])
+    // -> Each locale climbs its OWN folder chain (composite-id ids throughout, OpenProject #1632),
+    //    so neither the synthetic 'docs' node nor the leaf edge's target collides across locales.
+    expect(syntheticNodes.map((n) => n.path).sort()).toEqual(['', '', 'docs', 'docs'])
     expect(edges).toEqual(
       expect.arrayContaining([
         { source: 'en:docs', target: 'en:docs/intro', type: 'path' },
-        { source: 'en:', target: 'en:docs', type: 'path' },
         { source: 'fr:docs', target: 'fr:docs/intro', type: 'path' },
+        { source: 'en:', target: 'en:docs', type: 'path' },
         { source: 'fr:', target: 'fr:docs', type: 'path' }
       ])
     )
@@ -262,66 +256,115 @@ describe('buildPathHierarchyEdges (OpenProject #998)', () => {
   })
 })
 
+describe('buildPathHierarchyEdges: locale-qualified hierarchy (OpenProject #1632)', () => {
+  it('builds a separate hierarchy per locale instead of merging same-path trees', () => {
+    const nodes = [
+      { path: 'docs/child', locale: 'en' },
+      { path: 'docs/child', locale: 'fr' }
+    ]
+    const { syntheticNodes, edges } = buildPathHierarchyEdges(nodes)
+
+    // One root and one 'docs' folder node per locale -- not one shared pair merging both trees.
+    expect(syntheticNodes).toHaveLength(4)
+    expect(syntheticNodes).toEqual(
+      expect.arrayContaining([
+        { path: '', locale: 'en', title: '(root)', synthetic: true },
+        { path: 'docs', locale: 'en', title: 'docs', synthetic: true },
+        { path: '', locale: 'fr', title: '(root)', synthetic: true },
+        { path: 'docs', locale: 'fr', title: 'docs', synthetic: true }
+      ])
+    )
+
+    expect(edges).toHaveLength(4)
+    expect(edges).toEqual(
+      expect.arrayContaining([
+        { source: 'en:docs', target: 'en:docs/child', type: 'path' },
+        { source: 'en:', target: 'en:docs', type: 'path' },
+        { source: 'fr:docs', target: 'fr:docs/child', type: 'path' },
+        { source: 'fr:', target: 'fr:docs', type: 'path' }
+      ])
+    )
+  })
+
+  it('a real page in one locale does not suppress synthesizing the same folder path in another locale', () => {
+    // A real page sits at path 'docs' in `en`; `fr`'s 'docs' has no real page at all -- the two
+    // locales must not share one `byId` lookup that decides whether to synthesize it.
+    const nodes = [
+      { path: 'docs', title: 'Docs Index', locale: 'en' },
+      { path: 'docs/child', locale: 'en' },
+      { path: 'docs/child', locale: 'fr' }
+    ]
+    const { syntheticNodes } = buildPathHierarchyEdges(nodes)
+
+    expect(syntheticNodes).toEqual(
+      expect.arrayContaining([
+        { path: '', locale: 'en', title: '(root)', synthetic: true },
+        { path: '', locale: 'fr', title: '(root)', synthetic: true },
+        { path: 'docs', locale: 'fr', title: 'docs', synthetic: true }
+      ])
+    )
+    // 'docs' is NOT synthesized for `en` -- the real Docs Index page is reused instead.
+    expect(syntheticNodes.some((n) => n.locale === 'en' && n.path === 'docs')).toBe(false)
+  })
+})
+
 describe('buildTagHubEdges (OpenProject #999)', () => {
   it('creates one hub per distinct tag, with an edge from the hub to each carrying page', () => {
     const { syntheticNodes, edges } = buildTagHubEdges([
-      { id: 'en:a', path: 'a', tags: ['foo'] },
-      { id: 'en:b', path: 'b', tags: ['bar'] }
+      { path: 'a', tags: ['foo'] },
+      { path: 'b', tags: ['bar'] }
     ])
     expect(syntheticNodes).toEqual([
-      { id: '__tag__foo', path: '__tag__foo', title: 'foo', synthetic: true },
-      { id: '__tag__bar', path: '__tag__bar', title: 'bar', synthetic: true }
+      { path: '__tag__foo', title: 'foo', synthetic: true },
+      { path: '__tag__bar', title: 'bar', synthetic: true }
     ])
     expect(edges).toEqual([
-      { source: '__tag__foo', target: 'en:a', type: 'tag' },
-      { source: '__tag__bar', target: 'en:b', type: 'tag' }
+      { source: '__tag__foo', target: 'a', type: 'tag' },
+      { source: '__tag__bar', target: 'b', type: 'tag' }
     ])
   })
 
   it('gives a multi-tagged page one edge per tag, not just its first', () => {
-    const { edges } = buildTagHubEdges([{ id: 'en:a', path: 'a', tags: ['foo', 'bar'] }])
+    const { edges } = buildTagHubEdges([{ path: 'a', tags: ['foo', 'bar'] }])
     expect(edges).toEqual([
-      { source: '__tag__foo', target: 'en:a', type: 'tag' },
-      { source: '__tag__bar', target: 'en:a', type: 'tag' }
+      { source: '__tag__foo', target: 'a', type: 'tag' },
+      { source: '__tag__bar', target: 'a', type: 'tag' }
     ])
   })
 
   it('shares one hub node across every page carrying the same tag', () => {
     const { syntheticNodes, edges } = buildTagHubEdges([
-      { id: 'en:a', path: 'a', tags: ['foo'] },
-      { id: 'en:b', path: 'b', tags: ['foo'] }
+      { path: 'a', tags: ['foo'] },
+      { path: 'b', tags: ['foo'] }
     ])
-    expect(syntheticNodes).toEqual([
-      { id: '__tag__foo', path: '__tag__foo', title: 'foo', synthetic: true }
-    ])
+    expect(syntheticNodes).toEqual([{ path: '__tag__foo', title: 'foo', synthetic: true }])
     expect(edges).toEqual([
-      { source: '__tag__foo', target: 'en:a', type: 'tag' },
-      { source: '__tag__foo', target: 'en:b', type: 'tag' }
+      { source: '__tag__foo', target: 'a', type: 'tag' },
+      { source: '__tag__foo', target: 'b', type: 'tag' }
     ])
   })
 
   it('produces no hubs or edges for an untagged page', () => {
-    const { syntheticNodes, edges } = buildTagHubEdges([{ id: 'en:a', path: 'a', tags: [] }])
+    const { syntheticNodes, edges } = buildTagHubEdges([{ path: 'a', tags: [] }])
     expect(syntheticNodes).toEqual([])
     expect(edges).toEqual([])
   })
 
   it('treats a missing tags array the same as an empty one', () => {
-    const { syntheticNodes, edges } = buildTagHubEdges([{ id: 'en:a', path: 'a' }])
+    const { syntheticNodes, edges } = buildTagHubEdges([{ path: 'a' }])
     expect(syntheticNodes).toEqual([])
     expect(edges).toEqual([])
   })
 
-  // -> OpenProject #1621/#1632: a same-path `en`/`fr` pair must produce two distinct edge targets,
-  //    not both wire to whichever one a path-keyed lookup happened to keep.
-  it('wires a same-path translation pair to two distinct edge targets', () => {
-    const { edges } = buildTagHubEdges([
-      { id: 'en:docs/intro', path: 'docs/intro', locale: 'en', tags: ['guide'] },
-      { id: 'fr:docs/intro', path: 'docs/intro', locale: 'fr', tags: ['guide'] }
+  it('gives two locales of the same path sharing a tag two distinct edges (OpenProject #1629/#1632)', () => {
+    const { syntheticNodes, edges } = buildTagHubEdges([
+      { path: 'a', locale: 'en', tags: ['foo'] },
+      { path: 'a', locale: 'fr', tags: ['foo'] }
     ])
+    expect(syntheticNodes).toEqual([{ path: '__tag__foo', title: 'foo', synthetic: true }])
     expect(edges).toEqual([
-      { source: '__tag__guide', target: 'en:docs/intro', type: 'tag' },
-      { source: '__tag__guide', target: 'fr:docs/intro', type: 'tag' }
+      { source: '__tag__foo', target: 'en:a', type: 'tag' },
+      { source: '__tag__foo', target: 'fr:a', type: 'tag' }
     ])
   })
 })
@@ -329,14 +372,14 @@ describe('buildTagHubEdges (OpenProject #999)', () => {
 describe('buildPathHierarchyEdges: combined scenario (OpenProject #1002)', () => {
   it('produces exactly one synthetic node per distinct missing folder and one edge per parent-child pair, across a mixed real/synthetic tree', () => {
     const nodes = [
-      { id: 'en:docs', path: 'docs', locale: 'en', title: 'Docs Index' }, // real page reused as its own folder node
-      { id: 'en:docs/guides/intro', path: 'docs/guides/intro', locale: 'en' },
-      { id: 'en:docs/guides/advanced', path: 'docs/guides/advanced', locale: 'en' },
-      { id: 'en:about', path: 'about', locale: 'en' }
+      { path: 'docs', title: 'Docs Index', locale: 'en' }, // real page reused as its own folder node
+      { path: 'docs/guides/intro', locale: 'en' },
+      { path: 'docs/guides/advanced', locale: 'en' },
+      { path: 'about', locale: 'en' }
     ]
     const { syntheticNodes, edges } = buildPathHierarchyEdges(nodes)
 
-    expect(syntheticNodes.map((n) => n.id).sort()).toEqual(['en:', 'en:docs/guides'])
+    expect(syntheticNodes.map((n) => n.path).sort()).toEqual(['', 'docs/guides'])
     expect(edges).toEqual(
       expect.arrayContaining([
         { source: 'en:docs/guides', target: 'en:docs/guides/intro', type: 'path' },
@@ -356,14 +399,14 @@ describe('buildPathHierarchyEdges: combined scenario (OpenProject #1002)', () =>
 describe('buildTagHubEdges: combined scenario (OpenProject #1002)', () => {
   it('produces exactly one hub per distinct tag and one edge per (page, tag) pair, across shared and multi-tagged pages', () => {
     const nodes = [
-      { id: 'en:a', path: 'a', tags: ['guide', 'beginner'] },
-      { id: 'en:b', path: 'b', tags: ['guide'] },
-      { id: 'en:c', path: 'c', tags: ['beginner', 'reference'] },
-      { id: 'en:d', path: 'd', tags: [] }
+      { path: 'a', tags: ['guide', 'beginner'] },
+      { path: 'b', tags: ['guide'] },
+      { path: 'c', tags: ['beginner', 'reference'] },
+      { path: 'd', tags: [] }
     ]
     const { syntheticNodes, edges } = buildTagHubEdges(nodes)
 
-    expect(syntheticNodes.map((n) => n.id).sort()).toEqual([
+    expect(syntheticNodes.map((n) => n.path).sort()).toEqual([
       '__tag__beginner',
       '__tag__guide',
       '__tag__reference'
@@ -371,11 +414,11 @@ describe('buildTagHubEdges: combined scenario (OpenProject #1002)', () => {
     expect(edges).toHaveLength(5)
     expect(edges).toEqual(
       expect.arrayContaining([
-        { source: '__tag__guide', target: 'en:a', type: 'tag' },
-        { source: '__tag__beginner', target: 'en:a', type: 'tag' },
-        { source: '__tag__guide', target: 'en:b', type: 'tag' },
-        { source: '__tag__beginner', target: 'en:c', type: 'tag' },
-        { source: '__tag__reference', target: 'en:c', type: 'tag' }
+        { source: '__tag__guide', target: 'a', type: 'tag' },
+        { source: '__tag__beginner', target: 'a', type: 'tag' },
+        { source: '__tag__guide', target: 'b', type: 'tag' },
+        { source: '__tag__beginner', target: 'c', type: 'tag' },
+        { source: '__tag__reference', target: 'c', type: 'tag' }
       ])
     )
   })
@@ -384,64 +427,44 @@ describe('buildTagHubEdges: combined scenario (OpenProject #1002)', () => {
 describe('buildClassificationHubEdges (OpenProject #1217)', () => {
   it('creates one hub per distinct classification, with an edge from the hub to each carrying page', () => {
     const { syntheticNodes, edges } = buildClassificationHubEdges([
-      { id: 'en:a', path: 'a', classification: 'Public' },
-      { id: 'en:b', path: 'b', classification: 'Restricted' }
+      { path: 'a', classification: 'Public' },
+      { path: 'b', classification: 'Restricted' }
     ])
     expect(syntheticNodes).toEqual([
-      {
-        id: '__classification__Public',
-        path: '__classification__Public',
-        title: 'Public',
-        synthetic: true
-      },
-      {
-        id: '__classification__Restricted',
-        path: '__classification__Restricted',
-        title: 'Restricted',
-        synthetic: true
-      }
+      { path: '__classification__Public', title: 'Public', synthetic: true },
+      { path: '__classification__Restricted', title: 'Restricted', synthetic: true }
     ])
     expect(edges).toEqual([
-      { source: '__classification__Public', target: 'en:a', type: 'classification' },
-      { source: '__classification__Restricted', target: 'en:b', type: 'classification' }
+      { source: '__classification__Public', target: 'a', type: 'classification' },
+      { source: '__classification__Restricted', target: 'b', type: 'classification' }
     ])
   })
 
   it('shares one hub node across every page carrying the same classification', () => {
     const { syntheticNodes, edges } = buildClassificationHubEdges([
-      { id: 'en:a', path: 'a', classification: 'Public' },
-      { id: 'en:b', path: 'b', classification: 'Public' }
+      { path: 'a', classification: 'Public' },
+      { path: 'b', classification: 'Public' }
     ])
     expect(syntheticNodes).toEqual([
-      {
-        id: '__classification__Public',
-        path: '__classification__Public',
-        title: 'Public',
-        synthetic: true
-      }
+      { path: '__classification__Public', title: 'Public', synthetic: true }
     ])
     expect(edges).toEqual([
-      { source: '__classification__Public', target: 'en:a', type: 'classification' },
-      { source: '__classification__Public', target: 'en:b', type: 'classification' }
+      { source: '__classification__Public', target: 'a', type: 'classification' },
+      { source: '__classification__Public', target: 'b', type: 'classification' }
     ])
   })
 
   it('groups a node with no resolved classification under a shared (unclassified) hub', () => {
     const { syntheticNodes, edges } = buildClassificationHubEdges([
-      { id: 'en:a', path: 'a', classification: null },
-      { id: 'en:b', path: 'b' }
+      { path: 'a', classification: null },
+      { path: 'b' }
     ])
     expect(syntheticNodes).toEqual([
-      {
-        id: '__classification__(unclassified)',
-        path: '__classification__(unclassified)',
-        title: '(unclassified)',
-        synthetic: true
-      }
+      { path: '__classification__(unclassified)', title: '(unclassified)', synthetic: true }
     ])
     expect(edges).toEqual([
-      { source: '__classification__(unclassified)', target: 'en:a', type: 'classification' },
-      { source: '__classification__(unclassified)', target: 'en:b', type: 'classification' }
+      { source: '__classification__(unclassified)', target: 'a', type: 'classification' },
+      { source: '__classification__(unclassified)', target: 'b', type: 'classification' }
     ])
   })
 
@@ -449,15 +472,17 @@ describe('buildClassificationHubEdges (OpenProject #1217)', () => {
     expect(buildClassificationHubEdges([])).toEqual({ syntheticNodes: [], edges: [] })
   })
 
-  // -> OpenProject #1621/#1632: a same-path `en`/`fr` pair must produce two distinct edge targets.
-  it('wires a same-path translation pair to two distinct edge targets', () => {
-    const { edges } = buildClassificationHubEdges([
-      { id: 'en:docs/intro', path: 'docs/intro', locale: 'en', classification: 'Public' },
-      { id: 'fr:docs/intro', path: 'docs/intro', locale: 'fr', classification: 'Public' }
+  it('gives two locales of the same path sharing a classification two distinct edges (OpenProject #1629/#1632)', () => {
+    const { syntheticNodes, edges } = buildClassificationHubEdges([
+      { path: 'a', locale: 'en', classification: 'Public' },
+      { path: 'a', locale: 'fr', classification: 'Public' }
+    ])
+    expect(syntheticNodes).toEqual([
+      { path: '__classification__Public', title: 'Public', synthetic: true }
     ])
     expect(edges).toEqual([
-      { source: '__classification__Public', target: 'en:docs/intro', type: 'classification' },
-      { source: '__classification__Public', target: 'fr:docs/intro', type: 'classification' }
+      { source: '__classification__Public', target: 'en:a', type: 'classification' },
+      { source: '__classification__Public', target: 'fr:a', type: 'classification' }
     ])
   })
 })

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import { describe, it, test } from 'node:test'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -252,6 +252,65 @@ describe('site-scoping-audit.md', () => {
 
   test('the fixture list itself is non-empty, so a schema-introspection regression cannot pass vacuously', () => {
     assert.ok(unscopedTableNames().length > 0)
+  })
+})
+
+/**
+ * Postgres rejects `ALTER TABLE … ADD COLUMN x text NOT NULL` outright once the table holds any
+ * rows, so every such statement across `backend/db/migrations/*` needs a `DEFAULT` -- the pattern
+ * `20260821120434_main` (backfill then tighten) and `20260822152223_main` (seed then add-with-default)
+ * both follow. `20260817165130_main` is the sole recorded exception (OpenProject #1665, see
+ * docs/variances.md) -- its migration hash is already committed, so it is allow-listed rather than
+ * hand-edited. A new occurrence anywhere else should fail this test instead of a developer's boot.
+ */
+
+const MIGRATIONS_DIR = path.join(HERE, 'migrations')
+const ADD_COLUMN_NOT_NULL_NO_DEFAULT_ALLOWLIST = new Set(['20260817165130_main'])
+
+async function migrationFoldersWithNotNullNoDefault(): Promise<Map<string, string[]>> {
+  const offenders = new Map<string, string[]>()
+  const entries = await readdir(MIGRATIONS_DIR, { withFileTypes: true })
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const sqlPath = path.join(MIGRATIONS_DIR, entry.name, 'migration.sql')
+    let contents: string
+    try {
+      contents = await readFile(sqlPath, 'utf8')
+    } catch {
+      continue // not every folder necessarily has a migration.sql (none currently don't, but be safe)
+    }
+    const badLines = contents
+      .split('\n')
+      .filter((line) => /ADD COLUMN/.test(line) && /NOT NULL/.test(line) && !/DEFAULT/.test(line))
+    if (badLines.length > 0) offenders.set(entry.name, badLines)
+  }
+  return offenders
+}
+
+describe('migration.sql NOT NULL columns require a DEFAULT', () => {
+  test('no non-allow-listed migration adds a NOT NULL column with no DEFAULT', async () => {
+    const offenders = await migrationFoldersWithNotNullNoDefault()
+    const unexpected = [...offenders.keys()].filter(
+      (folder) => !ADD_COLUMN_NOT_NULL_NO_DEFAULT_ALLOWLIST.has(folder)
+    )
+    assert.deepEqual(
+      unexpected,
+      [],
+      `migration(s) add a NOT NULL column with no DEFAULT (rejected by Postgres on a non-empty ` +
+        `table): ${unexpected.join(', ')}. Backfill/seed first, then add the column with a matching ` +
+        `DEFAULT -- see 20260821120434_main / 20260822152223_main for the pattern.`
+    )
+  })
+
+  test('the allow-list itself still names a real migration folder that actually needs it', async () => {
+    const offenders = await migrationFoldersWithNotNullNoDefault()
+    for (const folder of ADD_COLUMN_NOT_NULL_NO_DEFAULT_ALLOWLIST) {
+      assert.ok(
+        offenders.has(folder),
+        `${folder} is allow-listed but no longer has a NOT NULL column with no DEFAULT -- remove it ` +
+          `from the allow-list and docs/variances.md`
+      )
+    }
   })
 })
 

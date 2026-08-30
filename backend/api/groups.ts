@@ -246,9 +246,7 @@ async function routes(app: FastifyInstance) {
             },
             permissions: {
               type: 'array',
-              items: {
-                type: 'string'
-              }
+              items: { $ref: 'GlobalPermission#' }
             },
             rules: {
               type: 'array',

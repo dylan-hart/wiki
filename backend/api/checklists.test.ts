@@ -258,14 +258,14 @@ describe('checklist routes', () => {
     assert.equal(res.statusCode, 404)
   })
 
-  test('POST item: 403 when signed out — there is no identity to attribute the check to', async () => {
+  test('POST item: 401 when signed out — there is no identity to attribute the check to', async () => {
     const res = await app.inject({
       method: 'POST',
       url: `/sites/${SITE_ID}/pages/${PAGE_ID}/checklist/shift-open/items`,
       headers: { 'x-test-permissions': 'read:pages,write:pages' },
       payload: { itemKey: 'item-1', itemCount: 3 }
     })
-    assert.equal(res.statusCode, 403)
+    assert.equal(res.statusCode, 401)
     assert.deepEqual(checkItemCalls, [])
   })
 

@@ -1,6 +1,6 @@
-import { after, before, beforeEach, describe, mock, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import {
   hasTestDatabase,
   seedLocale,
@@ -9,9 +9,10 @@ import {
   teardownTestDb,
   type TestFixtures
 } from '../test/db.ts'
-import { generatePathHash } from '../helpers/common.ts'
+import { CustomError, generatePathHash } from '../helpers/common.ts'
 import { groups as groupsTable } from '../db/schema.ts'
 import {
+  pageRenderQueue as pageRenderQueueTable,
   pages as pagesTable,
   pageWatchEvents as pageWatchEventsTable,
   userGroups as userGroupsTable,
@@ -32,6 +33,13 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   let fixtures: TestFixtures
   let pagesModel: typeof import('./pages.ts').pages
   let actor: PageActor
+  // -> A single wrap for the whole describe block, its implementation swapped per-test via
+  //    `.mock.mockImplementation()` rather than re-mocking with `mock.method()` again: node:test's
+  //    `mock.restoreAll()` unwinds nested `mock.method()` wraps back to whatever the PREVIOUS wrap's
+  //    "original" was, not all the way to the true original, when a target is re-mocked more than
+  //    once without an intermediate `.mock.restore()` -- one wrap kept alive for the whole block and
+  //    reconfigured in place is what makes `after()`'s `restoreAll()` land back on the real thing.
+  let ensureCanRenderMock: ReturnType<typeof mock.method>
 
   before(async () => {
     fixtures = await setupTestDb()
@@ -42,9 +50,16 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     await seedLocale(fixtures.db, { code: 'fr' })
     ;({ pages: pagesModel } = await import('./pages.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    // -> Puppeteer is never installed in this test environment, so a real `ensureCanRender()` would
+    //    refuse every renderless create/update below -- and almost none of these SQL-orchestration
+    //    tests supply a `render`. Stubbed to succeed here; the refusal itself, and the queued
+    //    rerender it unlocks, get their own dedicated tests further down with a narrower override
+    //    (OpenProject #1716).
+    ensureCanRenderMock = mock.method(WIKI.models.rendering, 'ensureCanRender', async () => {})
   })
 
   after(async () => {
+    mock.restoreAll()
     await teardownTestDb()
   })
 
@@ -90,6 +105,27 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         .insert(pagesTable)
         .values(rawPageRow({ path: 'unique/dupe-probe', locale: 'en', siteId: fixtures.siteId })),
       (err: any) => (err.cause?.code ?? err.code) === '23505'
+    )
+  })
+
+  /**
+   * `pages.classification` carries no column default (OpenProject #1705) -- the one-time backfill
+   * that justified defaulting to the fixed `classificationPublicId` system row has already run, and
+   * a bare column default would otherwise keep naming that row even after an administrator deletes
+   * it. An insert that omits it entirely must therefore fail loudly (a NOT NULL violation) rather
+   * than silently default to a level that may no longer exist. `as any` bypasses the compile-time
+   * protection the same change gives real callers (`.values()` now requires `classification`), since
+   * this test's whole point is proving the database itself refuses a row without one.
+   */
+  test('an insert omitting classification is rejected, not silently defaulted', async () => {
+    const { classification: _omitted, ...rowWithoutClassification } = rawPageRow({
+      path: 'unique/no-classification',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    await assert.rejects(
+      fixtures.db.insert(pagesTable).values(rowWithoutClassification as any),
+      (err: any) => (err.cause?.code ?? err.code) === '23502'
     )
   })
 
@@ -341,6 +377,67 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(updated!.description, 'original description')
   })
 
+  test('updatePage syncs the tree row even when only the description changed (OpenProject #1709)', async () => {
+    // -> Description is handled by a separate branch that never touches `treeTable`, so before this
+    //    fix the tree write's guard (`treeTitle !== null || patch.tags !== undefined`) skipped
+    //    entirely -- leaving `meta.description` (what the file manager reads) and `updatedAt` (what
+    //    an `updatedAt`-ordered listing sorts by) stale on a description-only edit.
+    //
+    // -> `Temporal` is a Node 26 global needing no import (CLAUDE.md), but this sandbox's `node` is
+    //    older and doesn't expose it (same environment gap `api/pages.test.ts`'s own
+    //    `installFakeTemporal` documents). Installed only when genuinely missing, so a real Node 26
+    //    run exercises the native API.
+    const previousTemporal = (globalThis as any).Temporal
+    const previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
+    if (typeof previousTemporal === 'undefined') {
+      ;(globalThis as any).Temporal = {
+        Instant: {
+          compare: (a: { epochMilliseconds: number }, b: { epochMilliseconds: number }) =>
+            Math.sign(a.epochMilliseconds - b.epochMilliseconds)
+        }
+      }
+      ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
+        return { epochMilliseconds: this.getTime() }
+      }
+    }
+
+    try {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/description-only', description: 'original description' }),
+        actor
+      )
+      const beforeTree = await WIKI.models.tree.getById(page.id)
+      assert.equal((beforeTree!.meta as Record<string, any>).description, 'original description')
+
+      // -> A later `updatedAt` than the create-time row requires actual elapsed time between the two
+      //    writes; both use `sql\`now()\`` so a Node-side sleep is enough to force the difference.
+      await new Promise((resolve) => setTimeout(resolve, 10))
+
+      const updated = await pagesModel.updatePage(
+        fixtures.siteId,
+        page.id,
+        { description: 'updated description' },
+        actor
+      )
+      assert.equal(updated!.description, 'updated description')
+
+      const afterTree = await WIKI.models.tree.getById(page.id)
+      assert.equal((afterTree!.meta as Record<string, any>).description, 'updated description')
+      assert.ok(
+        Temporal.Instant.compare(
+          afterTree!.updatedAt.toTemporalInstant(),
+          beforeTree!.updatedAt.toTemporalInstant()
+        ) > 0
+      )
+    } finally {
+      if (typeof previousTemporal === 'undefined') {
+        ;(globalThis as any).Temporal = previousTemporal
+        ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
+      }
+    }
+  })
+
   test("updatePage keeps the page's original editor even if the patch names a different one", async () => {
     // -> The invariant `PageHistoryOverlay.vue`'s `restoreVersion`/`branchFrom` rely on: a page's
     //    editor is fixed at creation (see the comment on `updatePage`, "which editor authored a page
@@ -357,6 +454,34 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     const updated = await pagesModel.updatePage(fixtures.siteId, page.id, { editor: 'html' }, actor)
 
     assert.equal(updated!.editor, 'markdown')
+  })
+
+  test("updatePage's tree meta stays accurate after a retitle, with no creatorId/ownerId (OpenProject #1703)", async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/meta-retitle' }),
+      actor
+    )
+
+    const createdMeta = (await WIKI.models.tree.getById(page.id))!.meta as Record<string, any>
+    assert.equal(createdMeta.authorId, fixtures.userId)
+    // -> Never recorded at all: nothing reads either field (OpenProject #1703's fix), so `treeMeta`
+    //    no longer computes a value that would formerly have been wrong on this very path
+    assert.equal('creatorId' in createdMeta, false)
+    assert.equal('ownerId' in createdMeta, false)
+
+    await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Retitled' }, actor)
+
+    const retitledMeta = (await WIKI.models.tree.getById(page.id))!.meta as Record<string, any>
+    // -> `updatePage` hands `treeMeta` the flattened `Page` shape (`toPage()`), not a raw row -- these
+    //    fields must still match what they held right after creation
+    assert.equal(retitledMeta.authorId, createdMeta.authorId)
+    assert.equal(retitledMeta.contentType, createdMeta.contentType)
+    assert.equal(retitledMeta.editor, createdMeta.editor)
+    assert.equal(retitledMeta.isBrowsable, createdMeta.isBrowsable)
+    assert.equal(retitledMeta.publishState, createdMeta.publishState)
+    assert.equal('creatorId' in retitledMeta, false)
+    assert.equal('ownerId' in retitledMeta, false)
   })
 
   test('updatePage returns null for a page that does not exist', async () => {
@@ -399,6 +524,31 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       actor
     )
     assert.equal(reoccupied.path, 'docs/move-source')
+  })
+
+  test('movePage refreshes the tree meta authorId to the mover, not the pre-move actor (OpenProject #1703)', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/move-meta-source' }),
+      actor
+    )
+    const [mover] = await fixtures.db
+      .insert(usersTable)
+      .values({ email: 'mover@example.com', name: 'Mover', isActive: true, isVerified: true })
+      .returning({ id: usersTable.id })
+    const moverActor: PageActor = { id: mover!.id, groupIds: [], permissions: ['manage:system'] }
+
+    await pagesModel.movePage(
+      fixtures.siteId,
+      page.id,
+      { path: 'docs/move-meta-destination' },
+      moverActor
+    )
+
+    const movedMeta = (await WIKI.models.tree.getById(page.id))!.meta as Record<string, any>
+    assert.equal(movedMeta.authorId, mover!.id)
+    assert.equal('creatorId' in movedMeta, false)
+    assert.equal('ownerId' in movedMeta, false)
   })
 
   test('movePage moving to its own current path is a no-op that still succeeds', async () => {
@@ -772,6 +922,67 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(recreated.path, 'docs/delete-me')
   })
 
+  /**
+   * OpenProject #1739: `deletePage` used to run the `pages` delete and `tree.deleteEntry` as two
+   * separate statements, with nothing at the db level tying them together (`tree.id` carries no FK
+   * back to `pages.id`). A failure in the second left an orphaned tree row -- still rendered by
+   * `getTree`'s left join, 404ing when opened, and permanently blocking re-creation at the same path
+   * via `tree_composite_page_idx`. Wrapped in one transaction, forcing `tree.deleteEntry` to throw
+   * must roll the `pages` delete back too, leaving both rows exactly as they were.
+   */
+  test('deletePage rolls back the page row when tree.deleteEntry fails, leaving the path reusable', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'atomic-delete/page-one', title: 'Atomic Delete Me' }),
+      actor
+    )
+    const treeEntryBefore = await WIKI.models.tree.getById(page.id)
+    assert.ok(treeEntryBefore)
+    const folderBefore = await WIKI.models.tree.getFolder({
+      path: 'atomic-delete',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    const childrenBefore = folderBefore.meta?.children ?? 0
+
+    const deleteEntry = mock.method(WIKI.models.tree, 'deleteEntry', async () => {
+      throw new Error('simulated tree.deleteEntry failure')
+    })
+    try {
+      await assert.rejects(pagesModel.deletePage(fixtures.siteId, page.id, actor))
+    } finally {
+      deleteEntry.mock.restore()
+    }
+
+    // -> Both rows survive together, exactly as before the failed attempt -- not "the page is gone
+    //    but the tree row remains" (the pre-fix orphan)
+    const pageAfterFailure = await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id })
+    assert.ok(pageAfterFailure)
+    const treeEntryAfterFailure = await WIKI.models.tree.getById(page.id)
+    assert.ok(treeEntryAfterFailure)
+    const folderAfterFailure = await WIKI.models.tree.getFolder({
+      path: 'atomic-delete',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    assert.equal(folderAfterFailure.meta?.children ?? 0, childrenBefore)
+
+    // -> The real deletePage, unmocked, must still be able to finish the job
+    const deleted = await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+    assert.equal(deleted, true)
+    assert.equal(await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id }), null)
+    assert.equal(await WIKI.models.tree.getById(page.id), null)
+
+    // -> And the path is free to reuse -- `tree_composite_page_idx` would refuse this insert if the
+    //    old tree row had survived
+    const recreated = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'atomic-delete/page-one', title: 'Recreated After Rollback' }),
+      actor
+    )
+    assert.equal(recreated.path, 'atomic-delete/page-one')
+  })
+
   test('getPathFromAlias resolves an alias to its path and locale', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
@@ -892,6 +1103,138 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     } finally {
       await WIKI.models.glossary.deleteTerm(fixtures.siteId, term.id)
     }
+  })
+
+  /**
+   * OpenProject #1706: `getRawCachedTerms` caches a term's canonical page classification and tags
+   * alongside its path/locale, and `getCachedTerms` runs the actor's `read:pages` check against that
+   * cached copy -- but only `movePage`/`deletePage`/`deleteOrphaned` invalidated it, not `updatePage`,
+   * the one path that actually changes `classification`/`tags`. These two cases set up a group rule
+   * whose ALLOW/DENY outcome for a non-`manage:system` actor depends on the page's classification (or
+   * tags), so a stale cache is provable by that actor's `link` flipping the wrong way rather than by
+   * spying on the invalidation call itself.
+   */
+  describe('updatePage invalidates the glossary cache (OpenProject #1706)', () => {
+    let restrictedId: string
+    let publicId: string
+    let restrictedActor: PageActor
+
+    before(async () => {
+      const { classificationLevels } = await import('./classificationLevels.ts')
+      const levels = classificationLevels.list()
+      publicId = levels.find((l) => l.name === 'Public')!.id
+      restrictedId = levels.find((l) => l.name === 'Restricted')!.id
+      restrictedActor = { id: fixtures.userId, permissions: [], groupIds: [fixtures.groupId] }
+    })
+
+    async function setRules(rules: any[]): Promise<void> {
+      await fixtures.db
+        .update(groupsTable)
+        .set({ rules })
+        .where(eq(groupsTable.id, fixtures.groupId))
+      await WIKI.models.groups.reloadCache()
+    }
+
+    test('a classification-only patch drops the cache so a newly-restricted term stops resolving', async () => {
+      await setRules([
+        {
+          id: 'allow-all',
+          name: 'Allow',
+          roles: ['read:pages'],
+          match: 'START',
+          mode: 'ALLOW',
+          path: '',
+          locales: [],
+          sites: []
+        },
+        {
+          id: 'deny-restricted',
+          name: 'Deny restricted',
+          roles: ['read:pages'],
+          match: 'CLASSIFICATION',
+          mode: 'DENY',
+          path: '',
+          classifications: [restrictedId],
+          locales: [],
+          sites: []
+        }
+      ])
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/glossary-classification-cache', classification: publicId }),
+        actor
+      )
+      const term = await WIKI.models.glossary.createTerm(fixtures.siteId, {
+        term: 'ClassificationCacheTerm',
+        definition: 'Points at a page about to be restricted.',
+        pageId: page.id
+      })
+      try {
+        const before = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, restrictedActor)
+        assert.equal(
+          before.find((t: any) => t.term === 'ClassificationCacheTerm')?.link,
+          '/docs/glossary-classification-cache'
+        )
+
+        await pagesModel.updatePage(
+          fixtures.siteId,
+          page.id,
+          { classification: restrictedId },
+          actor
+        )
+
+        const after = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, restrictedActor)
+        assert.equal(after.find((t: any) => t.term === 'ClassificationCacheTerm')?.link, null)
+      } finally {
+        await WIKI.models.glossary.deleteTerm(fixtures.siteId, term.id)
+      }
+    })
+
+    test('a tags-only patch drops the cache so a term loses its access-granting tag and stops resolving', async () => {
+      // -> Deliberately no competing path rule: `helpers/pageRules.ts` treats every TAG rule as
+      //    specificity 0, so a `path: ''` ALLOW would out-rank it on the match-priority tier and the
+      //    tag would never be what decides access, defeating the point of this test. A lone
+      //    ALLOW-by-tag rule, with the page starting with the tag and the patch removing it, isolates
+      //    tags as the only thing that can flip `read:pages` here.
+      await setRules([
+        {
+          id: 'allow-tagged',
+          name: 'Allow tagged',
+          roles: ['read:pages'],
+          match: 'TAG',
+          mode: 'ALLOW',
+          path: 'allowed',
+          locales: [],
+          sites: []
+        }
+      ])
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/glossary-tags-cache', tags: ['allowed'] }),
+        actor
+      )
+      const term = await WIKI.models.glossary.createTerm(fixtures.siteId, {
+        term: 'TagsCacheTerm',
+        definition: 'Points at a page about to lose its access-granting tag.',
+        pageId: page.id
+      })
+      try {
+        const before = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, restrictedActor)
+        assert.equal(
+          before.find((t: any) => t.term === 'TagsCacheTerm')?.link,
+          '/docs/glossary-tags-cache'
+        )
+
+        await pagesModel.updatePage(fixtures.siteId, page.id, { tags: [] }, actor)
+
+        const after = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, restrictedActor)
+        assert.equal(after.find((t: any) => t.term === 'TagsCacheTerm')?.link, null)
+      } finally {
+        await WIKI.models.glossary.deleteTerm(fixtures.siteId, term.id)
+      }
+    })
   })
 
   /**
@@ -1163,6 +1506,269 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       })
 
       assert.equal(result, null)
+    })
+  })
+
+  /**
+   * OpenProject #1702: a bare `UPDATE` here left external search modules indexing the pre-raise
+   * classification (they decide `read:pages` visibility per-hit off the indexed copy — see
+   * `modules/search/algolia/search.ts`), and left `glossary.ts#getRawCachedTerms`'s cached
+   * `pageClassification` stale for any term canonically linked to one of these pages. This asserts
+   * both post-write effects: one `search.updated` call per id in the batch, and exactly one
+   * `glossary.invalidateCache` for the site, not one per page.
+   */
+  test('bulkSetClassification calls search.updated per page and invalidates the glossary cache once for the whole batch', async () => {
+    const { classificationLevels } = await import('./classificationLevels.ts')
+    const restrictedId = classificationLevels.list().find((l) => l.name === 'Restricted')!.id
+
+    const updatedIds: string[] = []
+    let invalidateCalls = 0
+    const searchModel = (globalThis as any).WIKI.models.search
+    const glossaryModel = (globalThis as any).WIKI.models.glossary
+    searchModel.updated = async (page: any) => {
+      updatedIds.push(page.id)
+    }
+    const originalInvalidateCache = glossaryModel.invalidateCache
+    glossaryModel.invalidateCache = (siteId: string) => {
+      assert.equal(siteId, fixtures.siteId)
+      invalidateCalls++
+    }
+
+    try {
+      const pageA = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/bulk-classify-one' }),
+        actor
+      )
+      const pageB = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/bulk-classify-two', title: 'Two' }),
+        actor
+      )
+
+      const updatedCount = await pagesModel.bulkSetClassification(
+        fixtures.siteId,
+        [pageA.id, pageB.id],
+        restrictedId
+      )
+
+      assert.equal(updatedCount, 2)
+      assert.deepEqual(new Set(updatedIds), new Set([pageA.id, pageB.id]))
+      assert.equal(invalidateCalls, 1)
+
+      const fetchedA = await pagesModel.getPage({ siteId: fixtures.siteId, id: pageA.id })
+      const fetchedB = await pagesModel.getPage({ siteId: fixtures.siteId, id: pageB.id })
+      assert.equal(fetchedA!.classification, restrictedId)
+      assert.equal(fetchedB!.classification, restrictedId)
+    } finally {
+      delete searchModel.updated
+      glossaryModel.invalidateCache = originalInvalidateCache
+    }
+  })
+
+  test('bulkSetClassification calls neither the search dispatcher nor the glossary cache for an empty id list', async () => {
+    let searchCalls = 0
+    let invalidateCalls = 0
+    const searchModel = (globalThis as any).WIKI.models.search
+    const glossaryModel = (globalThis as any).WIKI.models.glossary
+    searchModel.updated = async () => {
+      searchCalls++
+    }
+    const originalInvalidateCache = glossaryModel.invalidateCache
+    glossaryModel.invalidateCache = () => {
+      invalidateCalls++
+    }
+
+    try {
+      const updatedCount = await pagesModel.bulkSetClassification(
+        fixtures.siteId,
+        [],
+        fixtures.classificationId
+      )
+      assert.equal(updatedCount, 0)
+      assert.equal(searchCalls, 0)
+      assert.equal(invalidateCalls, 0)
+    } finally {
+      delete searchModel.updated
+      glossaryModel.invalidateCache = originalInvalidateCache
+    }
+  })
+
+  /**
+   * OpenProject #1716: `createPage()`/`updatePage()` used to leave `render`/`toc`/`searchContent`/
+   * `links` untouched (update) or blank forever (create) for a write that carried `content` with no
+   * `render` — no refusal, and no path back to a correct render short of a human re-saving the page
+   * in the browser. This locks down the fold-in: `ensureCanRender()` consulted, and refused up front
+   * rather than after, when it fails; a queued rerender job left behind when it succeeds, with
+   * `render`/`toc`/`searchContent`/`links` blanked in the meantime rather than left pointing at
+   * content that no longer exists.
+   */
+  describe('render-less create/update leave a queued rerender job (OpenProject #1716)', () => {
+    afterEach(() => {
+      // -> Restore the describe-wide success stub (installed in `before()` above) after a test below
+      //    narrows or replaces it -- must not leak into the next test, same discipline the
+      //    watch-notification describe block's own `beforeEach` documents for `mail`. Reconfigures the
+      //    single shared wrap in place (see its own declaration comment) rather than re-mocking.
+      ensureCanRenderMock.mock.mockImplementation(async () => {})
+    })
+
+    test('createPage() with no render consults ensureCanRender (before the write) and leaves a queued rerender job', async () => {
+      const calls: string[] = []
+      ensureCanRenderMock.mock.mockImplementation(async (editor: string) => {
+        calls.push(editor)
+      })
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/render-less-create' }),
+        actor
+      )
+
+      assert.deepEqual(calls, ['markdown'])
+
+      const queued = await fixtures.db
+        .select()
+        .from(pageRenderQueueTable)
+        .where(eq(pageRenderQueueTable.pageId, page.id))
+      assert.equal(queued.length, 1)
+    })
+
+    test('createPage() refuses up front when ensureCanRender fails, and writes no page row', async () => {
+      ensureCanRenderMock.mock.mockImplementation(async () => {
+        throw new CustomError('renderPuppeteerMissing', 'Rendering needs Puppeteer.', 503)
+      })
+
+      await assert.rejects(
+        pagesModel.createPage(
+          fixtures.siteId,
+          pageInput({ path: 'docs/render-less-create-refused' }),
+          actor
+        ),
+        /renderPuppeteerMissing/
+      )
+
+      const rows = await fixtures.db
+        .select({ id: pagesTable.id })
+        .from(pagesTable)
+        .where(
+          and(
+            eq(pagesTable.siteId, fixtures.siteId),
+            eq(pagesTable.locale, 'en'),
+            eq(pagesTable.path, 'docs/render-less-create-refused')
+          )
+        )
+      assert.equal(rows.length, 0)
+    })
+
+    test('createPage() with an explicit render, even an empty one, does not consult ensureCanRender', async () => {
+      const calls: string[] = []
+      ensureCanRenderMock.mock.mockImplementation(async (editor: string) => {
+        calls.push(editor)
+      })
+
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/render-supplied-create', render: '' }),
+        actor
+      )
+
+      assert.deepEqual(calls, [])
+    })
+
+    test('updatePage() with content and no render consults ensureCanRender, blanks render/toc/searchContent/links instead of leaving the previous revision behind, and leaves a queued rerender job', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/render-less-update',
+          content: '# Old\n\nSee the [old target](/docs/old-target).',
+          render: '<h1 id="old">Old</h1><p>See the <a href="/docs/old-target">old target</a>.</p>'
+        }),
+        actor
+      )
+      const [before] = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, page.id))
+      assert.match(before!.searchContent ?? '', /Old/)
+      assert.deepEqual(before!.links, ['docs/old-target'])
+
+      const calls: string[] = []
+      ensureCanRenderMock.mock.mockImplementation(async (editor: string) => {
+        calls.push(editor)
+      })
+
+      await pagesModel.updatePage(
+        fixtures.siteId,
+        page.id,
+        { content: '# New\n\nSee the [new target](/docs/new-target).' },
+        actor
+      )
+
+      assert.deepEqual(calls, ['markdown'])
+
+      const [after] = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, page.id))
+      assert.equal(after!.content, '# New\n\nSee the [new target](/docs/new-target).')
+      // -> Blanked, not left holding the previous revision's render/searchContent/links: the queued
+      //    job (below) is what fills these back in from the content just written.
+      assert.equal(after!.render, '')
+      assert.equal(after!.searchContent, '')
+      assert.deepEqual(after!.links, [])
+
+      const queued = await fixtures.db
+        .select()
+        .from(pageRenderQueueTable)
+        .where(eq(pageRenderQueueTable.pageId, page.id))
+      assert.equal(queued.length, 1)
+    })
+
+    test('updatePage() refuses up front when ensureCanRender fails, and leaves the page unmodified', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'docs/render-less-update-refused',
+          content: '# Original',
+          render: '<h1 id="original">Original</h1>'
+        }),
+        actor
+      )
+
+      ensureCanRenderMock.mock.mockImplementation(async () => {
+        throw new CustomError('renderPuppeteerMissing', 'Rendering needs Puppeteer.', 503)
+      })
+
+      await assert.rejects(
+        pagesModel.updatePage(fixtures.siteId, page.id, { content: '# Changed' }, actor),
+        /renderPuppeteerMissing/
+      )
+
+      const [row] = await fixtures.db.select().from(pagesTable).where(eq(pagesTable.id, page.id))
+      assert.equal(row!.content, '# Original')
+      assert.match(row!.render ?? '', /Original/)
+    })
+
+    test('updatePage() with an explicit render does not consult ensureCanRender and does not queue a rerender', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/render-supplied-update', render: '<p>ok</p>' }),
+        actor
+      )
+
+      const calls: string[] = []
+      ensureCanRenderMock.mock.mockImplementation(async (editor: string) => {
+        calls.push(editor)
+      })
+
+      await pagesModel.updatePage(
+        fixtures.siteId,
+        page.id,
+        { content: '# Changed', render: '<h1>Changed</h1>' },
+        actor
+      )
+
+      assert.deepEqual(calls, [])
+
+      const queued = await fixtures.db
+        .select()
+        .from(pageRenderQueueTable)
+        .where(eq(pageRenderQueueTable.pageId, page.id))
+      assert.equal(queued.length, 0)
     })
   })
 
@@ -1622,9 +2228,13 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       })
       .where(eq(groupsTable.id, fixtures.groupId))
     await WIKI.models.groups.reloadCache()
+    // -> Same reasoning as the describe block above: none of these tests supply a `render`, and
+    //    Puppeteer is never installed here (OpenProject #1716).
+    mock.method(WIKI.models.rendering, 'ensureCanRender', async () => {})
   })
 
   after(async () => {
+    mock.restoreAll()
     await teardownTestDb()
   })
 

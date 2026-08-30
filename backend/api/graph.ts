@@ -18,10 +18,10 @@ export type { GraphPageRow }
 
 /** One node in the knowledge graph (OpenProject #872) — a page the requester may read. */
 export interface GraphNode {
-  /** Synthetic `${locale}:${path}` composite id (OpenProject #1621) -- translations share `path` by
+  /** Composite `${locale}:${path}` id (OpenProject #1621/#1626) -- translations share a `path` by
    *  design (`docs/decisions/locale-translation-linking.md`, "Same-path-by-convention"), so `path`
-   *  alone cannot key a node or an edge endpoint. `GraphEdge.source`/`GraphEdge.target` reference
-   *  this field, never the bare `path`. */
+   *  alone cannot uniquely identify a node once a site has more than one locale. Edges are keyed on
+   *  this, not on `path`. */
   id: string
   path: string
   locale: string
@@ -47,7 +47,8 @@ export interface GraphNode {
   pageviews: PageviewCountsForGraph
 }
 
-/** One edge — an authored relation or an extracted internal link, always between two visible nodes. */
+/** One edge — an authored relation or an extracted internal link, always between two visible nodes.
+ *  `source`/`target` are `GraphNode.id` composite ids (OpenProject #1626), not bare paths. */
 export interface GraphEdge {
   source: string
   target: string
@@ -100,13 +101,16 @@ export function assembleGraph(
   pageviewsFor: (pageId: string) => PageviewCountsForGraph = zeroPageviewCountsForGraph
 ): Graph {
   const visible = rows.filter(canRead)
-  // -> Translations share `path` by design (locale-translation-linking.md's "Same-path-by-
-  //    convention"), so a bare-`path` Set here would make an `en` page's link/relation count as
-  //    visible when only a `fr`-locale page occupies that target path (OpenProject #1621).
-  const visibleIds = new Set(visible.map((row) => `${row.locale}:${row.path}`))
+  // -> A relation/link target is a bare path, resolved within the target's own locale (translations
+  //    share a path by design -- `docs/decisions/locale-translation-linking.md`), so it must be
+  //    paired with the *source* row's locale, not looked up as a path on its own, or an `en` page's
+  //    link would count as visible when only a `fr`-locale page occupies that path (OpenProject
+  //    #1621/#1626).
+  const nodeId = (locale: string, path: string) => `${locale}:${path}`
+  const visibleIds = new Set(visible.map((row) => nodeId(row.locale, row.path)))
 
   const nodes: GraphNode[] = visible.map((row) => ({
-    id: `${row.locale}:${row.path}`,
+    id: nodeId(row.locale, row.path),
     path: row.path,
     locale: row.locale,
     title: row.title,
@@ -120,12 +124,12 @@ export function assembleGraph(
 
   const edges: GraphEdge[] = []
   for (const row of visible) {
-    const sourceId = `${row.locale}:${row.path}`
+    const sourceId = nodeId(row.locale, row.path)
     for (const relation of row.relations) {
       // -> A relation's `target` is a bare path with no locale of its own -- it can only ever mean
       //    "the page at this path in the SAME locale as the page carrying the relation" (translations
       //    are separate rows, each with its own relations), so it resolves against `row.locale`.
-      const targetId = `${row.locale}:${relation.target}`
+      const targetId = nodeId(row.locale, relation.target)
       if (visibleIds.has(targetId)) {
         edges.push({
           source: sourceId,
@@ -136,7 +140,7 @@ export function assembleGraph(
       }
     }
     for (const target of row.links) {
-      const targetId = `${row.locale}:${target}`
+      const targetId = nodeId(row.locale, target)
       if (visibleIds.has(targetId)) {
         edges.push({ source: sourceId, target: targetId, type: 'link' })
       }

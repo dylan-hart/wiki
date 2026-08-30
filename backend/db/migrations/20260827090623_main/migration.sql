@@ -53,7 +53,6 @@ ALTER TABLE "pageWatchEvents" ALTER COLUMN "readAt" SET DATA TYPE timestamp with
 ALTER TABLE "pageWatching" ALTER COLUMN "createdAt" SET DATA TYPE timestamp with time zone USING "createdAt" AT TIME ZONE 'UTC';--> statement-breakpoint
 ALTER TABLE "pages" ALTER COLUMN "publishStartDate" SET DATA TYPE timestamp with time zone USING "publishStartDate" AT TIME ZONE 'UTC';--> statement-breakpoint
 ALTER TABLE "pages" ALTER COLUMN "publishEndDate" SET DATA TYPE timestamp with time zone USING "publishEndDate" AT TIME ZONE 'UTC';--> statement-breakpoint
-ALTER TABLE "pages" ALTER COLUMN "ratingCount" SET DATA TYPE timestamp with time zone USING "ratingCount" AT TIME ZONE 'UTC';--> statement-breakpoint
 ALTER TABLE "pages" ALTER COLUMN "createdAt" SET DATA TYPE timestamp with time zone USING "createdAt" AT TIME ZONE 'UTC';--> statement-breakpoint
 ALTER TABLE "pages" ALTER COLUMN "updatedAt" SET DATA TYPE timestamp with time zone USING "updatedAt" AT TIME ZONE 'UTC';--> statement-breakpoint
 ALTER TABLE "pageviews" ALTER COLUMN "viewedAt" SET DATA TYPE timestamp with time zone USING "viewedAt" AT TIME ZONE 'UTC';--> statement-breakpoint

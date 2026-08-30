@@ -24,9 +24,10 @@ import { mock } from 'node:test'
 export function createCacheStub(): any {
   const store = new Map<string, unknown>()
   // -> Real expiry timestamps (ms since epoch), not just a stored `ttl` option: `getRemainingTTL`
-  //    below needs to answer "how much longer does this key have" for real, since
-  //    `models/liveData.ts`'s per-credential rate limiter (OpenProject #1050) reads it to keep a
-  //    fixed rate-limit window rather than sliding it forward on every request.
+  //    below needs to answer "how much longer does this key have" for real, for any caller that reads
+  //    it to keep a fixed window rather than sliding it forward on every request (the rate-limit
+  //    counter this once backed has since moved to `WIKI.models.rateLimits.consume` — OpenProject
+  //    #1700 — but the surface stays faithful for whatever else calls it).
   const expiresAt = new Map<string, number>()
   return {
     get: mock.fn((key: string) => store.get(key)),
