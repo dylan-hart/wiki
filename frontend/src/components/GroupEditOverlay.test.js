@@ -159,6 +159,59 @@ async function mountWithGroup() {
   return wrapper
 }
 
+/**
+ * OpenProject #1925: the rules/permissions/users sections each carried a "?" help button linking to
+ * `siteStore.docsBase + '/admin/permissions#...'` or `'/admin/groups#users'` -- upstream docs pages
+ * that describe upstream's classic RBAC model, not this fork's three permission kinds (global,
+ * page-rule, and `site:*` delegation -- see `backend/helpers/siteRules.ts`) or its
+ * `manage:classification` guardrail. No accurate fork-specific target exists yet, so the buttons are
+ * removed rather than left teaching the wrong model or pointing at `siteStore.docsBase` at all.
+ */
+describe('GroupEditOverlay: fork-mismatched permission-model help links removed', () => {
+  it('renders no help link on the rules or users sections', async () => {
+    const rulesWrapper = await mountRulesSection('11111111-1111-4111-8111-111111111111')
+    expect(rulesWrapper.find('a[href*="/admin/permissions#rules"]').exists()).toBe(false)
+
+    const usersWrapper = await mountWithGroup()
+    expect(usersWrapper.find('a[href*="/admin/groups#users"]').exists()).toBe(false)
+  })
+
+  it('renders no help link on the permissions section', async () => {
+    setActivePinia(createPinia())
+    const adminStore = useAdminStore()
+    adminStore.overlayOpts = { id: 'group-perms' }
+    adminStore.sites = []
+    adminStore.locales = []
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'group-perms',
+          name: 'Test Group',
+          userCount: 0,
+          permissions: [],
+          rules: []
+        })
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:section', component: { template: '<div />' } }]
+    })
+    router.push('/permissions')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(GroupEditOverlay, {
+      global: { plugins: [router, i18n] }
+    })
+    await flushPromises()
+
+    expect(wrapper.find('a[href*="/admin/permissions#system-permissions"]').exists()).toBe(false)
+  })
+})
+
 describe('GroupEditOverlay rule editor: site: permission vocabulary', () => {
   it('renders every site: permission held by a rule with its catalog title', async () => {
     const wrapper = await mountRulesSection('11111111-1111-4111-8111-111111111111')

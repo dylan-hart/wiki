@@ -187,14 +187,6 @@
           <w-space />
           <w-btn
             class="acrylic-btn mr-2"
-            icon="la:question-circle"
-            flat
-            color="grey"
-            type="a"
-            :href="siteStore.docsBase + `/admin/permissions#rules`"
-            target="_blank" />
-          <w-btn
-            class="acrylic-btn mr-2"
             flat
             color="indigo"
             icon="la:file-export"
@@ -483,16 +475,6 @@
               <w-card class="shadow-1 pb-2">
                 <w-card-header>
                   {{ t(`admin.groups.permissions`) }}
-                  <template #action>
-                    <w-btn
-                      class="acrylic-btn"
-                      icon="la:question-circle"
-                      flat
-                      color="grey"
-                      type="a"
-                      :href="siteStore.docsBase + `/admin/permissions#system-permissions`"
-                      target="_blank" />
-                  </template>
                 </w-card-header>
                 <template v-for="(perm, idx) of permissions" :key="perm.permission">
                   <w-item tag="label">
@@ -528,14 +510,6 @@
         <w-toolbar :class="dark.isActive ? `bg-dark-3 text-white` : `bg-white text-dark`">
           <div class="text-subtitle1">{{ t('admin.groups.users') }}</div>
           <w-space />
-          <w-btn
-            class="acrylic-btn mr-2"
-            icon="la:question-circle"
-            flat
-            color="grey"
-            type="a"
-            :href="siteStore.docsBase + `/admin/groups#users`"
-            target="_blank" />
           <w-input
             class="denser fill-outline mr-2"
             outlined
@@ -663,7 +637,6 @@ import { useDark } from '@/composables/dark'
 import { notify } from '@/composables/notify'
 
 import { useAdminStore } from '@/stores/admin'
-import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 import { v4 as uuid } from 'uuid'
@@ -678,7 +651,6 @@ const dark = useDark()
 // STORES
 
 const adminStore = useAdminStore()
-const siteStore = useSiteStore()
 const userStore = useUserStore()
 
 // ROUTER
