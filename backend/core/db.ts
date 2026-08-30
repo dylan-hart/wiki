@@ -276,20 +276,17 @@ export default {
       options: `-c search_path=${WIKI.config.db.schema} -c statement_timeout=${poolConfig.statementTimeoutMillis}`
     })
 
-    // -> `Pool extends EventEmitter`, and node-postgres emits `error` on it whenever a checked-in,
-    //    idle client's connection fails (a Postgres restart, a failover, an idle-in-transaction
-    //    timeout, a network-side idle reap) -- `pg-pool`'s `makeIdleListener` discards the client
-    //    itself and re-emits the error on the pool. With no listener attached, an `EventEmitter`
-    //    re-throws an unhandled `error` event as an uncaught exception, and nothing in this codebase
-    //    registers an `uncaughtException` handler, so that would otherwise crash the whole process on
-    //    something as ordinary as a routine database maintenance restart. `connectListener`
-    //    (`helpers/pubsub.ts`) already gets this right for the three dedicated LISTEN clients; this is
-    //    the same treatment for the main pool every other query goes through. Logging is the whole
-    //    fix -- node-postgres has already discarded the broken client, so the next checkout simply
-    //    opens a fresh connection.
+    // -> node-postgres emits 'error' on the pool whenever a checked-in, idle client's connection
+    //    fails (a Postgres restart, a failover, an idle timeout) -- `Pool extends EventEmitter`, so
+    //    with no listener that 'error' is re-thrown as an uncaught exception and kills the process.
+    //    node-postgres already discards the broken client itself, so logging is the whole fix: the
+    //    next checkout opens a fresh connection. Same treatment as the dedicated LISTEN clients in
+    //    `helpers/pubsub.ts`'s `connectListener`. Attached here in `init()` rather than after it
+    //    returns so worker mode (`worker.ts`'s `ensureDb()`, which also calls `init(true)`) is
+    //    covered too.
     this.pool.on('error', (err: any, client: any) => {
       WIKI.logger.error(
-        `Postgres pool error${err.code ? ` (${err.code})` : ''}${client ? ` on a checked-in client` : ''}: ${err.message}`
+        `Postgres pool error${err.code ? ` [${err.code}]` : ''}${client?.processID ? ` (client pid ${client.processID})` : ''}: ${err.message}`
       )
     })
 
@@ -363,7 +360,7 @@ export default {
    * mirror that faithfully on the sending side rather than trying to paper over it: a send with no
    * live client is a silent no-op, never buffered.
    *
-   * All current subscribers below already tolerate a missed notification, but not for the same
+   * All eight current subscribers below already tolerate a missed notification, but not for the same
    * reason a naive read of their code might suggest — none re-checks the DB on a timer:
    *  - `configSvc.subscribeToEvents()`'s `reloadConfig` handler, `maintenance.subscribeToEvents()`'s
    *    `flushCaches`/`disconnectWebsockets` handlers, and `groups`/`sites`/`approvals`/
@@ -374,11 +371,11 @@ export default {
    *    them follows) are purely edge-triggered. A missed one has no independent side channel back
    *    except another matching event later, or this instance's own restart.
    *  - What actually closes the common case is `index.ts`: `preBoot()` calls
-   *    `configSvc.loadFromDb()` and `postBoot()` calls `groups`/`sites`/`locales`/`approvals`
-   *    `.reloadCache()` **unconditionally on every boot**, not gated on any notification having
-   *    arrived. So an instance that missed an event while it was down is always fully resynced the
-   *    moment it comes back — that is the scenario the task description calls out, and it is
-   *    closed by construction, not by chance.
+   *    `configSvc.loadFromDb()` and `postBoot()` calls `groups`/`sites`/`locales`/`approvals`/
+   *    `classificationLevels` `.reloadCache()` **unconditionally on every boot**, not gated on any
+   *    notification having arrived. So an instance that missed an event while it was down is always
+   *    fully resynced the moment it comes back — that is the scenario the task description calls
+   *    out, and it is closed by construction, not by chance.
    *  - The one gap this does *not* close is a notification lost during this instance's own brief
    *    reconnect window while it otherwise stays up the whole time: nothing re-syncs until the next
    *    matching event or a restart. Judged low-severity (bounded window, and every current event —
@@ -390,6 +387,13 @@ export default {
    *    regression coverage. A future subscriber that needs stronger guarantees should re-sync from
    *    the DB itself (on an interval, or at least on its own boot) rather than assume this channel
    *    ever redelivers.
+   *  - `glossary.subscribeToEvents()`'s `invalidateGlossaryCache` handler (OpenProject #2038) is the
+   *    seventh, and needs no boot-time re-sync at all to close the same gap: its cache is lazily
+   *    populated per site on first read rather than warmed at boot, so a fresh `WIKI.cache` (a new
+   *    `LRUCache` every process start, `index.ts`) simply has nothing stale to miss-invalidate right
+   *    after a restart. The residual reconnect-window gap above still applies while the instance
+   *    stays up, which is what `models/glossary.ts`'s bounded `CACHE_TTL_MS` on each cache entry is
+   *    the belt for — see its own doc comment.
    */
   async subscribeToNotifications(): Promise<void> {
     const connectionAppName = `Wiki.js - ${WIKI.INSTANCE_ID}:EVENTS`

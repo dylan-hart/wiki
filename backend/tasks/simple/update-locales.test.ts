@@ -199,6 +199,33 @@ describe('update-locales.task (DB-backed)', { skip: !hasTestDatabase() }, () => 
     const calls = (globalThis.fetch as unknown as ReturnType<typeof mock.fn>).mock.calls
     assert.equal(calls.length, 1, 'expected only the metadata fetch to have been issued')
   })
+
+  // -------------------------------------------------------------------------------------------
+  // Cache reload (OpenProject #2032) -- `getLocales()` (`models/locales.ts`) serves the `'locales'`
+  // cache key whenever it is populated, so a locale synced by this task is invisible to
+  // `GET /_api/locales` (and `api/sites.ts`'s `installedCodes` validation) until the cache is
+  // reloaded. Reloading is gated on `anyUpdated` so a no-op nightly run does no cache churn.
+  // `broadcastReload()` (which `task()` actually calls) reaches `reloadCache()` internally, so
+  // mocking `reloadCache` here still observes it firing.
+  // -------------------------------------------------------------------------------------------
+
+  test('reloads the locale cache exactly once when it upserted at least one row', async (t) => {
+    stubFetch([makeLang('de-t4', 'German')], { 'de-t4': { welcome: 'Willkommen' } })
+    const reloadCache = t.mock.method(WIKI.models.locales, 'reloadCache')
+
+    await task()
+
+    assert.equal(reloadCache.mock.callCount(), 1)
+  })
+
+  test('does not reload the locale cache when nothing changed', async (t) => {
+    stubFetch([makeLang('it-t5', 'Italian')], {}) // -> no strings file, so nothing upserts
+    const reloadCache = t.mock.method(WIKI.models.locales, 'reloadCache')
+
+    await task()
+
+    assert.equal(reloadCache.mock.callCount(), 0)
+  })
 })
 
 /**
@@ -233,7 +260,10 @@ describe('update-locales.task (unit, no DB)', () => {
     ;(globalThis as any).WIKI = {
       config: {},
       logger: { info: mock.fn(), error: mock.fn(), warn: loggerWarn, debug: mock.fn() },
-      db: { insert: () => ({ values: insertValues }) }
+      db: { insert: () => ({ values: insertValues }) },
+      // -> `task()` calls `WIKI.models.locales.broadcastReload()` once `anyUpdated` (OpenProject
+      //    #2032) -- stubbed the same way `models.locales.reloadCache` is elsewhere in this file.
+      models: { locales: { broadcastReload: mock.fn(async () => {}) } }
     }
   })
 

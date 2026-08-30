@@ -32,6 +32,7 @@ import collab from './core/collab.ts'
 import configSvc from './core/config.ts'
 import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
+import { registerUnhandledRejectionHandler, runBootPhaseOrExit } from './core/processGuards.ts'
 import scheduler from './core/scheduler.ts'
 import { apiKeySitePinHook } from './helpers/apiKeySite.ts'
 import { resolveAppShellLocale, templateAppShell } from './helpers/appShell.ts'
@@ -192,6 +193,10 @@ await WIKI.configSvc.init()
 
 WIKI.logger = logger.init()
 
+// -> Registered as early as `WIKI.logger` exists, so nothing between here and the end of boot can
+//    crash the process unlogged via a rejection nobody's `.catch` caught.
+registerUnhandledRejectionHandler(WIKI.logger, { debug: WIKI.IS_DEBUG })
+
 // ----------------------------------------
 // Init Server
 // ----------------------------------------
@@ -207,11 +212,11 @@ WIKI.logger.info(`Running node.js ${process.version} [ OK ]`)
 // ----------------------------------------
 
 async function preBoot() {
-  WIKI.dbManager = (await import('./core/db.ts')).default
-  WIKI.db = await dbManager.init()
-  WIKI.models = (await import('./models/index.ts')).default
-
   try {
+    WIKI.dbManager = (await import('./core/db.ts')).default
+    WIKI.db = await dbManager.init()
+    WIKI.models = (await import('./models/index.ts')).default
+
     // -> The is-empty check and the first-run seed it can trigger are held under the same advisory
     //    lock `dbManager.syncSchemas()` already takes around the migration itself ('wiki:migrate'),
     //    as one atomic decision. Without this, two instances booting together against a fresh
@@ -1099,17 +1104,17 @@ async function initHTTPServer() {
     WIKI.logger.info(`Starting HTTP Server on port ${WIKI.config.port} [ STARTING ]`)
     await app.listen({ port: WIKI.config.port, host: WIKI.config.bindIP })
     WIKI.logger.info('HTTP Server: [ RUNNING ]')
-    // -> `/_ready` is deliberately NOT flipped here: `app.listen()` only means the socket accepts
-    //    connections, not that a request can be served correctly. `WIKI.sites`/`WIKI.sitesMappings`
-    //    are still `{}` at this point (see the WIKI literal above), no auth strategy is active yet,
-    //    and the groups/locales/approvals/classification caches every request path reads from are
-    //    still empty -- all of that is filled in by `postBoot()`, which runs after this function
-    //    returns. Reporting ready here would let a rolling update or load balancer route live
-    //    traffic onto an instance that 302s every page to `/_error/unknownsite` and fails every
-    //    login. `setReady()` is called once `postBoot()` has actually populated those caches, at
-    //    the bottom of this file. `/_live` (bound by `gracefulServer` above, independent of
-    //    `setReady()`) answers from here onward regardless, so liveness probes still see the
-    //    process as up throughout.
+    // -> `/_ready` is deliberately NOT flipped ready here: `app.listen()` only means the socket
+    //    accepts connections, not that a request can be served correctly. `WIKI.sites`/
+    //    `WIKI.sitesMappings` are still `{}` at this point (see the WIKI literal above), no auth
+    //    strategy is active yet, and the groups/locales/approvals/classification caches every
+    //    request path reads from are still empty -- all of that is filled in by `postBoot()`, which
+    //    runs after this function returns. Reporting ready here would let a rolling update or load
+    //    balancer route live traffic onto an instance that 302s every page to
+    //    `/_error/unknownsite` and fails every login. The instance is only marked ready once
+    //    `postBoot()` has actually populated those caches, at the bottom of this file. `/_live`
+    //    (bound by `gracefulServer` above, independent of that readiness flag) answers from here
+    //    onward regardless, so liveness probes still see the process as up throughout.
   } catch (err: any) {
     WIKI.logger.error(err)
     process.exit(1)
@@ -1136,23 +1141,13 @@ async function initHTTPServer() {
 await preBoot()
 await initHTTPServer()
 
-try {
-  await postBoot()
-} catch (err: any) {
-  // -> `preBoot()` already fails deliberately on its own errors (see its own try/catch above);
-  //    `postBoot()` previously had no equivalent, so a rejection here -- a storage module whose
-  //    remote is unreachable during `syncAllSites()`, a search engine failing `init()` -- would have
-  //    propagated as an unhandled rejection into the top-level `unhandledRejection` handler
-  //    registered near the top of this file, which is a correct but much less specific stop than
-  //    naming the actual phase that failed.
-  WIKI.logger.error('Post-Boot Initialization Error: ' + err.message)
-  if (WIKI.IS_DEBUG) {
-    WIKI.logger.error(err)
-  }
-  process.exit(1)
-}
+await runBootPhaseOrExit(postBoot, 'Post-Boot Initialization Error', WIKI.logger, {
+  debug: WIKI.IS_DEBUG
+})
 
-// -> Only now are the site/group/locale/approval/classification caches and the active auth
-//    strategies actually populated (see the comment at the end of `initHTTPServer()`), so only now
-//    is the instance fit to receive live traffic.
+// -> Not ready until postBoot() has resolved: everything that makes the instance able to answer a
+//    page request (site/group/locale/approval/classification caches, storage/search/comment sync,
+//    the scheduler, ...) happens there. Signalling ready any earlier — e.g. as the last statement of
+//    initHTTPServer(), right after the listener binds — means /_ready reports 200 while every page
+//    request would still resolve to not-found (OpenProject #2062).
 WIKI.server.setReady()

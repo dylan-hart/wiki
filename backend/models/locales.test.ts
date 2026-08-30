@@ -444,6 +444,105 @@ describe('getLocales() (DB-backed)', { skip: !hasTestDatabase() }, () => {
 })
 
 /**
+ * OpenProject #2042: `sideloadFromDataPath()` used to call `reloadCache()` directly on a successful
+ * load, refreshing only this instance's own in-memory cache — a locale installed, updated, or
+ * refreshed on instance A stayed invisible to instance B (e.g. `api/sites.ts`'s `installedCodes`
+ * check) until B happened to restart. `broadcastReload()` mirrors `models/groups.ts`'s /
+ * `models/sites.ts`'s fix exactly: every write path goes through it instead of `reloadCache()`
+ * directly, and it emits on `WIKI.events.outbound` (which `core/db.ts`'s real NOTIFY-based bus,
+ * unused here, is what actually carries to other instances).
+ */
+describe('locales.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let localesModel: typeof import('./locales.ts').locales
+  let scratchDir: string
+  let sideloadDir: string
+
+  before(async () => {
+    await setupTestDb()
+    ;({ locales: localesModel } = await import('./locales.ts'))
+
+    scratchDir = await mkdtemp(path.join(tmpdir(), 'wiki-locales-broadcast-test-'))
+    await mkdir(path.join(scratchDir, 'server/locales'), { recursive: true })
+    await writeFile(
+      path.join(scratchDir, 'server/locales/en.json'),
+      JSON.stringify({ key0: 'value0' })
+    )
+
+    WIKI.SERVERPATH = path.join(scratchDir, 'server')
+    WIKI.ROOTPATH = scratchDir
+    WIKI.config.dataPath = path.join(scratchDir, 'data')
+    sideloadDir = path.join(scratchDir, 'data/locales')
+  })
+
+  beforeEach(async () => {
+    await rm(sideloadDir, { recursive: true, force: true })
+    await mkdir(sideloadDir, { recursive: true })
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+  })
+
+  after(async () => {
+    await rm(scratchDir, { recursive: true, force: true })
+    await teardownTestDb()
+  })
+
+  test('sideloadFromDataPath emits exactly one reloadLocales event when it loads a locale', async () => {
+    await writeFile(
+      path.join(sideloadDir, 'tlh.json'),
+      JSON.stringify({ name: 'Klingon', language: 'tlh', strings: { key0: 'wa' } })
+    )
+
+    const result = await localesModel.sideloadFromDataPath({ force: true })
+    assert.deepEqual(result.loaded, ['tlh'])
+
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const reloadCalls = calls.filter((c: any) => c.arguments[0] === 'reloadLocales')
+    assert.equal(reloadCalls.length, 1, 'expected exactly one reloadLocales broadcast')
+  })
+
+  test('sideloadFromDataPath emits nothing when nothing was loaded', async () => {
+    const result = await localesModel.sideloadFromDataPath({ force: true })
+    assert.deepEqual(result.loaded, [])
+
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.equal(calls.filter((c: any) => c.arguments[0] === 'reloadLocales').length, 0)
+  })
+
+  test('subscribeToEvents wires the inbound reloadLocales event to reloadCache, without re-emitting', async () => {
+    let reloaded = false
+    const originalReloadCache = localesModel.reloadCache.bind(localesModel)
+    localesModel.reloadCache = async () => {
+      reloaded = true
+      await originalReloadCache()
+    }
+    try {
+      localesModel.subscribeToEvents()
+      const onCalls = (WIKI.events.inbound.on as any).mock.calls
+      const handler = onCalls.find((c: any) => c.arguments[0] === 'reloadLocales')?.arguments[1]
+      assert.ok(handler, 'expected subscribeToEvents to register a reloadLocales handler')
+
+      await handler()
+      assert.equal(reloaded, true)
+
+      const outboundCalls = (WIKI.events.outbound.emit as any).mock.calls
+      assert.equal(
+        outboundCalls.filter((c: any) => c.arguments[0] === 'reloadLocales').length,
+        0,
+        'the inbound handler must never re-broadcast, or every instance would echo forever'
+      )
+    } finally {
+      localesModel.reloadCache = originalReloadCache
+    }
+  })
+
+  test('boot-time reloadCache() emits nothing', async () => {
+    await localesModel.reloadCache()
+
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.equal(calls.filter((c: any) => c.arguments[0] === 'reloadLocales').length, 0)
+  })
+})
+
+/**
  * `isReservedLocaleCode` (task 12 / #994): whether a path segment names an INSTALLED locale, case-
  * insensitively — installed, not merely active on a given site, per the decision doc's item 4: a
  * locale can be activated later, so a page created while it was only installed must already be

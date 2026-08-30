@@ -42,6 +42,13 @@ test('JOB_SCHEDULE_SEED registers purgePageviews on a valid daily cron', () => {
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 })
 
+test('JOB_SCHEDULE_SEED never claims two tasks on the same cron expression (OpenProject #2059)', () => {
+  // -> Two entries sharing a cron are claimed in the same `processJob` batch; checkVersion and
+  //    updateLocales sharing '0 0 * * *' was how `WIKI.config.update.locales` got silently dropped.
+  const crons = JOB_SCHEDULE_SEED.map((e) => e.cron)
+  assert.deepEqual(crons, [...new Set(crons)], 'expected every JOB_SCHEDULE_SEED cron to be unique')
+})
+
 test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
   const tasks = JOB_SCHEDULE_SEED.map((e) => e.task)
   assert.deepEqual(

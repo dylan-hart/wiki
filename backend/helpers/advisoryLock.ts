@@ -117,7 +117,9 @@ export async function withAdvisoryLock<T>(
   const { maxAttempts, baseDelayMs, maxDelayMs } = { ...LOCK_POOL_DEFAULTS, ...options }
   const pool = getLockPool()
   const client = await pool.connect()
-  let releaseCleanly = true
+  // -> Set when the unlock query itself fails, so the outer `finally` knows the connection's lock
+  //    state is uncertain and must discard it rather than return it to the pool.
+  let unlockFailed = false
   try {
     let attempt = 0
     for (;;) {
@@ -137,25 +139,23 @@ export async function withAdvisoryLock<T>(
     try {
       return await fn()
     } finally {
-      // -> The unlock is awaited in its own try/catch, never a bare `finally`: an abrupt completion
-      //    from a `finally` replaces the error `fn` is already propagating, so if the connection died
-      //    mid-`fn` — the situation `fn` most likely just threw for — the caller would see the
-      //    unlock's error instead of the real one. Swallow it here (logged, not silent) and let
-      //    `releaseCleanly` tell the outer `finally` whether the lock's state on this connection is
-      //    still trustworthy.
       try {
         await client.query('SELECT pg_advisory_unlock(hashtext($1))', [key])
       } catch (err: any) {
-        releaseCleanly = false
+        // -> Never rethrow here: an abrupt completion from a `finally` replaces whatever `fn` was
+        //    propagating, and `fn`'s own error (most likely the same dead connection) is the one the
+        //    caller needs — see `dispatch-storage.ts`, which rethrows to drive `jobHistory` state.
+        unlockFailed = true
         WIKI.logger.warn(
-          `Failed to release advisory lock ${key}, discarding the connection: ${err.message}`
+          `withAdvisoryLock: failed to release advisory lock for key '${key}', discarding connection: ${err.message}`
         )
       }
     }
   } finally {
-    // -> `client.release(true)` when the unlock could not be confirmed: `pg_advisory_lock` is
-    //    re-entrant per session, so recycling a connection whose lock state is uncertain would let a
-    //    later borrower acquire the key trivially while every other session blocks on it forever.
-    client.release(!releaseCleanly)
+    // -> `true` destroys the connection instead of returning it to the pool. When the unlock failed
+    //    the session may still be alive and still hold the lock (`pg_advisory_lock` is re-entrant per
+    //    session), so a returned connection would hand a later borrower the lock for free while every
+    //    other session blocks on it forever.
+    client.release(unlockFailed)
   }
 }

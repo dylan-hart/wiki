@@ -1,11 +1,91 @@
-import { after, before, describe, test } from 'node:test'
+import { after, before, beforeEach, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { ensureTemporal } from '../test/temporal.ts'
+import { createCacheStub, createEventsStub } from '../test/mocks.ts'
 import { groups as groupsTable } from '../db/schema.ts'
+import { glossary } from './glossary.ts'
 import type { PageActor, PageInput } from './pages.ts'
 import type { AccessActor } from './groups.ts'
+
+/**
+ * OpenProject #2038: `invalidateCache()`'s cluster-broadcast half and `subscribeToEvents()`'s
+ * inbound handler answering it are pure event-bus wiring, no SQL involved — so, per CLAUDE.md's
+ * "prefer pure unit tests with no WIKI global and no database" guidance, this runs against
+ * `test/mocks.ts` stubs rather than `test/db.ts`'s real, migrated database, the same way
+ * `models/groups.test.ts` / `models/sites.test.ts` / `models/approvals.test.ts` cover their own
+ * `broadcastReload()`/`subscribeToEvents()` pairs (there, against a real DB only because their
+ * `reloadCache()` half is itself a SQL read this suite's equivalent, `dropLocalCache()`, is not).
+ */
+describe('glossary.invalidateCache() / subscribeToEvents() (pure, OpenProject #2038)', () => {
+  let previousWiki: any
+  let cache: ReturnType<typeof createCacheStub>
+  let events: ReturnType<typeof createEventsStub>
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    cache = createCacheStub()
+    events = createEventsStub()
+    ;(globalThis as any).WIKI = { cache, events }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('invalidateCache() deletes the local entry and emits exactly one outbound event carrying the siteId', () => {
+    glossary.invalidateCache('site-1')
+
+    assert.equal(cache.delete.mock.calls.length, 1)
+    assert.deepEqual(cache.delete.mock.calls[0].arguments, ['glossary:site-1'])
+
+    assert.equal(events.outbound.emit.mock.calls.length, 1)
+    assert.deepEqual(events.outbound.emit.mock.calls[0].arguments, [
+      'invalidateGlossaryCache',
+      { siteId: 'site-1' }
+    ])
+  })
+
+  test('subscribeToEvents() registers a handler that drops only the matching local key, without re-emitting', () => {
+    glossary.subscribeToEvents()
+
+    const onCalls = events.inbound.on.mock.calls
+    const registered = onCalls.find((c: any) => c.arguments[0] === 'invalidateGlossaryCache')
+    assert.ok(
+      registered,
+      'expected subscribeToEvents() to register an invalidateGlossaryCache handler'
+    )
+    const handler = registered!.arguments[1] as (evt: unknown) => void
+
+    // -> Emittery (pinned 2.0.0) hands a specific `.on(eventName, listener)` the same `{ name, data }`
+    //    wrapper `onAny` gets, not the raw payload -- see `core/db.ts`'s `notifyViaDB` and
+    //    `core/db.test.ts`'s "echoing this same instance" test for the same shape read the same way.
+    handler({ name: 'invalidateGlossaryCache', data: { siteId: 'site-2' } })
+
+    assert.equal(cache.delete.mock.calls.length, 1)
+    assert.deepEqual(cache.delete.mock.calls[0].arguments, ['glossary:site-2'])
+    assert.equal(
+      events.outbound.emit.mock.calls.length,
+      0,
+      'the inbound handler must never re-broadcast, or an invalidation would echo around the cluster forever'
+    )
+  })
+
+  test("subscribeToEvents()'s handler is a no-op for an event with no siteId", () => {
+    glossary.subscribeToEvents()
+    const handler = events.inbound.on.mock.calls.find(
+      (c: any) => c.arguments[0] === 'invalidateGlossaryCache'
+    )!.arguments[1] as (evt: unknown) => void
+
+    handler({ name: 'invalidateGlossaryCache', data: {} })
+
+    assert.equal(cache.delete.mock.calls.length, 0)
+  })
+})
 
 /**
  * `models/glossary.ts` is almost entirely SQL — an insert with a case-insensitive uniqueness
@@ -285,6 +365,21 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
     await glossaryModel.getCachedTerms(fixtures.siteId, actor)
 
     assert.equal((WIKI.cache.get as any).mock.callCount(), getCallsBefore + 1)
+  })
+
+  test('a fresh cache entry carries a bounded ttl (OpenProject #2038 defence-in-depth belt)', async () => {
+    await glossaryModel.createTerm(fixtures.siteId, { term: 'TtlBound', definition: 'Bounded.' })
+    ;(WIKI.cache.set as any).mock.resetCalls()
+
+    await glossaryModel.getCachedTerms(fixtures.siteId, actor)
+
+    const setCalls = (WIKI.cache.set as any).mock.calls
+    assert.equal(setCalls.length, 1, 'expected exactly one cache repopulation for the cold key')
+    const [, , options] = setCalls[0].arguments
+    assert.ok(
+      typeof options?.ttl === 'number' && options.ttl > 0 && Number.isFinite(options.ttl),
+      `expected a bounded ttl, so a missed invalidation diverges for minutes rather than forever; got ${JSON.stringify(options)}`
+    )
   })
 
   describe('aliases (OpenProject #1110)', () => {

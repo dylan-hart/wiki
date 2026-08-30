@@ -300,3 +300,107 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
     )
   })
 })
+
+/**
+ * OpenProject #2030: `create`/`update`/`reorder`/`delete` used to call `this.reloadCache()` directly,
+ * which only ever refreshes this instance's own in-memory `levelsCache` -- after a `reorder()` on
+ * instance A, instance B kept comparing `sortOrder` values against the old hierarchy, so the #1080
+ * classification floor invariant was enforced against the wrong ordering (and, unlike a stale
+ * `rulesCache`, that mis-write lands in `pages.classification` and does not heal on restart).
+ * `broadcastReload()` is the fix, the same shape `groups.ts`'s own broadcast-vs-`reloadCache()` split
+ * uses (see `models/groups.test.ts`'s `groups.broadcastReload` suite, this one's model): every write
+ * path now goes through it instead of `reloadCache()` directly, and it emits on `WIKI.events.outbound`
+ * (which `setupTestDb()` installs as `test/mocks.ts`'s `createEventsStub()`).
+ */
+describe('classificationLevels.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let levelsModel: typeof import('./classificationLevels.ts').classificationLevels
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ classificationLevels: levelsModel } = await import('./classificationLevels.ts'))
+    await levelsModel.reloadCache()
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('create broadcasts reloadClassificationLevels after refreshing this instance', async () => {
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    const created = await levelsModel.create({ name: 'Broadcast Test Level' })
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadClassificationLevels'))
+    await levelsModel.delete(created.id)
+  })
+
+  test('update broadcasts reloadClassificationLevels after refreshing this instance', async () => {
+    const level = await levelsModel.create({ name: 'Broadcast Update Target' })
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await levelsModel.update(level.id, { name: 'Broadcast Updated' })
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadClassificationLevels'))
+    await levelsModel.delete(level.id)
+  })
+
+  test('reorder broadcasts reloadClassificationLevels after refreshing this instance', async () => {
+    const a = await levelsModel.create({ name: 'Broadcast Reorder A' })
+    const b = await levelsModel.create({ name: 'Broadcast Reorder B' })
+    const order = levelsModel.list().map((l) => l.id)
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await levelsModel.reorder(order)
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadClassificationLevels'))
+    await levelsModel.delete(a.id)
+    await levelsModel.delete(b.id)
+  })
+
+  test('delete broadcasts reloadClassificationLevels after refreshing this instance', async () => {
+    const level = await levelsModel.create({ name: 'Broadcast Delete Target' })
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await levelsModel.delete(level.id)
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadClassificationLevels'))
+  })
+
+  test('init() seeds/reloads without broadcasting -- first-run seeding has no cluster peers to notify', async () => {
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await levelsModel.init({
+      classificationPublicId: fixtures.classificationId,
+      // -> The real fixed ids the migration seeds (`db/migrations/20260822152223_main`), matching
+      //    `models/classificationLevels.ts#init()`'s own defaults -- anything else collides on
+      //    `sortOrder` with the rows the migration already inserted, since `onConflictDoNothing`
+      //    only guards the `id` column.
+      classificationInternalId: '30000000-0000-4000-8000-000000000002',
+      classificationRestrictedId: '30000000-0000-4000-8000-000000000003'
+    } as any)
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(!calls.some((c: any) => c.arguments[0] === 'reloadClassificationLevels'))
+  })
+
+  test('subscribeToEvents wires the inbound reloadClassificationLevels event to reloadCache, without re-emitting (echo-loop guard)', async () => {
+    let reloaded = false
+    const originalReloadCache = levelsModel.reloadCache.bind(levelsModel)
+    levelsModel.reloadCache = async () => {
+      reloaded = true
+      await originalReloadCache()
+    }
+    try {
+      levelsModel.subscribeToEvents()
+      const onCalls = (WIKI.events.inbound.on as any).mock.calls
+      const handler = onCalls.find((c: any) => c.arguments[0] === 'reloadClassificationLevels')
+        ?.arguments[1]
+      assert.ok(
+        handler,
+        'expected subscribeToEvents to register a reloadClassificationLevels handler'
+      )
+      ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+      await handler()
+      assert.equal(reloaded, true)
+      const calls = (WIKI.events.outbound.emit as any).mock.calls
+      assert.ok(!calls.some((c: any) => c.arguments[0] === 'reloadClassificationLevels'))
+    } finally {
+      levelsModel.reloadCache = originalReloadCache
+    }
+  })
+})

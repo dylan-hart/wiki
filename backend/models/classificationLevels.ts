@@ -19,12 +19,13 @@ export interface ClassificationLevel {
 /**
  * Every level, ordered most-open (lowest `sortOrder`) first.
  *
- * Cached the same way `groups`' page rules are (`models/groups.ts`'s `rulesCache`), **and now also
- * invalidated across the cluster the same way**: a page's classification is resolved against this on
- * every page create/move/update, so reading it from the database on every request would put a query in
- * front of everything the floor invariant (#1080) touches. Reloaded whenever a level is created,
- * edited, reordered or removed -- on this instance via `broadcastReload()`, and on every other cluster
- * instance via the `reloadClassificationLevels` event `subscribeToEvents()` listens for.
+ * Cached the same way `groups`' page rules are (`models/groups.ts`'s `rulesCache`): a page's
+ * classification is resolved against this on every page create/move/update, so reading it from the
+ * database on every request would put a query in front of everything the floor invariant (#1080)
+ * touches. Reloaded whenever a level is created, edited, reordered or removed -- and, unlike
+ * `rulesCache`, that reload is broadcast to every other instance in the cluster via
+ * `broadcastReload()`/`subscribeToEvents()`, the same HA propagation `groups.ts` uses, so a reorder
+ * on one instance doesn't leave another comparing `sortOrder` values against a stale hierarchy.
  */
 let levelsCache: ClassificationLevel[] = []
 
@@ -44,18 +45,21 @@ class ClassificationLevels {
   /**
    * Reload this instance's own cache, then tell every other instance in the cluster to do the same.
    *
-   * The write already happened in the database by the time a caller reaches this — what's left is
-   * making every instance's in-memory cache agree with it, this one included. Mirrors
-   * `models/groups.ts`'s `broadcastReload()`/`subscribeToEvents()` pair exactly, including its warning:
-   * never call `WIKI.events.outbound.emit('reloadClassificationLevels')` directly, and never call it
-   * from inside `reloadCache()` itself, or the event echoes back around the cluster forever.
+   * The write already happened in the database by the time a caller reaches this -- what's left is
+   * making every instance's in-memory cache agree with it, this one included. Never call
+   * `WIKI.events.outbound.emit('reloadClassificationLevels')` directly, and never call it from inside
+   * `reloadCache()` itself: `reloadCache()` also runs when `subscribeToEvents()`'s handler answers
+   * *another* instance's event, and broadcasting from there would echo the event back around the
+   * cluster forever (see `groups.ts`'s own `broadcastReload()`, this method's model).
    */
   private async broadcastReload(): Promise<void> {
     await this.reloadCache()
     WIKI.events.outbound.emit('reloadClassificationLevels')
   }
 
-  /** Subscribe to HA propagation events. */
+  /**
+   * Subscribe to HA propagation events
+   */
   subscribeToEvents(): void {
     WIKI.events.inbound.on('reloadClassificationLevels', async () => {
       await this.reloadCache()

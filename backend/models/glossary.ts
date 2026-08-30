@@ -111,6 +111,12 @@ function cacheKey(siteId: string): string {
   return `glossary:${siteId}`
 }
 
+/** How long a raw term→page mapping survives with no invalidation heard at all -- see `invalidateCache`. */
+const CACHE_TTL_MS = 5 * 60 * 1000
+
+/** The HA propagation event name for a glossary cache invalidation -- see `invalidateCache`. */
+const INVALIDATE_EVENT = 'invalidateGlossaryCache'
+
 /**
  * Site-wide glossary terms (OpenProject #870).
  *
@@ -122,6 +128,15 @@ function cacheKey(siteId: string): string {
  * by every write below the same way `models/locales.ts` refreshes its own `WIKI.cache` entry; the link
  * resolution itself is never cached, so it stays correct per actor without needing its own
  * invalidation whenever a group's rules change.
+ *
+ * `invalidateCache` broadcasts across the cluster (OpenProject #2038, mirroring
+ * `models/groups.ts`/`sites.ts`/`approvals.ts`'s `reloadGroups`/`reloadSites`/`reloadApprovals`):
+ * every caller below already routes through it, so a page saved on one instance drops the stale
+ * term→page mapping everywhere, not just locally. `getRawCachedTerms` also caps every entry with a
+ * bounded `CACHE_TTL_MS` as a defence-in-depth belt underneath the broadcast, not instead of it — a
+ * missed notification (see `core/db.ts`'s at-most-once delivery notes) then diverges for minutes
+ * rather than indefinitely, since the LRU it lives in (`new LRUCache({ max: 5000 })`, `index.ts`) has
+ * no ttl of its own and would otherwise only evict this key under memory pressure.
  */
 class Glossary {
   async listTerms(siteId: string): Promise<GlossaryTerm[]> {
@@ -618,7 +633,7 @@ class Glossary {
       pageTags: row.pageTags ?? []
     }))
 
-    WIKI.cache.set(key, entries)
+    WIKI.cache.set(key, entries, { ttl: CACHE_TTL_MS })
     return entries
   }
 
@@ -651,33 +666,41 @@ class Glossary {
   }
 
   /**
-   * Drops the raw term→page cache for a site, on this instance and, since a term or page change on one
-   * instance leaves every other instance's copy of this same mapping stale otherwise, every other one
-   * too. Public because a canonical page's path (or existence) can change from outside this model —
-   * `models/pages.ts`'s `movePage`/`deletePage`/`deleteOrphaned` call this too, since
-   * `getRawCachedTerms` caches which page a term points at and nothing else would otherwise tell it a
-   * linked page moved or was deleted (OpenProject #870). The broadcast is per-site rather than "reload
-   * everything" (there is nothing to eagerly reload — `getRawCachedTerms` is a lazy, on-demand cache,
-   * so the peer's next read simply refetches): `clearCache` is the shared local-only step, called
-   * directly by `subscribeToEvents()`'s inbound handler so an event received from another instance
-   * clears without re-emitting and echoing back around the cluster forever, the same rule
-   * `models/groups.ts`'s `broadcastReload()` documents for its own shape.
+   * Drops this instance's own raw term→page cache entry for a site, and nothing else -- no
+   * broadcast. Called by `invalidateCache()` for the local half of its job, and by
+   * `subscribeToEvents()`'s inbound handler answering *another* instance's broadcast, which must
+   * never call `invalidateCache()` itself or the invalidation would echo around the cluster forever
+   * (the same rule `models/groups.ts`'s `broadcastReload()` documents for `reloadCache()`).
    */
-  invalidateCache(siteId: string): void {
-    this.clearCache(siteId)
-    WIKI.events.outbound.emit('reloadGlossary', { siteId })
-  }
-
-  /** The actual cache delete, with no broadcast — see `invalidateCache()`'s doc comment for why. */
-  private clearCache(siteId: string): void {
+  dropLocalCache(siteId: string): void {
     WIKI.cache.delete(cacheKey(siteId))
   }
 
-  /** Subscribe to HA propagation events. */
+  /**
+   * Drops the raw term→page cache for a site, then tells every other instance in the cluster to do
+   * the same. Public because a canonical page's path (or existence) can change from outside this
+   * model — `models/pages.ts`'s `movePage`/`deletePage`/`deleteOrphaned` call this too, since
+   * `getRawCachedTerms` caches which page a term points at and nothing else would otherwise tell it a
+   * linked page moved or was deleted (OpenProject #870).
+   */
+  invalidateCache(siteId: string): void {
+    this.dropLocalCache(siteId)
+    WIKI.events.outbound.emit(INVALIDATE_EVENT, { siteId })
+  }
+
+  /**
+   * Subscribe to HA propagation events.
+   *
+   * `emittery` (pinned 2.0.0) hands a specific `.on(eventName, listener)` the same `{ name, data }`
+   * wrapper `onAny` gets, not the raw payload — see `core/db.ts`'s `notifyViaDB` and
+   * `core/db.test.ts`'s "echoing this same instance" test for the same shape read the same way.
+   */
   subscribeToEvents(): void {
-    WIKI.events.inbound.on('reloadGlossary', (event: any) => {
-      const { siteId } = (event.data ?? {}) as { siteId: string }
-      this.clearCache(siteId)
+    WIKI.events.inbound.on(INVALIDATE_EVENT, (evt: { data?: { siteId?: string } }) => {
+      const siteId = evt?.data?.siteId
+      if (siteId) {
+        this.dropLocalCache(siteId)
+      }
     })
   }
 

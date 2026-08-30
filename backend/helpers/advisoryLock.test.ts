@@ -1,6 +1,7 @@
-import { test, before, after } from 'node:test'
+import { test, describe, before, after, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { setTimeout as delay } from 'node:timers/promises'
+import { Pool } from 'pg'
 import {
   withAdvisoryLock,
   AdvisoryLockAcquisitionError,
@@ -176,3 +177,54 @@ test(
     await holder
   }
 )
+
+/**
+ * Unlike the suite above, this needs no real Postgres: the whole point is to control which of the
+ * two queries rejects, which a real connection gives no way to steer deliberately. `getLockPool()`
+ * builds its dedicated pool from `WIKI.dbManager.config` (never `WIKI.db.$client`, the
+ * request-serving pool — see this file's own header doc for why), so this mocks `Pool.prototype.connect`
+ * itself rather than reaching into a client shape `withAdvisoryLock` never touches.
+ */
+describe('when the unlock query itself rejects', () => {
+  test('propagates the error thrown by fn unchanged, and discards rather than returns the client', async () => {
+    const query = mock.fn(async (sql: string) => {
+      if (sql.includes('_unlock(')) {
+        throw new Error('connection terminated unexpectedly')
+      }
+      // -> `try_advisory_lock` must report success on the first poll, or `withAdvisoryLock` would
+      //    loop retrying the acquisition instead of ever reaching `fn`.
+      return { rows: [{ locked: true }] }
+    })
+    const release = mock.fn()
+    const client = { query, release }
+    const connectMock = mock.method(Pool.prototype, 'connect', async () => client)
+    const warn = mock.fn()
+
+    const previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = {
+      dbManager: { config: {} },
+      INSTANCE_ID: 'advisory-lock-unlock-reject-test',
+      logger: { warn }
+    }
+    try {
+      await assert.rejects(
+        withAdvisoryLock('some-key', async () => {
+          throw new Error('boom from fn')
+        }),
+        /boom from fn/
+      )
+    } finally {
+      connectMock.mock.restore()
+      await _resetLockPoolForTests()
+      ;(globalThis as any).WIKI = previousWiki
+    }
+
+    // -> `fn`'s own error survives unchanged — not replaced by the unlock query's rejection.
+    // -> The client is discarded (`release(true)`), not returned to the pool with an uncertain lock
+    //    state.
+    assert.equal(release.mock.calls.length, 1)
+    assert.equal(release.mock.calls[0].arguments[0], true)
+    // -> The unlock failure is logged rather than silently dropped.
+    assert.equal(warn.mock.calls.length, 1)
+  })
+})
