@@ -479,6 +479,14 @@ class PageHistory {
    * by an unrelated new page, is not something to offer recovery into — a live `pages` row at the
    * same `(siteId, locale, path)` excludes it via `NOT EXISTS`. Between the two, a path drops off this
    * list the moment it stops being an actual gap, with no flag to set or clear anywhere.
+   *
+   * Returns `RecoverablePageEntry`, not `PageHistoryEntry` (OpenProject #2168): `tags`/`classification`
+   * ride along -- lifted out of `meta` the same way `getDeletedVersion` does -- so the route can narrow
+   * its per-row `read:history` check with a TAG/TAGALL/CLASSIFICATION rule instead of the bare
+   * `{ path, locale }` ref it used to build, and `author.email` is dropped: unlike a single page's own
+   * history view (gated by `read:history` at that ONE page), this listing spans every deleted path on
+   * the site in one sweep, and handing back every deleter's email address across the whole site is a
+   * wider exposure than the entry needs to serve its purpose.
    */
   async listRecoverable(siteId: string): Promise<RecoverablePageEntry[]> {
     const rows = await WIKI.db
@@ -530,12 +538,12 @@ class PageHistory {
         locale: row.locale,
         path: row.path,
         title: row.title,
-        tags: meta.tags ?? [],
-        classification: meta.classification ?? null,
         author: {
           id: row.authorId ?? null,
           name: row.authorName ?? ''
-        }
+        },
+        tags: (meta.tags ?? []) as string[],
+        classification: (meta.classification ?? null) as string | null
       }
     })
   }
@@ -548,7 +556,9 @@ class PageHistory {
    * first, to check `read:pages`/`read:source` against the version's OWN path (OpenProject #2168 --
    * recovering into a writable destination is not the same as being allowed to read what is being
    * recovered) and `write:pages` against the *target* path ahead of the write, and to answer 404
-   * cleanly for an id that names no recoverable version.
+   * cleanly for an id that names no recoverable version. `tags`/`classification` are the version's
+   * own, as stored on the deletion, so that source-side check can be narrowed by a TAG/TAGALL/
+   * CLASSIFICATION rule the same way any other page-permission check is.
    *
    * `tags`/`classification` are pulled out of `meta` alongside the always-present fields, so a caller
    * can build a full `RulePageRef` without reaching into `meta` itself — the same reasoning
@@ -564,6 +574,13 @@ class PageHistory {
     locale: string
     title: string
     content: string
+    /**
+     * The version's own tags/classification (OpenProject #2168), lifted out of `meta` as named fields
+     * rather than left for the caller to reach in for -- neither is `EXCLUDED_FROM_META`, so both
+     * already travel with every version; this is what `api/pages.ts`'s recover route checks
+     * `read:pages`/`read:source` against at the SOURCE path, before its existing `write:pages` check
+     * against the destination.
+     */
     tags: string[]
     classification: string | null
     meta: Record<string, any>
@@ -596,8 +613,8 @@ class PageHistory {
       locale: row.locale,
       title: row.title,
       content: row.content ?? '',
-      tags: meta.tags ?? [],
-      classification: meta.classification ?? null,
+      tags: (meta.tags ?? []) as string[],
+      classification: (meta.classification ?? null) as string | null,
       meta
     }
   }

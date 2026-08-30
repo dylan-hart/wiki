@@ -163,9 +163,11 @@ export function pageActorFor(ctx: McpAuthContext): PageActor | null {
  * Whether this actor holds `write:pages`/`manage:pages` ANYWHERE ON THIS SITE — the same question
  * `api/pages.ts`'s search route asks before deciding whether unpublished pages and password-protected
  * excerpts belong in a result set. See `PAGE_PASSWORD_BYPASS_ROLES`'s doc comment there for why DENY
- * is ignored and why this is deliberately coarser than a per-page check. `siteId` (OpenProject #2162)
- * keeps this site-aware: a delegation scoped to one site must not read as "sees everything" when
- * searching another.
+ * is ignored and why this is deliberately coarser than a per-page check.
+ *
+ * @param siteId The site being searched — `searchPages.ts`'s `handleSearchPages` already resolved
+ *   one before calling this, so a `write:pages` rule scoped to a different site no longer answers
+ *   `true` here (OpenProject #2146/#2162).
  */
 export function maySeeEverything(actor: AccessActor, siteId: string): boolean {
   return WIKI.models.groups.mayHoldPermissionSomewhere(

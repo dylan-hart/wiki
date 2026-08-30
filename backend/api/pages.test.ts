@@ -2204,8 +2204,26 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
 
   test('GET /sites/:siteId/pages/deleted only includes rows the actor may read the history of', async () => {
     listRecoverableResult = [
-      { id: 'v1', path: 'visible', locale: 'en', title: 'Visible', action: 'deleted' },
-      { id: 'v2', path: 'hidden', locale: 'en', title: 'Hidden', action: 'deleted' }
+      {
+        id: 'v1',
+        path: 'visible',
+        locale: 'en',
+        title: 'Visible',
+        action: 'deleted',
+        tags: [],
+        classification: null,
+        author: { id: 'u1', name: 'Author One' }
+      },
+      {
+        id: 'v2',
+        path: 'hidden',
+        locale: 'en',
+        title: 'Hidden',
+        action: 'deleted',
+        tags: [],
+        classification: null,
+        author: { id: 'u2', name: 'Author Two' }
+      }
     ]
     checkAccessImpl = (_actor, permission, page) =>
       permission === 'read:history' && page.path === 'visible'
@@ -2219,6 +2237,135 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     const body = res.json()
     assert.equal(body.length, 1)
     assert.equal(body[0].path, 'visible')
+    // -> No authorEmail anywhere in the response (OpenProject #2168)
+    assert.equal(body[0].author.email, undefined)
+    assert.ok(!JSON.stringify(body).includes('email'))
+  })
+
+  test("GET /sites/:siteId/pages/deleted checks read:history with the version's own tags/classification (OpenProject #2168)", async () => {
+    listRecoverableResult = [
+      {
+        id: 'v1',
+        path: 'classified',
+        locale: 'en',
+        title: 'Classified',
+        action: 'deleted',
+        tags: ['secret'],
+        classification: 'restricted-level-id',
+        author: { id: 'u1', name: 'Author One' }
+      }
+    ]
+    const seenChecks: any[] = []
+    checkAccessImpl = (_actor, permission, page) => {
+      if (permission === 'read:history') {
+        seenChecks.push(page)
+      }
+      return false
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/deleted`
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().length, 0)
+    assert.deepEqual(seenChecks, [
+      {
+        path: 'classified',
+        locale: 'en',
+        tags: ['secret'],
+        classification: 'restricted-level-id',
+        siteId: SITE_ID
+      }
+    ])
+  })
+
+  test('GET /sites/:siteId/pages/deleted never carries authorEmail, even for a row the actor may read', async () => {
+    listRecoverableResult = [
+      {
+        id: 'v1',
+        path: 'visible',
+        locale: 'en',
+        title: 'Visible',
+        action: 'deleted',
+        author: { id: 'u2', name: 'Someone' },
+        tags: [],
+        classification: null
+      }
+    ]
+    checkAccessImpl = () => true
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/deleted`
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.length, 1)
+    assert.equal(body[0].author.email, undefined)
+  })
+
+  test('GET /sites/:siteId/pages/deleted narrows by a TAG-scoped DENY rule', async () => {
+    // -> Real rule-matching engine, mirroring the `allowPublic`/`denyConfidential` pair in the
+    //    `GET .../pages/alias/:alias` TAG suite above: both TAG, so only the ALLOW-vs-DENY mode
+    //    tiebreak decides — reachable only because `tags` is now threaded into `mayOnPage` here.
+    const rules: GroupRule[] = [
+      {
+        id: 'allow-public',
+        name: 'Allow public',
+        roles: ['read:history'],
+        match: 'TAG',
+        mode: 'ALLOW',
+        path: 'public',
+        locales: [],
+        sites: []
+      },
+      {
+        id: 'deny-secret',
+        name: 'Deny secret',
+        roles: ['read:history'],
+        match: 'TAG',
+        mode: 'DENY',
+        path: 'secret',
+        locales: [],
+        sites: []
+      }
+    ]
+    checkAccessImpl = (_actor, permission, page) => {
+      const rule = resolvePageRule(rules, permission, {
+        path: page.path,
+        locale: page.locale,
+        siteId: SITE_ID,
+        classification: page.classification ?? null,
+        tags: page.tags ?? []
+      })
+      return rule ? rule.mode !== 'DENY' : false
+    }
+    listRecoverableResult = [
+      { id: 'v1', path: 'open', locale: 'en', title: 'Open', action: 'deleted', tags: ['public'] },
+      {
+        id: 'v2',
+        path: 'closed',
+        locale: 'en',
+        title: 'Closed',
+        action: 'deleted',
+        // -> Tagged BOTH: matches the broad ALLOW too, so this actually exercises the DENY tiebreak
+        //    rather than just "no rule matched at all".
+        tags: ['public', 'secret']
+      }
+    ]
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/deleted`
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.length, 1)
+    assert.equal(body[0].path, 'open')
   })
 
   test('POST recover requires a logged in user', async () => {
@@ -2246,7 +2393,15 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   test('POST recover checks write:pages against the target path, not the original', async () => {
-    getDeletedVersionResult = { path: 'original', locale: 'en', title: 'T', content: 'c', meta: {} }
+    getDeletedVersionResult = {
+      path: 'original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      meta: {},
+      tags: [],
+      classification: null
+    }
     const seenTargets: any[] = []
     checkAccessImpl = (_actor, permission, page) => {
       // -> The source-side read:pages/read:source check (OpenProject #2168) runs first, against
@@ -2257,8 +2412,11 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
       }
       if (permission === 'write:pages') {
         seenTargets.push(page)
+        return false
       }
-      return false
+      // -> The source-side read:pages/read:source check runs first (OpenProject #2168) -- allowed
+      //    here so the write:pages check below is what this test is actually exercising
+      return permission === 'read:pages' || permission === 'read:source'
     }
 
     const res = await app.inject({
@@ -2274,19 +2432,19 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     ])
   })
 
-  test('POST recover refuses when the caller cannot read the deleted path, even holding write:pages on the destination (OpenProject #2168)', async () => {
+  test('POST recover refuses when the caller cannot read the deleted path, even though they can write the destination (OpenProject #2168)', async () => {
     getDeletedVersionResult = {
-      path: 'secret/original',
+      path: 'secret-original',
       locale: 'en',
       title: 'T',
       content: 'c',
-      tags: [],
-      classification: null,
-      meta: {}
+      meta: {},
+      tags: ['confidential'],
+      classification: 'restricted-level-id'
     }
-    // -> The caller may write anywhere (the destination check would pass), but was never granted
-    //    read:pages/read:source at the path the page was actually deleted from -- recovering it
-    //    would let them read and republish source they were never allowed to read.
+    // -> Holds write:pages everywhere but no read:pages/read:source anywhere -- e.g. a caller who
+    //    only ever held `read:history` at this path, per the vulnerability this route-level check
+    //    closes (OpenProject #2168).
     checkAccessImpl = (_actor, permission) => permission === 'write:pages'
 
     const res = await app.inject({
@@ -2297,6 +2455,73 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     })
 
     assert.equal(res.statusCode, 403)
+    const body = res.json()
+    assert.match(body.message, /not allowed to read/)
+  })
+
+  test('POST recover checks read:pages/read:source against the SOURCE path even when the target is overridden', async () => {
+    getDeletedVersionResult = {
+      path: 'secret-original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      meta: { tags: ['confidential'], classification: 'restricted-level-id' },
+      tags: ['confidential'],
+      classification: 'restricted-level-id'
+    }
+    const seenSourceChecks: any[] = []
+    checkAccessImpl = (_actor, permission, page) => {
+      if (permission === 'read:pages' || permission === 'read:source') {
+        seenSourceChecks.push({ permission, page })
+        // -> Denied at the source, regardless of the destination
+        return false
+      }
+      // -> Freely allowed to write the (different) destination -- proves the refusal below is really
+      //    about the source, not a blanket deny
+      return permission === 'write:pages'
+    }
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/deleted/${VERSION_ID}/recover`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' } }),
+      payload: { path: 'somewhere-else', locale: 'en' }
+    })
+
+    assert.equal(res.statusCode, 403)
+    // -> Checked against the version's OWN path/tags/classification, not the override target
+    assert.ok(
+      seenSourceChecks.some(
+        (c) =>
+          c.page.path === 'secret-original' &&
+          c.page.classification === 'restricted-level-id' &&
+          c.permission === 'read:pages'
+      )
+    )
+  })
+
+  test('POST recover succeeds when the caller can read the deleted path and write the destination', async () => {
+    getDeletedVersionResult = {
+      path: 'original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      meta: {},
+      tags: [],
+      classification: null
+    }
+    checkAccessImpl = () => true
+    recoverDeletedPageImpl = async () => ({ id: 'p1', path: 'original', locale: 'en', title: 'T' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/deleted/${VERSION_ID}/recover`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' } }),
+      payload: {}
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().ok, true)
   })
 
   test('GET /sites/:siteId/pages/deleted carries no authorEmail on any row (OpenProject #2168)', async () => {

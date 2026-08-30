@@ -118,19 +118,34 @@ export interface DeletedEntry {
 }
 
 /**
- * One page or asset found underneath a folder by `Tree#listDescendants()` (OpenProject #2098) —
- * enough of each descendant's own metadata to run a real per-descendant permission check against,
- * rather than only the folder's own path.
+ * A descendant page, as returned by `listDescendants` for a caller to authorize before it mutates
+ * (OpenProject #2098).
  */
-export interface DescendantEntry {
+export interface DescendantPage {
   id: string
-  /** Full slash-separated path (folder path + file name), without a leading slash. */
+  /** Slash-separated path of the page. */
   path: string
   locale: string
-  /** Pages only — empty for an asset. */
   tags: string[]
-  /** Pages only — null for an asset, or for a page whose classification is genuinely unknown. */
+  /** Classification level id (OpenProject #1079), joined from `pages` -- `tree` carries none of its
+   *  own (the same gap as OpenProject #1128). */
   classification: string | null
+}
+
+/**
+ * A descendant asset, as returned by `listDescendants` for a caller to authorize before it mutates
+ * (OpenProject #2098).
+ */
+export interface DescendantAsset {
+  id: string
+  /** Slash-separated path of the asset, built from its tree row's `folderPath`/`fileName` -- what an
+   *  asset `read:assets`/`manage:assets` ref is built from. */
+  path: string
+  /** Slash-separated, without the file name. Empty at the site root -- what `mayOnAsset` (`api/assets.ts`)
+   *  takes alongside `fileName` to build the same ref, rather than the combined `path` above. */
+  folderPath: string
+  fileName: string
+  locale: string
 }
 
 /** A raw `tree` row, as the model passes it around internally. */
@@ -646,9 +661,9 @@ class Tree {
 
   /**
    * A single folder by ID, or null if the ID is not a folder OR belongs to a different site
-   * (OpenProject #2127) — `siteId` is required, with no optional-argument fallback, so a caller
-   * can no longer look a folder up by id alone and forget to check whose site it belongs to. The
-   * folder-create handler in `api/tree.ts` used to do exactly that with a caller-supplied
+   * (OpenProject #2127/#2131) — `siteId` is required, with no optional-argument fallback, so a
+   * caller can no longer look a folder up by id alone and forget to check whose site it belongs
+   * to. The folder-create handler in `api/tree.ts` used to do exactly that with a caller-supplied
    * `parentId`, leaking another site's folder path and locale to whoever already held
    * `manage:pages` on their OWN site.
    */
@@ -971,6 +986,53 @@ class Tree {
   }
 
   /**
+   * List every page under a folder, at any depth, with what authorizing the whole subtree needs:
+   * its current path, tags and classification (OpenProject #2102).
+   *
+   * Unbounded, like `refreshDescendantPaths` below and unlike `getTree()`'s `MAX_DEPTH`-capped
+   * listing: a permission check that stopped ten levels down would leave everything past that depth
+   * unchecked, which is exactly the kind of gap this exists to close for a rename (or delete) that
+   * cascades to every descendant regardless of how deep it goes.
+   */
+  async listDescendantPages(
+    folderId: string,
+    siteId: string
+  ): Promise<{ path: string; tags: string[]; classification: string | null }[]> {
+    const folder = await this.getFolderById(folderId, siteId)
+    if (!folder) {
+      throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
+    }
+    const path = childPathOf(folder)
+
+    const rows = await WIKI.db
+      .select({
+        folderPath: treeTable.folderPath,
+        fileName: treeTable.fileName,
+        tags: treeTable.tags,
+        classification: pagesTable.classification
+      })
+      .from(treeTable)
+      .innerJoin(pagesTable, eq(pagesTable.id, treeTable.id))
+      .where(
+        and(
+          eq(treeTable.siteId, folder.siteId),
+          eq(treeTable.locale, folder.locale),
+          eq(treeTable.type, 'page'),
+          sql`${treeTable.folderPath} <@ ${path}::ltree`
+        )
+      )
+
+    return rows.map((row) => {
+      const rowFolderPath = decodeTreePath(row.folderPath ?? '') ?? ''
+      return {
+        path: rowFolderPath ? `${rowFolderPath}/${row.fileName}` : row.fileName,
+        tags: row.tags ?? [],
+        classification: row.classification
+      }
+    })
+  }
+
+  /**
    * Rename a folder, moving everything under it along with it.
    *
    * @param siteId Required (OpenProject #2127) so this model method is itself closed to a foreign
@@ -1167,46 +1229,45 @@ class Tree {
     }
   }
 
-  /** One page or asset found underneath a folder by {@link listDescendants}. */
   /**
-   * Every page and asset AT OR BELOW a folder, with enough of each one's own metadata (path, locale,
-   * tags, classification) to run a real per-descendant permission check against — the listing
-   * `api/tree.ts`'s folder DELETE and PATCH (rename) handlers need before letting either cascade
-   * (OpenProject #2093/#2098): both used to authorize only the folder's own path and then act on
-   * every descendant unchecked, which meant a caller holding `manage:pages` on a branch could destroy
-   * or relocate pages nested under it that they held no `delete:pages`/`write:pages` on, including
-   * ones a narrower DENY (path- or classification-based) was written to keep them away from.
+   * List every page and asset at or below a folder, without mutating anything.
    *
-   * Read-only — this changes nothing, so it is safe to call before deciding whether a mutation may
-   * proceed at all. Joins `pages` for `tags`/`classification` the same way `getTree()` does: only a
-   * `page`-type row's id ever matches `pagesTable.id`, so an asset row's `classification` comes back
-   * `null` and `tags` empty, exactly what `ruleMatchesPage`'s fail-closed treatment expects for
-   * something that carries neither.
+   * The same set `deleteFolder` deletes and `renameFolder` moves under it -- `<@` is "at or below",
+   * scoped by `siteId` and the folder's own `locale` the same way (bug #932) -- so `deleteFolder` and
+   * `renameFolder`'s callers (`api/tree.ts`'s DELETE/PATCH folder handlers) can authorize every
+   * descendant before committing to the mutation (OpenProject #2098, #2100). Each descendant page
+   * carries its real `tags` and `classification` (joined from `pages`, since `tree` carries no
+   * classification column of its own -- the same root cause as OpenProject #1128); each descendant
+   * asset carries both its combined `path` and the separate `folderPath`/`fileName` pair `mayOnAsset`
+   * (`api/assets.ts`) builds its own ref from.
    *
-   * @param siteId Required, and paired with `folderId` the same way `getFolderById()` is: the folder
-   *               has to belong to the caller's own site before its descendants are ever listed.
-   * @returns Empty arrays (not a thrown error) for a folder that exists but holds nothing — an empty
-   *          folder is not a caller mistake, it is a real, delete-able state.
+   * @param folderId UUID of the folder whose descendants to list.
+   * @param siteId The site the folder must belong to (OpenProject #2131) -- passed straight to
+   *               `getFolderById`.
+   * @param db Runs against this instead of the ambient `WIKI.db`, so a caller can authorize inside the
+   *           same transaction that will go on to mutate.
    */
   async listDescendants(
     folderId: string,
-    siteId: string
-  ): Promise<{ pages: DescendantEntry[]; assets: DescendantEntry[] }> {
-    const folder = await this.getFolderById(folderId, siteId)
+    siteId: string,
+    db: WikiDbOrTx = WIKI.db
+  ): Promise<{ pages: DescendantPage[]; assets: DescendantAsset[] }> {
+    const folder = await this.getFolderById(folderId, siteId, db)
     if (!folder) {
       throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
     }
     const path = childPathOf(folder)
 
-    const rows = await WIKI.db
+    const rows = await db
       .select({
         id: treeTable.id,
         type: treeTable.type,
         folderPath: treeTable.folderPath,
         fileName: treeTable.fileName,
         locale: treeTable.locale,
-        // -> Only a page-type row's id ever matches pagesTable.id -- see the method doc comment
-        tags: pagesTable.tags,
+        tags: treeTable.tags,
+        // -> Only a `page`-type row's id ever matches `pagesTable.id`; a folder or asset row leaves
+        //    this null, the same "no classification" treatment `getTree()` (OpenProject #1128) gives.
         classification: pagesTable.classification
       })
       .from(treeTable)
@@ -1215,26 +1276,35 @@ class Tree {
         and(
           eq(treeTable.siteId, folder.siteId),
           eq(treeTable.locale, folder.locale),
-          // -> "at or below", same as deleteFolder()/refreshDescendantPaths() -- the folder itself is
-          //    not under its own child path, so this is descendants only, never the folder row.
           sql`${treeTable.folderPath} <@ ${path}::ltree`
         )
       )
 
-    const asEntry = (row: (typeof rows)[number]): DescendantEntry => {
+    const pages: DescendantPage[] = []
+    const assets: DescendantAsset[] = []
+    for (const row of rows) {
       const folderPath = decodeTreePath(row.folderPath ?? '') ?? ''
-      return {
-        id: row.id,
-        path: folderPath ? `${folderPath}/${row.fileName}` : row.fileName,
-        locale: row.locale,
-        tags: row.tags ?? [],
-        classification: row.classification ?? null
+      const fullPath = folderPath ? `${folderPath}/${row.fileName}` : row.fileName
+      if (row.type === 'page') {
+        pages.push({
+          id: row.id,
+          path: fullPath,
+          locale: row.locale,
+          tags: row.tags ?? [],
+          classification: row.classification ?? null
+        })
+      } else if (row.type === 'asset') {
+        assets.push({
+          id: row.id,
+          path: fullPath,
+          folderPath,
+          fileName: row.fileName,
+          locale: row.locale
+        })
       }
     }
-    return {
-      pages: rows.filter((r) => r.type === 'page').map(asEntry),
-      assets: rows.filter((r) => r.type === 'asset').map(asEntry)
-    }
+
+    return { pages, assets }
   }
 
   /**

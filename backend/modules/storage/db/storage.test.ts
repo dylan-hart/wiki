@@ -149,7 +149,7 @@ test(
 
     // -> Content is gone
     assert.equal(await assets.getContent(purgedAsset.id), null)
-    const thumbnail = await assets.getThumbnailForServing(purgedAsset.id)
+    const thumbnail = await assets.getThumbnail(purgedAsset.id)
     assert.equal(thumbnail, null)
 
     // -> Metadata and the tree entry both survive

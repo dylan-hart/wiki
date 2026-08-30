@@ -12,9 +12,13 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
  *
  * No route-level `permissions`: every route here answers only with the caller's OWN notifications,
  * scoped by session `userId` — same shape as `GET /sites/:siteId/watching` in `watching.ts`. Being
- * logged in is the whole of the check; there is no page permission to re-verify here either, since a
- * row was only ever written for someone who could read the page at the time they watched it, and (for
- * a deleted page especially) the page itself may not even exist to check permissions against any more.
+ * logged in is the whole of the check at the route level; the page permission itself IS re-verified,
+ * just one layer down, in `models/pageWatchEvents.ts#listForUser` (OpenProject #2173) — a row being
+ * written for someone who could read the page at watch time is not good enough on its own, since
+ * revoking `read:pages` afterwards (a raised classification, a move into a restricted branch, an
+ * edited group rule) is an ordinary lifecycle event, not something that waits for this list to be
+ * asked again. See that method's own comment for how a page since deleted (where there is no longer a
+ * live row to check permissions against) is handled.
  */
 
 /** The caller, or a 401. Identical to `watching.ts#watcherOf` — kept local rather than exported there

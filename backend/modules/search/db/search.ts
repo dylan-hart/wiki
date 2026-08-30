@@ -293,10 +293,13 @@ class DbSearchModule implements SearchModule {
     const direction = orderByDirection === 'asc' ? sql`ASC` : sql`DESC`
     // -> Every page ranks 0 without a query, which would leave the order down to the planner
     const effectiveOrderBy = orderBy === 'relevancy' && !hasQuery ? 'updatedAt' : orderBy
+    // -> `p.id` breaks every tie: over-fetching up to `SCAN_CAP` and then slicing the
+    //    caller's `offset`/`limit` window out in JS (below) only lands on a stable page of results
+    //    when the underlying order is fully deterministic
     const ordering = {
-      relevancy: sql`relevancy ${direction}, p."updatedAt" DESC`,
-      title: sql`p.title ${direction}`,
-      updatedAt: sql`p."updatedAt" ${direction}`
+      relevancy: sql`relevancy ${direction}, p."updatedAt" DESC, p.id`,
+      title: sql`p.title ${direction}, p.id`,
+      updatedAt: sql`p."updatedAt" ${direction}, p.id`
     }[effectiveOrderBy]
 
     const { termHighlighting } = search.getEngineConfig(siteId, MODULE_KEY)
@@ -329,6 +332,11 @@ class DbSearchModule implements SearchModule {
       count is within `SCAN_CAP`; beyond that it is a floor (verified-visible matches within the cap
       only), never an overcount -- the asymmetry that closes the oracle, since a floor cannot
       confirm anything about a page beyond what was already checked.
+      Over-fetched and paged in JS rather than with LIMIT/OFFSET in SQL: `checkAccess` below can only
+      run per row, so the caller's page has to be sliced out *after* filtering, not before. `p.id` is
+      appended as a tiebreaker so the scanned order — and therefore which rows fall inside the cap —
+      is stable across calls with the same filters, even when `ordering` alone leaves ties (e.g. two
+      pages with identical `relevancy` and `updatedAt`).
     */
     const rows = await WIKI.db.execute(sql`
       SELECT
@@ -353,6 +361,10 @@ class DbSearchModule implements SearchModule {
       Filtered here rather than in SQL: a page rule can be a regular expression or a set of tags, so
       the deciding rule is only knowable per row. Search must not be a way around page permissions —
       a title and an excerpt are content too.
+
+      This runs over every scanned row (up to SCAN_CAP), not just the caller's page of `limit`
+      results -- `totalHits` below is derived from `visible.length`, so it has to see every row that
+      survived the query before the caller's `offset`/`limit` window is sliced out of it.
     */
     const visible = actor
       ? ((rows.rows ?? rows) as any[]).filter((row) =>
@@ -366,7 +378,11 @@ class DbSearchModule implements SearchModule {
         )
       : ((rows.rows ?? rows) as any[])
 
-    const result = visible.slice(offset, offset + limit).map((row) => ({
+    // -> The caller's page of results comes out of the FILTERED list, not the raw scan -- an
+    //    unreadable row must not consume a slot in someone else's page of results
+    const windowed = visible.slice(offset, offset + limit)
+
+    const result = windowed.map((row) => ({
       id: row.id as string,
       path: row.path as string,
       locale: row.locale as string,
@@ -384,6 +400,11 @@ class DbSearchModule implements SearchModule {
         : null
     }))
 
+    /*
+      A count of rows that survived `checkAccess`, and nothing else -- see `SCAN_CAP`'s doc comment
+      for why this is exact up to that cap and a floor beyond it, never a total that includes a match
+      the caller could not open.
+    */
     const totalHits = visible.length
 
     // -> Only worth asking when the search itself came up empty: a query that matched something has

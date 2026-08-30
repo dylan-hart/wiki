@@ -820,3 +820,108 @@ describe('sites.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () =
     }
   })
 })
+
+/**
+ * OpenProject #2140: `reloadCache()` used to key `WIKI.sitesMappings` exactly as `hostname` was
+ * stored, and every lookup indexed it with `req.hostname` exactly as received — so a client or proxy
+ * that preserved `Host` case (`Wiki.Example.Com`) missed a site stored as `wiki.example.com` and fell
+ * through to the catch-all, or to not-found with none configured. Both sides now go through
+ * `normalizeHostname()` (`helpers/common.ts`). No `WIKI.db`/database needed for any of this: each
+ * test installs its own minimal `WIKI` stub, restored afterward.
+ */
+describe('sites hostname normalization (pure unit)', () => {
+  let previousWiki: any
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('reloadCache lowercases sitesMappings keys', async () => {
+    ;(globalThis as any).WIKI = {
+      db: {
+        select: () => ({
+          from: () => ({
+            orderBy: async () => [
+              { id: 'site-1', hostname: 'Wiki.Example.Com', isEnabled: true },
+              { id: 'site-2', hostname: 'other.example.com', isEnabled: false }
+            ]
+          })
+        })
+      },
+      logger: { info: () => {} },
+      sites: {},
+      sitesMappings: {}
+    }
+
+    await sites.reloadCache()
+
+    assert.deepEqual(Object.keys((globalThis as any).WIKI.sitesMappings).sort(), [
+      'other.example.com',
+      'wiki.example.com'
+    ])
+    assert.equal((globalThis as any).WIKI.sitesMappings['wiki.example.com'], 'site-1')
+    assert.equal((globalThis as any).WIKI.sitesMappings['other.example.com'], 'site-2')
+  })
+
+  test('a mixed-case hostname resolves to the same site as its lowercase form, including a disabled site', async () => {
+    ;(globalThis as any).WIKI = {
+      sitesMappings: {
+        'wiki.example.com': 'site-1',
+        'disabled.example.com': 'site-2',
+        '*': 'catch-all-site'
+      },
+      sites: {
+        'site-1': { id: 'site-1', isEnabled: true },
+        'site-2': { id: 'site-2', isEnabled: false },
+        'catch-all-site': { id: 'catch-all-site', isEnabled: true }
+      }
+    }
+
+    const lower = await sites.getSiteByHostname({ hostname: 'wiki.example.com' })
+    const mixed = await sites.getSiteByHostname({ hostname: 'Wiki.Example.Com' })
+    assert.deepEqual(mixed, lower)
+    assert.equal(mixed!.id, 'site-1')
+
+    // -> The disabled branch: a mixed-case hostname for a disabled site must resolve to that site
+    //    itself (so the caller can answer "disabled"), not fall through to the catch-all.
+    const disabledLower = await sites.getSiteByHostname({ hostname: 'disabled.example.com' })
+    const disabledMixed = await sites.getSiteByHostname({ hostname: 'Disabled.Example.Com' })
+    assert.deepEqual(disabledMixed, disabledLower)
+    assert.equal(disabledMixed!.id, 'site-2')
+    assert.equal(disabledMixed!.isEnabled, false)
+  })
+
+  test('an unknown hostname still falls through to the catch-all site, case notwithstanding', async () => {
+    ;(globalThis as any).WIKI = {
+      sitesMappings: {
+        'wiki.example.com': 'site-1',
+        '*': 'catch-all-site'
+      },
+      sites: {
+        'site-1': { id: 'site-1', isEnabled: true },
+        'catch-all-site': { id: 'catch-all-site', isEnabled: true }
+      }
+    }
+
+    const result = await sites.getSiteByHostname({ hostname: 'Unknown.Example.Com' })
+    assert.equal(result!.id, 'catch-all-site')
+  })
+
+  test('an unknown hostname with no catch-all resolves to null', async () => {
+    ;(globalThis as any).WIKI = {
+      sitesMappings: {
+        'wiki.example.com': 'site-1'
+      },
+      sites: {
+        'site-1': { id: 'site-1', isEnabled: true }
+      }
+    }
+
+    const result = await sites.getSiteByHostname({ hostname: 'Unknown.Example.Com' })
+    assert.equal(result, null)
+  })
+})

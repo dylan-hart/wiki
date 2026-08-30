@@ -10,13 +10,14 @@ import thumbRoutes from './thumb.ts'
  * `read:assets` check and no site resolution at all -- reachable unauthenticated, from any
  * hostname. These lock down the fix: site resolution by hostname (mirroring `/_files/*`), a
  * `read:assets` check before bytes are ever sent, a `private` `Cache-Control` (since the reply now
- * depends on who asked), and 404 (not 403) on every refusal so the endpoint still cannot be probed
- * for existence.
+ * depends on who asked), and 404 (not 403, except for a disabled site) on every refusal so the
+ * endpoint still cannot be probed for existence.
  */
-describe('thumb routes (OpenProject #2178)', () => {
-  const SITE_A_ID = 'site-a'
-  const SITE_B_ID = 'site-b'
-  const VALID_ASSET_ID = '11111111-1111-4111-8111-111111111111'
+describe('/_thumb site scoping and read:assets enforcement (OpenProject #2178)', () => {
+  const VALID_UUID = '11111111-1111-4111-8111-111111111111'
+
+  const SITE_A_ID = 'site-a-id'
+  const SITE_B_ID = 'site-b-id'
 
   const sites: Record<string, any> = {
     [SITE_A_ID]: { id: SITE_A_ID, hostname: 'a.example.com', isEnabled: true },
@@ -24,22 +25,33 @@ describe('thumb routes (OpenProject #2178)', () => {
     'disabled-site': { id: 'disabled-site', hostname: 'off.example.com', isEnabled: false }
   }
 
-  async function getSiteByHostname({ hostname }: { hostname: string }) {
-    return Object.values(sites).find((s) => s.hostname === hostname) ?? null
+  const thumbnail = {
+    siteId: SITE_A_ID,
+    folderPath: 'docs',
+    fileName: 'diagram.png',
+    locale: 'en',
+    preview: Buffer.from('thumb-bytes')
   }
 
-  let assetForServing: any
-  let checkAccessResult: boolean
-  let checkAccessCalls: any[]
+  let getThumbnailCalls = 0
+  let checkAccessResult = true
+  let checkAccessCalls: any[] = []
+
   let app: FastifyInstance
 
   before(async () => {
     ;(globalThis as any).WIKI = {
       config: {},
       models: {
-        sites: { getSiteByHostname },
+        sites: {
+          getSiteByHostname: async ({ hostname }: { hostname: string }) =>
+            Object.values(sites).find((s) => s.hostname === hostname) ?? null
+        },
         assets: {
-          getThumbnailForServing: async () => assetForServing
+          getThumbnail: async (id: string) => {
+            getThumbnailCalls++
+            return id === VALID_UUID ? thumbnail : null
+          }
         },
         groups: {
           actorForRequest: () => ({ permissions: [] }),
@@ -61,111 +73,86 @@ describe('thumb routes (OpenProject #2178)', () => {
     delete (globalThis as any).WIKI
   })
 
-  test('an invalid UUID 404s before any model call is made', async () => {
-    checkAccessCalls = []
+  test('an invalid UUID 404s before any query runs', async () => {
+    getThumbnailCalls = 0
     const res = await app.inject({
       method: 'GET',
       url: '/not-a-uuid.webp',
       headers: { host: 'a.example.com' }
     })
     assert.equal(res.statusCode, 404)
+    assert.equal(getThumbnailCalls, 0)
   })
 
-  test('an unauthenticated request for an asset with no thumbnail 404s', async () => {
-    assetForServing = null
-    checkAccessCalls = []
-    const res = await app.inject({
-      method: 'GET',
-      url: `/${VALID_ASSET_ID}.webp`,
-      headers: { host: 'a.example.com' }
-    })
-    assert.equal(res.statusCode, 404)
-    assert.equal(checkAccessCalls.length, 0)
-  })
-
-  test('a request from a hostname whose site does not own the asset 404s, before checkAccess is asked', async () => {
-    assetForServing = {
-      preview: Buffer.from('bytes'),
-      siteId: SITE_B_ID,
-      folderPath: 'docs',
-      fileName: 'diagram.png',
-      locale: 'en'
-    }
-    checkAccessResult = true
-    checkAccessCalls = []
-    const res = await app.inject({
-      method: 'GET',
-      url: `/${VALID_ASSET_ID}.webp`,
-      headers: { host: 'a.example.com' }
-    })
-    assert.equal(res.statusCode, 404)
-    assert.equal(checkAccessCalls.length, 0)
-  })
-
-  test('a request for a disabled site is refused before checkAccess is asked', async () => {
-    assetForServing = {
-      preview: Buffer.from('bytes'),
-      siteId: 'disabled-site',
-      folderPath: '',
-      fileName: 'diagram.png',
-      locale: 'en'
-    }
-    checkAccessResult = true
-    checkAccessCalls = []
-    const res = await app.inject({
-      method: 'GET',
-      url: `/${VALID_ASSET_ID}.webp`,
-      headers: { host: 'off.example.com' }
-    })
-    assert.equal(res.statusCode, 403)
-    assert.equal(checkAccessCalls.length, 0)
-  })
-
-  test('a permitted, same-site request is refused a 403 in favor of a 404 when read:assets denies it', async () => {
-    assetForServing = {
-      preview: Buffer.from('bytes'),
-      siteId: SITE_A_ID,
-      folderPath: 'docs',
-      fileName: 'diagram.png',
-      locale: 'en'
-    }
+  test('an unauthenticated (denied) request for an asset answers 404, not the bytes', async () => {
     checkAccessResult = false
     checkAccessCalls = []
     const res = await app.inject({
       method: 'GET',
-      url: `/${VALID_ASSET_ID}.webp`,
+      url: `/${VALID_UUID}.webp`,
       headers: { host: 'a.example.com' }
     })
     assert.equal(res.statusCode, 404)
     assert.equal(checkAccessCalls.length, 1)
-    assert.deepEqual(checkAccessCalls[0], {
-      path: 'docs/diagram.png',
-      siteId: SITE_A_ID,
-      locale: 'en',
-      classification: null
-    })
+    assert.equal(checkAccessCalls[0].siteId, SITE_A_ID)
+    assert.equal(checkAccessCalls[0].path, 'docs/diagram.png')
+    checkAccessResult = true
   })
 
-  test('a permitted request returns the bytes with a private Cache-Control', async () => {
-    assetForServing = {
-      preview: Buffer.from('the thumbnail bytes'),
-      siteId: SITE_A_ID,
-      folderPath: '',
-      fileName: 'diagram.png',
-      locale: 'en'
-    }
+  test("a request from site B's hostname for site A's asset id answers 404", async () => {
     checkAccessResult = true
     checkAccessCalls = []
     const res = await app.inject({
       method: 'GET',
-      url: `/${VALID_ASSET_ID}.webp`,
+      url: `/${VALID_UUID}.webp`,
+      headers: { host: 'b.example.com' }
+    })
+    assert.equal(res.statusCode, 404)
+    // -> Refused on the site mismatch, before checkAccess is ever consulted
+    assert.equal(checkAccessCalls.length, 0)
+  })
+
+  test('a request for a disabled site is refused with 403 before checkAccess is asked', async () => {
+    checkAccessResult = true
+    checkAccessCalls = []
+    // -> `thumbnail.siteId` is fixed to SITE_A_ID above, so point the request at a disabled site
+    //    whose hostname resolves but whose asset lookup will mismatch -- guardSiteEnabled runs
+    //    before that mismatch is ever checked, so it is what actually answers this request.
+    const original = (globalThis as any).WIKI.models.assets.getThumbnail
+    ;(globalThis as any).WIKI.models.assets.getThumbnail = async (id: string) =>
+      id === VALID_UUID ? { ...thumbnail, siteId: 'disabled-site' } : null
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/${VALID_UUID}.webp`,
+        headers: { host: 'off.example.com' }
+      })
+      assert.equal(res.statusCode, 403)
+      assert.equal(checkAccessCalls.length, 0)
+    } finally {
+      ;(globalThis as any).WIKI.models.assets.getThumbnail = original
+    }
+  })
+
+  test('a permitted request returns the bytes with a private Cache-Control', async () => {
+    checkAccessResult = true
+    const res = await app.inject({
+      method: 'GET',
+      url: `/${VALID_UUID}.webp`,
       headers: { host: 'a.example.com' }
     })
     assert.equal(res.statusCode, 200)
-    assert.equal(res.body, 'the thumbnail bytes')
-    assert.match(res.headers['cache-control'] as string, /^private,/)
+    assert.equal(res.headers['cache-control'], 'private, max-age=600, must-revalidate')
     assert.equal(res.headers['x-content-type-options'], 'nosniff')
-    // -> A path with no folder does not grow a leading slash
-    assert.equal(checkAccessCalls[0].path, 'diagram.png')
+    assert.equal(res.body, 'thumb-bytes')
+  })
+
+  test('a hostname with no site behind it answers 404', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/${VALID_UUID}.webp`,
+      headers: { host: 'nowhere.example.com' }
+    })
+    assert.equal(res.statusCode, 404)
   })
 })

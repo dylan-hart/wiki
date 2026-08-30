@@ -689,6 +689,8 @@ export class AzureSearchModule implements SearchModule {
         orderBy: azureOrderBy,
         top: SCAN_CAP,
         skip: 0,
+        // -> No count needed: `totalHits` below is derived purely from rows that survived
+        //    `checkAccess`, never from Azure's own pre-filter count.
         includeTotalCount: false,
         queryType: 'simple',
         searchFields: hasQuery ? FULL_SEARCH_FIELDS : undefined,
@@ -781,6 +783,8 @@ export class AzureSearchModule implements SearchModule {
         orderBy: azureOrderBy,
         top: SCAN_CAP,
         skip: 0,
+        // -> No count needed: the caller derives `totalHits` purely from rows that survived
+        //    `checkAccess`, never from Azure's own pre-filter count.
         includeTotalCount: false,
         queryType: 'simple',
         searchFields: FULL_SEARCH_FIELDS,

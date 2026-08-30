@@ -348,6 +348,8 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      // -> `siteId` here is a body field, not `req.params.siteId`, and this route is `manage:system`
+      //    only -- no `enforceApiKeySite()` call; see `helpers/apiKeySite.ts`'s doc comment for why.
       const invalid = invalidReason(req.body, { partial: false })
       if (invalid) {
         return reply.badRequest(invalid)
@@ -418,6 +420,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      // -> Same body-`siteId`, `manage:system`-only shape as CREATE above -- see the comment there.
       if (!(await WIKI.models.hooks.getHookById(req.params.hookId))) {
         return reply.notFound('Webhook does not exist.')
       }

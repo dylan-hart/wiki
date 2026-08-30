@@ -675,7 +675,41 @@ describe('azure-search module: query()', () => {
 
     assert.equal(result.results.length, 1)
     assert.equal(result.results[0]!.id, 'p2')
+    // -> offset (0) plus how many of this page's rows survived checkAccess, never Azure's own count
     assert.equal(result.totalHits, 1)
+    WIKI.models.groups.checkAccess = () => true
+  })
+
+  test('totalHits never reflects Azure’s own count when it exceeds what this page can vouch for', async () => {
+    const client = fakeQueryClient([
+      {
+        // -> Azure reports 100 total matches across many pages this call never fetched -- the old
+        //    arithmetic (count - rows.length + visible.length) would have leaked most of that into
+        //    totalHits even though only this one page was ever checked against checkAccess.
+        count: 100,
+        rows: [
+          row({ id: 'p1', path: 'docs/kangaroo' }, 3),
+          row({ id: 'p2', path: 'docs/secret' }, 2),
+          row({ id: 'p3', path: 'docs/other' }, 1)
+        ]
+      }
+    ])
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+    const actor = { groupIds: [], permissions: [] }
+    ;(WIKI.models.groups.checkAccess as any) = (_actor: any, _perm: any, p: any) =>
+      p.path !== 'docs/secret'
+
+    const result = await azureSearch.query({
+      siteId: 'site-1',
+      query: 'kangaroo',
+      offset: 0,
+      actor,
+      hideProtectedContent: false
+    })
+
+    assert.equal(result.results.length, 2)
+    // -> Exactly the readable count of this page (offset 0 + 2 visible), never Azure's 100
+    assert.equal(result.totalHits, 2)
     WIKI.models.groups.checkAccess = () => true
   })
 

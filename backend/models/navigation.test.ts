@@ -18,6 +18,7 @@ import {
 } from '../db/schema.ts'
 import { NAVIGATION_MODES, type NavigationItem, type NavigationMode } from './navigation.ts'
 import type { PageActor, PageInput } from './pages.ts'
+import type { AccessActor } from './groups.ts'
 
 /** A permissive stand-in actor for getNav() calls in tests that aren't specifically
  *  about page-rule filtering (OpenProject #2155) -- manage:system bypasses checkAccess
@@ -825,7 +826,7 @@ describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () 
   })
 
   test('getMode reads the same column back, and defaults to static for a menu with no row yet', async () => {
-    assert.equal(await navigationModel.getMode(fixtures.siteId, crypto.randomUUID()), 'static')
+    assert.equal(await navigationModel.getMode(fixtures.siteId, randomUUID()), 'static')
 
     const navId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
     await WIKI.db
@@ -850,7 +851,7 @@ describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () 
   test('getMode does not return a row belonging to a different site', async () => {
     const [otherSite] = await WIKI.db
       .insert(sitesTable)
-      .values({ hostname: `getmode-other-${crypto.randomUUID()}.example.com`, config: {} })
+      .values({ hostname: `getmode-other-${randomUUID()}.example.com`, config: {} })
       .returning({ id: sitesTable.id })
     const otherNavId = await navigationModel.ensureSiteNav(otherSite!.id, 'en')
     await WIKI.db
@@ -905,13 +906,7 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
   }
 
   function generate(rootFolderPath = '', locale = 'en'): Promise<NavigationItem[]> {
-    return (navigationModel as any).generateFromTree(
-      fixtures.siteId,
-      ADMIN_ACTOR,
-      false,
-      rootFolderPath,
-      locale
-    )
+    return (navigationModel as any).generateFromTree(fixtures.siteId, rootFolderPath, locale, actor)
   }
 
   test('an empty subtree produces no items', async () => {
@@ -1105,10 +1100,9 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
     const guestActor = { groupIds: [fixtures.groupId], permissions: [] }
     const items = await (navigationModel as any).generateFromTree(
       fixtures.siteId,
-      guestActor,
-      false,
       '',
-      'en'
+      'en',
+      guestActor
     )
 
     assert.equal(
@@ -1176,17 +1170,15 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
     const blockedActor = { groupIds: [fixtures.groupId], permissions: [] }
     const filtered = await (navigationModel as any).generateFromTree(
       fixtures.siteId,
-      blockedActor,
-      false,
       '',
-      'en'
+      'en',
+      blockedActor
     )
     const unfilteredResult = await (navigationModel as any).generateFromTree(
       fixtures.siteId,
-      blockedActor,
-      true,
       '',
-      'en'
+      'en',
+      null
     )
 
     // -> A blanket root DENY means the filtered walk finds nothing at all, regardless of how much
@@ -1424,6 +1416,187 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
   })
 })
 
+/**
+ * OpenProject #2155: `generateFromTree` never asked the page-rule engine anything before this feature
+ * -- an `auto`/`mixed` menu's entries came straight from `pageIsVisible` (browsable + published) with
+ * no `read:pages` check at all, so a plain path DENY, or a `CLASSIFICATION` DENY, leaked through an
+ * unauthenticated `GET .../navigation/:navId` the same as anything else in the tree. These assert the
+ * fix: a reader denied `read:pages` on an entry never sees it generated, an authorized reader still
+ * does, and a folder left with nothing visible under it (because every descendant was individually
+ * denied, not because none existed) is dropped rather than shown as an empty dead end.
+ */
+describe(
+  'navigation getNav read:pages filtering (DB-backed, OpenProject #2155)',
+  {
+    skip: !hasTestDatabase()
+  },
+  () => {
+    let fixtures: TestFixtures
+    let navigationModel: typeof import('./navigation.ts').navigation
+    let pagesModel: typeof import('./pages.ts').pages
+    let groupsModel: typeof import('./groups.ts').groups
+    let adminActor: PageActor
+    let deniedActor: AccessActor
+    let restrictedClassificationId: string
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ navigation: navigationModel } = await import('./navigation.ts'))
+      ;({ pages: pagesModel } = await import('./pages.ts'))
+      ;({ groups: groupsModel } = await import('./groups.ts'))
+      adminActor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
+
+      const restrictedLevel = await WIKI.models.classificationLevels.create({
+        name: 'Filtering Test Restricted'
+      })
+      restrictedClassificationId = restrictedLevel.id
+
+      // -> Broadly allows read:pages, then carves out a path DENY and a classification DENY on top --
+      //    exactly the "a plain path DENY leaks here too" and "a classification DENY leaks here too"
+      //    scenarios #2150/#2155 describe.
+      const [group] = await WIKI.db
+        .insert(groupsTable)
+        .values({
+          name: 'Filtering Test Denied Reader',
+          permissions: ['read:pages'],
+          rules: [
+            {
+              id: randomUUID(),
+              name: 'broad allow',
+              roles: ['read:pages'],
+              match: 'START',
+              mode: 'ALLOW',
+              path: '',
+              locales: [],
+              sites: []
+            },
+            {
+              id: randomUUID(),
+              name: 'path deny',
+              roles: ['read:pages'],
+              match: 'START',
+              mode: 'DENY',
+              path: 'denied-path',
+              locales: [],
+              sites: []
+            },
+            {
+              id: randomUUID(),
+              name: 'classification deny',
+              roles: ['read:pages'],
+              match: 'CLASSIFICATION',
+              mode: 'DENY',
+              path: '',
+              locales: [],
+              sites: [],
+              classifications: [restrictedClassificationId]
+            }
+          ]
+        })
+        .returning({ id: groupsTable.id })
+      deniedActor = { groupIds: [group!.id], permissions: [] }
+      await groupsModel.reloadCache()
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    async function autoMenu(): Promise<string> {
+      const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+      await WIKI.db
+        .update(navigationTable)
+        .set({ mode: 'auto' })
+        .where(eq(navigationTable.id, siteNavId))
+      return siteNavId
+    }
+
+    test('a path DENY omits the entry, and drops the folder left with nothing visible under it', async () => {
+      const siteNavId = await autoMenu()
+      await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'denied-path/secret-page',
+          title: 'Secret Page',
+          editor: 'markdown',
+          content: '# Hello'
+        },
+        adminActor
+      )
+
+      const asDenied = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+        actor: deniedActor
+      })
+      assert.equal(
+        asDenied.some((item) => item.label === 'Secret Page'),
+        false
+      )
+      // -> The folder holding only that page is a dead end for this reader -- dropped, not shown empty
+      assert.equal(
+        asDenied.some((item) => item.label === 'denied-path'),
+        false
+      )
+
+      const asAuthorized = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+        actor: adminActor
+      })
+      const folder = asAuthorized.find((item) => item.label === 'denied-path')
+      assert.ok(folder)
+      assert.ok(folder!.children?.some((c) => c.label === 'Secret Page'))
+    })
+
+    test('a classification DENY omits the entry for a denied reader, but not an authorized one', async () => {
+      const siteNavId = await autoMenu()
+      await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'classified-page',
+          title: 'Classified Page',
+          editor: 'markdown',
+          content: '# Hello',
+          classification: restrictedClassificationId
+        },
+        adminActor
+      )
+
+      const asDenied = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+        actor: deniedActor
+      })
+      assert.equal(
+        asDenied.some((item) => item.label === 'Classified Page'),
+        false
+      )
+
+      const asAuthorized = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+        actor: adminActor
+      })
+      assert.ok(asAuthorized.some((item) => item.label === 'Classified Page'))
+    })
+
+    test('unfiltered (editor preview) reads skip the read:pages check entirely', async () => {
+      const siteNavId = await autoMenu()
+      await pagesModel
+        .createPage(
+          fixtures.siteId,
+          {
+            path: 'denied-path/secret-page',
+            title: 'Secret Page',
+            editor: 'markdown',
+            content: '# Hello'
+          },
+          adminActor
+        )
+        .catch(() => {}) // -> May already exist from an earlier test in this describe; irrelevant here
+
+      const full = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+        actor: deniedActor,
+        unfiltered: true
+      })
+      assert.ok(full.some((item) => item.label === 'denied-path'))
+    })
+  }
+)
+
 /** The mode/cascade combination `updateNavigation()` should produce for a top-level entry. */
 function expectedTransition(
   mode: NavigationMode,
@@ -1466,6 +1639,21 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
   after(async () => {
     await teardownTestDb()
   })
+
+  /**
+   * A real `navigation` row's id -- `tree.navigationId` has an FK against it (`ON DELETE SET NULL`,
+   * task 2100/db/migrations/20260825202930_main), so a sentinel used only to distinguish which
+   * ancestor's id `inheritedNavId()`/a cascade update resolved to must still be a row that exists,
+   * not a bare `randomUUID()` (which now fails the insert outright). Its `items` are never read by
+   * these tests, only its `id`.
+   */
+  async function createNavId(): Promise<string> {
+    const [nav] = await fixtures.db
+      .insert(navigationTable)
+      .values({ siteId: fixtures.siteId, items: [] })
+      .returning({ id: navigationTable.id })
+    return nav!.id
+  }
 
   const items: NavigationItem[] = [
     { id: 'a', type: 'link', label: 'Everyone', target: '/everyone' },
@@ -1641,7 +1829,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     test("exactly one overriding ancestor: resolves to that ancestor's navigationId", async () => {
-      const overrideNavId = randomUUID()
+      const overrideNavId = await createNavId()
       const folder = await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'override-branch',
@@ -1681,7 +1869,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     test('two overriding/hiding ancestors at different depths: the nearer one wins', async () => {
-      const farNavId = randomUUID()
+      const farNavId = await createNavId()
       await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'levels',
@@ -1712,7 +1900,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     test('a sibling subtree that overrides does not affect a page under a different branch', async () => {
-      const siblingNavId = randomUUID()
+      const siblingNavId = await createNavId()
       await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'branch-a',
@@ -1766,9 +1954,9 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
             path: slug,
             type: 'folder',
             navigationMode: priorMode,
-            navigationId: priorMode === 'override' ? randomUUID() : null
+            navigationId: priorMode === 'override' ? await createNavId() : null
           })
-          const sentinelNavId = randomUUID()
+          const sentinelNavId = await createNavId()
           const child = await seedTreeEntry(fixtures.db, {
             siteId: fixtures.siteId,
             path: `${slug}/child`,
@@ -1883,7 +2071,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         type: 'folder'
       })
 
-      const nearerOverrideNavId = randomUUID()
+      const nearerOverrideNavId = await createNavId()
       const nearerOverride = await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'cascade-b-root/branch/nearer-override',
@@ -1891,14 +2079,14 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         navigationMode: 'override',
         navigationId: nearerOverrideNavId
       })
-      const belowOverrideSentinel = randomUUID()
+      const belowOverrideSentinel = await createNavId()
       const belowOverride = await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'cascade-b-root/branch/nearer-override/child',
         type: 'folder',
         navigationId: belowOverrideSentinel
       })
-      const deeperBelowOverrideSentinel = randomUUID()
+      const deeperBelowOverrideSentinel = await createNavId()
       const deeperBelowOverride = await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'cascade-b-root/branch/nearer-override/child/grandchild',
@@ -1912,7 +2100,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         navigationMode: 'hide',
         navigationId: null
       })
-      const belowHideSentinel = randomUUID()
+      const belowHideSentinel = await createNavId()
       const belowHide = await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'cascade-b-root/branch/nearer-hide/child',
@@ -1973,7 +2161,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     test('(c) switching a cascading entry back to inherit hands its descendants to the next ancestor up, respecting nearer overrides beneath it', async () => {
-      const rootNavId = randomUUID()
+      const rootNavId = await createNavId()
       const root = await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'cascade-c-root',
@@ -1981,7 +2169,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         navigationMode: 'override',
         navigationId: rootNavId
       })
-      const midNavId = randomUUID()
+      const midNavId = await createNavId()
       // -> `mid` starts out cascading in its own right (mode 'override'); `child`/`grandchild` below
       //    it hold `midNavId` because a prior cascade from `mid` put it there.
       const mid = await seedTreeEntry(fixtures.db, {
@@ -2002,7 +2190,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'cascade-c-root/mid/child/grandchild',
         navigationId: midNavId
       })
-      const nearerOverrideNavId = randomUUID()
+      const nearerOverrideNavId = await createNavId()
       const nearerOverride = await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'cascade-c-root/mid/nearer-override',
@@ -2069,14 +2257,14 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'cascade-d-root',
         type: 'folder'
       })
-      const siblingSentinel = randomUUID()
+      const siblingSentinel = await createNavId()
       const sibling = await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'cascade-d-sibling',
         type: 'folder',
         navigationId: siblingSentinel
       })
-      const siblingChildSentinel = randomUUID()
+      const siblingChildSentinel = await createNavId()
       const siblingChild = await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'cascade-d-sibling/leaf',
@@ -2114,7 +2302,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'cascade-e-root/branch',
         type: 'folder'
       })
-      const assetSentinel = randomUUID()
+      const assetSentinel = await createNavId()
       const asset = await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'cascade-e-root/branch/image',

@@ -2,9 +2,9 @@ import crypto from 'node:crypto'
 import { and, count, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import { uniq } from 'es-toolkit/array'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
-import { CustomError } from '../helpers/common.ts'
+import { CustomError, normalizePagePath } from '../helpers/common.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
-import { resolveSiteRule } from '../helpers/siteRules.ts'
+import { resolveSiteRule, ruleMatchesSite } from '../helpers/siteRules.ts'
 import type { SystemIds } from './types.ts'
 import type { FastifyRequest } from 'fastify'
 
@@ -16,15 +16,45 @@ export const SYSTEM_PERMISSION = 'manage:system'
  * (OpenProject #1079): it does not read `path` at all, and matches page metadata that survives a
  * move/rename rather than the page's address -- see `classifications` on `GroupRule` and
  * `ruleMatchesPage` in `helpers/pageRules.ts`.
+ *
+ * A runtime `as const` array rather than a bare union (no `enum` -- erasable syntax only, see
+ * CLAUDE.md's TypeScript section) so `api/schemas/group.ts`'s `GroupRule#` JSON Schema can import
+ * this instead of restating the member list: the two used to drift (OpenProject #2116 -- the schema's
+ * `match` enum was missing `CLASSIFICATION` entirely, so any request creating such a rule failed
+ * validation with a 400), and `models/groups.test.ts` pins the two lists staying equal so that can't
+ * happen silently again the next time a match kind is added.
  */
-export type GroupRuleMatch =
-  | 'START'
-  | 'END'
-  | 'REGEX'
-  | 'TAG'
-  | 'TAGALL'
-  | 'EXACT'
-  | 'CLASSIFICATION'
+export const GROUP_RULE_MATCH_KINDS = [
+  'START',
+  'END',
+  'REGEX',
+  'TAG',
+  'TAGALL',
+  'EXACT',
+  'CLASSIFICATION'
+] as const
+
+export type GroupRuleMatch = (typeof GROUP_RULE_MATCH_KINDS)[number]
+
+/**
+ * Every `GroupRuleMatch` member, derived from the type rather than restated as a bare array.
+ * `api/schemas/group.ts`'s ajv `enum` needs a literal array -- ajv cannot read a TS union -- so this
+ * is that array's single source of truth. The `Record<GroupRuleMatch, true>` literal is what pins the
+ * two together: TypeScript's excess-property check on an object literal rejects both a missing member
+ * and an extra one, so adding (or renaming) a `GroupRuleMatch` member without updating this literal is
+ * a compile error rather than a silently-out-of-sync ajv enum -- which is exactly the drift task 2116
+ * found (`CLASSIFICATION` was added to the type but never to the schema's `enum`).
+ */
+const GROUP_RULE_MATCH_MEMBERS: Record<GroupRuleMatch, true> = {
+  START: true,
+  END: true,
+  REGEX: true,
+  TAG: true,
+  TAGALL: true,
+  EXACT: true,
+  CLASSIFICATION: true
+}
+export const GROUP_RULE_MATCH_VALUES = Object.keys(GROUP_RULE_MATCH_MEMBERS) as GroupRuleMatch[]
 
 /** Whether a matching rule grants, denies, or unconditionally grants its roles. */
 export type GroupRuleMode = 'ALLOW' | 'DENY' | 'FORCEALLOW'
@@ -141,19 +171,27 @@ const groupSelection = {
  * `allowedClassifications`, when present, is the same key's per-level classification allow-set
  * (OpenProject #1205, replacing the earlier #1055 single-value ceiling) — a page permission is never
  * granted on a page whose classification is not in this set, regardless of what the groups' rules
- * say. Checked by `checkAccess()` only: it is page-blind everywhere else
- * (`mayHoldPermissionSomewhere()`, `checkSiteAccess()`) so there is no single page's classification to
- * compare the allow-set against.
+ * say, and regardless of `manage:system` (OpenProject #2119: checked ABOVE that bypass, not below
+ * it — a credential narrowing is not a page rule, and an administrator opting a token into this is
+ * asking for it to hold even over their own admin rights). Checked by `checkAccess()` only: it is
+ * page-blind everywhere else (`mayHoldPermissionSomewhere()`, `checkSiteAccess()`) so there is no
+ * single page's classification to compare the allow-set against — see `mayHoldPermissionSomewhere()`'s
+ * own doc comment for why widening there is safe rather than an oversight.
  *
- * `siteId`, when present, is the same key's own site pin (`ApiKeyIdentity.siteId`,
- * `models/apiKeys.ts`) — `null`/absent means instance-wide (a session, or an unpinned key).
+ * `siteId`, when present and non-null, is an API key's own site pin (`ApiKeyIdentity.siteId`,
+ * `models/apiKeys.ts`) — undefined/null means unrestricted (a session, or an instance-wide key).
  * OpenProject #2189/#2199: this is the engine-level half of the site-pin fix, closing
  * `checkAccess()`/`checkSiteAccess()` themselves rather than relying only on the routing-layer
- * `preHandler` (`helpers/apiKeySite.ts#apiKeySitePinHook`) to have already refused a
- * mismatched `:siteId`. Checked the same way `allowedClassifications` is: a ref whose own `siteId`
- * disagrees with the pin is refused before `manage:system` is even consulted, for the identical
- * reason -- a site pin is the administrator's own choice at mint time, not a page rule
- * `manage:system` is entitled to override.
+ * `preHandler` (`helpers/apiKeySite.ts#apiKeySitePinHook`) to have already refused a mismatched
+ * `:siteId`. Unlike `scope`/`allowedClassifications`, this is not a narrowing consulted alongside the
+ * pooled rules: it is a hard boundary `checkAccess()` and `checkSiteAccess()` enforce BEFORE any rule
+ * is resolved, refusing outright a `RulePageRef`/site id that differs from the pin — for the identical
+ * reason the classification allow-set sits above `manage:system`, since a site pin is the
+ * administrator's own choice at mint time, not a page rule `manage:system` is entitled to override.
+ * Where the matching groups' rules carry an empty `rule.sites` (the default, granting every site),
+ * nothing else inside the engine holds a pinned credential inside its own site — this is what closes
+ * that gap centrally, rather than relying on every route to re-derive and check a `:siteId` path
+ * parameter itself.
  */
 export interface AccessActor {
   groupIds: string[]
@@ -283,7 +321,8 @@ class Groups {
       //    if any -- see the `AccessActor.scope` doc comment for what this gates.
       scope: req.apiKey?.scope ?? null,
       allowedClassifications: req.apiKey?.allowedClassifications ?? null,
-      // -> Same treatment: a session has no site pin, only an API key can carry one
+      // -> A session has no site pin either (null = unrestricted); an API key's own pin, if any -- see
+      //    the `AccessActor.siteId` doc comment for the hard boundary this enforces (OpenProject #2199).
       siteId: req.apiKey?.siteId ?? null
     }
   }
@@ -362,18 +401,18 @@ class Groups {
    */
   checkAccess(actor: AccessActor, permission: string, page: RulePageRef): boolean {
     /*
-      OpenProject #1205 (replacing the earlier #1055 single-value ceiling): a classification-scoped
-      key/token may never be granted a page permission on a page whose classification is not in its
-      `allowedClassifications` allow-set, regardless of what its groups' rules say, and regardless of
-      whether the identity also happens to hold `manage:system` -- checked ahead of the
-      `manage:system` bypass below on purpose. A credential narrowing is not a page rule an
-      administrator can override by fiat; it is the administrator's OWN choice, made when the
-      key/token was minted, and an administrator opting into a classification-scoped credential is
-      asking for it to actually hold. Skipped when the page's own classification is unknown (`null`
-      — an asset, a folder, a not-yet-existing page) rather than treated as a denial: there is
-      nothing to compare the allow-set against, and this is a narrowing on top of the rules, not a
-      rule itself, so it has no fail-closed obligation of its own the way a CLASSIFICATION rule
-      match does in `helpers/pageRules.ts`.
+      OpenProject #2119 (moved above the `manage:system` short-circuit below; was #1205, replacing the
+      earlier #1055 single-value ceiling): checked ABOVE the `manage:system` bypass below,
+      deliberately -- a classification-scoped key/token may never be granted a page permission on a
+      page whose classification is not in its `allowedClassifications` allow-set, regardless of what
+      its groups' rules say, AND regardless of whether the holder is an administrator. A credential
+      narrowing is not a page rule an administrator overrides by virtue of being an administrator: an
+      admin who mints a classification-scoped token is asking for that scope to hold even over their
+      own admin rights, so this has to sit ahead of the bypass below, not behind it. Skipped when the
+      page's own classification is unknown (`null` — an asset, a folder, a not-yet-existing page)
+      rather than treated as a denial: there is nothing to compare the allow-set against, and this is a
+      narrowing on top of the rules, not a rule itself, so it has no fail-closed obligation of its own
+      the way a CLASSIFICATION rule match does in `helpers/pageRules.ts`.
     */
     if (
       actor.allowedClassifications != null &&
@@ -409,29 +448,59 @@ class Groups {
   }
 
   /**
-   * Whether this actor holds any of these page permissions ANYWHERE — deliberately coarse and
-   * path-blind, for a caller that spans many pages at once (search is the only one today) and so
-   * has no single page to ask `checkAccess()` about.
+   * Whether this actor holds any of these page permissions ANYWHERE ON A SITE — deliberately coarse
+   * and path-blind, for a caller that spans many pages at once (the search route's
+   * `includeDrafts`/`hideProtectedContent` switches; the icon picker's access gate, `api/icons.ts`)
+   * and so has no single page to ask `checkAccess()` about.
+   *
+   * Site-scoped, unlike path: `siteId` is filtered the same fail-closed way
+   * `helpers/pageRules.ts#ruleMatchesPage` filters a rule against one page's site — a rule whose own
+   * `sites` is non-empty and does not name `siteId` is not counted, so a rule scoped to site A no
+   * longer reads as "holds it somewhere" for a question asked about site B. An empty `sites` still
+   * matches every site, same as everywhere else `rule.sites` is read. Pass `null` only when the
+   * caller itself has no one site to ask about — `api/icons.ts`'s `mayUseIconPicker()` is the only
+   * one today, since `/_api/icons` is not a site-scoped route — which skips the `sites` filter
+   * entirely, same as before this method took a site at all.
    *
    * Page permissions are granted by rules, not by the group-wide `permissions` list (same caveat as
    * `checkAccess()` above) — so this pools every rule across the actor's groups and asks whether any
-   * non-DENY one grants the permission somewhere, rather than reading `actor.permissions` for a page
-   * permission's name, which it never legitimately holds.
+   * non-DENY, site-matching one grants the permission somewhere, rather than reading
+   * `actor.permissions` for a page permission's name, which it never legitimately holds.
    *
    * Ignoring DENY (rather than resolving each rule the way `checkAccess()` does) is deliberate: the
    * question here is "is this actor generally the kind of person who holds `permission`", not "may
    * they use it on a particular page" — a rule that denies it under one subtree does not change the
    * answer for the rest of the site.
    *
-   * @param siteId (OpenProject #2162) The site the answer is being asked FOR, or `null` when the
-   *   caller genuinely has none (the icon picker's `mayUseIconPicker()` is the one caller today —
-   *   it is asking "is this actor generally an author anywhere on the instance", not about one
-   *   site). A concrete `siteId` applies the same `rule.sites` match filter `ruleMatchesPage()`
-   *   applies for a real page: a rule scoped to other sites only does not count. `null` applies NO
-   *   site filter at all — every rule counts, regardless of its own `sites` list — which is the
-   *   opposite of `ruleMatchesPage()`'s fail-closed treatment of an unknown site on purpose: there
-   *   this is a narrowing applied to a concrete page whose site really is unknown, whereas here
-   *   `null` means the question itself is legitimately global, not that the site is unknown.
+   * `siteId`, unlike `path`, is NOT blind by design (OpenProject #2146/#2162): everywhere else
+   * `rule.sites` is a fail-closed match filter (`helpers/pageRules.ts`'s `ruleMatchesPage`,
+   * `helpers/siteRules.ts`'s `ruleMatchesSite`, reused below) — skipping it here let an actor whose
+   * only `write:pages` rule was scoped to one site read as a writer for every other site it could
+   * search at all, unlocking that other site's drafts and password-protected excerpts. Pass `null`
+   * only when the caller genuinely has no site to ask about, the way the icon picker doesn't — icon
+   * sets are instance-wide, not per-site (see CLAUDE.md's Icons section) — which reproduces the old,
+   * always-site-blind behaviour for that one caller rather than silently narrowing it to nothing.
+   *
+   * OpenProject #2121: unlike `checkAccess()` (#2119), the `manage:system` short-circuit below is NOT
+   * narrowed by `allowedClassifications`, and that is a decision, not an oversight — this method has
+   * no page ref to compare the allow-set against (it is path- and page-blind by design, see above), so
+   * the only options were widen (answer as if unrestricted) or refuse outright for any actor carrying
+   * a non-null allow-set. Widening was chosen because every caller re-checks per row against a real
+   * page with `checkAccess()` before that page's content is ever exposed, making this method's answer
+   * a cheap upstream hint rather than the actual gate: `api/pages.ts`'s search route uses it only to
+   * decide the coarse `includeDrafts`/`hideProtectedContent` flags, while the page-by-page visibility
+   * filter every search backend applies (each `modules/search/<engine>/search.ts`'s own `visible`
+   * filter) already calls `checkAccess(actor, 'read:pages', ...)` per candidate — so a
+   * classification-restricted actor
+   * still never sees a page outside its allow-set in a result, regardless of what this method answered
+   * upstream. `mcp/auth.ts`'s `maySeeEverything()` mirrors that same search route. `api/icons.ts`'s
+   * `mayUseIconPicker()` is the other caller, and gates something un-classified in the first place (an
+   * icon search/materialize call, not a page read) — there is no page for the allow-set to narrow at
+   * all. Refusing here instead would only make a classification-scoped actor's coarse pre-filter more
+   * conservative than it needs to be, with no security difference, since the per-row check downstream
+   * still holds the real line.
+   *
+   * @param siteId The site to scope the answer to, or `null` for a caller with no site in play at all
    */
   mayHoldPermissionSomewhere(
     actor: AccessActor,
@@ -461,16 +530,24 @@ class Groups {
     //    grant) or no real security benefit, since actual content access is always re-checked
     //    per-page by `checkAccess()`, which DOES apply the narrowing correctly. Leaving this
     //    method coarse and letting `checkAccess()` be the sole enforcement point is the considered
-    //    choice, not an oversight.
+    //    choice, not an oversight. If a future caller ever uses this as the SOLE gate before
+    //    returning page content — with no per-page `checkAccess()`/`mayOnPage()` following it —
+    //    that caller is not safe under this decision and needs its own page-blind classification
+    //    narrowing (or a per-row check) added.
     const inScope = permissions.filter((permission) => this.withinScope(actor, permission))
     if (inScope.length === 0) {
       return false
     }
     const rules = this.rulesForGroups(actor.groupIds).filter(
-      (rule) => siteId === null || !rule.sites?.length || rule.sites.includes(siteId)
+      (rule) => siteId == null || ruleMatchesSite(rule, siteId)
     )
     return inScope.some((permission) =>
-      rules.some((rule) => rule.mode !== 'DENY' && rule.roles.includes(permission))
+      rules.some(
+        (rule) =>
+          rule.mode !== 'DENY' &&
+          rule.roles.includes(permission) &&
+          (siteId === null || rule.sites.length === 0 || rule.sites.includes(siteId))
+      )
     )
   }
 
@@ -493,6 +570,10 @@ class Groups {
     // -> Above the rules entirely, same guard as checkAccess()
     if (actor.permissions.includes('manage:system')) {
       return true
+    }
+    // -> Same site-pin boundary as checkAccess() (OpenProject #2199), checked ahead of the rules.
+    if (actor.siteId != null && siteId !== actor.siteId) {
+      return false
     }
     if (!this.withinScope(actor, permission)) {
       return false
@@ -662,10 +743,32 @@ class Groups {
   async updateGroup(id: string, patch: GroupPatch): Promise<boolean> {
     const result = await WIKI.db
       .update(groupsTable)
-      .set({ ...this.clampGuestPatch(id, patch), updatedAt: sql`now()` })
+      .set({ ...this.clampGuestPatch(id, this.normalizeRulePaths(patch)), updatedAt: sql`now()` })
       .where(eq(groupsTable.id, id))
     await this.broadcastReload()
     return (result.rowCount ?? 0) > 0
+  }
+
+  /**
+   * Belt and braces alongside `helpers/pageRules.ts#ruleMatchesPage`'s own case-fold (OpenProject
+   * #2182): fold a rule's `path` through the same normalization a page's own path is stored under
+   * (`normalizePagePath`), for the match kinds that compare directly against it. TAG/TAGALL already
+   * lowercase their own comma list at match time (`helpers/pageRules.ts#ruleTags`); REGEX addresses a
+   * pattern rather than a literal path, and CLASSIFICATION does not read `path` at all -- both are
+   * left untouched here for the same reason `ruleMatchesPage` leaves REGEX out of its fold.
+   */
+  private normalizeRulePaths(patch: GroupPatch): GroupPatch {
+    if (!patch.rules) {
+      return patch
+    }
+    return {
+      ...patch,
+      rules: patch.rules.map((rule) =>
+        rule.match === 'START' || rule.match === 'END' || rule.match === 'EXACT'
+          ? { ...rule, path: normalizePagePath(rule.path) }
+          : rule
+      )
+    }
   }
 
   /**

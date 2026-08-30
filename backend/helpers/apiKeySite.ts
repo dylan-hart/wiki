@@ -22,11 +22,22 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
  * ```
  *
  * Most of the `/sites/:siteId/...` REST surface never calls this directly any more — `apiKeySitePinHook`
- * below is registered once, globally, in `index.ts` and covers all of it. This stays exported, and is
+ * below is registered once, globally, in `index.ts` and covers all of it. It stays exported, and is
  * still called explicitly, for the handful of routes that resolve their site some other way than a
- * `:siteId` path parameter — a hostname (`controllers/files.ts`, `controllers/site.ts`,
- * `controllers/render.ts`) or a request body — which the params-only hook cannot see (OpenProject
- * #2201).
+ * `:siteId` path parameter under that hook's prefix:
+ *   - `req.hostname` (`controllers/files.ts`, `controllers/site.ts`, `controllers/render.ts` —
+ *     OpenProject #2201), where the route has to resolve the real site itself before this can run;
+ *   - a site id named in the request *body*, used by every `manage:system`-gated admin route that
+ *     creates or exports something scoped to one site (`api/hooks.ts`'s webhook create/update,
+ *     `api/apiKeys.ts`'s admin-issued key create, `api/system.ts`'s `/export`) — deliberately left
+ *     *uncalled*, not merely unenumerated: `manage:system` already bypasses every other authorization
+ *     check in this codebase (see CLAUDE.md's Permissions section), so pinning would be enforced only
+ *     on this one action a `manage:system` key can take and nowhere else it matters just as much — an
+ *     inconsistent partial boundary rather than a real one. Each such route carries a comment pointing
+ *     back here instead of a call.
+ *
+ * `mcp/auth.ts`'s `assertSiteInScope` re-implements the same check rather than calling this, since it
+ * throws instead of writing a Fastify reply.
  */
 export function enforceApiKeySite(
   req: FastifyRequest,
@@ -60,7 +71,9 @@ const SITE_SCOPED_API_PREFIX = '/_api/sites/'
  * in one place (OpenProject #2194), rather than the one-liner-per-route approach that produced the gap
  * this closes: `enforceApiKeySite()` above was invoked at exactly two of 117+ call sites before this
  * existed. Registered once in `index.ts`, beside the permissions hook, so a route added later under
- * `SITE_SCOPED_API_PREFIX` is covered automatically rather than by remembering to add a call.
+ * `SITE_SCOPED_API_PREFIX` is covered automatically rather than by remembering to add a call. Routes
+ * with no `:siteId` param under that prefix are untouched, matching `enforceApiKeySite`'s own "no
+ * opinion when there is nothing to check" behavior for a request with no API key at all.
  *
  * Cheap on the overwhelming majority of requests: an unpinned key (`req.apiKey.siteId` null, or no key
  * at all — session auth, or none) returns before even looking at the URL.

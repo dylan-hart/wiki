@@ -20,9 +20,8 @@ import {
   storage as storageTable
 } from '../db/schema.ts'
 import { and, eq } from 'drizzle-orm'
-import { CustomError } from '../helpers/common.ts'
+import { CustomError, normalizeHostname } from '../helpers/common.ts'
 import { detectImageMime, detectSvg, normalizeImage, svgMimeType } from '../helpers/images.ts'
-import { normalizeHostname } from '../helpers/common.ts'
 import type { ImageNormalization } from '../helpers/images.ts'
 import type { SystemIds } from './types.ts'
 

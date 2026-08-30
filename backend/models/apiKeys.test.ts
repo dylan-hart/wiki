@@ -561,7 +561,10 @@ describe(
 
       assert.equal(groupsModel.checkAccess(actor, 'read:pages', page), true)
       assert.equal(groupsModel.checkAccess(actor, 'write:pages', page), false)
-      assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], null), false)
+      assert.equal(
+        groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], fixtures.siteId),
+        false
+      )
     })
   }
 )

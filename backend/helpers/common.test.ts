@@ -347,7 +347,36 @@ const sitesMappings: Record<string, string> = {
 const NO_EXEMPT_SEGMENTS = new Set<string>()
 const LOGIN_EXEMPT = new Set(['login'])
 
+describe('normalizeHostname', () => {
+  test('lowercases every character', () => {
+    assert.equal(normalizeHostname('Wiki.Example.Com'), 'wiki.example.com')
+  })
+
+  test('leaves an already-lowercase hostname unchanged', () => {
+    assert.equal(normalizeHostname('wiki.example.com'), 'wiki.example.com')
+  })
+})
+
 describe('resolveRequestSite', () => {
+  test('resolves a mixed-case hostname to the same site as its lowercase form (OpenProject #2140)', () => {
+    const lower = resolveRequestSite({
+      firstSegment: 'some-page',
+      hostname: 'wiki.example.com',
+      sitesMappings,
+      sites,
+      exemptSegments: NO_EXEMPT_SEGMENTS
+    })
+    const mixed = resolveRequestSite({
+      firstSegment: 'some-page',
+      hostname: 'Wiki.Example.Com',
+      sitesMappings,
+      sites,
+      exemptSegments: NO_EXEMPT_SEGMENTS
+    })
+    assert.deepEqual(mixed, lower)
+    assert.deepEqual(mixed, { outcome: 'ok', site: sites[ENABLED_SITE_ID] })
+  })
+
   test('resolves an enabled site to "ok" with the site attached', () => {
     const result = resolveRequestSite({
       firstSegment: 'some-page',

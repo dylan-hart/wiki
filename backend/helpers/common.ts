@@ -220,9 +220,9 @@ export type RequestSiteResolution =
  * Decide what a page/shell request's hostname resolves to, and whether the request should be let
  * through at all.
  *
- * Mirrors the SEO hook's precedence in `index.ts` exactly — `sitesMappings[hostname] ||
- * sitesMappings['*']` — so a request sees the same site the SEO hook already used to decide whether
- * to strip a page extension.
+ * Mirrors the SEO hook's precedence in `index.ts` exactly — `sitesMappings[normalizeHostname(hostname)]
+ * || sitesMappings['*']` — so a request sees the same site the SEO hook already used to decide
+ * whether to strip a page extension.
  *
  * `exemptSegments` is the caller's list of first path segments that must reach the app shell
  * regardless of what the hostname resolves to — the fix path for a disabled or unmatched site has to

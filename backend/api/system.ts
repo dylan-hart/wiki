@@ -1353,13 +1353,8 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> OpenProject #2201: siteId comes from the body, not `req.params`, so the global
-      //    preHandler in `index.ts` (which only reads `req.params.siteId`) never sees it -- this
-      //    route has to enforce the pin itself, the same way `enforceApiKeySite()`'s other direct
-      //    call sites do.
-      if (!enforceApiKeySite(req, reply, req.body.siteId)) {
-        return
-      }
+      // -> `siteId` here is a body field, not `req.params.siteId`, and this route is `manage:system`
+      //    only -- no `enforceApiKeySite()` call; see `helpers/apiKeySite.ts`'s doc comment for why.
       const added = await WIKI.scheduler.addJob({
         task: 'exportContent',
         payload: { siteId: req.body.siteId }

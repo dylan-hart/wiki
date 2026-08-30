@@ -132,14 +132,12 @@ function ruleTags(rule: GroupRule): string[] {
 }
 
 /**
- * Compared without leading slashes on either side, since neither is stored with one, and
- * lowercased — page paths are always stored lowercased (`helpers/common.ts#normalizePagePath`,
- * and `sanitizeFileName` likewise for assets), so a rule authored with any uppercase character
- * would otherwise never match what it was written to address. Locale and tag comparisons already
- * fold case the same way; this brings path comparison in line with them.
+ * Compared without leading slashes on either side, since neither is stored with one. Case is left
+ * untouched here — REGEX must see the pattern and path exactly as written (see below), and
+ * START/EXACT/END fold case themselves via `pagePathLower`/`rulePathLower` in `ruleMatchesPage`.
  */
 function normalizePath(value: string): string {
-  return value.replace(/^\/+/, '').toLowerCase()
+  return value.replace(/^\/+/, '')
 }
 
 /**
@@ -183,15 +181,22 @@ export function ruleMatchesPage(rule: GroupRule, page: RulePageRef): boolean {
 
   const pagePath = normalizePath(page.path)
   const rulePath = normalizePath(rule.path)
+  // -> Page paths are always stored lowercased (`normalizePagePath`), so START/EXACT/END compare
+  //    lowercased on both sides -- matching the case-insensitivity locale and tag comparisons
+  //    already have (OpenProject #2182). REGEX is deliberately excluded from this fold: it addresses
+  //    a pattern, not a literal path, and lowercasing it would silently rewrite an author's
+  //    intentional character class (`[A-Z]`).
+  const pagePathLower = pagePath.toLowerCase()
+  const rulePathLower = rulePath.toLowerCase()
   const pageTags = (page.tags ?? []).map((tag) => tag.toLowerCase())
 
   switch (rule.match) {
     case 'START':
-      return pagePath.startsWith(rulePath)
+      return pagePathLower.startsWith(rulePathLower)
     case 'EXACT':
-      return pagePath === rulePath
+      return pagePathLower === rulePathLower
     case 'END':
-      return pagePath.endsWith(rulePath)
+      return pagePathLower.endsWith(rulePathLower)
     case 'REGEX':
       try {
         // -> Deliberately NOT `rulePath`, and deliberately left OUT of the case-insensitive fold

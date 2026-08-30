@@ -1,6 +1,7 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { eq, sql } from 'drizzle-orm'
+import { randomUUID } from 'node:crypto'
+import { sql } from 'drizzle-orm'
 import {
   hasTestDatabase,
   setupTestDb,
@@ -9,7 +10,6 @@ import {
 } from '../../../test/db.ts'
 import { groups as groupsTable } from '../../../db/schema.ts'
 import type { PageActor, PageInput } from '../../../models/pages.ts'
-import type { GroupRule } from '../../../models/groups.ts'
 
 /**
  * Task #561 moved every bit of postgres full-text logic (`dictionaryForLocale`, `searchPages` ->
@@ -29,14 +29,12 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let pagesModel: typeof import('../../../models/pages.ts').pages
   let searchModel: typeof import('../../../models/search.ts').search
-  let groupsModel: typeof import('../../../models/groups.ts').groups
   let actor: PageActor
 
   before(async () => {
     fixtures = await setupTestDb()
     ;({ pages: pagesModel } = await import('../../../models/pages.ts'))
     ;({ search: searchModel } = await import('../../../models/search.ts'))
-    ;({ groups: groupsModel } = await import('../../../models/groups.ts'))
     actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
   })
 
@@ -250,99 +248,89 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #2151: `totalHits` used to be derived from the SQL window count corrected only for
-   * rows dropped from the CURRENT page, so a match on a page the actor could not read still
-   * inflated the total even when it never appeared in `results` — a count oracle. `limit=1` against
-   * a corpus with two matches, one denied, is the audit's own repro: before the fix this reported
-   * `totalHits: 1` (the correction only ever subtracted what was dropped from the single fetched
-   * row, so a distinct denied match elsewhere in the result set was still counted). `totalHits` must
-   * now never exceed the number of matches the actor can actually read, at every `limit`.
+   * OpenProject #2151: `totalHits` used to be `COUNT(*) OVER()` over the *unfiltered* text query,
+   * adjusted only by what `checkAccess` dropped from the single page already fetched — so a match
+   * outside that page, which the actor could never actually read, still inflated the count. This is
+   * most visible at `limit: 1`: three pages share the term below, but the actor may read only one of
+   * them, so `visible` (what `checkAccess` actually lets them see) is the true readable-matches
+   * count. The old arithmetic reported 2 or 3 there (`windowCount(3) - rows.length(1) +
+   * visible.length(0 or 1)`, depending only on which single row postgres's LIMIT happened to return)
+   * — always more than the one page this actor may see.
    */
-  test('totalHits never exceeds the number of readable matches, including at limit=1 (OpenProject #2151)', async () => {
+  test('totalHits never exceeds what the actor may actually read, even at limit: 1', async () => {
+    const readablePath = 'docs/bilby-public'
     await pagesModel.createPage(
       fixtures.siteId,
-      pageInput({
-        path: 'docs/wallaroo-public',
-        title: 'Wallaroo Public Notes',
-        content: '# Wallaroo\n\nEveryone may read this one.'
-      }),
+      pageInput({ path: readablePath, title: 'Bilby Public Notes' }),
       actor
     )
-    const secretPage = await pagesModel.createPage(
+    await pagesModel.createPage(
       fixtures.siteId,
-      pageInput({
-        path: 'docs/wallaroo-secret',
-        title: 'Wallaroo Secret Notes',
-        content: '# Wallaroo\n\nNobody but an admin may read this one.'
-      }),
+      pageInput({ path: 'docs/bilby-secret-a', title: 'Bilby Secret Notes A' }),
+      actor
+    )
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/bilby-secret-b', title: 'Bilby Secret Notes B' }),
       actor
     )
 
-    const rules: GroupRule[] = [
-      {
-        id: 'allow-all',
-        name: 'Allow all',
-        roles: ['read:pages'],
-        match: 'START',
-        mode: 'ALLOW',
-        path: '',
-        locales: [],
-        sites: []
-      },
-      {
-        id: 'deny-secret',
-        name: 'Deny secret',
-        roles: ['read:pages'],
-        match: 'EXACT',
-        mode: 'DENY',
-        path: secretPage.path,
-        locales: [],
-        sites: []
-      }
-    ]
-    await fixtures.db.update(groupsTable).set({ rules }).where(eq(groupsTable.id, fixtures.groupId))
-    await groupsModel.reloadCache()
+    // -> A group whose only rule grants `read:pages` on exactly `readablePath` — nothing grants it
+    //    on the other two, and nothing is granted by default (see `helpers/pageRules.ts`), so a
+    //    guest-like actor in only this group can read that one page and none of the others.
+    const [restrictedGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({
+        name: 'Bilby Readers',
+        permissions: [],
+        rules: [
+          {
+            id: randomUUID(),
+            name: 'Allow the public bilby page',
+            roles: ['read:pages'],
+            match: 'EXACT',
+            mode: 'ALLOW',
+            path: readablePath,
+            locales: [],
+            sites: []
+          }
+        ]
+      })
+      .returning({ id: groupsTable.id })
+    await WIKI.models.groups.reloadCache()
 
-    /** Denies `read:pages` on exactly the secret page, and allows everything else. */
     const restrictedActor: PageActor = {
       id: fixtures.userId,
-      groupIds: [fixtures.groupId],
+      groupIds: [restrictedGroup!.id],
       permissions: []
     }
 
-    // -> Sanity check: the restricted actor really can read one and not the other
-    assert.equal(
-      groupsModel.checkAccess(restrictedActor as any, 'read:pages', {
-        path: 'docs/wallaroo-public',
-        locale: 'en',
-        siteId: fixtures.siteId,
-        classification: null
-      }),
-      true
-    )
-    assert.equal(
-      groupsModel.checkAccess(restrictedActor as any, 'read:pages', {
-        path: secretPage.path,
-        locale: 'en',
-        siteId: fixtures.siteId,
-        classification: null
-      }),
-      false
+    const atLimitOne = await searchModel.query({
+      siteId: fixtures.siteId,
+      query: 'bilby',
+      actor: restrictedActor,
+      limit: 1
+    })
+    assert.equal(atLimitOne.totalHits, 1)
+    assert.equal(atLimitOne.results.length, 1)
+    assert.equal(atLimitOne.results[0]!.path, readablePath)
+
+    // -> Same actor, no `limit` narrowing the page fetched — the count must still reflect only the
+    //    one page they may read, not all three matches.
+    const unpaged = await searchModel.query({
+      siteId: fixtures.siteId,
+      query: 'bilby',
+      actor: restrictedActor
+    })
+    assert.equal(unpaged.totalHits, 1)
+    assert.deepEqual(
+      unpaged.results.map((r) => r.path),
+      [readablePath]
     )
 
-    for (const limit of [1, 10]) {
-      const result = await searchModel.query({
-        siteId: fixtures.siteId,
-        query: 'wallaroo',
-        actor: restrictedActor,
-        limit
-      })
-      assert.equal(result.totalHits, 1, `expected exactly 1 readable match at limit=${limit}`)
-      assert.ok(
-        result.results.every((r) => r.path !== secretPage.path),
-        'the denied page must never appear in results, at any limit'
-      )
-    }
+    // -> Sanity check: the unrestricted actor sees all three
+    const unrestricted = await searchModel.query({ siteId: fixtures.siteId, query: 'bilby' })
+    assert.equal(unrestricted.totalHits, 3)
   })
 
   /**

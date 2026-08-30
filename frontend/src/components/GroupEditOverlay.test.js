@@ -317,6 +317,23 @@ describe('GroupEditOverlay rule editor: manage:classification permission', () =>
   })
 })
 
+/**
+ * OpenProject #2182: START/END/EXACT compare `path` directly against a page path, which is always
+ * stored lowercased -- typing an uppercase character there would save a rule that can never match
+ * (silently, for a DENY). The rule path input folds to lowercase as the administrator types, for
+ * these match kinds, rather than only rejecting the mismatch on save.
+ */
+describe('GroupEditOverlay rule editor: path case-folding (OpenProject #2182)', () => {
+  it('lowercases what is typed into the path field for a START rule', async () => {
+    const wrapper = await mountRulesSection('22222222-2222-4222-8222-222222222222')
+
+    const input = wrapper.find('[aria-label="admin.groups.rulePath"]')
+    await input.setValue('HR/Salaries')
+
+    expect(input.element.value).toBe('hr/salaries')
+  })
+})
+
 describe('GroupEditOverlay assignUser partial failure', () => {
   it('assigns the successes, reports the failure by name+reason, and refetches true membership', async () => {
     const wrapper = await mountWithGroup()

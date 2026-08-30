@@ -67,7 +67,7 @@ describe(
     test('listRecoverable lists the newest deleted version for a path with no live page', async () => {
       const page = await pagesModel.createPage(
         fixtures.siteId,
-        pageInput({ path: 'docs/recoverable-one', title: 'First Title' }),
+        pageInput({ path: 'docs/recoverable-one', title: 'First Title', tags: ['keep-me'] }),
         actor
       )
       await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Second Title' }, actor)
@@ -79,6 +79,13 @@ describe(
       assert.equal(entry!.action, 'deleted')
       assert.equal(entry!.title, 'Second Title')
       assert.equal(entry!.locale, 'en')
+      // -> OpenProject #2168: tags/classification are carried so a caller can run `mayOnPage()`
+      //    against the deleted path with a TAG/TAGALL/CLASSIFICATION rule, and the author's email is
+      //    left out of this row's shape entirely (unlike `list()`'s single-page history), since this
+      //    listing spans every deleted path on the site in one sweep.
+      assert.deepEqual(entry!.tags, ['keep-me'])
+      assert.ok(entry!.classification, 'a page always has a classification')
+      assert.ok(entry!.author.name, 'the author name is still carried, unlike the email')
     })
 
     test('listRecoverable carries tags/classification and no author email (OpenProject #2168)', async () => {
@@ -352,6 +359,25 @@ describe(
         all: 1,
         total: { editor: 2, mcp: 0, all: 2 }
       })
+    })
+
+    test('getDeletedVersion returns the tags and classification the page held when deleted', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/deleted-version-fields', tags: ['tagged'] }),
+        actor
+      )
+      await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = recoverable.find((row) => row.path === 'docs/deleted-version-fields')
+      assert.ok(entry)
+
+      const version = await pageHistoryModel.getDeletedVersion(fixtures.siteId, entry!.id)
+      assert.ok(version)
+      assert.equal(version!.path, 'docs/deleted-version-fields')
+      assert.deepEqual(version!.tags, ['tagged'])
+      assert.ok(version!.classification, 'a page always has a classification')
     })
 
     test('recoverDeletedPage refuses an unknown or non-deleted version id', async () => {

@@ -76,7 +76,7 @@
   "admin.api.newKeyScopeHint": "Narrow the key to just these permissions. Leave empty to grant the full permissions of the selected groups.",
   "admin.api.newKeySite": "Site",
   "admin.api.newKeySiteAllSites": "All Sites",
-  "admin.api.newKeySiteHint": "Pin the key to a single site, or leave as All Sites for instance-wide access.",
+  "admin.api.newKeySiteHint": "Pin the key to a single site so it is refused on every other site, or leave as All Sites for instance-wide access.",
   "admin.api.newKeySuccess": "API key created successfully.",
   "admin.api.newKeyTitle": "New API Key",
   "admin.api.noKeyInfo": "No API keys have been generated yet.",

@@ -1,10 +1,16 @@
+import { GROUP_RULE_MATCH_VALUES } from '../../models/groups.ts'
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
    * GROUP RULE - A single page rule within a group
+   *
+   * Built as a variable, rather than inline in the `addSchema()` call below, purely so the
+   * `if`/`then` JSON-Schema keywords (added via bracket assignment further down) can be attached
+   * without an object literal spelling out a `then` property -- oxlint's `unicorn/no-thenable` flags
+   * that shape on sight, even though this is plain JSON Schema and no `await` ever sees the object.
    */
-  app.addSchema({
+  const groupRuleSchema: Record<string, unknown> = {
     $id: 'GroupRule',
     type: 'object',
     required: ['id', 'name', 'roles', 'match', 'mode', 'path'],
@@ -28,8 +34,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       match: {
         type: 'string',
         description:
-          'How `path` is compared against the page path. CLASSIFICATION addresses page metadata instead of path -- see `classifications`.',
-        enum: ['START', 'END', 'REGEX', 'TAG', 'TAGALL', 'EXACT', 'CLASSIFICATION']
+          "How `path` is compared against the page path. CLASSIFICATION is the odd one out: it ignores `path` entirely and matches a page's `classification` against `classifications` instead — see GROUP_RULE_MATCH_VALUES in models/groups.ts, which this enum is generated from.",
+        enum: GROUP_RULE_MATCH_VALUES
       },
       mode: {
         type: 'string',
@@ -59,14 +65,38 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       classifications: {
         type: 'array',
         description:
-          'Classification level IDs this rule addresses. Read only when match is CLASSIFICATION.',
+          'Classification level IDs this rule addresses. Read only when `match` is CLASSIFICATION, the same way `path` is read as a comma list only for TAG/TAGALL.',
         items: {
           type: 'string',
           format: 'uuid'
         }
       }
     }
-  })
+  }
+  // -> START/END/EXACT compare `path` directly against a page path, which is always stored
+  //    lowercased (`normalizePagePath`) -- so a mixed-case rule could never match, and for a DENY
+  //    rule that failure is silent (OpenProject #2182). Rejected here at write time, on top of the
+  //    lowercasing fold in `models/groups.ts#updateGroup` and the case-insensitive comparison in
+  //    `helpers/pageRules.ts#ruleMatchesPage`. TAG/TAGALL read `path` as a comma list, REGEX as a
+  //    pattern that may deliberately use a character class like `[A-Z]`, and CLASSIFICATION does
+  //    not read `path` at all -- none of those are constrained.
+  groupRuleSchema['if'] = {
+    properties: {
+      match: { enum: ['START', 'END', 'EXACT'] }
+    },
+    required: ['match']
+  }
+  // -> Plain JSON Schema, not a thenable -- this object is only ever handed to `app.addSchema()`,
+  // never awaited.
+  // oxlint-disable-next-line unicorn/no-thenable
+  groupRuleSchema['then'] = {
+    properties: {
+      path: {
+        pattern: '^[^A-Z]*$'
+      }
+    }
+  }
+  app.addSchema(groupRuleSchema)
 
   /**
    * GROUP CORE - Essential fields only

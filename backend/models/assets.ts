@@ -128,6 +128,18 @@ export interface AssetAtPath extends Asset {
 }
 
 /**
+ * What `/_thumb/` needs to decide whether the requester may see an asset's preview, plus the bytes
+ * themselves: which site it belongs to, and the path/locale a page-rule check is written against.
+ */
+export interface AssetThumbnail {
+  siteId: string
+  folderPath: string
+  fileName: string
+  locale: string
+  preview: Buffer
+}
+
+/**
  * Reduce whatever a client called the file to something safe to store, address and serve.
  *
  * Any directory part is dropped — the folder comes from the request, never from the name — and what
@@ -700,24 +712,17 @@ class Assets {
   }
 
   /**
-   * An asset's thumbnail plus the metadata `controllers/thumb.ts` needs to authorize serving it
-   * (OpenProject #2178) — site, path and locale, joined from `tree` the same way `getAssetByPath()`
-   * above does, since the `assets` table itself carries neither path nor locale. Null when the asset
-   * has no thumbnail (the normal state for anything that is not an image, and for images uploaded
-   * while Sharp was unavailable) or does not exist at all — the caller cannot and must not tell the
-   * two apart, so both answer 404 the same way.
+   * An asset's thumbnail, together with what `/_thumb/` needs to decide who may see it — its site,
+   * path and locale, the same shape `getAssetByPath()` hands `/_files/` — or null when there is no
+   * such asset, or it has no thumbnail: the normal state for anything that is not an image, for
+   * images uploaded while Sharp was unavailable, or for one a storage target's `purge()` has nulled
+   * out.
    */
-  async getThumbnailForServing(id: string): Promise<{
-    preview: Buffer
-    siteId: string
-    folderPath: string
-    fileName: string
-    locale: string
-  } | null> {
+  async getThumbnail(id: string): Promise<AssetThumbnail | null> {
     const results = await WIKI.db
       .select({
-        preview: assetsTable.preview,
         siteId: assetsTable.siteId,
+        preview: assetsTable.preview,
         folderPath: treeTable.folderPath,
         fileName: treeTable.fileName,
         locale: treeTable.locale
@@ -731,11 +736,11 @@ class Assets {
       return null
     }
     return {
-      preview: row.preview,
       siteId: row.siteId,
       folderPath: decodeTreePath(row.folderPath ?? '') ?? '',
-      fileName: row.fileName ?? '',
-      locale: row.locale ?? ''
+      fileName: row.fileName,
+      locale: row.locale,
+      preview: row.preview
     }
   }
 

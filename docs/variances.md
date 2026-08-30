@@ -829,12 +829,18 @@ document also carries a `siteId` keyword field for this reason, alongside the fi
 explicitly.
 
 **OpenProject #2108 (2026-08-24 security audit, tenancy-isolation lens):** the same reasoning applies
-verbatim to `modules/search/aws-cloudsearch/search.ts`, which — alone among the five search modules —
-carried no `siteId` field, no filter clause and no scoping on `rebuild()`'s purge, on the (unenforced)
-assumption that a CloudSearch domain is always single-site. Fixed the same way: `buildIndexFields()`
-now provisions a filter-only `siteId` field, `toIndexDocument()` emits it, `buildFilterQuery()` applies
-it unconditionally, and `fetchAllIds()` takes a `siteId` so `rebuild()`'s purge can no longer delete
-another site's documents sharing the same domain.
+verbatim to `backend/modules/search/aws-cloudsearch/search.ts`: its `init()` provisions one CloudSearch
+domain per site, and its query client is built per site from that site's own stored `domain`/`endpoint`
+config, but nothing enforces that two sites' `domain`/`endpoint` config can't collide, since a site's
+`search.engines[key]` config is free-form and unchecked for uniqueness across sites — this module was
+the one holdout among the five search modules until #2108 closed the gap. `buildIndexFields()` now
+provisions a filter-only `siteId` field, `toIndexDocument()` emits it, `buildFilterQuery()` adds it as
+an unconditional term clause, and `fetchAllIds()` scopes the id lookup `rebuild()`'s purge diffs against
+by `siteId` too — mirroring `azure-search`'s own `fetchAllIds(client, siteId)`. Because a document
+indexed before the field existed carries no value for it, the purge additionally gates itself on
+`hasUnbackfilledDocuments()` returning clean — checked after that site's own reindex loop, so a single
+rebuild can complete both the backfill and the purge — rather than risk either silently orphaning such a
+document forever or wiping a neighbour site's still-unbackfilled pages.
 
 ## Feature 413 ("RTL support end-to-end")
 

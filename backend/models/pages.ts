@@ -1162,7 +1162,13 @@ class Pages {
       id,
       'updated',
       actor.id,
-      { title: updated.title, path: updated.path, locale: updated.locale },
+      {
+        title: updated.title,
+        path: updated.path,
+        locale: updated.locale,
+        classification: updated.classification,
+        tags: updated.tags
+      },
       changedFields
     )
 
@@ -1311,7 +1317,13 @@ class Pages {
       previous.id,
       'moved',
       actor.id,
-      { title: moved.title, path: moved.path, locale: moved.locale },
+      {
+        title: moved.title,
+        path: moved.path,
+        locale: moved.locale,
+        classification: moved.classification,
+        tags: moved.tags
+      },
       changedFields
     )
     await WIKI.models.search.renamed(siteId, rawMoved, previous.path, previous.locale)
@@ -1547,7 +1559,9 @@ class Pages {
     await this.notifyWatchers(siteId, id, 'deleted', actor.id, {
       title: page.title,
       path: page.path,
-      locale: page.locale
+      locale: page.locale,
+      classification: page.classification,
+      tags: page.tags
     })
 
     // -> One transaction: there is no FK from `tree.id` to `pages.id` (only `siteId` is a foreign
@@ -1607,6 +1621,27 @@ class Pages {
     if (entries.length < 1) {
       return
     }
+    // -> Same reasoning as `deletePage`'s own pre-delete read: `notifyWatchers()` needs each page's
+    //    classification/tags to re-check `read:pages` per watcher (OpenProject #2173), and `DeletedEntry`
+    //    carries neither (a folder deletion never loaded the page rows to begin with) — one bulk SELECT
+    //    for the whole batch, not one per entry, before the rows go.
+    const pageInfo = new Map(
+      (
+        await WIKI.db
+          .select({
+            id: pagesTable.id,
+            tags: pagesTable.tags,
+            classification: pagesTable.classification
+          })
+          .from(pagesTable)
+          .where(
+            inArray(
+              pagesTable.id,
+              entries.map((entry) => entry.id)
+            )
+          )
+      ).map((row) => [row.id, row])
+    )
     for (const entry of entries) {
       await WIKI.models.pageHistory.record({
         siteId,
@@ -1618,10 +1653,13 @@ class Pages {
       // -> Same ordering as `deletePage`, and for the same reason: still before the bulk delete below.
       //    `DeletedEntry` carries no title (a folder deletion never loaded the page rows to begin
       //    with), so the file name stands in for it, same as the path built for `page:delete` below.
+      const info = pageInfo.get(entry.id)
       await this.notifyWatchers(siteId, entry.id, 'deleted', actor.id, {
         title: entry.fileName,
         path: entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName,
-        locale: entry.locale
+        locale: entry.locale,
+        classification: info?.classification ?? null,
+        tags: info?.tags ?? []
       })
     }
     await WIKI.db.delete(pagesTable).where(
@@ -1970,6 +2008,12 @@ class Pages {
    * A failure to queue is logged and swallowed rather than thrown: a watcher not being told about a
    * change is a real loss, but it must never be the reason the change itself fails to save.
    *
+   * `pageWatching.listWatchers()` re-checks `read:pages` per watcher against the page's own live row
+   * (joined internally, OpenProject #2173) — `read:pages` used to be checked once, at subscribe time,
+   * and never again, so a watcher whose access has since been revoked (a raised classification, a move
+   * into a restricted branch, an edited group rule) would otherwise still be queued a notification
+   * carrying the page's title and a working link.
+   *
    * @param changedFields What `movePage`/`updatePage` already computed for `pageHistory.record` —
    *   `['path']`/`['title']` for a move, whichever page fields for an edit. Always empty for a delete.
    */
@@ -1978,7 +2022,13 @@ class Pages {
     pageId: string,
     action: PageWatchNotifiableAction,
     actorId: string,
-    page: { title: string; path: string; locale: string },
+    page: {
+      title: string
+      path: string
+      locale: string
+      classification: string | null
+      tags?: string[]
+    },
     changedFields: string[] = []
   ): Promise<void> {
     try {

@@ -543,7 +543,7 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
           //    getFolderById is now siteId-scoped, and the upload route trusts its resolved `.id`
           //    rather than the raw query param) -- a foreign/unknown id is exercised in its own
           //    dedicated test below with a `null`-returning override.
-          getFolderById: async (id: string) => {
+          getFolderById: async (id: string, _siteId: string) => {
             getFolderByIdCalls.push(id)
             return { id, folderPath: '', fileName: '' }
           },

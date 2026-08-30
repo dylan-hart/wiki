@@ -457,9 +457,10 @@ export class AlgoliaSearchModule implements SearchModule {
 
     return {
       results,
-      // -> OpenProject #2151/#2156: derived from `visible` alone -- never Algolia's own `nbHits`,
-      //    and therefore never able to exceed what the actor can actually read. See
-      //    `db/search.ts#query()`'s comment for the exact/floor distinction.
+      // -> OpenProject #2151/#2156: derived from `visible` alone -- the whole `SCAN_CAP` window,
+      //    filtered, before `offset`/`limit` slices this page's `results` out of it -- never
+      //    Algolia's own `nbHits`, and therefore never able to exceed what the actor can actually
+      //    read. See `db/search.ts#query()`'s comment for the exact/floor distinction.
       totalHits: visible.length,
       // -> No "did you mean" here: Algolia's own typo-tolerance already retries a query internally,
       //    which is a different mechanism from `db`'s pg_trgm-based post-hoc suggestion and not
