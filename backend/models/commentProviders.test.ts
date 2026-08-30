@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { and, eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { commentProviders as commentProvidersTable } from '../db/schema.ts'
 
 /**
  * Covers this task's own logic (617, Feature 394): discovering comment provider modules from disk,
@@ -34,6 +36,10 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
         'vendor: Test',
         "website: ''",
         'isAvailable: true',
+        // -> Selectable via `codeTemplate`, same as Disqus/Commento/Artalk really are -- otherwise the
+        //    OpenProject #1962 guard added to `setActiveProvider` would refuse every activation this
+        //    describe block's other tests rely on, for a reason unrelated to what those tests cover.
+        'codeTemplate: true',
         'props:',
         '  apiKey:',
         '    type: String',
@@ -48,6 +54,42 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
         'key: beta',
         'title: Beta Provider',
         'description: Another fixture provider.',
+        "icon: ''",
+        'vendor: Test',
+        "website: ''",
+        'isAvailable: true',
+        'codeTemplate: true',
+        'props: {}'
+      ].join('\n')
+    )
+    // -> Stands in for the real `default` provider: the only fixture module here with an actual
+    //    `comments.ts` next to it, so `hasImplementation` is true and it is selectable on that basis
+    //    alone, the same way the real native provider is. `getActiveProvider`'s fallback below
+    //    specifically looks for a module keyed `default`.
+    await fs.mkdir(path.join(modulesDir, 'default'), { recursive: true })
+    await fs.writeFile(
+      path.join(modulesDir, 'default', 'definition.yml'),
+      [
+        'key: default',
+        'title: Default Provider',
+        'description: A fixture native provider.',
+        "icon: ''",
+        'vendor: Test',
+        "website: ''",
+        'isAvailable: true',
+        'props: {}'
+      ].join('\n')
+    )
+    await fs.writeFile(path.join(modulesDir, 'default', 'comments.ts'), 'export {}\n')
+    // -> Declares neither `codeTemplate` nor a `comments.ts` -- not selectable, for the write-refusal
+    //    and read-side-fallback tests below.
+    await fs.mkdir(path.join(modulesDir, 'gamma'), { recursive: true })
+    await fs.writeFile(
+      path.join(modulesDir, 'gamma', 'definition.yml'),
+      [
+        'key: gamma',
+        'title: Gamma Provider',
+        'description: A fixture non-selectable provider.',
         "icon: ''",
         'vendor: Test',
         "website: ''",
@@ -67,7 +109,7 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('refreshFromDisk discovers every module, alphabetically by title', () => {
     assert.deepEqual(
       commentProvidersModel.definitions.map((d) => d.key),
-      ['alpha', 'beta']
+      ['alpha', 'beta', 'default', 'gamma']
     )
   })
 
@@ -79,7 +121,9 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
       providers.map((p) => ({ module: p.module, isEnabled: p.isEnabled })),
       [
         { module: 'alpha', isEnabled: false },
-        { module: 'beta', isEnabled: false }
+        { module: 'beta', isEnabled: false },
+        { module: 'default', isEnabled: false },
+        { module: 'gamma', isEnabled: false }
       ]
     )
     assert.deepEqual(providers[0]!.config, { apiKey: '' })
@@ -100,7 +144,9 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
       providers.map((p) => ({ module: p.module, isEnabled: p.isEnabled })),
       [
         { module: 'alpha', isEnabled: true },
-        { module: 'beta', isEnabled: false }
+        { module: 'beta', isEnabled: false },
+        { module: 'default', isEnabled: false },
+        { module: 'gamma', isEnabled: false }
       ]
     )
 
@@ -112,7 +158,9 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
       providers.map((p) => ({ module: p.module, isEnabled: p.isEnabled })),
       [
         { module: 'alpha', isEnabled: false },
-        { module: 'beta', isEnabled: true }
+        { module: 'beta', isEnabled: true },
+        { module: 'default', isEnabled: false },
+        { module: 'gamma', isEnabled: false }
       ]
     )
     assert.equal(providers[0]!.config.apiKey, 'secret-value')
@@ -130,6 +178,58 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await commentProvidersModel.syncSite(fixtures.siteId)
     const result = await commentProvidersModel.setActiveProvider(fixtures.siteId, 'ghost', {})
     assert.equal(result, null)
+  })
+
+  /**
+   * OpenProject #1962: a site's stored comment provider must never become a dead end -- the write
+   * side (refusing to ever store a non-selectable module) and the read side (resolving a stored
+   * provider that became non-selectable after the fact back to something that renders) are both
+   * covered here.
+   */
+  test('setActiveProvider refuses to activate a non-selectable module, storing nothing', async () => {
+    await commentProvidersModel.syncSite(fixtures.siteId)
+    await commentProvidersModel.setActiveProvider(fixtures.siteId, 'alpha', { apiKey: 'keep-me' })
+
+    await assert.rejects(
+      () => commentProvidersModel.setActiveProvider(fixtures.siteId, 'gamma', {}),
+      /cannot be activated/i
+    )
+
+    const providers = await commentProvidersModel.getSiteProviders(fixtures.siteId)
+    assert.equal(providers.find((p) => p.module === 'alpha')!.isEnabled, true)
+    assert.equal(providers.find((p) => p.module === 'gamma')!.isEnabled, false)
+  })
+
+  test('getActiveProvider returns the enabled provider unchanged when it is selectable', async () => {
+    await commentProvidersModel.syncSite(fixtures.siteId)
+    await commentProvidersModel.setActiveProvider(fixtures.siteId, 'beta', {})
+
+    const active = await commentProvidersModel.getActiveProvider(fixtures.siteId)
+    assert.equal(active?.module, 'beta')
+  })
+
+  test('getActiveProvider resolves a stored non-selectable provider back to default rather than dead-ending', async () => {
+    await commentProvidersModel.syncSite(fixtures.siteId)
+    // -> `setActiveProvider` itself now refuses this (the test above), so the only way a site ends up
+    //    here is a row that became non-selectable after being enabled -- simulated with a direct
+    //    write, bypassing the model exactly like a stale row left over from before that guard existed
+    //    (or a module's `codeTemplate`/implementation flipping off on disk later) would.
+    await WIKI.db
+      .update(commentProvidersTable)
+      .set({ isEnabled: false })
+      .where(eq(commentProvidersTable.siteId, fixtures.siteId))
+    await WIKI.db
+      .update(commentProvidersTable)
+      .set({ isEnabled: true })
+      .where(
+        and(
+          eq(commentProvidersTable.siteId, fixtures.siteId),
+          eq(commentProvidersTable.module, 'gamma')
+        )
+      )
+
+    const active = await commentProvidersModel.getActiveProvider(fixtures.siteId)
+    assert.equal(active?.module, 'default')
   })
 })
 

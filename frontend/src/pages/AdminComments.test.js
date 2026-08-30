@@ -301,6 +301,56 @@ describe('AdminComments', () => {
 
     expect(wrapper.text()).toContain('No comment provider modules are installed.')
   })
+
+  /**
+   * OpenProject #1962: a picker row for a non-selectable provider must genuinely refuse a click, not
+   * just look disabled -- `WItem`'s own `disabled` prop already blocks its click emit, but only when
+   * the row is bound to the field that actually reflects backend selectability (`isSelectable`), not
+   * `isAvailable` alone.
+   */
+  it('does not select a non-selectable provider when its picker row is clicked', async () => {
+    const providers = [
+      ...PROVIDERS,
+      {
+        id: 'p3',
+        module: 'artalk',
+        isEnabled: false,
+        title: 'Artalk',
+        description: 'A self-hosted comments platform.',
+        icon: '',
+        vendor: 'Artalk',
+        website: 'https://artalk.js.org',
+        isAvailable: true,
+        codeTemplate: false,
+        hasImplementation: false,
+        isSelectable: false,
+        props: {},
+        config: {}
+      }
+    ]
+    const { wrapper } = mountPage({ providers })
+    await flushPromises()
+
+    const items = wrapper.findAll('.w-item')
+    const artalkItem = items.find((i) => i.text().includes('Artalk'))
+    await artalkItem.trigger('click')
+    await flushPromises()
+
+    // -> Selection stays on the default (enabled, selectable) provider: Disqus's own config field is
+    //    still showing, proving the disabled row refused the click rather than merely looking inert.
+    expect(wrapper.text()).toContain('Shortname')
+  })
+
+  it('disables Apply when the currently selected provider is not selectable', async () => {
+    const providers = PROVIDERS.map((p) =>
+      p.module === 'disqus' ? { ...p, isSelectable: false } : p
+    )
+    const { wrapper } = mountPage({ providers })
+    await flushPromises()
+
+    const applyBtn = wrapper.findAll('button').find((b) => b.text() === 'Apply')
+    expect(applyBtn.attributes('disabled')).toBeDefined()
+  })
 })
 
 /**
