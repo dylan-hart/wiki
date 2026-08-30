@@ -1,4 +1,3 @@
-import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { expect, test } from '@playwright/test'
@@ -6,74 +5,91 @@ import { expect, test } from '@playwright/test'
 import { loginAsAdmin, uniqueSlug } from '../helpers/admin.js'
 
 /**
- * OpenProject #1968 / testing.md §9: asset upload and serving is the thinnest end-to-end flow in the
- * suite -- `FileManager.vue` -> `POST sites/:id/assets` -> `controllers/files.ts` -> asset rendering
- * in a page, with seven storage modules hanging off it and nothing driving it end to end before this.
- *
- * Drives the real UI rather than hitting `POST sites/:id/assets` directly with the Playwright
- * `request` fixture: the point of an e2e spec here is the whole chain -- picker upload, insertion into
- * the markdown body as `![title](path)`, publish, and the rendered page's `<img>` actually resolving
- * from the storage backend through `controllers/files.ts` -- not just the storage write in isolation
- * (which is what `api/assets.test.ts` / a storage module's own unit test already covers).
+ * Task 1977: the asset upload/serving chain end to end -- `FileManager.vue` -> `POST
+ * sites/:id/assets` -> `controllers/files.ts` -> rendering in a page -- which nothing in this suite
+ * drove before. A tiny, committed fixture image rather than a generated buffer: `setInputFiles`
+ * needs a real path on disk, and a real file on disk is also what a reader reviewing this spec can
+ * open and look at.
  */
-test('uploading an asset through FileManager, inserting it, and publishing serves the image', async ({
+const FIXTURE_PATH = fileURLToPath(
+  new URL('../fixtures/assets/wp1977-fixture.png', import.meta.url)
+)
+
+/**
+ * What the upload is stored and shown as. `models/assets.ts`'s `sanitizeFileName` lowercases and
+ * strips to URL-safe characters -- this name already satisfies that, so what comes back out is
+ * exactly what went in, and the file list can be matched on this literal string.
+ */
+const FIXTURE_NAME = 'wp1977-fixture.png'
+
+test('uploads an asset through the file manager, inserts it into a page, and serves it back', async ({
   page
 }) => {
-  const slug = uniqueSlug()
-  const path = `asset-upload-${slug}`
-  const title = `Asset Upload ${slug}`
-  const fixturePath = join(dirname(fileURLToPath(import.meta.url)), '../fixtures/test-upload.png')
-
   await loginAsAdmin(page)
+
+  const slug = uniqueSlug()
+  const path = `e2e-asset-${slug}`
+  const title = `E2E Asset Page ${slug}`
+
   await page.goto(`/_create/markdown?path=${path}`)
 
+  // -> Same title-field handling as `createAndPublishPage` (contenteditable, typed + blurred) --
+  //    not reused directly because this flow needs to interleave a File Manager round trip between
+  //    typing the body and saving, which that helper has no hook for.
   const titleField = page.getByLabel('Title', { exact: true })
   await titleField.click()
   await page.keyboard.type(title)
   await titleField.blur()
 
-  // -> Same Monaco-mount wait `createAndPublishPage` uses -- clicking into the editor before it has
-  //    actually rendered a focusable surface lands nowhere useful.
   await page.locator('.editor-markdown-editor .monaco-editor').waitFor()
+  await page.locator('.editor-markdown-editor').click()
+  await page.keyboard.type('Asset upload test.\n\n')
 
-  // -> The side toolbar's "Insert Assets" button carries only an icon -- `WIcon.vue` stamps every
-  //    icon with `data-icon`, which is what makes it addressable without a visible label.
-  await page.locator('button:has([data-icon="mdi:image-plus-outline"])').click()
+  // -> The side toolbar's "Insert Assets" button (`EditorMarkdown.vue`'s `insertAssets`) opens the
+  //    File Manager overlay in insert mode. It carries no `aria-label` of its own -- only a
+  //    hover tooltip -- so it is matched on the icon `WIcon` stamps onto the rendered SVG
+  //    (`data-icon`), which is stable regardless of locale or tooltip text.
+  await page.locator('button:has(svg[data-icon="mdi:image-plus-outline"])').click()
 
-  const overlay = page.getByRole('dialog').filter({ has: page.locator('.fileman-droptarget') })
-  await expect(overlay).toBeVisible()
+  const fileManager = page.getByRole('dialog').filter({ hasText: 'File Manager' })
+  await expect(fileManager).toBeVisible()
 
-  // -> Bypasses the "Upload" button's native file-picker dialog: setting the hidden `<input
-  //    type="file">` directly is the standard Playwright pattern and exercises the exact same
-  //    `uploadNewFiles` -> `POST sites/:id/assets` path the button would trigger.
-  await overlay.locator('input[type="file"]').setInputFiles(fixturePath)
+  // -> The upload input is a hidden `<input type="file">` that `uploadFile()` clicks programmatically
+  //    -- `setInputFiles` sets it directly and fires the same `change` handler, with no need to make
+  //    it visible first.
+  await fileManager.locator('input[type="file"]').setInputFiles(FIXTURE_PATH)
+  await expect(page.getByText('File(s) uploaded successfully.')).toBeVisible()
 
-  const uploadedRow = overlay.locator('.fileman-filelist .w-item', { hasText: /test-upload/i })
+  // -> Double-clicking a row in insert mode both inserts the reference (`doubleClickItem` ->
+  //    `insertItem` -> the `insertAsset` event `EditorMarkdown.vue` listens for) and closes the
+  //    overlay (`close()`), in one gesture -- the same one an author actually uses.
+  const uploadedRow = fileManager.getByText(FIXTURE_NAME, { exact: true })
   await expect(uploadedRow).toBeVisible()
-
-  // -> In insert mode, double-clicking a file inserts it into the editor and closes the overlay --
-  //    see `FileManager.vue#doubleClickItem`/`insertItem`.
   await uploadedRow.dblclick()
-  await expect(overlay).toBeHidden()
+  await expect(fileManager).toBeHidden()
 
-  // -> `insertAssetClb` (`EditorMarkdown.vue`) writes `![title](path)` for an image mime type --
-  //    the rendered preview pane is the same "content actually landed" signal
-  //    `createAndPublishPage` waits on before saving.
-  await expect(page.locator('.editor-markdown-preview-content img')).toBeVisible()
+  // -> `insertAssetClb` writes `![<title>](<assetPath>)` at the cursor through Monaco's own edit
+  //    API, which fires the same `onDidChangeModelContent` debounce `createAndPublishPage` waits on
+  //    -- so the rendered preview picking up the image is real evidence the reference landed in the
+  //    page's content, not a fixed sleep guessed at.
+  const previewImage = page.locator('.editor-markdown-preview-content img')
+  await expect(previewImage).toHaveAttribute('src', new RegExp(`/_files/${FIXTURE_NAME}$`))
 
   await page.getByRole('button', { name: 'Create Page' }).click()
 
-  const dialog = page.getByRole('dialog')
-  await dialog.getByLabel('Path Name').fill(path)
-  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
-
+  const saveDialog = page.getByRole('dialog')
+  await saveDialog.getByLabel('Path Name').fill(path)
+  await saveDialog.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page).toHaveURL(new RegExp(`/${path}$`))
 
-  const renderedImage = page.locator('.page-contents img').first()
-  await expect(renderedImage).toBeVisible()
+  // -> The published, rendered page -- `assetPath`'s root-relative markdown path resolved to the
+  //    `/_files/` URL `controllers/files.ts` serves (`fileSrc` in `renderers/htmlImages.js`).
+  const renderedImage = page.locator('.page-contents img')
+  await expect(renderedImage).toHaveAttribute('src', new RegExp(`/_files/${FIXTURE_NAME}$`))
   const src = await renderedImage.getAttribute('src')
-  expect(src).toMatch(/^\/_files\//)
 
+  // -> The spec's own done-when bar: the URL a reader's browser actually requests for this `<img>`
+  //    resolves 200 with an image content type, not just that the markup looks right.
   const response = await page.request.get(src)
   expect(response.status()).toBe(200)
   expect(response.headers()['content-type']).toMatch(/^image\//)

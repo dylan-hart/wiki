@@ -12,7 +12,8 @@ import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
 // `getClusterNodes()` (in system.ts) calls `Temporal.Instant.from()` unconditionally on every row;
-// `ensureTemporal()` polyfills the global for real on this sandbox's Node, which lacks it natively.
+// `ensureTemporal()` polyfills the global for real on this sandbox's Node, which lacks it natively --
+// see `test/temporal.ts` for why this is needed at all.
 await ensureTemporal()
 
 /**

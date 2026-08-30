@@ -11,17 +11,27 @@ describe('shared/url-limit.js', () => {
     expect(MAX_DIAGRAM_URL_LENGTH).toBe(8000)
   })
 
-  it('mentions both the actual length and the limit in the message', () => {
-    const message = explainUrlTooLarge(MAX_DIAGRAM_URL_LENGTH - 1)
+  describe('explainUrlTooLarge()', () => {
+    it('mentions both the actual length and the limit in the message', () => {
+      const message = explainUrlTooLarge(MAX_DIAGRAM_URL_LENGTH - 1)
 
-    expect(message).toContain((MAX_DIAGRAM_URL_LENGTH - 1).toLocaleString())
-    expect(message).toContain(MAX_DIAGRAM_URL_LENGTH.toLocaleString())
-  })
+      expect(message).toContain((MAX_DIAGRAM_URL_LENGTH - 1).toLocaleString())
+      expect(message).toContain(MAX_DIAGRAM_URL_LENGTH.toLocaleString())
+    })
 
-  it('points at the Mermaid block as the escape hatch, for a length just over the limit', () => {
-    const message = explainUrlTooLarge(MAX_DIAGRAM_URL_LENGTH + 1)
+    it('reports the actual length and the limit for a URL exactly at the limit', () => {
+      const length = MAX_DIAGRAM_URL_LENGTH
+      const message = explainUrlTooLarge(length)
 
-    expect(message).toContain((MAX_DIAGRAM_URL_LENGTH + 1).toLocaleString())
-    expect(message).toMatch(/mermaid/i)
+      expect(message).toContain(length.toLocaleString())
+      expect(message).toContain(MAX_DIAGRAM_URL_LENGTH.toLocaleString())
+    })
+
+    it('points at the Mermaid block as the escape hatch, for a length just over the limit', () => {
+      const message = explainUrlTooLarge(MAX_DIAGRAM_URL_LENGTH + 1)
+
+      expect(message).toContain((MAX_DIAGRAM_URL_LENGTH + 1).toLocaleString())
+      expect(message).toMatch(/mermaid/i)
+    })
   })
 })

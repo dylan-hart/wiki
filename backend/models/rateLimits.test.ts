@@ -67,13 +67,20 @@ describe('rateLimits (DB-backed)', { skip: !hasTestDatabase() }, () => {
       }
       const first = await rateLimitsModel.consume(key, POLICY)
       assert.equal(first.allowed, false)
-      assert.equal(first.hits, POLICY.max, 'a refused attempt during the ban must not add a hit')
+      // -> This is the attempt that trips the ban -- it is still "counted" (hits: "the one just
+      //    counted included", per the interface doc), one past `max`. `stillBanned` only takes over
+      //    from the next attempt onward, which is what the rest of this test pins.
+      assert.equal(first.hits, POLICY.max + 1)
 
       await new Promise((resolve) => setTimeout(resolve, 1200))
 
       const second = await rateLimitsModel.consume(key, POLICY)
       assert.equal(second.allowed, false)
-      assert.equal(second.hits, POLICY.max)
+      assert.equal(
+        second.hits,
+        first.hits,
+        'a refused attempt during an active ban must not add a hit'
+      )
       assert.ok(
         second.retryAfter < first.retryAfter,
         `retryAfter should have decreased (was ${first.retryAfter}, now ${second.retryAfter})`
@@ -123,6 +130,16 @@ describe('rateLimits (DB-backed)', { skip: !hasTestDatabase() }, () => {
       allowedCount,
       POLICY.max,
       'exactly `max` concurrent attempts should have been allowed, no more and no fewer'
+    )
+
+    const hitsSeen = verdicts
+      .filter((v) => v.allowed)
+      .map((v) => v.hits)
+      .sort((a, b) => a - b)
+    assert.deepEqual(
+      hitsSeen,
+      Array.from({ length: POLICY.max }, (_, i) => i + 1),
+      'the allowed attempts should account for hits 1..max between them'
     )
   })
 

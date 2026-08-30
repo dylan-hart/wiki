@@ -478,8 +478,10 @@ export const glossaryVersions = pgTable(
     actorName: varchar({ length: 255 }).notNull().default(''),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow()
   },
-  // -> Covers lookups by site as well, being the leading column
-  (table) => [index('glossaryVersions_siteId_createdAt_idx').on(table.siteId, table.createdAt)]
+  (table) => [
+    // -> Covers lookups by site as well, being the leading column
+    index('glossaryVersions_siteId_createdAt_idx').on(table.siteId, table.createdAt)
+  ]
 )
 
 // HOOKS -------------------------------
@@ -743,8 +745,10 @@ export const navigation = pgTable(
       .notNull()
       .references(() => sites.id)
   },
-  // -> Covers lookups by site as well, being the leading column
-  (table) => [uniqueIndex('navigation_siteId_locale_idx').on(table.siteId, table.locale)]
+  (table) => [
+    // -> Covers lookups by site as well, being the leading column
+    uniqueIndex('navigation_siteId_locale_idx').on(table.siteId, table.locale)
+  ]
 )
 
 // PAGES ------------------------------
@@ -845,6 +849,7 @@ export const pages = pgTable(
     //    alone as well, being the leading column -- no separate pages_siteId_idx is needed.
     uniqueIndex('pages_siteId_locale_path_idx').on(table.siteId, table.locale, table.path),
     // -> Backs getPage's hottest read (siteId + hash + locale equality). Plain, not unique — see above.
+    //    Covers lookups by site as well, being the leading column
     index('pages_siteId_locale_hash_idx').on(table.siteId, table.locale, table.hash)
   ]
 )
@@ -1507,8 +1512,10 @@ export const tags = pgTable(
       .notNull()
       .references(() => sites.id, { onDelete: 'cascade' })
   },
-  // -> Covers lookups by site as well, being the leading column
-  (table) => [uniqueIndex('tags_composite_idx').on(table.siteId, table.tag)]
+  (table) => [
+    // -> Covers lookups by site as well, being the leading column
+    uniqueIndex('tags_composite_idx').on(table.siteId, table.tag)
+  ]
 )
 
 // TREE --------------------------------

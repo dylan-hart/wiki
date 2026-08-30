@@ -4,10 +4,10 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 import { getFileExtension, storage, SYNC_SHAPED_ACTIONS } from './storage.ts'
 import { sites as sitesTable } from '../db/schema.ts'
 import type { StorageTarget } from './storage.ts'
-import { ensureTemporal } from '../test/temporal.ts'
 
 // -> `refreshFromDisk()` reads real files under `modules/storage`, so the only setup needed is a
 //    minimal `WIKI` global pointing at this checkout's `backend/` directory — no database involved.

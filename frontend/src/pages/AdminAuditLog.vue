@@ -283,9 +283,8 @@ const state = reactive({
 })
 
 function eventLabel(ev) {
-  const key = `admin.audit.event.${ev}`
-  const translated = t(key)
-  return translated === key ? ev : translated
+  const translated = t(`admin.audit.event.${ev}`)
+  return translated === `admin.audit.event.${ev}` ? ev : translated
 }
 
 const eventOptions = ref([

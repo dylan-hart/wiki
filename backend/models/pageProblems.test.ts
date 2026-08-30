@@ -13,7 +13,8 @@ import { pages as pagesTable, tree as treeTable } from '../db/schema.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
 // `scan()` (in pageProblems.ts) calls `Temporal.Now.instant()` unconditionally to stamp `scannedAt`;
-// `ensureTemporal()` polyfills the global for real on this sandbox's Node, which lacks it natively.
+// `ensureTemporal()` polyfills the global for real on this sandbox's Node, which lacks it natively --
+// see `test/temporal.ts` for why this is needed at all.
 await ensureTemporal()
 
 /**

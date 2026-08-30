@@ -1,47 +1,113 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, describe, test } from 'node:test'
-import { randomUUID } from 'node:crypto'
+import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
+import ajvFormats from 'ajv-formats'
+import { randomUUID } from 'node:crypto'
 import schedulerRoutes from './scheduler.ts'
 import { registerSchemas as registerSchedulerSchema } from './schemas/scheduler.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 
 /**
- * `backend/api/` holds 34 route sources; before this, `scheduler.ts` was one of only four with no
- * co-located test standing up a real Fastify app (testing.md §8), despite being the largest at 314
- * lines and six routes — two of which mutate state destructively (`DELETE /upcoming/:jobId`,
- * `POST /jobs/:jobId/retry`). Both were exercised only through `e2e/tests/scheduler.spec.js` driving
- * the admin UI, which cannot reach the retry route's 409/500 branches at all.
- *
- * `WIKI.models.jobs` is stubbed rather than DB-backed: what these routes own is validation, status
- * mapping and field-forwarding to the model, which `models/jobs.test.ts` already covers in isolation
- * for the parts that are pure. `WIKI.scheduler.addJob` (called by `runScheduledTask`/`retryJob`) is
- * stubbed too, matching the model's own real dependency.
+ * Task 1983: `backend/api/` had 30 of its 34 route sources with a co-located test; `scheduler.ts`
+ * was the largest of the four gaps (314 lines, six routes), two of which mutate state
+ * destructively (`DELETE /upcoming/:jobId`, `POST /jobs/:jobId/retry`) and were, until now, covered
+ * only indirectly via `e2e/tests/scheduler.spec.js` driving the admin UI. This suite builds a real
+ * Fastify instance and drives every route through `app.inject()`, following `api/system.test.ts`
+ * and `api/hooks.test.ts` as structural templates: `WIKI.models.jobs` is stubbed with `mock.fn()`
+ * per method (no database), and `setErrorHandler` mirrors `index.ts`'s real one so a thrown
+ * `reply.notFound()`/`conflict()`/`internalServerError()` comes back shaped as the `ApiError` the
+ * schemas declare, exactly as it would in the running app.
  */
 
-let app: FastifyInstance
-let jobsModel: {
-  getSchedule: any
-  getScheduleEntry: any
-  runScheduledTask: any
-  getUpcoming: any
-  cancelUpcoming: any
-  getHistory: any
-  getHistoryEntry: any
-  retryJob: any
+const SCHEDULE_ENTRY = {
+  id: randomUUID(),
+  task: 'cleanJobHistory',
+  cron: '0 0 * * *',
+  type: 'system',
+  createdAt: '2026-08-01T00:00:00.000Z',
+  updatedAt: '2026-08-01T00:00:00.000Z'
 }
-let addJobResult: { id: string } | null
 
-const EXISTING_SCHEDULE_ID = randomUUID()
-const EXISTING_JOB_ID = randomUUID()
-const EXISTING_HISTORY_ID = randomUUID()
+const KNOWN_UPCOMING_ID = randomUUID()
+const ALREADY_PICKED_UP_ID = randomUUID()
 
-async function buildApp() {
-  const built = fastify()
-  await built.register(fastifySensible)
-  built.setErrorHandler((error: any, _req, reply) => {
+const HISTORY_ENTRY_RETRYABLE = {
+  id: randomUUID(),
+  task: 'cleanJobHistory',
+  state: 'failed',
+  maxRetries: 3,
+  payload: {}
+}
+
+const HISTORY_ENTRY_RUNNING = {
+  id: randomUUID(),
+  task: 'cleanJobHistory',
+  state: 'active',
+  maxRetries: 3,
+  payload: {}
+}
+
+let app: FastifyInstance
+let getSchedule: ReturnType<typeof mock.fn>
+let getScheduleEntry: ReturnType<typeof mock.fn>
+let runScheduledTask: ReturnType<typeof mock.fn>
+let getUpcoming: ReturnType<typeof mock.fn>
+let cancelUpcoming: ReturnType<typeof mock.fn>
+let getHistory: ReturnType<typeof mock.fn>
+let getHistoryEntry: ReturnType<typeof mock.fn>
+let retryJob: ReturnType<typeof mock.fn>
+const routeConfigs: Record<string, any> = {}
+
+before(async () => {
+  getSchedule = mock.fn(async () => [SCHEDULE_ENTRY])
+  getScheduleEntry = mock.fn(async (id: string) =>
+    id === SCHEDULE_ENTRY.id ? SCHEDULE_ENTRY : null
+  )
+  runScheduledTask = mock.fn(async () => 'new-job-id')
+  getUpcoming = mock.fn(async () => [])
+  cancelUpcoming = mock.fn(async (id: string) => id === KNOWN_UPCOMING_ID)
+  getHistory = mock.fn(async () => ({ total: 0, jobs: [] }))
+  getHistoryEntry = mock.fn(async (id: string) => {
+    if (id === HISTORY_ENTRY_RETRYABLE.id) return HISTORY_ENTRY_RETRYABLE
+    if (id === HISTORY_ENTRY_RUNNING.id) return HISTORY_ENTRY_RUNNING
+    return null
+  })
+  retryJob = mock.fn(async () => 'new-retry-job-id')
+
+  ;(globalThis as any).WIKI = {
+    models: {
+      jobs: {
+        getSchedule,
+        getScheduleEntry,
+        runScheduledTask,
+        getUpcoming,
+        cancelUpcoming,
+        getHistory,
+        getHistoryEntry,
+        retryJob
+      }
+    }
+  }
+
+  app = fastify({
+    ajv: {
+      plugins: [[ajvFormats.default, {}] as any]
+    }
+  })
+  // -> Captures each route's `config.permissions` as it is registered, since Fastify does not
+  //    expose a public, stable API to read it back afterwards — same technique as
+  //    `api/analytics.test.ts`.
+  app.addHook('onRoute', (routeOptions: any) => {
+    routeConfigs[`${routeOptions.method}:${routeOptions.url}`] = routeOptions.config
+  })
+  await app.register(fastifySensible)
+  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`conflict()`/
+  //    `internalServerError()` is a thrown `@fastify/sensible` error, and it is THIS handler --
+  //    not fastify's default -- that shapes it into the `{ ok, error, statusCode, message }` the
+  //    `ApiError` schema expects.
+  app.setErrorHandler((error: any, req, reply) => {
     reply.code(error.statusCode ?? 500).send({
       ok: false,
       error: error.name,
@@ -49,36 +115,10 @@ async function buildApp() {
       message: error.message
     })
   })
-  await registerSchedulerSchema(built)
-  await registerErrorSchema(built)
-  await built.register(schedulerRoutes)
-  await built.ready()
-  return built
-}
-
-before(async () => {
-  jobsModel = {
-    getSchedule: async () => [],
-    getScheduleEntry: async (id: string) =>
-      id === EXISTING_SCHEDULE_ID ? { id, task: 'foo' } : null,
-    runScheduledTask: async () => addJobResult?.id ?? null,
-    getUpcoming: async () => [],
-    cancelUpcoming: async (id: string) => id === EXISTING_JOB_ID,
-    getHistory: async ({ states, limit }: { states: string[]; limit: number }) => ({
-      total: 0,
-      jobs: [],
-      _states: states,
-      _limit: limit
-    }),
-    getHistoryEntry: async (id: string) =>
-      id === EXISTING_HISTORY_ID ? { id, task: 'foo', state: 'completed', maxRetries: 3 } : null,
-    retryJob: async () => addJobResult?.id ?? null
-  }
-  ;(globalThis as any).WIKI = {
-    models: { jobs: jobsModel },
-    scheduler: { addJob: async () => addJobResult }
-  }
-  app = await buildApp()
+  await registerErrorSchema(app)
+  await registerSchedulerSchema(app)
+  await app.register(schedulerRoutes)
+  await app.ready()
 })
 
 after(async () => {
@@ -87,138 +127,186 @@ after(async () => {
 })
 
 beforeEach(() => {
-  addJobResult = { id: randomUUID() }
+  getSchedule.mock.resetCalls()
+  getScheduleEntry.mock.resetCalls()
+  runScheduledTask.mock.resetCalls()
+  getUpcoming.mock.resetCalls()
+  cancelUpcoming.mock.resetCalls()
+  getHistory.mock.resetCalls()
+  getHistoryEntry.mock.resetCalls()
+  retryJob.mock.resetCalls()
 })
 
-describe('every scheduler route requires manage:system and nothing else', () => {
-  test("config.permissions is exactly ['manage:system'] on all six routes", async () => {
-    // -> Built by hand rather than via `buildApp()`: the hook has to be added BEFORE the routes are
-    //    registered (and before `.ready()`, which fastify refuses to add hooks after).
-    const probe = fastify()
-    const routes: { method: string; url: string; config: any }[] = []
-    probe.addHook('onRoute', (opts) => {
-      routes.push({ method: String(opts.method), url: opts.url, config: opts.config })
-    })
-    await registerSchedulerSchema(probe)
-    await registerErrorSchema(probe)
-    await probe.register(schedulerRoutes)
-    await probe.ready()
-    try {
-      assert.ok(routes.length >= 6, `expected at least 6 routes, found ${routes.length}`)
-      for (const route of routes) {
-        assert.deepEqual(
-          route.config?.permissions,
-          ['manage:system'],
-          `${route.method} ${route.url} should declare config.permissions: ['manage:system']`
-        )
-      }
-    } finally {
-      await probe.close()
+describe('every route declares manage:system', () => {
+  test('all six routes are gated on manage:system, and nothing else', () => {
+    const routes = [
+      'GET:/schedule',
+      'POST:/schedule/:scheduleId/run',
+      'GET:/upcoming',
+      'DELETE:/upcoming/:jobId',
+      'GET:/jobs',
+      'POST:/jobs/:jobId/retry'
+    ]
+    for (const key of routes) {
+      assert.deepEqual(
+        routeConfigs[key]?.permissions,
+        ['manage:system'],
+        `${key} should require manage:system`
+      )
     }
   })
 })
 
-describe('GET /schedule and POST /schedule/:scheduleId/run', () => {
-  test('run queues the entry and returns the new job id', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: `/schedule/${EXISTING_SCHEDULE_ID}/run`
-    })
+describe('GET /schedule', () => {
+  test('returns the cron schedule from the model, unchanged', async () => {
+    const res = await app.inject({ method: 'GET', url: '/schedule' })
     assert.equal(res.statusCode, 200)
-    const json = res.json()
-    assert.equal(json.ok, true)
-    assert.equal(json.id, addJobResult?.id)
+    assert.deepEqual(res.json(), [SCHEDULE_ENTRY])
+    assert.equal(getSchedule.mock.callCount(), 1)
+  })
+})
+
+describe('POST /schedule/:scheduleId/run', () => {
+  test('queues the task and returns its new job id', async () => {
+    const res = await app.inject({ method: 'POST', url: `/schedule/${SCHEDULE_ENTRY.id}/run` })
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.ok, true)
+    assert.equal(body.id, 'new-job-id')
+    assert.equal(runScheduledTask.mock.callCount(), 1)
   })
 
-  test('run answers 404 for an unknown schedule id', async () => {
-    const res = await app.inject({
-      method: 'POST',
-      url: `/schedule/${randomUUID()}/run`
-    })
+  test('404s when the schedule entry does not exist', async () => {
+    const res = await app.inject({ method: 'POST', url: `/schedule/${randomUUID()}/run` })
     assert.equal(res.statusCode, 404)
+    assert.equal(res.json().ok, false)
+    assert.equal(runScheduledTask.mock.callCount(), 0)
   })
 
-  test('run answers 500 when the scheduler refuses the job', async () => {
-    addJobResult = null
-    const res = await app.inject({
-      method: 'POST',
-      url: `/schedule/${EXISTING_SCHEDULE_ID}/run`
-    })
+  test('500s when the scheduler refuses to queue the job', async () => {
+    runScheduledTask.mock.mockImplementationOnce(async () => null)
+    const res = await app.inject({ method: 'POST', url: `/schedule/${SCHEDULE_ENTRY.id}/run` })
     assert.equal(res.statusCode, 500)
+    assert.equal(res.json().message, 'The scheduler could not queue the job.')
+  })
+
+  test('rejects a non-uuid scheduleId at the schema, before the model is asked', async () => {
+    const res = await app.inject({ method: 'POST', url: '/schedule/not-a-uuid/run' })
+    assert.equal(res.statusCode, 400)
+    assert.equal(getScheduleEntry.mock.callCount(), 0)
+  })
+})
+
+describe('GET /upcoming', () => {
+  test('returns the pending queue from the model, unchanged', async () => {
+    const upcoming = [{ id: randomUUID(), task: 'cleanJobHistory' }]
+    getUpcoming.mock.mockImplementationOnce(async () => upcoming)
+    const res = await app.inject({ method: 'GET', url: '/upcoming' })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), upcoming)
   })
 })
 
 describe('DELETE /upcoming/:jobId', () => {
-  test('cancels a pending job with 204', async () => {
-    const res = await app.inject({ method: 'DELETE', url: `/upcoming/${EXISTING_JOB_ID}` })
+  test('204s when the job was cancelled', async () => {
+    const res = await app.inject({ method: 'DELETE', url: `/upcoming/${KNOWN_UPCOMING_ID}` })
     assert.equal(res.statusCode, 204)
+    assert.equal(cancelUpcoming.mock.callCount(), 1)
   })
 
-  test(
-    'answers 404 when the job is gone — the "already picked up by another instance" race ' +
-      'e2e/helpers/db.js currently plants by hand',
-    async () => {
-      const res = await app.inject({ method: 'DELETE', url: `/upcoming/${randomUUID()}` })
-      assert.equal(res.statusCode, 404)
-    }
-  )
+  /**
+   * The "already picked up by another instance" race: an instance can grab a pending job between
+   * the admin UI listing it and the operator clicking cancel, at which point `cancelUpcoming()`
+   * deletes zero rows. `e2e/helpers/db.js` plants this by hand for the UI-level spec; here it is
+   * just `cancelUpcoming` resolving false, no database involved.
+   */
+  test('404s when the job is no longer pending (already picked up)', async () => {
+    const res = await app.inject({ method: 'DELETE', url: `/upcoming/${ALREADY_PICKED_UP_ID}` })
+    assert.equal(res.statusCode, 404)
+    assert.equal(res.json().ok, false)
+  })
 })
 
 describe('GET /jobs', () => {
-  test('defaults limit to 100 and forwards an empty states filter', async () => {
+  test('returns total, limit and jobs from the model', async () => {
+    const jobs = [{ id: randomUUID(), task: 'cleanJobHistory', state: 'completed' }]
+    getHistory.mock.mockImplementationOnce(async () => ({ total: 5, jobs }))
     const res = await app.inject({ method: 'GET', url: '/jobs' })
     assert.equal(res.statusCode, 200)
-    const json = res.json()
-    assert.equal(json.limit, 100)
+    const body = res.json()
+    assert.equal(body.total, 5)
+    assert.equal(body.limit, 100)
+    assert.deepEqual(body.jobs, jobs)
   })
 
-  test('clamps limit to the schema maximum of 500', async () => {
-    const res = await app.inject({ method: 'GET', url: '/jobs?limit=5000' })
+  test('forwards an explicit limit and states filter to the model', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/jobs?limit=10&states=failed&states=active'
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().limit, 10)
+    assert.deepEqual(getHistory.mock.calls[0].arguments[0], {
+      states: ['failed', 'active'],
+      limit: 10
+    })
+  })
+
+  test('clamps limit above the schema maximum (500) to a 400', async () => {
+    const res = await app.inject({ method: 'GET', url: '/jobs?limit=501' })
     assert.equal(res.statusCode, 400)
+    assert.equal(getHistory.mock.callCount(), 0)
+  })
+
+  test('clamps limit below the schema minimum (1) to a 400', async () => {
+    const res = await app.inject({ method: 'GET', url: '/jobs?limit=0' })
+    assert.equal(res.statusCode, 400)
+    assert.equal(getHistory.mock.callCount(), 0)
   })
 
   test('rejects an unknown states value at the schema', async () => {
     const res = await app.inject({ method: 'GET', url: '/jobs?states=not-a-real-state' })
     assert.equal(res.statusCode, 400)
-  })
-
-  test('accepts a valid states value and an explicit limit', async () => {
-    const res = await app.inject({ method: 'GET', url: '/jobs?states=failed&limit=10' })
-    assert.equal(res.statusCode, 200)
-    assert.equal(res.json().limit, 10)
+    assert.equal(getHistory.mock.callCount(), 0)
   })
 })
 
 describe('POST /jobs/:jobId/retry', () => {
-  test('queues a fresh run for a completed job', async () => {
-    const res = await app.inject({ method: 'POST', url: `/jobs/${EXISTING_HISTORY_ID}/retry` })
+  test('queues a fresh run and returns the new job id', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/jobs/${HISTORY_ENTRY_RETRYABLE.id}/retry`
+    })
     assert.equal(res.statusCode, 200)
-    const json = res.json()
-    assert.equal(json.ok, true)
-    assert.equal(json.id, addJobResult?.id)
+    const body = res.json()
+    assert.equal(body.ok, true)
+    assert.equal(body.id, 'new-retry-job-id')
+    assert.equal(retryJob.mock.callCount(), 1)
   })
 
-  test('answers 404 for an unknown job id', async () => {
+  test('404s when the job does not exist', async () => {
     const res = await app.inject({ method: 'POST', url: `/jobs/${randomUUID()}/retry` })
     assert.equal(res.statusCode, 404)
+    assert.equal(retryJob.mock.callCount(), 0)
   })
 
-  test('answers 409 when the job is still active — a branch the admin UI cannot reach at all', async () => {
-    const activeId = randomUUID()
-    jobsModel.getHistoryEntry = async (id: string) =>
-      id === activeId ? { id, task: 'foo', state: 'active', maxRetries: 3 } : null
-    try {
-      const res = await app.inject({ method: 'POST', url: `/jobs/${activeId}/retry` })
-      assert.equal(res.statusCode, 409)
-    } finally {
-      jobsModel.getHistoryEntry = async (id: string) =>
-        id === EXISTING_HISTORY_ID ? { id, task: 'foo', state: 'completed', maxRetries: 3 } : null
-    }
+  test('409s when the job is still running (UI-unreachable branch)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/jobs/${HISTORY_ENTRY_RUNNING.id}/retry`
+    })
+    assert.equal(res.statusCode, 409)
+    assert.equal(res.json().message, 'This job is still running.')
+    assert.equal(retryJob.mock.callCount(), 0)
   })
 
-  test('answers 500 when the scheduler refuses to queue the retry', async () => {
-    addJobResult = null
-    const res = await app.inject({ method: 'POST', url: `/jobs/${EXISTING_HISTORY_ID}/retry` })
+  test('500s when the scheduler refuses to queue the retry (UI-unreachable branch)', async () => {
+    retryJob.mock.mockImplementationOnce(async () => null)
+    const res = await app.inject({
+      method: 'POST',
+      url: `/jobs/${HISTORY_ENTRY_RETRYABLE.id}/retry`
+    })
     assert.equal(res.statusCode, 500)
+    assert.equal(res.json().message, 'The scheduler could not queue the job.')
   })
 })

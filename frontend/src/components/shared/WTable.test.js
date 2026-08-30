@@ -187,4 +187,16 @@ describe('WTable', () => {
       expect(noMatch.text()).toContain('no-match')
     })
   })
+
+  it('renders each row under the w-table__row class and falls back to w-td for an unslotted column', () => {
+    const columns = [
+      { name: 'name', label: 'Name', field: 'name' },
+      { name: 'age', label: 'Age', field: 'age' }
+    ]
+    const rows = [{ id: 1, name: 'Bob', age: 30 }]
+    const wrapper = mount(WTable, { props: { rows, columns, rowKey: 'id' } })
+
+    expect(wrapper.findAll('tbody tr.w-table__row')).toHaveLength(1)
+    expect(wrapper.findAll('td.w-td').length).toBeGreaterThan(0)
+  })
 })

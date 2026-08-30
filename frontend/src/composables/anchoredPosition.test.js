@@ -95,4 +95,15 @@ describe('anchoredPosition()', () => {
 
     expect(withCenter).toEqual(withMiddle)
   })
+
+  it('centers the float on the anchor when both anchor and self are "middle center"', () => {
+    stubViewport(1024, 768)
+    const { left, top } = anchoredPosition(anchorRect, floatSize, {
+      anchor: 'middle center',
+      self: 'middle center'
+    })
+
+    expect(left).toBe(anchorRect.left + anchorRect.width / 2 - floatSize.width / 2)
+    expect(top).toBe(anchorRect.top + anchorRect.height / 2 - floatSize.height / 2)
+  })
 })

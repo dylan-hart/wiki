@@ -29,8 +29,8 @@
           push
           color="positive"
           text-color="white"
-          :label="t(submitLabel)"
-          :aria-label="t(submitLabel)"
+          :label="state.replace ? t('common.actions.update') : t('common.actions.insert')"
+          :aria-label="state.replace ? t('common.actions.update') : t('common.actions.insert')"
           icon="la:check"
           @click="insert" />
       </w-btn-group>
@@ -346,10 +346,6 @@ const bodyRows = computed(() => state.rows.slice(rowOffset.value))
 /* -> Written by `helpers/markdownTable`, which is also what read the table being edited: the two
       directions have to agree, or reopening a table would reformat it */
 const markdown = computed(() => buildTable(state, { compact: state.compact }))
-
-const submitLabel = computed(() =>
-  state.replace ? 'common.actions.update' : 'common.actions.insert'
-)
 
 // METHODS
 

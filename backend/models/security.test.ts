@@ -4,7 +4,8 @@ import { validateTrustProxySpec } from './security.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
 // `observeRequest` calls `Temporal.Now.instant()` unconditionally; `ensureTemporal()` polyfills the
-// global for real on this sandbox's Node, which lacks it natively.
+// global for real on this sandbox's Node, which lacks it natively -- see `test/temporal.ts` for why
+// this is needed at all.
 await ensureTemporal()
 
 /**

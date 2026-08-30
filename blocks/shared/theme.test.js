@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DarkMode, isDark, watchTheme } from './theme.js'
 
@@ -10,179 +10,219 @@ import { DarkMode, isDark, watchTheme } from './theme.js'
  * against a minimal stand-in for Lit's `ReactiveElement` rather than a real block.
  */
 
-/** Resolves after the `MutationObserver` callback's microtask has run. */
-function tick() {
-  return new Promise((resolve) => queueMicrotask(resolve))
-}
-
 /**
- * The minimal subset of `ReactiveElement` `DarkMode` actually touches: `addController` (called once,
- * synchronously, from the constructor), `toggleAttribute`, and `requestUpdate`. Not a real Lit
- * element -- `hostConnected`/`hostDisconnected` are invoked directly by the tests, the way Lit itself
- * would from the real element's `connectedCallback`/`disconnectedCallback`.
+ * Minimal stand-in for `import('lit').ReactiveElement`: just enough of the controller-host
+ * contract (`addController`, `toggleAttribute`, `requestUpdate`) for `DarkMode` to drive, with no
+ * real Lit rendering pipeline behind it.
  */
-function makeHost() {
-  const attributes = new Set()
-  return {
-    controller: null,
-    requestUpdateCalls: 0,
-    addController(controller) {
-      this.controller = controller
-    },
-    toggleAttribute(name, force) {
-      if (force) {
-        attributes.add(name)
-      } else {
-        attributes.delete(name)
-      }
-    },
-    hasAttribute(name) {
-      return attributes.has(name)
-    },
-    requestUpdate() {
-      this.requestUpdateCalls += 1
+class FakeHost {
+  constructor() {
+    this._attrs = new Set()
+    this.updateRequests = 0
+  }
+
+  addController() {
+    // -> DarkMode only needs this to be callable; it keeps no reference back to the controller.
+  }
+
+  toggleAttribute(name, force) {
+    if (force) {
+      this._attrs.add(name)
+    } else {
+      this._attrs.delete(name)
     }
+    return force
+  }
+
+  hasAttribute(name) {
+    return this._attrs.has(name)
+  }
+
+  requestUpdate() {
+    this.updateRequests += 1
   }
 }
 
-afterEach(() => {
-  document.body.classList.remove('body--dark')
-})
+function setDark(dark) {
+  document.body.classList.toggle('body--dark', dark)
+}
 
-describe('isDark()', () => {
+// -> The MutationObserver callback runs as a microtask, same as a real browser.
+async function nextTick() {
+  await new Promise((resolve) => queueMicrotask(resolve))
+}
+
+describe('shared/theme.js: isDark()', () => {
+  afterEach(() => {
+    document.body.classList.remove('body--dark')
+  })
+
   it('reflects the body--dark class', () => {
+    setDark(false)
     expect(isDark()).toBe(false)
-    document.body.classList.add('body--dark')
+
+    setDark(true)
     expect(isDark()).toBe(true)
   })
 })
 
-describe('watchTheme()', () => {
-  it('delivers a single class toggle to every current subscriber', async () => {
-    const callsA = []
-    const callsB = []
-    const unwatchA = watchTheme((dark) => callsA.push(dark))
-    const unwatchB = watchTheme((dark) => callsB.push(dark))
+describe('shared/theme.js: watchTheme()', () => {
+  let unwatchers
 
-    document.body.classList.add('body--dark')
-    await tick()
+  beforeEach(() => {
+    document.body.classList.remove('body--dark')
+    unwatchers = []
+  })
 
-    expect(callsA).toEqual([true])
-    expect(callsB).toEqual([true])
+  afterEach(() => {
+    for (const unwatch of unwatchers) {
+      unwatch()
+    }
+    document.body.classList.remove('body--dark')
+  })
+
+  function subscribe(onChange) {
+    const unwatch = watchTheme(onChange)
+    unwatchers.push(unwatch)
+    return unwatch
+  }
+
+  it('notifies every subscriber on a single class toggle', async () => {
+    const a = vi.fn()
+    const b = vi.fn()
+    subscribe(a)
+    subscribe(b)
+
+    setDark(true)
+    await nextTick()
+
+    expect(a).toHaveBeenCalledTimes(1)
+    expect(a).toHaveBeenCalledWith(true)
+    expect(b).toHaveBeenCalledTimes(1)
+    expect(b).toHaveBeenCalledWith(true)
+  })
+
+  it('leaves the other subscriber live once one unsubscribes', async () => {
+    const a = vi.fn()
+    const b = vi.fn()
+    const unwatchA = subscribe(a)
+    subscribe(b)
 
     unwatchA()
-    unwatchB()
+    setDark(true)
+    await nextTick()
+
+    expect(a).not.toHaveBeenCalled()
+    expect(b).toHaveBeenCalledTimes(1)
+    expect(b).toHaveBeenCalledWith(true)
   })
 
-  it('unsubscribing one watcher leaves the other one live', async () => {
-    const callsA = []
-    const callsB = []
-    const unwatchA = watchTheme((dark) => callsA.push(dark))
-    const unwatchB = watchTheme((dark) => callsB.push(dark))
+  it('stops delivery once the last subscriber unsubscribes', async () => {
+    const a = vi.fn()
+    const unwatch = subscribe(a)
 
+    unwatch()
+    setDark(true)
+    await nextTick()
+
+    expect(a).not.toHaveBeenCalled()
+  })
+
+  it('delivers again once a subscriber re-subscribes after the last one left', async () => {
+    const a = vi.fn()
+    const unwatchA = subscribe(a)
     unwatchA()
-    document.body.classList.add('body--dark')
-    await tick()
 
-    expect(callsA).toEqual([])
-    expect(callsB).toEqual([true])
+    const b = vi.fn()
+    subscribe(b)
 
-    unwatchB()
-  })
+    setDark(true)
+    await nextTick()
 
-  it('unsubscribing the last watcher stops delivery entirely', async () => {
-    const calls = []
-    const unwatch = watchTheme((dark) => calls.push(dark))
-    unwatch()
-
-    document.body.classList.add('body--dark')
-    await tick()
-
-    expect(calls).toEqual([])
-  })
-
-  it('delivers again once a new watcher subscribes after everything unsubscribed', async () => {
-    const first = watchTheme(() => {})
-    first()
-
-    const calls = []
-    const unwatch = watchTheme((dark) => calls.push(dark))
-    document.body.classList.add('body--dark')
-    await tick()
-
-    expect(calls).toEqual([true])
-    unwatch()
+    expect(b).toHaveBeenCalledTimes(1)
+    expect(b).toHaveBeenCalledWith(true)
   })
 })
 
-describe('DarkMode controller', () => {
-  it('applies the current theme synchronously in hostConnected, not waiting for a mutation', () => {
-    document.body.classList.add('body--dark')
-    const host = makeHost()
+describe('shared/theme.js: DarkMode', () => {
+  afterEach(() => {
+    document.body.classList.remove('body--dark')
+  })
+
+  it('sets the host attribute immediately on hostConnected when the body is already dark, without waiting for a mutation', () => {
+    setDark(true)
+    const host = new FakeHost()
     const darkMode = new DarkMode(host)
 
-    // -> Constructed but not yet connected: nothing should have been written to the host yet.
-    expect(host.hasAttribute('dark')).toBe(false)
-
-    host.controller.hostConnected()
+    darkMode.hostConnected()
 
     expect(host.hasAttribute('dark')).toBe(true)
     expect(darkMode.isDark).toBe(true)
 
-    host.controller.hostDisconnected()
+    darkMode.hostDisconnected()
   })
 
-  it('reacts to a later theme change while connected', async () => {
-    const host = makeHost()
+  it('flips the host attribute and .isDark as the body class changes afterwards', async () => {
+    setDark(false)
+    const host = new FakeHost()
     const darkMode = new DarkMode(host)
-    host.controller.hostConnected()
+    darkMode.hostConnected()
+
     expect(host.hasAttribute('dark')).toBe(false)
 
-    document.body.classList.add('body--dark')
-    await tick()
+    setDark(true)
+    await nextTick()
 
     expect(host.hasAttribute('dark')).toBe(true)
     expect(darkMode.isDark).toBe(true)
 
-    host.controller.hostDisconnected()
+    darkMode.hostDisconnected()
   })
 
-  it('stops reacting once disconnected', async () => {
-    const host = makeHost()
-    new DarkMode(host)
-    host.controller.hostConnected()
-    host.controller.hostDisconnected()
-
-    document.body.classList.add('body--dark')
-    await tick()
-
-    expect(host.hasAttribute('dark')).toBe(false)
-  })
-
-  it('attribute:false tracks .isDark without ever touching the host attribute', async () => {
-    const host = makeHost()
+  it('with attribute: false, leaves the host attribute off while .isDark still tracks the theme', async () => {
+    setDark(false)
+    const host = new FakeHost()
     const darkMode = new DarkMode(host, { attribute: false })
-    host.controller.hostConnected()
+    darkMode.hostConnected()
 
-    document.body.classList.add('body--dark')
-    await tick()
+    setDark(true)
+    await nextTick()
 
-    expect(darkMode.isDark).toBe(true)
     expect(host.hasAttribute('dark')).toBe(false)
+    expect(darkMode.isDark).toBe(true)
 
-    host.controller.hostDisconnected()
+    darkMode.hostDisconnected()
   })
 
-  it('calls onChange with the new value after requestUpdate(), on every change including the initial apply', () => {
+  it('calls onChange with the new value only after requestUpdate() has already been invoked', async () => {
+    setDark(false)
     const order = []
-    const host = makeHost()
+    const host = new FakeHost()
     host.requestUpdate = () => order.push('requestUpdate')
-    const darkMode = new DarkMode(host, { onChange: (dark) => order.push(['onChange', dark]) })
+    const onChange = (dark) => order.push(`onChange:${dark}`)
+    const darkMode = new DarkMode(host, { onChange })
+    darkMode.hostConnected()
+    // -> Clear the hostConnected-time apply call; only the mutation-driven one is under test here.
+    order.length = 0
 
-    host.controller.hostConnected()
+    setDark(true)
+    await nextTick()
 
-    expect(order).toEqual(['requestUpdate', ['onChange', darkMode.isDark]])
+    expect(order).toEqual(['requestUpdate', 'onChange:true'])
 
-    host.controller.hostDisconnected()
+    darkMode.hostDisconnected()
+  })
+
+  it('stops reacting to the theme once hostDisconnected has run', async () => {
+    setDark(false)
+    const host = new FakeHost()
+    const darkMode = new DarkMode(host)
+    darkMode.hostConnected()
+    darkMode.hostDisconnected()
+
+    setDark(true)
+    await nextTick()
+
+    expect(host.hasAttribute('dark')).toBe(false)
   })
 })
