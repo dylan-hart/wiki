@@ -1,0 +1,41 @@
+# docker/build-push-action (.github/workflows/build.yml) invokes `docker build` with `context: .`,
+# so the whole repo working tree is the build context unless excluded here. Without this file,
+# dev/build/Dockerfile's `COPY --chown=node:node ./backend ./backend` copies backend/node_modules
+# exactly as CI's plain `npm ci` step left it on disk -- full devDependencies included (nodemon,
+# drizzle-kit, typescript, oxlint, s3rver, ssh2, esbuild's platform binary...) -- into an image
+# layer. The Dockerfile's own later `RUN npm ci --omit=dev` reinstalls a production-only
+# node_modules in a subsequent layer, but layers are additive and pushed individually, so the
+# dev-dependency-laden layer stays extractable from the published image regardless. Excluding
+# node_modules from the context entirely means that layer never has dev deps to begin with.
+
+# Installed dependencies: reinstalled inside the image by the Dockerfile itself; never needed from
+# the host, and by far the biggest single contributor to build-context size and upload time.
+**/node_modules
+
+# Version control: irrelevant to the image and can carry history far larger than the source tree.
+.git
+.gitignore
+.gitattributes
+
+# Workspaces and tooling with no runtime role in the built image -- the image serves
+# frontend/'s already-built `assets/` output and blocks/'s already-built `blocks/compiled/`
+# output (both COPYed in explicitly), never their source.
+e2e/
+.devcontainer/
+.vscode/
+.github/
+
+# Docs and local working notes: never read by the running app.
+docs/
+*.md
+
+# Test artifacts, wherever a workspace's test run happened to leave them.
+**/test-results
+**/playwright-report
+**/coverage
+
+# The dev-mode instance config (a copy of config.sample.yml) and any local dev data directory --
+# the image gets its config from `dev/build/config.yml` (COPYed explicitly to `/wiki/config.yml`)
+# and its content volume mounted at runtime, never from the host's own dev checkout.
+config.yml
+data/

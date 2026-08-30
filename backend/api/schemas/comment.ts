@@ -44,6 +44,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       content: {
         type: 'string',
         minLength: 1,
+        maxLength: 32768,
         description: 'The comment source, in whatever format the comments provider renders.'
       },
       replyTo: {

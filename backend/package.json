@@ -139,10 +139,6 @@
   "engines": {
     "node": ">=26.0"
   },
-  "allowScripts": {
-    "esbuild": false,
-    "puppeteer": true
-  },
   "collective": {
     "type": "opencollective",
     "url": "https://opencollective.com/wikijs",

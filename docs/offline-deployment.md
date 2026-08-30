@@ -78,6 +78,14 @@ to document internally, not a bug this feature could fix.
 (default `./data/locales`, alongside the existing `<dataPath>/cache/icons` and `<dataPath>/cache/files`
 directories) is scanned for `<code>.json` files, each a **self-contained locale pack**:
 
+**The mount point that matters is `/wiki/data`, not `/wiki/data/content`.** The official container
+image (`dev/build/Dockerfile`) declares `VOLUME ["/wiki/data"]` — the whole `dataPath` root, covering
+`content/`, `locales/`, `cache/`, and anything else written under it — precisely so this directory
+survives a container replacement. A volume or bind mount scoped only to `/wiki/data/content` leaves
+`/wiki/data/locales` on the container's writable layer: sideloaded packs would appear to work right up
+until the container is recreated, at which point they silently vanish along with the rest of that
+layer.
+
 ```json
 {
   "name": "Klingon",

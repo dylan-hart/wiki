@@ -1,7 +1,10 @@
-# Pinned to a concrete release rather than the floating `node:26` major tag, per this project's
-# Currency standard — bump deliberately, checking Node's own release notes for the target version
-# before moving it (see docs/variances.md's `@js-temporal/polyfill` entry for why that matters here).
-FROM node:26.7.0
+# Digest-pinned rather than just version-pinned: this is the base of the image
+# docker/build-push-action publishes, and a floating tag (even a specific one, since Docker Hub
+# repoints "26.x.y-bookworm" itself on a Debian base refresh) means two builds of the same commit
+# can start from different base layers with nothing recording which one a published image used.
+# Bump alongside the rest of the repo's normal currency pass -- `docker pull node:26-bookworm` then
+# `docker inspect --format='{{index .RepoDigests 0}}' node:26-bookworm` gives the new digest.
+FROM node:26.7.0-bookworm@sha256:e929171d35b9df7773a3ec5b068e387fa109441dc90f91e6560af5d39b7e9bf1
 LABEL maintainer="requarks.io"
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -qy --no-install-recommends \
@@ -15,18 +18,24 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -qy --no-in
     openssh-client \
     pandoc \
     && rm -rf /var/lib/apt/lists/*
-RUN mkdir -p /wiki && \
-    mkdir -p /logs && \
-    mkdir -p /wiki/data/content && \
-    chown -R node:node /wiki /logs
+# The application tree stays root-owned and read-only to the `node` user it runs as. With no build
+# step, Node loads `/wiki/backend/**/*.ts` directly on every start, so a writable source tree would
+# turn any future arbitrary-write primitive into RCE that survives a restart. Only what `node`
+# actually needs to write at runtime is chowned to it: `node_modules` (the two `npm` installs below
+# run as `node`), `/wiki/data` (page/asset storage, cache, and the locale sideload directory --
+# everything under `dataPath`), and `/logs`. `node_modules` is created (empty) and chowned *before*
+# `./backend` is copied in, so the copy -- run as root, since it happens before `USER node` below --
+# merges into it without touching its ownership.
+RUN mkdir -p /wiki/backend/node_modules /wiki/data /logs && \
+    chown -R node:node /wiki/backend/node_modules /wiki/data /logs
 
 WORKDIR /wiki
 
-COPY --chown=node:node ./assets ./assets
-COPY --chown=node:node ./blocks/compiled ./blocks/compiled
-COPY --chown=node:node ./backend ./backend
-COPY --chown=node:node ./dev/build/config.yml ./config.yml
-COPY --chown=node:node ./LICENSE ./LICENSE
+COPY ./assets ./assets
+COPY ./blocks/compiled ./blocks/compiled
+COPY ./backend ./backend
+COPY ./dev/build/config.yml ./config.yml
+COPY ./LICENSE ./LICENSE
 
 USER node
 
@@ -66,9 +75,19 @@ RUN PUPPETEER_VERSION="$(sed -n 's/^installVersion: *//p' modules/extensions/pup
 
 WORKDIR /wiki
 
-VOLUME ["/wiki/data/content"]
+# The whole data root, not just `content` -- `dataPath` (`dev/build/config.yml`) is `/wiki/data`, and
+# the locale sideload directory (`docs/offline-deployment.md`'s "Locale-pack sideloading") lives at
+# `/wiki/data/locales`, a sibling of `content` that a volume scoped to `content` alone would silently
+# exclude.
+VOLUME ["/wiki/data"]
 
+# Only 3000: Fastify is constructed with no `https` option (`initHTTPServer()`), and this image never
+# terminates TLS (`docs/tls-termination.md`) -- an `EXPOSE 3443` advertised a port nothing ever opens.
 EXPOSE 3000
-EXPOSE 3443
+
+# `/_ready` (registered by `gracefulServer` in `backend/index.ts`) is the same readiness signal a
+# Kubernetes probe would use; a plain Docker deployment gets it too via `docker inspect`/`docker ps`.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD curl -fsS http://localhost:3000/_ready || exit 1
 
 CMD ["node", "backend"]

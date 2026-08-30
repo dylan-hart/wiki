@@ -1,8 +1,9 @@
-import type { Pool } from 'pg'
+import { Pool, type PoolConfig } from 'pg'
+import { setTimeout as delay } from 'node:timers/promises'
 
 /**
- * Run `fn` while holding a session-scoped Postgres advisory lock keyed by `key`, blocking until any
- * other holder of the same key — in this process or another — releases it first.
+ * Run `fn` while holding a session-scoped Postgres advisory lock keyed by `key`, waiting for any other
+ * holder of the same key — in this process or another — to release it first.
  *
  * `dispatchStorage` runs as an in-process task (`tasks/simple/dispatch-storage.ts`), but the scheduler
  * still claims and runs several jobs *concurrently* within one process (`processJob`'s
@@ -21,40 +22,118 @@ import type { Pool } from 'pg'
  * specifically, at negligible cost: none of these handlers are on a request's critical path, and a
  * second job for the same target simply waits its turn instead of racing.
  *
- * The lock and its release must run on the exact same physical connection — a `Pool` query checks a
- * connection out and back in per call, so a lock taken through `pool.query()` could be released from a
- * different one and never actually let go. This checks a client out of the pool for the duration of
- * `fn`, the same constraint `test/db.ts`'s `createExtensionsSerialized` documents and follows.
+ * **Never checks a client out of `WIKI.db.$client`, the pool that serves requests.** `fn()` is a
+ * storage module handler — a `git push`, an S3 `PUT`, an SFTP transfer, i.e. arbitrarily long network
+ * I/O — held for the whole time the lock is held (the lock and its release must run on the exact same
+ * physical connection, same constraint `test/db.ts`'s `createExtensionsSerialized` documents and
+ * follows). With the request pool's default `max = 10`, one holder plus nine contended callers checked
+ * out of that same pool would consume every connection an HTTP request needs, and previously did so by
+ * blocking inside `pg_advisory_lock` with no way to give the connection back early (OpenProject #2246).
+ * `getLockPool()` below hands out connections from a second, small, dedicated pool instead — cloned
+ * from the same connection parameters (`WIKI.dbManager.config`) but capped at `LOCK_POOL_MAX`, so a
+ * storm of contended lock attempts can starve only itself, never a request in flight.
  *
- * `hashtext()` collapses `key` to the single bigint `pg_advisory_lock` takes — a 32-bit hash, so a
- * collision between two different keys is possible in principle. The consequence of one is two
- * unrelated targets occasionally serializing against each other rather than running concurrently,
- * never a correctness problem, so it is not worth a second int32 (`pg_advisory_lock(int, int)`) to
- * avoid.
+ * **Never blocks inside `pg_advisory_lock`.** A contended acquisition instead polls
+ * `pg_try_advisory_lock` (non-blocking — returns `false` immediately rather than waiting) on a capped
+ * exponential backoff with jitter, and gives up with `AdvisoryLockAcquisitionError` after `maxAttempts`
+ * rather than waiting forever. That both bounds how long one lock pool connection can be tied up
+ * failing to acquire, and turns a wedged holder (one that took the lock and then hung) into a failed
+ * job the scheduler retries with its own backoff — same as any other `dispatchStorage` failure — rather
+ * than a silent, indefinite hang. `options` defaults to production-sized values; tests override them to
+ * exercise the give-up path without waiting out the real schedule.
  *
- * Acquisition is bounded by a session-level `lock_timeout` on this same connection: `pg_advisory_lock`
- * itself blocks forever with nothing else in this codebase setting a `lock_timeout`, so a wedged
- * holder (a dead peer, a hung `fn` from an earlier, still-in-flight call) would otherwise strand this
- * caller — and the worker slot or scheduler tick it runs on — indefinitely. A timed-out acquisition
- * throws like any other Postgres error and releases the connection normally, since the lock was never
- * taken. Deliberately `SET`, not `SET LOCAL`: this client issues each statement as its own separate
- * query with no enclosing `BEGIN`, and Postgres runs an unwrapped statement in its own implicit
- * transaction that ends the instant it finishes — so a `SET LOCAL` here would revert before the very
- * next statement (the lock acquisition itself) ever saw it, silently leaving the wait unbounded again.
- * The session-level `SET` takes effect immediately and stays in effect for the rest of this
- * connection's life, which is exactly why it is reset back to `DEFAULT` before a clean release below:
- * left set, a 30s `lock_timeout` would leak onto whatever unrelated query the pool next hands this
- * connection to.
+ * `hashtext()` collapses `key` to the single bigint `pg_advisory_lock`/`pg_try_advisory_lock` take — a
+ * 32-bit hash, so a collision between two different keys is possible in principle. The consequence of
+ * one is two unrelated targets occasionally serializing against each other rather than running
+ * concurrently, never a correctness problem, so it is not worth a second int32
+ * (`pg_advisory_lock(int, int)`) to avoid.
  */
-const LOCK_ACQUIRE_TIMEOUT_MS = 30_000
 
-export async function withAdvisoryLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const pool = WIKI.db.$client as Pool
+/** Thrown when `withAdvisoryLock` gives up contending for the lock after `maxAttempts` tries. */
+export class AdvisoryLockAcquisitionError extends Error {
+  constructor(key: string, attempts: number) {
+    super(`Gave up acquiring advisory lock "${key}" after ${attempts} attempt(s)`)
+    this.name = 'AdvisoryLockAcquisitionError'
+  }
+}
+
+export interface AdvisoryLockOptions {
+  /** Total `pg_try_advisory_lock` attempts before giving up. Default: 10. */
+  maxAttempts?: number
+  /** Delay before the second attempt; doubles each attempt after, capped by `maxDelayMs`. Default: 100. */
+  baseDelayMs?: number
+  /** Ceiling on the backoff delay between attempts, before jitter. Default: 3000. */
+  maxDelayMs?: number
+}
+
+const LOCK_POOL_DEFAULTS: Required<AdvisoryLockOptions> = {
+  maxAttempts: 10,
+  baseDelayMs: 100,
+  maxDelayMs: 3000
+}
+
+/**
+ * A handful of concurrent lock holders/contenders is the expected ceiling for this pool — nothing else
+ * ever draws from it — so it stays small deliberately, unlike the request-serving pool's `max`.
+ */
+const LOCK_POOL_MAX = 4
+
+let lockPool: Pool | null = null
+
+/**
+ * Lazily build the dedicated advisory-lock pool from the same connection parameters the main pool was
+ * built from (`WIKI.dbManager.config`, populated once `dbManager.init()` has run — always true by the
+ * time any job dispatches a lock, since nothing during boot itself calls `withAdvisoryLock`).
+ */
+function getLockPool(): Pool {
+  if (!lockPool) {
+    lockPool = new Pool({
+      ...(WIKI.dbManager.config as PoolConfig),
+      application_name: `Wiki.js - ${WIKI.INSTANCE_ID}:LOCKS`,
+      max: LOCK_POOL_MAX
+    })
+  }
+  return lockPool
+}
+
+/** Test-only: drop the cached pool so a suite can rebuild it against its own `DATABASE_URL`/config, and close it in `after()` so the process can exit. */
+export async function _resetLockPoolForTests(): Promise<void> {
+  if (lockPool) {
+    await lockPool.end()
+    lockPool = null
+  }
+}
+
+function jitteredDelay(attempt: number, baseDelayMs: number, maxDelayMs: number): number {
+  const backoff = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs)
+  return backoff + Math.random() * backoff * 0.25
+}
+
+export async function withAdvisoryLock<T>(
+  key: string,
+  fn: () => Promise<T>,
+  options: AdvisoryLockOptions = {}
+): Promise<T> {
+  const { maxAttempts, baseDelayMs, maxDelayMs } = { ...LOCK_POOL_DEFAULTS, ...options }
+  const pool = getLockPool()
   const client = await pool.connect()
   let releaseCleanly = true
   try {
-    await client.query(`SET lock_timeout = ${LOCK_ACQUIRE_TIMEOUT_MS}`)
-    await client.query('SELECT pg_advisory_lock(hashtext($1))', [key])
+    let attempt = 0
+    for (;;) {
+      attempt++
+      const res = await client.query<{ locked: boolean }>(
+        'SELECT pg_try_advisory_lock(hashtext($1)) AS locked',
+        [key]
+      )
+      if (res.rows[0].locked) {
+        break
+      }
+      if (attempt >= maxAttempts) {
+        throw new AdvisoryLockAcquisitionError(key, attempt)
+      }
+      await delay(jitteredDelay(attempt, baseDelayMs, maxDelayMs))
+    }
     try {
       return await fn()
     } finally {
@@ -66,10 +145,6 @@ export async function withAdvisoryLock<T>(key: string, fn: () => Promise<T>): Pr
       //    still trustworthy.
       try {
         await client.query('SELECT pg_advisory_unlock(hashtext($1))', [key])
-        // -> Reset the session GUC before this connection can go back to the pool for reuse by
-        //    unrelated code -- see this function's own doc comment for why `lock_timeout` is set at
-        //    session scope in the first place.
-        await client.query('SET lock_timeout = DEFAULT')
       } catch (err: any) {
         releaseCleanly = false
         WIKI.logger.warn(
@@ -78,11 +153,9 @@ export async function withAdvisoryLock<T>(key: string, fn: () => Promise<T>): Pr
       }
     }
   } finally {
-    // -> `client.release(true)` when the unlock (or the GUC reset following it) could not be
-    //    confirmed: `pg_advisory_lock` is re-entrant per session, so recycling a connection whose lock
-    //    state is uncertain would let a later borrower acquire the key trivially while every other
-    //    session blocks on it forever -- and one whose `lock_timeout` reset is uncertain is safer
-    //    discarded too, rather than silently carrying a stale timeout into unrelated future queries.
+    // -> `client.release(true)` when the unlock could not be confirmed: `pg_advisory_lock` is
+    //    re-entrant per session, so recycling a connection whose lock state is uncertain would let a
+    //    later borrower acquire the key trivially while every other session blocks on it forever.
     client.release(!releaseCleanly)
   }
 }

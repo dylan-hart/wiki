@@ -28,6 +28,8 @@ defaults:
       # (each a separate `{min:0,max:1}` connection — see `workerMode` in `core/db.ts`), and
       # admin/maintenance connections.
       max: 20
+      connectionTimeoutMillis: 5000
+      statementTimeoutMillis: 60000
     bindIP: 0.0.0.0
     logLevel: info
     logFormat: default
@@ -84,6 +86,11 @@ defaults:
     # no row is ever inserted, not merely hidden from a later read.
     pageviews:
       isEnabled: true
+      # Real value is generated at first run (`models/settings.ts#init()`, mirroring `auth.secret`
+      # below) and stored in the `settings` table -- this placeholder is only ever seen before that
+      # seeding runs. Keys `hashVisitor()`'s HMAC so a stored `visitorHash` can't be re-derived from
+      # `sessions.id`/`apiKeys.id` without it.
+      hashKey: ''
     # Only a backstop for a database that predates this key's introduction (the `settings` table row
     # is what actually governs a live instance -- see `models/settings.ts#init()` and
     # `models/auditLog.ts`'s `DEFAULT_AUDIT_LOG_RETENTION_DAYS`, which this must match).

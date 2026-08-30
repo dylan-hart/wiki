@@ -14,7 +14,10 @@ import {
   assets as assetsTable,
   authentication as authenticationTable,
   groups as groupsTable,
+  pageEditSubmissions,
   pages as pagesTable,
+  sessions as sessionsTable,
+  userAvatars,
   userGroups as userGroupsTable,
   userKeys,
   users as usersTable
@@ -2785,9 +2788,6 @@ describe('users.reassignContent (DB-backed)', { skip: !hasTestDatabase() }, () =
   })
 })
 
-/**
- * `createUser()` atomicity (OpenProject #1607 / #1584): the insert and its group assignment now
- * share one `WIKI.db.transaction()`, so a failure in `setUserGroups` after the insert must leave no
  * orphaned user row behind, and the ordinary path must still land both.
  */
 describe('users.createUser atomicity (DB-backed)', { skip: !hasTestDatabase() }, () => {
@@ -2924,6 +2924,118 @@ describe('users.setUserGroups (DB-backed)', { skip: !hasTestDatabase() }, () => 
       [fixtures.groupId],
       'the prior membership survived the failed insert instead of being left empty'
     )
+  })
+})
+
+/**
+ * `deleteUser` is SQL orchestration over four tables in one transaction — the same
+ * real-database case `reassignContent (DB-backed)` above is for, not one a query-builder mock
+ * would usefully stand in for: what's under test is that the avatar and open submissions are
+ * really gone afterwards, and that a refused delete really leaves sessions/keys/avatar alone.
+ */
+describe('users.deleteUser (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let usersModel: typeof import('./users.ts').users
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ users: usersModel } = await import('./users.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  async function insertUser(email: string) {
+    const [row] = await fixtures.db
+      .insert(usersTable)
+      .values({ email, name: email, isActive: true, isVerified: true })
+      .returning({ id: usersTable.id })
+    return row!.id
+  }
+
+  function rawPageRow(overrides: { path: string; authorId: string }) {
+    return {
+      locale: 'en',
+      path: overrides.path,
+      hash: `delete-user-hash-${overrides.path}`,
+      title: 'Delete Me',
+      editor: 'markdown',
+      contentType: 'markdown',
+      authorId: overrides.authorId,
+      creatorId: overrides.authorId,
+      ownerId: overrides.authorId,
+      siteId: fixtures.siteId,
+      classification: fixtures.classificationId
+    }
+  }
+
+  test('deleting a user with an avatar leaves no userAvatars row and getAvatar() returns nothing', async () => {
+    const userId = await insertUser('avatar-owner@example.com')
+    await fixtures.db.insert(userAvatars).values({ id: userId, data: Buffer.from('fake-jpeg') })
+
+    const deleted = await usersModel.deleteUser(userId)
+
+    assert.equal(deleted, true)
+    const [avatarRow] = await fixtures.db
+      .select()
+      .from(userAvatars)
+      .where(eq(userAvatars.id, userId))
+    assert.equal(avatarRow, undefined)
+    assert.equal(await usersModel.getAvatar(userId), null)
+  })
+
+  test("a delete refused by a foreign-key conflict leaves the user's sessions and keys intact", async () => {
+    const userId = await insertUser('blocked-delete@example.com')
+    await fixtures.db.insert(sessionsTable).values({ id: `sess-${userId}`, userId })
+    await fixtures.db.insert(userKeys).values({
+      kind: 'validation',
+      token: `token-${userId}`,
+      validUntil: new Date(Date.now() + 60_000),
+      userId
+    })
+    // -> No onDelete cascade or set null on pages.authorId (see reassignContent's own doc comment),
+    //    so an authored page is exactly what makes deleteUser() throw a 23503 foreign-key violation.
+    await fixtures.db
+      .insert(pagesTable)
+      .values(rawPageRow({ path: 'blocked/page', authorId: userId }))
+
+    await assert.rejects(usersModel.deleteUser(userId))
+
+    const [userRow] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, userId))
+    assert.ok(userRow, 'the user row must still exist')
+    const sessionRows = await fixtures.db
+      .select()
+      .from(sessionsTable)
+      .where(eq(sessionsTable.userId, userId))
+    assert.equal(sessionRows.length, 1)
+    const keyRows = await fixtures.db.select().from(userKeys).where(eq(userKeys.userId, userId))
+    assert.equal(keyRows.length, 1)
+  })
+
+  test('a user with an open edit submission is deletable because the transaction discards it', async () => {
+    const userId = await insertUser('submitter@example.com')
+    const [page] = await fixtures.db
+      .insert(pagesTable)
+      .values(rawPageRow({ path: 'submission/target', authorId: fixtures.userId }))
+      .returning({ id: pagesTable.id })
+    await fixtures.db.insert(pageEditSubmissions).values({
+      content: 'edited content',
+      patch: '--- a\n+++ b\n',
+      baseHash: 'deadbeef',
+      pageId: page!.id,
+      siteId: fixtures.siteId,
+      authorId: userId
+    })
+
+    const deleted = await usersModel.deleteUser(userId)
+
+    assert.equal(deleted, true)
+    const submissionRows = await fixtures.db
+      .select()
+      .from(pageEditSubmissions)
+      .where(eq(pageEditSubmissions.authorId, userId))
+    assert.equal(submissionRows.length, 0)
   })
 })
 

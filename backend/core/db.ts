@@ -64,14 +64,57 @@ const LEGACY_TABLES = ['knex_migrations', 'searchEngines']
  * The decision is made per query rather than when the instance is built, so that the `sqlLog` system
  * flag can be turned on in the admin area and take effect on the next query — a logger chosen at boot
  * would need a restart.
+ *
+ * Bound parameter *values* are never logged, only redacted below. A bound parameter routinely carries
+ * a secret — `models/settings.ts#updateConfig` binds a whole settings blob as one JSONB parameter, and
+ * that blob can hold the API signing private key and its passphrase, the session secret, SMTP/LDAP/
+ * OAuth credentials, storage-target keys, bcrypt hashes and TOTP secrets — and this line reaches
+ * `WIKI.logger.info` unconditionally whenever either trigger below is on: the container log pipeline
+ * for `sqlLog`/`dev.logQueries`, and every connected admin terminal client via
+ * `controllers/terminal.ts`'s backlog replay. Redaction lives inside `logQuery` itself rather than
+ * behind either trigger's `if`, so both are covered identically. See OpenProject #2205.
  */
-const queryLogger = {
+export const queryLogger = {
   logQuery(query: string, params: unknown[]): void {
     if (!flags.isEnabled('sqlLog') && !WIKI.config.dev?.logQueries) {
       return
     }
-    WIKI.logger.info(`[SQL] ${query}${params.length > 0 ? ` -- ${JSON.stringify(params)}` : ''}`)
+    WIKI.logger.info(
+      `[SQL] ${query}${params.length > 0 ? ` -- ${describeQueryParams(params)}` : ''}`
+    )
   }
+}
+
+/**
+ * Describes a bound-parameter array for logging without exposing any value it carries — see
+ * `queryLogger` above.
+ */
+function describeQueryParams(params: unknown[]): string {
+  const count = params.length
+  return `(${count} param${count === 1 ? '' : 's'}: ${params.map(describeQueryParam).join(', ')})`
+}
+
+/** Type/length descriptor for one bound parameter. Never returns the value itself. */
+function describeQueryParam(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'null'
+  }
+  if (typeof value === 'string') {
+    return `string(${value.length})`
+  }
+  if (Buffer.isBuffer(value)) {
+    return `buffer(${value.length})`
+  }
+  if (Array.isArray(value)) {
+    return `array(${value.length})`
+  }
+  if (value instanceof Date) {
+    return 'date'
+  }
+  if (typeof value === 'object') {
+    return 'object'
+  }
+  return typeof value
 }
 
 /**
@@ -213,11 +256,24 @@ export default {
 
     // Initialize Postgres Pool
 
+    // -> `WIKI.config.pool` carries operator-tunable `max`/`connectionTimeoutMillis`/
+    //    `statementTimeoutMillis` (defaulted in base.yml, sized above `scheduler.workers` so the
+    //    scheduler's own claim query is never the thing starved). `connectionTimeoutMillis` bounds
+    //    how long `pool.connect()` waits for a checkout on a saturated pool -- unset, pg-pool waits
+    //    forever, which is what let a saturated main pool wedge every DB-backed request handler,
+    //    session load/save, and the scheduler's claim query indefinitely (task 2249). Worker-mode
+    //    pools already stay tightly bounded in size (`max: 1`, one connection per worker thread) but
+    //    still inherit the same connect timeout, since a worker's single connection can wedge the
+    //    same way. `statement_timeout` has to travel via the `options` connection string -- pg-pool
+    //    has no dedicated config key for it -- so Postgres itself cancels a runaway query rather than
+    //    leaving it to run unbounded once a connection is checked out.
+    const poolConfig = WIKI.config.pool ?? {}
     this.pool = new Pool({
       application_name: `Wiki.js - ${WIKI.INSTANCE_ID}:${workerMode ? 'WORKER' : 'MAIN'}`,
       ...this.config,
+      connectionTimeoutMillis: poolConfig.connectionTimeoutMillis,
       ...resolvePoolSizeOptions(workerMode, WIKI.config.pool),
-      options: `-c search_path=${WIKI.config.db.schema}`
+      options: `-c search_path=${WIKI.config.db.schema} -c statement_timeout=${poolConfig.statementTimeoutMillis}`
     })
 
     // -> `Pool extends EventEmitter`, and node-postgres emits `error` on it whenever a checked-in,
@@ -255,10 +311,7 @@ export default {
     WIKI.logger.info(`Using PostgreSQL v${dbVersion.version} [ OK ]`)
 
     // DEV - Drop schema
-    if (WIKI.config.dev?.dropSchema) {
-      WIKI.logger.warn(`DEV MODE - Dropping schema ${WIKI.config.db.schema}...`)
-      await db.execute(`DROP SCHEMA IF EXISTS ${WIKI.config.db.schema} CASCADE;`)
-    }
+    await this.dropSchemaIfDev(db)
 
     // Run Migrations
     if (!workerMode) {
@@ -266,6 +319,38 @@ export default {
     }
 
     return db
+  },
+  /**
+   * DEV - Drop schema, gated on `WIKI.IS_DEBUG` (OpenProject task 2270).
+   *
+   * `dev.dropSchema` is presented in `config.sample.yml` under a "Dev Mode" heading, but the config
+   * value alone used to be trusted in every mode: `config.yml` is merged over `base.yml` with no
+   * environment condition, and `helpers/config.ts#parseConfigValue` also lets the value arrive from
+   * an environment variable, so an operator who reasonably reads that heading as "inert outside dev"
+   * would be wrong. Left ungated, a config carried into production intact -- or an env var aimed at
+   * the wrong layer -- drops the schema, total and irreversible, on the very next boot.
+   *
+   * `WIKI.IS_DEBUG` (`index.ts`) is derived solely from `NODE_ENV === 'development'`, not from any
+   * wiki config or `dev.*` env var, so it cannot be flipped by the same misconfiguration this guards
+   * against. When the key is set but the guard blocks it, an explicit refusal is logged instead of
+   * silently doing nothing, so a developer running with the wrong `NODE_ENV` is not left wondering
+   * why their schema was not dropped.
+   *
+   * `dev.logQueries` (the other member of `dev`, consulted by `queryLogger` above) is intentionally
+   * left ungated here -- it is handled by the `sqlLog` redaction work tracked separately.
+   */
+  async dropSchemaIfDev(db: WikiDb): Promise<void> {
+    if (!WIKI.config.dev?.dropSchema) {
+      return
+    }
+    if (!WIKI.IS_DEBUG) {
+      WIKI.logger.warn(
+        `DEV MODE - dev.dropSchema is set but was refused: WIKI.IS_DEBUG is false. Schema ${WIKI.config.db.schema} was NOT dropped.`
+      )
+      return
+    }
+    WIKI.logger.warn(`DEV MODE - Dropping schema ${WIKI.config.db.schema}...`)
+    await db.execute(`DROP SCHEMA IF EXISTS ${WIKI.config.db.schema} CASCADE;`)
   },
   /**
    * Subscribe to database LISTEN / NOTIFY for multi-instances events

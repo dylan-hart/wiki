@@ -22,6 +22,7 @@ export const AUDIT_EVENTS = [
   'apiKey.revoked',
   'site.settingsUpdated',
   'storage.targetUpdated',
+  'auth.strategyUpdated',
   'glossaryTerm.created',
   'glossaryTerm.updated',
   'glossaryTerm.deleted',
@@ -43,7 +44,32 @@ export const AUDIT_EVENTS = [
   //   /`updatePage.ts` for the latter -- the write tools are the same handlers regardless of which
   //   transport called them, so this fires for both.
   'mcp.sessionOpened',
-  'mcp.writeToolCalled'
+  'mcp.writeToolCalled',
+  // -> #2231: every write route in `api/system.ts` -- instance-wide administration with no per-target
+  //   row of its own (no `targetType` fits), so `detail` alone carries what changed. For
+  //   `flagsUpdated`/`securityUpdated`, `detail` is the exact `patch` object `pickFlags`/`pickFields`
+  //   already produced -- filtered to each model's own closed field list, which is what guarantees an
+  //   `auth`/`mail` settings blob (never in either list) can never reach it even if a caller's request
+  //   body carried one.
+  'system.flagsUpdated',
+  'system.securityUpdated',
+  'system.extensionInstalled',
+  'system.apiStateUpdated',
+  'system.metricsUpdated',
+  'system.pageviewsUpdated',
+  'system.certificatesRegenerated',
+  'system.sessionsInvalidated',
+  'system.pageHistoryPurged',
+  'system.contentExported',
+  'system.contentImported',
+  /**
+   * OpenProject #2237: the audit log auditing its own configuration. `retentionChanged`'s `detail`
+   * carries `{ from, to }` (days); `purged`'s carries `{ count, cutoff }` -- see `purge()`'s own
+   * comment for why recording this is necessary but not sufficient to make the log tamper-evident on
+   * its own.
+   */
+  'auditLog.retentionChanged',
+  'auditLog.purged'
 ] as const
 
 export type AuditEvent = (typeof AUDIT_EVENTS)[number]
@@ -55,6 +81,7 @@ export const AUDIT_TARGET_TYPES = [
   'apiKey',
   'site',
   'storageTarget',
+  'authStrategy',
   // -> #1118: `mcp.writeToolCalled`'s target is the page the tool call wrote, not the calling key
   //   (that's `mcp.sessionOpened`'s `apiKey` target) -- naming the page is what makes the log entry
   //   answer "what did the agent write", not just "an agent wrote something".
@@ -66,6 +93,20 @@ export type AuditTargetType = (typeof AUDIT_TARGET_TYPES)[number]
 
 /** How long, in days, a fresh instance keeps audit log entries before the retention job trims them. */
 export const DEFAULT_AUDIT_LOG_RETENTION_DAYS = 365
+
+/**
+ * The lowest `retentionDays` `PUT /_api/audit-log/settings` will accept (OpenProject #2237).
+ *
+ * The route used to allow `1`. Combined with `POST /_api/scheduler/schedule/:scheduleId/run`
+ * queueing the seeded `cleanAuditLog` job immediately rather than waiting for its 00:35 cron, and
+ * `purge()` reading the retention value live at run time, an operator -- or a compromised
+ * `manage:system` session or API key -- could set `retentionDays: 1`, trigger the job, and delete
+ * effectively the whole log in one `delete` before restoring a longer window: a de facto wipe with
+ * no trace beyond a `WIKI.logger.info` line naming no actor. This floor does not make the log
+ * tamper-evident by itself (see `purge()`'s own comment below), but it does mean a single retention
+ * change can no longer function as a full wipe.
+ */
+export const AUDIT_LOG_RETENTION_DAYS_FLOOR = 30
 
 export type AuditLogEntry = {
   id: string
@@ -259,6 +300,18 @@ class AuditLog {
     WIKI.logger.info(
       `Purged ${purged} audit log entr(ies) older than ${retentionDays} day(s) [ OK ]`
     )
+    // OpenProject #2237: record the purge itself, so a shortened retention window at least leaves a
+    // trail of what it did (actor is nobody -- this runs from the `cleanAuditLog` job, not a
+    // request). Necessary but not sufficient on its own: this entry lives in the same table it just
+    // deleted from, so a later run's own (possibly shorter) window can still eat it in turn. The
+    // durable answer -- a `BEFORE DELETE` trigger on `auditLog` admitting only the retention
+    // predicate, or an external sink -- is deliberately out of scope here; file it separately if
+    // wanted.
+    await this.record({
+      event: 'auditLog.purged',
+      actor: { id: null, name: '' },
+      detail: { count: purged, cutoff: cutoff.toISOString() }
+    })
     return purged
   }
 

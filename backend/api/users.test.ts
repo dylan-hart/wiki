@@ -44,10 +44,24 @@ let knownGroupsFixture: Array<{ id: string }> = [{ id: KNOWN_GROUP_ID }]
 let createUserCalls: Array<Record<string, any>> = []
 let setUserGroupsCalls: string[][] = []
 
+/**
+ * Mutable fixtures for `DELETE /:userId` (task 2283): each test sets these ahead of its own
+ * `app.inject`, then restores them in a `finally` -- same convention as the `/profile/groups`
+ * fixtures above.
+ */
+let deleteUserFixture: { id: string; email: string; isSystem: boolean } | null = null
+let deleteUserError: Error | null = null
+const deleteUserWarnCalls: any[] = []
+
 before(async () => {
   ;(globalThis as any).WIKI = {
     config: {
       auth: { rootAdminGroupId: '88888888-8888-8888-8888-888888888888' }
+    },
+    logger: {
+      warn: (err: any) => {
+        deleteUserWarnCalls.push(err)
+      }
     },
     models: {
       users: {
@@ -58,7 +72,11 @@ before(async () => {
           createUserCalls.push(input)
           return 'new-user-id'
         },
-        getById: async (id: string) => ({ id, email: 'existing@example.com', isSystem: false }),
+        // -> Serves both the group-validation tests (which look up `EXISTING_USER_ID` and expect a
+        //    generic existing user back) and the `DELETE /:userId` tests (which set
+        //    `deleteUserFixture` ahead of the call and expect that exact object back).
+        getById: async (id: string) =>
+          deleteUserFixture ?? { id, email: 'existing@example.com', isSystem: false },
         getUserGroupIds: async () => [],
         updateUser: async () => {},
         setUserGroups: async (_userId: string, groupIds: string[]) => {
@@ -75,10 +93,16 @@ before(async () => {
           if (groups !== undefined) {
             setUserGroupsCalls.push(groups)
           }
+        },
+        deleteUser: async () => {
+          if (deleteUserError) throw deleteUserError
+          return true
         }
       },
       groups: {
         getAllGroups: async () => knownGroupsFixture,
+        // -> Happy path for every test that doesn't care about the system-user guard: the caller
+        //    already holds `manage:system`, so `systemUserGuard` returns immediately.
         holdsSystemPermission: () => true,
         userHoldsSystemPermission: async () => false,
         systemGroupIds: async () => [],
@@ -98,8 +122,7 @@ before(async () => {
       sessions: {
         clearSessionsFromUser: async () => {}
       }
-    },
-    logger: { warn: () => {} }
+    }
   }
 
   app = fastify()
@@ -115,8 +138,9 @@ before(async () => {
     ;(req as any).session = raw ? JSON.parse(raw as string) : undefined
   })
   // -> Mirrors `index.ts`'s real `setErrorHandler` so a `reply.badRequest()` (or any thrown
-  //    `CustomError`) serializes against the `ApiError#` response schema the same way it does in the
-  //    real app -- this harness registers no other error handler of its own.
+  //    `CustomError`/`@fastify/sensible` error, e.g. the DELETE route's `reply.conflict()` /
+  //    `reply.notFound()`) serializes against the `ApiError#` response schema the same way it does in
+  //    the real app -- this harness registers no other error handler of its own.
   app.setErrorHandler((error: any, _req, reply) => {
     reply
       .code(error.statusCode ?? 500)
@@ -344,4 +368,85 @@ test('PUT /:userId: a fully-known group list is accepted', async () => {
   })
   assert.equal(res.statusCode, 200)
   assert.deepEqual(setUserGroupsCalls, [[KNOWN_GROUP_ID]])
+})
+
+/**
+ * `DELETE /:userId` (task 2283): a `23503` foreign key violation on delete should name the actual
+ * blocking relation, read off the Postgres constraint name, rather than a hard-coded "pages or
+ * assets" guess -- and the reassign advice should only be offered where reassigning is the real
+ * remedy.
+ */
+
+const DELETE_ADMIN_SESSION = JSON.stringify({
+  authenticated: true,
+  user: { id: '22222222-2222-2222-2222-222222222222', name: 'Admin' }
+})
+
+const TARGET_USER = {
+  id: '11111111-1111-1111-1111-111111111111',
+  email: 'target@example.com',
+  isSystem: false
+}
+
+test('DELETE /:userId: unrecognized 23503 constraint falls back to the generic pages/assets message', async () => {
+  deleteUserFixture = TARGET_USER
+  deleteUserError = new Error('violates foreign key constraint')
+  ;(deleteUserError as any).cause = { code: '23503', constraint: 'some_other_table_fkey' }
+  try {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/${TARGET_USER.id}`,
+      headers: { 'x-test-session': DELETE_ADMIN_SESSION }
+    })
+    assert.equal(res.statusCode, 409)
+    assert.match(res.json().message, /Cannot delete a user who still owns pages or assets/)
+  } finally {
+    deleteUserFixture = null
+    deleteUserError = null
+  }
+})
+
+test('DELETE /:userId: pages_authorId constraint names authored pages and advises reassigning', async () => {
+  deleteUserFixture = TARGET_USER
+  deleteUserError = new Error('violates foreign key constraint')
+  ;(deleteUserError as any).cause = { code: '23503', constraint: 'pages_authorId_users_id_fkey' }
+  try {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/${TARGET_USER.id}`,
+      headers: { 'x-test-session': DELETE_ADMIN_SESSION }
+    })
+    assert.equal(res.statusCode, 409)
+    assert.equal(
+      res.json().message,
+      'Cannot delete a user who still has authored pages. Reassign them first.'
+    )
+  } finally {
+    deleteUserFixture = null
+    deleteUserError = null
+  }
+})
+
+test('DELETE /:userId: pageEditSubmissions_authorId constraint names the open suggestion, no reassign advice', async () => {
+  deleteUserFixture = TARGET_USER
+  deleteUserError = new Error('violates foreign key constraint')
+  ;(deleteUserError as any).cause = {
+    code: '23503',
+    constraint: 'pageEditSubmissions_authorId_users_id_fkey'
+  }
+  try {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/${TARGET_USER.id}`,
+      headers: { 'x-test-session': DELETE_ADMIN_SESSION }
+    })
+    assert.equal(res.statusCode, 409)
+    assert.equal(
+      res.json().message,
+      'Cannot delete a user who still has an open page edit suggestion. Approve or reject it first.'
+    )
+  } finally {
+    deleteUserFixture = null
+    deleteUserError = null
+  }
 })

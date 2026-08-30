@@ -45,6 +45,7 @@ import {
   resolveRequestSite,
   stripPageExtension
 } from './helpers/common.ts'
+import { sendNonApiError } from './helpers/errorHandler.ts'
 import { OPENAPI_SECURITY, OPENAPI_SECURITY_SCHEMES } from './helpers/openapi.ts'
 import {
   limitApiKey,
@@ -1086,7 +1087,7 @@ async function initHTTPServer() {
         })
       }
     } else {
-      reply.send(error)
+      sendNonApiError(error, reply)
     }
   })
 
@@ -1098,10 +1099,17 @@ async function initHTTPServer() {
     WIKI.logger.info(`Starting HTTP Server on port ${WIKI.config.port} [ STARTING ]`)
     await app.listen({ port: WIKI.config.port, host: WIKI.config.bindIP })
     WIKI.logger.info('HTTP Server: [ RUNNING ]')
-    // -> `setReady()` deliberately does NOT happen here any more -- see the call after `postBoot()`
-    //    at the bottom of this file for why. The listener being up before ready is still what makes
-    //    `/_live` meaningful during a slow boot: graceful-server already destroys sockets for
-    //    non-ready requests in between.
+    // -> `/_ready` is deliberately NOT flipped here: `app.listen()` only means the socket accepts
+    //    connections, not that a request can be served correctly. `WIKI.sites`/`WIKI.sitesMappings`
+    //    are still `{}` at this point (see the WIKI literal above), no auth strategy is active yet,
+    //    and the groups/locales/approvals/classification caches every request path reads from are
+    //    still empty -- all of that is filled in by `postBoot()`, which runs after this function
+    //    returns. Reporting ready here would let a rolling update or load balancer route live
+    //    traffic onto an instance that 302s every page to `/_error/unknownsite` and fails every
+    //    login. `setReady()` is called once `postBoot()` has actually populated those caches, at
+    //    the bottom of this file. `/_live` (bound by `gracefulServer` above, independent of
+    //    `setReady()`) answers from here onward regardless, so liveness probes still see the
+    //    process as up throughout.
   } catch (err: any) {
     WIKI.logger.error(err)
     process.exit(1)
@@ -1144,14 +1152,7 @@ try {
   process.exit(1)
 }
 
-// -> Moved out of `initHTTPServer()` and here instead, after `postBoot()` has fully resolved: nearly
-//    everything that makes this instance able to actually answer a page request --
-//    `sites.reloadCache()` (and therefore `WIKI.sitesMappings`), `groups`/`locales`/`approvals`/
-//    `classificationLevels` caches, storage/blocks/comment-provider sync, search engine
-//    provisioning, the event bus subscription, collab, and the scheduler itself -- happens in
-//    `postBoot()`, not `initHTTPServer()`. `setReady()` used to fire the moment the HTTP listener was
-//    up, at the *start* of that window: a load balancer gating rollout traffic on `/_ready` would
-//    have been sent real requests during it, every one of which 302s to the "unknown site" error page
-//    (`WIKI.sitesMappings` is still the empty object literal it starts as) -- a wrong response, not a
-//    degraded one.
+// -> Only now are the site/group/locale/approval/classification caches and the active auth
+//    strategies actually populated (see the comment at the end of `initHTTPServer()`), so only now
+//    is the instance fit to receive live traffic.
 WIKI.server.setReady()

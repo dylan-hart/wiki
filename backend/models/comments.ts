@@ -103,6 +103,15 @@ export interface ListForAdminOptions {
 /** Trimmed content shorter than this is not a comment. Matches 2.5.x's `postNewComment`. */
 const MIN_CONTENT_LENGTH = 2
 
+/**
+ * Trimmed content longer than this is rejected. Mirrors `CommentInput.content`'s `maxLength` in
+ * `api/schemas/comment.ts` — AJV enforces it for the request-driven POST/PATCH routes before the
+ * handler ever calls into this model, but `create`/`update` are also reachable directly (a future
+ * caller, the admin moderation surface, a script), so the ceiling is enforced here too rather than
+ * relying solely on schema validation at the one entry point that currently has it.
+ */
+const MAX_CONTENT_LENGTH = 32768
+
 const DEFAULT_LIMIT = 25
 
 /**
@@ -144,10 +153,10 @@ class Comments {
   /**
    * Store a new comment.
    *
-   * The only validation done here is the same floor 2.5.x's `postNewComment` applied: trimmed
-   * content must be at least {@link MIN_CONTENT_LENGTH} characters. Everything past that — spam
-   * scoring, rate limits, guest field requirements — is policy that belongs to the provider layer,
-   * not this primitive.
+   * The only validation done here is the same floor 2.5.x's `postNewComment` applied — trimmed
+   * content must be at least {@link MIN_CONTENT_LENGTH} characters — plus a ceiling of
+   * {@link MAX_CONTENT_LENGTH} characters. Everything past that — spam scoring, rate limits, guest
+   * field requirements — is policy that belongs to the provider layer, not this primitive.
    */
   async create({
     siteId,
@@ -171,6 +180,9 @@ class Comments {
     const trimmed = content.trim()
     if (trimmed.length < MIN_CONTENT_LENGTH) {
       throw new Error(`Comment content must be at least ${MIN_CONTENT_LENGTH} characters.`)
+    }
+    if (trimmed.length > MAX_CONTENT_LENGTH) {
+      throw new Error(`Comment content must be at most ${MAX_CONTENT_LENGTH} characters.`)
     }
 
     const rows = await WIKI.db
@@ -202,6 +214,9 @@ class Comments {
     const trimmed = content.trim()
     if (trimmed.length < MIN_CONTENT_LENGTH) {
       throw new Error(`Comment content must be at least ${MIN_CONTENT_LENGTH} characters.`)
+    }
+    if (trimmed.length > MAX_CONTENT_LENGTH) {
+      throw new Error(`Comment content must be at most ${MAX_CONTENT_LENGTH} characters.`)
     }
 
     const rows = await WIKI.db
