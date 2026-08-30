@@ -11,6 +11,7 @@ import { rulesAllow } from '../helpers/pageRules.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import type { PageHistoryVia } from './pageHistory.ts'
 import type { RenderPermissions, TocNode } from './rendering.ts'
+import { pageIsVisible } from './tree.ts'
 import type { DeletedEntry } from './tree.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
 import type { WikiDbOrTx, WikiTx } from '../core/db.ts'
@@ -551,8 +552,21 @@ class Pages {
    * Every page on this site, with what the knowledge graph (OpenProject #872) needs to build
    * nodes and edges from — no content, no render, just enough for `api/graph.ts#assembleGraph`
    * to build and permission-filter the graph once.
+   *
+   * `publicOnly` applies the same visibility rule `tree.browse()`/`tree.listPages()` apply to an
+   * anonymous reader (`pageIsVisible` -- not browsable, or a draft/scheduled page, is invisible to
+   * one) so `GET /sites/:siteId/graph` cannot hand an unauthenticated caller a page's title,
+   * classification and link graph that the tree and page view already hide from them (OpenProject
+   * #1587 §2) -- the route's only other filter, `assembleGraph`'s `canRead`, checks the page-rule
+   * PERMISSION, not publication state, so on its own it lets a draft through to any caller holding
+   * `read:pages` somewhere, guests included.
+   *
+   * Only applied when `publicOnly` is set: an authenticated caller keeps seeing every page
+   * (`canRead` alone decides what they may read), the same "isBrowsable is a reader-menu concern,
+   * not a permission" split `pageIsVisible`'s own doc comment draws -- a signed-in editor still
+   * needs the graph to include a page they marked `isBrowsable: false` or have not published yet.
    */
-  async listAllForGraph(siteId: string): Promise<GraphPageRow[]> {
+  async listAllForGraph(siteId: string, publicOnly = false): Promise<GraphPageRow[]> {
     return WIKI.db
       .select({
         id: pagesTable.id,
@@ -566,7 +580,9 @@ class Pages {
         links: pagesTable.links
       })
       .from(pagesTable)
-      .where(eq(pagesTable.siteId, siteId)) as Promise<GraphPageRow[]>
+      .where(
+        and(eq(pagesTable.siteId, siteId), ...(publicOnly ? pageIsVisible(pagesTable, true) : []))
+      ) as Promise<GraphPageRow[]>
   }
 
   /**

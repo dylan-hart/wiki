@@ -104,6 +104,7 @@
               glossy
               no-caps
               toggle-color="primary"
+              :aria-label="t(`editor.props.publishState`)"
               :options="[
                 { label: t('editor.props.draft'), value: 'draft' },
                 { label: t('editor.props.published'), value: 'published' },

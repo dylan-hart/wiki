@@ -4,9 +4,13 @@
       <w-toolbar style="height: 64px">
         <w-btn dense flat to="/" :aria-label="t(`common.header.home`)">
           <w-avatar v-if="siteStore.logoText" size="34px" square>
-            <img :src="`/_site/current/logo`" alt="" />
+            <img :src="`/_site/current/logo`" :alt="t(`common.header.home`)" />
           </w-avatar>
-          <img v-else :src="`/_site/current/logo`" alt="" style="height: 34px" />
+          <img
+            v-else
+            :src="`/_site/current/logo`"
+            style="height: 34px"
+            :alt="t(`common.header.home`)" />
         </w-btn>
         <div v-if="siteStore.logoText" class="site-title text-h6 ml-2 min-w-0 flex-1 truncate">
           {{ siteStore.title }}
@@ -48,8 +52,8 @@
             flat
             icon="la:plus-circle"
             color="blue-4"
-            aria-label="Create New Page">
-            <w-tooltip>Create New Page</w-tooltip>
+            :aria-label="t('common.header.createNewPage')">
+            <w-tooltip>{{ t('common.header.createNewPage') }}</w-tooltip>
             <new-menu />
           </w-btn>
           <!--
@@ -65,9 +69,9 @@
             flat
             icon="la:folder-open"
             color="positive"
-            aria-label="File Manager"
+            :aria-label="t('fileman.title')"
             @click="openFileManager">
-            <w-tooltip>File Manager</w-tooltip>
+            <w-tooltip>{{ t('fileman.title') }}</w-tooltip>
           </w-btn>
           <w-btn
             v-if="siteStore.features.browse"

@@ -242,6 +242,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`admin.general.allowRatings`)"
                 :options="ratingsModes" />
             </w-item-section>
           </w-item>
@@ -273,6 +274,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`admin.general.reasonForChange`)"
                 :options="reasonForChangeModes" />
             </w-item-section>
           </w-item>
@@ -729,7 +731,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to load site configuration.',
+      message: t('admin.general.loadFailed'),
       caption: err.message
     })
   }
@@ -803,7 +805,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.general.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.general.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     notify({
@@ -841,7 +843,7 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to save site configuration.',
+      message: t('admin.general.saveFailed'),
       caption: err.message
     })
   }

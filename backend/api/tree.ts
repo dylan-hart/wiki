@@ -311,7 +311,8 @@ async function routes(app: FastifyInstance) {
         orderByDirection: q.orderByDirection,
         depth: q.depth,
         includeAncestors: q.includeAncestors,
-        includeRootFolders: q.includeRootFolders
+        includeRootFolders: q.includeRootFolders,
+        publicOnly: !req.session?.authenticated
       })
       return visibleTreeItems(req, req.params.siteId, locale, items)
     }

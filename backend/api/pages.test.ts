@@ -14,7 +14,7 @@ import { registerSchemas as registerPageImportSchema } from './schemas/pageImpor
 import pagesRoutes, { mayOnPage, pagePermissionsFor } from './pages.ts'
 import { MAX_IMPORT_SIZE } from '../models/import.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
-import { CustomError } from '../helpers/common.ts'
+import { CustomError, siteEnabledPreHandler } from '../helpers/common.ts'
 import { apiKeySitePinPreHandler } from '../helpers/apiKeySite.ts'
 import type { GroupRule } from '../models/groups.ts'
 
@@ -1794,22 +1794,37 @@ describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page r
   })
 })
 
-describe('pages API — isEnabled guard (task 699)', () => {
+describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)', () => {
   /**
-   * Regression test for task 699: the siteId-scoped page READ routes trust a `siteId` the client
-   * already has cached, so a client that fetched one before its site was disabled could otherwise keep
-   * reading indefinitely — none of these are reached through the page/shell hook in `index.ts` (task
-   * 695), which only ever sees a hostname-addressed navigation, not an already-cached siteId.
+   * Regression coverage for the disabled-site guard on `pages.ts`'s own site-scoped routes. Originally
+   * (task 699) this guard was hand-applied inside three handlers — LIST, SEARCH and INCLUDE — and this
+   * describe block registered `pagesRoutes` on its own to prove exactly those three. OpenProject
+   * #1587/#1593 deleted all three hand-applied calls: the guard is now `siteEnabledPreHandler`
+   * (`helpers/common.ts`), one `preHandler` `api/index.ts` registers on its guarded content-route
+   * subtree, before any content route file (`pages.ts` is one of them; `sites.ts`, site administration
+   * rather than content, deliberately is not — see `index.ts`'s own doc comment), so a route in
+   * `pages.ts` no longer guards itself at all. Registering that same real preHandler here (not a
+   * re-implementation of it — see the import) before `pagesRoutes`, exactly as `index.ts` orders it, is
+   * what makes this describe block still a meaningful test of `pages.ts`'s routes rather than of the
+   * preHandler itself (which `index.test.ts` already covers directly, across every `:siteId` route in
+   * every `api/` file, discovered structurally rather than named one by one).
    *
-   * Covers the three routes task 699 names: LIST, SEARCH and INCLUDE. Asserts the same 403-vs-404-ish
-   * contract as the other entry points in this task — here there is no "site not found" branch to
-   * contrast with (`guardSiteEnabled` deliberately leaves an unknown siteId to whatever the route
-   * already did with one, see its doc comment), so this only proves the disabled case answers 403 and
-   * an enabled site is unaffected.
+   * Widened past the original three routes to the rest of `pages.ts`'s previously-*unguarded* surface
+   * named in the audit this task closes (`docs/audit-2026-08-24/correctness-api-routes.md` §1): GET
+   * PAGE, page history, a single history version, and export. (`UNLOCK` is covered structurally in
+   * `index.test.ts`'s route-surface scan instead of here, since it carries its own `onRequest`
+   * rate-limit hook ahead of this preHandler, which would need its own stub setup to exercise safely.)
+   * Every case below asserts a disabled site is refused before the handler runs — a stubbed model
+   * method's call count staying at 0 is the proof of that, the same technique the original three
+   * cases already used. The enabled-site pass-through case is kept only for the original three, which
+   * already had inexpensive stubs for it; the newly-added routes would need considerably more model
+   * scaffolding to reach 200 that adds nothing to what this task is actually regression-testing.
    */
 
   const ENABLED_SITE_ID = '11111111-1111-4111-8111-111111111111'
   const DISABLED_SITE_ID = '22222222-2222-4222-8222-222222222222'
+  const PAGE_ID = '33333333-3333-4333-8333-333333333333'
+  const VERSION_ID = '44444444-4444-4444-8444-444444444444'
 
   const sites: Record<string, any> = {
     [ENABLED_SITE_ID]: { id: ENABLED_SITE_ID, isEnabled: true },
@@ -1818,6 +1833,7 @@ describe('pages API — isEnabled guard (task 699)', () => {
 
   let searchPagesCalls = 0
   let getPageCalls = 0
+  let pageHistoryCalls = 0
 
   let app: FastifyInstance
 
@@ -1834,6 +1850,16 @@ describe('pages API — isEnabled guard (task 699)', () => {
         pages: {
           getPage: async () => {
             getPageCalls++
+            return null
+          }
+        },
+        pageHistory: {
+          getHistory: async () => {
+            pageHistoryCalls++
+            return { history: [], total: 0 }
+          },
+          getVersion: async () => {
+            pageHistoryCalls++
             return null
           }
         },
@@ -1862,6 +1888,10 @@ describe('pages API — isEnabled guard (task 699)', () => {
         message: error.message
       })
     })
+    // -> Mirrors `api/index.ts`'s own registration order: the guard is a plugin-level hook, added
+    //    before the route file it covers is registered — `pages.ts` no longer calls
+    //    `guardSiteEnabled` itself (OpenProject #1593).
+    app.addHook('preHandler', siteEnabledPreHandler)
     await registerApprovalSchemas(app)
     await registerSchemas(app)
     await registerErrorSchema(app)
@@ -1926,6 +1956,57 @@ describe('pages API — isEnabled guard (task 699)', () => {
     // -> 404 because getPage is stubbed to return null, but the guard let the request get there
     assert.equal(res.statusCode, 404)
     assert.equal(getPageCalls, 1)
+  })
+
+  /*
+    GET PAGE and PAGE HISTORY carried no `guardSiteEnabled` call at all before OpenProject #1587/
+    #1593 -- neither was reachable through this describe's original three-route scope. Both now
+    answer 403 through the shared preHandler wired above, with no route-specific stub required: the
+    preHandler runs before the handler ever touches `WIKI.models`.
+  */
+
+  test('GET PAGE: answers 403 for a disabled site, without ever calling getPage', async () => {
+    getPageCalls = 0
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${DISABLED_SITE_ID}/pages/abc123`
+    })
+    assert.equal(res.statusCode, 403)
+    assert.match(res.json().message, /disabled/i)
+    assert.equal(getPageCalls, 0)
+  })
+
+  test('PAGE HISTORY: answers 403 for a disabled site, without ever calling getHistory', async () => {
+    pageHistoryCalls = 0
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${DISABLED_SITE_ID}/pages/${PAGE_ID}/history`
+    })
+    assert.equal(res.statusCode, 403)
+    assert.match(res.json().message, /disabled/i)
+    assert.equal(pageHistoryCalls, 0)
+  })
+
+  test('PAGE HISTORY VERSION: answers 403 for a disabled site, without ever calling getVersion', async () => {
+    pageHistoryCalls = 0
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${DISABLED_SITE_ID}/pages/${PAGE_ID}/history/${VERSION_ID}`
+    })
+    assert.equal(res.statusCode, 403)
+    assert.match(res.json().message, /disabled/i)
+    assert.equal(pageHistoryCalls, 0)
+  })
+
+  test('EXPORT: answers 403 for a disabled site, without ever calling getPage', async () => {
+    getPageCalls = 0
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${DISABLED_SITE_ID}/pages/${PAGE_ID}/export?format=html`
+    })
+    assert.equal(res.statusCode, 403)
+    assert.match(res.json().message, /disabled/i)
+    assert.equal(getPageCalls, 0)
   })
 
   /**

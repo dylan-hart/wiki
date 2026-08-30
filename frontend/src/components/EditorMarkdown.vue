@@ -1577,7 +1577,7 @@ function processContent(newContent) {
       commonStore.loadBlocks([...pendingBlocks.values()]).then(syncPreviewTabs)
     }
     // -> The render was just replaced, so the copy buttons went with it
-    enhanceRenderedContent(container)
+    enhanceRenderedContent(container, t)
   })
 }
 

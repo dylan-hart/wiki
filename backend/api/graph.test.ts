@@ -1,6 +1,11 @@
-import { describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { assembleGraph, folderOf, type GraphPageRow } from './graph.ts'
+import Fastify from 'fastify'
+import type { FastifyInstance } from 'fastify'
+import fastifySensible from '@fastify/sensible'
+import ajvFormats from 'ajv-formats'
+import graphRoutes, { assembleGraph, folderOf, type GraphPageRow } from './graph.ts'
+import { registerSchemas as registerGraphSchema } from './schemas/graph.ts'
 
 function makeRow(overrides: Partial<GraphPageRow> = {}): GraphPageRow {
   // -> `id` defaults to `path` (not a fixed constant) so a test giving several rows distinct
@@ -249,5 +254,87 @@ describe('assembleGraph', () => {
     const result = assembleGraph(rows, () => true)
 
     assert.deepEqual(result.nodes[0]!.pageviews, ZERO_PAGEVIEWS)
+  })
+})
+
+/**
+ * OpenProject #1587 §2 / task 1612: GET GRAPH threads `publicOnly: !req.session?.authenticated`
+ * through to `listAllForGraph`, so an anonymous request applies the same publication-state filter the
+ * tree and page view already apply, rather than relying solely on `canRead` (a page-rule PERMISSION
+ * check that says nothing about publish state).
+ */
+describe('GET GRAPH route — publicOnly threading (OpenProject #1587 §2)', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+
+  let app: FastifyInstance
+  let listAllForGraphCalls: Array<{ siteId: string; publicOnly: boolean | undefined }>
+
+  before(async () => {
+    listAllForGraphCalls = []
+    ;(globalThis as any).WIKI = {
+      sites: { [SITE_ID]: { id: SITE_ID, isEnabled: true } },
+      models: {
+        pages: {
+          listAllForGraph: async (siteId: string, publicOnly?: boolean) => {
+            listAllForGraphCalls.push({ siteId, publicOnly })
+            return [] as GraphPageRow[]
+          }
+        },
+        pageHistory: {
+          contributorCountsForGraph: async () => new Map()
+        },
+        pageviews: {
+          countsForGraph: async () => new Map()
+        },
+        classificationLevels: {
+          byId: () => null
+        },
+        groups: {
+          actorForRequest: () => ({ permissions: [] }),
+          checkAccess: () => true
+        }
+      }
+    }
+
+    app = Fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    // -> Stands in for the real session plugin (`@fastify/session`, wired in `index.ts`): a request
+    //    carrying this header gets an authenticated `req.session`, exactly the shape
+    //    `!req.session?.authenticated` in the route handler reads.
+    app.addHook('onRequest', (req, _reply, done) => {
+      ;(req as any).session =
+        req.headers['x-test-authenticated'] === 'true' ? { authenticated: true } : undefined
+      done()
+    })
+    await registerGraphSchema(app)
+    await app.register(graphRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('an unauthenticated request passes publicOnly: true', async () => {
+    listAllForGraphCalls = []
+    const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/graph` })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(listAllForGraphCalls, [{ siteId: SITE_ID, publicOnly: true }])
+  })
+
+  test('an authenticated session passes publicOnly: false', async () => {
+    listAllForGraphCalls = []
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/graph`,
+      headers: { 'x-test-authenticated': 'true' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(listAllForGraphCalls, [{ siteId: SITE_ID, publicOnly: false }])
   })
 })

@@ -111,7 +111,7 @@ async function mountRail({ pdfExportAvailable = false } = {}) {
     global: { plugins: [router, i18n] }
   })
 
-  const trigger = wrapper.get('[aria-label="Export Page"]')
+  const trigger = wrapper.get('[aria-label="pageActions.exportPage"]')
   await trigger.trigger('click')
   await flushPromises()
 
@@ -189,7 +189,7 @@ describe('PageActionsCol page history button', () => {
     let ctx
     ;({ wrapper } = ctx = await mountRailWithHistory({ pageId: 'page-1' }))
 
-    await wrapper.get('[aria-label="Page History"]').trigger('click')
+    await wrapper.get('[aria-label="pageActions.pageHistory"]').trigger('click')
 
     expect(ctx.siteStore.overlay).toBe('PageHistory')
     expect(notifyQueue).toHaveLength(0)
@@ -201,7 +201,7 @@ describe('PageActionsCol page history button', () => {
     //    has literally never been assigned an id
     ;({ wrapper } = ctx = await mountRailWithHistory({ pageId: '', creating: true }))
 
-    await wrapper.get('[aria-label="Page History"]').trigger('click')
+    await wrapper.get('[aria-label="pageActions.pageHistory"]').trigger('click')
 
     expect(ctx.siteStore.overlay).toBeNull()
     expect(notifyQueue).toHaveLength(1)
@@ -308,7 +308,7 @@ describe('PageActionsCol export menu', () => {
     clickMenuItem('PDF')
     await flushPromises()
 
-    const trigger = wrapper.get('[aria-label="Export Page"]')
+    const trigger = wrapper.get('[aria-label="pageActions.exportPage"]')
     expect(trigger.attributes('aria-busy')).toBe('true')
     expect(trigger.attributes('disabled')).toBeDefined()
 
@@ -335,7 +335,9 @@ describe('PageActionsCol export menu', () => {
     await flushPromises()
 
     // -> No throw, and the trigger stays interactive: the earlier PDF test covers the failure path
-    expect(wrapper.get('[aria-label="Export Page"]').attributes('aria-busy')).toBeUndefined()
+    expect(
+      wrapper.get('[aria-label="pageActions.exportPage"]').attributes('aria-busy')
+    ).toBeUndefined()
   })
 })
 
@@ -419,7 +421,7 @@ async function mountRailWithPendingAssets({ pendingAssets = [] } = {}) {
     global: { plugins: [router, i18n] }
   })
 
-  await wrapper.get('[aria-label="Pending Asset Uploads"]').trigger('click')
+  await wrapper.get('[aria-label="pageActions.pendingAssetUploads"]').trigger('click')
   await flushPromises()
 
   return { wrapper, pageStore, siteStore, userStore, editorStore }
@@ -450,7 +452,7 @@ describe('PageActionsCol pending asset rename', () => {
     }))
 
     expect(document.body.textContent).toContain('a1b2c3.png')
-    expect(document.querySelector('[aria-label="Rename Pending Asset"]')).not.toBeNull()
+    expect(document.querySelector('[aria-label="pageActions.renamePendingAsset"]')).not.toBeNull()
     expect(document.querySelector('input')).toBeNull()
   })
 
@@ -459,7 +461,7 @@ describe('PageActionsCol pending asset rename', () => {
       pendingAssets: [{ id: 'a1', fileName: 'a1b2c3.png', blobUrl: 'blob:a1' }]
     }))
 
-    clickByLabel('Rename Pending Asset')
+    clickByLabel('pageActions.renamePendingAsset')
     await flushPromises()
 
     const input = document.querySelector('input')
@@ -473,7 +475,7 @@ describe('PageActionsCol pending asset rename', () => {
       pendingAssets: [{ id: 'a1', fileName: 'a1b2c3.png', blobUrl: 'blob:a1' }]
     }))
 
-    clickByLabel('Rename Pending Asset')
+    clickByLabel('pageActions.renamePendingAsset')
     await flushPromises()
     typeInto(document.querySelector('input'), 'Team Photo')
     document
@@ -492,10 +494,10 @@ describe('PageActionsCol pending asset rename', () => {
       pendingAssets: [{ id: 'a1', fileName: 'a1b2c3.png', blobUrl: 'blob:a1' }]
     }))
 
-    clickByLabel('Rename Pending Asset')
+    clickByLabel('pageActions.renamePendingAsset')
     await flushPromises()
     typeInto(document.querySelector('input'), 'quarterly-report')
-    clickByLabel('Confirm Rename')
+    clickByLabel('pageActions.confirmRename')
     await flushPromises()
 
     expect(ctx.editorStore.pendingAssets[0].fileName).toBe('quarterly-report.png')
@@ -507,10 +509,10 @@ describe('PageActionsCol pending asset rename', () => {
       pendingAssets: [{ id: 'a1', fileName: 'a1b2c3.png', blobUrl: 'blob:a1' }]
     }))
 
-    clickByLabel('Rename Pending Asset')
+    clickByLabel('pageActions.renamePendingAsset')
     await flushPromises()
     typeInto(document.querySelector('input'), 'should-not-stick')
-    clickByLabel('Cancel Rename')
+    clickByLabel('pageActions.cancelRename')
     await flushPromises()
 
     expect(ctx.editorStore.pendingAssets[0].fileName).toBe('a1b2c3.png')
@@ -523,7 +525,7 @@ describe('PageActionsCol pending asset rename', () => {
       pendingAssets: [{ id: 'a1', fileName: 'a1b2c3.png', blobUrl: 'blob:a1' }]
     }))
 
-    clickByLabel('Rename Pending Asset')
+    clickByLabel('pageActions.renamePendingAsset')
     await flushPromises()
     typeInto(document.querySelector('input'), 'should-not-stick')
     document
@@ -540,10 +542,10 @@ describe('PageActionsCol pending asset rename', () => {
       pendingAssets: [{ id: 'a1', fileName: 'a1b2c3.png', blobUrl: 'blob:a1' }]
     }))
 
-    clickByLabel('Rename Pending Asset')
+    clickByLabel('pageActions.renamePendingAsset')
     await flushPromises()
     typeInto(document.querySelector('input'), '   ')
-    clickByLabel('Confirm Rename')
+    clickByLabel('pageActions.confirmRename')
     await flushPromises()
 
     expect(ctx.editorStore.pendingAssets[0].fileName).toBe('a1b2c3.png')
@@ -557,10 +559,10 @@ describe('PageActionsCol pending asset rename', () => {
       pendingAssets: [{ id: 'a1', fileName: 'screenshot', blobUrl: 'blob:a1' }]
     }))
 
-    clickByLabel('Rename Pending Asset')
+    clickByLabel('pageActions.renamePendingAsset')
     await flushPromises()
     typeInto(document.querySelector('input'), 'renamed')
-    clickByLabel('Confirm Rename')
+    clickByLabel('pageActions.confirmRename')
     await flushPromises()
 
     expect(ctx.editorStore.pendingAssets[0].fileName).toBe('renamed')
@@ -578,7 +580,7 @@ describe('PageActionsCol page actions menu', () => {
   it('offers Rerender Page when write:pages, Puppeteer and a markdown editor all line up', async () => {
     ;({ wrapper } = await mountRailWithPageActions())
 
-    await wrapper.get('[aria-label="Page Actions"]').trigger('click')
+    await wrapper.get('[aria-label="common.header.pageActions"]').trigger('click')
     await flushPromises()
 
     expect(menuItemLabels()).toContain('Rerender Page')
@@ -589,13 +591,13 @@ describe('PageActionsCol page actions menu', () => {
 
     // -> With the experimental flag off, Rerender Page was the menu's only entry -- so with it also
     //    unavailable, the trigger itself must not render (no separator/button opening an empty panel)
-    expect(wrapper.find('[aria-label="Page Actions"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="common.header.pageActions"]').exists()).toBe(false)
   })
 
   it('hides the Page Actions menu for a non-markdown editor even when write:pages and Puppeteer are available', async () => {
     ;({ wrapper } = await mountRailWithPageActions({ editor: 'code' }))
 
-    expect(wrapper.find('[aria-label="Page Actions"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="common.header.pageActions"]').exists()).toBe(false)
   })
 })
 
@@ -615,7 +617,7 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
   it('confirms before deleting the home page, then opens the real delete dialog', async () => {
     ;({ wrapper } = await mountRailForGuard({ path: 'home' }))
 
-    await wrapper.get('[aria-label="Delete Page"]').trigger('click')
+    await wrapper.get('[aria-label="pageActions.deletePage"]').trigger('click')
 
     expect(openDialogs).toHaveLength(1)
     expect(openDialogs[0].props).toMatchObject({
@@ -635,7 +637,7 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
   it('does not delete the home page when the guard is cancelled', async () => {
     ;({ wrapper } = await mountRailForGuard({ path: 'home' }))
 
-    await wrapper.get('[aria-label="Delete Page"]').trigger('click')
+    await wrapper.get('[aria-label="pageActions.deletePage"]').trigger('click')
     closeDialog(openDialogs[0].id, false)
     await flushPromises()
 
@@ -645,7 +647,7 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
   it('deletes an ordinary page with no extra guard', async () => {
     ;({ wrapper } = await mountRailForGuard({ path: 'docs/getting-started' }))
 
-    await wrapper.get('[aria-label="Delete Page"]').trigger('click')
+    await wrapper.get('[aria-label="pageActions.deletePage"]').trigger('click')
 
     expect(openDialogs).toHaveLength(1)
     expect(openDialogs[0].props).toMatchObject({ pageId: 'page-1', pageName: 'Welcome' })
@@ -656,7 +658,7 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
     ;({ wrapper } = ctx = await mountRailForGuard({ path: 'home' }))
     API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({}) })
 
-    await wrapper.get('[aria-label="Rename / Move Page"]').trigger('click')
+    await wrapper.get('[aria-label="pageActions.renameMovePage"]').trigger('click')
     closeDialog(openDialogs[0].id, true, {
       path: 'about-us',
       title: 'Welcome',
@@ -684,7 +686,7 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
   it('does not move when the homepage move guard is cancelled', async () => {
     ;({ wrapper } = await mountRailForGuard({ path: 'home' }))
 
-    await wrapper.get('[aria-label="Rename / Move Page"]').trigger('click')
+    await wrapper.get('[aria-label="pageActions.renameMovePage"]').trigger('click')
     closeDialog(openDialogs[0].id, true, {
       path: 'about-us',
       title: 'Welcome',
@@ -702,7 +704,7 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
     ;({ wrapper } = await mountRailForGuard({ path: 'home' }))
     API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({}) })
 
-    await wrapper.get('[aria-label="Rename / Move Page"]').trigger('click')
+    await wrapper.get('[aria-label="pageActions.renameMovePage"]').trigger('click')
     closeDialog(openDialogs[0].id, true, {
       path: 'home',
       title: 'New Title',
@@ -720,7 +722,7 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
     ;({ wrapper } = ctx = await mountRailForGuard({ path: 'docs/getting-started' }))
     API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({}) })
 
-    await wrapper.get('[aria-label="Rename / Move Page"]').trigger('click')
+    await wrapper.get('[aria-label="pageActions.renameMovePage"]').trigger('click')
     closeDialog(openDialogs[0].id, true, {
       path: 'docs/other',
       title: 'Getting Started',

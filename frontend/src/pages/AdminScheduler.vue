@@ -21,6 +21,7 @@
           :toggle-text-color="dark.isActive ? `black` : `white`"
           :text-color="dark.isActive ? `white` : `black`"
           :color="dark.isActive ? `dark-1` : `white`"
+          :aria-label="t(`admin.scheduler.title`)"
           :options="[
             { label: t('admin.scheduler.schedule'), value: 'scheduled' },
             { label: t('admin.scheduler.upcoming'), value: 'upcoming' },
@@ -413,6 +414,7 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDuration, relativeDate } from '@/helpers/datetime'
 
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 // COMPOSABLES
 
@@ -421,6 +423,7 @@ const dark = useDark()
 // STORES
 
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
@@ -631,15 +634,7 @@ function humanizeDate(val) {
   if (!val) {
     return '---'
   }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZoneName: 'short'
-  })
+  return userStore.formatDateTime(t, val, { seconds: true })
 }
 
 async function load() {
@@ -675,7 +670,7 @@ async function runNow(entry) {
   try {
     const resp = await API_CLIENT.post(`scheduler/schedule/${entry.id}/run`).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     // -> Nothing on this tab changes: the job it queued shows up under upcoming, then in the history
     notify({
@@ -697,7 +692,7 @@ async function cancelJob(jobId) {
   try {
     const resp = await API_CLIENT.delete(`scheduler/upcoming/${jobId}`)
     if (!resp?.ok) {
-      throw new Error((await resp.json())?.message || 'An unexpected error occured.')
+      throw new Error((await resp.json())?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',
@@ -720,7 +715,7 @@ async function retryJob(jobId) {
   try {
     const resp = await API_CLIENT.post(`scheduler/jobs/${jobId}/retry`).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

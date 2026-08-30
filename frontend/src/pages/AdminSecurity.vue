@@ -604,6 +604,7 @@ import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 import { filesize } from 'filesize'
 import { apiErrorMessage } from '@/helpers/apiError'
@@ -612,6 +613,7 @@ import { parseFileSize } from '@/helpers/fileSize'
 // STORES
 
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
@@ -709,14 +711,7 @@ function humanizeDate(val) {
   if (!val) {
     return '---'
   }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
+  return userStore.formatDateTime(t, val)
 }
 
 async function load() {
@@ -760,7 +755,7 @@ async function save() {
       }
     }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

@@ -205,7 +205,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to fetch editors state.'
+      message: t('admin.editors.fetchFailed')
     })
   }
   loading.hide()
@@ -228,7 +228,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.editors.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.editors.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     if (adminStore.currentSiteId === siteStore.id) {
@@ -248,7 +248,7 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to save site editors config',
+      message: t('admin.editors.saveFailed'),
       caption: err.message
     })
   }
@@ -271,7 +271,7 @@ function openConfig(editorId) {
     default: {
       notify({
         type: 'negative',
-        message: 'Invalid Editor Config Call'
+        message: t('admin.editors.invalidConfigCall')
       })
     }
   }

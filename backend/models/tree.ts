@@ -282,6 +282,13 @@ class Tree {
    * @param locale Required — every listing is scoped to exactly one locale. A caller with no locale
    *               opinion of its own (an HTTP request that left the query param off) resolves one
    *               before calling in, rather than this method merging every locale together.
+   * @param publicOnly Hide, from a page-type entry only, exactly what `pageIsVisible` hides from an
+   *                   anonymous reader — a draft/scheduled page, or one marked `isBrowsable: false` —
+   *                   so BROWSE THE TREE (OpenProject #1587 §2) cannot enumerate them to a guest
+   *                   session holding `read:pages`, the one thing `visibleTreeItems`' page-RULE
+   *                   filter in `api/tree.ts` never checked. `false` (an authenticated caller, and
+   *                   every other current caller of this method) keeps every entry, same as before
+   *                   this parameter existed — a folder or asset entry is never affected either way.
    */
   async getTree({
     siteId,
@@ -296,7 +303,8 @@ class Tree {
     orderByDirection = 'asc',
     depth = 0,
     includeAncestors = false,
-    includeRootFolders = false
+    includeRootFolders = false,
+    publicOnly = false
   }: {
     siteId: string
     parentId?: string | null
@@ -311,6 +319,7 @@ class Tree {
     depth?: number
     includeAncestors?: boolean
     includeRootFolders?: boolean
+    publicOnly?: boolean
   }): Promise<TreeItem[]> {
     if (offset < 0) {
       throw new CustomError('treeInvalidOffset', 'The offset cannot be negative.')
@@ -366,6 +375,14 @@ class Tree {
       // -> `sql.param`, because a bare array in a template is read as a parameter *list* — the
       //    comma-separated form `inArray` needs — and `@>` wants one array-typed parameter
       conditions.push(sql`${treeTable.tags} @> ${sql.param(tags)}`)
+    }
+    if (publicOnly) {
+      // -> `pagesTable` is left-joined in below purely for a page row's `classification`, so a
+      //    folder or asset row carries every `pagesTable` column as null -- applying
+      //    `pageIsVisible` unguarded would filter those out too, along with the page rows it is
+      //    actually meant to hide. Restricting the predicate to `type = 'page'` rows is what
+      //    keeps folders and assets listed exactly as before.
+      conditions.push(or(ne(treeTable.type, 'page'), and(...pageIsVisible(pagesTable, true))))
     }
 
     const direction = orderByDirection === 'desc' ? desc : asc

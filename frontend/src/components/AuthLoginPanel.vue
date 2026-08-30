@@ -643,7 +643,7 @@ function switchTo(screen) {
       break
     }
     default: {
-      throw new Error('Invalid Screen')
+      throw new Error('ERR_INVALID_SCREEN')
     }
   }
 }
@@ -747,7 +747,7 @@ async function handleLoginResponse(resp) {
       loading.hide()
       notify({
         type: 'negative',
-        message: 'Unexpected Authentication Response'
+        message: t('auth.errors.unexpectedResponse')
       })
     }
   }

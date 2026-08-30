@@ -116,7 +116,7 @@
                   class="acrylic-btn mr-2"
                   color="indigo"
                   icon="la:pen"
-                  label="Edit"
+                  :label="t('common.header.edit')"
                   flat
                   no-caps
                   @click="editHook(hook.id)" />

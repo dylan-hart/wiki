@@ -11,7 +11,6 @@ import { SEARCH_ORDER_BY, type SearchOrderBy } from '../models/search.ts'
 import {
   defaultLocale,
   generatePathHash,
-  guardSiteEnabled,
   isValidUuid,
   normalizePagePath
 } from '../helpers/common.ts'
@@ -374,10 +373,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
-        return
-      }
+    async () => {
       return []
     }
   )
@@ -502,10 +498,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
-        return
-      }
+    async (req) => {
       const actor = actorFrom(req)
       const accessActor = WIKI.models.groups.actorForRequest(req)
       // -> "May write pages somewhere" and "may read a locked page's text anywhere" are the same
@@ -578,9 +571,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
-        return
-      }
       const actor = actorFrom(req)
       // -> The stored form of whatever the including page wrote, since that is what it is looked up
       //    by. The site root is the `home` page.

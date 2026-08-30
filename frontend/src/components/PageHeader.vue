@@ -133,9 +133,9 @@
           dense
           icon="la:print"
           color="grey"
-          aria-label="Print"
+          :aria-label="t('common.actions.print')"
           @click="printPage">
-          <w-tooltip>Print</w-tooltip>
+          <w-tooltip>{{ t('common.actions.print') }}</w-tooltip>
         </w-btn>
         <!--
           Only for whoever reviews this page: the server answers `canReview` from the approval rules
@@ -637,9 +637,7 @@ async function discardChanges() {
       notify({
         type: 'positive',
         // -> Nothing was reverted in the suggest case: the page never changed, the draft did
-        message: wasSuggesting
-          ? t('common.page.suggestDiscarded')
-          : 'Page has been reverted to the last saved state.'
+        message: wasSuggesting ? t('common.page.suggestDiscarded') : t('common.page.revertSuccess')
       })
     }
   } catch (err) {
@@ -648,7 +646,7 @@ async function discardChanges() {
     editorStore.$patch({ isActive: false, editor: '', mode: 'edit' })
     notify({
       type: 'negative',
-      message: 'Failed to reload page state.'
+      message: t('common.page.reloadFailed')
     })
   }
   loading.hide()
@@ -681,7 +679,7 @@ async function saveChangesCommit(closeAfter = false) {
     const result = await pageStore.pageSave()
     notify({
       type: 'positive',
-      message: 'Page saved successfully.'
+      message: t('common.page.saveSuccess')
     })
     /*
       OpenProject #1080: raising this page's own classification does not cascade to its
@@ -722,7 +720,7 @@ async function saveChangesCommit(closeAfter = false) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to save page changes.',
+      message: t('common.page.saveFailed'),
       caption: err.message
     })
   }
@@ -740,7 +738,7 @@ async function createPage() {
       await pageStore.pageSave()
       notify({
         type: 'positive',
-        message: 'Homepage created successfully.'
+        message: t('common.page.homepageCreateSuccess')
       })
       editorStore.$patch({
         isActive: false
@@ -749,7 +747,7 @@ async function createPage() {
     } catch (err) {
       notify({
         type: 'negative',
-        message: 'Failed to create homepage.',
+        message: t('common.page.homepageCreateFailed'),
         caption: err.message
       })
     }
@@ -781,7 +779,7 @@ async function createPage() {
       await pageStore.pageSave()
       notify({
         type: 'positive',
-        message: 'Page created successfully.'
+        message: t('common.page.createSuccess')
       })
       editorStore.$patch({
         isActive: false
@@ -789,7 +787,7 @@ async function createPage() {
     } catch (err) {
       notify({
         type: 'negative',
-        message: 'Failed to create page.',
+        message: t('common.page.createFailed'),
         caption: err.message
       })
     }
@@ -897,10 +895,7 @@ function printPage() {
 }
 
 function humanizeDate(val) {
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  })
+  return userStore.formatDateTime(t, val)
 }
 
 /**

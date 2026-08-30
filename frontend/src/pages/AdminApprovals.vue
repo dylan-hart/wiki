@@ -251,7 +251,7 @@ async function setEnabled(rule, isEnabled) {
       { json: { isEnabled } }
     ).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     Object.assign(rule, resp.rule)
     notify({
@@ -306,7 +306,7 @@ function deleteRule(rule) {
         `sites/${adminStore.currentSiteId}/approvals/rules/${rule.id}`
       )
       if (!resp?.ok) {
-        throw new Error((await resp.json())?.message || 'An unexpected error occured.')
+        throw new Error((await resp.json())?.message || t('common.error.unexpected'))
       }
       notify({
         type: 'positive',

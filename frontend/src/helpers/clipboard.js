@@ -1,3 +1,5 @@
+import { i18n } from '@/boot/i18n'
+
 /**
  * Copy text to the clipboard.
  *
@@ -25,7 +27,7 @@ export async function copyToClipboard(text) {
   try {
     el.select()
     if (!document.execCommand('copy')) {
-      throw new Error('Copy command was rejected by the browser.')
+      throw new Error(i18n.global.t('common.clipboard.copyRejected'))
     }
   } finally {
     document.body.removeChild(el)

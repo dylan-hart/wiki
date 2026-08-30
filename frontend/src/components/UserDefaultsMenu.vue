@@ -63,6 +63,7 @@
               glossy
               no-caps
               toggle-color="primary"
+              :aria-label="t(`admin.general.defaultTimeFormat`)"
               :options="timeFormats" />
           </w-item-section>
         </w-item>
@@ -137,7 +138,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.users.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.users.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     notify({
@@ -148,7 +149,7 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to save user defaults.',
+      message: t('admin.users.defaultsSaveFailed'),
       caption: err.message
     })
   }
@@ -167,7 +168,7 @@ onMounted(async () => {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to load user defaults',
+      message: t('admin.users.defaultsLoadFailed'),
       caption: err.message
     })
   }

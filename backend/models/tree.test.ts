@@ -521,4 +521,143 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       //    23503 on the FK), and this test's whole schema is dropped by teardownTestDb() regardless.
     })
   })
+
+  /**
+   * OpenProject #1587 §2 / task 1599: `getTree()` used to apply no visibility filter at all, unlike
+   * `browse()`/`listPages()` -- so BROWSE THE TREE (`GET /sites/:siteId/tree`, the only caller) could
+   * enumerate a draft, a scheduled-but-not-yet-live page, or an `isBrowsable: false` page to anyone
+   * holding `read:pages` via a rule, guests included (`visibleTreeItems`'s own filter checks that
+   * RULE, never publication state). `publicOnly` threads `pageIsVisible` into the query, but --
+   * unlike `browse()`/`listPages()` -- only actually applies it when `publicOnly` is true: an
+   * authenticated caller (the file manager's own use of this same method) must keep seeing every
+   * page, drafts and non-browsable ones included, which is what `publicOnly: false` (the default)
+   * preserves unchanged. A folder or asset entry is never affected either way -- the predicate is
+   * scoped to `type = 'page'` rows only.
+   */
+  describe('getTree publicOnly (OpenProject #1587 §2)', () => {
+    test('publicOnly hides a draft, a scheduled page, and a non-browsable page from a page-type entry, but not a folder', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'visibility',
+        title: 'Visibility',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'visibility/published',
+          title: 'Published',
+          locale: 'en',
+          publishState: 'published'
+        }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'visibility/draft',
+          title: 'Draft',
+          locale: 'en',
+          publishState: 'draft'
+        }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'visibility/scheduled',
+          title: 'Scheduled',
+          locale: 'en',
+          publishState: 'scheduled',
+          publishStartDate: new Date(Date.now() + 86400000).toISOString()
+        }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'visibility/hidden',
+          title: 'Hidden',
+          locale: 'en',
+          publishState: 'published',
+          isBrowsable: false
+        }),
+        actor
+      )
+
+      const publicItems = await treeModel.getTree({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentId: folder.id,
+        publicOnly: true
+      })
+      const publicTitles = publicItems.map((item) => item.title).sort()
+      assert.deepEqual(publicTitles, ['Published'])
+
+      const privateItems = await treeModel.getTree({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentId: folder.id,
+        publicOnly: false
+      })
+      const privateTitles = privateItems.map((item) => item.title).sort()
+      assert.deepEqual(privateTitles, ['Draft', 'Hidden', 'Published', 'Scheduled'])
+    })
+
+    test('publicOnly still lists a folder that holds only invisible pages', async () => {
+      await treeModel.createFolder({
+        pathName: 'only-drafts',
+        title: 'Only Drafts',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'only-drafts/inside',
+          title: 'Inside Draft',
+          locale: 'en',
+          publishState: 'draft'
+        }),
+        actor
+      )
+
+      const items = await treeModel.getTree({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        includeRootFolders: true,
+        publicOnly: true
+      })
+      assert.ok(
+        items.some((item) => item.type === 'folder' && item.title === 'Only Drafts'),
+        'the folder itself is not a page and must not be filtered out by publicOnly'
+      )
+    })
+
+    test('publicOnly defaults to false — an existing caller with no opinion keeps every entry', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'default-visibility',
+        title: 'Default Visibility',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'default-visibility/draft',
+          title: 'Draft By Default',
+          locale: 'en',
+          publishState: 'draft'
+        }),
+        actor
+      )
+
+      const items = await treeModel.getTree({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentId: folder.id
+      })
+      assert.ok(items.some((item) => item.title === 'Draft By Default'))
+    })
+  })
 })

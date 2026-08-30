@@ -183,6 +183,7 @@
                   glossy
                   no-caps
                   toggle-color="primary"
+                  :aria-label="t(`admin.theme.contentWidth`)"
                   :options="widthOptions" />
               </w-item-section>
             </w-item>
@@ -201,6 +202,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`admin.theme.sidebarPosition`)"
                 :options="rightLeftOptions" />
             </w-item-section>
           </w-item>
@@ -218,6 +220,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`admin.theme.tocPosition`)"
                 :options="rightLeftOptions" />
             </w-item-section>
           </w-item>
@@ -783,13 +786,13 @@ async function load() {
   try {
     const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
     if (!resp?.theme) {
-      throw new Error('Failed to fetch theme config.')
+      throw new Error(t('admin.theme.loadFailed'))
     }
     state.config = toMerged(defaultConfig(), resp.theme)
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to fetch site theme config'
+      message: t('admin.theme.loadFailed')
     })
   }
   loading.hide()
@@ -824,7 +827,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.theme.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.theme.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     if (adminStore.currentSiteId === siteStore.id) {
@@ -840,7 +843,7 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to save site theme config',
+      message: t('admin.theme.saveFailed'),
       caption: err.message
     })
   }

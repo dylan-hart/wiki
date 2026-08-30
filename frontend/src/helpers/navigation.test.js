@@ -259,9 +259,7 @@ describe('reconstructMenuItems() malformed input', () => {
     const items = [
       { id: 'orphan', type: 'link', isNested: true, visibilityLimited: false, visibilityGroups: [] }
     ]
-    expect(() => reconstructMenuItems(items)).toThrow(
-      'One or more nested link items are not under a parent link!'
-    )
+    expect(() => reconstructMenuItems(items)).toThrow('ERR_NESTED_LINK_WITHOUT_PARENT')
   })
 
   it('raises when a nested item follows a header rather than a link', () => {
@@ -269,8 +267,6 @@ describe('reconstructMenuItems() malformed input', () => {
       { id: 'h1', type: 'header', label: 'h', visibilityLimited: false, visibilityGroups: [] },
       { id: 'c1', type: 'link', isNested: true, visibilityLimited: false, visibilityGroups: [] }
     ]
-    expect(() => reconstructMenuItems(items)).toThrow(
-      'One or more nested link items are not under a parent link!'
-    )
+    expect(() => reconstructMenuItems(items)).toThrow('ERR_NESTED_LINK_WITHOUT_PARENT')
   })
 })

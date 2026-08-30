@@ -1347,6 +1347,62 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       assert.ok(firstPage.total >= 3)
     })
   })
+
+  /**
+   * OpenProject #1587 §2 / task 1612: `listAllForGraph` used to apply no visibility filter at all,
+   * and its only consumer (`assembleGraph`'s `canRead`, in `api/graph.ts`) checks a page-rule
+   * PERMISSION, never publication state — so `GET /sites/:siteId/graph` could hand an unauthenticated
+   * caller a draft or `isBrowsable: false` page's title, classification and link graph whenever
+   * guests hold `read:pages` via a rule. `publicOnly` applies `pageIsVisible` the same way
+   * `tree.getTree()`'s does (OpenProject #1587 §2, task 1599): only when `publicOnly` is true, so an
+   * authenticated caller — the graph route's other branch — keeps seeing every page regardless of
+   * publish state or `isBrowsable`.
+   */
+  describe('listAllForGraph publicOnly (OpenProject #1587 §2)', () => {
+    test('publicOnly hides a draft and a non-browsable page', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'graph-visibility/published', publishState: 'published' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'graph-visibility/draft', publishState: 'draft' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'graph-visibility/hidden',
+          publishState: 'published',
+          isBrowsable: false
+        }),
+        actor
+      )
+
+      const publicRows = await pagesModel.listAllForGraph(fixtures.siteId, true)
+      const publicPaths = publicRows.map((r) => r.path)
+      assert.ok(publicPaths.includes('graph-visibility/published'))
+      assert.ok(!publicPaths.includes('graph-visibility/draft'))
+      assert.ok(!publicPaths.includes('graph-visibility/hidden'))
+
+      const privateRows = await pagesModel.listAllForGraph(fixtures.siteId, false)
+      const privatePaths = privateRows.map((r) => r.path)
+      assert.ok(privatePaths.includes('graph-visibility/published'))
+      assert.ok(privatePaths.includes('graph-visibility/draft'))
+      assert.ok(privatePaths.includes('graph-visibility/hidden'))
+    })
+
+    test('publicOnly defaults to false — an existing caller with no opinion keeps every page', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'graph-visibility-default/draft', publishState: 'draft' }),
+        actor
+      )
+      const rows = await pagesModel.listAllForGraph(fixtures.siteId)
+      assert.ok(rows.map((r) => r.path).includes('graph-visibility-default/draft'))
+    })
+  })
 })
 
 /**

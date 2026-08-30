@@ -26,6 +26,8 @@
             role="dialog"
             aria-modal="true"
             tabindex="-1"
+            :aria-labelledby="labelledBy"
+            :aria-label="ariaLabel"
             class="w-dialog-panel pointer-events-auto flex flex-col overflow-auto shadow-dialog"
             :class="panelClasses"
             :style="panelStyle"
@@ -84,6 +86,21 @@ const props = defineProps({
   },
   /** Any CSS length, e.g. `550px`. Ignored when `fullWidth` is set. */
   maxWidth: {
+    type: String,
+    default: null
+  },
+  /**
+   * Id of an element (typically a `WCardHeader`'s exposed `headingId`) that names this dialog for
+   * assistive tech. Explicit props, not fallthrough attributes: `inheritAttrs: false` above sends a
+   * bare `aria-labelledby`/`aria-label` attribute to the teleport root's `$attrs` binding instead of
+   * the `role="dialog"` panel, naming the wrong element.
+   */
+  labelledBy: {
+    type: String,
+    default: null
+  },
+  /** A literal accessible name, for a dialog whose heading isn't in the DOM (or doesn't exist). */
+  ariaLabel: {
     type: String,
     default: null
   }
@@ -248,14 +265,25 @@ function onKeydown(ev) {
   }
 }
 
+/**
+ * The panel is teleported to `<body>`, so the element `aria-modal="true"` promises is inert has to be
+ * the app root itself (`#app` in `index.html`) -- not some ancestor that, post-teleport, no longer
+ * contains the dialog at all.
+ */
+function getAppRoot() {
+  return document.getElementById('app')
+}
+
 // WATCHERS
 
 /**
- * Escape handling, focus trapping and scroll-locking are bound only while open, so stacked dialogs
- * do not each keep a listener alive. The lock is reference-counted on a data attribute because a
- * dialog can open on top of another -- releasing on the first close would unlock the page while a
- * dialog is still up. The same counter makes the dialog depth-aware for focus: only the topmost one
- * captures/restores focus and traps Tab.
+ * Escape handling, focus trapping, scroll-locking and backgrounding are bound only while open, so
+ * stacked dialogs do not each keep a listener alive. The scroll lock and `inert` are reference-counted
+ * on the same data attribute because a dialog can open on top of another -- releasing on the first
+ * close would unlock/un-inert the page while a dialog is still up. The same counter makes the dialog
+ * depth-aware for focus: only the topmost one captures/restores focus and traps Tab. Only the
+ * outermost dialog (depth 0 -> 1 opening, 1 -> 0 closing) actually toggles `inert`; a stacked dialog
+ * just rides the existing count.
  */
 watch(
   () => props.modelValue,
@@ -269,12 +297,16 @@ watch(
       document.body.style.overflow = 'hidden'
       // -> Waits for the panel's v-if to actually render before looking for content inside it
       nextTick(() => focusInitialElement())
+      if (depth === 1) {
+        getAppRoot()?.setAttribute('inert', '')
+      }
     } else {
       document.removeEventListener('keydown', onKeydown, true)
       const depth = Math.max(0, Number(document.body.dataset.wDialogDepth ?? 0) - 1)
       document.body.dataset.wDialogDepth = String(depth)
       if (depth === 0) {
         document.body.style.overflow = ''
+        getAppRoot()?.removeAttribute('inert')
       }
       restoreFocus()
     }
@@ -283,13 +315,14 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  // -> An unmount while open (route change, host teardown) would otherwise leak both
+  // -> An unmount while open (route change, host teardown) would otherwise leak all three
   if (props.modelValue) {
     document.removeEventListener('keydown', onKeydown, true)
     const depth = Math.max(0, Number(document.body.dataset.wDialogDepth ?? 0) - 1)
     document.body.dataset.wDialogDepth = String(depth)
     if (depth === 0) {
       document.body.style.overflow = ''
+      getAppRoot()?.removeAttribute('inert')
     }
     restoreFocus()
   }

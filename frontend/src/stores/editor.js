@@ -127,7 +127,7 @@ export const useEditorStore = defineStore('editor', {
       const siteStore = useSiteStore()
       try {
         if (!siteStore.id) {
-          throw new Error('Cannot fetch editors config: Missing Site ID')
+          throw new Error('ERR_MISSING_SITE_ID')
         }
         // -> The editor configs are part of the site config, which is one request rather than a
         //    dedicated endpoint

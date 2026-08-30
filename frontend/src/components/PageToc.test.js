@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createI18n } from 'vue-i18n'
 
 import PageToc from './PageToc.vue'
+
+// -> `PageToc.vue`'s <nav> resolves its aria-label through `useI18n()` (OpenProject #1615's i18n
+//    source gate); every mount needs the plugin installed, same as any other translated component's
+//    test.
+const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
 
 /**
  * `PageToc.vue`'s `<style lang="scss">` reaches for bare `$grey-9` / `$grey-7` / ... (see the file),
@@ -24,7 +30,10 @@ describe('PageToc', () => {
   ]
 
   it('flattens the tree into one list, and marks the selected heading active', () => {
-    const wrapper = mount(PageToc, { props: { nodes, selected: '#usage-basic' } })
+    const wrapper = mount(PageToc, {
+      props: { nodes, selected: '#usage-basic' },
+      global: { plugins: [i18n] }
+    })
 
     const links = wrapper.findAll('.page-toc-link')
     expect(links.map((link) => link.text())).toEqual(['Introduction', 'Usage', 'Basic'])
@@ -35,7 +44,10 @@ describe('PageToc', () => {
   })
 
   it('respects minDepth/maxDepth, hiding headings outside the range', () => {
-    const wrapper = mount(PageToc, { props: { nodes, minDepth: 2, maxDepth: 2 } })
+    const wrapper = mount(PageToc, {
+      props: { nodes, minDepth: 2, maxDepth: 2 },
+      global: { plugins: [i18n] }
+    })
 
     const links = wrapper.findAll('.page-toc-link')
     expect(links.map((link) => link.text())).toEqual(['Basic'])
@@ -46,7 +58,11 @@ describe('PageToc', () => {
     heading.id = 'usage'
     document.body.appendChild(heading)
 
-    const wrapper = mount(PageToc, { props: { nodes, selected: null }, attachTo: document.body })
+    const wrapper = mount(PageToc, {
+      props: { nodes, selected: null },
+      attachTo: document.body,
+      global: { plugins: [i18n] }
+    })
     try {
       const link = wrapper.findAll('.page-toc-link').at(1)
       await link.trigger('click')

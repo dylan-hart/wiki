@@ -147,7 +147,7 @@ async function toggleNode(isCurrent = false) {
         emitLazyLoad(props.node.id, isCurrent, { done: resolve, fail: reject })
       }),
       new Promise((resolve, reject) => {
-        setTimeout(() => reject(new Error('Async tree loading timeout')), 30000)
+        setTimeout(() => reject(new Error('ERR_TREE_LOAD_TIMEOUT')), 30000)
       })
     ])
     loaded[props.node.id] = true

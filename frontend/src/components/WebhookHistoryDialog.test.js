@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import WebhookHistoryDialog from './WebhookHistoryDialog.vue'
@@ -10,6 +11,8 @@ import WebhookHistoryDialog from './WebhookHistoryDialog.vue'
  * own state. The dialog fetches on mount via `API_CLIENT`, stubbed here per `test/setup.js`.
  */
 function mountDialog(deliveries, { total } = {}) {
+  setActivePinia(createPinia())
+
   API_CLIENT.get.mockReturnValueOnce({
     json: () =>
       Promise.resolve({

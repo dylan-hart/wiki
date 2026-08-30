@@ -80,7 +80,7 @@ const catcherZ = 6500 + Math.min(depth - 1, 40) * 10
 /**
  * Dropdown menu anchored to its parent element, written as the last child of its trigger:
  *
- *   <w-btn label="Language">
+ *   <w-btn :label="t('common.header.language')">
  *     <w-menu auto-close anchor="bottom right" self="top right"> ... </w-menu>
  *   </w-btn>
  *

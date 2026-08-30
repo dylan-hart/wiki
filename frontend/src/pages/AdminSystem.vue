@@ -35,7 +35,7 @@
           class="acrylic-btn"
           flat
           icon="mdi:clipboard-text-outline"
-          label="Copy System Info"
+          :label="t('admin.system.copyInfo')"
           color="primary"
           :disabled="state.loading > 0"
           @click="copySysInfo" />
@@ -404,7 +404,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to load system information.',
+      message: t('admin.system.loadFailed'),
       caption: err.message
     })
   }
@@ -433,13 +433,13 @@ Total RAM: ${state.info.ramTotal}`
     await copyToClipboard(text)
     notify({
       type: 'positive',
-      message: 'Info copied successfully',
+      message: t('admin.system.copySuccess'),
       icon: 'la:clipboard'
     })
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to copy system info',
+      message: t('admin.system.copyFailed'),
       caption: err.message
     })
   }

@@ -24,7 +24,7 @@
         icon="la:pen-nib"
         :color="editorStore.isActive ? `white` : `deep-orange-9`"
         :disable="isRedirect"
-        aria-label="Page Properties"
+        :aria-label="t('pageActions.pageProperties')"
         @click="togglePageProperties">
         <w-tooltip anchor="center left" self="center right">Page Properties</w-tooltip>
       </w-btn>
@@ -34,7 +34,7 @@
         flat
         icon="la:project-diagram"
         :color="editorStore.isActive ? `white` : `deep-orange-9`"
-        aria-label="Page Data"
+        :aria-label="t('pageActions.pageData')"
         @click="togglePageData"
         disable>
         <w-tooltip anchor="center left" self="center right">Page Data</w-tooltip>
@@ -46,7 +46,7 @@
         flat
         color="white"
         :text-color="hasPendingAssets ? `white` : `deep-orange-3`"
-        aria-label="Pending Asset Uploads">
+        :aria-label="t('pageActions.pendingAssetUploads')">
         <!-- Outside the icon for the same reason as the review badge above -->
         <w-icon name="mdi:image-sync-outline" />
         <w-badge
@@ -77,7 +77,7 @@
                     dense
                     outlined
                     autofocus
-                    label="New file name"
+                    :label="t('pageActions.newFileName')"
                     :suffix="renameSuffix"
                     :rules="[renameBaseNameRule]"
                     @keyup:enter="commitRenamePendingAsset(item)"
@@ -95,7 +95,7 @@
                         icon="la:check"
                         size="xs"
                         flat
-                        aria-label="Confirm Rename"
+                        :aria-label="t('pageActions.confirmRename')"
                         @mousedown.prevent
                         @click="commitRenamePendingAsset(item)" />
                       <w-btn
@@ -105,7 +105,7 @@
                         icon="la:times"
                         size="xs"
                         flat
-                        aria-label="Cancel Rename"
+                        :aria-label="t('pageActions.cancelRename')"
                         @mousedown.prevent
                         @click="cancelRenamePendingAsset" />
                     </template>
@@ -117,7 +117,7 @@
                         icon="la:edit"
                         size="xs"
                         flat
-                        aria-label="Rename Pending Asset"
+                        :aria-label="t('pageActions.renamePendingAsset')"
                         @click="startRenamePendingAsset(item)" />
                       <w-btn
                         class="acrylic-btn"
@@ -126,7 +126,7 @@
                         icon="la:times"
                         size="xs"
                         flat
-                        aria-label="Remove Pending Asset"
+                        :aria-label="t('pageActions.removePendingAsset')"
                         @click="removePendingAsset(item)" />
                     </template>
                   </div>
@@ -161,7 +161,7 @@
         flat
         icon="la:history"
         :color="editorStore.isActive ? `white` : `grey`"
-        aria-label="Page History"
+        :aria-label="t('pageActions.pageHistory')"
         @click="viewPageHistory">
         <w-tooltip anchor="center left" self="center right">Page History</w-tooltip>
       </w-btn>
@@ -177,7 +177,7 @@
         icon="la:file-export"
         :loading="exportingPdf"
         :color="editorStore.isActive ? `white` : `grey`"
-        aria-label="Export Page">
+        :aria-label="t('pageActions.exportPage')">
         <w-tooltip anchor="center left" self="center right">Export Page</w-tooltip>
         <w-menu anchor="top left" self="top right" auto-close :offset="[10, 0]">
           <w-list padding style="min-width: 180px">
@@ -216,7 +216,7 @@
         flat
         icon="la:ellipsis-h"
         :color="editorStore.isActive ? `deep-orange-2` : `grey`"
-        aria-label="Page Actions">
+        :aria-label="t('common.header.pageActions')">
         <w-tooltip anchor="center left" self="center right">Page Actions</w-tooltip>
         <!--
           Literal colour classes, not WIcon's `color` prop: that builds `text-<name>` at runtime and
@@ -270,7 +270,7 @@
         flat
         icon="la:copy"
         :color="editorStore.isActive ? `deep-orange-2` : `grey`"
-        aria-label="Duplicate Page"
+        :aria-label="t('pageActions.duplicatePage')"
         @click="duplicatePage">
         <w-tooltip anchor="center left" self="center right">Duplicate Page</w-tooltip>
       </w-btn>
@@ -280,7 +280,7 @@
         flat
         icon="la:share"
         :color="editorStore.isActive ? `deep-orange-2` : `grey`"
-        aria-label="Rename / Move Page"
+        :aria-label="t('pageActions.renameMovePage')"
         @click="renamePage">
         <w-tooltip anchor="center left" self="center right">Rename / Move Page</w-tooltip>
       </w-btn>
@@ -290,7 +290,7 @@
         flat
         icon="la:trash"
         :color="editorStore.isActive ? `deep-orange-2` : `grey`"
-        aria-label="Delete Page"
+        :aria-label="t('pageActions.deletePage')"
         @click="deletePage">
         <w-tooltip anchor="center left" self="center right">Delete Page</w-tooltip>
       </w-btn>
@@ -474,7 +474,11 @@ async function exportPageText(format) {
   } catch (err) {
     // -> Dismissing the file picker is not a failure
     if (err.name !== 'AbortError') {
-      notify({ type: 'negative', message: 'Failed to export page.', caption: apiErrorMessage(err) })
+      notify({
+        type: 'negative',
+        message: t('pages.export.textFailed'),
+        caption: apiErrorMessage(err)
+      })
     }
   }
 }
@@ -585,7 +589,7 @@ async function applyRenameOrMove(renamedPageOpts, isMove) {
       await pageStore.pageRename({ id: pageStore.id, title: renamedPageOpts.title })
       notify({
         type: 'positive',
-        message: 'Page renamed successfully.'
+        message: t('pages.renameSuccess')
       })
     } else {
       await pageStore.pageMove({
@@ -596,7 +600,7 @@ async function applyRenameOrMove(renamedPageOpts, isMove) {
       })
       notify({
         type: 'positive',
-        message: 'Page moved successfully.'
+        message: t('pages.moveSuccess')
       })
     }
   } catch (err) {

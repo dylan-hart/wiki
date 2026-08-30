@@ -252,7 +252,7 @@ export const useSiteStore = defineStore('site', {
       try {
         const siteInfo = await API_CLIENT.get(`sites/${hostname}`).json()
         if (!siteInfo) {
-          throw new Error('Invalid Site')
+          throw new Error('ERR_INVALID_SITE')
         }
         this.applySiteInfo(siteInfo)
       } catch (err) {

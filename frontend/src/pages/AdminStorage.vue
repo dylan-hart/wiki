@@ -21,6 +21,7 @@
           :toggle-text-color="dark.isActive ? `black` : `white`"
           :text-color="dark.isActive ? `white` : `black`"
           :color="dark.isActive ? `dark-1` : `white`"
+          :aria-label="t(`admin.storage.title`)"
           :options="[
             { label: t('admin.storage.targets'), value: 'targets' },
             { label: t('admin.storage.deliveryPaths'), value: 'delivery' }
@@ -1019,7 +1020,7 @@ async function save({ silent = false } = {}) {
       json: { targets: state.targets.map(payloadFor) }
     }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     saveSuccess = true
     if (!silent) {
@@ -1078,7 +1079,7 @@ async function executeAction(act) {
         `sites/${adminStore.currentSiteId}/storage/targets/${state.selectedTarget}/actions/${act.handler}`
       ).json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       // -> A sync-shaped action (sync / syncUntracked / importAll) is queued on the scheduler by
       //    `api/storage.ts` rather than run inline -- this response confirms it was queued, not that
@@ -1131,7 +1132,7 @@ async function setupDestroy() {
         `sites/${adminStore.currentSiteId}/storage/targets/${state.selectedTarget}/setup`
       ).json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       state.target.setup.state = 'notconfigured'
       // -> A provider-backed setup handler may need a moment to settle before it can be started over

@@ -1045,8 +1045,8 @@ async function loadTree({ parentId = null, parentPath = null, types, initLoad = 
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to load folder tree.',
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      message: t('fileman.folderTreeLoadFailed'),
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   if (parentId === state.currentFolderId) {
@@ -1213,8 +1213,8 @@ function duplicatePage(item) {
     } catch (err) {
       notify({
         type: 'negative',
-        message: 'Failed to duplicate page.',
-        caption: apiErrorMessage(err, 'An unexpected error occured.')
+        message: t('fileman.duplicateFailed'),
+        caption: apiErrorMessage(err, t('common.error.unexpected'))
       })
     }
   })
@@ -1263,7 +1263,7 @@ async function applyRenameOrMovePage(item, opts, isMove) {
       await pageStore.pageRename({ id: item.id, title: opts.title })
       notify({
         type: 'positive',
-        message: 'Page renamed successfully.'
+        message: t('pages.renameSuccess')
       })
     } else {
       await pageStore.pageMove({
@@ -1274,7 +1274,7 @@ async function applyRenameOrMovePage(item, opts, isMove) {
       })
       notify({
         type: 'positive',
-        message: 'Page moved successfully.'
+        message: t('pages.moveSuccess')
       })
     }
     // -> Reload current view
@@ -1282,8 +1282,8 @@ async function applyRenameOrMovePage(item, opts, isMove) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to rename or move page.',
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      message: t('fileman.renameMoveFailed'),
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
 }
@@ -1406,7 +1406,7 @@ async function uploadFiles(filesToUpload) {
           }).json()
           // -> The API client does not throw on 400, so a refused file comes back as a parsed error
           if (resp?.ok === false) {
-            throw new Error(resp.message || 'An unexpected error occured.')
+            throw new Error(resp.message || t('common.error.unexpected'))
           }
         }
         state.uploadPercentage = 100
@@ -1420,8 +1420,8 @@ async function uploadFiles(filesToUpload) {
       } catch (err) {
         notify({
           type: 'negative',
-          message: 'Failed to upload file.',
-          caption: apiErrorMessage(err, 'An unexpected error occured.')
+          message: t('fileman.uploadFailed'),
+          caption: apiErrorMessage(err, t('common.error.unexpected'))
         })
       }
       state.loading--
@@ -1589,7 +1589,7 @@ async function copyItemURL(item) {
         break
       }
       default: {
-        throw new Error('Invalid Item Type')
+        throw new Error('ERR_INVALID_ITEM_TYPE')
       }
     }
     notify({
@@ -1599,7 +1599,7 @@ async function copyItemURL(item) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to copy URL to clipboard.',
+      message: t('fileman.copyURLFailed'),
       caption: err.message
     })
   }
@@ -1629,8 +1629,8 @@ async function downloadItem(item) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to download file.',
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      message: t('fileman.downloadFailed'),
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
 }

@@ -191,7 +191,7 @@ async function loadCrossSiteLocales(siteId) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   state.isFetching = false

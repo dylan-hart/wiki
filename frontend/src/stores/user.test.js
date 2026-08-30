@@ -314,3 +314,55 @@ describe('user store: formatDate()', () => {
     expect(store.formatDate(null)).toBe('')
   })
 })
+
+/*
+  OpenProject #1595: 16 admin/inbox/profile screens hand-rolled their own `toLocaleString()`
+  timestamp formatter (called with an explicit `undefined` locale), which ignored both the stored
+  timezone (the OS zone won instead) and locale (the browser's won instead). All of them are now a
+  drop-in call to formatDateTime() -- three of them (a webhook delivery log, a scheduler run, a
+  security scan report) additionally need seconds, since there the timing itself is the thing being
+  read.
+*/
+describe('user store: formatDateTime()', () => {
+  const t = (key, params) => `${params.date} at ${params.time}`
+
+  it('honours the stored timezone rather than the OS zone', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '24h'
+    store.timezone = 'Pacific/Auckland' // -> UTC+13 in March, nowhere near the test runner's own zone
+
+    expect(store.formatDateTime(t, '2026-03-04T12:00:00Z')).toBe('2026-03-05 at 01:00')
+  })
+
+  it('omits seconds by default', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '24h'
+    store.timezone = 'UTC'
+
+    expect(store.formatDateTime(t, '2026-03-04T12:00:30Z')).toBe('2026-03-04 at 12:00')
+  })
+
+  it('includes seconds when asked, in both the 24h and 12h time formats', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timezone = 'UTC'
+
+    store.timeFormat = '24h'
+    expect(store.formatDateTime(t, '2026-03-04T12:00:30Z', { seconds: true })).toBe(
+      '2026-03-04 at 12:00:30'
+    )
+
+    store.timeFormat = '12h'
+    expect(store.formatDateTime(t, '2026-03-04T12:00:30Z', { seconds: true })).toBe(
+      '2026-03-04 at 12:00:30 PM'
+    )
+  })
+
+  it('returns an empty string for a nullish date rather than throwing', () => {
+    const store = useUserStore()
+
+    expect(store.formatDateTime(t, null)).toBe('')
+  })
+})
