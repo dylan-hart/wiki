@@ -433,6 +433,9 @@ export class AlgoliaSearchModule implements SearchModule {
       //    rule just removed from this page, so it is adjusted by exactly what filtering dropped from
       //    this page rather than reported as-is.
       totalHits: Math.max(0, (response.nbHits ?? 0) - hits.length + visible.length),
+      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
+      //    above actually dropped a row from this page, same signal `db/search.ts` uses.
+      totalHitsApproximate: hits.length !== visible.length,
       // -> No "did you mean" here: Algolia's own typo-tolerance already retries a query internally,
       //    which is a different mechanism from `db`'s pg_trgm-based post-hoc suggestion and not
       //    something this module surfaces as a distinct suggestion string.

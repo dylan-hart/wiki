@@ -731,6 +731,9 @@ export class AzureSearchModule implements SearchModule {
       //    documents, but a total that ignored the filtering entirely would promise results that
       //    don't exist.
       totalHits: Math.max(0, totalHits - rows.length + visible.length),
+      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
+      //    above actually dropped a row from this page, same signal `db/search.ts` uses.
+      totalHitsApproximate: rows.length !== visible.length,
       // -> No "did you mean" here: Azure AI Search's own fuzzy/suggester features are a separate
       //    setup step (a suggester definition on the index) this module does not configure, and
       //    building one out of band is future scope, not this task's.
