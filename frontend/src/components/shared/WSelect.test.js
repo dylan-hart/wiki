@@ -254,6 +254,32 @@ describe('WSelect', () => {
 
       expect(wrapper.vm.validate('a')).toBe(true)
     })
+
+    it('announces the message from a live region, and the error text replaces the hint in that same node', async () => {
+      const wrapper = mount(WSelect, {
+        props: {
+          modelValue: null,
+          options: ['a'],
+          hint: 'Pick one',
+          rules: [isRequired],
+          ariaLabel: 'Pick one'
+        }
+      })
+
+      const messageEl = wrapper.find('.min-h-5')
+      expect(messageEl.attributes('aria-live')).toBe('polite')
+      expect(messageEl.attributes('aria-atomic')).toBe('true')
+      expect(messageEl.text()).toBe('Pick one')
+
+      wrapper.vm.validate()
+      await wrapper.vm.$nextTick()
+
+      // -> Same node, not a second one -- see the matching WInput test for why that matters
+      expect(wrapper.findAll('.min-h-5')).toHaveLength(1)
+      const messageElAfter = wrapper.find('.min-h-5')
+      expect(messageElAfter.attributes('aria-live')).toBe('polite')
+      expect(messageElAfter.text()).toBe('Required')
+    })
   })
 
   it('shows an asterisk beside the label when required', () => {
@@ -332,16 +358,38 @@ describe('WSelect', () => {
       expect(document.activeElement).toBe(wrapper.find('input').element)
       wrapper.unmount()
     })
+
+    it('leaves focus alone when unset', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one' },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).not.toBe(control(wrapper).element)
+      wrapper.unmount()
+    })
   })
 
-  it('forwards a plain attribute like name onto the real control, not the wrapper', () => {
-    const wrapper = mount(WSelect, {
-      props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one' },
-      attrs: { name: 'group' }
+  describe('attribute forwarding', () => {
+    it('forwards a plain attribute like name to the real control (the button) rather than the wrapper', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one' },
+        attrs: { name: 'group' }
+      })
+
+      expect(control(wrapper).attributes('name')).toBe('group')
+      expect(wrapper.element.getAttribute('name')).toBeNull()
     })
 
-    expect(control(wrapper).attributes('name')).toBe('group')
-    expect(wrapper.attributes('name')).toBeUndefined()
+    it('forwards a plain attribute to the filter input, for the useInput variant', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one', useInput: true },
+        attrs: { name: 'group' }
+      })
+
+      expect(wrapper.find('input').attributes('name')).toBe('group')
+      expect(wrapper.element.getAttribute('name')).toBeNull()
+    })
   })
 
   describe('validation message live region', () => {

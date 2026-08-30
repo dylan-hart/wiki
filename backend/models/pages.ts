@@ -578,18 +578,10 @@ class Pages {
    * nodes and edges from — no content, no render, just enough for `api/graph.ts#assembleGraph`
    * to build and permission-filter the graph once.
    *
-   * `publicOnly` applies the same visibility rule `tree.browse()`/`tree.listPages()` apply to an
-   * anonymous reader (`pageIsVisible` -- not browsable, or a draft/scheduled page, is invisible to
-   * one) so `GET /sites/:siteId/graph` cannot hand an unauthenticated caller a page's title,
-   * classification and link graph that the tree and page view already hide from them (OpenProject
-   * #1587 §2) -- the route's only other filter, `assembleGraph`'s `canRead`, checks the page-rule
-   * PERMISSION, not publication state, so on its own it lets a draft through to any caller holding
-   * `read:pages` somewhere, guests included.
-   *
-   * Only applied when `publicOnly` is set: an authenticated caller keeps seeing every page
-   * (`canRead` alone decides what they may read), the same "isBrowsable is a reader-menu concern,
-   * not a permission" split `pageIsVisible`'s own doc comment draws -- a signed-in editor still
-   * needs the graph to include a page they marked `isBrowsable: false` or have not published yet.
+   * `publicOnly` applies `pageIsVisible` (`tree.ts`) the same way `tree.browse()`/`tree.listPages()`
+   * do, so an unauthenticated caller's graph never contains a draft or `isBrowsable: false` page
+   * (OpenProject #1587 §2, #1612) — `assembleGraph`'s `canRead` filter is a *permission* check, not a
+   * publication one, and was never going to catch either.
    */
   async listAllForGraph(siteId: string, publicOnly = false): Promise<GraphPageRow[]> {
     return WIKI.db
@@ -606,7 +598,7 @@ class Pages {
       })
       .from(pagesTable)
       .where(
-        and(eq(pagesTable.siteId, siteId), ...(publicOnly ? pageIsVisible(pagesTable, true) : []))
+        and(eq(pagesTable.siteId, siteId), ...pageIsVisible(pagesTable, publicOnly))
       ) as Promise<GraphPageRow[]>
   }
 

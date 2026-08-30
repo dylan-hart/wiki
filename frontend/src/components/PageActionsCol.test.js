@@ -34,11 +34,54 @@ const HOMEPAGE_GUARD_MESSAGES = {
 }
 
 /**
+ * WP #1610: the rail's aria-labels and tooltips now resolve through `t()` rather than carrying
+ * hardcoded English literals, so every mount helper below needs the real `en.json` strings present
+ * (not the empty `{ en: {} }` a pre-translation mount could get away with) for its `[aria-label="…"]`
+ * selectors and `.w-item` label assertions to keep matching resolved output.
+ */
+const PAGE_ACTIONS_MESSAGES = {
+  en: {
+    ...HOMEPAGE_GUARD_MESSAGES.en,
+    common: {
+      page: {
+        properties: 'Page Properties',
+        data: 'Page Data',
+        history: 'Page History',
+        duplicate: 'Duplicate Page',
+        renameMove: 'Rename / Move Page',
+        convert: 'Convert Page',
+        rerender: 'Rerender Page',
+        viewBacklinks: 'View Backlinks',
+        delete: 'Delete Page'
+      },
+      pendingAssets: {
+        title: 'Pending Asset Uploads',
+        empty: 'There are no assets pending uploads.',
+        newFileName: 'New file name',
+        confirmRename: 'Confirm Rename',
+        cancelRename: 'Cancel Rename',
+        renameAsset: 'Rename Pending Asset',
+        removeAsset: 'Remove Pending Asset',
+        helpText:
+          'Assets that are pasted or dropped onto this page will be held here until the page is saved.'
+      }
+    },
+    pages: {
+      ...HOMEPAGE_GUARD_MESSAGES.en.pages,
+      export: {
+        title: 'Export Page',
+        markdown: 'Markdown',
+        html: 'HTML',
+        pdf: 'PDF'
+      }
+    }
+  }
+}
+
+/**
  * WP #1149: extra confirmation before deleting or moving a site's homepage (the hardcoded `home` /
  * `''` path convention -- `pageStore.isHome`). Its own mount helper because it needs
- * `delete:pages`/`manage:pages` (neither of the mount helpers above grant both) plus the real
- * `pages.homepageGuard.*` strings, which the other helpers' empty `messages: { en: {} }` never needed
- * to assert against.
+ * `delete:pages`/`manage:pages`, which none of the other mount helpers below grant together.
  */
 async function mountRailForGuard({
   path = 'home',
@@ -68,7 +111,7 @@ async function mountRailForGuard({
   router.push('/')
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: HOMEPAGE_GUARD_MESSAGES })
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: PAGE_ACTIONS_MESSAGES })
 
   const wrapper = mount(PageActionsCol, {
     attachTo: document.body,
@@ -104,7 +147,7 @@ async function mountRail({ pdfExportAvailable = false } = {}) {
   router.push('/')
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: PAGE_ACTIONS_MESSAGES })
 
   const wrapper = mount(PageActionsCol, {
     attachTo: document.body,
@@ -163,7 +206,7 @@ async function mountRailWithHistory({ pageId = 'page-1', creating = false } = {}
   router.push('/')
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: PAGE_ACTIONS_MESSAGES })
 
   const wrapper = mount(PageActionsCol, {
     attachTo: document.body,
@@ -374,7 +417,7 @@ async function mountRailWithPageActions({
   router.push('/')
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: PAGE_ACTIONS_MESSAGES })
 
   const wrapper = mount(PageActionsCol, {
     attachTo: document.body,
@@ -414,7 +457,7 @@ async function mountRailWithPendingAssets({ pendingAssets = [] } = {}) {
   router.push('/')
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: PAGE_ACTIONS_MESSAGES })
 
   const wrapper = mount(PageActionsCol, {
     attachTo: document.body,

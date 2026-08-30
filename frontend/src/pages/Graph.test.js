@@ -9,7 +9,29 @@ import Graph from './Graph.vue'
 import { useSiteStore } from '@/stores/site'
 
 function createTestI18n() {
-  return createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  return createI18n({
+    legacy: false,
+    locale: 'en',
+    // -> WP #1610: the control captions/aria-labels render through t() now, not literal template
+    //    text, so `Count edits by` (and its siblings) need to resolve to real strings here.
+    messages: {
+      en: {
+        graph: {
+          controls: {
+            groupBy: 'Group by',
+            connectBy: 'Connect by',
+            sizeBy: 'Size by',
+            count: 'Count',
+            uniqueOrTotal: 'Unique or total',
+            countEditsBy: 'Count edits by',
+            countVisitsBy: 'Count visits by',
+            over: 'Over',
+            timeWindow: 'Time window'
+          }
+        }
+      }
+    }
+  })
 }
 
 const ZERO_TOTAL_PAGEVIEW_WINDOW = { browser: 0, api: 0, mcp: 0, all: 0 }
@@ -256,13 +278,13 @@ describe('Graph.vue (OpenProject #891)', () => {
     //    through the same `GraphClientTypeFilter` component/class, so the filter itself never
     //    disappears any more; only which one is showing changes.
     expect(wrapper.find('.graph-client-type-filter').exists()).toBe(true)
-    expect(wrapper.text()).toContain('graph.controls.countEditsBy')
+    expect(wrapper.text()).toContain('Count edits by')
 
     wrapper.vm.sizeBy = 'visits'
     await flushPromises()
 
     expect(wrapper.find('.graph-client-type-filter').exists()).toBe(true)
-    expect(wrapper.text()).toContain('graph.controls.countVisitsBy')
+    expect(wrapper.text()).toContain('Count visits by')
   })
 
   it('visits sizing scales a node bigger with more pageviews than one with fewer', async () => {

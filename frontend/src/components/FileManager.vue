@@ -267,7 +267,7 @@
                       <w-item-section side>
                         <w-icon name="la:list" color="grey" size="xs" />
                       </w-item-section>
-                      <w-item-section class="pr-2">Browse using...</w-item-section>
+                      <w-item-section class="pr-2">{{ t('fileman.browseUsing') }}</w-item-section>
                       <w-item-section side>
                         <w-icon name="la:angle-right" color="grey" size="xs" />
                       </w-item-section>
@@ -282,7 +282,9 @@
                                 :color="state.displayMode === `path` ? `positive` : `grey`"
                                 size="xs" />
                             </w-item-section>
-                            <w-item-section class="pr-2">Browse Using Paths</w-item-section>
+                            <w-item-section class="pr-2">{{
+                              t('fileman.browseUsingPaths')
+                            }}</w-item-section>
                           </w-item>
                           <w-item clickable @click="state.displayMode = `title`">
                             <w-item-section side>
@@ -293,7 +295,9 @@
                                 :color="state.displayMode === `title` ? `positive` : `grey`"
                                 size="xs" />
                             </w-item-section>
-                            <w-item-section class="pr-2">Browse Using Titles</w-item-section>
+                            <w-item-section class="pr-2">{{
+                              t('fileman.browseUsingTitles')
+                            }}</w-item-section>
                           </w-item>
                         </w-list>
                       </w-menu>
@@ -305,7 +309,7 @@
                           :color="state.isCompact ? `positive` : `grey`"
                           size="xs" />
                       </w-item-section>
-                      <w-item-section class="pr-2">Compact List</w-item-section>
+                      <w-item-section class="pr-2">{{ t('fileman.compactList') }}</w-item-section>
                     </w-item>
                     <w-item clickable @click="state.shouldShowFolders = !state.shouldShowFolders">
                       <w-item-section side>
@@ -314,7 +318,7 @@
                           :color="state.shouldShowFolders ? `positive` : `grey`"
                           size="xs" />
                       </w-item-section>
-                      <w-item-section class="pr-2">Show Folders</w-item-section>
+                      <w-item-section class="pr-2">{{ t('fileman.showFolders') }}</w-item-section>
                     </w-item>
                   </w-list>
                 </w-card>
@@ -406,11 +410,11 @@
             <w-scroll-area :thumb-style="thumbStyle" :bar-style="barStyle" style="height: 100%">
               <div class="fileman-loadinglist" v-if="state.fileListLoading">
                 <w-spinner class="mr-2" color="primary" size="64px" />
-                <span class="text-primary">Fetching folder contents...</span>
+                <span class="text-primary">{{ t('fileman.fetchingFolderContents') }}</span>
               </div>
               <div class="fileman-emptylist" v-else-if="files.length < 1">
                 <img src="/_assets/icons/carbon-copy-empty-box.svg" />
-                <span>This folder is empty.</span>
+                <span>{{ t('common.pageSelector.folderEmptyWarning') }}</span>
               </div>
               <w-list class="fileman-filelist" v-else :class="state.isCompact && `is-compact`">
                 <w-item
@@ -495,7 +499,7 @@
                           <w-item-section side>
                             <w-icon name="la:copy" color="teal" />
                           </w-item-section>
-                          <w-item-section>Duplicate...</w-item-section>
+                          <w-item-section>{{ t('fileman.duplicateItem') }}</w-item-section>
                         </w-item>
                         <!--
                           One entry for a page: its name and its place are picked in the same dialog
@@ -506,14 +510,14 @@
                           <w-item-section side>
                             <w-icon name="la:share" color="teal" />
                           </w-item-section>
-                          <w-item-section>Rename / Move Page...</w-item-section>
+                          <w-item-section>{{ t('fileman.renameMovePage') }}</w-item-section>
                         </w-item>
                         <template v-else>
                           <w-item clickable @click="renameItem(item)">
                             <w-item-section side>
                               <w-icon name="la:redo" color="teal" />
                             </w-item-section>
-                            <w-item-section>Rename...</w-item-section>
+                            <w-item-section>{{ t('fileman.renameItem') }}</w-item-section>
                           </w-item>
                         </template>
                         <w-item clickable @click="delItem(item)">

@@ -6,6 +6,14 @@ import fastifySensible from '@fastify/sensible'
 import ajvFormats from 'ajv-formats'
 import graphRoutes, { assembleGraph, folderOf, type GraphPageRow } from './graph.ts'
 import { registerSchemas as registerGraphSchema } from './schemas/graph.ts'
+import {
+  hasTestDatabase,
+  seedLocale,
+  setupTestDb,
+  teardownTestDb,
+  type TestFixtures
+} from '../test/db.ts'
+import type { PageActor, PageInput } from '../models/pages.ts'
 
 function makeRow(overrides: Partial<GraphPageRow> = {}): GraphPageRow {
   // -> `id` defaults to `path` (not a fixed constant) so a test giving several rows distinct
@@ -393,5 +401,122 @@ describe('GET GRAPH route — publicOnly threading (OpenProject #1587 §2)', () 
     })
     assert.equal(res.statusCode, 200)
     assert.deepEqual(listAllForGraphCalls, [{ siteId: SITE_ID, publicOnly: false }])
+  })
+})
+
+/**
+ * OpenProject #1612: `listAllForGraph`'s own `publicOnly` filter -- not `assembleGraph`'s `canRead`,
+ * which only ever expressed permission ("may this reader see the page"), never publication state
+ * ("has this page even been published, and did its author mark it browsable"). An unauthenticated
+ * caller (`publicOnly: true`) must never get a draft node back from the model layer at all -- run
+ * against a real database because the filter lives in the SQL `WHERE` (`pageIsVisible`,
+ * `models/tree.ts`), not in application code a mock of the query builder could stand in for.
+ *
+ * `isBrowsable: false` is excluded either way, authenticated or not: `pageIsVisible`'s own doc
+ * comment is explicit that this column "applies either way -- it is the author saying 'not in the
+ * tree', not an access rule", matching what `tree.browse()`/`tree.listPages()` already do for a
+ * logged-in reader. Only `publishState` is gated by `publicOnly`.
+ */
+describe('listAllForGraph publication filtering (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let pagesModel: typeof import('../models/pages.ts').pages
+  let actor: PageActor
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    await seedLocale(fixtures.db, { code: 'en' })
+    ;({ pages: pagesModel } = await import('../models/pages.ts'))
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  function pageInput(overrides: Partial<PageInput> = {}): PageInput {
+    return {
+      path: 'default-path',
+      title: 'Default Title',
+      editor: 'markdown',
+      content: '# Hello',
+      ...overrides
+    }
+  }
+
+  test('excludes a draft and an isBrowsable:false page (and edges to them) for an unauthenticated caller; an authenticated caller gets the draft back but isBrowsable:false stays excluded', async () => {
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({
+        path: 'graph-filter/published',
+        title: 'Published',
+        relations: [
+          { pos: 'left', label: 'Draft', caption: '', icon: '', target: 'graph-filter/draft' },
+          {
+            pos: 'left',
+            label: 'Hidden',
+            caption: '',
+            icon: '',
+            target: 'graph-filter/hidden'
+          },
+          {
+            pos: 'left',
+            label: 'Also Published',
+            caption: '',
+            icon: '',
+            target: 'graph-filter/also-published'
+          }
+        ]
+      }),
+      actor
+    )
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({
+        path: 'graph-filter/draft',
+        title: 'Draft',
+        publishState: 'draft'
+      }),
+      actor
+    )
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({
+        path: 'graph-filter/hidden',
+        title: 'Hidden',
+        isBrowsable: false
+      }),
+      actor
+    )
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({
+        path: 'graph-filter/also-published',
+        title: 'Also Published'
+      }),
+      actor
+    )
+
+    const publicRows = await pagesModel.listAllForGraph(fixtures.siteId, true)
+    const publicGraph = assembleGraph(publicRows, () => true)
+    const publicPaths = publicGraph.nodes.map((n) => n.path)
+    assert.ok(publicPaths.includes('graph-filter/published'))
+    assert.ok(publicPaths.includes('graph-filter/also-published'))
+    assert.ok(!publicPaths.includes('graph-filter/draft'))
+    assert.ok(!publicPaths.includes('graph-filter/hidden'))
+    assert.deepEqual(publicGraph.edges.map((e) => e.target).sort(), [
+      'en:graph-filter/also-published'
+    ])
+
+    const authedRows = await pagesModel.listAllForGraph(fixtures.siteId, false)
+    const authedGraph = assembleGraph(authedRows, () => true)
+    const authedPaths = authedGraph.nodes.map((n) => n.path)
+    assert.ok(authedPaths.includes('graph-filter/published'))
+    assert.ok(authedPaths.includes('graph-filter/also-published'))
+    assert.ok(authedPaths.includes('graph-filter/draft'))
+    assert.ok(!authedPaths.includes('graph-filter/hidden'))
+    assert.deepEqual(authedGraph.edges.map((e) => e.target).sort(), [
+      'en:graph-filter/also-published',
+      'en:graph-filter/draft'
+    ])
   })
 })

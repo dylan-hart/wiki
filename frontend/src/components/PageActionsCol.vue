@@ -26,7 +26,9 @@
         :disable="isRedirect"
         :aria-label="t('pageActions.pageProperties')"
         @click="togglePageProperties">
-        <w-tooltip anchor="center left" self="center right">Page Properties</w-tooltip>
+        <w-tooltip anchor="center left" self="center right">{{
+          t('common.page.properties')
+        }}</w-tooltip>
       </w-btn>
       <w-btn
         class="h-12"
@@ -37,7 +39,7 @@
         :aria-label="t('pageActions.pageData')"
         @click="togglePageData"
         disable>
-        <w-tooltip anchor="center left" self="center right">Page Data</w-tooltip>
+        <w-tooltip anchor="center left" self="center right">{{ t('common.page.data') }}</w-tooltip>
       </w-btn>
       <!-- -> Nothing can be pasted or dropped onto a redirection: it is a form, not a document -->
       <w-btn
@@ -58,16 +60,18 @@
           floating>
           <strong>{{ editorStore.pendingAssets.length * 1 }}</strong>
         </w-badge>
-        <w-tooltip anchor="center left" self="center right">Pending Asset Uploads</w-tooltip>
+        <w-tooltip anchor="center left" self="center right">{{
+          t('common.pendingAssets.title')
+        }}</w-tooltip>
         <w-menu ref="menuPendingAssets" anchor="top left" self="top right" :offset="[10, 0]">
           <w-card style="width: 450px">
             <w-card-section class="card-header">
               <w-icon name="img:/_assets/icons/color-data-pending.svg" left size="sm" />
-              <span>Pending Asset Uploads</span>
+              <span>{{ t('common.pendingAssets.title') }}</span>
             </w-card-section>
-            <w-card-section v-if="!hasPendingAssets"
-              >There are no assets pending uploads.</w-card-section
-            >
+            <w-card-section v-if="!hasPendingAssets">{{
+              t('common.pendingAssets.empty')
+            }}</w-card-section>
             <w-list v-else separator>
               <w-item v-for="item of editorStore.pendingAssets" :key="item.id">
                 <w-item-section side><w-icon name="la:file-image" /></w-item-section>
@@ -134,10 +138,7 @@
               </w-item>
             </w-list>
             <w-card-section class="card-actions">
-              <em class="text-caption"
-                >Assets that are pasted or dropped onto this page will be held here until the page
-                is saved.</em
-              >
+              <em class="text-caption">{{ t('common.pendingAssets.helpText') }}</em>
             </w-card-section>
           </w-card>
         </w-menu>
@@ -163,7 +164,9 @@
         :color="editorStore.isActive ? `white` : `grey`"
         :aria-label="t('pageActions.pageHistory')"
         @click="viewPageHistory">
-        <w-tooltip anchor="center left" self="center right">Page History</w-tooltip>
+        <w-tooltip anchor="center left" self="center right">{{
+          t('common.page.history')
+        }}</w-tooltip>
       </w-btn>
       <!--
         Markdown/HTML download instantly (fetch-then-`fileSave`, same as the old Page Source overlay
@@ -178,27 +181,35 @@
         :loading="exportingPdf"
         :color="editorStore.isActive ? `white` : `grey`"
         :aria-label="t('pageActions.exportPage')">
-        <w-tooltip anchor="center left" self="center right">Export Page</w-tooltip>
+        <w-tooltip anchor="center left" self="center right">{{
+          t('pages.export.title')
+        }}</w-tooltip>
         <w-menu anchor="top left" self="top right" auto-close :offset="[10, 0]">
           <w-list padding style="min-width: 180px">
             <w-item clickable @click="exportPage(`markdown`)">
               <w-item-section class="items-center" avatar>
                 <w-icon class="text-deep-orange-9" name="la:markdown" size="sm" />
               </w-item-section>
-              <w-item-section><w-item-label>Markdown</w-item-label></w-item-section>
+              <w-item-section
+                ><w-item-label>{{ t('pages.export.markdown') }}</w-item-label></w-item-section
+              >
             </w-item>
             <w-item clickable @click="exportPage(`html`)">
               <w-item-section class="items-center" avatar>
                 <w-icon class="text-deep-orange-9" name="mdi:language-html5" size="sm" />
               </w-item-section>
-              <w-item-section><w-item-label>HTML</w-item-label></w-item-section>
+              <w-item-section
+                ><w-item-label>{{ t('pages.export.html') }}</w-item-label></w-item-section
+              >
             </w-item>
             <!-- -> Gated on the availability signal task 500 added: no button that just 503s -->
             <w-item clickable v-if="siteStore.pdfExportAvailable" @click="exportPage(`pdf`)">
               <w-item-section class="items-center" avatar>
                 <w-icon class="text-deep-orange-9" name="la:file-pdf" size="sm" />
               </w-item-section>
-              <w-item-section><w-item-label>PDF</w-item-label></w-item-section>
+              <w-item-section
+                ><w-item-label>{{ t('pages.export.pdf') }}</w-item-label></w-item-section
+              >
             </w-item>
           </w-list>
         </w-menu>
@@ -217,7 +228,9 @@
         icon="la:ellipsis-h"
         :color="editorStore.isActive ? `deep-orange-2` : `grey`"
         :aria-label="t('common.header.pageActions')">
-        <w-tooltip anchor="center left" self="center right">Page Actions</w-tooltip>
+        <w-tooltip anchor="center left" self="center right">{{
+          t('common.header.pageActions')
+        }}</w-tooltip>
         <!--
           Literal colour classes, not WIcon's `color` prop: that builds `text-<name>` at runtime and
           Tailwind only emits a utility it can see spelled out, so these three icons had been drawing
@@ -237,7 +250,9 @@
               <w-item-section class="items-center" avatar>
                 <w-icon class="text-deep-orange-9" name="la:atom" size="sm" />
               </w-item-section>
-              <w-item-section><w-item-label>Convert Page</w-item-label></w-item-section>
+              <w-item-section
+                ><w-item-label>{{ t('common.page.convert') }}</w-item-label></w-item-section
+              >
             </w-item>
             <!-- -> Gated on `canRerenderPage`: needs Puppeteer, and the backend's `ensureCanRender`
                     rejects any editor but markdown -->
@@ -245,13 +260,17 @@
               <w-item-section class="items-center" avatar>
                 <w-icon class="text-deep-orange-9" name="la:magic" size="sm" />
               </w-item-section>
-              <w-item-section><w-item-label>Rerender Page</w-item-label></w-item-section>
+              <w-item-section
+                ><w-item-label>{{ t('common.page.rerender') }}</w-item-label></w-item-section
+              >
             </w-item>
             <w-item clickable disabled v-if="flagsStore.experimental">
               <w-item-section class="items-center" avatar>
                 <w-icon class="text-deep-orange-9" name="la:sun" size="sm" />
               </w-item-section>
-              <w-item-section><w-item-label>View Backlinks</w-item-label></w-item-section>
+              <w-item-section
+                ><w-item-label>{{ t('common.page.viewBacklinks') }}</w-item-label></w-item-section
+              >
             </w-item>
           </w-list>
         </w-menu>
@@ -272,7 +291,9 @@
         :color="editorStore.isActive ? `deep-orange-2` : `grey`"
         :aria-label="t('pageActions.duplicatePage')"
         @click="duplicatePage">
-        <w-tooltip anchor="center left" self="center right">Duplicate Page</w-tooltip>
+        <w-tooltip anchor="center left" self="center right">{{
+          t('common.page.duplicate')
+        }}</w-tooltip>
       </w-btn>
       <w-btn
         class="h-12"
@@ -282,7 +303,9 @@
         :color="editorStore.isActive ? `deep-orange-2` : `grey`"
         :aria-label="t('pageActions.renameMovePage')"
         @click="renamePage">
-        <w-tooltip anchor="center left" self="center right">Rename / Move Page</w-tooltip>
+        <w-tooltip anchor="center left" self="center right">{{
+          t('common.page.renameMove')
+        }}</w-tooltip>
       </w-btn>
       <w-btn
         class="h-12"
@@ -292,7 +315,9 @@
         :color="editorStore.isActive ? `deep-orange-2` : `grey`"
         :aria-label="t('pageActions.deletePage')"
         @click="deletePage">
-        <w-tooltip anchor="center left" self="center right">Delete Page</w-tooltip>
+        <w-tooltip anchor="center left" self="center right">{{
+          t('common.page.delete')
+        }}</w-tooltip>
       </w-btn>
     </template>
     <!-- What the rail says instead: which of the two write modes the editor is in. -->
@@ -661,6 +686,7 @@ function startRenamePendingAsset(item) {
 }
 
 function cancelRenamePendingAsset() {
+  console.log('CANCEL CALLED')
   editingAssetId.value = null
   renameDraft.value = ''
   renameExt.value = ''
@@ -679,6 +705,7 @@ function cancelRenamePendingAsset() {
  * still editing, with `renameBaseNameRule` already showing why on the field itself.
  */
 function commitRenamePendingAsset(item) {
+  console.log('COMMIT CALLED', new Error().stack)
   if (editingAssetId.value !== item.id) {
     return
   }

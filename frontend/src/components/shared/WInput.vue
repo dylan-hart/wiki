@@ -147,10 +147,10 @@
     <div
       v-if="showsBottom"
       :id="`${inputId}-desc`"
-      class="min-h-5 px-1 pt-1 text-caption"
-      :class="hasError ? 'text-negative' : 'text-black/54 dark:text-white/60'"
       aria-live="polite"
-      aria-atomic="true">
+      aria-atomic="true"
+      class="min-h-5 px-1 pt-1 text-caption"
+      :class="hasError ? 'text-negative' : 'text-black/54 dark:text-white/60'">
       {{ errorMessage || hint }}
     </div>
   </div>
@@ -160,16 +160,22 @@
 import { computed, inject, onMounted, ref, useAttrs, useId, useSlots, watch } from 'vue'
 import { useDictText } from '@/composables/i18nText'
 
-defineOptions({
-  inheritAttrs: false
-})
-
 /**
  * Text input.
  *
  * Validation follows the `rules` convention already in the codebase: an array of functions taking
  * the value and returning `true` when valid, or a message string when not.
  */
+
+/*
+ * The single root is the wrapper `<div>`, not the real control -- an attribute Vue would otherwise
+ * land there by default (`name`, `inputmode`, `maxlength`, an `aria-label` a caller passes) does
+ * nothing on a `<div>`. `$attrs` is bound explicitly onto the real `<input>`/`<textarea>` below
+ * instead. `autofocus` is one of the attributes this rescues, and is worth special handling beyond
+ * plain forwarding -- see the prop.
+ */
+defineOptions({ inheritAttrs: false })
+
 const props = defineProps({
   modelValue: {
     type: [String, Number],
@@ -259,7 +265,12 @@ const props = defineProps({
    * `<div>` -- the real `<input>`/`<textarea>` sits a level down, and a plain `autofocus` attribute
    * lands on that wrapper by default, where it does nothing (a `<div>` isn't focusable). Declaring it
    * here both keeps it out of `$attrs` (so it doesn't also sit inertly on the wrapper) and gives this
-   * component a moment -- `onMounted` -- to call the already-exposed `focus()` itself.
+   * component a moment -- `onMounted` -- to call the already-exposed `focus()` itself. Does nothing
+   * for a `type="hidden"` field, which cannot take focus either.
+   *
+   * A field that mounts after the page has already loaded -- inside a dialog, say -- needs a
+   * different trigger than `onMounted`, since the dialog's own content is not in the DOM yet at that
+   * point; see `composables/dialog.js`'s `useDialogComponent({ autofocus })` for that case.
    */
   autofocus: {
     type: Boolean,
@@ -503,14 +514,6 @@ const outlineStyle = computed(() => ({
   borderWidth: `${frameWidth.value}px`
 }))
 
-// -> A hidden field (e.g. one behind a `v-if` that hasn't mounted yet) leaves `inputEl` null; the
-//    same optional chaining the exposed `focus()` uses below is the guard.
-onMounted(() => {
-  if (props.autofocus) {
-    inputEl.value?.focus()
-  }
-})
-
 // METHODS
 
 /**
@@ -540,6 +543,18 @@ function clear() {
 function onInput(ev) {
   emit('update:modelValue', ev.target.value)
 }
+
+function focus() {
+  inputEl.value?.focus()
+}
+
+// -> `type="hidden"` cannot take focus at all, so the prop is a deliberate no-op there rather than
+//    a call that would silently fail on `focus()`
+onMounted(() => {
+  if (props.autofocus && props.type !== 'hidden') {
+    focus()
+  }
+})
 
 function onFocus(ev) {
   hasFocus.value = true
@@ -578,7 +593,7 @@ registerWithForm?.({ validate, focus: () => inputEl.value?.focus() })
 
 defineExpose({
   validate,
-  focus: () => inputEl.value?.focus(),
+  focus,
   /**
    * Show the value of a `revealable` password field, as if the eye had been clicked.
    *

@@ -102,6 +102,7 @@
       -->
       <input
         v-if="useInput"
+        v-bind="$attrs"
         :id="selectId"
         ref="input"
         v-model="query"
@@ -216,10 +217,10 @@
     -->
     <div
       v-if="showsBottom"
-      class="min-h-5 px-1 pt-1 text-caption"
-      :class="errorMessage ? 'text-negative' : 'text-black/54 dark:text-white/60'"
       aria-live="polite"
-      aria-atomic="true">
+      aria-atomic="true"
+      class="min-h-5 px-1 pt-1 text-caption"
+      :class="errorMessage ? 'text-negative' : 'text-black/54 dark:text-white/60'">
       {{ errorMessage || hint }}
     </div>
   </div>
@@ -232,10 +233,6 @@ import WMenu from './WMenu.vue'
 import WSpinner from './WSpinner.vue'
 import { useDictText } from '@/composables/i18nText'
 
-defineOptions({
-  inheritAttrs: false
-})
-
 /**
  * Dropdown select.
  *
@@ -246,6 +243,15 @@ defineOptions({
  * Simplification: no free-text filtering or async search. Every current usage picks from a fixed,
  * short list.
  */
+
+/*
+ * Same wrapper-root shape as WInput, and the same fix -- see the note there. The real control is
+ * the `<button>` for a plain select or the nested `<input>` for the filtering (`useInput`) variant;
+ * `$attrs` is bound onto whichever one is actually rendered, never onto the outer `<div>`/`<button>`
+ * `<component>` when it is only standing in for the popup's anchor.
+ */
+defineOptions({ inheritAttrs: false })
+
 const slots = useSlots()
 const attrs = useAttrs()
 
@@ -344,6 +350,15 @@ const props = defineProps({
     default: false
   },
   /**
+   * Focuses the real control once it is mounted -- the button, or the filter input for the
+   * `useInput` variant. See the matching prop on `WInput` for why this has to be a declared prop
+   * rather than a plain attribute left to fall through to the wrapper root.
+   */
+  autofocus: {
+    type: Boolean,
+    default: false
+  },
+  /**
    * Marks the field as one that has to be filled in.
    *
    * Draws a red asterisk beside the label and tells assistive technology the same thing through
@@ -401,15 +416,6 @@ const props = defineProps({
     default: false
   },
   hideDropdownIcon: {
-    type: Boolean,
-    default: false
-  },
-  /**
-   * Focuses the real control once mounted. Same reasoning as `WInput`'s prop of the same name: the
-   * component's root is a wrapping `<div>`, so a plain `autofocus` attribute lands there and does
-   * nothing -- this is a declared prop instead, handled from `onMounted`.
-   */
-  autofocus: {
     type: Boolean,
     default: false
   },
@@ -474,11 +480,16 @@ const isDisabled = computed(() => props.disable || props.disabled)
 
 /**
  * Everything the caller passed through as a plain HTML attribute -- `name`, `data-*`, ... --
- * forwarded onto the real control (the `<button>`, or the combobox `<div>`) rather than left
- * stranded on the wrapper. `class`/`style` are carved out because they're bound explicitly onto the
- * wrapper above; see the matching note in `WInput`.
+ * forwarded onto the real control rather than left stranded on the wrapper. For the plain variant
+ * that's this outer `<button>` itself; `class`/`style` are carved out because they're bound
+ * explicitly onto the wrapper above, see the matching note in `WInput`. For the `useInput` variant
+ * the real control is the nested `<input>` instead (it binds `$attrs` itself, below) -- forwarding
+ * here too would land every attribute on both elements, so this resolves to nothing in that case.
  */
 const controlAttrs = computed(() => {
+  if (props.useInput) {
+    return {}
+  }
   const { class: _class, style: _style, ...rest } = attrs
   return rest
 })

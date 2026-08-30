@@ -1,6 +1,6 @@
 <template>
   <w-page class="py-4">
-    <div class="w-section-header">{{ t('profile.auth') }}</div>
+    <h1 class="w-section-header">{{ t('profile.auth') }}</h1>
     <div class="p-4">
       <div class="text-body2">{{ t('profile.authInfo') }}</div>
       <w-list class="mt-6" bordered separator>
@@ -126,7 +126,7 @@
       </w-list>
     </div>
 
-    <div class="w-section-header mt-4">{{ t('profile.passkeys') }}</div>
+    <h2 class="w-section-header mt-4">{{ t('profile.passkeys') }}</h2>
     <div class="p-4">
       <div class="text-body2">{{ t('profile.passkeysIntro') }}</div>
       <w-list v-if="state.passkeys?.length > 0" class="mt-6" bordered separator>

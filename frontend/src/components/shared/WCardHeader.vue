@@ -1,5 +1,5 @@
 <template>
-  <div class="w-card-header w-section-header">
+  <component :is="level" class="w-card-header w-section-header">
     <div class="w-card-header__row">
       <div class="min-w-0 flex-1">
         <div :id="headingId" class="w-card-header__title">
@@ -17,7 +17,7 @@
         <slot name="action" />
       </div>
     </div>
-  </div>
+  </component>
 </template>
 
 <script setup>
@@ -41,8 +41,20 @@
  *   <w-dialog :labelled-by="header?.headingId">
  *     <w-card-header ref="header">Site info</w-card-header>
  *   </w-dialog>
+ *
+ * `level` picks which real heading element this renders as (defaulting to `h2`, since a card or
+ * dialog section sits one level under the page's own `h1`) -- purely semantic, since the visual
+ * comes entirely from the two classes above rather than from the tag.
  */
 import { useId } from 'vue'
+
+defineProps({
+  level: {
+    type: String,
+    default: 'h2',
+    validator: (val) => ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(val)
+  }
+})
 
 /** Stable for the component instance's lifetime -- `useId()` never regenerates on re-render. */
 const headingId = useId()

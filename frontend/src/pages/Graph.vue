@@ -24,7 +24,7 @@
     <div class="graph-view-right-rail">
       <div class="graph-view-controls">
         <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">Group by</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.groupBy') }}</span>
           <w-btn-toggle
             v-model="groupBy"
             no-caps
@@ -36,7 +36,7 @@
             ]" />
         </div>
         <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">Connect by</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.connectBy') }}</span>
           <w-btn-toggle
             v-model="edgeMode"
             no-caps
@@ -48,7 +48,7 @@
             ]" />
         </div>
         <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">Size by</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.sizeBy') }}</span>
           <w-btn-toggle
             v-model="sizeBy"
             no-caps
@@ -56,7 +56,7 @@
             :options="sizeByOptions" />
         </div>
         <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">Count</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.count') }}</span>
           <w-btn-toggle
             v-model="sizeCountMode"
             no-caps
@@ -75,7 +75,7 @@
             { value: 'mcp', label: 'MCP' }
           ]" />
         <div v-if="sizeBy === 'visits'" class="graph-view-control-group">
-          <span class="graph-view-control-caption">Over</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.over') }}</span>
           <w-btn-toggle
             v-model="pageviewsWindow"
             no-caps

@@ -4,10 +4,17 @@ import { createI18n } from 'vue-i18n'
 
 import PageToc from './PageToc.vue'
 
-// -> `PageToc.vue`'s <nav> resolves its aria-label through `useI18n()` (OpenProject #1615's i18n
-//    source gate); every mount needs the plugin installed, same as any other translated component's
-//    test.
-const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+/**
+ * `useI18n()` (added for OpenProject #1630 -- the hardcoded `aria-label="Table of contents"` is now
+ * `t('common.page.toc')`) needs an installed i18n instance to resolve at all, so every mount below
+ * carries one -- matching `PageHeader.test.js`'s own `mountHeader()` helper, which the same task
+ * introduced this component to.
+ */
+const i18n = createI18n({
+  legacy: false,
+  locale: 'en',
+  messages: { en: { 'common.page.toc': 'Table of Contents' } }
+})
 
 /**
  * `PageToc.vue`'s `<style lang="scss">` reaches for bare `$grey-9` / `$grey-7` / ... (see the file),
@@ -18,6 +25,7 @@ const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
  * is what makes it a good end-to-end check that the harness's SCSS wiring genuinely works, not just
  * that it is present in the config file.
  */
+
 describe('PageToc', () => {
   const nodes = [
     { key: '#intro', label: 'Introduction', level: 1, children: [] },
@@ -72,5 +80,20 @@ describe('PageToc', () => {
       wrapper.unmount()
       heading.remove()
     }
+  })
+
+  /**
+   * OpenProject #1630 (task 1640): the landmark used to be a hardcoded English string, so it never
+   * followed the reader's locale even though `NavSidebar`'s own `<nav>` landmark (added by the same
+   * task) does. Localized instead, off the same `common.page.toc` key the page-properties panel's
+   * `H{min} → H{max}` UI already uses to talk about this same feature.
+   */
+  it('localizes its landmark label instead of a hardcoded English string', () => {
+    const wrapper = mount(PageToc, {
+      props: { nodes, selected: null },
+      global: { plugins: [i18n] }
+    })
+
+    expect(wrapper.attributes('aria-label')).toBe('Table of Contents')
   })
 })

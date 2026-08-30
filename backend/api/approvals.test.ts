@@ -53,6 +53,8 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
   async function getRule() {
     return existingRule
   }
+  // -> Mutable per-test, task #1616: default empty (every group id resolves), one test below
+  //    overrides it to prove `rejectUnknownGroups` now sends a coded `ERR_UNKNOWN_GROUPS` message.
   let unknownGroupIdsToReturn: string[] = []
   async function getUnknownGroupIds() {
     return unknownGroupIdsToReturn

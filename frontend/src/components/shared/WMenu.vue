@@ -19,12 +19,13 @@
       <div
         v-if="shown"
         ref="floatEl"
-        role="menu"
+        tabindex="-1"
         v-bind="$attrs"
         class="w-menu fixed overflow-auto rounded shadow-menu"
         :class="[surfaceClass, contentClass]"
         :style="[floatStyle, { zIndex: catcherZ + 1 }]"
-        @click="onContentClick">
+        @click="onContentClick"
+        @keydown="onPanelKeydown">
         <slot />
       </div>
     </transition>
@@ -161,6 +162,36 @@ let triggerEl = null
 /** Set for a context menu, where the anchor is the pointer rather than the trigger element. */
 let pointerRect = null
 
+/*
+  Focus management for the teleported panel: it renders at the end of `<body>`, nowhere near its
+  trigger in DOM order, so a keyboard user tabbing forward from the trigger would otherwise land on
+  whatever unrelated control happens to follow it in the document instead of the menu. `focusReturnEl`
+  is whichever element held focus when the menu opened (usually, but not necessarily, `triggerEl` --
+  a context menu opens from a right-click that need not have moved focus at all).
+*/
+let focusReturnEl = null
+
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+function focusPanel() {
+  const panel = floatEl.value
+  if (!panel) {
+    return
+  }
+  const firstRow = panel.querySelector(FOCUSABLE_SELECTOR)
+  ;(firstRow ?? panel).focus()
+}
+
+function restoreFocus() {
+  const el = focusReturnEl
+  focusReturnEl = null
+  // -> Guards a stale reference: unmounted since open, or never focusable to begin with
+  if (el && document.contains(el) && typeof el.focus === 'function') {
+    el.focus()
+  }
+}
+
 // -> `modelValue` is opt-in: null means uncontrolled, so only mirror it when actually provided
 const isControlled = () => props.modelValue !== null
 
@@ -189,12 +220,14 @@ async function reposition() {
 }
 
 async function show() {
+  focusReturnEl = document.activeElement
   shown.value = true
   if (isControlled()) {
     emit('update:modelValue', true)
   }
   emit('show')
   await reposition()
+  focusPanel()
 }
 
 function hide() {
@@ -207,6 +240,7 @@ function hide() {
     emit('update:modelValue', false)
   }
   emit('hide')
+  restoreFocus()
 }
 
 function toggle() {
@@ -247,6 +281,50 @@ function onKeydown(ev) {
     ev.stopPropagation()
     hide()
   }
+}
+
+const ROW_SELECTOR = '[tabindex="0"], a[href]'
+
+/**
+ * The panel's own focusable rows, in DOM order. `WItem` puts `tabindex="0"` on a clickable
+ * non-anchor row and renders a disabled or non-interactive row with neither a tab stop nor an
+ * `href` -- so this selector already excludes both without checking `aria-disabled` itself.
+ */
+function focusableRows() {
+  if (!floatEl.value) {
+    return []
+  }
+  return Array.from(floatEl.value.querySelectorAll(ROW_SELECTOR))
+}
+
+/**
+ * Up/Down/Home/End roving focus between the panel's rows, wrapping at both ends. Any other key is
+ * left alone -- neither `preventDefault` nor `stopPropagation` -- so it still reaches whatever a
+ * row itself does with it (e.g. `WItem`'s own Enter/Space handling).
+ */
+function onPanelKeydown(ev) {
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(ev.key)) {
+    return
+  }
+  const rows = focusableRows()
+  if (rows.length === 0) {
+    return
+  }
+  ev.preventDefault()
+
+  const currentIndex = rows.indexOf(document.activeElement)
+  let nextIndex
+  if (ev.key === 'Home') {
+    nextIndex = 0
+  } else if (ev.key === 'End') {
+    nextIndex = rows.length - 1
+  } else if (ev.key === 'ArrowDown') {
+    nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % rows.length
+  } else {
+    nextIndex =
+      currentIndex === -1 ? rows.length - 1 : (currentIndex - 1 + rows.length) % rows.length
+  }
+  rows[nextIndex].focus()
 }
 
 watch(

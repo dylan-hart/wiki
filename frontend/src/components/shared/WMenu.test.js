@@ -1,0 +1,288 @@
+import { defineComponent } from 'vue'
+import { afterEach, describe, expect, it } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
+
+import WMenu from './WMenu.vue'
+
+/**
+ * OpenProject #1641: the teleported panel used to render `role="menu"`, but its rows (`WItem`s,
+ * plain `<w-btn>`s, or arbitrary slot content) never render the required `menuitem`/`menuitemcheckbox`/
+ * `menuitemradio`/`group`/`separator` child roles `role="menu"` demands -- so the panel is a plain
+ * popup of buttons now, with no `menu` role claimed over content that doesn't satisfy it.
+ *
+ * OpenProject #1645: the panel renders inside `<teleport to="body">`, appended at the end of the
+ * document -- far from its trigger in DOM order -- with no focus management at all. A keyboard user
+ * who opened it would have to Tab through the rest of the document to reach its first row, in
+ * practice making the menu unreachable.
+ *
+ * The trigger is climbed from `WMenu`'s hidden placeholder span's own parent (`onMounted` in
+ * `WMenu.vue`), the same way the real app writes it (`<w-btn><w-menu>...</w-menu></w-btn>`) -- so the
+ * host below wraps `w-menu` in a real, natively-focusable `<button>` rather than mounting `WMenu`
+ * bare, which is what lets `document.activeElement` genuinely move onto and off of that button the
+ * way a keyboard user's focus would.
+ */
+const Host = defineComponent({
+  components: { WMenu },
+  props: {
+    autoClose: { type: Boolean, default: false }
+  },
+  template: `
+    <button id="trigger" type="button">
+      Open
+      <w-menu :auto-close="autoClose">
+        <button id="row" type="button">Row</button>
+      </w-menu>
+    </button>
+  `
+})
+
+async function openMenu({ autoClose = false } = {}) {
+  const wrapper = mount(Host, {
+    // -> A detached trigger can never genuinely hold `document.activeElement`
+    attachTo: document.body,
+    props: { autoClose }
+  })
+  const trigger = wrapper.get('#trigger')
+  trigger.element.focus()
+  await trigger.trigger('click')
+  await flushPromises()
+  return { wrapper, trigger }
+}
+
+describe('WMenu role', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('does not expose a menu role over its non-menuitem children', async () => {
+    const { wrapper } = await openMenu()
+
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    const panel = document.querySelector('.w-menu')
+    expect(panel).not.toBeNull()
+    expect(panel.getAttribute('role')).toBeNull()
+
+    wrapper.unmount()
+  })
+})
+
+describe('WMenu focus management', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('moves focus into the panel (its first interactive row) once opened', async () => {
+    const { wrapper } = await openMenu()
+
+    const row = document.getElementById('row')
+    expect(row).not.toBeNull()
+    expect(document.activeElement).toBe(row)
+
+    wrapper.unmount()
+  })
+
+  it('returns focus to the trigger on Escape-close', async () => {
+    const { wrapper, trigger } = await openMenu()
+    expect(document.activeElement).toBe(document.getElementById('row'))
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+
+    expect(document.activeElement).toBe(trigger.element)
+    wrapper.unmount()
+  })
+
+  it('returns focus to the trigger on outside-click-close', async () => {
+    const { wrapper, trigger } = await openMenu()
+    expect(document.activeElement).toBe(document.getElementById('row'))
+
+    const catcher = document.body.querySelector('div.fixed.inset-0')
+    expect(catcher).not.toBeNull()
+    catcher.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(document.activeElement).toBe(trigger.element)
+    wrapper.unmount()
+  })
+
+  it('returns focus to the trigger when a row activates and closes the menu (auto-close)', async () => {
+    const { wrapper, trigger } = await openMenu({ autoClose: true })
+    const row = document.getElementById('row')
+    expect(document.activeElement).toBe(row)
+
+    row.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(document.activeElement).toBe(trigger.element)
+    wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #1648: Up/Down/Home/End roving focus between `WMenu` rows.
+ *
+ * `WMenu` is mounted `modelValue: true` (controlled) so it shows immediately on mount rather than
+ * needing a trigger climbed/clicked first -- see `onMounted`'s `if (props.modelValue === true) {
+ * show() }`. The panel is teleported to `body`, outside the mounted subtree `@vue/test-utils`
+ * tracks, so every assertion below queries `document` rather than `wrapper`.
+ */
+async function mountMenu(slotHtml) {
+  const wrapper = mount(WMenu, {
+    props: { modelValue: true },
+    attachTo: document.body,
+    slots: { default: slotHtml }
+  })
+  await wrapper.vm.$nextTick()
+  return wrapper
+}
+
+function panel() {
+  return document.querySelector('.w-menu')
+}
+
+function rows() {
+  return [...document.querySelectorAll('.w-menu [role="button"], .w-menu a[href]')]
+}
+
+async function press(key) {
+  panel().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+}
+
+describe('WMenu roving focus', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('moves focus to the next row on ArrowDown', async () => {
+    await mountMenu(`
+      <w-item clickable>One</w-item>
+      <w-item clickable>Two</w-item>
+      <w-item clickable>Three</w-item>
+    `)
+    const [one, two] = rows()
+    one.focus()
+
+    await press('ArrowDown')
+
+    expect(document.activeElement).toBe(two)
+  })
+
+  it('moves focus to the previous row on ArrowUp', async () => {
+    await mountMenu(`
+      <w-item clickable>One</w-item>
+      <w-item clickable>Two</w-item>
+      <w-item clickable>Three</w-item>
+    `)
+    const [one, two] = rows()
+    two.focus()
+
+    await press('ArrowUp')
+
+    expect(document.activeElement).toBe(one)
+  })
+
+  it('wraps from the last row to the first on ArrowDown', async () => {
+    await mountMenu(`
+      <w-item clickable>One</w-item>
+      <w-item clickable>Two</w-item>
+      <w-item clickable>Three</w-item>
+    `)
+    const [first, , last] = rows()
+    last.focus()
+
+    await press('ArrowDown')
+
+    expect(document.activeElement).toBe(first)
+  })
+
+  it('wraps from the first row to the last on ArrowUp', async () => {
+    await mountMenu(`
+      <w-item clickable>One</w-item>
+      <w-item clickable>Two</w-item>
+      <w-item clickable>Three</w-item>
+    `)
+    const [first, , last] = rows()
+    first.focus()
+
+    await press('ArrowUp')
+
+    expect(document.activeElement).toBe(last)
+  })
+
+  it('jumps to the first row on Home', async () => {
+    await mountMenu(`
+      <w-item clickable>One</w-item>
+      <w-item clickable>Two</w-item>
+      <w-item clickable>Three</w-item>
+    `)
+    const [first, , last] = rows()
+    last.focus()
+
+    await press('Home')
+
+    expect(document.activeElement).toBe(first)
+  })
+
+  it('jumps to the last row on End', async () => {
+    await mountMenu(`
+      <w-item clickable>One</w-item>
+      <w-item clickable>Two</w-item>
+      <w-item clickable>Three</w-item>
+    `)
+    const [first, , last] = rows()
+    first.focus()
+
+    await press('End')
+
+    expect(document.activeElement).toBe(last)
+  })
+
+  it('skips a disabled row when moving focus', async () => {
+    await mountMenu(`
+      <w-item clickable>One</w-item>
+      <w-item clickable disabled>Two</w-item>
+      <w-item clickable>Three</w-item>
+    `)
+    const rowEls = rows()
+    // -> The disabled row renders neither `tabindex="0"` nor `role="button"`, so it never appears
+    //    in the focusable set at all -- two rows found, not three.
+    expect(rowEls).toHaveLength(2)
+    const [one, three] = rowEls
+    one.focus()
+
+    await press('ArrowDown')
+
+    expect(document.activeElement).toBe(three)
+  })
+
+  it('skips a non-interactive row when moving focus', async () => {
+    await mountMenu(`
+      <w-item clickable>One</w-item>
+      <w-item>Section label</w-item>
+      <w-item clickable>Three</w-item>
+    `)
+    const rowEls = rows()
+    expect(rowEls).toHaveLength(2)
+    const [one, three] = rowEls
+    one.focus()
+
+    await press('ArrowDown')
+
+    expect(document.activeElement).toBe(three)
+  })
+
+  it('does not move focus, or prevent the default, for a key it does not handle', async () => {
+    await mountMenu(`
+      <w-item clickable>One</w-item>
+      <w-item clickable>Two</w-item>
+    `)
+    const [one] = rows()
+    one.focus()
+
+    const event = new KeyboardEvent('keydown', { key: 'a', bubbles: true, cancelable: true })
+    panel().dispatchEvent(event)
+
+    expect(document.activeElement).toBe(one)
+    expect(event.defaultPrevented).toBe(false)
+  })
+})

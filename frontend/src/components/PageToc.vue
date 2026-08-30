@@ -1,5 +1,5 @@
 <template>
-  <nav class="page-toc" :aria-label="t('common.page.tocAriaLabel')">
+  <nav class="page-toc" :aria-label="t('common.page.toc')">
     <ul class="page-toc-list">
       <li
         v-for="item of visibleItems"
@@ -66,6 +66,8 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:selected'])
+
+// I18N
 
 const { t } = useI18n()
 

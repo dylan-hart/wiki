@@ -1,6 +1,6 @@
 <template>
   <w-page class="py-4">
-    <div class="w-section-header">{{ t('profile.avatar') }}</div>
+    <h1 class="w-section-header">{{ t('profile.avatar') }}</h1>
     <!--
       -> `min-w-*` on both columns is what lets `flex-wrap` actually wrap them: `flex-1` is
          `flex: 1 1 0%`, and an item whose basis is zero never overflows its line, so on a narrow screen
