@@ -1457,3 +1457,39 @@ stays on `@twemoji/api` 17.0.2 with an explicit `overrides` entry pinning `@twem
 artwork, separately pinned to upstream tag v17.0.3) despite the version-number mismatch looking like
 drift. Revisit once a `@twemoji/parser` release ships that restores the ten shortcodes' matching —
 until then, do not bump `@twemoji/api` past 17.0.2 in an automated currency pass.
+
+## OpenProject #1906 — `frontend/vite.config.js`'s `chunkSizeWarningLimit` restored to (near) Rollup's default; three chunks still exceed it
+
+**Date:** 2026-08-30
+**Feature:** #1906 (part of Epic #1898)
+
+`chunkSizeWarningLimit` was raised from Rollup's 500 kB default to 5000 kB in `fe38f4c7` (this
+fork's GraphQL→REST work), with no comment beside it in an otherwise heavily-commented file and no
+entry anywhere in `docs/`. That let `markdown-*.js` grow to 1,550 kB and Monaco's `editor.api-*.js`
+to 2,592 kB with `npm run build` printing nothing about either — the zero-warnings standard was being
+met by moving the threshold, not by there being nothing to warn about. It is set back to 500 kB here
+(`frontend/vite.config.js`) so a chunk crossing that line prints a warning again, per the choice this
+work package's own description offered: lower the limit and record what still warns, rather than keep
+it raised.
+
+Three chunks are named here because they are expected to still warn at 500 kB even after this change
+— that is the limit doing its job, not a defect in the new number:
+
+- **Monaco's `editor.api-*.js`** (~2,592 kB) and **`ts.worker-*.js`** (~6,752 kB, already above the
+  old 5000 kB limit too) — the editor core and its bundled TypeScript language-service worker. Both
+  are lazy-loaded only when a user opens the page editor (`boot/monaco.js`), never on the reader
+  path, and neither is realistically splittable further: `ts.worker` is `monaco-editor`'s own
+  single-file worker bundle, and `editor.api` is the editor's core module graph. This is the same
+  class of "real, unfixable-here build-output noise" `docs/variances.md`'s asciidoctor entry (above)
+  is the existing precedent for recording rather than chasing.
+- **`markdown-*.js`** (~1,550 kB) — the reader-path markdown/highlight.js/katex chunk. This one is
+  not claimed as unavoidable: sibling work package #1901 (same parent Epic #1898) trims both
+  `highlight.js` root imports (`frontend/src/renderers/markdown.js`,
+  `frontend/src/components/EditorCodeBlockMenu.vue`) from the package root (~190 grammars) down to
+  `highlight.js/lib/common` (~37), which is expected to shrink this chunk meaningfully. It is named
+  here rather than making #1906 wait on #1901 landing first — the epic's own breakdown says neither
+  work package blocks the other. Re-check this chunk's size once #1901 lands, and drop it from this
+  entry (or this entry entirely, if nothing else is left over 500 kB) once it builds under the limit.
+
+A warning on any chunk not named above is a real signal and should be investigated — resist raising
+`chunkSizeWarningLimit` again as a way to make it go away.
