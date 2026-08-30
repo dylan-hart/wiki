@@ -2797,6 +2797,7 @@
   "search.sortByRelevance": "Relevance",
   "search.sortByTitle": "Title",
   "search.totalResults": "No result | {0} result | {0} results",
+  "search.totalResultsApprox": "No result | At least {0} result | At least {0} results",
   "tags.clearSelection": "Clear Selection",
   "tags.currentSelection": "Current Selection",
   "tags.locale": "Locale",

@@ -492,6 +492,11 @@ async function routes(app: FastifyInstance) {
                 type: 'integer',
                 description: 'How many pages match, ignoring `limit` and `offset`.'
               },
+              totalHitsApproximate: {
+                type: 'boolean',
+                description:
+                  "`true` when `totalHits` is not exact: this searcher's page rules dropped one or more matching rows, so the real total they could ever see is a floor, not the number shown."
+              },
               suggestion: {
                 type: ['string', 'null'],
                 description:

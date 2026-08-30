@@ -165,7 +165,9 @@
               <i18n-t
                 class="text-caption"
                 v-if="!siteStore.searchIsLoading"
-                keypath="search.totalResults"
+                :keypath="
+                  state.totalApproximate ? `search.totalResultsApprox` : `search.totalResults`
+                "
                 tag="span"
                 :plural="state.total">
                 <strong>{{ state.total }}</strong>
@@ -310,7 +312,14 @@ const state = reactive({
   },
   selectedTags: [],
   results: [],
-  total: 0
+  total: 0,
+  /**
+   * `true` when `total` is a floor, not an exact count: this reader's page rules dropped one or more
+   * of the rows the search engine itself matched (OpenProject #2006). The results list is never
+   * wrong -- everything shown is something this reader may actually open -- only the count beside it
+   * can undercount what a search with no restrictions would have found.
+   */
+  totalApproximate: false
 })
 
 /**
@@ -436,6 +445,7 @@ async function performSearch() {
   if (!q && Object.keys(filters).length < 1) {
     state.results = []
     state.total = 0
+    state.totalApproximate = false
     siteStore.searchLastQuery = siteStore.search
     siteStore.searchIsLoading = false
     return
@@ -456,10 +466,12 @@ async function performSearch() {
     }).json()
     state.results = (resp?.results ?? []).map((r) => ({ ...r, tags: [...(r.tags ?? [])].sort() }))
     state.total = resp?.totalHits ?? 0
+    state.totalApproximate = resp?.totalHitsApproximate ?? false
     siteStore.searchLastQuery = siteStore.search
   } catch (err) {
     state.results = []
     state.total = 0
+    state.totalApproximate = false
     notify({
       type: 'negative',
       message: t('search.failed'),

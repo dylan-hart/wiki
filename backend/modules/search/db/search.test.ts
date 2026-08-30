@@ -1,4 +1,4 @@
-import { after, before, describe, test } from 'node:test'
+import { after, afterEach, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { sql } from 'drizzle-orm'
 import {
@@ -239,10 +239,15 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
     assert.equal(asBlocked.totalHits, 0)
     assert.deepEqual(asBlocked.results, [])
+    // -> The window function counted the row postgres matched; the rules filter then dropped it from
+    //    this page, so the corrected total is no longer exact -- see OpenProject #2006.
+    assert.equal(asBlocked.totalHitsApproximate, true)
 
     // -> Sanity check: the same query against the same page finds it once access is not blocked
     const unfiltered = await searchModel.query({ siteId: fixtures.siteId, query: 'numbat' })
     assert.equal(unfiltered.totalHits, 1)
+    // -> Nothing was dropped by the rules filter here (no `actor` was even passed), so the total is exact
+    assert.equal(unfiltered.totalHitsApproximate, false)
   })
 
   /**
@@ -373,5 +378,100 @@ describe('db search module query() siteId threading (task 678)', () => {
 
     assert.equal(checkAccessCalls.length, 1)
     assert.equal(checkAccessCalls[0].siteId, '11111111-1111-4111-8111-111111111111')
+  })
+})
+
+describe('db search module query() totalHitsApproximate (OpenProject #2006)', () => {
+  /**
+   * Mock-based, same reasoning as the "siteId threading" suite above: whether `totalHitsApproximate`
+   * is set is decided entirely by comparing the row count before and after the `checkAccess` filter,
+   * with no SQL of its own to exercise against a real database -- so a fake two-row response plus a
+   * controllable `checkAccess` is enough to cover both branches fast, leaving the "does this actually
+   * happen against real page rules" case to the DB-backed suite above.
+   */
+  function rowFixtures() {
+    return [
+      {
+        id: 'page-1',
+        path: 'engineering/onboarding',
+        locale: 'en',
+        title: 'Onboarding',
+        description: null,
+        icon: null,
+        tags: [],
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        relevancy: 0,
+        highlight: null,
+        totalHits: 2
+      },
+      {
+        id: 'page-2',
+        path: 'engineering/secret-roadmap',
+        locale: 'en',
+        title: 'Secret Roadmap',
+        description: null,
+        icon: null,
+        tags: [],
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        relevancy: 0,
+        highlight: null,
+        totalHits: 2
+      }
+    ]
+  }
+
+  function installWiki(checkAccess: (page: any) => boolean) {
+    ;(globalThis as any).WIKI = {
+      config: {},
+      sites: {},
+      db: { execute: async () => ({ rows: rowFixtures() }) },
+      models: {
+        groups: { checkAccess: (_actor: any, _permission: string, page: any) => checkAccess(page) }
+      }
+    }
+  }
+
+  afterEach(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('is true when the rules filter drops a row the engine counted', async () => {
+    installWiki((page) => page.path !== 'engineering/secret-roadmap')
+    const { default: dbSearchModule } = await import('./search.ts')
+
+    const result = await dbSearchModule.query({
+      siteId: '11111111-1111-4111-8111-111111111111',
+      actor: { groupIds: [], permissions: [] } as any
+    })
+
+    assert.equal(result.results.length, 1)
+    assert.equal(result.totalHitsApproximate, true)
+  })
+
+  test('is false when the rules filter drops nothing', async () => {
+    installWiki(() => true)
+    const { default: dbSearchModule } = await import('./search.ts')
+
+    const result = await dbSearchModule.query({
+      siteId: '11111111-1111-4111-8111-111111111111',
+      actor: { groupIds: [], permissions: [] } as any
+    })
+
+    assert.equal(result.results.length, 2)
+    assert.equal(result.totalHitsApproximate, false)
+  })
+
+  test('is false when no actor is given to filter against', async () => {
+    installWiki(() => {
+      throw new Error('checkAccess should not be called without an actor')
+    })
+    const { default: dbSearchModule } = await import('./search.ts')
+
+    const result = await dbSearchModule.query({
+      siteId: '11111111-1111-4111-8111-111111111111'
+    })
+
+    assert.equal(result.results.length, 2)
+    assert.equal(result.totalHitsApproximate, false)
   })
 })

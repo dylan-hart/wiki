@@ -468,6 +468,9 @@ export class ElasticsearchSearchModule implements SearchModule {
       //    includes every match, including ones a rule just removed from this page, so it is adjusted
       //    by exactly what filtering dropped from this page rather than reported as-is.
       totalHits: Math.max(0, totalCount - hits.length + visible.length),
+      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
+      //    above actually dropped a hit from this page, same signal `db/search.ts` uses.
+      totalHitsApproximate: hits.length !== visible.length,
       // -> No "did you mean" here: Elasticsearch's own fuzzy-suggestion features (a "suggest"
       //    context or a completion suggester) need dedicated index-side setup this module does not
       //    configure, unlike `db`'s pg_trgm similarity which needs nothing beyond the extension.

@@ -584,7 +584,12 @@ describe('azure-search module: query()', () => {
       hideProtectedContent: false
     })
 
-    assert.deepEqual(Object.keys(result).sort(), ['results', 'suggestion', 'totalHits'])
+    assert.deepEqual(Object.keys(result).sort(), [
+      'results',
+      'suggestion',
+      'totalHits',
+      'totalHitsApproximate'
+    ])
     assert.equal(result.totalHits, 1)
     assert.equal(result.results.length, 1)
     assert.deepEqual(Object.keys(result.results[0]!).sort(), [
