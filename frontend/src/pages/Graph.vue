@@ -11,14 +11,11 @@
       :style="{ left: `${tooltipPos.x + 12}px`, top: `${tooltipPos.y + 12}px` }">
       {{ hoveredNode.title ?? hoveredNode.path }}
       <template v-if="sizeBy === 'edits' && !hoveredNode.synthetic">
-        · {{ contributorCountFor(hoveredNode) }} contributor{{
-          contributorCountFor(hoveredNode) === 1 ? '' : 's'
-        }}
+        · {{ contributorCountFor(hoveredNode) }}
+        {{ tooltipNounFor(contributorCountFor(hoveredNode)) }}
       </template>
       <template v-if="sizeBy === 'visits' && !hoveredNode.synthetic">
-        · {{ pageviewCountFor(hoveredNode) }} visit{{
-          pageviewCountFor(hoveredNode) === 1 ? '' : 's'
-        }}
+        · {{ pageviewCountFor(hoveredNode) }} {{ tooltipNounFor(pageviewCountFor(hoveredNode)) }}
       </template>
     </div>
     <div class="graph-view-right-rail">
@@ -426,6 +423,20 @@ function pageviewCountFor(node) {
   }
   const counts = sizeCountMode.value === 'total' ? windowCounts.total : windowCounts
   return pageviewClientTypes.value.reduce((sum, type) => sum + (counts[type] ?? 0), 0)
+}
+
+/** The hover tooltip's noun for `count`, per the active `sizeBy`/`sizeCountMode` combination
+ *  (OpenProject #2293). The noun must follow `sizeCountMode` as well as `sizeBy`: 'total' reads the
+ *  raw, non-distinct row counts (an edit or visit tally), while 'unique' reads the distinct-identity
+ *  figures (a contributor or visitor tally) -- so "Edits + Total" and "Visits + Unique" need a
+ *  different noun than "Edits + Unique" and "Visits + Total" use, even though all four share the same
+ *  `sizeBy` pair. Keeps the existing singular/plural behaviour. */
+function tooltipNounFor(count) {
+  const plural = count === 1 ? '' : 's'
+  if (sizeBy.value === 'edits') {
+    return sizeCountMode.value === 'total' ? `edit${plural}` : `contributor${plural}`
+  }
+  return sizeCountMode.value === 'total' ? `visit${plural}` : `unique visitor${plural}`
 }
 
 /** A node's drawn radius: synthetic nodes are always the fixed `3`; a real node scales with
