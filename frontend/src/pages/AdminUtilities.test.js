@@ -29,7 +29,9 @@ const messages = {
     'admin.utilities.title': 'Utilities',
     'admin.utilities.subtitle': '',
     'admin.utilities.export': 'Export',
-    'admin.utilities.exportHint': '',
+    'admin.utilities.exportHint': "Export this site's pages, files and folders to a tarball.",
+    'admin.utilities.exportExclusions':
+      'Does not include accounts, page history, comments, settings, authentication strategies, storage targets or site branding. See docs/operations.md for the full recovery procedure.',
     'admin.utilities.exportSuccess': 'Content export saved.',
     'admin.utilities.exportFailed': "Failed to export the site's content.",
     'admin.utilities.import': 'Import',
@@ -140,6 +142,22 @@ describe('AdminUtilities export', () => {
       blob,
       expect.objectContaining({ fileName: 'export-job-5.tar.gz' })
     )
+  })
+
+  /**
+   * WP 1896: the export is a content export, not a backup — restoring it loses accounts, page
+   * history, comments, settings, auth strategies, storage targets and site branding. Neither the
+   * button's own hint nor the line naming what the archive omits may call it a backup.
+   */
+  it('does not call the export a backup, and names what the archive omits', async () => {
+    const wrapper = await mountUtilities()
+
+    expect(wrapper.text()).not.toMatch(/backup/i)
+    expect(wrapper.text()).toContain("Export this site's pages, files and folders to a tarball.")
+    expect(wrapper.text()).toContain(
+      'Does not include accounts, page history, comments, settings, authentication strategies, storage targets or site branding.'
+    )
+    expect(wrapper.text()).toContain('docs/operations.md for the full recovery procedure.')
   })
 
   it('shows an error when the download route fails for a reason other than "not ready yet"', async () => {
