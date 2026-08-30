@@ -7,7 +7,7 @@ db:
   pass: '$(DB_PASS)'
   db: $(DB_NAME)
   schema: $(DB_SCHEMA:wiki)
-  ssl: $(DB_SSL)
+  ssl: $(DB_SSL:false)
 logLevel: $(LOG_LEVEL:info)
 logFormat: $(LOG_FORMAT:default)
 offline: $(WIKI_OFFLINE:false)
