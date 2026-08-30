@@ -803,9 +803,9 @@ class Users {
       timeFormat: prefs.timeFormat ?? '12h',
       appearance: prefs.appearance ?? 'site',
       cvd: prefs.cvd ?? 'none',
-      // -> An empty locale means "no stored preference" -- the same fallback-to-something-else
-      //    convention as timezone/dateFormat above, with the site/instance locale deciding instead
-      //    of the browser
+      // -> An empty locale means "no preference recorded" — mail resolves such a user's messages in
+      //    `en`, the same fallback `models/locales.ts#resolveString`'s server-side string resolver
+      //    uses for an unset or unknown locale.
       locale: prefs.locale ?? ''
     }
   }
@@ -865,13 +865,14 @@ class Users {
       return null
     }
 
-    // -> An empty string clears the preference (falls back to the site/instance locale), same as
-    //    timezone/dateFormat above; anything else must name an installed locale, since nothing
-    //    downstream (models/mail.ts's per-user mail locale) can address a user in a language the
-    //    instance has no strings for
+    // -> Validated against the installed catalogue rather than a static enum, same reasoning as the
+    //    timezone check in `api/users.ts` — the valid set is only known at runtime. An empty string
+    //    clears the preference (falls back to `en` when mail resolves it), so it skips the check.
     if (patch.locale !== undefined && patch.locale !== '') {
-      const installedCodes = (await WIKI.models.locales.getLocales()).map((lc: any) => lc.code)
-      if (!installedCodes.includes(patch.locale)) {
+      const known = (await WIKI.models.locales.getLocales()).some(
+        (lc: any) => lc.code === patch.locale
+      )
+      if (!known) {
         throw new Error('ERR_INVALID_LOCALE')
       }
     }
@@ -2105,7 +2106,12 @@ class Users {
         `Registration for <${normalizedEmail}> matched an unverified account, resending the verification email`
       )
       const token = await this.generateToken({ kind: 'verify', userId: existing.id })
-      await WIKI.models.mail.sendVerifyEmail({ to: existing.email, name: existing.name, token })
+      await WIKI.models.mail.sendVerifyEmail({
+        to: existing.email,
+        name: existing.name,
+        token,
+        locale: (existing.prefs as Record<string, any> | undefined)?.locale
+      })
       return { nextAction: 'verify' }
     }
 
@@ -2636,7 +2642,12 @@ class Users {
       userId: user.id,
       meta: { strategyId }
     })
-    await WIKI.models.mail.sendForgotPassword({ to: user.email, name: user.name, token })
+    await WIKI.models.mail.sendForgotPassword({
+      to: user.email,
+      name: user.name,
+      token,
+      locale: (user.prefs as Record<string, any> | undefined)?.locale
+    })
     WIKI.models.flags.authDebug(`Password reset link sent to user ${user.id} <${user.email}>`)
   }
 
@@ -2693,7 +2704,11 @@ class Users {
     await WIKI.db.update(usersTable).set({ auth: user.auth }).where(eq(usersTable.id, user.id))
 
     try {
-      await WIKI.models.mail.sendPasswordResetConfirmed({ to: user.email, name: user.name })
+      await WIKI.models.mail.sendPasswordResetConfirmed({
+        to: user.email,
+        name: user.name,
+        locale: user.prefs?.locale
+      })
     } catch (err: any) {
       // -> The password change already succeeded; a failed notice email must not turn this into a
       //    failed reset

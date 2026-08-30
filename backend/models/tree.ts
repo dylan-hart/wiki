@@ -319,6 +319,7 @@ class Tree {
     depth?: number
     includeAncestors?: boolean
     includeRootFolders?: boolean
+    /** Restrict page rows to what a reader with no session may see. See `pageIsVisible`. */
     publicOnly?: boolean
   }): Promise<TreeItem[]> {
     if (offset < 0) {

@@ -341,6 +341,8 @@ async function save() {
         timeFormat: state.config.timeFormat,
         appearance: state.config.appearance,
         cvd: state.config.cvd,
+        // -> No dedicated form control: `LocaleSelectorMenu` already owns picking the UI language,
+        //    so saving the profile records whatever that's currently set to as the mail preference.
         locale: commonStore.locale
       }
     }).json()

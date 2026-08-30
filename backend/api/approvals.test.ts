@@ -53,8 +53,9 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
   async function getRule() {
     return existingRule
   }
+  let unknownGroupIdsToReturn: string[] = []
   async function getUnknownGroupIds() {
-    return []
+    return unknownGroupIdsToReturn
   }
   async function createRule(siteId: string, body: any) {
     createRuleCalls.push({ siteId, body })
@@ -138,6 +139,7 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     createRuleCalls = []
     updateRuleCalls = []
     deleteRuleCalls = []
+    unknownGroupIdsToReturn = []
   })
 
   test('manage:sites may list approval rules', async () => {
@@ -192,6 +194,28 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     })
     assert.equal(res.statusCode, 200)
     assert.equal(createRuleCalls.length, 1)
+  })
+
+  // -> #1616: this used to be a hardcoded `No such group: <ids>` English sentence, which surfaced
+  //    verbatim in the UI instead of translating like the rest of a `t(key, fallback)` screen.
+  //    Assert the coded `ERR_*` shape, not any particular wording.
+  test('creating a rule with an unknown group id is rejected with a coded error', async () => {
+    unknownGroupIdsToReturn = [SUBMITTER_GROUP]
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/approvals/rules`,
+      headers: { 'x-test-site-permissions': `site:approvals@${SITE_ID}` },
+      payload: {
+        name: 'New rule',
+        match: 'START',
+        path: '',
+        submitterGroups: [SUBMITTER_GROUP],
+        reviewerGroups: [REVIEWER_GROUP]
+      }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(res.json().message, 'ERR_UNKNOWN_GROUPS')
+    assert.equal(createRuleCalls.length, 0)
   })
 
   test('an unrelated permission alone may not create a rule', async () => {

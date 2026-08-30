@@ -24,8 +24,7 @@
               hide-bottom-space
               :label="t(`admin.approval.name`)"
               :hint="t(`admin.approval.nameHint`)"
-              lazy-rules="ondemand"
-              autofocus />
+              lazy-rules="ondemand" />
           </w-item-section>
         </w-item>
         <w-item>

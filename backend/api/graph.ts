@@ -12,6 +12,11 @@ export type { GraphPageRow }
 
 /** One node in the knowledge graph (OpenProject #872) — a page the requester may read. */
 export interface GraphNode {
+  /** Synthetic `${locale}:${path}` composite id (OpenProject #1621) -- translations share `path` by
+   *  design (`docs/decisions/locale-translation-linking.md`, "Same-path-by-convention"), so `path`
+   *  alone cannot key a node or an edge endpoint. `GraphEdge.source`/`GraphEdge.target` reference
+   *  this field, never the bare `path`. */
+  id: string
   path: string
   locale: string
   title: string
@@ -89,9 +94,13 @@ export function assembleGraph(
   pageviewsFor: (pageId: string) => PageviewCountsForGraph = zeroPageviewCountsForGraph
 ): Graph {
   const visible = rows.filter(canRead)
-  const visiblePaths = new Set(visible.map((row) => row.path))
+  // -> Translations share `path` by design (locale-translation-linking.md's "Same-path-by-
+  //    convention"), so a bare-`path` Set here would make an `en` page's link/relation count as
+  //    visible when only a `fr`-locale page occupies that target path (OpenProject #1621).
+  const visibleIds = new Set(visible.map((row) => `${row.locale}:${row.path}`))
 
   const nodes: GraphNode[] = visible.map((row) => ({
+    id: `${row.locale}:${row.path}`,
     path: row.path,
     locale: row.locale,
     title: row.title,
@@ -105,19 +114,25 @@ export function assembleGraph(
 
   const edges: GraphEdge[] = []
   for (const row of visible) {
+    const sourceId = `${row.locale}:${row.path}`
     for (const relation of row.relations) {
-      if (visiblePaths.has(relation.target)) {
+      // -> A relation's `target` is a bare path with no locale of its own -- it can only ever mean
+      //    "the page at this path in the SAME locale as the page carrying the relation" (translations
+      //    are separate rows, each with its own relations), so it resolves against `row.locale`.
+      const targetId = `${row.locale}:${relation.target}`
+      if (visibleIds.has(targetId)) {
         edges.push({
-          source: row.path,
-          target: relation.target,
+          source: sourceId,
+          target: targetId,
           type: 'relation',
           label: relation.label
         })
       }
     }
     for (const target of row.links) {
-      if (visiblePaths.has(target)) {
-        edges.push({ source: row.path, target, type: 'link' })
+      const targetId = `${row.locale}:${target}`
+      if (visibleIds.has(targetId)) {
+        edges.push({ source: sourceId, target: targetId, type: 'link' })
       }
     }
   }

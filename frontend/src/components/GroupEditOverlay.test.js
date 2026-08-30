@@ -70,25 +70,20 @@ async function mountRulesSection(groupId) {
   router.push(`/rules`)
   await router.isReady()
 
-  // -> Real title strings, keyed the way `admin.groups.permissions.<permission>.title` resolves
-  //    them (WP #1602): the catalog itself now carries only permission identifiers, so a title
-  //    rendered on screen has to come from this dictionary, not a literal baked into the array.
+  // -> Task #1602: the catalog's `title:`/`hint:` now resolve through `t()` from
+  //    `admin.groups.permissions.<permission>.title`, not a hardcoded literal in the module-scope
+  //    array -- so this bundle must actually carry those keys for the rendered chip to show the
+  //    expected text instead of the raw untranslated key.
   const i18n = createI18n({
     legacy: false,
     locale: 'en',
     messages: {
-      en: {
-        admin: {
-          groups: {
-            permissions: Object.fromEntries(
-              Object.entries(SITE_PERMISSION_TITLES).map(([permission, title]) => [
-                permission,
-                { title }
-              ])
-            )
-          }
-        }
-      }
+      en: Object.fromEntries(
+        Object.entries(SITE_PERMISSION_TITLES).map(([permission, title]) => [
+          `admin.groups.permissions.${permission}.title`,
+          title
+        ])
+      )
     }
   })
 
@@ -191,24 +186,24 @@ describe('GroupEditOverlay rule editor: site: permission vocabulary', () => {
 })
 
 /**
- * WP #1602: the global permissions page (`permissions` section) used to bake each permission's
- * `hint` as a literal string into the module-scope catalog array. It now resolves through
- * `t('admin.groups.permissions.<permission>.hint')` in a computed, so a locale that supplies a
- * non-English value for that key must be what actually renders -- not the English literal this
- * screen used to ship unconditionally regardless of locale.
+ * OpenProject #1602: `permissions`' (the global-permission catalog) `hint:` used to be a raw English
+ * literal baked into the module-scope array. It now resolves through `t()` from
+ * `admin.groups.permissions.<permission>.hint` in the `permissions` computed. Supplying a dictionary
+ * value here that does not match the original English literal, and asserting the rendered row shows
+ * exactly that value, is what proves the hint is actually read from the i18n dictionary at render
+ * time rather than still being a literal the catalog carries -- a hardcoded literal could never
+ * produce this text.
  */
-describe('GroupEditOverlay permissions page: hint resolves from the dictionary', () => {
-  it('renders a permission hint from a non-English locale bundle, not a hardcoded literal', async () => {
+describe('GroupEditOverlay global permissions: hint resolves from the i18n dictionary', () => {
+  it("renders a permission row's hint from a mounted translation, not a literal", async () => {
     setActivePinia(createPinia())
     const adminStore = useAdminStore()
-    adminStore.overlayOpts = { id: 'group-fr' }
-    adminStore.sites = []
-    adminStore.locales = []
+    adminStore.overlayOpts = { id: 'group-perms' }
 
     API_CLIENT.get.mockReturnValueOnce({
       json: () =>
         Promise.resolve({
-          id: 'group-fr',
+          id: 'group-perms',
           name: 'Test Group',
           userCount: 0,
           permissions: [],
@@ -223,19 +218,13 @@ describe('GroupEditOverlay permissions page: hint resolves from the dictionary',
     router.push('/permissions')
     await router.isReady()
 
-    const NON_ENGLISH_HINT = "Peut accéder à la zone d'administration."
+    const dictionaryHint = 'DICTIONARY-SOURCED HINT TEXT, NOT A COMPONENT LITERAL'
     const i18n = createI18n({
       legacy: false,
-      locale: 'fr',
+      locale: 'en',
       messages: {
-        fr: {
-          admin: {
-            groups: {
-              permissions: {
-                'access:admin': { hint: NON_ENGLISH_HINT }
-              }
-            }
-          }
+        en: {
+          'admin.groups.permissions.access:admin.hint': dictionaryHint
         }
       }
     })
@@ -248,9 +237,7 @@ describe('GroupEditOverlay permissions page: hint resolves from the dictionary',
 
     await flushPromises()
 
-    const text = wrapper.text()
-    expect(text).toContain(NON_ENGLISH_HINT)
-    expect(text).not.toContain('Can access the administration area.')
+    expect(wrapper.text()).toContain(dictionaryHint)
   })
 })
 

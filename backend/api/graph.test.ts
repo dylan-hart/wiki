@@ -71,7 +71,7 @@ describe('assembleGraph', () => {
     const result = assembleGraph(rows, () => true)
 
     assert.deepEqual(result.edges, [
-      { source: 'a', target: 'b', type: 'relation', label: 'See also' }
+      { source: 'en:a', target: 'en:b', type: 'relation', label: 'See also' }
     ])
   })
 
@@ -80,7 +80,64 @@ describe('assembleGraph', () => {
 
     const result = assembleGraph(rows, () => true)
 
-    assert.deepEqual(result.edges, [{ source: 'a', target: 'b', type: 'link' }])
+    assert.deepEqual(result.edges, [{ source: 'en:a', target: 'en:b', type: 'link' }])
+  })
+
+  // -> OpenProject #1621/#1626: translations share `path` by design, so a node's id must be
+  //    `${locale}:${path}`, not the bare path -- otherwise the `en` and `fr` copies of the same path
+  //    collapse into one node/edge target.
+  test('keys nodes by the composite locale:path id, so same-path translations stay distinct', () => {
+    const rows = [
+      makeRow({ path: 'docs/intro', locale: 'en', title: 'Intro' }),
+      makeRow({ path: 'docs/intro', locale: 'fr', title: 'Introduction' })
+    ]
+
+    const result = assembleGraph(rows, () => true)
+
+    assert.deepEqual(result.nodes.map((n) => n.id).sort(), ['en:docs/intro', 'fr:docs/intro'])
+    // -> Both nodes keep the same display `path` -- only `id` disambiguates them.
+    assert.deepEqual(
+      result.nodes.map((n) => n.path),
+      ['docs/intro', 'docs/intro']
+    )
+  })
+
+  test('a link from an en page to a path that only exists in fr produces no edge', () => {
+    const rows = [
+      makeRow({ path: 'a', locale: 'en', links: ['docs/intro'] }),
+      makeRow({ path: 'docs/intro', locale: 'fr' })
+    ]
+
+    const result = assembleGraph(rows, () => true)
+
+    assert.deepEqual(result.edges, [])
+  })
+
+  test('a relation from an en page to a path that only exists in fr produces no edge', () => {
+    const rows = [
+      makeRow({
+        path: 'a',
+        locale: 'en',
+        relations: [{ pos: 'left', label: '', caption: '', icon: '', target: 'docs/intro' }]
+      }),
+      makeRow({ path: 'docs/intro', locale: 'fr' })
+    ]
+
+    const result = assembleGraph(rows, () => true)
+
+    assert.deepEqual(result.edges, [])
+  })
+
+  test('a link resolves against the same-locale copy of its target path when both locales have one', () => {
+    const rows = [
+      makeRow({ path: 'a', locale: 'en', links: ['docs/intro'] }),
+      makeRow({ path: 'docs/intro', locale: 'en' }),
+      makeRow({ path: 'docs/intro', locale: 'fr' })
+    ]
+
+    const result = assembleGraph(rows, () => true)
+
+    assert.deepEqual(result.edges, [{ source: 'en:a', target: 'en:docs/intro', type: 'link' }])
   })
 
   test('drops a relation edge whose target is not readable', () => {

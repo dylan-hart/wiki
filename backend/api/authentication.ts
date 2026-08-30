@@ -1481,7 +1481,7 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       const mod = WIKI.models.authentication.getModule(req.body.module)
       if (!mod) {
-        return reply.badRequest(`There is no authentication module named "${req.body.module}".`)
+        return reply.badRequest('ERR_UNKNOWN_AUTH_MODULE')
       }
 
       const invalid =

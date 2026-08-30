@@ -34,6 +34,8 @@
     "typecheck:watch": "tsc --watch",
     "test": "node --test '**/*.test.ts'",
     "seed-rtl-test-locale": "node scripts/seed-rtl-test-locale.ts",
+    "block-locale-keys": "node scripts/blockLocaleKeys.ts",
+    "block-locale-keys:check": "node scripts/blockLocaleKeys.ts --check",
     "ncu": "ncu -i",
     "ncu-u": "ncu -u",
     "db-generate": "drizzle-kit generate --dialect=postgresql --schema=./db/schema.ts --out=./db/migrations --name=main",

@@ -2,7 +2,7 @@ import { CustomError, rethrowAsBadRequest } from '../helpers/common.ts'
 import { detectImageMime, imageMimeTypes } from '../helpers/images.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import type { UserPatch, UserProfilePatch } from '../models/users.ts'
+import type { UserPatch, UserProfile, UserProfilePatch } from '../models/users.ts'
 import type { KeyExpiration } from '../models/apiKeys.ts'
 
 interface UserUpdateBody {
@@ -116,6 +116,21 @@ async function isShowOtherGroupsEnabled(req: FastifyRequest): Promise<boolean> {
     ? await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
     : null
   return site?.config?.features?.showOtherGroups === true
+}
+
+/**
+ * Whether any of the given IDs does not name a real group on this instance.
+ *
+ * `setUserGroups` (`models/users.ts`) resolves its input with `inArray` and silently assigns only
+ * the rows that came back -- deliberately lenient there, since its third caller is IdP enrolment
+ * mapping provider groups that may not exist locally. A route handler has no such excuse: a stale
+ * client naming a deleted group should be told, not have the ID quietly dropped -- especially on
+ * `PUT`, which replaces membership wholesale, so a dropped ID also silently removes the user from
+ * groups they were actually in. Mirrors the check in `api/apiKeys.ts`'s key creation route.
+ */
+async function hasUnknownGroups(groupIds: string[]): Promise<boolean> {
+  const known = await WIKI.models.groups.getAllGroups()
+  return groupIds.some((id) => !known.some((g) => g.id === id))
 }
 
 /**
@@ -399,7 +414,7 @@ async function routes(app: FastifyInstance) {
         throw new CustomError('userProfileInvalidName', 'Invalid User Name')
       }
 
-      let profile
+      let profile: UserProfile | null
       try {
         profile = await WIKI.models.users.updateProfile(userId, patch)
       } catch (err: any) {
@@ -1847,17 +1862,8 @@ async function routes(app: FastifyInstance) {
           'Sending a welcome email requires a configured mail transport (Admin > Mail Configuration).'
         )
       }
-      // -> `setUserGroups` silently drops an id naming no group (a documented model-layer policy
-      //    written for IdP enrolment, see its own doc comment) -- an administrator instead needs the
-      //    account to land in exactly the groups asked for, or not be created at all. Mirrors
-      //    `api/apiKeys.ts`'s own `getAllGroups()` check.
-      if (req.body.groups && req.body.groups.length > 0) {
-        const knownGroups = await WIKI.models.groups.getAllGroups()
-        for (const groupId of req.body.groups) {
-          if (!knownGroups.some((g) => g.id === groupId)) {
-            return reply.badRequest('One of the groups does not exist.')
-          }
-        }
+      if (await hasUnknownGroups(req.body.groups ?? [])) {
+        return reply.badRequest('One of the groups does not exist.')
       }
 
       try {
@@ -2047,17 +2053,8 @@ async function routes(app: FastifyInstance) {
       // -> Group membership is replaced wholesale here, which would otherwise be a way around the
       //    guards on the groups endpoint.
       if (req.body.groups !== undefined) {
-        // -> `setUserGroups` silently drops an id naming no group (a documented model-layer policy
-        //    written for IdP enrolment) -- because this replaces membership wholesale, a partially
-        //    recognised list would otherwise silently remove the user from groups they were in.
-        //    Mirrors `api/apiKeys.ts`'s own `getAllGroups()` check.
-        if (req.body.groups.length > 0) {
-          const knownGroups = await WIKI.models.groups.getAllGroups()
-          for (const groupId of req.body.groups) {
-            if (!knownGroups.some((g) => g.id === groupId)) {
-              return reply.badRequest('One of the groups does not exist.')
-            }
-          }
+        if (await hasUnknownGroups(req.body.groups)) {
+          return reply.badRequest('One of the groups does not exist.')
         }
 
         // -> The guest account must stay in the guests group and nowhere else. Resending the

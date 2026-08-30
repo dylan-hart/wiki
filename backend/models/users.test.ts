@@ -2060,3 +2060,56 @@ describe('users.updateProfile (DB-backed)', { skip: !hasTestDatabase() }, () => 
     assert.equal(updated?.timezone, 'America/New_York')
   })
 })
+
+/**
+ * #1619/#1611: `users.prefs` gains a `locale` entry, validated against the installed locale
+ * catalogue on write — the preference `models/mail.ts`'s server-side string resolver (#1623) reads
+ * to address a recipient in their own language rather than always `en`.
+ */
+describe('users.updateProfile locale preference (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let usersModel: typeof import('./users.ts').users
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ users: usersModel } = await import('./users.ts'))
+    await seedLocale(fixtures.db, { code: 'en' })
+    await seedLocale(fixtures.db, { code: 'fr' })
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('persists a known locale and reads it back on the profile', async () => {
+    const updated = await usersModel.updateProfile(fixtures.userId, { locale: 'fr' })
+    assert.equal(updated?.locale, 'fr')
+
+    const reloaded = await usersModel.getProfile(fixtures.userId)
+    assert.equal(reloaded?.locale, 'fr')
+  })
+
+  test('clears the preference when set to an empty string', async () => {
+    await usersModel.updateProfile(fixtures.userId, { locale: 'fr' })
+
+    const cleared = await usersModel.updateProfile(fixtures.userId, { locale: '' })
+    assert.equal(cleared?.locale, '')
+  })
+
+  test('rejects a locale code the instance does not have installed', async () => {
+    await assert.rejects(
+      () => usersModel.updateProfile(fixtures.userId, { locale: 'xx-not-installed' }),
+      /ERR_INVALID_LOCALE/
+    )
+  })
+
+  test('a locale-only update leaves other preferences untouched', async () => {
+    await usersModel.updateProfile(fixtures.userId, { appearance: 'dark', cvd: 'protanopia' })
+
+    const updated = await usersModel.updateProfile(fixtures.userId, { locale: 'en' })
+
+    assert.equal(updated?.locale, 'en')
+    assert.equal(updated?.appearance, 'dark')
+    assert.equal(updated?.cvd, 'protanopia')
+  })
+})

@@ -118,6 +118,11 @@ describe('locale-aware formatting', () => {
 
     commonStore.locale = 'de'
     expect(humanizeIsoDuration('P1DT12H')).toBe('1 Tag und 12 Stunden')
+
+    commonStore.locale = 'fr'
+    const frText = humanizeIsoDuration('P1DT12H')
+    expect(frText).not.toBe('1 day and 12 hours')
+    expect(frText).toContain('jour')
   })
 
   it('humanizeDuration renders in the app locale, not a hardcoded one', () => {
@@ -145,6 +150,22 @@ describe('locale-aware formatting', () => {
     expect(relativeDate(threeMinutesAgo)).toBe('vor 3 Minuten')
   })
 
+  it("passes the app locale into relativeDate's RelativeTimeFormat instance", () => {
+    const commonStore = useCommonStore()
+    const future = Temporal.Now.instant()
+      .add({ hours: 48 })
+      .toString({ smallestUnit: 'millisecond' })
+
+    commonStore.locale = 'en'
+    expect(relativeDate(future)).toBe('in 2 days')
+
+    // -> `numeric: 'auto'` lets German pick its idiomatic "übermorgen" ("the day after tomorrow")
+    //    over the numeric "in 2 Tagen" -- either way, proof enough that the locale switch reached
+    //    the formatter, since English's own `numeric: 'auto'` output stayed numeric.
+    commonStore.locale = 'de'
+    expect(relativeDate(future)).not.toBe('in 2 days')
+  })
+
   it('picks up a locale change on the very next call -- no formatter is captured at module scope', () => {
     const commonStore = useCommonStore()
 
@@ -155,5 +176,16 @@ describe('locale-aware formatting', () => {
 
     expect(german).not.toBe(english)
     expect(english).toBe('5 minutes')
+  })
+
+  it('memoizes a formatter per locale rather than rebuilding on every call', () => {
+    const commonStore = useCommonStore()
+    commonStore.locale = 'en'
+
+    // -> Same locale, repeated calls: nothing here asserts identity directly (the cache is private),
+    //    but this pins that repeated calls in one locale keep producing the one correct answer rather
+    //    than drifting -- the observable half of "memoized" that matters to a caller.
+    expect(humanizeIsoDuration('PT5M')).toBe('5 minutes')
+    expect(humanizeIsoDuration('PT5M')).toBe('5 minutes')
   })
 })

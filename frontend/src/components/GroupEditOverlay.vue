@@ -767,82 +767,27 @@ const usersHeaders = [
   }
 ]
 
-/**
- * Identifiers and display metadata only -- no user-visible English text lives here. `title` /
- * `hint` are resolved from `admin.groups.permissions.<permission>.title` / `.hint` in the
- * `permissions` computed below, so a locale switch re-resolves them like everything else in this
- * component rather than freezing them at whatever they were when this array was first evaluated.
- */
-const permissionsCatalog = [
-  {
-    permission: 'access:admin',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'read:users',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:users',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'read:groups',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:groups',
-    warning: true,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:navigation',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:theme',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:sites',
-    warning: true,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:glossary',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:system',
-    warning: true,
-    restrictedForSystem: true,
-    disabled: true
-  }
+/*
+  Structural data only -- no English text. `title:`/`hint:` are resolved from
+  `admin.groups.permissions.<permission>.title` / `.hint` in the `permissions` computed below, where
+  `t()` is available; a plain module-scope array can only ever hold a literal, not a reactive
+  translation, so it stays purely structural here.
+*/
+const PERMISSIONS_DATA = [
+  { permission: 'access:admin', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'read:users', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:users', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'read:groups', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:groups', warning: true, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:navigation', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:theme', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:sites', warning: true, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:glossary', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:system', warning: true, restrictedForSystem: true, disabled: true }
 ]
 
-/**
- * `permissionsCatalog`, with `hint` resolved through the dictionary. A computed rather than a
- * plain `.map()` alongside the catalog above so a locale switch re-renders it, the same as every
- * other `t()` call in this component.
- */
 const permissions = computed(() =>
-  permissionsCatalog.map((perm) => ({
+  PERMISSIONS_DATA.map((perm) => ({
     ...perm,
     hint: t(`admin.groups.permissions.${perm.permission}.hint`)
   }))
@@ -861,174 +806,55 @@ const GUEST_ROLES = [
   'write:comments'
 ]
 
-/**
- * Identifiers and display metadata only -- see the same note on `permissionsCatalog` above.
- * `title` / `hint` come from the `rules` computed below, resolved from
- * `admin.groups.permissions.<permission>.title` / `.hint`.
- */
-const rulesCatalog = [
-  {
-    permission: 'read:pages',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'write:pages',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'review:pages',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:pages',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'delete:pages',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'write:styles',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'write:scripts',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'read:source',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'read:history',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'read:assets',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'write:assets',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:assets',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'read:comments',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'write:comments',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'manage:comments',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  /*
-    Task #684: the eight `site:*` site-admin permissions (see `backend/helpers/siteRules.ts`'s
-    `SITE_PERMISSIONS`, the closed vocabulary this list must stay in step with -- do not add to
-    one without the other). Each governs one settings surface behind `/_admin/:siteid/...` -- see
-    `docs/decisions/delegated-per-site-administration.md` §3 for the one-per-surface reasoning.
+/*
+  Structural data only -- no English text. `title:`/`hint:` are resolved from
+  `admin.groups.permissions.<permission>.title` / `.hint` in the `rules` computed below, where `t()`
+  is available; a plain module-scope array can only ever hold a literal, not a reactive translation,
+  so it stays purely structural here.
 
-    Deliberately in the SAME catalog as the page permissions above, not a second list or a second
-    UI: a rule already has a sites picker ("Applies to..." below), which for one of these means
-    exactly what it already means for a page permission -- empty is every site, populated is only
-    those. The `path` / `match` / `locales` fields alongside it are simply not read for these (see
-    `helpers/siteRules.ts`'s own doc comment) and can be left at whatever a new rule defaults to.
+  Task #684: the eight `site:*` site-admin permissions (see `backend/helpers/siteRules.ts`'s
+  `SITE_PERMISSIONS`, the closed vocabulary this list must stay in step with -- do not add to
+  one without the other). Each governs one settings surface behind `/_admin/:siteid/...` -- see
+  `docs/decisions/delegated-per-site-administration.md` §3 for the one-per-surface reasoning.
 
-    None of these are in `GUEST_ROLES` above, so `ruleOptions` already keeps them off the guests
-    group's picker -- and `models/groups.ts` enforces that server-side regardless of what this
-    screen offers.
-  */
-  {
-    permission: 'site:general',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:theme',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:navigation',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:blocks',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:approvals',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:login',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:locale',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:editors',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  }
+  Deliberately in the SAME catalog as the page permissions above, not a second list or a second
+  UI: a rule already has a sites picker ("Applies to..." below), which for one of these means
+  exactly what it already means for a page permission -- empty is every site, populated is only
+  those. The `path` / `match` / `locales` fields alongside it are simply not read for these (see
+  `helpers/siteRules.ts`'s own doc comment) and can be left at whatever a new rule defaults to.
+
+  None of these are in `GUEST_ROLES` above, so `ruleOptions` already keeps them off the guests
+  group's picker -- and `models/groups.ts` enforces that server-side regardless of what this
+  screen offers.
+*/
+const RULES_DATA = [
+  { permission: 'read:pages', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'write:pages', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'review:pages', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:pages', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'delete:pages', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'write:styles', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'write:scripts', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'read:source', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'read:history', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'read:assets', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'write:assets', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:assets', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'read:comments', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'write:comments', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'manage:comments', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:general', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:theme', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:navigation', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:blocks', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:approvals', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:login', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:locale', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:editors', warning: false, restrictedForSystem: true, disabled: false }
 ]
 
-/**
- * `rulesCatalog`, with `title` / `hint` resolved through the dictionary -- see the note on
- * `permissions` above.
- */
 const rules = computed(() =>
-  rulesCatalog.map((rule) => ({
+  RULES_DATA.map((rule) => ({
     ...rule,
     title: t(`admin.groups.permissions.${rule.permission}.title`),
     hint: t(`admin.groups.permissions.${rule.permission}.hint`)

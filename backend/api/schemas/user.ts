@@ -163,7 +163,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       locale: {
         type: 'string',
         description:
-          'Locale code to address this user in, or an empty string to use the site default.'
+          'Locale code to address this user in outbound mail. Empty string means no preference recorded (falls back to `en`).'
       }
     }
   })
@@ -219,8 +219,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       locale: {
         type: 'string',
         description:
-          'Locale code to address this user in, e.g. `fr`. Must name an installed locale; an empty string clears the preference.',
-        maxLength: 255
+          'Locale code to address this user in outbound mail. Must be a locale installed on this instance, or an empty string to clear the preference.',
+        maxLength: 35
       }
     }
   })

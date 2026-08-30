@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { eq } from 'drizzle-orm'
-import { localeCode, computeCompleteness, parseSideloadLocalePack } from './locales.ts'
+import { localeCode, computeCompleteness, interpolate, parseSideloadLocalePack } from './locales.ts'
 import { locales as localesTable } from '../db/schema.ts'
 import {
   hasTestDatabase,
@@ -124,6 +124,27 @@ describe('computeCompleteness()', () => {
 
   test('an empty base locale reads 100 (nothing to translate)', () => {
     assert.equal(computeCompleteness({}, {}), 100)
+  })
+})
+
+/**
+ * `interpolate()` — the `{name}`-style placeholder substitution `resolveString()`/
+ * `resolvePluralString()` apply to whatever `lookupString()` finds (#1611/#1623).
+ */
+describe('interpolate()', () => {
+  test('substitutes every placeholder present in params', () => {
+    assert.equal(
+      interpolate('Hi {name}, see {link}', { name: 'Ada', link: '/x' }),
+      'Hi Ada, see /x'
+    )
+  })
+
+  test('leaves a placeholder with no matching param untouched, rather than blanking it', () => {
+    assert.equal(interpolate('Hi {name}', {}), 'Hi {name}')
+  })
+
+  test('a template with no placeholders is returned as-is', () => {
+    assert.equal(interpolate('No placeholders here', { name: 'Ada' }), 'No placeholders here')
   })
 })
 
@@ -443,5 +464,99 @@ describe('isReservedLocaleCode (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
   test('returns false for an empty segment', async () => {
     assert.equal(await localesModel.isReservedLocaleCode(''), false)
+  })
+})
+
+/**
+ * `resolveString()` / `resolvePluralString()` (#1611/#1623): the server-side resolver
+ * `models/mail.ts`'s templates use to address a recipient in `users.prefs.locale` rather than
+ * always `en`. `mail.test.ts` exercises these against the real production `mail.*` keys via a
+ * lightweight stand-in (kept out of the DB, matching that file's own pure-unit convention); this
+ * suite is the one place the resolver itself is proven against a real `locales` row.
+ */
+describe('resolveString / resolvePluralString (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let localesModel: typeof import('./locales.ts').locales
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ locales: localesModel } = await import('./locales.ts'))
+    await fixtures.db.insert(localesTable).values({
+      code: 'en',
+      name: 'English',
+      nativeName: 'English',
+      language: 'en',
+      region: '',
+      script: '',
+      isRTL: false,
+      strings: {
+        greeting: 'Hi {name}, welcome to {place}.',
+        digest: 'no items | one item | {count} items'
+      }
+    })
+    await fixtures.db.insert(localesTable).values({
+      code: 'fr',
+      name: 'French',
+      nativeName: 'Français',
+      language: 'fr',
+      region: '',
+      script: '',
+      isRTL: false,
+      strings: {
+        // -> 'digest' deliberately absent, and 'blankKey' present but blank, to exercise both
+        //    per-key fallback paths against a locale that IS otherwise installed
+        greeting: 'Bonjour {name}, bienvenue à {place}.',
+        blankKey: ''
+      }
+    })
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('resolves and interpolates a key present in the requested locale', async () => {
+    const result = await localesModel.resolveString('fr', 'greeting', {
+      name: 'Ada',
+      place: 'Paris'
+    })
+    assert.equal(result, 'Bonjour Ada, bienvenue à Paris.')
+  })
+
+  test('falls back to en for a locale not installed at all', async () => {
+    const result = await localesModel.resolveString('xx-not-installed', 'greeting', {
+      name: 'Ada',
+      place: 'Paris'
+    })
+    assert.equal(result, 'Hi Ada, welcome to Paris.')
+  })
+
+  test('falls back to en for a key missing from an otherwise-installed locale', async () => {
+    const result = await localesModel.resolveString('fr', 'digest', {})
+    assert.equal(result, 'no items | one item | {count} items')
+  })
+
+  test('falls back to en for a key present but blank in an otherwise-installed locale', async () => {
+    const result = await localesModel.resolveString('fr', 'blankKey', {})
+    // -> en has no 'blankKey' either, so this falls all the way through to the key itself
+    assert.equal(result, 'blankKey')
+  })
+
+  test('a null/undefined locale resolves straight from en', async () => {
+    assert.equal(
+      await localesModel.resolveString(null, 'greeting', { name: 'Ada', place: 'Paris' }),
+      'Hi Ada, welcome to Paris.'
+    )
+    assert.equal(
+      await localesModel.resolveString(undefined, 'greeting', { name: 'Ada', place: 'Paris' }),
+      'Hi Ada, welcome to Paris.'
+    )
+  })
+
+  test('resolvePluralString selects the zero/one/other form by count', async () => {
+    assert.equal(await localesModel.resolvePluralString('en', 'digest', 0), 'no items')
+    assert.equal(await localesModel.resolvePluralString('en', 'digest', 1), 'one item')
+    assert.equal(await localesModel.resolvePluralString('en', 'digest', 2), '2 items')
+    assert.equal(await localesModel.resolvePluralString('en', 'digest', 5), '5 items')
   })
 })

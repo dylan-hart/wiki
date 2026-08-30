@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, mock, test } from 'node:test'
+import { after, before, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
@@ -33,43 +33,70 @@ let userGroupsFixture: Array<{ id: string; name: string }> = []
 let nonMemberGroupsFixture: Array<{ id: string; name: string }> = []
 
 /**
- * Fixtures for the `POST /` and `PUT /:userId` group-validation tests (OpenProject #1603): a known
- * group list `getAllGroups()` answers with, plus the target user `getById()` returns for the PUT
- * path. Both routes' pre-flight guards run before the write itself, so nothing here needs to model an
- * actual database write -- only enough for the handler to reach the `groups` validation block.
+ * Fixtures for the OpenProject #1603 group-validation tests: `knownGroupsFixture` is what
+ * `WIKI.models.groups.getAllGroups()` answers, and the two call-log arrays let a test assert that an
+ * unknown group id short-circuits before either write path (`createUser` / `setUserGroups`) runs.
  */
-let allGroupsFixture: Array<{ id: string; name: string }> = []
-let targetUserFixture: any = {
-  id: '22222222-2222-2222-2222-222222222222',
-  email: 'target@example.com',
-  isSystem: false
-}
-let createUserMock: ReturnType<typeof mock.fn>
+const KNOWN_GROUP_ID = '55555555-5555-5555-5555-555555555555'
+const UNKNOWN_GROUP_ID = '66666666-6666-6666-6666-666666666666'
+const EXISTING_USER_ID = '77777777-7777-7777-7777-777777777777'
+let knownGroupsFixture: Array<{ id: string }> = [{ id: KNOWN_GROUP_ID }]
+let createUserCalls: Array<Record<string, any>> = []
+let setUserGroupsCalls: string[][] = []
 
 before(async () => {
-  createUserMock = mock.fn(async () => '55555555-5555-5555-5555-555555555555')
   ;(globalThis as any).WIKI = {
+    config: {
+      auth: { rootAdminGroupId: '88888888-8888-8888-8888-888888888888' }
+    },
     models: {
       users: {
         getUserGroups: async () => userGroupsFixture,
         getNonMemberGroups: async () => nonMemberGroupsFixture,
         getByEmail: async () => null,
-        getById: async () => targetUserFixture,
-        createUser: createUserMock
+        createUser: async (input: Record<string, any>) => {
+          createUserCalls.push(input)
+          return 'new-user-id'
+        },
+        getById: async (id: string) => ({ id, email: 'existing@example.com', isSystem: false }),
+        getUserGroupIds: async () => [],
+        updateUser: async () => {},
+        setUserGroups: async (_userId: string, groupIds: string[]) => {
+          setUserGroupsCalls.push(groupIds)
+        },
+        setUserAuthFlags: async () => {},
+        // -> `PUT /:userId` calls this instead of `updateUser`/`setUserGroups`/`setUserAuthFlags`
+        //    individually (OpenProject #1609's atomicity work) -- mirror that here so `groups` still
+        //    lands in `setUserGroupsCalls` the way these tests assert on.
+        applyUserUpdate: async (
+          _id: string,
+          { groups }: { patch?: Record<string, any>; groups?: string[]; authFlags?: unknown }
+        ) => {
+          if (groups !== undefined) {
+            setUserGroupsCalls.push(groups)
+          }
+        }
       },
       groups: {
-        getAllGroups: async () => allGroupsFixture,
-        holdsSystemPermission: () => true
+        getAllGroups: async () => knownGroupsFixture,
+        holdsSystemPermission: () => true,
+        userHoldsSystemPermission: async () => false,
+        systemGroupIds: async () => [],
+        isUserInGroup: async () => false,
+        countUsersInGroup: async () => 0
       },
       mail: {
         isConfigured: () => false
       },
-      auditLog: {
-        record: async () => {}
-      },
       sites: {
         getSiteByHostname: async () =>
           siteFeatures ? { config: { features: siteFeatures } } : null
+      },
+      auditLog: {
+        record: async () => {}
+      },
+      sessions: {
+        clearSessionsFromUser: async () => {}
       }
     },
     logger: { warn: () => {} }
@@ -87,19 +114,18 @@ before(async () => {
     const raw = req.headers['x-test-session']
     ;(req as any).session = raw ? JSON.parse(raw as string) : undefined
   })
-  // -> Mirrors `index.ts`'s own `setErrorHandler`, minimally: a `reply.badRequest()` (and friends)
-  //    from `@fastify/sensible` serializes against the `ApiError#` response schema, which requires
-  //    `ok` -- without this, this minimal harness's own default error handling fails to serialize the
-  //    error at all rather than reproducing the real 400/403/etc. response shape.
+  // -> Mirrors `index.ts`'s real `setErrorHandler` so a `reply.badRequest()` (or any thrown
+  //    `CustomError`) serializes against the `ApiError#` response schema the same way it does in the
+  //    real app -- this harness registers no other error handler of its own.
   app.setErrorHandler((error: any, _req, reply) => {
     reply
       .code(error.statusCode ?? 500)
       .type('application/json')
       .send({
         ok: false,
-        error: error.name,
+        error: error.name ?? 'Internal Server Error',
         statusCode: error.statusCode ?? 500,
-        message: error.message
+        message: error.message ?? 'Internal Server error'
       })
   })
 
@@ -260,71 +286,62 @@ test('GET /profile/groups: setting on, member of every group -> empty non-member
 })
 
 /**
- * `POST /` and `PUT /:userId` (OpenProject #1603): an id naming no real group must be rejected
- * outright rather than silently dropped by `setUserGroups` -- see the model-layer doc comment on why
- * that leniency exists (IdP enrolment) and why it must NOT extend to these two routes.
+ * OpenProject #1603: `POST /users` and `PUT /users/:userId` must reject a group id that names no
+ * real group, rather than handing it to `setUserGroups` (`models/users.ts`) and having it silently
+ * dropped -- see that model method's own leniency comment for why the model layer stays lenient
+ * while these two route handlers do not.
  */
 
-const UNKNOWN_GROUP_ID = '99999999-9999-9999-9999-999999999999'
-const KNOWN_GROUP = { id: '11111111-1111-1111-1111-111111111111', name: 'Editors' }
-
-test('POST / rejects a group id that names no group, and does not create the user', async () => {
-  allGroupsFixture = [KNOWN_GROUP]
-  createUserMock.mock.resetCalls()
-  try {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/',
-      payload: {
-        name: 'Jane Doe',
-        email: 'jane@example.com',
-        password: 'a-long-password',
-        groups: [KNOWN_GROUP.id, UNKNOWN_GROUP_ID]
-      }
-    })
-    assert.equal(res.statusCode, 400)
-    assert.equal(res.json().message, 'One of the groups does not exist.')
-    assert.equal(createUserMock.mock.callCount(), 0)
-  } finally {
-    allGroupsFixture = []
-  }
+test('POST /: rejects an unknown group id, without creating the user', async () => {
+  createUserCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'Jane Doe',
+      email: 'jane@example.com',
+      password: 'a-long-password',
+      groups: [KNOWN_GROUP_ID, UNKNOWN_GROUP_ID]
+    }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createUserCalls.length, 0)
 })
 
-test('POST / succeeds when every group id is known', async () => {
-  allGroupsFixture = [KNOWN_GROUP]
-  createUserMock.mock.resetCalls()
-  try {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/',
-      payload: {
-        name: 'Jane Doe',
-        email: 'jane@example.com',
-        password: 'a-long-password',
-        groups: [KNOWN_GROUP.id]
-      }
-    })
-    assert.equal(res.statusCode, 200)
-    assert.equal(res.json().ok, true)
-    assert.equal(createUserMock.mock.callCount(), 1)
-  } finally {
-    allGroupsFixture = []
-  }
+test('POST /: a fully-known group list is accepted', async () => {
+  createUserCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'Jane Doe',
+      email: 'jane@example.com',
+      password: 'a-long-password',
+      groups: [KNOWN_GROUP_ID]
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(createUserCalls.length, 1)
 })
 
-test('PUT /:userId rejects a group id that names no group', async () => {
-  allGroupsFixture = [KNOWN_GROUP]
-  try {
-    const res = await app.inject({
-      method: 'PUT',
-      url: `/${targetUserFixture.id}`,
-      payload: {
-        groups: [UNKNOWN_GROUP_ID]
-      }
-    })
-    assert.equal(res.statusCode, 400)
-    assert.equal(res.json().message, 'One of the groups does not exist.')
-  } finally {
-    allGroupsFixture = []
-  }
+test('PUT /:userId: rejects an unknown group id, without changing membership', async () => {
+  setUserGroupsCalls = []
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${EXISTING_USER_ID}`,
+    payload: { groups: [UNKNOWN_GROUP_ID] }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(setUserGroupsCalls.length, 0)
+})
+
+test('PUT /:userId: a fully-known group list is accepted', async () => {
+  setUserGroupsCalls = []
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${EXISTING_USER_ID}`,
+    payload: { groups: [KNOWN_GROUP_ID] }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(setUserGroupsCalls, [[KNOWN_GROUP_ID]])
 })

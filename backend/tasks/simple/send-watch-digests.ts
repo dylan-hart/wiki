@@ -118,7 +118,12 @@ export async function task(): Promise<void> {
           })
         }
 
-        await WIKI.models.mail.sendPageWatchDigest({ to: recipient.email, siteId, items })
+        await WIKI.models.mail.sendPageWatchDigest({
+          to: recipient.email,
+          siteId,
+          items,
+          locale: (recipient.prefs as Record<string, any> | undefined)?.locale
+        })
         await WIKI.models.pageWatchEvents.markManyDelivered(readable.map((event) => event.id))
         sent++
       } catch (err: any) {

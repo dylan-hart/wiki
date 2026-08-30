@@ -76,12 +76,12 @@ before(async () => {
     })
   })
   // -> Stands in for the real session plugin (`@fastify/session`, wired in `index.ts`): a request
-  //    carrying this header gets an authenticated `req.session`, exactly the shape
+  //    carrying this header gets the session it names, exactly the shape
   //    `!req.session?.authenticated` in BROWSE THE TREE's handler reads.
-  app.addHook('onRequest', (req, _reply, done) => {
-    ;(req as any).session =
-      req.headers['x-test-authenticated'] === 'true' ? { authenticated: true } : undefined
-    done()
+  app.decorateRequest('session', null as any)
+  app.addHook('onRequest', async (req) => {
+    const raw = req.headers['x-test-session']
+    ;(req as any).session = typeof raw === 'string' ? JSON.parse(raw) : {}
   })
   await registerTreeSchema(app)
   await registerErrorSchema(app)
@@ -252,35 +252,39 @@ test('CREATE FOLDER route: a parentId that resolves in this site creates as norm
 })
 
 /**
- * OpenProject #1587 §2 / task 1599: BROWSE THE TREE threads `publicOnly: !req.session?.authenticated`
- * through to `getTree`, so an anonymous request applies the same publication-state filter
- * `tree.browse()`/`tree.listPages()` already apply, closing the gap `visibleTreeItems`'s own filter
- * (a page-rule PERMISSION check, not publication state) never covered.
+ * OpenProject #1599: BROWSE THE TREE (`GET /sites/:siteId/tree`) called `getTree()` without a
+ * `publicOnly` argument, so `getTree()` never applied `pageIsVisible()` and an anonymous request
+ * could be told a draft, a not-yet-scheduled page, or an `isBrowsable: false` page exists. The
+ * handler now resolves `publicOnly` from the session the same way `tree.browse()`'s route already
+ * does, and passes it through.
  */
-test('GET TREE route: an unauthenticated request passes publicOnly: true', async () => {
-  let getTreePublicOnly: boolean | undefined = undefined
+test('GET TREE route: passes publicOnly: true to getTree for an unauthenticated request', async () => {
+  let receivedPublicOnly: boolean | undefined
   ;(globalThis as any).WIKI.models.tree.getTree = async (args: any) => {
-    getTreePublicOnly = args.publicOnly
+    receivedPublicOnly = args.publicOnly
     return []
   }
-  const res = await app.inject({ method: 'GET', url: `/sites/${ENABLED_SITE_ID}/tree` })
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${ENABLED_SITE_ID}/tree`
+  })
   assert.equal(res.statusCode, 200)
-  assert.equal(getTreePublicOnly, true)
+  assert.equal(receivedPublicOnly, true)
 })
 
-test('GET TREE route: an authenticated session passes publicOnly: false', async () => {
-  let getTreePublicOnly: boolean | undefined = undefined
+test('GET TREE route: passes publicOnly: false to getTree for an authenticated request', async () => {
+  let receivedPublicOnly: boolean | undefined
   ;(globalThis as any).WIKI.models.tree.getTree = async (args: any) => {
-    getTreePublicOnly = args.publicOnly
+    receivedPublicOnly = args.publicOnly
     return []
   }
   const res = await app.inject({
     method: 'GET',
     url: `/sites/${ENABLED_SITE_ID}/tree`,
-    headers: { 'x-test-authenticated': 'true' }
+    headers: { 'x-test-session': JSON.stringify({ authenticated: true }) }
   })
   assert.equal(res.statusCode, 200)
-  assert.equal(getTreePublicOnly, false)
+  assert.equal(receivedPublicOnly, false)
 })
 
 test('RENAME FOLDER route: passes the route siteId through to checkAccess', async () => {
