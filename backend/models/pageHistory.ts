@@ -57,7 +57,7 @@ export type PurgeTimeframe = keyof typeof purgeTimeframes
  * being touched. The exclusions are either derived from the content (`render`, `toc`, `searchContent`,
  * `ts`), fixed for the page's whole life (`id`, `siteId`, `creatorId`, `createdAt`), or bookkeeping
  * that says nothing about the version (`hash`, `updatedAt`, `authorId`, `ratingScore`, `ratingCount`,
- * `historyData`, `isSearchableComputed`).
+ * `historyData`).
  */
 const EXCLUDED_FROM_META = new Set([
   'id',
@@ -74,7 +74,6 @@ const EXCLUDED_FROM_META = new Set([
   'ratingScore',
   'ratingCount',
   'historyData',
-  'isSearchableComputed',
   // -> Held in columns of their own
   'locale',
   'path',
@@ -98,8 +97,7 @@ const NOT_REPORTED_AS_CHANGED = new Set([
   'updatedAt',
   'ratingScore',
   'ratingCount',
-  'historyData',
-  'isSearchableComputed'
+  'historyData'
 ])
 
 /** Who a version is attributed to. Null once that account is gone; the version stays. */

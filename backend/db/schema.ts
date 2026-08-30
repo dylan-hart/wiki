@@ -1,4 +1,4 @@
-import { sql, type SQL } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import {
   type AnyPgColumn,
   bigint,
@@ -773,11 +773,6 @@ export const pages = pgTable(
     contentType: varchar({ length: 255 }).notNull(),
     isBrowsable: boolean().notNull().default(true),
     isSearchable: boolean().notNull().default(true),
-    // -> The generated expression references its own table, so the return type must be annotated
-    //    explicitly to break the circular inference (TS7022/TS7024).
-    isSearchableComputed: boolean('isSearchableComputed').generatedAlwaysAs(
-      (): SQL => sql`${pages.publishState} != 'draft' AND ${pages.isSearchable}`
-    ),
     password: varchar({ length: 255 }),
     ratingScore: integer().notNull().default(0),
     ratingCount: timestamp().notNull().defaultNow(),
@@ -818,7 +813,6 @@ export const pages = pgTable(
     index('pages_classification_idx').on(table.classification),
     index('pages_ts_idx').using('gin', table.ts),
     index('pages_tags_idx').using('gin', table.tags),
-    index('pages_isSearchableComputed_idx').on(table.isSearchableComputed),
     // -> Backs `search.suggestTitle()`'s `similarity(title, …)` "did you mean" fallback, which runs
     //    only when full-text search found nothing — `pg_trgm` is already a required extension (see
     //    `core/db.ts`), this is the first index that actually uses it.
