@@ -185,7 +185,7 @@
           </div>
           <w-list separator>
             <w-item
-              v-for="item of state.results"
+              v-for="item of formattedResults"
               clickable
               :to="localizedPagePath(item.path, item.locale, siteStore.localeRouting)">
               <w-item-section avatar>
@@ -202,7 +202,7 @@
                 </w-item-label>
               </w-item-section>
               <w-item-section side>
-                <div class="text-caption text-right">{{ humanizeDate(item.updatedAt) }}</div>
+                <div class="text-caption text-right">{{ item.updatedAtFormatted }}</div>
                 <!--
                   `layout-search-itemtags` was a class nothing defines -- a leftover the layout
                   migration left behind -- so the row had no gap and the chips ran together.
@@ -354,6 +354,14 @@ const publishStates = computed(() => {
 const tags = computed(() => siteStore.tags.map((t) => t.tag))
 
 const defaultPageIcon = DEFAULT_PAGE_ICON
+
+/**
+ * `state.results` with each row's update time formatted, computed once when the result set changes
+ * rather than once per render of a list that can hold up to `RESULTS_LIMIT` rows.
+ */
+const formattedResults = computed(() =>
+  state.results.map((r) => ({ ...r, updatedAtFormatted: humanizeDate(r.updatedAt) }))
+)
 
 // WATCHERS
 
