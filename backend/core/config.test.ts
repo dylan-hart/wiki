@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, before, test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { after, before, describe, test } from 'node:test'
+import { load } from 'js-yaml'
 import configSvc from './config.ts'
+import { resolvePoolSizeOptions } from './db.ts'
 
 /**
  * Regression test for `config.init()`'s DB_PASS_FILE (Docker secret) handling: `.trim()` was called
@@ -70,4 +73,72 @@ test('reads and trims the DB_PASS_FILE contents into WIKI.config.db.pass', async
 
   const wiki = (globalThis as any).WIKI
   assert.equal(wiki.config.db.pass, 'sup3rSecret')
+})
+
+/**
+ * OpenProject #2276: `backend/base.yml` used to declare no `pool.max`, so node-postgres' own default
+ * of 10 applied silently — a handful of concurrent requests against any unmetered whole-table
+ * surface could occupy the pool entirely and queue every other query, logins included, behind them.
+ *
+ * Two things are asserted here, matching the WP's own "done when": (1) the *real* `backend/base.yml`
+ * shipped in this repo declares an explicit `pool.max` above that library default, and (2) a
+ * configured `pool.max` genuinely reaches the options `core/db.ts`'s `init()` passes to `new Pool()`
+ * — verified through `resolvePoolSizeOptions`, the exact function `init()` calls right before that
+ * constructor call, rather than re-deriving the merge separately here and only proving the two
+ * happen to agree.
+ */
+describe('pool.max reaches the Pool() options in db.ts', () => {
+  test('the real backend/base.yml declares an explicit pool.max, not the node-postgres default of 10', async () => {
+    const realBaseYmlPath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '..',
+      'base.yml'
+    )
+    const parsed = load(await readFile(realBaseYmlPath, 'utf8')) as any
+    const realPool = parsed.defaults.config.pool
+
+    assert.equal(typeof realPool.max, 'number')
+    assert.ok(
+      realPool.max > 10,
+      `expected base.yml's pool.max to explicitly override the pg default of 10, got ${realPool.max}`
+    )
+  })
+
+  let poolDir: string
+  let previousPoolWiki: any
+
+  before(async () => {
+    poolDir = await mkdtemp(path.join(tmpdir(), 'wikijs-config-pool-test-'))
+    await writeFile(
+      path.join(poolDir, 'base.yml'),
+      'defaults:\n  config:\n    port: 80\n    db:\n      host: localhost\n      pass: basedefaultpass\n    pool:\n      min: 1\n      max: 33\n'
+    )
+    await writeFile(path.join(poolDir, 'config.yml'), 'port: 3000\n')
+    await writeFile(
+      path.join(poolDir, 'package.json'),
+      JSON.stringify({ version: '0.0.0-test', releaseDate: '2026-01-01', dev: true })
+    )
+
+    previousPoolWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = { ROOTPATH: poolDir, SERVERPATH: poolDir }
+  })
+
+  after(async () => {
+    ;(globalThis as any).WIKI = previousPoolWiki
+    await rm(poolDir, { recursive: true, force: true })
+  })
+
+  test('a configured pool.max flows through WIKI.config.pool into the Pool() constructor options', async () => {
+    await configSvc.init(true)
+
+    const wiki = (globalThis as any).WIKI
+    assert.deepEqual(wiki.config.pool, { min: 1, max: 33 })
+
+    // -> This is the exact call `init()` makes right before `new Pool({ ...literal, ...options })`
+    //    in db.ts — proving the configured value reaches that constructor call, not just WIKI.config.
+    assert.deepEqual(resolvePoolSizeOptions(false, wiki.config.pool), { min: 1, max: 33 })
+
+    // -> Worker mode ignores the configured value entirely and pins to a single connection.
+    assert.deepEqual(resolvePoolSizeOptions(true, wiki.config.pool), { min: 0, max: 1 })
+  })
 })

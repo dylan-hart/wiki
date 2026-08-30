@@ -52,18 +52,6 @@ import type { WebSocket } from 'ws'
  * {@link PEER_STATE_TIMEOUT} straight into an already-fallen-back room rather than discard it: the
  * seed portion of the peer's state is byte-identical to this instance's own, so `Y.applyUpdate` treats
  * it as already known and only the peer's genuinely new edits land.
- *
- * ## Connection cap
- *
- * `room.conns` only tracks a room's own lifetime, so on its own it cannot stop one account (or one
- * address, behind a proxy or NAT) from opening enough rooms to pin arbitrarily much memory — and
- * `/_collab` sits outside `/_api/`, so none of `index.ts`'s general rate limiters ever run for it
- * either. {@link join} closes that gap directly: {@link reserveConnection} charges the caller-supplied
- * {@link ConnectionIdentity} against {@link MAX_CONNECTIONS_PER_USER} and
- * {@link MAX_CONNECTIONS_PER_ADDRESS} *before* a room is ever touched, so a refusal never creates one,
- * and {@link releaseConnection} — from {@link onClose}, which `ws` runs for `terminate()` exactly as
- * for a graceful close — hands the slot back the moment the socket is gone, so an ordinary reconnect
- * loop never runs the account or address out of headroom.
  */
 
 /** y-websocket message types. The values are that protocol's, not ours. */
@@ -123,31 +111,50 @@ export const PEER_STATE_TIMEOUT = 500
 /** How long the "is anyone else running?" answer is trusted before it is looked up again. */
 const PEER_PRESENCE_TTL = 15 * 1000
 
+/**
+ * Per-user and per-address ceilings on concurrent collaboration sockets.
+ *
+ * Nothing else caps how many `Y.Doc` rooms one account (or one address) can pin in memory:
+ * `room.conns` only tracks a room's own lifetime, and `/_collab` sits outside `/_api/`, so neither of
+ * `index.ts`'s `onRequest` rate limiters ever sees this traffic. One authenticated account holding
+ * `write:pages` could otherwise open arbitrarily many rooms just by opening arbitrarily many editors.
+ *
+ * Deliberately small relative to any real editing session (a handful of tabs/pages at once) rather
+ * than tuned to a specific deployment's capacity — the goal is bounding an unbounded resource, not
+ * modeling how many any legitimate user actually needs.
+ */
+export const MAX_CONNECTIONS_PER_USER = 8
+export const MAX_CONNECTIONS_PER_ADDRESS = 32
+
 /** Keepalive interval. An idle websocket is what a reverse proxy cuts first. */
 const PING_INTERVAL = 30 * 1000
 
 /**
- * How many concurrent collaboration websockets one authenticated account may hold at once, across
- * every room on this instance.
- *
- * Nothing else bounds this — see the top-of-file comment: a room's own `conns` map only tracks
- * lifetime (cleared by {@link closeRoomIfEmpty} once the last connection leaves), and `/_collab` sits
- * outside `/_api/`, so neither general `onRequest` rate limiter in `index.ts` ever runs for it. One
- * authenticated account holding `write:pages` could otherwise pin arbitrarily many `Y.Doc` rooms in
- * memory just by opening enough editors. A legitimate author reasonably has a handful of pages open
- * across a couple of tabs at once; this is well above that and still small enough that reaching it
- * costs one account nothing close to arbitrary.
+ * Ceiling on `session.pending` — see {@link capture} — checked on both axes: entry count and total
+ * bytes. The handshake it exists to preserve is one small y-websocket sync frame, so a few dozen
+ * kilobytes and a handful of entries is ample; a socket that sends more than this before a room is
+ * ever attached either isn't a real y-websocket client or is deliberately stalling, and gets
+ * terminated rather than buffered further (OpenProject #2196, audit `09-dos-resource.md` §3).
+ * Exported for `core/collab.test.ts`, which checks the real constants rather than hardcoded copies
+ * of them.
  */
-export const MAX_CONNECTIONS_PER_USER = 8
+export const MAX_PENDING_FRAMES = 16
+
+/** See {@link MAX_PENDING_FRAMES}. */
+export const MAX_PENDING_BYTES = 64 * 1024
 
 /**
- * How many concurrent collaboration websockets one source address may hold at once, across every
- * account. Looser than {@link MAX_CONNECTIONS_PER_USER}: a shared address (an office, a NAT, a proxy)
- * legitimately carries several different accounts editing at once, so this ceiling exists to catch an
- * address running far more sessions than any real deployment behind one address does, not to further
- * bound one already-capped account.
+ * How long a refused socket is given to complete the closing handshake it was just sent, before it
+ * is cut off outright. `ws`'s own default ({@link https://github.com/websockets/ws} `CLOSE_TIMEOUT`,
+ * 30s) is sized for an ordinary, cooperating peer that might be slow to answer — but
+ * `controllers/collab.ts`'s refusal paths run before authentication or the site feature-flag check,
+ * so a socket that never intends to complete the handshake still has this whole window in which
+ * `capture`'s listener stays attached (bounded now by {@link MAX_PENDING_FRAMES}/
+ * {@link MAX_PENDING_BYTES}, but still an open socket doing nothing legitimate). A real client
+ * completes the handshake within one round trip; this is comfortably longer than that while being
+ * far short of `ws`'s own 30s default. Exported for `core/collab.test.ts`.
  */
-export const MAX_CONNECTIONS_PER_ADDRESS = 32
+export const REFUSAL_GRACE_PERIOD = 2 * 1000
 
 /**
  * Marks a document or awareness change as having arrived over the relay, so that applying it here does
@@ -155,8 +162,8 @@ export const MAX_CONNECTIONS_PER_ADDRESS = 32
  */
 const RELAYED = Symbol('collabRelayed')
 
-/** Who a socket belongs to, for the per-user/per-address connection cap. */
-export interface ConnectionIdentity {
+/** Who a socket belongs to, for the connection-cap bookkeeping in {@link join}/{@link onClose}. */
+export interface ConnIdentity {
   userId: string
   address: string
 }
@@ -166,15 +173,17 @@ interface CollabConn {
   clients: Set<number>
   /** Answered the last keepalive ping. */
   alive: boolean
-  /** Whose connection-cap slot this socket is holding, released once it leaves. */
-  identity: ConnectionIdentity
+  /** Whose connection-cap slot this socket is holding — released once by {@link onClose}. */
+  identity: ConnIdentity
 }
 
 interface CollabSession {
   /** The room this socket ended up in, or null while it is still being decided. */
   room: CollabRoom | null
-  /** Frames that arrived before there was a room to hand them to. */
+  /** Frames that arrived before there was a room to hand them to. Capped — see {@link capture}. */
   pending: Uint8Array[]
+  /** Running total of `pending`'s byte length, kept alongside it so the cap check is O(1) per frame. */
+  pendingBytes: number
 }
 
 interface CollabRoom {
@@ -277,10 +286,10 @@ export default {
   partials: new Map<string, PartialRelay>(),
   /** Rooms this instance is waiting on a peer's state for, by page id. */
   awaitingState: new Map<string, (update: Uint8Array) => void>(),
-  /** Live connection counts for {@link MAX_CONNECTIONS_PER_USER}, keyed by user id. */
-  connectionsByUser: new Map<string, number>(),
-  /** Live connection counts for {@link MAX_CONNECTIONS_PER_ADDRESS}, keyed by source address. */
-  connectionsByAddress: new Map<string, number>(),
+  /** Live connection counts per user id, for the {@link MAX_CONNECTIONS_PER_USER} ceiling. */
+  userConnections: new Map<string, number>(),
+  /** Live connection counts per address, for the {@link MAX_CONNECTIONS_PER_ADDRESS} ceiling. */
+  addressConnections: new Map<string, number>(),
   relaySeq: 0,
   peerPresence: { known: false, checkedAt: 0 },
   pingTimer: null as NodeJS.Timeout | null,
@@ -353,8 +362,6 @@ export default {
       room.doc.destroy()
     }
     this.rooms.clear()
-    this.connectionsByUser.clear()
-    this.connectionsByAddress.clear()
     if (this.listenerHandle) {
       // -> Whatever is still on its way out goes out first: releasing the client from under a
       //    notification in flight would fail that one for no reason
@@ -403,17 +410,41 @@ export default {
    * empty document, because it is never going to ask twice.
    *
    * So the frames are collected here and replayed by {@link join} once there is a room to put them to.
+   *
+   * `pending` is capped on both axes ({@link MAX_PENDING_FRAMES}, {@link MAX_PENDING_BYTES}) because
+   * this listener is live before either the session or the site's feature flag has been checked — a
+   * request that never proves it may even open the door still gets to talk. Since a real handshake
+   * fits comfortably inside the cap, the only way to hit it is a client that keeps writing well past
+   * what a legitimate one ever would, and there is nothing worth buffering for that: it is hung up on
+   * immediately, `terminate()` rather than `close()` so it gets no closing-handshake grace period
+   * either.
    */
   capture(conn: WebSocket): CollabSession {
-    const session: CollabSession = { room: null, pending: [] }
+    const session: CollabSession = { room: null, pending: [], pendingBytes: 0 }
     conn.on('message', (data: unknown) => {
       if (session.room) {
         this.onMessage(session.room, conn, toBytes(data))
-      } else {
-        // -> Copied, not referenced: `toBytes` hands back a view into a buffer `ws` owns, which is
-        //    only good for the length of this event
-        session.pending.push(new Uint8Array(toBytes(data)))
+        return
       }
+      // -> Copied, not referenced: `toBytes` hands back a view into a buffer `ws` owns, which is
+      //    only good for the length of this event
+      const bytes = new Uint8Array(toBytes(data))
+      if (
+        session.pending.length >= MAX_PENDING_FRAMES ||
+        session.pendingBytes + bytes.byteLength > MAX_PENDING_BYTES
+      ) {
+        // -> No room has been attached yet, so there is nothing here to release — just stop
+        //    buffering. `terminate()`, not `close()`: this socket has already sent more than a real
+        //    y-websocket handshake ever does, so it does not get the closing handshake's grace period
+        //    either.
+        WIKI.logger.warn(
+          'A collaboration socket exceeded the pre-auth frame buffer cap and was terminated.'
+        )
+        conn.terminate()
+        return
+      }
+      session.pending.push(bytes)
+      session.pendingBytes += bytes.byteLength
     })
     conn.on('close', () => {
       if (session.room) {
@@ -424,6 +455,25 @@ export default {
       WIKI.logger.debug(`Collaboration socket error: ${err.message}`)
     })
     return session
+  },
+
+  /**
+   * Refuse a socket before it ever joins a room: send the close frame a well-behaved client (the
+   * editor's own y-websocket provider, see `composables/collab.js`) needs to tell "you are not
+   * allowed" apart from an ordinary drop and back off rather than reconnect, then cut the socket off
+   * outright once {@link REFUSAL_GRACE_PERIOD} has passed rather than leaving it in `CLOSING` for
+   * `ws`'s own far longer default. See `controllers/collab.ts`, whose five refusal points all call
+   * this instead of `conn.close()` directly.
+   */
+  refuse(conn: WebSocket, code: number, reason: string): void {
+    conn.close(code, reason)
+    const timer = setTimeout(() => {
+      if (conn.readyState !== conn.CLOSED) {
+        conn.terminate()
+      }
+    }, REFUSAL_GRACE_PERIOD)
+    // -> This timer alone must never be the reason the process stays alive (e.g. mid-shutdown)
+    timer.unref?.()
   },
 
   /**
@@ -453,66 +503,24 @@ export default {
   },
 
   /**
-   * Reserve one connection slot for a user/address pair, refusing once either ceiling in
-   * {@link MAX_CONNECTIONS_PER_USER} / {@link MAX_CONNECTIONS_PER_ADDRESS} is already reached.
-   *
-   * Checked — and, on success, counted — before {@link join} ever calls `ensureRoom()`, so a refusal
-   * never creates or touches a room: the ceiling exists so that one account or address cannot pin
-   * arbitrarily many `Y.Doc` rooms in memory, and letting a room get created first would be exactly
-   * that.
-   */
-  reserveConnection(identity: ConnectionIdentity): boolean {
-    const byUser = this.connectionsByUser.get(identity.userId) ?? 0
-    const byAddress = this.connectionsByAddress.get(identity.address) ?? 0
-    if (byUser >= MAX_CONNECTIONS_PER_USER || byAddress >= MAX_CONNECTIONS_PER_ADDRESS) {
-      return false
-    }
-    this.connectionsByUser.set(identity.userId, byUser + 1)
-    this.connectionsByAddress.set(identity.address, byAddress + 1)
-    return true
-  },
-
-  /**
-   * Release a slot reserved by {@link reserveConnection} — on an ordinary close, on `terminate()`
-   * (which `ws` delivers as a `close` event same as a graceful one, so {@link onClose} covers both),
-   * and on a socket that went away while its room was still being set up. A reconnect loop therefore
-   * never exhausts the ceiling: every socket that successfully reserved a slot releases exactly one,
-   * exactly once.
-   */
-  releaseConnection(identity: ConnectionIdentity): void {
-    const byUser = this.connectionsByUser.get(identity.userId)
-    if (byUser !== undefined) {
-      if (byUser <= 1) {
-        this.connectionsByUser.delete(identity.userId)
-      } else {
-        this.connectionsByUser.set(identity.userId, byUser - 1)
-      }
-    }
-    const byAddress = this.connectionsByAddress.get(identity.address)
-    if (byAddress !== undefined) {
-      if (byAddress <= 1) {
-        this.connectionsByAddress.delete(identity.address)
-      } else {
-        this.connectionsByAddress.set(identity.address, byAddress - 1)
-      }
-    }
-  },
-
-  /**
    * Put a socket into a page's room, syncing it against whatever state that room holds.
    *
    * The caller is responsible for having decided that this user may edit this page — see
-   * `controllers/collab.ts`. Nothing below re-checks it. `identity` is who to charge against
-   * {@link MAX_CONNECTIONS_PER_USER} / {@link MAX_CONNECTIONS_PER_ADDRESS}, also the caller's job to
-   * resolve (the authenticated session's user id and `req.ip`).
+   * `controllers/collab.ts`. Nothing below re-checks it.
+   *
+   * A connection-cap slot is reserved for `identity` *before* {@link ensureRoom} ever runs, so a
+   * refusal never allocates — or reuses — a room: past either ceiling the socket is simply closed
+   * (code 4429) and `session.room` is left null. The slot is released by {@link onClose} once the
+   * socket is actually registered in a room's `conns`, or right here if the socket went away (or the
+   * cap was hit) before that ever happened.
    */
   async join(
     conn: WebSocket,
     page: { id: string; siteId: string },
     session: CollabSession,
-    identity: ConnectionIdentity
+    identity: ConnIdentity
   ): Promise<void> {
-    if (!this.reserveConnection(identity)) {
+    if (!this.reserveSlot(identity)) {
       conn.close(4429, 'Too many concurrent collaboration connections')
       return
     }
@@ -529,7 +537,7 @@ export default {
 
     // -> The socket may well have gone away while the room was being set up
     if (conn.readyState !== conn.OPEN) {
-      this.releaseConnection(identity)
+      this.releaseSlot(identity)
       this.closeRoomIfEmpty(room)
       return
     }
@@ -563,6 +571,7 @@ export default {
       this.onMessage(room, conn, message)
     }
     session.pending = []
+    session.pendingBytes = 0
   },
 
   /**
@@ -728,7 +737,9 @@ export default {
     const state = room.conns.get(conn)
     room.conns.delete(conn)
     if (state) {
-      this.releaseConnection(state.identity)
+      // -> `ws` delivers `terminate()` as a `close` event exactly like a graceful close, so this one
+      //    site covers both paths: a legitimate reconnect loop can never exhaust its own ceiling.
+      this.releaseSlot(state.identity)
       if (state.clients.size > 0) {
         // -> Announced as an awareness change, which is what takes the avatar out of the header and
         //    the cursor out of the text for everyone else, here and on every other instance
@@ -736,6 +747,37 @@ export default {
       }
     }
     this.closeRoomIfEmpty(room)
+  },
+
+  /**
+   * Reserve one connection-cap slot for `identity`, refusing once either ceiling is already at its
+   * limit. Both counts are checked before either is incremented, so a refusal never partially reserves.
+   */
+  reserveSlot(identity: ConnIdentity): boolean {
+    const userCount = this.userConnections.get(identity.userId) ?? 0
+    const addressCount = this.addressConnections.get(identity.address) ?? 0
+    if (userCount >= MAX_CONNECTIONS_PER_USER || addressCount >= MAX_CONNECTIONS_PER_ADDRESS) {
+      return false
+    }
+    this.userConnections.set(identity.userId, userCount + 1)
+    this.addressConnections.set(identity.address, addressCount + 1)
+    return true
+  },
+
+  /** Release one connection-cap slot for `identity`, dropping the map entry once it reaches zero. */
+  releaseSlot(identity: ConnIdentity): void {
+    const userCount = this.userConnections.get(identity.userId) ?? 0
+    if (userCount <= 1) {
+      this.userConnections.delete(identity.userId)
+    } else {
+      this.userConnections.set(identity.userId, userCount - 1)
+    }
+    const addressCount = this.addressConnections.get(identity.address) ?? 0
+    if (addressCount <= 1) {
+      this.addressConnections.delete(identity.address)
+    } else {
+      this.addressConnections.set(identity.address, addressCount - 1)
+    }
   },
 
   /**

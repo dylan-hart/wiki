@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { hostnameMatchesAllowlist, isPrivateAddress, isValidDomainPattern } from './network.ts'
+import { isPrivateAddress, isValidOriginPattern, originMatchesAllowlist } from './network.ts'
 
 describe('isPrivateAddress', () => {
   test('flags IPv4 loopback', () => {
@@ -43,13 +43,26 @@ describe('isPrivateAddress', () => {
     assert.equal(isPrivateAddress('fd12:3456::1'), true)
   })
 
-  test('flags an IPv4-mapped IPv6 address by its embedded address', () => {
-    assert.equal(isPrivateAddress('::ffff:169.254.169.254'), true)
-    assert.equal(isPrivateAddress('::ffff:8.8.8.8'), false)
-  })
-
   test('does not flag a public IPv6 address', () => {
     assert.equal(isPrivateAddress('2606:4700:10::6814:179a'), false)
+  })
+
+  // -> The WHATWG URL parser (what actually produces `url.hostname`) always normalises an IPv4-mapped
+  //    IPv6 literal into hex-group form and collapses `::` -- it can never emit the dotted-quad shape
+  //    (`::ffff:169.254.169.254`) a previous version of this test asserted, so these hex-group forms
+  //    are what a real caller (`models/liveData.ts`'s `assertNotPrivateAddress`, fed straight from
+  //    `url.hostname`) actually has to check against (OpenProject #2236).
+  test('flags an IPv4-mapped IPv6 address in the hex-group form URL.hostname actually emits', () => {
+    assert.equal(isPrivateAddress('::ffff:a9fe:a9fe'), true) // ::ffff:169.254.169.254
+    assert.equal(isPrivateAddress('::ffff:7f00:1'), true) // ::ffff:127.0.0.1
+    assert.equal(isPrivateAddress('::ffff:c0a8:1'), true) // ::ffff:192.168.0.1
+    assert.equal(isPrivateAddress('::ffff:808:808'), false) // ::ffff:8.8.8.8 -- public, not flagged
+  })
+
+  test('a bracketed IPv4-mapped URL hostname round-trips into a rejection', () => {
+    const hostname = new URL('http://[::ffff:169.254.169.254]/').hostname.replace(/^\[|\]$/g, '')
+    assert.equal(hostname, '::ffff:a9fe:a9fe')
+    assert.equal(isPrivateAddress(hostname), true)
   })
 
   test('a non-IP-literal hostname is not itself flagged -- callers must resolve first', () => {
@@ -58,121 +71,179 @@ describe('isPrivateAddress', () => {
   })
 })
 
-describe('hostnameMatchesAllowlist', () => {
-  test('matches an exact hostname', () => {
-    assert.equal(hostnameMatchesAllowlist('api.example.com', ['api.example.com']), true)
+describe('originMatchesAllowlist', () => {
+  test('matches an exact origin with no path prefix', () => {
+    assert.equal(
+      originMatchesAllowlist(new URL('https://api.example.com/metrics'), [
+        'https://api.example.com'
+      ]),
+      true
+    )
   })
 
   test('does not match a different hostname', () => {
-    assert.equal(hostnameMatchesAllowlist('evil.com', ['api.example.com']), false)
+    assert.equal(
+      originMatchesAllowlist(new URL('https://evil.com/metrics'), ['https://api.example.com']),
+      false
+    )
   })
 
-  test('matches case-insensitively', () => {
-    assert.equal(hostnameMatchesAllowlist('API.Example.COM', ['api.example.com']), true)
-    assert.equal(hostnameMatchesAllowlist('api.example.com', ['API.EXAMPLE.COM']), true)
+  test('does not match a different scheme', () => {
+    assert.equal(
+      originMatchesAllowlist(new URL('http://api.example.com/metrics'), [
+        'https://api.example.com'
+      ]),
+      false
+    )
   })
 
-  test('a wildcard pattern matches exactly one extra label', () => {
-    assert.equal(hostnameMatchesAllowlist('api.example.com', ['*.example.com']), true)
+  test('matches case-insensitively on scheme and host', () => {
+    assert.equal(
+      originMatchesAllowlist(new URL('HTTPS://API.Example.COM/x'), ['https://api.example.com']),
+      true
+    )
   })
 
-  test('a wildcard pattern does not match the bare root domain', () => {
-    assert.equal(hostnameMatchesAllowlist('example.com', ['*.example.com']), false)
+  test('a wildcard host pattern matches exactly one extra label', () => {
+    assert.equal(
+      originMatchesAllowlist(new URL('https://api.example.com/x'), ['https://*.example.com']),
+      true
+    )
+    assert.equal(
+      originMatchesAllowlist(new URL('https://example.com/x'), ['https://*.example.com']),
+      false
+    )
+    assert.equal(
+      originMatchesAllowlist(new URL('https://a.b.example.com/x'), ['https://*.example.com']),
+      false
+    )
   })
 
-  test('a wildcard pattern does not match two extra labels', () => {
-    assert.equal(hostnameMatchesAllowlist('a.b.example.com', ['*.example.com']), false)
+  test('a path prefix matches the prefix itself and anything under it, not a longer sibling segment', () => {
+    const allowed = ['https://api.example.com/v1']
+    assert.equal(originMatchesAllowlist(new URL('https://api.example.com/v1'), allowed), true)
+    assert.equal(originMatchesAllowlist(new URL('https://api.example.com/v1/'), allowed), true)
+    assert.equal(originMatchesAllowlist(new URL('https://api.example.com/v1/sub'), allowed), true)
+    assert.equal(
+      originMatchesAllowlist(new URL('https://api.example.com/v1-other'), allowed),
+      false
+    )
+    assert.equal(originMatchesAllowlist(new URL('https://api.example.com/v2'), allowed), false)
   })
 
-  test('a wildcard pattern does not match an unrelated suffix', () => {
-    assert.equal(hostnameMatchesAllowlist('api.notexample.com', ['*.example.com']), false)
+  test('no path prefix in the entry allows any path on that origin', () => {
+    assert.equal(
+      originMatchesAllowlist(new URL('https://api.example.com/anything/at/all'), [
+        'https://api.example.com'
+      ]),
+      true
+    )
   })
 
-  test('matches a bare IP-literal entry by exact string', () => {
-    assert.equal(hostnameMatchesAllowlist('203.0.113.5', ['203.0.113.5']), true)
-    assert.equal(hostnameMatchesAllowlist('203.0.113.6', ['203.0.113.5']), false)
+  test('a differing explicit port does not match', () => {
+    assert.equal(
+      originMatchesAllowlist(new URL('https://api.example.com:8443/x'), [
+        'https://api.example.com'
+      ]),
+      false
+    )
+  })
+
+  test('an entry naming the scheme default port matches a URL that omits it, and vice versa', () => {
+    assert.equal(
+      originMatchesAllowlist(new URL('https://api.example.com/x'), ['https://api.example.com:443']),
+      true
+    )
+    assert.equal(
+      originMatchesAllowlist(new URL('https://api.example.com:443/x'), ['https://api.example.com']),
+      true
+    )
+  })
+
+  test('matches a bracketed IPv6 literal entry against the bracketed hostname a real IPv6 URL produces', () => {
+    const url = new URL('https://[2606:4700:10::6814:179a]/path')
+    assert.equal(originMatchesAllowlist(url, ['https://[2606:4700:10::6814:179a]']), true)
   })
 
   test('an empty allowlist matches nothing', () => {
-    assert.equal(hostnameMatchesAllowlist('api.example.com', []), false)
+    assert.equal(originMatchesAllowlist(new URL('https://api.example.com/x'), []), false)
   })
 
-  test('matches when any one of several patterns matches', () => {
-    assert.equal(hostnameMatchesAllowlist('api.example.com', ['other.com', '*.example.com']), true)
+  test('matches when any one of several entries matches', () => {
+    assert.equal(
+      originMatchesAllowlist(new URL('https://api.example.com/x'), [
+        'https://other.com',
+        'https://*.example.com'
+      ]),
+      true
+    )
   })
 })
 
-describe('isValidDomainPattern', () => {
-  test('accepts a plain hostname', () => {
-    assert.equal(isValidDomainPattern('api.example.com'), true)
-    assert.equal(isValidDomainPattern('example.com'), true)
-    assert.equal(isValidDomainPattern('localhost'), true)
+describe('isValidOriginPattern', () => {
+  test('accepts an origin with no path', () => {
+    assert.equal(isValidOriginPattern('https://api.example.com'), true)
+    assert.equal(isValidOriginPattern('http://example.com'), true)
   })
 
-  test('accepts a *.-prefixed wildcard', () => {
-    assert.equal(isValidDomainPattern('*.example.com'), true)
+  test('accepts an origin with a path prefix', () => {
+    assert.equal(isValidOriginPattern('https://api.example.com/v1'), true)
+    assert.equal(isValidOriginPattern('https://api.example.com/v1/data'), true)
   })
 
-  test('accepts an IPv4 literal', () => {
-    assert.equal(isValidDomainPattern('203.0.113.5'), true)
+  test('accepts an explicit port', () => {
+    assert.equal(isValidOriginPattern('https://api.example.com:8443/v1'), true)
   })
 
-  test('accepts a bracketed IPv6 literal', () => {
-    assert.equal(isValidDomainPattern('[::1]'), true)
-    assert.equal(isValidDomainPattern('[fe80::1]'), true)
-    assert.equal(isValidDomainPattern('[2606:4700:10::6814:179a]'), true)
+  test('accepts a *.-prefixed wildcard host', () => {
+    assert.equal(isValidOriginPattern('https://*.example.com'), true)
   })
 
-  // -> `URL.prototype.hostname` always brackets an IPv6-literal authority
-  //    (`new URL('http://[::1]/').hostname === '[::1]'`), and `hostnameMatchesAllowlist` compares an
-  //    entry against that hostname by exact string -- an unbracketed entry would validate but could
-  //    then never actually match at resolve time (OpenProject #1099 follow-up regression check).
-  test('rejects an unbracketed IPv6 literal, since it could never match a real request hostname', () => {
-    assert.equal(isValidDomainPattern('::1'), false)
-    assert.equal(isValidDomainPattern('2606:4700:10::6814:179a'), false)
+  test('accepts a bracketed IPv6 literal host', () => {
+    assert.equal(isValidOriginPattern('https://[::1]'), true)
+    assert.equal(isValidOriginPattern('https://[2606:4700:10::6814:179a]/v1'), true)
   })
 
-  test('a validated IPv6 entry actually matches the hostname a real IPv6 URL produces', () => {
-    const hostname = new URL('https://[2606:4700:10::6814:179a]/path').hostname
-    const entry = '[2606:4700:10::6814:179a]'
-    assert.equal(isValidDomainPattern(entry), true)
-    assert.equal(hostnameMatchesAllowlist(hostname, [entry]), true)
+  test('rejects a bare hostname with no scheme', () => {
+    assert.equal(isValidOriginPattern('api.example.com'), false)
+    assert.equal(isValidOriginPattern('api.example.com/v1'), false)
   })
 
-  test('rejects a URL rather than a bare hostname', () => {
-    assert.equal(isValidDomainPattern('https://api.example.com'), false)
-    assert.equal(isValidDomainPattern('api.example.com/path'), false)
+  test('rejects a non-http(s) scheme', () => {
+    assert.equal(isValidOriginPattern('ftp://api.example.com'), false)
+    assert.equal(isValidOriginPattern('file:///etc/passwd'), false)
+    assert.equal(isValidOriginPattern('javascript://api.example.com'), false)
   })
 
-  test('rejects a trailing slash', () => {
-    assert.equal(isValidDomainPattern('api.example.com/'), false)
+  test('rejects a pattern carrying a query string', () => {
+    assert.equal(isValidOriginPattern('https://api.example.com/v1?x=1'), false)
+  })
+
+  test('rejects a pattern carrying a fragment', () => {
+    assert.equal(isValidOriginPattern('https://api.example.com/v1#frag'), false)
   })
 
   test('rejects more than one wildcard label', () => {
-    assert.equal(isValidDomainPattern('*.*.example.com'), false)
+    assert.equal(isValidOriginPattern('https://*.*.example.com'), false)
   })
 
-  test('rejects a wildcard not at the start', () => {
-    assert.equal(isValidDomainPattern('api.*.example.com'), false)
-    assert.equal(isValidDomainPattern('example.com*'), false)
+  test('rejects a wildcard not at the start of the host', () => {
+    assert.equal(isValidOriginPattern('https://api.*.example.com'), false)
   })
 
-  test('rejects an empty label', () => {
-    assert.equal(isValidDomainPattern('a..b.com'), false)
-    assert.equal(isValidDomainPattern('.example.com'), false)
-  })
-
-  test('rejects a label starting or ending with a hyphen', () => {
-    assert.equal(isValidDomainPattern('-example.com'), false)
-    assert.equal(isValidDomainPattern('example-.com'), false)
+  // -> No userinfo has any business in a stored allowlist entry, and `new URL()` itself would
+  //    silently accept and discard it -- checked explicitly rather than left to the regex, which
+  //    already rejects most such strings only incidentally (OpenProject #2198).
+  test('rejects userinfo in the origin', () => {
+    assert.equal(isValidOriginPattern('https://user:pass@api.example.com/v1'), false)
   })
 
   test('rejects whitespace', () => {
-    assert.equal(isValidDomainPattern('api example.com'), false)
-    assert.equal(isValidDomainPattern(' api.example.com'), false)
+    assert.equal(isValidOriginPattern('https://api example.com'), false)
+    assert.equal(isValidOriginPattern(' https://api.example.com'), false)
   })
 
   test('rejects an empty string', () => {
-    assert.equal(isValidDomainPattern(''), false)
+    assert.equal(isValidOriginPattern(''), false)
   })
 })

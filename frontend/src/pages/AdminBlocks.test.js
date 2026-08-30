@@ -236,7 +236,7 @@ describe('AdminBlocks credentials list', () => {
           id: 'cred-1',
           siteId: 'site-1',
           name: 'Weather API',
-          allowedDomains: ['api.example.com'],
+          allowedOrigins: ['https://api.example.com'],
           createdAt: '',
           updatedAt: ''
         }
@@ -257,7 +257,7 @@ describe('AdminBlocks credentials list', () => {
             id: 'cred-1',
             siteId: 'site-1',
             name: 'Weather API',
-            allowedDomains: ['api.example.com'],
+            allowedOrigins: ['https://api.example.com'],
             createdAt: '',
             updatedAt: ''
           }

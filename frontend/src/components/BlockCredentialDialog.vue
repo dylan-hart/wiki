@@ -30,27 +30,27 @@
           :hint="t('admin.blocks.credentialSecretHint')"
           class="mb-2" />
         <template v-if="mode !== 'rotate'">
-          <div class="flex flex-wrap gap-1 mb-2" v-if="state.allowedDomains.length > 0">
+          <div class="flex flex-wrap gap-1 mb-2" v-if="state.allowedOrigins.length > 0">
             <w-chip
-              v-for="domain of state.allowedDomains"
-              :key="domain"
+              v-for="origin of state.allowedOrigins"
+              :key="origin"
               square
               dense
               removable
-              @remove="removeDomain(domain)">
-              {{ domain }}
+              @remove="removeOrigin(origin)">
+              {{ origin }}
             </w-chip>
           </div>
           <w-input
-            ref="domainInputRef"
+            ref="originInputRef"
             outlined
-            v-model="state.domainInput"
+            v-model="state.originInput"
             :autofocus="mode === 'domains'"
             :label="t('admin.blocks.credentialAllowedDomains')"
             :hint="t('admin.blocks.credentialAllowedDomainsHint')"
-            :rules="domainValidation"
+            :rules="originValidation"
             lazy-rules="ondemand"
-            @keyup:enter="addDomain">
+            @keyup:enter="addOrigin">
             <template #append>
               <w-btn
                 flat
@@ -58,7 +58,7 @@
                 dense
                 icon="la:plus"
                 :aria-label="t('common.actions.add')"
-                @click="addDomain" />
+                @click="addOrigin" />
             </template>
           </w-input>
         </template>
@@ -93,7 +93,7 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { useAdminStore } from '@/stores/admin'
 import { apiErrorMessage } from '@/helpers/apiError'
-import { isValidDomainPattern } from '@/helpers/domainPattern'
+import { isValidOriginPattern } from '@/helpers/originPattern'
 
 // PROPS
 
@@ -131,22 +131,23 @@ const { t } = useI18n()
 const state = reactive({
   name: '',
   secret: '',
-  allowedDomains: props.mode === 'domains' ? [...(props.credential?.allowedDomains ?? [])] : [],
-  domainInput: '',
+  allowedOrigins: props.mode === 'domains' ? [...(props.credential?.allowedOrigins ?? [])] : [],
+  originInput: '',
   isLoading: false
 })
 
-const domainInputRef = ref(null)
+const originInputRef = ref(null)
 
 /**
- * Matches `hostnameMatchesAllowlist`'s own accepted syntax (see `helpers/domainPattern.js`) rather
- * than accepting anything non-empty (OpenProject #1099): a malformed entry used to be stored silently
- * and just never match any real hostname at resolve time.
+ * Matches `originMatchesAllowlist`'s own accepted syntax (see `helpers/originPattern.js`) rather
+ * than accepting anything non-empty (OpenProject #1099, extended by #2185/#2195/#2198 to a full
+ * origin+path-prefix shape): a malformed entry used to be stored silently and just never match any
+ * real request at resolve time.
  */
-const domainValidation = [
+const originValidation = [
   (value) =>
     !(value ?? '').trim() ||
-    isValidDomainPattern(value.trim()) ||
+    isValidOriginPattern(value.trim()) ||
     t('admin.blocks.credentialAllowedDomainsInvalid')
 ]
 
@@ -175,28 +176,56 @@ const submitDisabled = computed(() => {
   if (props.mode === 'domains') {
     return false
   }
-  return !state.name.trim() || !state.secret.trim() || state.allowedDomains.length === 0
+  return !state.name.trim() || !state.secret.trim() || state.allowedOrigins.length === 0
 })
 
 // METHODS
 
-function addDomain() {
-  const value = state.domainInput.trim().toLowerCase()
+/**
+ * Lowercases only the scheme and host, never the path: unlike a bare hostname, an origin+prefix
+ * entry can carry a case-sensitive path (`https://api.example.com/V1` legitimately differs from
+ * `.../v1` on most APIs), so blindly lowercasing the whole value the way the old hostname-only
+ * input did would silently corrupt an intentionally-cased prefix.
+ */
+function normalizeOrigin(raw) {
+  const trimmed = raw.trim()
+  if (!trimmed) {
+    return ''
+  }
+  try {
+    const url = new URL(trimmed)
+    const path = url.pathname === '/' ? '' : url.pathname.replace(/\/+$/, '')
+    return `${url.protocol}//${url.host}${path}`
+  } catch {
+    return trimmed
+  }
+}
+
+function addOrigin() {
+  const value = normalizeOrigin(state.originInput)
   if (!value) {
     return
   }
-  if (!domainInputRef.value?.validate()) {
+  // -> Written back before validating, so an admin who typed a mixed-case scheme or host (neither
+  //    is meaningful case, unlike the path) sees the normalized form rather than their raw input.
+  //    The push decision itself is `isValidOriginPattern(value)` directly, not
+  //    `originInputRef.value.validate()`'s return: `validate()` reads the *prop* `WInput` was last
+  //    rendered with, which only catches up to this synchronous write on the next render, so
+  //    calling it right here would validate the stale, pre-normalization value.
+  state.originInput = value
+  originInputRef.value?.validate()
+  if (!isValidOriginPattern(value)) {
     return
   }
-  state.domainInput = ''
-  if (state.allowedDomains.includes(value)) {
+  state.originInput = ''
+  if (state.allowedOrigins.includes(value)) {
     return
   }
-  state.allowedDomains.push(value)
+  state.allowedOrigins.push(value)
 }
 
-function removeDomain(domain) {
-  state.allowedDomains = state.allowedDomains.filter((d) => d !== domain)
+function removeOrigin(origin) {
+  state.allowedOrigins = state.allowedOrigins.filter((o) => o !== origin)
 }
 
 async function submit() {
@@ -214,8 +243,8 @@ async function submit() {
       onDialogOK()
     } else if (props.mode === 'domains') {
       const resp = await API_CLIENT.post(
-        `sites/${adminStore.currentSiteId}/block-credentials/${props.credential.id}/allowed-domains`,
-        { json: { allowedDomains: state.allowedDomains } }
+        `sites/${adminStore.currentSiteId}/block-credentials/${props.credential.id}/allowed-origins`,
+        { json: { allowedOrigins: state.allowedOrigins } }
       ).json()
       if (!resp?.ok) {
         throw new Error(resp?.message || t('common.error.unexpected'))
@@ -229,7 +258,7 @@ async function submit() {
           json: {
             name: state.name.trim(),
             secret: state.secret,
-            allowedDomains: state.allowedDomains
+            allowedOrigins: state.allowedOrigins
           }
         }
       ).json()
@@ -252,5 +281,5 @@ async function submit() {
   state.isLoading = false
 }
 
-defineExpose({ state, removeDomain })
+defineExpose({ state, removeOrigin })
 </script>

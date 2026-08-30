@@ -488,3 +488,177 @@ describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () =
     assert.deepEqual(siteBlock!.config, { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' })
   })
 })
+
+/**
+ * `assertValidConfig()`, called from `sanitizeConfig()`, is block-plantuml's own carve-out from the
+ * "no per-field validation" rule documented above it: its `server` config is fetched server-side by
+ * `DiagramRender#renderPlantuml` (OpenProject task 2223), so a bad value here is not merely a
+ * rendering mistake an author would notice — it is refused outright at the point an admin writes it,
+ * rather than accepted and only discovered the next time a diagram render tries to reach it.
+ */
+describe(
+  "blocks.setBlocksState validates block-plantuml's server config (DB-backed)",
+  {
+    skip: !hasTestDatabase()
+  },
+  () => {
+    let fixtures: TestFixtures
+    let blocksModel: typeof import('./blocks.ts').blocks
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ blocks: blocksModel } = await import('./blocks.ts'))
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    async function insertPlantumlBlock(): Promise<string> {
+      blocksModel.definitions = [
+        {
+          block: 'plantuml',
+          name: 'PlantUML',
+          description: 'Draws a PlantUML diagram.',
+          icon: 'polyline',
+          config: [{ name: 'server', type: 'string' }]
+        }
+      ]
+      const [row] = await fixtures.db
+        .insert(blocksTable)
+        .values({
+          siteId: fixtures.siteId,
+          block: 'plantuml',
+          name: 'PlantUML',
+          description: 'Draws a PlantUML diagram.',
+          icon: 'polyline',
+          isEnabled: true,
+          isCustom: false,
+          config: {}
+        })
+        .returning({ id: blocksTable.id })
+      return row!.id
+    }
+
+    test('accepts a clean http(s) server URL with no query string or fragment', async () => {
+      const id = await insertPlantumlBlock()
+
+      const updated = await blocksModel.setBlocksState(fixtures.siteId, [
+        {
+          id,
+          isEnabled: true,
+          config: { server: 'https://plantuml.internal.example.com/plantuml' }
+        }
+      ])
+
+      assert.equal(updated, 1)
+      const [siteBlock] = (await blocksModel.getSiteBlocks(fixtures.siteId)).filter(
+        (b) => b.id === id
+      )
+      assert.deepEqual(siteBlock!.config, {
+        server: 'https://plantuml.internal.example.com/plantuml'
+      })
+    })
+
+    test('accepts an empty server value, the same as leaving it unset', async () => {
+      const id = await insertPlantumlBlock()
+
+      const updated = await blocksModel.setBlocksState(fixtures.siteId, [
+        { id, isEnabled: true, config: { server: '' } }
+      ])
+
+      assert.equal(updated, 1)
+    })
+
+    test('refuses a server value that is not a valid URL at all', async () => {
+      const id = await insertPlantumlBlock()
+
+      await assert.rejects(
+        blocksModel.setBlocksState(fixtures.siteId, [
+          { id, isEnabled: true, config: { server: 'not a url' } }
+        ]),
+        (err: any) => {
+          assert.equal(err.name, 'blocksInvalidConfig')
+          assert.equal(err.statusCode, 400)
+          return true
+        }
+      )
+    })
+
+    test('refuses a non-http(s) server URL', async () => {
+      const id = await insertPlantumlBlock()
+
+      await assert.rejects(
+        blocksModel.setBlocksState(fixtures.siteId, [
+          { id, isEnabled: true, config: { server: 'file:///etc/passwd' } }
+        ]),
+        (err: any) => {
+          assert.equal(err.name, 'blocksInvalidConfig')
+          assert.equal(err.statusCode, 400)
+          return true
+        }
+      )
+    })
+
+    test('refuses a server URL carrying a query string', async () => {
+      const id = await insertPlantumlBlock()
+
+      await assert.rejects(
+        blocksModel.setBlocksState(fixtures.siteId, [
+          { id, isEnabled: true, config: { server: 'https://plantuml.example.com/plantuml?x=' } }
+        ]),
+        (err: any) => {
+          assert.equal(err.name, 'blocksInvalidConfig')
+          assert.equal(err.statusCode, 400)
+          return true
+        }
+      )
+    })
+
+    test('refuses a server URL carrying a fragment', async () => {
+      const id = await insertPlantumlBlock()
+
+      await assert.rejects(
+        blocksModel.setBlocksState(fixtures.siteId, [
+          { id, isEnabled: true, config: { server: 'https://plantuml.example.com/plantuml#x' } }
+        ]),
+        (err: any) => {
+          assert.equal(err.name, 'blocksInvalidConfig')
+          assert.equal(err.statusCode, 400)
+          return true
+        }
+      )
+    })
+
+    test('does not validate an unrelated block\'s "server"-named config field', async () => {
+      blocksModel.definitions = [
+        {
+          block: 'kroki',
+          name: 'Kroki',
+          description: 'Draws a diagram through a Kroki server.',
+          icon: 'polyline',
+          config: [{ name: 'server', type: 'string' }]
+        }
+      ]
+      const [row] = await fixtures.db
+        .insert(blocksTable)
+        .values({
+          siteId: fixtures.siteId,
+          block: 'kroki',
+          name: 'Kroki',
+          description: 'Draws a diagram through a Kroki server.',
+          icon: 'polyline',
+          isEnabled: true,
+          isCustom: false,
+          config: {}
+        })
+        .returning({ id: blocksTable.id })
+
+      const updated = await blocksModel.setBlocksState(fixtures.siteId, [
+        { id: row!.id, isEnabled: true, config: { server: 'not a url' } }
+      ])
+
+      assert.equal(updated, 1, "only block-plantuml's server field is validated")
+    })
+  }
+)

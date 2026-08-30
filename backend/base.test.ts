@@ -79,3 +79,19 @@ test('base.yml does not define a default auth.secret', async () => {
     'the old committed default auth.secret must not reappear'
   )
 })
+
+/**
+ * OpenProject #2276: `core/db.ts` spreads `WIKI.config.pool` straight into `new Pool({...})`'s
+ * options, and until this key existed node-postgres silently applied its own default `max` of 10 —
+ * exactly the same number, just never written down anywhere in this repo's own config. Locks that it
+ * stays declared, explicit, and a sane positive integer rather than silently reverting to "whatever
+ * the library defaults to" on some future edit of this block.
+ */
+test('base.yml declares an explicit, positive pool.max', async () => {
+  const raw = await fs.readFile(BASE_YML_PATH, 'utf8')
+  const parsed = load(raw) as any
+
+  assert.ok(parsed.defaults?.config?.pool, 'expected defaults.config.pool to exist in base.yml')
+  assert.equal(typeof parsed.defaults.config.pool.max, 'number')
+  assert.ok(parsed.defaults.config.pool.max > 0, 'pool.max must be a positive integer')
+})

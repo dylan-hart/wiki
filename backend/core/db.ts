@@ -106,6 +106,27 @@ export type WikiTx = Parameters<Parameters<WikiDb['transaction']>[0]>[0]
 export type WikiDbOrTx = WikiDb | WikiTx
 
 /**
+ * Resolves the pool-size (`min`/`max`) options merged into the `new Pool()` call in `init()` below.
+ *
+ * A worker thread's pool is pinned to a single, non-persistent connection (`{ min: 0, max: 1 }`)
+ * regardless of the instance-wide config — a CPU-bound job (see `worker.ts`) doesn't need, and
+ * shouldn't hold open, a share of the main pool's budget. The main process instead takes whatever
+ * `pool.min`/`pool.max` resolve to from `base.yml`/`config.yml` (see the comment on `pool.max` in
+ * `base.yml` for what that value is sized against).
+ *
+ * Exported as its own pure function, rather than left as the inline ternary it used to be, so a
+ * test can assert a configured `pool.max` reaches these options without needing a live Postgres
+ * connection — the surrounding `new Pool()` call is otherwise only exercisable through `init()`'s
+ * full connect-and-migrate sequence.
+ */
+export function resolvePoolSizeOptions(
+  workerMode: boolean,
+  configuredPool: PoolConfig
+): Partial<PoolConfig> {
+  return workerMode ? { min: 0, max: 1 } : configuredPool
+}
+
+/**
  * ORM DB module
  */
 export default {
@@ -195,7 +216,7 @@ export default {
     this.pool = new Pool({
       application_name: `Wiki.js - ${WIKI.INSTANCE_ID}:${workerMode ? 'WORKER' : 'MAIN'}`,
       ...this.config,
-      ...(workerMode ? { min: 0, max: 1 } : WIKI.config.pool),
+      ...resolvePoolSizeOptions(workerMode, WIKI.config.pool),
       options: `-c search_path=${WIKI.config.db.schema}`
     })
 

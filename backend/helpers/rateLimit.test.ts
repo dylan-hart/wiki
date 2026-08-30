@@ -7,7 +7,9 @@ import {
   activeBanMemo,
   consumeAccountAuthAttempt,
   limitApiKey,
-  limitApiRequests
+  limitApiRequests,
+  limitPublicRequests,
+  isPublicRateLimitedPath
 } from './rateLimit.ts'
 
 /**
@@ -478,6 +480,159 @@ describe('consumeAccountAuthAttempt', () => {
 
     const otherAccount = await consumeAccountAuthAttempt('someone-else@example.com')
     assert.equal(otherAccount.allowed, true)
+  })
+})
+
+/**
+ * `isPublicRateLimitedPath` (OpenProject #2274): which root-mounted paths the new public-surface
+ * limiter hook applies to, matching the exact set `index.ts` registers with no prefix or under
+ * `/_files`, `/_site`, `/_icons`, `/_thumb`.
+ */
+describe('isPublicRateLimitedPath', () => {
+  test('matches the two bare root files exactly', () => {
+    assert.equal(isPublicRateLimitedPath('/sitemap.xml'), true)
+    assert.equal(isPublicRateLimitedPath('/robots.txt'), true)
+  })
+
+  test('matches a route under each prefixed public controller', () => {
+    assert.equal(isPublicRateLimitedPath('/_icons/mdi.json'), true)
+    assert.equal(isPublicRateLimitedPath('/_icons/mdi/account.svg'), true)
+    assert.equal(isPublicRateLimitedPath('/_files/some-asset.png'), true)
+    assert.equal(isPublicRateLimitedPath('/_thumb/some-page/thumb.png'), true)
+    assert.equal(isPublicRateLimitedPath('/_site/logo'), true)
+  })
+
+  test('does not match /_api/, an unrelated root path, or a bare prefix with nothing after it', () => {
+    assert.equal(isPublicRateLimitedPath('/_api/pages'), false)
+    assert.equal(isPublicRateLimitedPath('/'), false)
+    assert.equal(isPublicRateLimitedPath('/login'), false)
+    assert.equal(isPublicRateLimitedPath('/_icons'), false)
+  })
+})
+
+/**
+ * Unit tests for `limitPublicRequests` (OpenProject #2274): the root-mounted public-surface rate
+ * limit hook. Same `WIKI.models.rateLimits.consume` stubbing approach as `limitApiRequests` above —
+ * what this covers is the hook's own key-building, exemption and 429 shape, not the database-backed
+ * fixed-window logic in `models/rateLimits.ts`.
+ */
+describe('limitPublicRequests', () => {
+  function makeReply(): FastifyReply {
+    return {
+      header: mock.fn(),
+      tooManyRequests: mock.fn()
+    } as unknown as FastifyReply
+  }
+
+  function makeReq(overrides: Partial<FastifyRequest> = {}): FastifyRequest {
+    return {
+      method: 'GET',
+      url: '/sitemap.xml',
+      ip: '203.0.113.4',
+      session: undefined,
+      ...overrides
+    } as unknown as FastifyRequest
+  }
+
+  let consume: ReturnType<typeof mock.fn>
+
+  beforeEach(() => {
+    consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    ;(globalThis as any).WIKI = {
+      config: { security: { apiRateLimitEnabled: true } },
+      models: { rateLimits: { consume } },
+      logger: { debug: mock.fn() }
+    }
+  })
+
+  afterEach(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('keys by ip for an anonymous request', async () => {
+    await limitPublicRequests(makeReq(), makeReply())
+    assert.equal(consume.mock.calls.length, 1)
+    assert.equal(consume.mock.calls[0].arguments[0], 'public:ip:203.0.113.4')
+  })
+
+  test('keys by session user id when cookie-authenticated', async () => {
+    const req = makeReq({
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: ['read:pages'] } as any
+    })
+    await limitPublicRequests(req, makeReply())
+    assert.equal(consume.mock.calls[0].arguments[0], 'public:user:user-1')
+  })
+
+  test('never builds an api: key, so it can never share a bucket with limitApiRequests', async () => {
+    await limitPublicRequests(makeReq(), makeReply())
+    const key = consume.mock.calls[0].arguments[0] as string
+    assert.ok(key.startsWith('public:'))
+    assert.ok(!key.startsWith('api:'))
+  })
+
+  test('exempts a session carrying manage:system', async () => {
+    const req = makeReq({
+      session: {
+        authenticated: true,
+        user: { id: 'admin-1' },
+        permissions: ['manage:system']
+      } as any
+    })
+    await limitPublicRequests(req, makeReply())
+    assert.equal(consume.mock.calls.length, 0)
+  })
+
+  test('does nothing while apiRateLimitEnabled is false, the same shared toggle limitApiRequests uses', async () => {
+    ;(globalThis as any).WIKI.config.security.apiRateLimitEnabled = false
+    const reply = makeReply()
+    await limitPublicRequests(makeReq(), reply)
+    assert.equal(consume.mock.calls.length, 0)
+    assert.equal((reply.tooManyRequests as any).mock.calls.length, 0)
+  })
+
+  test('refuses with a 429 and Retry-After once the policy is exceeded', async () => {
+    consume.mock.mockImplementationOnce(async () => ({
+      allowed: false,
+      hits: 601,
+      retryAfter: 90
+    }))
+    const reply = makeReply()
+    await limitPublicRequests(makeReq(), reply)
+    assert.deepEqual((reply.header as any).mock.calls[0].arguments, ['Retry-After', '90'])
+    assert.equal((reply.tooManyRequests as any).mock.calls.length, 1)
+  })
+
+  test('an anonymous /_api/ caller and an anonymous public-route caller get independent counters', async () => {
+    // -> `limitApiRequests`'s policy is configurable (`apiRateLimitMax`), unlike
+    //    `limitPublicRequests`'s fixed `PUBLIC_DEFAULTS`, so exhausting the `/_api/` bucket with a
+    //    low configured max is the reliable way to drive one bucket to refusal in a handful of
+    //    calls without also needing to replicate the public policy's own fixed number here.
+    const hits = new Map<string, number>()
+    consume.mock.mockImplementation(async (key: string, policy: any) => {
+      const n = (hits.get(key) ?? 0) + 1
+      hits.set(key, n)
+      return { allowed: n <= policy.max, hits: n, retryAfter: n <= policy.max ? 0 : 60 }
+    })
+    ;(globalThis as any).WIKI.config.security = { apiRateLimitEnabled: true, apiRateLimitMax: 2 }
+
+    // Exhaust the /_api/ counter for this IP.
+    const apiReq = {
+      method: 'GET',
+      url: '/_api/pages',
+      ip: '203.0.113.4',
+      apiKey: null,
+      session: undefined
+    } as unknown as FastifyRequest
+    await limitApiRequests(apiReq, makeReply())
+    await limitApiRequests(apiReq, makeReply())
+    const replyApi3 = makeReply()
+    await limitApiRequests(apiReq, replyApi3)
+    assert.equal((replyApi3.tooManyRequests as any).mock.calls.length, 1)
+
+    // The same address hitting the public-route limiter is on its own counter and unaffected.
+    const replyPublic1 = makeReply()
+    await limitPublicRequests(makeReq(), replyPublic1)
+    assert.equal((replyPublic1.tooManyRequests as any).mock.calls.length, 0)
   })
 })
 

@@ -143,6 +143,14 @@ class Pageviews {
    * `GROUP BY`, since a raw `count(*)` needs no identity column at all.
    */
   async countsForGraph(siteId: string): Promise<Map<string, PageviewCountsForGraph>> {
+    // -> Reads gate on the same flag writes already do (OpenProject #2269). Turning tracking off
+    //    stops new rows from ever landing (`record()` above), but the table can still hold up to two
+    //    years of rows from before it was turned off; there is no reason for every `/graph` request
+    //    to run this six-way aggregate over them when the feature they'd size nodes for is disabled.
+    if (WIKI.config.pageviews?.isEnabled !== true) {
+      return new Map()
+    }
+
     const distinct30d = sql<number>`count(distinct case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last30d)}' then ${pageviewsTable.visitorHash} end)::int`
     const distinct6mo = sql<number>`count(distinct case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last6mo)}' then ${pageviewsTable.visitorHash} end)::int`
     const distinct2yr = sql<number>`count(distinct case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last2yr)}' then ${pageviewsTable.visitorHash} end)::int`

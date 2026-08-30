@@ -16,7 +16,10 @@ import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
  *
  * Driving a real headless browser is `models/pdfExport.ts`'s job — `pdfExport.test.ts` covers the
  * browser-launch guard and the block-settle wait without a real browser. What belongs to the route,
- * and what this file checks, is the wiring: `read:pages` is checked in the handler (page rules, not
+ * and what this file checks, is the wiring: an anonymous caller is refused before anything else runs
+ * (task 2262 — see `docs/variances.md`'s "Anonymous access reconciled" entry, reconciling this route
+ * against its `POST …/render` and `POST /diagrams/render` siblings, which both refuse anonymous the
+ * same way for the same reason), `read:pages` is checked in the handler (page rules, not
  * `config.permissions`), a missing or password-locked page is refused before the model is ever asked
  * to open a browser, and the request the model receives carries the caller's own hostname, this
  * instance's port, the page's path, and the raw `__Host-wikiSession` cookie value.
@@ -66,6 +69,18 @@ before(async () => {
     }
   })
   await app.register(fastifySensible)
+  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.unauthorized()`/`notFound()`/`forbidden()`
+  //    etc. is a thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default --
+  //    that shapes it into the `{ ok, error, statusCode, message }` the route's `ApiError` responses
+  //    (401/403/404) expect.
+  app.setErrorHandler((error: any, _req, reply) => {
+    reply.code(error.statusCode ?? 500).send({
+      ok: false,
+      error: error.name,
+      statusCode: error.statusCode ?? 500,
+      message: error.message
+    })
+  })
   // -> Stands in for the real `@fastify/session` and `@fastify/cookie` plugins: every request is an
   //    authenticated user carrying whatever `x-test-cookie` sends as its session cookie, unless it
   //    opts out with `x-test-anon`.
@@ -106,6 +121,18 @@ beforeEach(() => {
 function exportUrl() {
   return `/sites/${SITE_ID}/pages/${PAGE_ID}/export/pdf`
 }
+
+test('refuses an anonymous caller before checking read:pages or opening a browser', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: exportUrl(),
+    headers: { 'x-test-anon': 'true' }
+  })
+  assert.equal(res.statusCode, 401)
+  assert.equal(checkAccess.mock.callCount(), 0)
+  assert.equal(getPage.mock.callCount(), 0)
+  assert.equal(exportPdf.mock.callCount(), 0)
+})
 
 test('refuses a caller without read:pages on this page before opening a browser', async () => {
   checkAccess.mock.mockImplementation(() => false)
@@ -176,12 +203,8 @@ test('answers with the PDF bytes as a downloadable attachment', async () => {
   assert.equal(res.rawPayload.toString(), '%PDF-fake')
 })
 
-test('forwards no cookie for an anonymous requester exporting a public page', async () => {
-  const res = await app.inject({
-    method: 'GET',
-    url: exportUrl(),
-    headers: { 'x-test-anon': 'true' }
-  })
+test('forwards no cookie when an authenticated caller sent none', async () => {
+  const res = await app.inject({ method: 'GET', url: exportUrl() })
 
   assert.equal(res.statusCode, 200)
   assert.equal((exportPdf.mock.calls[0].arguments[0] as any).sessionCookie, null)

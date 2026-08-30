@@ -4,6 +4,12 @@ import type { PageHistoryContributorCounts } from '../models/pageHistory.ts'
 import type { PageviewCountsForGraph } from '../models/pageviews.ts'
 import { zeroPageviewCountsForGraph } from '../models/pageviews.ts'
 import { mayOnPage } from './pages.ts'
+import { guardSiteEnabled } from '../helpers/common.ts'
+import {
+  getCachedGraphData,
+  setCachedGraphData,
+  type GraphCacheData
+} from '../helpers/graphCache.ts'
 
 // -> Re-exported so `graph.test.ts` (OpenProject #884) can import the fixture row shape from the
 //    same module it imports `assembleGraph`/`folderOf` from, without a second import line pointing
@@ -147,6 +153,38 @@ const siteIdParam = {
 }
 
 /**
+ * The graph bundle for a site -- from the cache when warm, or rebuilt (and cached) on a cold one.
+ *
+ * A cold rebuild is refused with `null` for a caller with no session (OpenProject #2269), matching
+ * the reasoning `docs/variances.md:709` applies to `POST /_api/diagrams/render`: the three underlying
+ * queries scale with the whole site's page/history/pageview row counts, so an anonymous caller must
+ * not be able to force that cost on demand by simply outracing the TTL or hitting a just-invalidated
+ * cache. A signed-in caller needs no specific permission to trigger it -- the same "logged in is
+ * enough" shape `/profile` and `/diagrams/render` use -- since the rebuilt bundle is unfiltered raw
+ * data (fetched with `publicOnly: false`) and every response is narrowed to the actual caller both by
+ * `read:pages` permission (`assembleGraph`'s `canRead`) AND, for a caller with no session, by
+ * publication state (OpenProject #1587 §2 / #1612 -- see the route handler below), regardless of who
+ * happened to warm the cache.
+ */
+async function loadGraphData(siteId: string, mayRebuild: boolean): Promise<GraphCacheData | null> {
+  const cached = getCachedGraphData(siteId)
+  if (cached) {
+    return cached
+  }
+  if (!mayRebuild) {
+    return null
+  }
+  const [rows, contributorCounts, pageviewCounts] = await Promise.all([
+    WIKI.models.pages.listAllForGraph(siteId),
+    WIKI.models.pageHistory.contributorCountsForGraph(siteId),
+    WIKI.models.pageviews.countsForGraph(siteId)
+  ])
+  const data: GraphCacheData = { rows, contributorCounts, pageviewCounts }
+  setCachedGraphData(siteId, data)
+  return data
+}
+
+/**
  * Knowledge Graph API Routes (OpenProject #848 / #872)
  *
  * No route-level `permissions`: `read:pages` is a page-rule permission, checked per page inside
@@ -162,33 +200,46 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "The site's knowledge graph",
         description:
-          "Every page the caller may read on this site, across all locales, as nodes -- plus the relation and internal-link edges between pages that are both visible. Fetched once; every drill-down filter and re-cluster after that (OpenProject #874/#875) runs client-side against this response, per #848's design.",
+          "Every page the caller may read on this site, across all locales, as nodes -- plus the relation and internal-link edges between pages that are both visible. Fetched once; every drill-down filter and re-cluster after that (OpenProject #874/#875) runs client-side against this response, per #848's design. The underlying data is cached per site for a short TTL (OpenProject #2269); a cold cache is only rebuilt for a signed-in caller.",
         tags: ['Pages'],
         params: siteIdParam,
         response: {
-          200: { $ref: 'Graph#' }
+          200: { $ref: 'Graph#' },
+          401: { $ref: 'ApiError#' }
         }
       }
     },
-    async (req) => {
-      const publicOnly = !req.session?.authenticated
-      const [rows, contributorCounts, pageviewCounts] = await Promise.all([
-        WIKI.models.pages.listAllForGraph(req.params.siteId, publicOnly),
-        WIKI.models.pageHistory.contributorCountsForGraph(req.params.siteId),
-        WIKI.models.pageviews.countsForGraph(req.params.siteId)
-      ])
+    async (req, reply) => {
+      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
+        return
+      }
+      const authenticated = req.session?.authenticated === true
+      const data = await loadGraphData(req.params.siteId, authenticated)
+      if (!data) {
+        return reply.unauthorized(
+          'Sign in to load the knowledge graph the first time; it stays cached for everyone after that.'
+        )
+      }
+      // -> The cached bundle is fetched once with `publicOnly: false` (`loadGraphData` above) and
+      //    shared across every caller, so a session-less caller's publication-state exclusion
+      //    (OpenProject #1587 §2 / #1612 -- a draft or scheduled page must never reach an anonymous
+      //    reader) has to be re-applied here per request rather than at the SQL layer, on top of --
+      //    not instead of -- `assembleGraph`'s own `read:pages` permission narrowing below.
+      const rows = authenticated
+        ? data.rows
+        : data.rows.filter((row) => row.publishState === 'published')
       return assembleGraph(
         rows,
         (row) => mayOnPage(req, 'read:pages', req.params.siteId, row),
         (id) => WIKI.models.classificationLevels.byId(id)?.name ?? null,
         (pageId) =>
-          contributorCounts.get(pageId) ?? {
+          data.contributorCounts.get(pageId) ?? {
             editor: 0,
             mcp: 0,
             all: 0,
             total: { editor: 0, mcp: 0, all: 0 }
           },
-        (pageId) => pageviewCounts.get(pageId) ?? zeroPageviewCountsForGraph()
+        (pageId) => data.pageviewCounts.get(pageId) ?? zeroPageviewCountsForGraph()
       )
     }
   )

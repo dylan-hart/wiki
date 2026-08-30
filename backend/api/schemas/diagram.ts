@@ -8,6 +8,10 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     $id: 'DiagramRenderRequest',
     type: 'object',
     required: ['type', 'source'],
+    // -> No per-request `server` override: which PlantUML server this renders against is read from
+    //    the site's own `block-plantuml` config (OpenProject task 2223), never from the caller, so
+    //    Fastify's default `removeAdditional` strips a `server` field rather than forwarding it.
+    additionalProperties: false,
     properties: {
       type: {
         type: 'string',
@@ -27,10 +31,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'string',
         enum: ['svg', 'png'],
         default: 'svg'
-      },
-      server: {
-        type: 'string',
-        description: 'PlantUML only. The public PlantUML server when left empty.'
       }
     }
   })

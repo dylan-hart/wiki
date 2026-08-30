@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import { Worker } from 'node:worker_threads'
 import * as awarenessProtocol from 'y-protocols/awareness'
@@ -7,11 +8,40 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 import collab, {
   MAX_CONNECTIONS_PER_ADDRESS,
   MAX_CONNECTIONS_PER_USER,
+  MAX_PENDING_BYTES,
+  MAX_PENDING_FRAMES,
   PEER_STATE_TIMEOUT,
+  REFUSAL_GRACE_PERIOD,
   RELAY_CHUNK_SIZE,
   RELAY_REASSEMBLY_TIMEOUT,
   buildSeed
 } from './collab.ts'
+
+/**
+ * A minimal stand-in for `ws`'s `WebSocket`, just enough of its surface for `capture()` and
+ * `refuse()`: `on`/`emit` (real, via `EventEmitter`, so `capture`'s own listeners work unmodified),
+ * the three `readyState` constants and the field they set, and `close()`/`terminate()` recorded so a
+ * test can assert which one a given path called.
+ */
+class FakeSocket extends EventEmitter {
+  readonly OPEN = 1
+  readonly CLOSING = 2
+  readonly CLOSED = 3
+  readyState = 1
+  closeCalls: { code: number; reason: string }[] = []
+  terminated = false
+
+  close(code: number, reason: string): void {
+    this.closeCalls.push({ code, reason })
+    this.readyState = this.CLOSING
+  }
+
+  terminate(): void {
+    this.terminated = true
+    this.readyState = this.CLOSED
+    this.emit('close')
+  }
+}
 
 /**
  * Unit test for `participantInfo()` (task 546): a cheap "someone else has this page open" signal read
@@ -103,6 +133,100 @@ describe('collab.participantInfo', () => {
 })
 
 /**
+ * `capture()`'s pending-frame cap (task 2196, from the 2026-08-24 security audit,
+ * `docs/audit-2026-08-24/security/09-dos-resource.md` §3): before a socket has a room to hand its
+ * frames to, every message it sends is copied into `session.pending`. That listener is live the
+ * instant the socket opens — well before authentication or the site's feature flag is checked — so an
+ * unauthenticated caller that just keeps writing must not be able to grow that array without bound.
+ * `capture` is exercised directly here, against a minimal stand-in for a `ws` `WebSocket` (an
+ * `EventEmitter` plus a mocked `terminate()`), rather than through the real socket lifecycle in
+ * `controllers/collab.ts` — nothing under test here needs an actual network connection.
+ */
+describe('collab.capture: pending-frame cap', () => {
+  /** The minimal shape `capture()` actually uses: `.on()` (via EventEmitter) and `.terminate()`. */
+  function makeConn() {
+    const conn = new EventEmitter() as EventEmitter & { terminate: ReturnType<typeof mock.fn> }
+    conn.terminate = mock.fn()
+    return conn
+  }
+
+  function send(conn: EventEmitter, byteLength: number): void {
+    conn.emit('message', Buffer.alloc(byteLength))
+  }
+
+  test('buffers frames as long as both the entry-count and byte caps are unexceeded', () => {
+    const conn = makeConn()
+    const session = collab.capture(conn as any)
+
+    send(conn, 8)
+    send(conn, 8)
+
+    assert.equal(session.pending.length, 2)
+    assert.equal(session.pendingBytes, 16)
+    assert.equal(conn.terminate.mock.callCount(), 0)
+  })
+
+  test('terminates the connection once the entry-count cap is exceeded, without buffering the frame that tipped it over', () => {
+    const conn = makeConn()
+    const session = collab.capture(conn as any)
+
+    for (let i = 0; i < MAX_PENDING_FRAMES; i++) {
+      send(conn, 1)
+    }
+    assert.equal(session.pending.length, MAX_PENDING_FRAMES)
+    assert.equal(conn.terminate.mock.callCount(), 0)
+
+    send(conn, 1)
+
+    assert.equal(session.pending.length, MAX_PENDING_FRAMES)
+    assert.equal(conn.terminate.mock.callCount(), 1)
+  })
+
+  test('terminates the connection once the byte cap is exceeded, without buffering the frame that tipped it over', () => {
+    const conn = makeConn()
+    const session = collab.capture(conn as any)
+
+    send(conn, MAX_PENDING_BYTES)
+    assert.equal(session.pendingBytes, MAX_PENDING_BYTES)
+    assert.equal(conn.terminate.mock.callCount(), 0)
+
+    send(conn, 1)
+
+    assert.equal(session.pendingBytes, MAX_PENDING_BYTES)
+    assert.equal(conn.terminate.mock.callCount(), 1)
+  })
+
+  test('a frame arriving after the cap has already tripped is also refused, not silently buffered', () => {
+    const conn = makeConn()
+    const session = collab.capture(conn as any)
+
+    for (let i = 0; i < MAX_PENDING_FRAMES + 3; i++) {
+      send(conn, 1)
+    }
+
+    assert.equal(session.pending.length, MAX_PENDING_FRAMES)
+    assert.equal(conn.terminate.mock.callCount(), 3)
+  })
+
+  test('once a room is attached, messages are handed off live and never touch the pending buffer', () => {
+    const conn = makeConn()
+    const session = collab.capture(conn as any)
+    const onMessageMock = mock.method(collab, 'onMessage', () => {})
+    try {
+      session.room = {} as any
+      send(conn, 8)
+
+      assert.equal(onMessageMock.mock.callCount(), 1)
+      assert.equal(session.pending.length, 0)
+      assert.equal(session.pendingBytes, 0)
+      assert.equal(conn.terminate.mock.callCount(), 0)
+    } finally {
+      onMessageMock.mock.restore()
+    }
+  })
+})
+
+/**
  * Cross-instance regression coverage for `core/collab.ts` (task 705, feature 411) — the file's own
  * top-of-file comment lays out why the peer handshake and its determinism matter; these tests exercise
  * that against a genuinely departing peer rather than the happy path only:
@@ -133,12 +257,11 @@ function makeInstance(id: string): any {
     rooms: new Map(),
     partials: new Map(),
     awaitingState: new Map(),
-    // -> Fresh per instance, not shared with the real `collab` singleton: `{ ...collab }` above only
-    //    shallow-copies these, and a Map is a reference - without overriding them here every instance
-    //    made by this helper would count connections into the same two Maps as each other and as
-    //    whatever else in this process still holds the real `collab` export.
-    connectionsByUser: new Map(),
-    connectionsByAddress: new Map(),
+    // -> Fresh per instance, like every other mutable collection above: `{ ...collab }` only copies
+    //    the *reference* to the real singleton's maps, and sharing them across "instances" would let
+    //    one test's connection-cap bookkeeping bleed into another's.
+    userConnections: new Map(),
+    addressConnections: new Map(),
     listenClient: {},
     relaySeq: 0,
     peerPresence: { known: false, checkedAt: 0 }
@@ -446,153 +569,296 @@ describe('(d) pageSaved() to an instance with no open room for that page', () =>
 })
 
 /**
- * A stand-in `ws` `WebSocket` good enough for `capture()`/`join()`/`onClose()` (task 2200): it tracks
- * `readyState` and dispatches `close` to whatever `capture()` wired up, exactly the surface a real
- * socket exercises here, with none of it going over an actual network.
+ * (e) OpenProject #2196: `capture()`'s pre-auth `session.pending` buffer is bounded by both entry
+ * count and total bytes, terminating (not merely closing) a connection that exceeds either — and
+ * `refuse()`, the helper `controllers/collab.ts`'s five refusal points now call instead of
+ * `conn.close()` directly, sends the close frame a cooperating client needs but no longer leaves a
+ * non-cooperating one sitting in `CLOSING` for `ws`'s full 30s default.
  */
-class MockSocket {
-  readyState = 1
-  OPEN = 1
-  listeners = new Map<string, ((...args: any[]) => void)[]>()
-  on(event: string, handler: (...args: any[]) => void): this {
-    const list = this.listeners.get(event) ?? []
-    list.push(handler)
-    this.listeners.set(event, list)
-    return this
-  }
-  send(): void {}
-  close(code?: number, reason?: string): void {
-    if (this.readyState === 3) {
-      return
+describe('(e) collab pre-auth frame buffer cap and refusal termination', () => {
+  test('buffers ordinary frames normally, well under the cap', () => {
+    const socket = new FakeSocket()
+    const session = collab.capture(socket as any)
+
+    socket.emit('message', Buffer.from('sync step 1'))
+    socket.emit('message', Buffer.from('sync step 2'))
+
+    assert.equal(session.pending.length, 2)
+    assert.equal(socket.terminated, false)
+  })
+
+  test('terminates the connection once the entry-count cap is exceeded, dropping the buffer', () => {
+    const socket = new FakeSocket()
+    const session = collab.capture(socket as any)
+
+    for (let i = 0; i < MAX_PENDING_FRAMES; i++) {
+      socket.emit('message', Buffer.from(`frame ${i}`))
     }
-    this.readyState = 3
-    for (const handler of this.listeners.get('close') ?? []) {
-      handler(code, reason)
-    }
-  }
-}
+    assert.equal(session.pending.length, MAX_PENDING_FRAMES, 'every frame up to the cap is kept')
+    assert.equal(socket.terminated, false)
 
-/** Joins a fresh mock socket to a page the same way `controllers/collab.ts` does: capture, then join. */
-async function joinPage(
-  inst: any,
-  pageId: string,
-  identity: { userId: string; address: string }
-): Promise<MockSocket> {
-  const conn = new MockSocket()
-  const session = inst.capture(conn as any)
-  await inst.join(conn as any, { id: pageId, siteId: 'site-1' }, session, identity)
-  return conn
-}
-
-describe('(e) connection cap: per-user/per-address ceiling (task 2200)', () => {
-  /*
-    Every room these tests open holds exactly one connection, so closing that connection always empties
-    and self-destroys the room via `closeRoomIfEmpty()` - which already calls `awareness.destroy()` /
-    `doc.destroy()`. Closing every accepted connection at the end of each test is therefore full
-    teardown on its own; nothing here needs the shared `createdRooms`/`afterEach` fixture (a)-(d) above
-    use, and reusing it would risk destroying the same room's awareness/doc twice.
-  */
-  test('a connection past the per-user ceiling is refused and leaves no room allocated', async () => {
-    const inst = makeInstance('CAP')
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'CAP'
-    // -> No peer to ask for state: skips hasPeers()'s DB round trip (there is no WIKI.db in this
-    //    test's global stub) and falls straight to the mocked getPage(), same as tests (a)-(c) above.
-    inst.peerPresence = { known: false, checkedAt: Date.now() }
-    const identity = { userId: 'user-at-ceiling', address: 'addr-shared' }
-
-    const accepted: MockSocket[] = []
-    for (let i = 0; i < MAX_CONNECTIONS_PER_USER; i++) {
-      const pageId = `page-cap-user-${i}`
-      const conn = await joinPage(inst, pageId, identity)
-      accepted.push(conn)
-      assert.equal(conn.readyState, conn.OPEN, `connection ${i} under the ceiling must be accepted`)
-      assert.ok(inst.rooms.has(pageId), `connection ${i} under the ceiling must get a room`)
-    }
-    assert.equal(inst.connectionsByUser.get(identity.userId), MAX_CONNECTIONS_PER_USER)
-
-    const refusedPageId = 'page-cap-user-refused'
-    const refused = await joinPage(inst, refusedPageId, identity)
-
-    assert.equal(refused.readyState, 3, 'the connection past the ceiling must be closed')
+    // -> One frame past the cap terminates the connection rather than growing the buffer further
+    socket.emit('message', Buffer.from('one too many'))
+    assert.equal(socket.terminated, true)
     assert.equal(
-      inst.rooms.has(refusedPageId),
+      session.pending.length,
+      MAX_PENDING_FRAMES,
+      'the frame that tripped the cap is never itself buffered'
+    )
+  })
+
+  test('terminates the connection once the total-byte cap is exceeded, even in very few frames', () => {
+    const socket = new FakeSocket()
+    const session = collab.capture(socket as any)
+
+    socket.emit('message', Buffer.alloc(MAX_PENDING_BYTES))
+    assert.equal(socket.terminated, false)
+    assert.equal(session.pending.length, 1)
+
+    socket.emit('message', Buffer.from('a'))
+    assert.equal(socket.terminated, true)
+    assert.equal(session.pending.length, 1)
+  })
+
+  test('a message arriving after a room is attached is handled normally, not buffered or capped', () => {
+    const socket = new FakeSocket()
+    const session = collab.capture(socket as any)
+    const onMessage = mock.method(collab, 'onMessage', () => {})
+    const room = { pageId: 'p' } as any
+    session.room = room
+
+    try {
+      socket.emit('message', Buffer.from('post-join message'))
+      assert.equal(onMessage.mock.calls.length, 1)
+      assert.equal(onMessage.mock.calls[0].arguments[0], room)
+      assert.equal(session.pending.length, 0)
+    } finally {
+      onMessage.mock.restore()
+    }
+  })
+
+  test('refuse() sends the close frame immediately, for a cooperating client to act on', () => {
+    const socket = new FakeSocket()
+    collab.refuse(socket as any, 4403, 'You are not allowed to edit this page')
+
+    assert.deepEqual(socket.closeCalls, [
+      { code: 4403, reason: 'You are not allowed to edit this page' }
+    ])
+  })
+
+  test('refuse() terminates a non-cooperating socket once the grace period elapses', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const socket = new FakeSocket()
+
+    collab.refuse(socket as any, 4401, 'Authentication is required')
+    assert.equal(
+      socket.terminated,
       false,
-      'a refused connection must never allocate a room for the page it asked for'
-    )
-    assert.equal(
-      inst.connectionsByUser.get(identity.userId),
-      MAX_CONNECTIONS_PER_USER,
-      'a refusal must not itself count against the ceiling'
+      'not terminated immediately - close() gets its grace period'
     )
 
-    for (const conn of accepted) {
-      conn.close()
+    t.mock.timers.tick(REFUSAL_GRACE_PERIOD)
+    assert.equal(socket.terminated, true)
+  })
+
+  test('refuse() does not terminate a socket that already finished closing on its own', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const socket = new FakeSocket()
+
+    collab.refuse(socket as any, 4404, 'This page does not exist')
+    // -> The cooperating client's own close frame arrives well inside the grace period
+    socket.readyState = socket.CLOSED
+
+    t.mock.timers.tick(REFUSAL_GRACE_PERIOD)
+    assert.equal(socket.terminated, false, 'terminate() is never called once already CLOSED')
+  })
+})
+
+/**
+ * (f) Task 2200: a per-user and per-address ceiling on concurrent collaboration sockets, checked and
+ * reserved by `join()` before `ensureRoom()` ever runs — so a refusal never allocates, or reuses, a
+ * room — and released by `onClose()`, so a legitimate reconnect loop can't exhaust its own ceiling.
+ *
+ * `fakeConn()` is a minimal `ws`-shaped stand-in good enough for `join()`/`onClose()`'s surface
+ * (`readyState`, `OPEN`, `on`, `close`) — no real socket needed since nothing here exercises the sync
+ * protocol itself, only the reservation bookkeeping around it.
+ */
+describe('(f) connection cap: per-user and per-address ceilings', () => {
+  interface FakeConn {
+    readyState: number
+    OPEN: number
+    on: (event: string, cb: (...args: any[]) => void) => void
+    close: (code?: number, reason?: string) => void
+    closedCode: number | null
+    closedReason: string | null
+  }
+
+  function fakeConn(): FakeConn {
+    const conn: FakeConn = {
+      readyState: 1,
+      OPEN: 1,
+      closedCode: null,
+      closedReason: null,
+      on: () => {},
+      close(code, reason) {
+        conn.readyState = 3
+        conn.closedCode = code ?? null
+        conn.closedReason = reason ?? null
+      }
+    }
+    return conn
+  }
+
+  /** Tears down every room this test opened, exactly as `closeRoomIfEmpty` would once empty. */
+  function destroyRoom(inst: any, pageId: string): void {
+    const room = inst.rooms.get(pageId)
+    if (room) {
+      room.awareness.destroy()
+      room.doc.destroy()
+      inst.rooms.delete(pageId)
+    }
+  }
+
+  test('a connection past the per-user ceiling is refused, and it allocates no room', async () => {
+    const inst = makeInstance('cap-user')
+    // -> No peer to wait on: without this, every room's initRoom() would burn a real
+    //    PEER_STATE_TIMEOUT querying for a nonexistent peer, the same seeding test (a) above does.
+    inst.peerPresence = { known: false, checkedAt: Date.now() }
+    ;(globalThis as any).WIKI.INSTANCE_ID = 'cap-user'
+    const userId = 'capped-user'
+    const opened: { conn: FakeConn; session: any; pageId: string }[] = []
+
+    try {
+      for (let i = 0; i < MAX_CONNECTIONS_PER_USER; i++) {
+        const conn = fakeConn()
+        const session: any = { room: null, pending: [] }
+        const pageId = `page-cap-user-${i}`
+        await inst.join(conn, { id: pageId, siteId: 'site-1' }, session, {
+          userId,
+          address: `10.0.0.${i}`
+        })
+        assert.ok(session.room, `connection ${i} should have been let in under the ceiling`)
+        opened.push({ conn, session, pageId })
+      }
+      assert.equal(inst.rooms.size, MAX_CONNECTIONS_PER_USER)
+
+      const refusedConn = fakeConn()
+      const refusedSession: any = { room: null, pending: [] }
+      const refusedPageId = 'page-cap-user-refused'
+      await inst.join(refusedConn, { id: refusedPageId, siteId: 'site-1' }, refusedSession, {
+        userId,
+        address: '10.0.0.999'
+      })
+
+      assert.equal(refusedSession.room, null, 'a refused connection must not join a room')
+      assert.equal(refusedConn.closedCode, 4429)
+      assert.equal(
+        inst.rooms.has(refusedPageId),
+        false,
+        'a refused connection must not allocate a room for its page'
+      )
+      assert.equal(
+        inst.rooms.size,
+        MAX_CONNECTIONS_PER_USER,
+        'the refusal must leave the existing room count unchanged'
+      )
+
+      // -> Releasing one of the ceiling's own slots (a real close event, same path `terminate()` takes)
+      //    must free up room for a fresh connection from the same user.
+      const first = opened[0]
+      inst.onClose(first.session.room, first.conn)
+      const retryConn = fakeConn()
+      const retrySession: any = { room: null, pending: [] }
+      const retryPageId = 'page-cap-user-retry'
+      await inst.join(retryConn, { id: retryPageId, siteId: 'site-1' }, retrySession, {
+        userId,
+        address: '10.0.0.1000'
+      })
+      assert.ok(
+        retrySession.room,
+        'after a slot is released, a subsequent connection for the same user must succeed'
+      )
+      inst.onClose(retrySession.room, retryConn)
+      destroyRoom(inst, retryPageId)
+    } finally {
+      for (const { conn, session, pageId } of opened.slice(1)) {
+        inst.onClose(session.room, conn)
+        destroyRoom(inst, pageId)
+      }
+      destroyRoom(inst, 'page-cap-user-0')
     }
   })
 
-  test('a connection past the per-address ceiling is refused, independent of user id', async () => {
-    const inst = makeInstance('CAP')
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'CAP'
+  test('a connection past the per-address ceiling is refused, regardless of user id', async () => {
+    const inst = makeInstance('cap-address')
     inst.peerPresence = { known: false, checkedAt: Date.now() }
-    const address = 'addr-at-ceiling'
+    ;(globalThis as any).WIKI.INSTANCE_ID = 'cap-address'
+    const address = '203.0.113.5'
+    const opened: { conn: FakeConn; session: any; pageId: string }[] = []
 
-    const accepted: MockSocket[] = []
-    for (let i = 0; i < MAX_CONNECTIONS_PER_ADDRESS; i++) {
-      const pageId = `page-cap-addr-${i}`
-      // -> A different user id each time, so only the address ceiling - not the per-user one - is
-      //    what this test is exercising.
-      const conn = await joinPage(inst, pageId, { userId: `user-${i}`, address })
-      accepted.push(conn)
-      assert.equal(conn.readyState, conn.OPEN)
-    }
+    try {
+      for (let i = 0; i < MAX_CONNECTIONS_PER_ADDRESS; i++) {
+        const conn = fakeConn()
+        const session: any = { room: null, pending: [] }
+        const pageId = `page-cap-addr-${i}`
+        await inst.join(conn, { id: pageId, siteId: 'site-1' }, session, {
+          userId: `user-${i}`,
+          address
+        })
+        assert.ok(session.room, `connection ${i} should have been let in under the ceiling`)
+        opened.push({ conn, session, pageId })
+      }
 
-    const refused = await joinPage(inst, 'page-cap-addr-refused', {
-      userId: 'user-one-more',
-      address
-    })
-    assert.equal(refused.readyState, 3)
-    assert.equal(inst.rooms.has('page-cap-addr-refused'), false)
+      const refusedConn = fakeConn()
+      const refusedSession: any = { room: null, pending: [] }
+      const refusedPageId = 'page-cap-addr-refused'
+      await inst.join(refusedConn, { id: refusedPageId, siteId: 'site-1' }, refusedSession, {
+        userId: 'yet-another-user',
+        address
+      })
 
-    for (const conn of accepted) {
-      conn.close()
+      assert.equal(refusedSession.room, null, 'a refused connection must not join a room')
+      assert.equal(refusedConn.closedCode, 4429)
+      assert.equal(
+        inst.rooms.has(refusedPageId),
+        false,
+        'a refused connection must not allocate a room for its page'
+      )
+    } finally {
+      for (const { conn, session, pageId } of opened) {
+        inst.onClose(session.room, conn)
+        destroyRoom(inst, pageId)
+      }
     }
   })
 
-  test('closing a socket releases its slot, letting a further connection through', async () => {
-    const inst = makeInstance('CAP')
-    ;(globalThis as any).WIKI.INSTANCE_ID = 'CAP'
+  test('closing a socket releases both its user and address slots', async () => {
+    const inst = makeInstance('cap-release')
     inst.peerPresence = { known: false, checkedAt: Date.now() }
-    const identity = { userId: 'user-releases', address: 'addr-releases' }
+    ;(globalThis as any).WIKI.INSTANCE_ID = 'cap-release'
+    const identity = { userId: 'release-user', address: '198.51.100.1' }
+    const conn = fakeConn()
+    const session: any = { room: null, pending: [] }
+    const pageId = 'page-cap-release'
 
-    const conns: MockSocket[] = []
-    for (let i = 0; i < MAX_CONNECTIONS_PER_USER; i++) {
-      conns.push(await joinPage(inst, `page-cap-release-${i}`, identity))
-    }
-    assert.equal(inst.connectionsByUser.get(identity.userId), MAX_CONNECTIONS_PER_USER)
+    await inst.join(conn, { id: pageId, siteId: 'site-1' }, session, identity)
+    assert.ok(session.room)
+    assert.equal(inst.userConnections.get(identity.userId), 1)
+    assert.equal(inst.addressConnections.get(identity.address), 1)
 
-    // -> One tab closes normally - a real `close()` and a real `terminate()` both reach `onClose()`
-    //    the same way (see the file's "Connection cap" doc comment), so exercising the ordinary close
-    //    here covers both.
-    conns[0].close()
-    assert.equal(
-      inst.connectionsByUser.get(identity.userId),
-      MAX_CONNECTIONS_PER_USER - 1,
-      'closing a socket must release exactly the one slot it held'
-    )
-
-    const reconnected = await joinPage(inst, 'page-cap-release-reconnect', identity)
+    inst.onClose(session.room, conn)
 
     assert.equal(
-      reconnected.readyState,
-      reconnected.OPEN,
-      'a legitimate reconnect must not find the ceiling still exhausted'
+      inst.userConnections.has(identity.userId),
+      false,
+      'the user slot must be released, not merely decremented to a lingering zero'
     )
-    assert.equal(inst.connectionsByUser.get(identity.userId), MAX_CONNECTIONS_PER_USER)
-
-    reconnected.close()
-    for (const conn of conns.slice(1)) {
-      conn.close()
-    }
+    assert.equal(
+      inst.addressConnections.has(identity.address),
+      false,
+      'the address slot must be released, not merely decremented to a lingering zero'
+    )
+    destroyRoom(inst, pageId)
   })
 })
 
@@ -866,14 +1132,29 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
   let connectionString: string
   let a: WorkerHandle
   let b: WorkerHandle
+  // -> The real, DB-backed `WIKI` `setupTestDb()` installs, captured once so `beforeEach` below can
+  //    re-assert it before every test in THIS describe.
+  let dbWiki: any
 
   before(async () => {
     fixtures = await setupTestDb()
+    dbWiki = (globalThis as any).WIKI
     connectionString = process.env.DATABASE_URL!
     ;[a, b] = await Promise.all([
       startInstance(connectionString, fixtures.schema, 'instance-a', fixtures.siteId),
       startInstance(connectionString, fixtures.schema, 'instance-b', fixtures.siteId)
     ])
+  })
+
+  // -> The file-level `beforeEach` above (registered for every test in this whole file, not just one
+  //    describe) overwrites `globalThis.WIKI` with its own minimal stub -- no `sites`, no `db` --
+  //    right before every test runs, including these. Node's test runner cascades hooks
+  //    outer-to-inner, so this describe-scoped `beforeEach` runs after that one and puts the real,
+  //    DB-backed `WIKI` back before each test body here actually executes; without it, a call this
+  //    describe's tests make in the main process (e.g. `pages.createPage`) sees a `WIKI.sites` with
+  //    no entry for `fixtures.siteId` at all.
+  beforeEach(() => {
+    ;(globalThis as any).WIKI = dbWiki
   })
 
   after(async () => {

@@ -16,7 +16,7 @@ import { purgeTimeframes } from '../models/pageHistory.ts'
 import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
 import type { PurgeTimeframe } from '../models/pageHistory.ts'
 import { JOB_STATES } from '../models/jobs.ts'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 /**
  * Every node of this cluster connected to this database, with how it is using the connection pool.
@@ -82,12 +82,18 @@ async function routes(app: FastifyInstance) {
   //    pattern as `PUT /sites/:siteId/images/:kind`: one file, no fields, no dependency to add.
   //    Registered inside this plugin, so every other route keeps rejecting this body outright. The
   //    accepted types cover what a browser reports for a `.tar.gz` across platforms.
+  //
+  // -> No `parseAs` here, deliberately: that's what hands the parser the raw request stream instead
+  //    of a fully-buffered `Buffer` (Fastify only auto-buffers for `parseAs: 'buffer' | 'string'`).
+  //    `saveUpload` streams it straight to `<dataPath>/imports/`, so a 500 MB archive never sits
+  //    resident in the request thread's memory as one allocation — see `models/siteImport.ts`. It
+  //    also takes over enforcing `bodyLimit` as bytes arrive, since Fastify's own automatic
+  //    `Content-Length` check only runs for the buffered parser kinds.
   app.addContentTypeParser(
     ['application/gzip', 'application/x-gzip', 'application/octet-stream'],
-    { parseAs: 'buffer', bodyLimit: importUploadLimit },
-    (req, body, done) => {
-      done(null, body)
-    }
+    { bodyLimit: importUploadLimit },
+    (req: FastifyRequest, payload: NodeJS.ReadableStream) =>
+      WIKI.models.import.saveUpload(payload, importUploadLimit)
   )
 
   /**
@@ -1450,7 +1456,7 @@ async function routes(app: FastifyInstance) {
   /**
    * IMPORT CONTENT
    */
-  app.post<{ Querystring: { targetSiteId: string } }>(
+  app.post<{ Querystring: { targetSiteId: string }; Body: string }>(
     '/import',
     {
       config: {
@@ -1499,29 +1505,26 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      // -> The content-type parser above already streamed the body to disk — validating it (gzip
+      //    magic number, non-empty) as part of that same save, since there is no in-memory buffer
+      //    left here to check. `req.body` is the path it landed at.
+      const filePath = req.body
       // -> OpenProject #2201: targetSiteId comes from the querystring, not `req.params`, so the
-      //    global preHandler in `index.ts` never sees it -- checked before anything else, since
-      //    this route replaces the target site's entire content.
+      //    global preHandler in `index.ts` never sees it -- checked before anything else, since this
+      //    route replaces the target site's entire content. The upload is already on disk by the
+      //    time this runs (the content-type parser above saved it), so a refusal here still has to
+      //    clean it up rather than leaving it orphaned, same as every other early return below.
       if (!enforceApiKeySite(req, reply, req.query.targetSiteId)) {
+        await WIKI.models.import.deleteUpload(filePath)
         return
-      }
-      const data = req.body
-      if (!Buffer.isBuffer(data) || data.length < 1) {
-        return reply.badRequest('No archive was sent.')
-      }
-      // -> The declared content type got the request this far; the gzip magic number is a cheap
-      //    sanity check before saving it to disk at all. The archive's actual structure and format
-      //    version are validated inside the queued job, which is where it is really read apart.
-      if (data[0] !== 0x1f || data[1] !== 0x8b) {
-        return reply.badRequest('Not a gzip archive, whatever the request said it was.')
       }
 
       const targetSite = await WIKI.models.sites.getSiteById({ id: req.query.targetSiteId })
       if (!targetSite) {
+        await WIKI.models.import.deleteUpload(filePath)
         return reply.notFound('Target site does not exist.')
       }
 
-      const filePath = await WIKI.models.import.saveUpload(data)
       const added = await WIKI.scheduler.addJob({
         task: 'importContent',
         payload: {
@@ -1531,6 +1534,7 @@ async function routes(app: FastifyInstance) {
         }
       })
       if (!added?.id) {
+        await WIKI.models.import.deleteUpload(filePath)
         return reply.internalServerError('The scheduler could not queue the import.')
       }
       return {

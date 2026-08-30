@@ -2,18 +2,27 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { and, count, eq, inArray } from 'drizzle-orm'
 import { getIconData, iconToHTML, iconToSVG, replaceIDs } from '@iconify/utils'
+import { LRUCache } from 'lru-cache'
 import { icons as iconsTable, iconSets as iconSetsTable } from '../db/schema.ts'
 import type { IconifyIconCustomisations } from '@iconify/utils'
 import type { IconifyIcon, IconifyInfo, IconifyJSON } from '@iconify/types'
 
-/** An icon set as stored, plus how many of its icons the wiki holds. */
-export interface IconSet {
+/**
+ * An icon set as stored, without the per-set icon count -- what a single-row lookup by prefix can
+ * answer without joining the (potentially large) `icons` table. `getSet()` returns this shape; use
+ * `getSets()` for the admin listing's `IconSet[]`, which is the only caller that needs `iconCount`.
+ */
+export interface IconSetRow {
   prefix: string
   name: string
   isEnabled: boolean
   info: IconifyInfo | Record<string, never>
   refreshedAt: Date | null
   createdAt: Date
+}
+
+/** An icon set as stored, plus how many of its icons the wiki holds. */
+export interface IconSet extends IconSetRow {
   /** Icons of this set stored in the database, i.e. the ones this wiki can serve on its own. */
   iconCount: number
 }
@@ -80,6 +89,13 @@ const UPSTREAM_BUDGET_PER_MINUTE = 60
 const NOT_FOUND_TTL_MS = 60 * 60 * 1000
 
 /**
+ * How many "known missing" names to hold before evicting the oldest (OpenProject #2272).
+ * `notFoundCache` is an `LRUCache` bounded by this `max`, so without it a public, unmetered route
+ * driving a stream of never-repeated misses would grow it forever between restarts.
+ */
+export const NOT_FOUND_CACHE_MAX = 5000
+
+/**
  * Reject anything that could execute when an icon is opened directly rather than drawn into a page.
  *
  * Icon bodies come from a third-party API, and while Iconify publishes shape markup, a compromised or
@@ -113,8 +129,14 @@ class Icons {
   /** Resolved icon data, keyed `prefix:name`. Insertion-ordered, so the oldest entry is evictable. */
   memoryCache = new Map<string, IconifyIcon>()
 
-  /** Names upstream has no icon for, keyed `prefix:name` with the time they were last looked up. */
-  notFoundCache = new Map<string, number>()
+  /**
+   * Names upstream has no icon for, keyed `prefix:name`.
+   *
+   * An `LRUCache` rather than a plain `Map`: `max` bounds it the way `remember()` bounds
+   * `memoryCache` below, and `ttl` replaces the manual same-key check `isKnownMissing()` used to do
+   * itself — `has()` returns `false` for a stale entry without this class needing to know that.
+   */
+  notFoundCache = new LRUCache<string, true>({ max: NOT_FOUND_CACHE_MAX, ttl: NOT_FOUND_TTL_MS })
 
   /** Upstream catalog responses, memoized to keep the admin area and the picker snappy. */
   catalogCache = new Map<string, { fetchedAt: number; data: any }>()
@@ -169,10 +191,21 @@ class Icons {
   }
 
   /**
-   * A single set, or null when it has not been added
+   * A single set, or null when it has not been added.
+   *
+   * A single-row, no-aggregate query (OpenProject #2272): the public `/_icons` batch route calls this
+   * on every request before `resolveIcons` gets a chance to answer from memory, and `getSets()`'s
+   * `count() … group by` over the whole `icons` table has no place on that path. `iconCount` is only
+   * needed by the admin listing, which stays on `getSets()`.
    */
-  async getSet(prefix: string): Promise<IconSet | null> {
-    return (await this.getSets()).find((set) => set.prefix === prefix) ?? null
+  async getSet(prefix: string): Promise<IconSetRow | null> {
+    const rows = await WIKI.db
+      .select()
+      .from(iconSetsTable)
+      .where(eq(iconSetsTable.prefix, prefix))
+      .limit(1)
+    const set = rows[0]
+    return set ? { ...set, info: (set.info ?? {}) as IconifyInfo } : null
   }
 
   /**
@@ -205,15 +238,21 @@ class Icons {
       return Promise.reject(new Error(`There is no "${prefix}" icon set available upstream.`))
     }
 
-    await WIKI.db.insert(iconSetsTable).values({
-      prefix,
-      name: info.name ?? prefix,
-      isEnabled: true,
-      info,
-      refreshedAt: new Date()
-    })
+    const inserted = await WIKI.db
+      .insert(iconSetsTable)
+      .values({
+        prefix,
+        name: info.name ?? prefix,
+        isEnabled: true,
+        info,
+        refreshedAt: new Date()
+      })
+      .returning()
     WIKI.logger.info(`Added icon set ${prefix} [ OK ]`)
-    return (await this.getSet(prefix))!
+    const set = inserted[0]!
+    // -> A set that was just added has no icons stored for it yet, so there is no need to ask --
+    //    `iconCount` is only ever 0 the moment a set is created.
+    return { ...set, info: (set.info ?? {}) as IconifyInfo, iconCount: 0 }
   }
 
   /**
@@ -497,7 +536,7 @@ class Icons {
       const data = getIconData(iconSet, name)
       if (!data?.body) {
         notFound.push(name)
-        this.notFoundCache.set(`${prefix}:${name}`, Date.now())
+        this.rememberMissing(prefix, name)
         continue
       }
       if (!isSafeIconBody(data.body)) {
@@ -631,18 +670,20 @@ class Icons {
   }
 
   /**
+   * Remember that upstream has no such icon.
+   *
+   * `notFoundCache` is an `LRUCache` with its own `max`/`ttl`, so eviction and expiry are handled by
+   * the cache itself -- this is just the `prefix:name` keying convention every other cache method uses.
+   */
+  rememberMissing(prefix: string, name: string): void {
+    this.notFoundCache.set(`${prefix}:${name}`, true)
+  }
+
+  /**
    * Whether upstream said recently that it has no such icon
    */
   isKnownMissing(prefix: string, name: string): boolean {
-    const at = this.notFoundCache.get(`${prefix}:${name}`)
-    if (at === undefined) {
-      return false
-    }
-    if (Date.now() - at > NOT_FOUND_TTL_MS) {
-      this.notFoundCache.delete(`${prefix}:${name}`)
-      return false
-    }
-    return true
+    return this.notFoundCache.has(`${prefix}:${name}`)
   }
 
   /**

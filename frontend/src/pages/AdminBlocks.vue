@@ -194,8 +194,8 @@
               </w-item-label>
               <w-item-label caption class="flex flex-wrap items-center gap-1 mt-1">
                 <w-icon name="la:globe" size="14px" class="mr-1" />
-                <span v-if="credential.allowedDomains?.length" class="text-caption">
-                  {{ credential.allowedDomains.join(', ') }}
+                <span v-if="credential.allowedOrigins?.length" class="text-caption">
+                  {{ credential.allowedOrigins.join(', ') }}
                 </span>
                 <span v-else class="text-caption text-negative">{{
                   t('admin.blocks.credentialAllowedDomainsEmpty')

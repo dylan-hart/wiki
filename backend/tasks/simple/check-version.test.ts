@@ -82,4 +82,33 @@ describe('check-version.task', () => {
     assert.equal(fetchSpy.mock.callCount(), 0)
     assert.equal(saveToDb.mock.callCount(), 0)
   })
+
+  // OpenProject #2253: the fetch carries an abort timeout and a non-ok response is rejected
+  // rather than fed to .json().
+  test('the release fetch carries an AbortSignal', async () => {
+    let capturedOpts: any
+    globalThis.fetch = mock.fn(async (_url: string, opts?: any) => {
+      capturedOpts = opts
+      return new Response(
+        JSON.stringify({ tag_name: 'v3.1.0', published_at: '2026-08-01T00:00:00Z' }),
+        {
+          status: 200
+        }
+      )
+    }) as unknown as typeof fetch
+
+    await checkVersion()
+
+    assert.ok(capturedOpts?.signal instanceof AbortSignal, 'fetch call is missing an AbortSignal')
+  })
+
+  test('a non-ok response fails the task without saving', async () => {
+    globalThis.fetch = mock.fn(
+      async () => new Response('Internal Server Error', { status: 500 })
+    ) as unknown as typeof fetch
+
+    await assert.rejects(checkVersion())
+
+    assert.equal(saveToDb.mock.callCount(), 0)
+  })
 })

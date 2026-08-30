@@ -19,6 +19,15 @@ defaults:
       schema: wiki
     pool:
       min: 1
+      # node-postgres defaults `max` to 10 when unset (OpenProject #2276). A handful of concurrent
+      # requests against any unmetered whole-table surface (sitemap/knowledge-graph generation,
+      # icon-set lookup) can occupy that whole pool, queuing every other query behind them, logins
+      # included. Sized here at 20 (double the library default) to give a single instance real
+      # headroom under such a burst while staying well under Postgres' own default `max_connections`
+      # (100), which also has to cover other app instances, the scheduler's worker-thread pools
+      # (each a separate `{min:0,max:1}` connection — see `workerMode` in `core/db.ts`), and
+      # admin/maintenance connections.
+      max: 20
     bindIP: 0.0.0.0
     logLevel: info
     logFormat: default
@@ -134,6 +143,12 @@ defaults:
       apiRateLimitMax: 300
       apiRateLimitWindow: '5m'
       apiRateLimitBan: '15m'
+      # Off by default: every headless Chromium launch (page re-render, PDF export, diagram render)
+      # runs sandboxed. Set true only when the deployment environment cannot give Chromium its own
+      # sandbox (typically a container without the setuid helper) -- this drops Chromium's own process
+      # sandbox for every one of those launches, including the two that render attacker-influenced
+      # content (a live page view with the requester's session cookie, and POSTed Mermaid source).
+      allowPuppeteerNoSandbox: false
     flags:
       experimental: false
       authDebug: false

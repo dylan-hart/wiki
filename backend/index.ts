@@ -46,7 +46,12 @@ import {
   stripPageExtension
 } from './helpers/common.ts'
 import { OPENAPI_SECURITY, OPENAPI_SECURITY_SCHEMES } from './helpers/openapi.ts'
-import { limitApiKey, limitApiRequests } from './helpers/rateLimit.ts'
+import {
+  limitApiKey,
+  limitApiRequests,
+  limitPublicRequests,
+  isPublicRateLimitedPath
+} from './helpers/rateLimit.ts'
 import {
   corsOptions,
   parseCspDirectives,
@@ -790,8 +795,21 @@ async function initHTTPServer() {
   })
 
   // ----------------------------------------
-  // API Key Site Pin
+  // Public Surface Rate Limit
   // ----------------------------------------
+
+  app.addHook('onRequest', async (req, reply) => {
+    // -> The handful of root-mounted public controllers (`/sitemap.xml`, `/robots.txt`, `/_icons`,
+    //    `/_files`, `/_thumb`, `/_site`) carried no throttle of any kind before this hook (OpenProject
+    //    #2274) -- neither this one nor the `/_api/` limiter above ever saw them, since both are
+    //    scoped to `/_api/`. Accounted into its own `public:` bucket, entirely separate from
+    //    `/_api/`'s -- see `helpers/rateLimit.ts#limitPublicRequests`.
+    const path = req.url.split('?')[0] ?? req.url
+    if (!isPublicRateLimitedPath(path)) {
+      return
+    }
+    return limitPublicRequests(req, reply)
+  })
 
   // ----------------------------------------
   // Permissions

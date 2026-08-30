@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { and, eq, inArray } from 'drizzle-orm'
+import { CustomError } from '../helpers/common.ts'
 import {
   blockCode as blockCodeTable,
   blocks as blocksTable,
@@ -388,9 +389,10 @@ class Blocks {
    * in `models/rendering.ts` allow-lists an embedded block's attributes by name only, taking whatever
    * string value came with them — so `config` is held to the same standard as the sibling data an
    * admin's site-level form and an author's page-level markup both ultimately feed into the same
-   * component. This is a deliberate choice for new code, not a preserved pre-existing gap: revisit it
-   * if a block ever needs a config value trusted for more than passing through to its own component
-   * (e.g. interpolated into a URL fetched server-side).
+   * component. This was a deliberate choice for new code, not a preserved pre-existing gap, with one
+   * exception carved out since: `assertValidConfig()` below, for exactly the case that comment called
+   * out as worth revisiting — a config value trusted for more than passing through to its own
+   * component, because something here now fetches it server-side.
    */
   private sanitizeConfig(
     block: { key: string; isCustom: boolean } | undefined,
@@ -401,7 +403,56 @@ class Blocks {
     }
     const definition = this.definitions.find((d) => d.block === block.key)
     const declared = new Set((definition?.config ?? []).map((field) => field.name))
-    return Object.fromEntries(Object.entries(config).filter(([key]) => declared.has(key)))
+    const sanitized = Object.fromEntries(
+      Object.entries(config).filter(([key]) => declared.has(key))
+    )
+    this.assertValidConfig(block.key, sanitized)
+    return sanitized
+  }
+
+  /**
+   * The one config value this file actually revisits the "no per-field validation" note above for:
+   * block-plantuml's `server` is fetched server-side by `DiagramRender#renderPlantuml`
+   * (`models/diagramRender.ts`, OpenProject task 2223), unlike every other block's config, which is
+   * only ever handed to that block's own client-side component. A bad value here is not a rendering
+   * inconvenience an author would notice and fix — left unchecked, it is exactly the SSRF this block's
+   * config field exists to close off (OpenProject epic 2216), so it is refused at the one point a
+   * caller can still be turned away: when an admin writes it, not when a reader's request later makes
+   * this model fetch whatever was stored.
+   *
+   * Empty is left alone (falls back to the public default); anything else must parse as a URL, be
+   * `http:`/`https:`, and carry neither a query string nor a fragment — a query string is what let the
+   * old caller-supplied override fold `/${format}/${encoded}` into itself and reach an arbitrary path
+   * on an otherwise-fine host (see `diagramRender.ts`'s `plantumlUrl()`).
+   */
+  private assertValidConfig(blockKey: string, config: Record<string, any>): void {
+    if (blockKey !== 'plantuml') {
+      return
+    }
+    const value = config.server
+    if (typeof value !== 'string' || value.trim() === '') {
+      return
+    }
+    let parsed: URL
+    try {
+      parsed = new URL(value)
+    } catch {
+      throw new CustomError('blocksInvalidConfig', `"${value}" is not a valid URL.`, 400)
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new CustomError(
+        'blocksInvalidConfig',
+        `The PlantUML server must be an http:// or https:// URL, not "${parsed.protocol}".`,
+        400
+      )
+    }
+    if (parsed.search || parsed.hash) {
+      throw new CustomError(
+        'blocksInvalidConfig',
+        'The PlantUML server URL may not contain a query string or fragment.',
+        400
+      )
+    }
   }
 
   /**

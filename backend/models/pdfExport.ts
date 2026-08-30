@@ -32,8 +32,9 @@ export interface PdfExportRequest {
   path: string
   /**
    * The requester's `SESSION_COOKIE_NAME` (`__Host-wikiSession`) cookie value, forwarded so the
-   * headless browser sees exactly the page they may — `null`/absent for an anonymous requester
-   * exporting a public page.
+   * headless browser sees exactly the page they may. The API route requires a logged-in actor before
+   * this is ever called (OpenProject #2258/#2262), so `null`/absent here means a
+   * personal-access-token caller (no session cookie to forward), not an anonymous one.
    */
   sessionCookie?: string | null
 }
@@ -100,13 +101,17 @@ export async function blockSettleScript(maxRounds: number): Promise<void> {
  * stylesheet, no theme, no block components. A PDF export is a reader-facing artifact, so it has to
  * go through the page reading itself would go through.
  *
- * Shares `helpers/puppeteer.ts` with `models/rendering.ts` for the browser itself (same flags, same
- * `extensions.noteLoadFailure` tracking), but everything past opening a tab is different: there is no
- * renderer bundle to wait on, no queue (this is a low-frequency, user-initiated request rather than a
+ * Shares `helpers/puppeteer.ts` with `models/rendering.ts` and `models/diagramRender.ts` for the
+ * browser itself (same flags, same `extensions.noteLoadFailure` tracking, and — since OpenProject
+ * #2258/#2259 — the same process-wide concurrency ceiling that helper now enforces across all three),
+ * but everything past opening a tab is different: there is no renderer bundle to wait on, no queue of
+ * its own at this model's own level (this is a low-frequency, user-initiated request rather than a
  * background job, so one browser opened and closed per export is an acceptable starting cost — see
  * `drainQueue` on `Rendering` for the lesson this deliberately does NOT reuse, and the load-testing
  * note on `exportPdf` below for when it would start to), and it needs the requester's own session,
- * since the page it renders may not be public.
+ * since the page it renders may not be public — the API route also now requires the requester be
+ * logged in at all before calling this (OpenProject #2262), same as the sibling browser-launching
+ * routes.
  *
  * KNOWN CROSS-BRANCH OVERLAP (flagged for merge review, not resolved here): `feature/page-version-export`
  * (Feature 371, task 496) built its own, materially simpler PDF export on a different unmerged branch —
@@ -176,10 +181,12 @@ class PdfExport {
    * over loopback like `models/rendering.ts`'s `/_render` shell, but resolving to the same site the
    * export was asked against.
    *
-   * LOAD: one browser opened and closed per call, no queue — see the class comment. If load testing
-   * ever shows concurrent exports piling up browsers faster than a box can carry them, the fix is the
-   * same shape as `Rendering.drainQueue`: one browser reused across a queue of waiting exports rather
-   * than one per request. Not built ahead of that need.
+   * LOAD: one browser opened and closed per call at this model's own level — see the class comment.
+   * `helpers/puppeteer.ts#launchPuppeteerBrowser` bounds how many of those (across this, `rendering.ts`
+   * and `diagramRender.ts` combined) may be open across the whole process at once, and queues or
+   * rejects (503) past that. If load testing ever shows exports themselves piling up waiting on that
+   * shared ceiling, the fix is the same shape as `Rendering.drainQueue`: one browser reused across a
+   * queue of waiting exports rather than one per request. Not built ahead of that need.
    */
   async exportPdf(request: PdfExportRequest): Promise<Buffer> {
     await this.ensureCanExport()

@@ -1,4 +1,5 @@
 import { extractBlockDefinition, extractDefinedElementTag } from '../helpers/blockDefinition.ts'
+import { CustomError } from '../helpers/common.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 /**
@@ -325,6 +326,10 @@ async function routes(app: FastifyInstance) {
               }
             }
           },
+          400: {
+            $ref: 'ApiError#',
+            description: 'A config value failed validation (e.g. block-plantuml\'s "server").'
+          },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
           404: { $ref: 'ApiError#' },
@@ -349,6 +354,11 @@ async function routes(app: FastifyInstance) {
           updated
         }
       } catch (err: any) {
+        // -> A validation failure (e.g. an invalid block-plantuml "server") carries its own status
+        //    code and a message worth showing the admin who typed it; anything else is an actual fault
+        if (err instanceof CustomError) {
+          throw err
+        }
         WIKI.logger.warn(err)
         return reply.internalServerError()
       }

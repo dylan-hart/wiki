@@ -214,15 +214,15 @@ async function handle(
         syncProtocol.writeUpdate(encoder, update)
         collab.onMessage(current.room, current.conn, encoding.toUint8Array(encoder))
       })
-      // -> Each simulated session is its own account from its own address, so the load test's several
-      //    concurrent sessions never collide with one another against the per-user/per-address cap.
+      // -> A distinct synthetic identity per simulated session, so this load test's own concurrent
+      //    sessions never collide against each other's connection-cap slots.
       await collab.join(
         conn,
         { id: pageId, siteId },
-        { room: null, pending: [] },
+        { room: null, pending: [], pendingBytes: 0 },
         {
-          userId: sessionId,
-          address: sessionId
+          userId: `worker-user-${sessionId}`,
+          address: `worker-addr-${sessionId}`
         }
       )
       const step1 = encoding.createEncoder()
@@ -263,10 +263,10 @@ async function handle(
       await collab.join(
         conn,
         { id: pageId, siteId },
-        { room: null, pending: [] },
+        { room: null, pending: [], pendingBytes: 0 },
         {
-          userId: sessionId,
-          address: sessionId
+          userId: `worker-user-${sessionId}`,
+          address: `worker-addr-${sessionId}`
         }
       )
       const step1 = encoding.createEncoder()

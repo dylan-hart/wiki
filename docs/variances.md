@@ -648,7 +648,23 @@ make the endpoint a standing invitation to burn CPU/memory on a public instance 
 per-page integration (e.g. pre-rendering a page's own diagrams as part of PDF export, instead of
 waiting on the live view to draw them one at a time) is left as a followup rather than built here —
 the win is real but unproven without profiling data on where PDF export time actually goes, and nothing
-about the model's shape forecloses wiring it in later.
+about the model's shape forecloses wiring it in later. `GET /sites/:siteId/pages/:pageId/export/pdf`
+(`models/pdfExport.ts`) launches the identical kind of per-request headless browser and, until task
+2262, disagreed with this route by allowing an anonymous caller to trigger one — see that
+reconciliation in "PDF export: two competing implementations reconciled at merge-review time" below.
+
+**Reconciled with PDF export (OpenProject #2258/#2262).** Until the 2026-08-24 audit, `GET
+/sites/:siteId/pages/:pageId/export/pdf` (`api/pages.ts`) disagreed with this route and with the page
+re-render route beside it: it let an anonymous request through to launch Puppeteer, since page
+permissions are page-rule-scoped rather than group-wide and the guests group holds `read:pages` on an
+ordinary public wiki — an accident of how that route's permission check was wired, not a considered
+exception to the reasoning above. It now applies the identical rule: an anonymous request (no session,
+no personal access token) never reaches `WIKI.models.pdfExport.exportPdf()`, for the same reason this
+route requires a session. All three browser-launching routes in this codebase — this one, page
+re-render, and PDF export — now agree. Separately, `helpers/puppeteer.ts#launchPuppeteerBrowser` gained
+a process-wide concurrency ceiling (also #2258/#2259): previously nothing capped how many headless
+Chromium processes any of these three routes could have open at once, so even an authenticated-only
+audience could still exhaust the process with a handful of concurrent requests.
 
 ## PDF export: two competing implementations reconciled at merge-review time
 
@@ -682,6 +698,24 @@ two copies of the same flags/error handling.
 `WIKI.models.rendering.isAvailable()` rather than `WIKI.models.pdfExport.isAvailable()` — both ask the
 identical question (is the `puppeteer` extension installed) so this is not a correctness bug, just a
 naming nicety left for a future pass rather than bundled into this reconciliation.
+
+**Anonymous access reconciled (task 2262).** The route originally answered an anonymous caller for
+any published, unlocked page — `read:pages` was checked, but nothing else — while the re-render route
+directly above it in `api/pages.ts`, and `POST /_api/diagrams/render` (see task 785's entry above),
+both refuse an anonymous session outright, on the stated grounds that a per-request headless browser
+launch is too cheap for an anonymous caller to repeat and too expensive for the instance to keep
+absorbing for free. PDF export drives the exact same kind of launch — the _full_ SPA page view, not
+even the cheaper `/_render` shell — so allowing it anonymously while its two siblings refuse it was an
+inconsistency the audit that opened task 2262 called out, not a deliberate product decision anyone had
+made. Settled the same way, for the same reason: `GET /sites/:siteId/pages/:pageId/export/pdf` now
+requires `req.session?.authenticated` before it ever calls `loadReadablePage`, matching its siblings
+exactly. `models/pdfExport.ts#exportPdf()` itself is unchanged and still accepts a `null`
+`sessionCookie` — that capability was never the problem; only the route's willingness to reach it
+without a session was. The alternative on the table (serving the page's already-stored `render` HTML
+for an anonymous request instead of driving a live browser) was rejected: it would have resurrected the
+"Retired" `models/rendering.ts#renderPdf()` path above, PDF-with-no-diagrams regression and all, for a
+capability (anonymous PDF export) nothing had actually asked for — refusing anonymous outright is both
+simpler and consistent with what this instance already decided for diagram rendering.
 
 ## 2026-08-17 — Epic 13 (Migration & Upgrade Path from 2.5.x) will not carry forward 2.5.x API tokens or Slack/Discord notification config
 
@@ -1513,3 +1547,63 @@ second look if some deployment this fork still wants to support genuinely has no
 longer means the session cookie came out weak (that path is closed now, unconditionally), only that
 this instance's `request.protocol` is wrong, which still misdirects the OAuth/SAML callback URL
 (`api/authentication.ts#callbackUrl()`) and the sitemap/robots URLs (`controllers/seo.ts`).
+
+## OpenProject #2244/#2250/#2247 — headless Chromium's `--no-sandbox` flipped to an opt-in fallback: two competing implementations reconciled
+
+**Date:** 2026-08-26
+**Feature:** Epic #2244 (children #2250, #2247)
+
+Every headless Chromium launch (`helpers/puppeteer.ts#launchPuppeteerBrowser()`, shared by
+`models/pdfExport.ts`, `models/rendering.ts` and `models/diagramRender.ts`) used to pass
+`--no-sandbox` unconditionally. Two of the three call sites feed the browser attacker-influenced
+content — `pdfExport` drives the live SPA page view under the requester's own session cookie, and
+`diagramRender.renderMermaid` mounts `block-diagram` around a POST-body Mermaid source — so an
+unconditional `--no-sandbox` meant a renderer-process exploit would escape straight to this
+process's own privileges, with no seccomp-bpf or namespace isolation behind it.
+
+Two independent implementations of the same task (#2250) landed in this cycle and collided at merge
+time, each choosing a different home for the opt-in flag: one added `rendering.puppeteerNoSandbox`
+(`config.sample.yml`, plus a `dev/build/Dockerfile` comment pointing at it) but never actually wired
+a default for it into `backend/base.yml` — `getPuppeteerLaunchArgs()` read it via `WIKI.config
+.rendering?.puppeteerNoSandbox`, optional-chained past a `rendering` section that doesn't exist in
+`base.yml`'s `defaults:`, so the key worked only insofar as a deployment's own `config.yml` set it
+outright. The other added `security.allowPuppeteerNoSandbox`, with a real `base.yml` default
+(`false`) alongside this instance's other security-posture toggles (`trustProxy`, `enforceCsp`,
+the rate-limit keys) — the established "read `WIKI.config.security.*` at the point of use" pattern
+those already follow.
+
+**Kept:** `security.allowPuppeteerNoSandbox`, for being the correctly-wired one — a real `base.yml`
+default, and the same config section every other security-posture toggle in this codebase already
+lives in. `config.sample.yml`'s now-orphaned `rendering:` section was deleted rather than left
+pointing at a key nothing reads any more (this fork's "change the shape, change the callers, delete
+the old path" rule — see CLAUDE.md), and `dev/build/Dockerfile`'s comment was repointed at
+`security.allowPuppeteerNoSandbox`. `backend/helpers/puppeteer.test.ts` keeps both implementations'
+distinct coverage: the `security.allowPuppeteerNoSandbox` unit tests from the kept implementation,
+and the `launchUnderSemaphore` describe block (below) from the other, since that part was not
+actually competing — see next.
+
+**Also kept, unconditionally, from the other implementation:** `getPuppeteerLaunchArgs()`'s result
+is still funneled through `launchUnderSemaphore()` in `launchPuppeteerBrowser()` — the process-wide
+concurrency ceiling from OpenProject #2258/#2259 (see "Task 785 — server-side diagram pre-rendering"
+above) that already lived on this integration branch before this merge. The competing
+`allowPuppeteerNoSandbox` implementation branched before that ceiling existed and called
+`puppeteer.launch()` directly; folding its config-key change in without also keeping the semaphore
+wrapper would have silently dropped the concurrency cap. The two changes are orthogonal — one
+decides what flags a launch gets, the other decides when a launch is allowed to start — so both are
+kept in full rather than either superseding the other.
+
+**Posture chosen:** sandboxed by default. `--no-sandbox` is now added only when
+`security.allowPuppeteerNoSandbox` (`backend/base.yml`, default `false`) is explicitly set to
+`true` — logged at `warn` level every time the fallback is taken, so it can't go unnoticed in an
+instance's logs. `dev/build/Dockerfile`'s production image relies on the host kernel allowing
+unprivileged user namespace creation (the default on most distributions) for Chromium's sandbox to
+start without a setuid helper, rather than installing that helper — see the Dockerfile's own
+comment by `USER node`. An operator whose container runtime blocks unprivileged user namespaces
+(a hardened kernel, or an older Docker engine's default seccomp profile) needs to set
+`security.allowPuppeteerNoSandbox: true` for PDF export and diagram/page rendering to keep working,
+and should record that choice here in their own deployment notes.
+
+**Not independently verified in this pass:** building `dev/build/Dockerfile` and confirming a real
+PDF export succeeds with the sandbox enabled inside the resulting container (child #2247's
+done-when) requires a Docker build plus a live Puppeteer/Chromium run — deferred to this project's
+comprehensive after-merge verification pass rather than repeated per work package.

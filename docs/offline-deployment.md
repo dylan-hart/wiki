@@ -32,12 +32,12 @@ actual 3.x release should re-add the equivalent `values.yaml` stanza.)
 Every outbound call this instance can make **without an admin having explicitly configured a specific
 remote endpoint for it**:
 
-| Call site | What it does when offline | File |
-| --- | --- | --- |
-| Icon resolution | Skips the Iconify API fetch for an icon not yet cached; the icon just does not resolve until sideloaded via `POST /_api/icons/materialize` with an admin-provided SVG, or its set is pre-seeded. | `models/icons.ts` |
-| Daily version check (`checkVersion` job, also the admin "Check for Updates" button) | No-ops with a log line instead of hitting `api.github.com`. | `tasks/simple/check-version.ts` |
-| Daily locale sync (`updateLocales` job) | No-ops with a log line instead of hitting `github.com/requarks/wiki-locales`. Use locale **sideloading** (below) instead. | `tasks/simple/update-locales.ts` |
-| Server-side PlantUML rendering (`POST /_api/diagrams/render`, used by PDF export and any client asking this instance to draw a diagram itself rather than in-browser) | Refuses with a clear 503 instead of attempting the request — regardless of whether the diagram names the public default server or a custom one, since either is an arbitrary URL taken from request/page content, not something the admin configured for this instance. | `models/diagramRender.ts` |
+| Call site                                                                                                                                                             | What it does when offline                                                                                                                                                                                                                                                                                                                                                                                           | File                             |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| Icon resolution                                                                                                                                                       | Skips the Iconify API fetch for an icon not yet cached; the icon just does not resolve until sideloaded via `POST /_api/icons/materialize` with an admin-provided SVG, or its set is pre-seeded.                                                                                                                                                                                                                    | `models/icons.ts`                |
+| Daily version check (`checkVersion` job, also the admin "Check for Updates" button)                                                                                   | No-ops with a log line instead of hitting `api.github.com`.                                                                                                                                                                                                                                                                                                                                                         | `tasks/simple/check-version.ts`  |
+| Daily locale sync (`updateLocales` job)                                                                                                                               | No-ops with a log line instead of hitting `github.com/requarks/wiki-locales`. Use locale **sideloading** (below) instead.                                                                                                                                                                                                                                                                                           | `tasks/simple/update-locales.ts` |
+| Server-side PlantUML rendering (`POST /_api/diagrams/render`, used by PDF export and any client asking this instance to draw a diagram itself rather than in-browser) | Refuses with a clear 503 instead of attempting the request — regardless of whether the rendering site's `block-plantuml` config names a custom server or falls back to the public default. Unlike the "explicitly out of scope" list below, an admin-configured destination here still does not exempt the call: `offline` blocks this endpoint's outbound fetch outright rather than trusting any one destination. | `models/diagramRender.ts`        |
 
 **Explicitly out of scope**, because an admin turned them on with their own credentials/endpoint —
 turning `offline` on does not touch these, and turning it on while any of them are enabled is a
@@ -61,7 +61,7 @@ was nothing to gate:
   `fonts.googleapis.com` reference exists anywhere in `frontend/src` or `blocks/`.
 - **Icons drawn from the interface itself** (nav, buttons, admin UI). Every Iconify reference written
   literally in this repo's source is inlined at build time into `src/assets/icons.generated.js` — see
-  CLAUDE.md's "Icons" section. Only a reference a *user* picks at runtime touches `models/icons.ts`'s
+  CLAUDE.md's "Icons" section. Only a reference a _user_ picks at runtime touches `models/icons.ts`'s
   four-tier resolution above.
 
 **Not gated, and cannot be from the backend** — `block-plantuml` and `block-kroki` (`blocks/`) draw by
@@ -109,7 +109,7 @@ source feeding the one that already exists:
 Why the data volume and not moving locale storage into the DB outright: the strings already live in
 the DB (the `locales` table is the runtime source of truth every reader's `/_api/locales/:code/strings`
 request reads from — see `models/locales.ts#getStrings`). What 3.0 was missing was only a way to get a
-*new or changed* file into that table without a rebuild. A writeable directory an operator can mount,
+_new or changed_ file into that table without a rebuild. A writeable directory an operator can mount,
 `kubectl cp` into, or `docker cp` into is exactly that, with no new API surface for the common case of
 "I have a JSON file, put it in the running instance."
 
@@ -119,7 +119,7 @@ request reads from — see `models/locales.ts#getStrings`). What 3.0 was missing
   `sideloadFromDataPath()`).
 - On demand, without a restart: `POST /_api/locales/sideload` (requires the `manage:system` global
   permission) rescans the directory and force-reloads every file it finds, returning `{ loaded,
-  skipped }` — `skipped` names any file that failed JSON parsing or is missing a required field, so a
+skipped }` — `skipped` names any file that failed JSON parsing or is missing a required field, so a
   bad drop is visible immediately rather than silently ignored.
 
 **Helm**: the 2.x-era chart used to offer a `sideload.enabled`/`sideload.repoURL` stanza that ran a
@@ -144,16 +144,18 @@ For a fresh instance that will never reach the network:
   after first boot (see above) — there is no other way to add one offline.
 - **Puppeteer, if server-side Mermaid rendering (PDF export with diagrams) is wanted.** The Docker
   image already installs Chromium itself and sets `PUPPETEER_EXECUTABLE_PATH`, but the Puppeteer
-  *extension* — the npm package Wiki.js loads to drive it — is not installed into the image by default,
+  _extension_ — the npm package Wiki.js loads to drive it — is not installed into the image by default,
   and installing it through Admin → Utilities fetches it from the npm registry. An air-gapped
   deployment that wants this needs a custom image with `puppeteer` pre-installed into
   `backend/node_modules` (see `dev/build/Dockerfile`'s own comment on why it is not there by default),
   or a private npm registry mirror reachable from inside the air gap.
 - **A self-hosted PlantUML/Kroki server, if those diagram types are used at all.** Every page using
-  `block-plantuml`/`block-kroki` (or the `POST /_api/diagrams/render` endpoint) needs its own `server`
-  attribute pointing at one reachable inside the network — there is no way to make the public default
-  work air-gapped, and (per the client-side note above) no way for the backend to enforce this on
-  authors' behalf.
+  `block-plantuml`/`block-kroki` needs its own `server` attribute pointing at one reachable inside the
+  network — there is no way to make the public default work air-gapped, and (per the client-side note
+  above) no way for the backend to enforce this on authors' behalf. `POST /_api/diagrams/render`'s
+  PlantUML path reads a server from the site's own `block-plantuml` admin config instead (see the
+  table above) — not a per-request attribute — but is refused outright under `offline` regardless of
+  what that config names, same as everything else in this row.
 
 ## What stays admin-configurable afterward with no network access
 
