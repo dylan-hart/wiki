@@ -41,14 +41,14 @@
           <blueprint-icon icon="info-popup" />
           <w-item-section>
             <w-input
+              ref="iptName"
               v-model="state.hook.name"
               outlined
               dense
               :rules="hookNameValidation"
               hide-bottom-space
               :label="t(`common.field.name`)"
-              lazy-rules="ondemand"
-              autofocus />
+              lazy-rules="ondemand" />
           </w-item-section>
         </w-item>
         <w-item>
@@ -254,7 +254,9 @@ defineEmits([...dialogComponentEmits])
 
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => iptName.value
+})
 
 // I18N
 
@@ -370,6 +372,7 @@ const siteOptions = computed(() => [
 // REFS
 
 const editWebhookForm = ref(null)
+const iptName = ref(null)
 
 // VALIDATION RULES
 

@@ -10,8 +10,8 @@
           <blueprint-icon icon="image" class="self-start" />
           <w-item-section>
             <w-input
+              ref="iptPath"
               v-model="state.path"
-              autofocus
               outlined
               dense
               :rules="nameValidation"
@@ -68,9 +68,15 @@ const props = defineProps({
 
 defineEmits([...dialogComponentEmits])
 
+// REFS
+
+const iptPath = ref(null)
+
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => iptPath.value
+})
 
 // STORES
 

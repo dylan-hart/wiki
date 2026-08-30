@@ -80,3 +80,90 @@ describe('contrastRatio() / meetsWcagAA()', () => {
     expect(contrastRatio('#fff9c4', '#ffffff')).toBeLessThan(WCAG_AA_CONTRAST)
   })
 })
+
+/**
+ * Every color a solid `WBtn`/chip/header can be painted, paired with the white foreground it draws
+ * over that background (`WBtn.vue`'s `color`/`textColor` resolution, `AdminTheme.vue`'s
+ * `CHROME_TEXT_COLOR` for `header`/`sidebar`). Values mirror the CSS defaults at
+ * `frontend/src/css/tailwind.css`'s `:root` block -- `secondary`/`warning`/`accent` (and the fixed
+ * `positive`/`negative`, which reuse `secondary`'s/`accent`'s value) were darkened by Task 1682 from
+ * their original, too-light tones (#02c39a, #f99d4d, #f03a47) specifically so this pins above AA.
+ * A future edit to any of these tokens that regresses contrast fails this test rather than shipping
+ * quietly, per Task 1682/1670's "Done when".
+ */
+const SHIPPED_PALETTE_TOKENS = {
+  primary: '#1976d2',
+  secondary: '#018569',
+  accent: '#e81221',
+  positive: '#018569',
+  negative: '#e81221',
+  warning: '#ba5a06',
+  info: '#3e6990',
+  header: '#000',
+  sidebar: '#1976d2'
+}
+
+describe('shipped palette tokens (frontend/src/css/tailwind.css)', () => {
+  it('clears WCAG AA (4.5:1) against white, the foreground each is paired with', () => {
+    for (const [name, hex] of Object.entries(SHIPPED_PALETTE_TOKENS)) {
+      expect(meetsWcagAA(hex, '#ffffff'), `${name} (${hex}) vs white`).toBe(true)
+    }
+  })
+})
+
+// Task 1687: pins the placeholder and muted-text tokens above AA in both themes, so a future edit
+// to any of these shipped values fails the suite instead of silently regressing back below AA.
+describe('placeholder and muted-text token pinning', () => {
+  /**
+   * Composites `fg` over `bg` at `alphaPercent`% opacity the same way a `text-<color>/<alpha>`
+   * Tailwind utility renders -- a plain per-channel lerp in sRGB space, no gamma correction -- so a
+   * pinned value here matches what the browser actually paints for `WInput.vue`'s placeholder.
+   */
+  function compositeOpacity(fgHex, bgHex, alphaPercent) {
+    const alpha = alphaPercent / 100
+    const channel = (hex, start) => Number.parseInt(hex.slice(start, start + 2), 16)
+    const mix = (start) =>
+      Math.round(channel(fgHex, start) * alpha + channel(bgHex, start) * (1 - alpha))
+    return `#${[1, 3, 5].map((start) => mix(start).toString(16).padStart(2, '0')).join('')}`
+  }
+
+  // frontend/src/css/tailwind.css's dark surface ramp -- the ground WInput.vue's dark-theme
+  // placeholder and `--color-muted-dark` are measured against.
+  const DARK_3 = '#1e232a'
+
+  describe('WInput.vue placeholder (`/54`, up from the `/40` that failed AA)', () => {
+    it('clears AA for black-on-white in light theme', () => {
+      const rendered = compositeOpacity('#000000', '#ffffff', 54)
+      expect(meetsWcagAA(rendered, '#ffffff')).toBe(true)
+      expect(contrastRatio(rendered, '#ffffff')).toBeGreaterThanOrEqual(WCAG_AA_CONTRAST)
+    })
+
+    it('clears AA for white-on-dark-3 in dark theme', () => {
+      const rendered = compositeOpacity('#ffffff', DARK_3, 54)
+      expect(meetsWcagAA(rendered, DARK_3)).toBe(true)
+      expect(contrastRatio(rendered, DARK_3)).toBeGreaterThanOrEqual(WCAG_AA_CONTRAST)
+    })
+  })
+
+  describe('`--color-muted` / `--color-muted-dark` (tailwind.css)', () => {
+    // Same values as `--color-grey-8` / `--color-grey-6` -- see the token comment in tailwind.css
+    // for why the muted pair is its own tokens rather than a raised `grey-6`/`grey-7`.
+    const MUTED = '#616161'
+    const MUTED_DARK = '#9e9e9e'
+
+    it('`--color-muted` clears AA on a white (light-theme) ground', () => {
+      expect(meetsWcagAA(MUTED, '#ffffff')).toBe(true)
+      expect(contrastRatio(MUTED, '#ffffff')).toBeGreaterThanOrEqual(WCAG_AA_CONTRAST)
+    })
+
+    it('`--color-muted-dark` clears AA on the dark-3 (dark-theme) ground', () => {
+      expect(meetsWcagAA(MUTED_DARK, DARK_3)).toBe(true)
+      expect(contrastRatio(MUTED_DARK, DARK_3)).toBeGreaterThanOrEqual(WCAG_AA_CONTRAST)
+    })
+
+    it('would have failed before this task -- grey-6 on white, grey-7 on dark-3', () => {
+      expect(meetsWcagAA('#9e9e9e', '#ffffff')).toBe(false)
+      expect(meetsWcagAA('#757575', DARK_3)).toBe(false)
+    })
+  })
+})

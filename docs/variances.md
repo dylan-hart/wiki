@@ -902,7 +902,11 @@ LTR. Reasoning:
 - `AdminLayout.vue`'s own header carries a locale switcher (`commonStore.setLocale(lang.code)`) that
   lets an operator pick _any_ installed locale, RTL ones included, directly from within the admin
   area — the admin UI is evidently meant to render in whatever locale is active, not assumed
-  English/LTR-only.
+  English/LTR-only. (This held as an intent, not yet as fact, until OpenProject #1696: `App.vue`'s
+  router guard used to validate `desiredLocale` against the site's active _content_ locales only, so
+  a UI-only interface locale picked here reverted on the very next navigation, direction included.
+  The guard now also accepts any locale from the instance's installed catalogue
+  (`adminStore.locales`), which is what makes this bullet's claim actually true today.)
 - Forcing LTR chrome around genuinely RTL-translated `admin.*` label text (which does render in
   Arabic once `ar` is the active locale, per the same `t()` mechanism as everywhere else) would
   produce mismatched, not merely conservative, layout — worse than mirroring, not safer.
@@ -942,16 +946,6 @@ One was **not** fixed, foundational rather than cosmetic, and outside RTL-mirror
 Recorded, not fixed, because they are not RTL-mirroring bugs (they would affect any non-English,
 complete-or-not locale, direction aside) and each needs its own design pass:
 
-- **vue-i18n's `fallbackLocale: 'en'` is configured but its dictionary is never guaranteed to be
-  loaded.** `App.vue#applyLocale()` only ever fetches/sets messages for the locale being switched TO,
-  never also for the fallback. A reader whose persisted `desiredLocale` (`localStorage`) is a non-`en`
-  locale, on a fresh page load, never gets `en` messages loaded at all in that session — so any string
-  missing from that locale (which describes essentially any real, incomplete community translation,
-  not just this task's deliberately-partial seed) renders as the **raw i18n key** (`editor.props.icon`,
-  `inbox.title`, …) instead of falling back to English. Reproduced live while walking this task's
-  seeded locale across a fresh navigation. Needs a design decision (always eager-load `en` alongside
-  any non-`en` locale? Gate it on `locales.completeness` to avoid an extra request for a 100%-complete
-  locale?) rather than a one-line patch under this task.
 - **`AdminLocale.vue`'s `load()` can silently revert an in-flight edit.** It re-fires on its own
   `watch(() => adminStore.currentSiteId, ...)`, which resolves asynchronously shortly after
   `AdminLayout.vue`'s mount — a toggle clicked before that resolves can be wiped out by the server's

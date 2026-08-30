@@ -63,7 +63,12 @@
         <w-tooltip anchor="center left" self="center right">{{
           t('common.pendingAssets.title')
         }}</w-tooltip>
-        <w-menu ref="menuPendingAssets" anchor="top left" self="top right" :offset="[10, 0]">
+        <w-menu
+          ref="menuPendingAssets"
+          anchor="top left"
+          self="top right"
+          :offset="[10, 0]"
+          @hide="cancelRenamePendingAsset">
           <w-card style="width: 450px">
             <w-card-section class="card-header">
               <w-icon name="img:/_assets/icons/color-data-pending.svg" left size="sm" />
@@ -77,10 +82,10 @@
                 <w-item-section side><w-icon name="la:file-image" /></w-item-section>
                 <w-item-section v-if="editingAssetId === item.id">
                   <w-input
+                    ref="iptRenamePendingAsset"
                     v-model="renameDraft"
                     dense
                     outlined
-                    autofocus
                     :label="t('pageActions.newFileName')"
                     :suffix="renameSuffix"
                     :rules="[renameBaseNameRule]"
@@ -325,7 +330,7 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { fileSave } from 'browser-fs-access'
@@ -366,6 +371,10 @@ const { t } = useI18n()
 // REFS
 
 const menuPendingAssets = ref(null)
+
+/** The rename field for whichever pending asset is currently being renamed -- not a dialog, so
+ *  there is no `useDialogComponent` to focus it; see `startRenamePendingAsset`. */
+const iptRenamePendingAsset = ref(null)
 
 // DATA
 
@@ -689,10 +698,16 @@ function startRenamePendingAsset(item) {
   editingAssetId.value = item.id
   renameDraft.value = base
   renameExt.value = ext
+  // -> The field is only rendered once `editingAssetId` flips, so the ref is empty until after this
+  //    update has been applied to the DOM. It sits inside the pending-assets `v-for`, which makes Vue
+  //    collect the ref as an array (one entry, since only one item is ever being edited at a time)
+  //    rather than a single instance -- `[0]`, not `.value` directly.
+  nextTick(() => {
+    iptRenamePendingAsset.value?.[0]?.focus()
+  })
 }
 
 function cancelRenamePendingAsset() {
-  console.log('CANCEL CALLED')
   editingAssetId.value = null
   renameDraft.value = ''
   renameExt.value = ''
@@ -709,9 +724,15 @@ function cancelRenamePendingAsset() {
  * blurring it first -- without that, a click on Cancel would commit the very edit it meant to
  * discard before its own handler ever ran. An invalid draft (sanitizes down to empty) is left as-is,
  * still editing, with `renameBaseNameRule` already showing why on the field itself.
+ *
+ * The menu's own `@hide="cancelRenamePendingAsset"` (see the template) matters for the same reason:
+ * `WMenu`'s document-level Escape/click-away handler runs and closes the menu -- moving focus back
+ * to its trigger -- before this field's own `@keydown.esc` ever gets a turn, and that focus change
+ * blurs this field first. Cancelling on `hide` (which `WMenu.vue#hide()` fires before it restores
+ * focus) clears `editingAssetId` ahead of that blur, so the guard below catches it and the closing
+ * menu discards the in-progress edit instead of silently committing whatever was half-typed.
  */
 function commitRenamePendingAsset(item) {
-  console.log('COMMIT CALLED', new Error().stack)
   if (editingAssetId.value !== item.id) {
     return
   }

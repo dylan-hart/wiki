@@ -1,4 +1,21 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+/*
+ * OpenProject #1638: the "too long" message resolves through `../shared/i18n.js`'s `I18n` reactive
+ * controller rather than a hardcoded literal -- see `block-youtube/component.test.js` for the same
+ * mocking rationale (`I18n` has its own dedicated coverage in `shared/i18n.test.js`).
+ */
+const { i18nT, MockI18n } = vi.hoisted(() => {
+  const i18nT = vi.fn((_key, fallback) => fallback)
+  class MockI18n {
+    constructor(host) {
+      this.host = host
+      this.t = i18nT
+    }
+  }
+  return { i18nT, MockI18n }
+})
+vi.mock('../shared/i18n.js', () => ({ I18n: MockI18n }))
 
 import './component.js'
 
@@ -16,6 +33,7 @@ describe('block-qr-code', () => {
   afterEach(() => {
     document.body.replaceChildren()
     document.body.className = ''
+    i18nT.mockClear()
   })
 
   it('encodes the given value as an SVG code', async () => {
@@ -70,6 +88,69 @@ describe('block-qr-code', () => {
 
     expect(el.shadowRoot.querySelector('svg')).toBeNull()
     expect(el.shadowRoot.querySelector('.error').textContent).toContain('too long to fit')
+  })
+
+  describe('the too-long message resolves through the shared i18n resolver, not a literal', () => {
+    it('asks the resolver for the too-long key', async () => {
+      await mountQrCode({ value: 'x'.repeat(5000) })
+
+      expect(i18nT).toHaveBeenCalledWith(
+        'blocks.qr-code.errors.tooLong',
+        'This is too long to fit in a QR code.'
+      )
+    })
+
+    it("renders whatever the resolver returns, not the component's own literal", async () => {
+      i18nT.mockReturnValueOnce('Trop long pour tenir dans un QR code.')
+      const el = await mountQrCode({ value: 'x'.repeat(5000) })
+
+      expect(el.shadowRoot.querySelector('.error').textContent).toContain(
+        'Trop long pour tenir dans un QR code.'
+      )
+      expect(el.shadowRoot.querySelector('.error').textContent).not.toContain('too long to fit')
+    })
+  })
+
+  describe('accessibility', () => {
+    it('marks the code wrapper as an image with a short, non-empty label', async () => {
+      const el = await mountQrCode({
+        value:
+          'https://example.com/very/long/path?with=lots&of=query&params=to&make=sure&this=would&be=a&bad=accessible-name'
+      })
+      const qr = el.shadowRoot.querySelector('.qr')
+
+      expect(qr.getAttribute('role')).toBe('img')
+      const label = qr.getAttribute('aria-label')
+      expect(label).toBeTruthy()
+      expect(label.length).toBeLessThan(40)
+    })
+
+    it('exposes a URL value as a real, copyable link rather than plain text', async () => {
+      const el = await mountQrCode({ value: 'https://example.com/page' })
+      const link = el.shadowRoot.querySelector('.qr a')
+
+      expect(link).not.toBeNull()
+      expect(link.getAttribute('href')).toBe('https://example.com/page')
+      expect(link.textContent).toBe('https://example.com/page')
+      expect(link.classList.contains('visually-hidden')).toBe(true)
+    })
+
+    it('exposes a non-URL value as visually-hidden text, not a link', async () => {
+      const el = await mountQrCode({ value: 'not a web address' })
+      const hidden = el.shadowRoot.querySelector('.qr .visually-hidden')
+
+      expect(hidden).not.toBeNull()
+      expect(hidden.tagName).not.toBe('A')
+      expect(hidden.textContent).toBe('not a web address')
+    })
+
+    it('exposes the page-address fallback as a link when value is empty', async () => {
+      const el = await mountQrCode({ value: '' })
+      const link = el.shadowRoot.querySelector('.qr a.visually-hidden')
+
+      expect(link).not.toBeNull()
+      expect(link.getAttribute('href')).toBe(`${window.location.origin}${window.location.pathname}`)
+    })
   })
 
   describe('dark mode', () => {

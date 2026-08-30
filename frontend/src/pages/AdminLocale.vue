@@ -2,7 +2,10 @@
   <w-page class="admin-locale">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-language.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-language.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.locale.title') }}</h1>
@@ -138,7 +141,7 @@
       </div>
       <div class="col-span-12 lg:col-span-5">
         <div class="p-4 text-center">
-          <img src="/_assets/illustrations/undraw_world.svg" style="width: 80%" />
+          <img src="/_assets/illustrations/undraw_world.svg" style="width: 80%" alt="" />
         </div>
       </div>
     </div>

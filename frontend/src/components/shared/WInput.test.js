@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 
 import WInput from './WInput.vue'
@@ -291,6 +291,32 @@ describe('WInput', () => {
       })
 
       expect(wrapper.attributes('autofocus')).toBeUndefined()
+    })
+
+    it('mounts as a single root with no "extraneous non-props attributes" warning', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      const wrapper = mount(WInput, { props: { modelValue: '', autofocus: true, class: 'x' } })
+
+      expect(warn).not.toHaveBeenCalled()
+      warn.mockRestore()
+      wrapper.unmount()
+    })
+  })
+
+  describe('accessible name', () => {
+    it('sets aria-label on the input when no label is passed', () => {
+      const wrapper = mount(WInput, { props: { modelValue: '', ariaLabel: 'Search users' } })
+
+      expect(wrapper.find('input').attributes('aria-label')).toBe('Search users')
+    })
+
+    it('does not set aria-label on the input once a label is passed', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '', label: 'Name', ariaLabel: 'Search users' }
+      })
+
+      expect(wrapper.find('input').attributes('aria-label')).toBeUndefined()
     })
   })
 

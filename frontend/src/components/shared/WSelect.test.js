@@ -403,4 +403,22 @@ describe('WSelect', () => {
       expect(message.attributes('aria-atomic')).toBe('true')
     })
   })
+
+  describe('accessible name', () => {
+    it('sets aria-label on the control when no label is passed', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one' }
+      })
+
+      expect(control(wrapper).attributes('aria-label')).toBe('Pick one')
+    })
+
+    it('does not set aria-label on the control once a label is passed', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], label: 'Group', ariaLabel: 'Pick one' }
+      })
+
+      expect(control(wrapper).attributes('aria-label')).toBeUndefined()
+    })
+  })
 })

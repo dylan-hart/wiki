@@ -70,6 +70,28 @@ describe('common store: blockImportUrl()', () => {
   })
 })
 
+describe('common store: fetchLocaleStrings()', () => {
+  it('resolves with the object-shaped strings reply for a known locale', async () => {
+    const store = useCommonStore()
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ 'common.actions.save': 'Save' })
+    })
+
+    await expect(store.fetchLocaleStrings('fr')).resolves.toEqual({
+      'common.actions.save': 'Save'
+    })
+    expect(API_CLIENT.get).toHaveBeenCalledWith('locales/fr/strings')
+  })
+
+  it('rejects on the array-shaped reply an unrecognised locale code gets back, instead of resolving to it', async () => {
+    const store = useCommonStore()
+    // -> `models/locales.ts#getStrings()`'s actual reply shape for a code with no `locales` row
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })
+
+    await expect(store.fetchLocaleStrings('xx')).rejects.toThrow(/xx/)
+  })
+})
+
 describe('common store: loadBlocks()', () => {
   it('accepts bare tag strings as built-in shorthand, and does not mark a failed import as loaded', async () => {
     const store = useCommonStore()

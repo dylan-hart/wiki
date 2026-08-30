@@ -18,7 +18,10 @@
           :color="userStore.hasAvatar ? `dark-1` : `primary`"
           text-color="white"
           :class="userStore.hasAvatar ? `is-image` : ``">
-          <img v-if="userStore.hasAvatar" :src="`/_user/current/avatar?` + state.assetTimestamp" />
+          <img
+            v-if="userStore.hasAvatar"
+            :src="`/_user/current/avatar?` + state.assetTimestamp"
+            :alt="userStore.name" />
           <w-icon v-else name="la:user" />
         </w-avatar>
       </div>

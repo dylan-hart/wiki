@@ -2,7 +2,7 @@
   <w-page class="admin-groups">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-people.svg" />
+        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-people.svg" alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.groups.title') }}</h1>
@@ -16,6 +16,8 @@
           outlined
           v-model="state.search"
           dense
+          :placeholder="t('common.header.search')"
+          :aria-label="t('common.header.search')"
           :class="dark.isActive ? `bg-dark text-white` : `bg-white`">
           <template #prepend><w-icon class="opacity-50" name="la:search" size="20px" /></template>
         </w-input>

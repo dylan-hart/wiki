@@ -1,7 +1,9 @@
 <template>
   <w-btn class="account-avbtn header-nav-btn" flat>
     <w-icon v-if="!userStore.authenticated || !userStore.hasAvatar" name="la:user-circle" />
-    <w-avatar v-else size="32px"><img :src="`/_user/current/avatar`" /></w-avatar>
+    <w-avatar v-else size="32px"
+      ><img :src="`/_user/current/avatar`" :alt="userStore.name"
+    /></w-avatar>
     <w-menu class="translucent-menu" auto-close>
       <w-card flat style="width: 300px">
         <!--

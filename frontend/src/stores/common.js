@@ -42,10 +42,19 @@ export const useCommonStore = defineStore('common', {
   getters: {},
   actions: {
     async fetchLocaleStrings(locale) {
-      // -> No try/catch here: a rejection is the caller's to handle (App.vue#applyLocale already
-      //    does, raising a user-facing notify()). Wrapping a returned promise in try/catch here would
-      //    do nothing -- the rejection settles after this function has already returned.
-      return API_CLIENT.get(`locales/${locale}/strings`).json()
+      const strings = await API_CLIENT.get(`locales/${locale}/strings`).json()
+      // -> `models/locales.ts#getStrings()` replies with an empty ARRAY, not an object, for a code
+      //    with no row in the `locales` table -- distinct from a real, merely-incomplete locale's
+      //    (object-shaped) reply. Left uncaught, that array flows straight into `setLocaleMessage()`
+      //    and every key in that locale renders as its own raw dotted path. Throwing here instead
+      //    lets `App.vue#applyLocale()`'s caller skip `setLocaleMessage` for this locale entirely, so
+      //    vue-i18n's `fallbackLocale: 'en'` -- eager-loaded alongside it -- takes over instead.
+      //    No try/catch around this: a rejection (this one, or a network failure) is the caller's to
+      //    handle (App.vue#applyLocale already does, raising a user-facing notify()).
+      if (Array.isArray(strings)) {
+        throw new Error(`Unrecognised locale: ${locale}`)
+      }
+      return strings
     },
     setLocale(locale) {
       this.locale = locale

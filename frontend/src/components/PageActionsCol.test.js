@@ -668,7 +668,7 @@ describe('PageActionsCol duplicate page (OpenProject #1787)', () => {
     ;({ wrapper } = ctx = await mountRailWithPageActions())
     vi.spyOn(ctx.pageStore, 'pageDuplicate').mockRejectedValue(new Error('duplicate failed'))
 
-    await wrapper.get('[aria-label="Duplicate Page"]').trigger('click')
+    await wrapper.get('[aria-label="pageActions.duplicatePage"]').trigger('click')
     expect(openDialogs).toHaveLength(1)
 
     closeDialog(openDialogs[0].id, true, { path: 'copy', title: 'Copy' })
@@ -688,7 +688,7 @@ describe('PageActionsCol duplicate page (OpenProject #1787)', () => {
     ;({ wrapper } = ctx = await mountRailWithPageActions())
     vi.spyOn(ctx.pageStore, 'pageDuplicate').mockResolvedValue(undefined)
 
-    await wrapper.get('[aria-label="Duplicate Page"]').trigger('click')
+    await wrapper.get('[aria-label="pageActions.duplicatePage"]').trigger('click')
     closeDialog(openDialogs[0].id, true, { path: 'copy', title: 'Copy' })
     await flushPromises()
 

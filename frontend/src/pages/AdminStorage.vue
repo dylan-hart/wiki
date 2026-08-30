@@ -2,7 +2,10 @@
   <w-page class="admin-storage">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-ssd-animated.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-ssd-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.storage.title') }}</h1>
@@ -471,7 +474,10 @@
             <w-card class="rounded pb-4" style="width: 300px">
               <w-card-header>{{ state.target.title }}</w-card-header>
               <w-card-section>
-                <img class="w-full object-cover rounded" :src="state.target.banner" />
+                <img
+                  class="w-full object-cover rounded"
+                  :src="state.target.banner"
+                  :alt="state.target.title" />
                 <div class="text-body2 mt-4">{{ state.target.description }}</div>
               </w-card-section>
               <w-separator class="mb-2" inset />

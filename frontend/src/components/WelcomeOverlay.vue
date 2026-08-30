@@ -2,7 +2,7 @@
   <div class="welcome">
     <div class="welcome-bg" />
     <div class="welcome-content">
-      <div class="welcome-logo"><img src="/_assets/logo-wikijs.svg" /></div>
+      <div class="welcome-logo"><img src="/_assets/logo-wikijs.svg" alt="" /></div>
       <div class="welcome-title">{{ t('welcome.title') }}</div>
       <div class="welcome-subtitle">{{ t('welcome.subtitle') }}</div>
       <div class="welcome-actions">

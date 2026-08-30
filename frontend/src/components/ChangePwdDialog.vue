@@ -13,6 +13,7 @@
           <blueprint-icon icon="lock" />
           <w-item-section>
             <w-input
+              ref="currentPasswordIpt"
               v-model="state.currentPassword"
               outlined
               dense
@@ -21,8 +22,7 @@
               :rules="currentPasswordValidation"
               hide-bottom-space
               :label="t(`auth.changePwd.currentPassword`)"
-              lazy-rules="ondemand"
-              autofocus />
+              lazy-rules="ondemand" />
           </w-item-section>
         </w-item>
         <w-item>
@@ -39,8 +39,7 @@
               :rules="newPasswordValidation"
               hide-bottom-space
               :label="t(`auth.changePwd.newPassword`)"
-              lazy-rules="ondemand"
-              autofocus>
+              lazy-rules="ondemand">
               <template #append>
                 <div class="flex flex-nowrap items-center">
                   <w-badge :color="passwordStrength.color" :label="passwordStrength.label" />
@@ -66,8 +65,7 @@
               :rules="verifyPasswordValidation"
               hide-bottom-space
               :label="t(`auth.changePwd.newPasswordVerify`)"
-              lazy-rules="ondemand"
-              autofocus />
+              lazy-rules="ondemand" />
           </w-item-section>
         </w-item>
       </w-form>
@@ -118,7 +116,9 @@ defineEmits([...dialogComponentEmits])
 
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => currentPasswordIpt.value
+})
 
 // I18N
 
@@ -136,6 +136,7 @@ const state = reactive({
 // REFS
 
 const changeUserPwdForm = ref(null)
+const currentPasswordIpt = ref(null)
 const newPasswordIpt = ref(null)
 
 // COMPUTED

@@ -25,7 +25,8 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { contrastRatio } from '@/helpers/accessibility'
 import WSpinner from './WSpinner.vue'
 
 /**
@@ -227,6 +228,95 @@ const classes = computed(() => [
   props.glossy ? 'w-glossy' : ''
 ])
 
+/*
+  Bumped by `applyTheme` (`App.vue`), fired on a theme edit, a dark/light appearance switch and a
+  CVD-mode change -- each rewrites the `--color-*` custom properties `foregroundColor` below resolves
+  against, with no prop of this button changing, so nothing would otherwise tell it to re-resolve.
+*/
+const themeGeneration = ref(0)
+function onThemeApplied() {
+  themeGeneration.value++
+}
+onMounted(() => EVENT_BUS.on('applyTheme', onThemeApplied))
+onUnmounted(() => EVENT_BUS.off('applyTheme', onThemeApplied))
+
+/*
+  One hidden, reused probe element rather than reading the button's own node: avoids waiting on this
+  component's own render/mount timing, and avoids a create+append+remove per resolution.
+*/
+let probeEl = null
+function resolveCssColorHex(colorName) {
+  if (typeof document === 'undefined') {
+    return null
+  }
+  if (!probeEl) {
+    probeEl = document.createElement('span')
+    probeEl.style.position = 'absolute'
+    probeEl.style.visibility = 'hidden'
+    probeEl.style.pointerEvents = 'none'
+    document.body.appendChild(probeEl)
+  }
+  probeEl.style.backgroundColor = `var(--color-${colorName})`
+  return parseCssColor(getComputedStyle(probeEl).backgroundColor)
+}
+
+/*
+  Normalizes a `getComputedStyle` background-color read to a hex string `contrastRatio` can consume.
+  Real browsers resolve `var()` down to `rgb()`/`rgba()`; some test environments hand back the
+  already-hex value unchanged, which is passed through as-is. Returns `null` for a fully-transparent
+  read (`rgba(0, 0, 0, 0)`, `background-color`'s initial value) -- what an unresolved/undefined CSS
+  variable falls back to -- since that means nothing was actually resolved.
+*/
+function parseCssColor(value) {
+  if (!value) {
+    return null
+  }
+  const trimmed = value.trim()
+  if (trimmed.startsWith('#')) {
+    return trimmed
+  }
+  const match = trimmed.match(
+    /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/i
+  )
+  if (!match) {
+    return null
+  }
+  const [, r, g, b, a] = match
+  if (a !== undefined && Number(a) === 0) {
+    return null
+  }
+  const toHex = (n) =>
+    Math.max(0, Math.min(255, Math.round(Number(n))))
+      .toString(16)
+      .padStart(2, '0')
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+}
+
+/*
+  Picks the better-contrasting of white/black against a solid button's actual resolved background,
+  instead of always defaulting to white -- several palette colors (the seeded accent `#FF9800`,
+  `warning`, `secondary`/`positive`'s teal, ...) fall well under WCAG AA (as low as 2.1:1) with white
+  text. `props.color` is only ever a CSS custom-property NAME here (`primary`, `grey-7`, ...), not a
+  color value: the property it resolves to is themeable per-site and swapped per CVD mode
+  (`helpers/cssVars.js`), so the only place its actual value is knowable is the resolved DOM style --
+  there is no static name -> hex table this could consult instead.
+
+  Returns `null` (falls back to white, the prior fixed behavior) when `props.color` doesn't resolve
+  to anything -- an explicit `textColor` bypasses this computed entirely, per its own contract.
+*/
+const foregroundColor = computed(() => {
+  if (!isSolid.value || !props.color || props.textColor) {
+    return null
+  }
+  // -> Re-resolves whenever the app's theme may have changed, even with no prop change of its own
+  void themeGeneration.value
+  const bg = resolveCssColorHex(props.color)
+  if (!bg) {
+    return null
+  }
+  return contrastRatio('#ffffff', bg) >= contrastRatio('#000000', bg) ? '#ffffff' : '#000000'
+})
+
 const styles = computed(() => {
   const out = {}
 
@@ -253,8 +343,9 @@ const styles = computed(() => {
 
   if (isSolid.value && props.color) {
     out.backgroundColor = `var(--color-${props.color})`
-    // -> Solid buttons default to white text, matching the palette's intended contrast
-    out.color = `var(--color-${props.textColor ?? 'white'})`
+    out.color = props.textColor
+      ? `var(--color-${props.textColor})`
+      : (foregroundColor.value ?? 'var(--color-white)')
   } else if (props.color || props.textColor) {
     out.color = `var(--color-${props.textColor ?? props.color})`
   }

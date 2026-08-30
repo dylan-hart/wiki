@@ -2,7 +2,7 @@
   <w-page class="admin-general">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-web.svg" />
+        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-web.svg" alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.general.title') }}</h1>
@@ -306,6 +306,8 @@
                 color="primary"
                 :left-label-value="`H` + state.config.defaults.tocDepth.min"
                 :right-label-value="`H` + state.config.defaults.tocDepth.max"
+                :aria-label-min="t('editor.props.tocMinMaxDepth')"
+                :aria-label-max="t('editor.props.tocMinMaxDepth')"
                 label
                 markers />
             </w-item-section>
@@ -428,7 +430,9 @@
                   <!-- Same reasoning as the logo preview toolbar above: keyed off `state.config.id`
                        so this can never show a new site's favicon beside the old site's title. -->
                   <w-avatar v-if="state.config.id" size="24px" square>
-                    <img :src="`/_site/` + state.config.id + `/favicon?` + state.assetTimestamp" />
+                    <img
+                      :src="`/_site/` + state.config.id + `/favicon?` + state.assetTimestamp"
+                      :alt="t(`admin.general.favicon`)" />
                   </w-avatar>
                   <div class="text-caption ml-2">{{ state.config.title }}</div>
                 </div>

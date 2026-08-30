@@ -17,14 +17,14 @@
           <blueprint-icon icon="binary-file" class="self-start" />
           <w-item-section>
             <w-input
+              ref="iptKey"
               type="textarea"
               outlined
               :model-value="props.keyValue"
               readonly
               dense
               hide-bottom-space
-              :label="t(`${labelPrefix}.key`)"
-              autofocus />
+              :label="t(`${labelPrefix}.key`)" />
           </w-item-section>
         </w-item>
         <!--
@@ -89,6 +89,7 @@ import { computed } from 'vue'
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { copyToClipboard } from '@/helpers/clipboard'
+import { ref } from 'vue'
 
 // PROPS
 
@@ -112,9 +113,15 @@ const props = defineProps({
 
 defineEmits([...dialogComponentEmits])
 
+// REFS
+
+const iptKey = ref(null)
+
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK } = useDialogComponent({
+  autofocus: () => iptKey.value
+})
 
 // I18N
 

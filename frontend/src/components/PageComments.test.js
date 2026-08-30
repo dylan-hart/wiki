@@ -117,7 +117,8 @@ async function mountComments({
   const wrapper = mount(PageComments, {
     global: {
       plugins: [i18n]
-    }
+    },
+    attachTo: document.body
   })
   await flushPromises()
 
@@ -542,5 +543,24 @@ describe('PageComments', () => {
     expect(API_CLIENT.delete).not.toHaveBeenCalled()
     expect(wrapper.findAll('.page-comments-item')).toHaveLength(1)
     expect(pageStore.commentsCount).toBe(1)
+  })
+
+  /**
+   * OpenProject #1671: the edit textarea's bare `autofocus` attribute never did anything --
+   * `WInput.vue` exposes no such prop. `startEdit()` now focuses it itself, via the `focus()` method
+   * `WInput.vue` exposes, once the `nextTick` after `editingIds` gains the id lands the field in the
+   * DOM (it's a `v-if` swap inside this already-mounted component, not a fresh mount of its own).
+   */
+  it('focuses the edit textarea once it appears', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
+    const { wrapper } = await mountComments({ canModerate: true })
+
+    await wrapper.find('.page-comments-edit-toggle').trigger('click')
+    await flushPromises()
+
+    const editField = wrapper.find('textarea')
+    expect(editField.exists()).toBe(true)
+    expect(editField.attributes('autofocus')).toBeUndefined()
+    expect(document.activeElement).toBe(editField.element)
   })
 })

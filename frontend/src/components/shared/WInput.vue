@@ -93,10 +93,11 @@
         :min="min"
         :max="max"
         :step="step"
+        :aria-label="label ? undefined : ariaLabel"
         :aria-invalid="hasError || undefined"
         :aria-required="required || undefined"
         :aria-describedby="describedBy"
-        class="w-unstyled min-w-0 flex-1 bg-transparent pt-0.5 outline-none placeholder:text-black/40 dark:placeholder:text-white/40"
+        class="w-unstyled min-w-0 flex-1 bg-transparent pt-0.5 outline-none placeholder:text-black/54 dark:placeholder:text-white/54"
         :class="monospaced ? 'font-mono text-[13px] leading-[1.4] font-semibold' : ''"
         @input="onInput"
         @focus="onFocus"
@@ -193,6 +194,11 @@ const props = defineProps({
     default: ''
   },
   label: {
+    type: String,
+    default: null
+  },
+  /** Accessible name for the control, used only when there is no `label` to associate instead. */
+  ariaLabel: {
     type: String,
     default: null
   },
@@ -613,7 +619,8 @@ watch(
 
 /*
   Join the enclosing WForm, if there is one, so submitting validates this field too. Optional by
-  design -- most inputs in the codebase stand alone rather than inside a form.
+  design -- most inputs in the codebase stand alone rather than inside a form. `focus` rides along so
+  a failed submit can land the user on the first invalid control -- see WForm's `validate()`.
 */
 const registerWithForm = inject('wFormRegister', null)
 registerWithForm?.({ validate, focus: () => inputEl.value?.focus() })

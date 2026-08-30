@@ -2,7 +2,10 @@
   <w-page class="admin-audit-log">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-event-log.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-event-log.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.audit.title') }}</h1>
@@ -46,7 +49,8 @@
               emit-value
               map-options
               v-model="state.filters.actorId"
-              :options="actorOptions" />
+              :options="actorOptions"
+              :aria-label="t('admin.audit.filterActor')" />
           </div>
           <div style="min-width: 220px">
             <div class="text-caption text-grey mb-1">{{ t('admin.audit.filterEvent') }}</div>
@@ -57,15 +61,26 @@
               emit-value
               map-options
               v-model="state.filters.event"
-              :options="eventOptions" />
+              :options="eventOptions"
+              :aria-label="t('admin.audit.filterEvent')" />
           </div>
           <div style="min-width: 160px">
             <div class="text-caption text-grey mb-1">{{ t('admin.audit.filterFrom') }}</div>
-            <w-input outlined dense type="date" v-model="state.filters.from" />
+            <w-input
+              outlined
+              dense
+              type="date"
+              v-model="state.filters.from"
+              :aria-label="t('admin.audit.filterFrom')" />
           </div>
           <div style="min-width: 160px">
             <div class="text-caption text-grey mb-1">{{ t('admin.audit.filterTo') }}</div>
-            <w-input outlined dense type="date" v-model="state.filters.to" />
+            <w-input
+              outlined
+              dense
+              type="date"
+              v-model="state.filters.to"
+              :aria-label="t('admin.audit.filterTo')" />
           </div>
           <w-btn
             class="acrylic-btn"
@@ -172,7 +187,8 @@
                 v-model.number="state.retentionDays"
                 :rules="retentionDaysRules"
                 lazy-rules="ondemand"
-                :suffix="t('admin.audit.retentionDaysSuffix')" />
+                :suffix="t('admin.audit.retentionDaysSuffix')"
+                :aria-label="t('admin.audit.retentionTitle')" />
             </div>
             <w-btn
               class="acrylic-btn"

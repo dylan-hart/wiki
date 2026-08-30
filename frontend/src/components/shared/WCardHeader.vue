@@ -42,9 +42,11 @@
  *     <w-card-header ref="header">Site info</w-card-header>
  *   </w-dialog>
  *
- * `level` picks which real heading element this renders as (defaulting to `h2`, since a card or
- * dialog section sits one level under the page's own `h1`) -- purely semantic, since the visual
- * comes entirely from the two classes above rather than from the tag.
+ * `level` picks the element this root renders as -- `h2` by default, since most callers sit one
+ * level under a page's own `<h1>` (`PageHeader.vue`'s title). A card nested deeper in the hierarchy
+ * (a card-inside-a-dialog-inside-a-card) passes `h3`/`h4` so the document still nests headings
+ * correctly instead of skipping or repeating a level. `.w-card-header`/`.w-section-header` are pure
+ * typography (see `css/tailwind.css`), so swapping the tag changes nothing visually.
  */
 import { useId } from 'vue'
 

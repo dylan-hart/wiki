@@ -5,7 +5,7 @@
         <w-toolbar style="height: 64px">
           <w-btn dense flat to="/" :aria-label="t(`common.header.home`)">
             <w-avatar size="34px" square>
-              <img src="/_assets/logo-wikijs.svg" :alt="t(`common.header.home`)" />
+              <img src="/_assets/logo-wikijs.svg" alt="" />
             </w-avatar>
           </w-btn>
           <w-toolbar-title class="text-h6">Wiki.js</w-toolbar-title>
@@ -130,7 +130,8 @@
                   option-value="id"
                   option-label="title"
                   emit-value
-                  map-options />
+                  map-options
+                  :aria-label="t('admin.nav.site')" />
               </w-item-section>
             </w-item>
             <w-item

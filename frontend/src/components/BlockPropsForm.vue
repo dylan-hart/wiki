@@ -12,7 +12,6 @@
         dense
         options-dense
         :label="fieldLabel(field)"
-        :aria-label="fieldLabel(field)"
         :required="field.required"
         :hint="fieldHint(field)" />
       <w-toggle
@@ -27,7 +26,6 @@
         dense
         :type="field.type === `number` ? `number` : `text`"
         :label="fieldLabel(field)"
-        :aria-label="fieldLabel(field)"
         :required="field.required"
         :hint="fieldHint(field)" />
     </template>
@@ -54,6 +52,13 @@ import { useBlockLocale } from '@/composables/blockLocale'
  * `v-model` per field would be the same object, one indirection further away.
  *
  * Padding is the caller's: this sits in a panel in one and a card in the other.
+ *
+ * Labels and hints resolve through i18n before falling back to the raw string the block definition
+ * carries, at the `blocks.<tag>.props.<name>.label` / `.hint` keys minted for the 223 block metadata
+ * strings (see `backend/locales/en.json`). `tag` is optional: a caller with no block tag to give —
+ * the admin "Configure" form, whose fields are a block's site-wide config schema rather than its
+ * author-facing props, and so were never minted under this convention — gets the raw string exactly
+ * as before.
  */
 
 // PROPS

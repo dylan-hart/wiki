@@ -157,7 +157,8 @@
             <img
               class="w-full aspect-[16/10] object-cover rounded mb-4"
               v-if="currentFileDetails.thumbnail"
-              :src="currentFileDetails.thumbnail" />
+              :src="currentFileDetails.thumbnail"
+              :alt="currentFileDetails.fileName" />
             <div
               class="fileman-details-row"
               v-for="item of currentFileDetails.items"
@@ -401,7 +402,7 @@
                 <span class="text-primary">{{ t('fileman.fetchingFolderContents') }}</span>
               </div>
               <div class="fileman-emptylist" v-else-if="files.length < 1">
-                <img src="/_assets/icons/carbon-copy-empty-box.svg" />
+                <img src="/_assets/icons/carbon-copy-empty-box.svg" alt="" />
                 <span>{{ t('common.pageSelector.folderEmptyWarning') }}</span>
               </div>
               <w-list class="fileman-filelist" v-else :class="state.isCompact && `is-compact`">

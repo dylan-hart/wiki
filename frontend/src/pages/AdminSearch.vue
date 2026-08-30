@@ -4,7 +4,8 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-find-and-replace-animated.svg" />
+          src="/_assets/icons/fluent-find-and-replace-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.search.title') }}</h1>

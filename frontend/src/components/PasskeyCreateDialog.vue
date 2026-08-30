@@ -11,6 +11,7 @@
           <blueprint-icon icon="key" />
           <w-item-section>
             <w-input
+              ref="iptName"
               v-model="state.name"
               outlined
               dense
@@ -18,7 +19,6 @@
               hide-bottom-space
               :label="t(`profile.passkeysName`)"
               lazy-rules="ondemand"
-              autofocus
               @keyup:enter="save" />
           </w-item-section>
         </w-item>
@@ -53,9 +53,15 @@ import { reactive, ref } from 'vue'
 
 defineEmits([...dialogComponentEmits])
 
+// REFS
+
+const iptName = ref(null)
+
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => iptName.value
+})
 
 // I18N
 

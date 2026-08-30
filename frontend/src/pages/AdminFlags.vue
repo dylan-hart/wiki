@@ -4,7 +4,8 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-windsock-animated.svg" />
+          src="/_assets/icons/fluent-windsock-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.flags.title') }}</h1>
@@ -133,7 +134,7 @@
       </div>
       <div class="col-span-12 max-lg:hidden lg:col-span-5">
         <div class="p-4 text-center">
-          <img src="/_assets/illustrations/undraw_settings.svg" style="width: 80%" />
+          <img src="/_assets/illustrations/undraw_settings.svg" style="width: 80%" alt="" />
         </div>
       </div>
     </div>

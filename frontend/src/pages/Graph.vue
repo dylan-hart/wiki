@@ -3,6 +3,8 @@
     <canvas
       ref="canvasRef"
       class="graph-view-canvas"
+      role="img"
+      :aria-label="graphAccessibleName"
       @click="onCanvasClick"
       @mousemove="onCanvasMouseMove" />
     <div
@@ -11,90 +13,74 @@
       :style="{ left: `${tooltipPos.x + 12}px`, top: `${tooltipPos.y + 12}px` }">
       {{ hoveredNode.title ?? hoveredNode.path }}
       <template v-if="sizeBy === 'edits' && !hoveredNode.synthetic">
-        · {{ contributorCountFor(hoveredNode) }} contributor{{
-          contributorCountFor(hoveredNode) === 1 ? '' : 's'
+        ·
+        {{
+          t('graph.tooltip.contributors', contributorCountFor(hoveredNode), {
+            count: contributorCountFor(hoveredNode)
+          })
         }}
       </template>
       <template v-if="sizeBy === 'visits' && !hoveredNode.synthetic">
-        · {{ pageviewCountFor(hoveredNode) }} visit{{
-          pageviewCountFor(hoveredNode) === 1 ? '' : 's'
+        ·
+        {{
+          t('graph.tooltip.visits', pageviewCountFor(hoveredNode), {
+            count: pageviewCountFor(hoveredNode)
+          })
         }}
       </template>
     </div>
     <div class="graph-view-right-rail">
       <div class="graph-view-controls">
         <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">{{ t('graph.controls.groupBy') }}</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.groupByLabel') }}</span>
           <w-btn-toggle
             v-model="groupBy"
             no-caps
-            :aria-label="t('graph.controls.groupBy')"
-            :options="[
-              { label: 'Folder', value: 'folder' },
-              { label: 'Tag', value: 'tag' },
-              { label: 'Classification', value: 'classification' }
-            ]" />
+            :aria-label="t('graph.controls.groupByLabel')"
+            :options="groupByOptions" />
         </div>
         <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">{{ t('graph.controls.connectBy') }}</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.connectByLabel') }}</span>
           <w-btn-toggle
             v-model="edgeMode"
             no-caps
-            :aria-label="t('graph.controls.connectBy')"
-            :options="[
-              { label: 'Paths', value: 'paths' },
-              { label: 'Tags', value: 'tags' },
-              { label: 'Classification', value: 'classification' }
-            ]" />
+            :aria-label="t('graph.controls.connectByLabel')"
+            :options="edgeModeOptions" />
         </div>
         <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">{{ t('graph.controls.sizeBy') }}</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.sizeByLabel') }}</span>
           <w-btn-toggle
             v-model="sizeBy"
             no-caps
-            :aria-label="t('graph.controls.sizeBy')"
+            :aria-label="t('graph.controls.sizeByLabel')"
             :options="sizeByOptions" />
         </div>
         <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">{{ t('graph.controls.count') }}</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.countLabel') }}</span>
           <w-btn-toggle
             v-model="sizeCountMode"
             no-caps
-            :aria-label="t('graph.controls.uniqueOrTotal')"
-            :options="[
-              { label: 'Unique', value: 'unique' },
-              { label: 'Total', value: 'total' }
-            ]" />
+            :aria-label="t('graph.controls.countAriaLabel')"
+            :options="sizeCountModeOptions" />
         </div>
         <GraphClientTypeFilter
           v-if="sizeBy === 'edits'"
           v-model="contributorTypes"
-          :label="t('graph.controls.countEditsBy')"
-          :options="[
-            { value: 'editor', label: 'Editor' },
-            { value: 'mcp', label: 'MCP' }
-          ]" />
+          :label="t('graph.controls.editsByLabel')"
+          :options="contributorTypeOptions" />
         <div v-if="sizeBy === 'visits'" class="graph-view-control-group">
-          <span class="graph-view-control-caption">{{ t('graph.controls.over') }}</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.overLabel') }}</span>
           <w-btn-toggle
             v-model="pageviewsWindow"
             no-caps
-            :aria-label="t('graph.controls.timeWindow')"
-            :options="[
-              { label: '30 days', value: 'last30d' },
-              { label: '6 months', value: 'last6mo' },
-              { label: '2 years', value: 'last2yr' }
-            ]" />
+            :aria-label="t('graph.controls.overAriaLabel')"
+            :options="pageviewsWindowOptions" />
         </div>
         <GraphClientTypeFilter
           v-if="sizeBy === 'visits'"
           v-model="pageviewClientTypes"
-          :label="t('graph.controls.countVisitsBy')"
-          :options="[
-            { value: 'browser', label: 'Browser' },
-            { value: 'api', label: 'API' },
-            { value: 'mcp', label: 'MCP' }
-          ]" />
+          :label="t('graph.controls.visitsByLabel')"
+          :options="pageviewClientTypeOptions" />
       </div>
     </div>
     <div class="graph-view-filters">
@@ -226,12 +212,44 @@ const pageviewsTrackingEnabled = ref(false)
  *  rather than a static template literal so 'visits' can be omitted while pageview tracking is
  *  disabled. No 'uniform' option any more (OpenProject #1270). */
 const sizeByOptions = computed(() => {
-  const options = [{ label: 'Edits', value: 'edits' }]
+  const options = [{ label: t('graph.controls.sizeByEdits'), value: 'edits' }]
   if (pageviewsTrackingEnabled.value) {
-    options.push({ label: 'Visits', value: 'visits' })
+    options.push({ label: t('graph.controls.sizeByVisits'), value: 'visits' })
   }
   return options
 })
+
+/** Static `w-btn-toggle`/`GraphClientTypeFilter` option lists for the rest of the control rail
+ *  (OpenProject #1690) -- computed, not module-level constants, so each label re-resolves through
+ *  `t()` if the active locale changes at runtime. */
+const groupByOptions = computed(() => [
+  { label: t('graph.controls.groupByFolder'), value: 'folder' },
+  { label: t('graph.controls.groupByTag'), value: 'tag' },
+  { label: t('graph.controls.groupByClassification'), value: 'classification' }
+])
+const edgeModeOptions = computed(() => [
+  { label: t('graph.controls.connectByPaths'), value: 'paths' },
+  { label: t('graph.controls.connectByTags'), value: 'tags' },
+  { label: t('graph.controls.connectByClassification'), value: 'classification' }
+])
+const sizeCountModeOptions = computed(() => [
+  { label: t('graph.controls.countUnique'), value: 'unique' },
+  { label: t('graph.controls.countTotal'), value: 'total' }
+])
+const contributorTypeOptions = computed(() => [
+  { value: 'editor', label: t('graph.controls.editsByEditor') },
+  { value: 'mcp', label: t('graph.controls.editsByMcp') }
+])
+const pageviewsWindowOptions = computed(() => [
+  { label: t('graph.controls.over30Days'), value: 'last30d' },
+  { label: t('graph.controls.over6Months'), value: 'last6mo' },
+  { label: t('graph.controls.over2Years'), value: 'last2yr' }
+])
+const pageviewClientTypeOptions = computed(() => [
+  { value: 'browser', label: t('graph.controls.visitsByBrowser') },
+  { value: 'api', label: t('graph.controls.visitsByApi') },
+  { value: 'mcp', label: t('graph.controls.visitsByMcp') }
+])
 
 /** Which of the pageview log's fixed trailing windows (OpenProject #1140/#1238) 'visits' sizing
  *  reads -- matches `backend/models/pageviews.ts#pageviewWindows`. Irrelevant while `sizeBy` isn't
@@ -280,6 +298,20 @@ function groupKeyFor(node) {
   }
   return node.folder || '(root)'
 }
+
+/** Accessible name for the canvas (OpenProject #1681) -- with no `role`/label at all, a screen
+ *  reader announces the graph as nothing, so this is the minimum text alternative: a live summary
+ *  of what's currently drawn. Reads `nodes.value`/`edges.value`/`groupBy` -- already-held reactive
+ *  state, no separate computation -- and excludes synthetic hub/root nodes (`applyFilters()`'s
+ *  `edgeMode`-driven stand-ins, never real pages) from the page count. `groupBy`'s own values
+ *  ('folder'/'tag'/'classification') already read as the words used here, so no separate label
+ *  lookup is needed; a real focusable text alternative (per-node links) is #1686's larger scope,
+ *  and moving this string into a `graph.*` i18n key is #1690's. */
+const graphAccessibleName = computed(() => {
+  const pageCount = nodes.value.filter((node) => !node.synthetic).length
+  const linkCount = edges.value.length
+  return `Knowledge graph: ${pageCount} page${pageCount === 1 ? '' : 's'}, ${linkCount} link${linkCount === 1 ? '' : 's'}, grouped by ${groupBy.value}`
+})
 
 /*
   The `dataviz` skill's validated 8-slot categorical theme (references/palette.md), light-surface

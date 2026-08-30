@@ -59,6 +59,7 @@ describe('WForm', () => {
     const inputs = wrapper.findAll('input')
     expect(document.activeElement).toBe(inputs[1].element)
     expect(document.activeElement).not.toBe(inputs[0].element)
+    expect(document.activeElement).not.toBe(wrapper.find('button').element)
     wrapper.unmount()
   })
 

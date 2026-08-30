@@ -24,7 +24,7 @@
           <w-item>
             <w-item-section avatar>
               <w-avatar v-if="userStore.hasAvatar" size="32px">
-                <img :src="`/_user/current/avatar`" />
+                <img :src="`/_user/current/avatar`" :alt="userStore.name" />
               </w-avatar>
               <w-icon v-else name="la:user-circle" />
             </w-item-section>

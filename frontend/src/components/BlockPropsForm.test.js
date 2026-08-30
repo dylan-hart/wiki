@@ -7,10 +7,12 @@ import WInput from '@/components/shared/WInput.vue'
 import WToggle from '@/components/shared/WToggle.vue'
 
 /**
- * Part of OpenProject #1624/#1631: a field's label/aria-label/hint resolve through the
+ * Part of OpenProject #1624/#1631: a field's label/hint resolve through the
  * `blocks.<tag>.props.<name>.*` key `backend/scripts/blockLocaleKeys.ts` mints, falling back to the
  * raw `field.label`/`field.hint` off the definition -- never to the dotted key path itself -- when
- * the key does not resolve. See `composables/blockLocale.js`.
+ * the key does not resolve. See `composables/blockLocale.js`. No separate `aria-label` binding: a
+ * `WInput`/`WSelect` field given a `label` always renders a real associated `<label for>` and
+ * suppresses its own `ariaLabel` prop, so passing both here would be redundant.
  */
 function mountForm({ block, fields, messages = {} }) {
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: messages } })
@@ -33,7 +35,10 @@ describe('BlockPropsForm i18n', () => {
 
     const input = wrapper.findComponent(WInput)
     expect(input.props('label')).toBe('Translated Spec URL')
-    expect(wrapper.find('[aria-label="Translated Spec URL"]').exists()).toBe(true)
+    // -> A real <label for> associated with the field, not a separate/redundant aria-label
+    const label = wrapper.find('label')
+    expect(label.text()).toContain('Translated Spec URL')
+    expect(label.attributes('for')).toBe(wrapper.find('input').attributes('id'))
     expect(input.props('hint')).toBe('Translated hint.')
   })
 

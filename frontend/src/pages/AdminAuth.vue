@@ -2,7 +2,10 @@
   <w-page class="admin-auth">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-security-lock.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-security-lock.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.auth.title') }}</h1>
@@ -498,7 +501,8 @@
             <img
               class="w-full mx-auto object-contain rounded"
               :src="state.strategy.strategy.logo"
-              style="height: 100px; max-width: 300px" />
+              style="height: 100px; max-width: 300px"
+              :alt="state.strategy.strategy.title" />
             <div class="text-subtitle2 mt-2">{{ state.strategy.strategy.title }}</div>
             <div class="text-caption mt-2">{{ state.strategy.strategy.description }}</div>
             <div class="text-caption mt-2">
