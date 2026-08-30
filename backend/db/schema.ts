@@ -1306,9 +1306,19 @@ export const pageviews = pgTable(
     viewedAt: timestamp().notNull().defaultNow()
   },
   (table) => [
-    // -> "Distinct visitorHash for this page within a trailing window" -- the one query this table
-    //    exists for (#1140's graph sizing).
-    index('pageviews_pageId_viewedAt_idx').on(table.pageId, table.viewedAt),
+    // -> `countsForGraph()` (`models/pageviews.ts`, this table's only reader besides the purge below)
+    //    is the one query this table exists for (#1140's graph sizing), and its actual predicate is
+    //    `WHERE siteId = ? GROUP BY pageId, clientType` with six conditional aggregates over
+    //    `viewedAt`/`visitorHash` -- not a `pageId` lookup, which nothing here does. Leading with
+    //    `siteId` and carrying every column the aggregates touch is what lets the planner satisfy the
+    //    whole query from the index instead of scanning the table.
+    index('pageviews_siteId_pageId_clientType_viewedAt_visitorHash_idx').on(
+      table.siteId,
+      table.pageId,
+      table.clientType,
+      table.viewedAt,
+      table.visitorHash
+    ),
     // -> How the retention purge (`tasks/simple/purge-pageviews.ts`) finds rows older than 2 years,
     //    mirroring `rateLimits_updatedAt_idx`'s same purge-by-timestamp shape.
     index('pageviews_viewedAt_idx').on(table.viewedAt)
