@@ -644,6 +644,58 @@ describe('PageActionsCol page actions menu', () => {
   })
 })
 
+/**
+ * OpenProject #1787: this `.onOk` handler used to call `pageStore.pageDuplicate(...)` with no
+ * `await` and no `.catch` -- a rejection (the store's own `pageCreate` call, or the source-page
+ * fetch before it) surfaced nowhere, leaving the reader with no feedback at all. Matches
+ * `FileManager.vue`'s own duplicate handler, which already awaits and notifies.
+ */
+describe('PageActionsCol duplicate page (OpenProject #1787)', () => {
+  let wrapper
+
+  beforeEach(() => {
+    notifyQueue.splice(0, notifyQueue.length)
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = undefined
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  it('notifies instead of leaving an unhandled rejection when pageDuplicate fails', async () => {
+    let ctx
+    ;({ wrapper } = ctx = await mountRailWithPageActions())
+    vi.spyOn(ctx.pageStore, 'pageDuplicate').mockRejectedValue(new Error('duplicate failed'))
+
+    await wrapper.get('[aria-label="Duplicate Page"]').trigger('click')
+    expect(openDialogs).toHaveLength(1)
+
+    closeDialog(openDialogs[0].id, true, { path: 'copy', title: 'Copy' })
+    await flushPromises()
+
+    expect(ctx.pageStore.pageDuplicate).toHaveBeenCalledWith({
+      sourcePageId: 'page-1',
+      path: 'copy',
+      title: 'Copy'
+    })
+    expect(notifyQueue).toHaveLength(1)
+    expect(notifyQueue[0]).toMatchObject({ type: 'negative', message: 'Failed to duplicate page.' })
+  })
+
+  it('does not notify when the duplicate succeeds', async () => {
+    let ctx
+    ;({ wrapper } = ctx = await mountRailWithPageActions())
+    vi.spyOn(ctx.pageStore, 'pageDuplicate').mockResolvedValue(undefined)
+
+    await wrapper.get('[aria-label="Duplicate Page"]').trigger('click')
+    closeDialog(openDialogs[0].id, true, { path: 'copy', title: 'Copy' })
+    await flushPromises()
+
+    expect(notifyQueue).toHaveLength(0)
+  })
+})
+
 describe('PageActionsCol homepage guard (WP #1149)', () => {
   let wrapper
 

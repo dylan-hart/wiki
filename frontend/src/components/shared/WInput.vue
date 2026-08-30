@@ -6,6 +6,14 @@
     pushed the field past the section and out of the card. The cap does the shrinking, and stretch
     still handles the growing.
   -->
+  <!--
+    `inheritAttrs: false` below stops every undeclared attribute (`min`, `max`, `step`, `aria-label`,
+    ...) from decorating this wrapper, which is where they landed by default and did nothing --
+    a `<div>` has no spinner floor/ceiling to constrain. `class` and `style` are the exception:
+    both are genuinely about *this* element (sizing, margin -- callers reach for them to size the
+    whole field, not the raw control inside it), so they're bound back explicitly rather than
+    forwarded onto the inner control with everything else.
+  -->
   <div class="w-input max-w-full min-w-0" :class="attrs.class" :style="attrs.style">
     <!-- -> Only the non-outlined variant still labels from above; see `hasFloatingLabel` -->
     <label
@@ -82,6 +90,9 @@
         :disabled="disable || disabled"
         :autocomplete="autocomplete"
         :rows="type === 'textarea' ? rows : undefined"
+        :min="min"
+        :max="max"
+        :step="step"
         :aria-invalid="hasError || undefined"
         :aria-required="required || undefined"
         :aria-describedby="describedBy"
@@ -254,19 +265,16 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  autocomplete: {
-    type: String,
-    default: null
-  },
   /**
    * Focuses the real control once mounted.
    *
    * A declared prop rather than a bare HTML attribute, because the component's root is a wrapping
    * `<div>` -- the real `<input>`/`<textarea>` sits a level down, and a plain `autofocus` attribute
-   * lands on that wrapper by default, where it does nothing (a `<div>` isn't focusable). Declaring it
-   * here both keeps it out of `$attrs` (so it doesn't also sit inertly on the wrapper) and gives this
-   * component a moment -- `onMounted` -- to call the already-exposed `focus()` itself. Does nothing
-   * for a `type="hidden"` field, which cannot take focus either.
+   * lands on that wrapper by default, where it does nothing (a `<div>` isn't focusable), and only
+   * reliably fires for an element present when the page itself loads besides. Declaring it here both
+   * keeps it out of `$attrs` (so it doesn't also sit inertly on the wrapper) and gives this component
+   * a moment -- `onMounted` -- to call the already-exposed `focus()` itself. Does nothing for a
+   * `type="hidden"` field, which cannot take focus either.
    *
    * A field that mounts after the page has already loaded -- inside a dialog, say -- needs a
    * different trigger than `onMounted`, since the dialog's own content is not in the DOM yet at that
@@ -276,10 +284,29 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  autocomplete: {
+    type: String,
+    default: null
+  },
   /** Rows for `type="textarea"`. */
   rows: {
     type: [String, Number],
     default: 3
+  },
+  /** Native `min` attribute, e.g. for `type="number"`. */
+  min: {
+    type: [String, Number],
+    default: undefined
+  },
+  /** Native `max` attribute, e.g. for `type="number"`. */
+  max: {
+    type: [String, Number],
+    default: undefined
+  },
+  /** Native `step` attribute, e.g. for `type="number"`. */
+  step: {
+    type: [String, Number],
+    default: undefined
   },
   /** Monospaced content, e.g. code or keys. */
   monospaced: {

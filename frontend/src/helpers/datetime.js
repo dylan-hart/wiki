@@ -1,18 +1,21 @@
 import { useCommonStore } from '@/stores/common'
 
 /**
- * Date and duration rendering for the admin tables, in the reader's own locale.
+ * Date and duration rendering shared across the app, in the reader's own locale.
  *
- * Shared because three screens had grown their own copy of the same walk down a units table — one of
- * them under a different name — and the copies had already started to drift. `humanizeDate` and
- * `humanizeDateWithSeconds` below close a second, larger case of the same drift: fifteen screens had
- * each grown their own ABSOLUTE-timestamp formatter, calling `Temporal.Instant.prototype.toLocaleString`
- * directly with a hardcoded field list in the browser's system zone — ignoring the `timezone`,
- * `dateFormat` and `timeFormat` a user actually chose in their profile. Both delegate to
- * `userStore.formatDateTime`, the single source of truth for those three preferences (built on
- * `toUserZone`, `stores/user.js:39-52`); `humanizeDateWithSeconds` exists because two screens — the
- * scheduler and the webhook delivery history — have the job/attempt's exact timing as the point of the
- * row, where the default minute precision would be a regression.
+ * Shared because several screens had grown their own copy of the same walk down a units table — some
+ * under a different name — and the copies had already started to drift. `humanizeDate` and
+ * `humanizeDateWithSeconds` below close a second, larger case of the same drift: fifteen-plus screens
+ * had each grown their own ABSOLUTE-timestamp formatter, calling
+ * `Temporal.Instant.prototype.toLocaleString` directly with a hardcoded field list in the browser's
+ * system zone — ignoring the `timezone`, `dateFormat` and `timeFormat` a user actually chose in their
+ * profile. Both delegate to `userStore.formatDateTime`/`formatDateTimeWithSeconds`, the single source
+ * of truth for those three preferences (built on `toUserZone`, `stores/user.js:39-52`) — this file just
+ * adds the `'---'` guard every call site wants and gives the delegation one importable name, so a
+ * screen no longer needs its own `humanizeDate(val) { … }` wrapper just to pass `t` through.
+ * `humanizeDateWithSeconds` exists because a few screens — the scheduler and the webhook delivery
+ * history among them — have the job/attempt's exact timing as the point of the row, where the default
+ * minute precision would be a regression.
  *
  * `Intl` rather than a formatting library: the browser already knows how the reader's locale words
  * "3 minutes ago" and "1h 4m 32s", which is what luxon's `toRelative()` and `Duration.toHuman()` were

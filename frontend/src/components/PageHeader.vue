@@ -207,7 +207,7 @@
                   <w-item-label>
                     {{ submission.author.name || t('inbox.reviewUnknownAuthor') }}
                   </w-item-label>
-                  <w-item-label caption>{{ humanizeDate(submission.createdAt) }}</w-item-label>
+                  <w-item-label caption>{{ humanizeDate(t, submission.createdAt) }}</w-item-label>
                 </w-item-section>
                 <w-item-section side v-if="submission.isStale">
                   <w-badge color="warning" rounded>{{ t('inbox.reviewStale') }}</w-badge>
@@ -330,7 +330,7 @@
           :aria-label="t(`editor.createPage`)"
           no-caps
           @click="createPage" />
-        <w-btn-group class="ms-2" v-else flat>
+        <w-btn-group class="ms-2" v-else>
           <w-btn
             class="acrylic-btn"
             flat
@@ -382,6 +382,7 @@ import { useUserStore } from '@/stores/user'
 import CollabPresence from '@/components/CollabPresence.vue'
 import IconPickerDialog from '@/components/IconPickerDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 import { directionalAnchor } from '@/helpers/directionalAnchor'
 import { shouldPrefixLocale } from '@/helpers/pagePaths'
 
@@ -892,10 +893,6 @@ async function submitSuggestionCommit(guest = {}) {
 
 function printPage() {
   window.print()
-}
-
-function humanizeDate(val) {
-  return userStore.formatDateTime(t, val)
 }
 
 /**

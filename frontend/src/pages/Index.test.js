@@ -353,6 +353,15 @@ describe('Index.vue: read-path block loading for a directly-loaded/reloaded page
     const commonStore = useCommonStore()
     const loadBlocksSpy = vi.spyOn(commonStore, 'loadBlocks').mockResolvedValue(undefined)
 
+    // -> The block-loading scan resolves `block-diagram` off `siteStore.blocksIndex` (a public
+    //    field on the site-info response every reader's browser already has -- see
+    //    `siteBlocksInfoFor` in `backend/api/sites.ts`, OpenProject #954) rather than a network
+    //    call. Set directly here rather than via `applySiteInfo`, since nothing else this test
+    //    checks needs a full site-info payload. A tag absent from this index is skipped entirely
+    //    since OpenProject #1729, so it has to be present for this test's block to load at all.
+    const siteStore = useSiteStore()
+    siteStore.blocksIndex = { diagram: { id: null, isCustom: false } }
+
     // -> The shape `rendering.postProcess` actually stores: the block element plus its fenced
     //    mermaid source, exactly as a reload's GET would hand it back -- see
     //    `rendering.test.ts`'s "render, save, reload" describe block for where this shape comes from.
@@ -369,10 +378,6 @@ describe('Index.vue: read-path block loading for a directly-loaded/reloaded page
           tocDepth: { min: 1, max: 6 }
         })
     })
-    // -> The block-loading scan resolves `block-diagram` off `siteStore.blocksIndex` (empty here,
-    //    since this test never calls `applySiteInfo`) rather than a network call -- a miss falls
-    //    back to the bare tag, which is fine: `block-diagram` is a built-in and resolves by its
-    //    bare tag either way. See `siteBlocksInfoFor` in `backend/api/sites.ts` (OpenProject #954).
 
     const router = createRouter({
       history: createMemoryHistory(),
@@ -407,6 +412,161 @@ describe('Index.vue: read-path block loading for a directly-loaded/reloaded page
       call[0].map((entry) => (typeof entry === 'string' ? entry : entry.tag))
     )
     expect(loadedTags).toContain('block-diagram')
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #1734: the block scan below used to call `commonStore.loadBlocks()` once PER
+ * undefined element, rather than once for the whole page. `loadBlocks()`'s own `!blocksLoaded
+ * .includes(...)` filter only screens out a tag that has ALREADY finished loading, so N concurrent
+ * calls for the same not-yet-loaded tag all pass it -- a page with several elements of the same tag
+ * (a `block-tabs` used three times, say) fired three identical `loadBlocks()` calls instead of one,
+ * making `blocksLoaded` misleading to anyone debugging block loading. Collapsed into a single call
+ * with one Map entry per tag, mirroring `EditorMarkdown.vue`'s own `pendingBlocks` Map.
+ */
+describe('Index.vue: collapses the block scan into one loadBlocks() call (OpenProject #1734)', () => {
+  it('produces exactly one loadBlocks() call carrying one entry per tag, for a page with several elements sharing a tag', async () => {
+    setActivePinia(createPinia())
+
+    const commonStore = useCommonStore()
+    const loadBlocksSpy = vi.spyOn(commonStore, 'loadBlocks').mockResolvedValue(undefined)
+
+    const siteStore = useSiteStore()
+    siteStore.blocksIndex = {
+      tabs: { id: null, isCustom: false },
+      alert: { id: null, isCustom: false }
+    }
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'page-1',
+          path: 'tabbed-page',
+          editor: 'markdown',
+          render:
+            '<block-tabs>One</block-tabs>' +
+            '<block-tabs>Two</block-tabs>' +
+            '<block-tabs>Three</block-tabs>' +
+            '<block-alert>Note</block-alert>',
+          relations: [],
+          tocDepth: { min: 1, max: 6 }
+        })
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    router.push('/')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(Index, {
+      global: {
+        plugins: [router, i18n],
+        stubs: {
+          PageHeader: true,
+          PageActionsCol: true,
+          PageToc: true,
+          PageTags: true,
+          SideDialog: true,
+          PageRedirect: true,
+          FooterNav: true,
+          PageComments: true
+        }
+      }
+    })
+    await flushPromises()
+    // -> The block scan runs inside the route watcher's own `nextTick`, one tick behind `pageLoad`
+    //    resolving -- a second flush is what lets that nested callback actually run
+    await flushPromises()
+
+    expect(loadBlocksSpy).toHaveBeenCalledTimes(1)
+    const [entries] = loadBlocksSpy.mock.calls[0]
+    const tags = entries.map((entry) => (typeof entry === 'string' ? entry : entry.tag))
+    expect(tags).toEqual(['block-tabs', 'block-alert'])
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #1729: a `block-*` tag absent from `siteStore.blocksIndex` used to fall back to the
+ * bare tag, which `loadBlocks()` resolves to the flat, unauthenticated `/_blocks/<tag>.js` URL --
+ * so a block a site administrator had switched off still loaded for a reader whose stored page HTML
+ * still embedded it. `blockAllowances()`/`siteBlocksInfoFor` document that a disabled block must
+ * never reach a reader's browser, neither its config nor a URL to fetch its code from.
+ *
+ * `block-tab` is the one legitimate absent-from-`blocksIndex` case: a child block gets no row of
+ * its own (`models/blocks.ts#syncSite`), so it never appears there even when its parent `block-tabs`
+ * is enabled -- told apart from a disabled block by ancestry, the same way the server's own
+ * `unwrapOrphanedChildBlocks` (`backend/models/rendering.ts`) does.
+ */
+describe('Index.vue: reader-view block scan skips a block absent from blocksIndex (OpenProject #1729)', () => {
+  it('does not load a block-* tag absent from blocksIndex, but still loads a child block whose parent is present', async () => {
+    setActivePinia(createPinia())
+
+    const commonStore = useCommonStore()
+    const loadBlocksSpy = vi.spyOn(commonStore, 'loadBlocks').mockResolvedValue(undefined)
+
+    const siteStore = useSiteStore()
+    // -> `tabs` (the parent) is enabled; `tab` (the child) never gets a row of its own, so it is
+    //    never a key here even when its parent is. `widget` stands in for a block the site has
+    //    switched off -- absent from the index the same way, but with no enabled ancestor to save it.
+    siteStore.blocksIndex = { tabs: { id: null, isCustom: false } }
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'page-1',
+          path: 'tabs-page',
+          editor: 'markdown',
+          render:
+            '<block-tabs><block-tab name="One">Content</block-tab></block-tabs>' +
+            '<block-widget>disabled block markup left over in stored HTML</block-widget>',
+          relations: [],
+          tocDepth: { min: 1, max: 6 }
+        })
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    router.push('/')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(Index, {
+      global: {
+        plugins: [router, i18n],
+        stubs: {
+          PageHeader: true,
+          PageActionsCol: true,
+          PageToc: true,
+          PageTags: true,
+          SideDialog: true,
+          PageRedirect: true,
+          FooterNav: true,
+          PageComments: true
+        }
+      }
+    })
+    await flushPromises()
+    // -> The block scan runs inside the route watcher's own `nextTick`, one tick behind `pageLoad`
+    //    resolving -- a second flush is what lets that nested callback actually run
+    await flushPromises()
+
+    const loadedTags = loadBlocksSpy.mock.calls.flatMap((call) =>
+      call[0].map((entry) => (typeof entry === 'string' ? entry : entry.tag))
+    )
+    expect(loadedTags).toContain('block-tabs')
+    expect(loadedTags).toContain('block-tab')
+    expect(loadedTags).not.toContain('block-widget')
 
     wrapper.unmount()
   })
@@ -513,5 +673,93 @@ describe('Index.vue: /_create and /_edit route-watcher error handling (OpenProje
     expect(notifyQueue.at(-1)).toMatchObject({ type: 'negative' })
 
     wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #1785: the plain page-load branch of the route watcher awaited `pageStore.pageLoad`
+ * with no generation guard, so a slower, earlier navigation's response landing AFTER a faster, later
+ * one already resolved would stomp the store with stale data -- title, body, tags and, through
+ * `applyViewerState`, the reader's `pagePermissions` for the page actually on screen. This drives
+ * that exact "A -> B, A resolves last" ordering with two manually-controlled responses and asserts
+ * the superseded load (A) performs no store write at all.
+ */
+describe('Index.vue: generation guard on the route-path watcher (OpenProject #1785)', () => {
+  it('discards a stale pageLoad response that resolves after a newer navigation already landed', async () => {
+    setActivePinia(createPinia())
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:pathMatch(.*)*', component: Index }]
+    })
+    router.push('/page-a')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    let resolvePageA
+    const pageAResponse = new Promise((resolve) => {
+      resolvePageA = resolve
+    })
+    let resolvePageB
+    const pageBResponse = new Promise((resolve) => {
+      resolvePageB = resolve
+    })
+
+    // -> Consumed in call order (page-a's own load, started at mount, then page-b's, started by the
+    //    `router.push` below) -- resolved out of that order further down, which is the whole point.
+    API_CLIENT.get
+      .mockReturnValueOnce({ json: () => pageAResponse })
+      .mockReturnValueOnce({ json: () => pageBResponse })
+
+    const wrapper = mount(Index, {
+      global: {
+        plugins: [router, i18n],
+        stubs: {
+          PageHeader: true,
+          PageActionsCol: true,
+          PageToc: true,
+          PageTags: true,
+          SideDialog: true,
+          PageRedirect: true,
+          FooterNav: true,
+          PageComments: true
+        }
+      }
+    })
+    activeWrapper = wrapper
+    await flushPromises()
+
+    router.push('/page-b')
+    await router.isReady()
+    await flushPromises()
+
+    // -> The faster, later navigation (B) resolves first, same as it would racing a slow network for A.
+    resolvePageB({
+      id: 'page-b',
+      path: 'page-b',
+      title: 'Page B',
+      relations: [],
+      tocDepth: {},
+      viewer: { permissions: ['read:pages'] }
+    })
+    await flushPromises()
+
+    // -> Then the slower, now-superseded earlier navigation (A) resolves after it.
+    resolvePageA({
+      id: 'page-a',
+      path: 'page-a',
+      title: 'Page A',
+      relations: [],
+      tocDepth: {},
+      viewer: { permissions: ['write:pages'] }
+    })
+    await flushPromises()
+
+    const pageStore = usePageStore()
+    const userStore = useUserStore()
+    expect(pageStore.id).toBe('page-b')
+    expect(pageStore.title).toBe('Page B')
+    expect(userStore.pagePermissions).toEqual(['read:pages'])
   })
 })

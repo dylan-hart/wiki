@@ -286,7 +286,6 @@
                     <w-item v-bind="itemProps">
                       <w-item-section side>
                         <w-checkbox
-                          size="sm"
                           :model-value="selected"
                           @update:model-value="toggleOption(opt)" />
                       </w-item-section>
@@ -331,7 +330,7 @@
               <em>{{ t('admin.auth.noConfigOption') }}</em>
             </w-banner>
           </w-card-section>
-          <template v-for="(cfg, cfgKey, idx) in state.strategy.config">
+          <template v-for="(cfg, cfgKey, idx) in state.strategy.config" :key="cfgKey">
             <template v-if="configIfCheck(cfg.if)">
               <w-separator class="my-2" inset v-if="idx > 0" />
               <w-item v-if="cfg.type === `boolean`" :tag="cfg.readOnly ? `div` : `label`">

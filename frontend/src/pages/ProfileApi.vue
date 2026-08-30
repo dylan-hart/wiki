@@ -73,11 +73,11 @@
                 t('profile.api.keySite', { site: siteName(key) })
               }}</w-item-label>
               <w-item-label caption>{{
-                t('profile.api.createdOn', { date: humanizeDate(key.createdAt) })
+                t('profile.api.createdOn', { date: humanizeDate(t, key.createdAt) })
               }}</w-item-label>
               <w-item-label caption>
                 <span :style="key.isRevoked ? `text-decoration: line-through;` : ``">{{
-                  t('profile.api.expiresOn', { date: humanizeDate(key.expiration) })
+                  t('profile.api.expiresOn', { date: humanizeDate(t, key.expiration) })
                 }}</span>
               </w-item-label>
             </w-item-section>
@@ -128,16 +128,11 @@ import { dialog } from '@/composables/dialog'
 import ProfileApiKeyCreateDialog from '../components/ProfileApiKeyCreateDialog.vue'
 import ApiKeyRevokeDialog from '../components/ApiKeyRevokeDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
-
-import { useUserStore } from '@/stores/user'
+import { humanizeDate } from '@/helpers/datetime'
 
 // COMPOSABLES
 
 const dark = useDark()
-
-// STORES
-
-const userStore = useUserStore()
 
 // I18N
 
@@ -161,13 +156,6 @@ const state = reactive({
 })
 
 // METHODS
-
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return userStore.formatDateTime(t, val)
-}
 
 /** A token past its expiration still authenticates nothing, even though it was never revoked. */
 function isExpired(key) {
@@ -194,7 +182,7 @@ function stateHint(key) {
     return ''
   }
   return status === 'invalidated'
-    ? t('profile.api.invalidatedHint', { date: humanizeDate(state.certificatesGeneratedAt) })
+    ? t('profile.api.invalidatedHint', { date: humanizeDate(t, state.certificatesGeneratedAt) })
     : t(`profile.api.${status}Hint`)
 }
 
@@ -247,7 +235,7 @@ async function load() {
   //    Certificates: the endpoint the admin area uses (`system/certificates`) needs `manage:system`,
   //    which a regular user does not hold -- `isInvalidated` (from the list response itself) is
   //    enough to show the badge; only the exact regeneration date in the hint is unavailable here,
-  //    so `stateHint` falls back to `---` via `humanizeDate(null)` for that one line.
+  //    so `stateHint` falls back to `---` via `humanizeDate(t, null)` for that one line.
   try {
     state.sites = (await API_CLIENT.get('sites').json()) ?? []
   } catch {

@@ -179,7 +179,7 @@
                       <div class="mt-1">
                         {{
                           t('admin.security.insecureCookieRiskWarnSince', {
-                            date: humanizeDate(state.config.insecureCookieRiskAt)
+                            date: humanizeDate(t, state.config.insecureCookieRiskAt)
                           })
                         }}
                       </div>
@@ -583,16 +583,15 @@ import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 
 import { useSiteStore } from '@/stores/site'
-import { useUserStore } from '@/stores/user'
 
 import { filesize } from 'filesize'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 import { parseFileSize } from '@/helpers/fileSize'
 
 // STORES
 
 const siteStore = useSiteStore()
-const userStore = useUserStore()
 
 // I18N
 
@@ -689,14 +688,6 @@ const trustProxyAddresses = computed({
 })
 
 // METHODS
-
-/** Same long-form spelling `AdminCluster.vue` / `AdminApi.vue` use for a stored timestamp. */
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return userStore.formatDateTime(t, val)
-}
 
 async function load() {
   state.loading++

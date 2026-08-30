@@ -151,10 +151,10 @@ describe('page store: pageSave() concurrency', () => {
       authorName: 'Ada Lovelace'
     }
     const conflictErr = new Error('Conflict')
-    conflictErr.response = {
-      status: 409,
-      json: () => Promise.resolve({ ok: false, message: 'conflict', page: conflictSnapshot })
-    }
+    // -> Shaped as ky's real `HTTPError`: `data` is what ky parsed from the body before throwing,
+    //    and `response`'s own body stream is already consumed by then -- no working `json()` on it.
+    conflictErr.data = { ok: false, message: 'conflict', page: conflictSnapshot }
+    conflictErr.response = { status: 409 }
     API_CLIENT.patch.mockReturnValueOnce({
       json: () => Promise.reject(conflictErr)
     })
@@ -195,10 +195,10 @@ describe('page store: pageSave() concurrency', () => {
       authorName: 'Ada Lovelace'
     }
     const conflictErr = new Error('Conflict')
-    conflictErr.response = {
-      status: 409,
-      json: () => Promise.resolve({ ok: false, message: 'conflict', page: conflictSnapshot })
-    }
+    // -> Shaped as ky's real `HTTPError`: `data` is what ky parsed from the body before throwing,
+    //    and `response`'s own body stream is already consumed by then -- no working `json()` on it.
+    conflictErr.data = { ok: false, message: 'conflict', page: conflictSnapshot }
+    conflictErr.response = { status: 409 }
     API_CLIENT.patch.mockReturnValueOnce({
       json: () => Promise.reject(conflictErr)
     })
@@ -541,6 +541,73 @@ describe('page store: pageLoad()', () => {
     //    would hash `'my page'` instead, resolving to a hash the server never assigns.
     expect(url).toBe(`sites/site-1/pages/${pagePathHash('my-page')}`)
   })
+
+  /*
+   * OpenProject #1785: `isStale` is the hook `Index.vue`'s route-path watcher passes so a slower,
+   * now-superseded call's response cannot stomp whatever a faster, later navigation already wrote.
+   * Driven directly here (rather than through a full `Index.vue` mount) to pin the store's own half
+   * of the guard in isolation -- the watcher-level wiring gets its own coverage in `Index.test.js`.
+   */
+  describe('isStale guard (OpenProject #1785)', () => {
+    it('performs no store write when isStale() is true once the response resolves', async () => {
+      const siteStore = useSiteStore()
+      siteStore.id = 'site-1'
+      API_CLIENT.get.mockReturnValueOnce(
+        stubPageResponse({ id: 'page-a', path: 'page-a', title: 'Page A' })
+      )
+
+      const pageStore = usePageStore()
+      // -> A page already on screen, standing in for whatever a faster, later navigation already
+      //    landed on -- asserted unchanged below.
+      pageStore.$patch({ id: 'page-b', path: 'page-b', title: 'Page B' })
+
+      await pageStore.pageLoad({ path: '/page-a', isStale: () => true })
+
+      expect(pageStore.id).toBe('page-b')
+      expect(pageStore.title).toBe('Page B')
+    })
+
+    it('does not throw ERR_PAGE_NOT_FOUND for a stale response, even when the page truly is missing', async () => {
+      const siteStore = useSiteStore()
+      siteStore.id = 'site-1'
+      // -> The default stub shape: no `id` on the payload is what a 404 lookup resolves to
+      //    (`pageLoad`'s own `!pageData?.id` check), which would normally throw.
+      API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(undefined) })
+
+      const pageStore = usePageStore()
+      await expect(
+        pageStore.pageLoad({ path: '/gone', isStale: () => true })
+      ).resolves.toBeUndefined()
+    })
+
+    it('writes the store as usual when isStale() is false', async () => {
+      const siteStore = useSiteStore()
+      siteStore.id = 'site-1'
+      API_CLIENT.get.mockReturnValueOnce(
+        stubPageResponse({ id: 'page-a', path: 'page-a', title: 'Page A' })
+      )
+
+      const pageStore = usePageStore()
+      await pageStore.pageLoad({ path: '/page-a', isStale: () => false })
+
+      expect(pageStore.id).toBe('page-a')
+      expect(pageStore.title).toBe('Page A')
+    })
+
+    it('writes the store as usual when isStale is omitted, unchanged for every other caller', async () => {
+      const siteStore = useSiteStore()
+      siteStore.id = 'site-1'
+      API_CLIENT.get.mockReturnValueOnce(
+        stubPageResponse({ id: 'page-a', path: 'page-a', title: 'Page A' })
+      )
+
+      const pageStore = usePageStore()
+      await pageStore.pageLoad({ path: '/page-a' })
+
+      expect(pageStore.id).toBe('page-a')
+      expect(pageStore.title).toBe('Page A')
+    })
+  })
 })
 
 describe('page store: pageEdit()', () => {
@@ -753,6 +820,57 @@ describe('page store: pageCreate()', () => {
 
     expect(pageStore.tags).toEqual([])
   })
+
+  /**
+   * OpenProject #1792: the page store's `state()` declares no `mode` -- that key belongs to
+   * `editorStore`, which this same call already patches to `mode: 'create'`. A stray
+   * `mode: 'edit'` on the page-store `$patch` used to grow the state with an untyped, unread
+   * property asserting the post-save state at the moment a create session begins.
+   */
+  it('does not add a mode key to the page store state', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter('/_create/markdown')
+
+    await pageStore.pageCreate({ editor: 'markdown' })
+
+    expect(pageStore.$state).not.toHaveProperty('mode')
+  })
+})
+
+/**
+ * OpenProject #1787: `pageDuplicate` called `this.pageCreate({...})` at the end of its try block with
+ * no `await` and no `.catch` -- `pageCreate` is itself `async` and rejects readily (its first act is
+ * `editorStore.fetchConfigs()`, a network call that rethrows on failure), so the rejection escaped
+ * the enclosing try entirely and became an unhandled rejection nobody in `frontend/src` catches,
+ * instead of reaching an awaiting caller (`PageActionsCol.vue`'s duplicate handler).
+ */
+describe('page store: pageDuplicate() (OpenProject #1787)', () => {
+  function stubRouter(currentPath = '/_create/markdown') {
+    return {
+      currentRoute: { value: { path: currentPath } },
+      push: vi.fn()
+    }
+  }
+
+  it('rejects when the pageCreate it calls rejects, instead of resolving as if it had succeeded', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+
+    // -> First call: the source-page fetch, which succeeds. Second call: `pageCreate`'s own
+    //    `editorStore.fetchConfigs()` reaching for the site config, which fails -- this is the
+    //    rejection that used to vanish as an unhandled rejection instead of reaching this awaiter.
+    API_CLIENT.get
+      .mockReturnValueOnce(stubPageResponse({ editor: 'markdown', content: 'hello' }))
+      .mockReturnValueOnce({ json: vi.fn().mockRejectedValue(new Error('network down')) })
+
+    await expect(
+      pageStore.pageDuplicate({ sourcePageId: 'page-1', title: 'Copy', path: 'copy' })
+    ).rejects.toThrow('network down')
+  })
 })
 
 /**
@@ -921,5 +1039,35 @@ describe('page store: editorExitPath', () => {
     const pageStore = usePageStore()
     pageStore.$patch({ path: 'foo/bar', locale: 'fr', editor: 'redirect' })
     expect(pageStore.editorExitPath).toBe('/fr/foo/bar?redirect=no')
+  })
+})
+
+describe('page store: pageWatch()', () => {
+  it('reverts isWatching and rethrows when the request is refused, for the caller to report', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.$patch({ id: 'page-1', isWatching: false })
+
+    const refusal = { data: { message: 'You may not watch this page.' } }
+    API_CLIENT.put.mockReturnValueOnce(Promise.reject(refusal))
+
+    await expect(pageStore.pageWatch(true)).rejects.toBe(refusal)
+
+    expect(pageStore.isWatching).toBe(false)
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/pages/page-1/watch')
+  })
+
+  it('sets isWatching optimistically and keeps it on success', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.$patch({ id: 'page-1', isWatching: false })
+
+    API_CLIENT.put.mockReturnValueOnce(Promise.resolve({ ok: true }))
+
+    await pageStore.pageWatch(true)
+
+    expect(pageStore.isWatching).toBe(true)
   })
 })

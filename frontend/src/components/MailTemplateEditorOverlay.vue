@@ -6,7 +6,7 @@
     The templates actually sent (test-email, verify-email, forgot-password, password-reset-confirmed)
     are plain inline-HTML/text pairs in backend/models/mail.ts.
   -->
-  <w-layout view="hHh lpR fFf" container>
+  <w-layout container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="img:/_assets/icons/fluent-template.svg" left size="md" />
       <span>{{ t(`admin.mail.templateEditor`) }}</span>
@@ -21,7 +21,7 @@
         :href="siteStore.docsBase + `/system/mail`"
         target="_blank"
         type="a" />
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
           push
           color="white"

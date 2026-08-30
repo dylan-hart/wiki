@@ -236,12 +236,7 @@
           Tailwind only emits a utility it can see spelled out, so these three icons had been drawing
           in the inherited text colour rather than the rail's orange.
         -->
-        <w-menu
-          class="translucent-menu"
-          anchor="top left"
-          self="top right"
-          auto-close
-          transition-show="jump-left">
+        <w-menu class="translucent-menu" anchor="top left" self="top right" auto-close>
           <w-list padding style="min-width: 225px">
             <w-item
               clickable
@@ -571,12 +566,23 @@ function duplicatePage() {
       itemFileName: pageStore.path,
       locale: pageStore.locale
     }
-  }).onOk((newPageOpts) => {
-    pageStore.pageDuplicate({
-      sourcePageId: pageStore.id,
-      path: newPageOpts.path,
-      title: newPageOpts.title
-    })
+  }).onOk(async (newPageOpts) => {
+    // -> `pageDuplicate` rejects on either its own source-page fetch failing or the `pageCreate` it
+    //    now awaits (OpenProject #1787) rejecting -- previously dropped on the floor here, an
+    //    unhandled rejection with no notify shown, matching `FileManager.vue`'s own duplicate handler
+    try {
+      await pageStore.pageDuplicate({
+        sourcePageId: pageStore.id,
+        path: newPageOpts.path,
+        title: newPageOpts.title
+      })
+    } catch (err) {
+      notify({
+        type: 'negative',
+        message: 'Failed to duplicate page.',
+        caption: apiErrorMessage(err, 'An unexpected error occured.')
+      })
+    }
   })
 }
 

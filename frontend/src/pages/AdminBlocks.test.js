@@ -11,10 +11,16 @@ import WInput from '@/components/shared/WInput.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
 import { closeDialog, dialog, openDialogs } from '@/composables/dialog'
+import { loading } from '@/composables/loading'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
   dialog: vi.fn(() => ({ onOk: vi.fn() }))
+}))
+
+vi.mock('@/composables/loading', async (importOriginal) => ({
+  ...(await importOriginal()),
+  loading: { show: vi.fn(), hide: vi.fn() }
 }))
 
 /**
@@ -34,7 +40,9 @@ const KROKI_BLOCK = {
   isEnabled: true,
   isCustom: false,
   config: { server: 'https://kroki.example.com' },
-  configFields: [],
+  // -> WP #1745: block-kroki now declares `server` on `config` too (as well as `props`), so the site's
+  //    saved value actually survives a save instead of being stripped by `sanitizeConfig`.
+  configFields: [{ name: 'server', type: 'string', label: 'Server', default: 'https://kroki.io' }],
   props: [{ name: 'server', type: 'string', label: 'Server', default: 'https://kroki.io' }],
   template: ''
 }
@@ -53,10 +61,10 @@ const GALLERY_BLOCK = {
   template: ''
 }
 
-async function mountAdminBlocks(blocks, credentials = []) {
+async function mountAdminBlocks(blocks, credentials = [], siteId = 'site-1') {
   setActivePinia(createPinia())
   const adminStore = useAdminStore()
-  adminStore.currentSiteId = 'site-1'
+  adminStore.currentSiteId = siteId
 
   // -> useSiteAdminAccess('site:blocks') needs a real route (for its `siteid` param) and a
   //    permission that satisfies GLOBAL_FALLBACKS['site:blocks'], so this mount neither warns on a
@@ -204,6 +212,21 @@ describe('AdminBlocks Configure affordance', () => {
 
     expect(configureButtons).toHaveLength(1)
   })
+
+  /**
+   * WP #1745: block-kroki's only config field is `server`, and that field already has a dedicated
+   * inline input (`hasServerProp`) -- so the generic Configure button, which would otherwise open a
+   * second editor for the exact same setting, stays hidden for it.
+   */
+  it('does not show a Configure button for a block whose only config field is the dedicated Server field', async () => {
+    const wrapper = await mountAdminBlocks([KROKI_BLOCK])
+
+    const configureButtons = wrapper
+      .findAll('button')
+      .filter((btn) => btn.text() === 'admin.blocks.configure')
+
+    expect(configureButtons).toHaveLength(0)
+  })
 })
 
 /**
@@ -317,6 +340,28 @@ describe('AdminBlocks destructive confirmations', () => {
     expect(openDialogs[0].props.okLabel).toBe('common.actions.delete')
 
     closeDialog(openDialogs[0].id, false)
+  })
+})
+
+/**
+ * OpenProject #1736: `onMounted` used to call `loading.show()` unconditionally, before the
+ * `if (adminStore.currentSiteId)` test that gates the `load()` call which would hide it again. On a
+ * zero-site instance (`currentSiteId` null) that left the full-screen overlay stuck on forever, with
+ * nothing in the UI explaining why. `loading.show()` must now be inside that branch.
+ */
+describe('AdminBlocks: loading overlay on mount (OpenProject #1736)', () => {
+  it('does not show the loading overlay when adminStore.currentSiteId is null', async () => {
+    loading.show.mockClear()
+    await mountAdminBlocks([], [], null)
+
+    expect(loading.show).not.toHaveBeenCalled()
+  })
+
+  it('does show the loading overlay when adminStore.currentSiteId is set', async () => {
+    loading.show.mockClear()
+    await mountAdminBlocks([], [], 'site-1')
+
+    expect(loading.show).toHaveBeenCalled()
   })
 })
 

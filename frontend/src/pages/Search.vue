@@ -40,6 +40,7 @@
           <w-list dense padding>
             <w-item
               v-for="item of orderByOptions"
+              :key="item.value"
               clickable
               :active="item.value === state.params.orderBy"
               @click="setOrderBy(item.value)">
@@ -186,6 +187,7 @@
           <w-list separator>
             <w-item
               v-for="item of state.results"
+              :key="`${item.locale}:${item.path}`"
               clickable
               :to="localizedPagePath(item.path, item.locale, siteStore.localeRouting)">
               <w-item-section avatar>

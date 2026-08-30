@@ -487,8 +487,14 @@ export class BlockIndexElement extends LitElement {
        inside the anchor, and asking the element it was bound to is what makes that unnecessary.
   */
   _navigate(e) {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+      return
+    }
+    if (!globalThis.WIKI_ROUTER) {
+      return
+    }
     e.preventDefault()
-    WIKI_ROUTER.push(e.currentTarget.getAttribute('href'))
+    globalThis.WIKI_ROUTER.push(e.currentTarget.getAttribute('href'))
   }
 
   // createRenderRoot() {

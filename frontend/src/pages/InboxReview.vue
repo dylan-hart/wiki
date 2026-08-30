@@ -15,7 +15,6 @@
         <w-banner
           v-if="state.submissions.length < 1 && state.loading < 1"
           class="mt-6"
-          rounded
           :class="dark.isActive ? `bg-dark-4 text-grey-4` : `bg-grey-2 text-grey-8`">
           {{ t('inbox.reviewNone') }}
         </w-banner>
@@ -40,7 +39,7 @@
                   <template #author>
                     <strong>{{ authorLabel(submission) }}</strong>
                   </template>
-                  <template #date>{{ humanizeDate(submission.createdAt) }}</template>
+                  <template #date>{{ humanizeDate(t, submission.createdAt) }}</template>
                 </i18n-t>
               </w-item-label>
             </w-item-section>
@@ -101,7 +100,7 @@
               <template #author>
                 <strong>{{ state.selected.author.name || t('inbox.reviewUnknownAuthor') }}</strong>
               </template>
-              <template #date>{{ humanizeDate(state.selected.createdAt) }}</template>
+              <template #date>{{ humanizeDate(t, state.selected.createdAt) }}</template>
             </i18n-t>
             <template v-if="state.selected.author.email">
               &middot; {{ state.selected.author.email }}
@@ -146,10 +145,7 @@
         result before accepting, which is exactly what a stale suggestion needs.
       -->
       <!-- Literal colour classes: WBanner has no `color` prop, so one would be silently dropped. -->
-      <w-banner
-        v-if="state.selected.isStale"
-        class="mx-4 mb-2 flex-none bg-warning text-black"
-        rounded>
+      <w-banner v-if="state.selected.isStale" class="mx-4 mb-2 flex-none bg-warning text-black">
         {{ t('inbox.reviewStaleHint') }}
       </w-banner>
       <div class="flex-none px-4 pb-2 text-caption text-grey">
@@ -179,8 +175,8 @@ import { confirm } from '@/composables/dialog'
 
 import { useEditorStore } from '@/stores/editor'
 import { useSiteStore } from '@/stores/site'
-import { useUserStore } from '@/stores/user'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 
 // COMPOSABLES
 
@@ -195,7 +191,6 @@ const router = useRouter()
 
 const editorStore = useEditorStore()
 const siteStore = useSiteStore()
-const userStore = useUserStore()
 
 // I18N
 
@@ -251,10 +246,6 @@ watch(
 )
 
 // METHODS
-
-function humanizeDate(val) {
-  return userStore.formatDateTime(t, val)
-}
 
 async function load() {
   state.loading++

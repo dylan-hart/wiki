@@ -27,7 +27,6 @@
           style="flex: 1 0 auto" />
         <w-btn
           class="acrylic-btn"
-          dark
           icon="la:pen"
           :label="t(`common.actions.manage`)"
           unelevated
@@ -40,10 +39,7 @@
       <w-tab name="visual" :label="t('editor.pageData.tabVisual')" />
       <w-tab name="code" :label="t('editor.pageData.tabYaml')" />
     </w-tabs>
-    <w-scroll-area
-      :thumb-style="siteStore.thumbStyle"
-      :bar-style="siteStore.barStyle"
-      style="height: calc(100% - 50px - 75px - 48px)">
+    <w-scroll-area style="height: calc(100% - 50px - 75px - 48px)">
       <w-card-section v-if="state.mode === `visual`">
         <div class="gap-2">
           <w-input :label="t('editor.pageData.attributeTextLabel')" dense outlined>

@@ -205,7 +205,7 @@
               v-for="set of filteredAvailableSets"
               :key="set.prefix"
               clickable
-              :disable="set.isAdded"
+              :disabled="set.isAdded"
               @click="addSet(set)">
               <w-item-section side>
                 <div class="admin-icons-samples">

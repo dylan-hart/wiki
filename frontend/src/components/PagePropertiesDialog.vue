@@ -41,11 +41,7 @@
         :aria-label="t(`common.actions.close`)"
         @click="siteStore.sideDialogShown = false" />
     </w-toolbar>
-    <w-scroll-area
-      ref="scrollArea"
-      :thumb-style="siteStore.scrollStyle.thumb"
-      :bar-style="siteStore.scrollStyle.bar"
-      style="height: calc(100% - 50px)">
+    <w-scroll-area ref="scrollArea" style="height: calc(100% - 50px)">
       <w-card-section id="refCardInfo">
         <div class="w-section-header">{{ t('editor.props.info') }}</div>
         <w-form class="gap-2">
@@ -121,7 +117,7 @@
             <div class="text-caption">
               <em>{{ t('editor.props.dateRangeHint') }}</em>
             </div>
-            <w-date v-model="publishingRange" range flat bordered landscape minimal />
+            <w-date v-model="publishingRange" range bordered />
           </template>
         </w-form>
       </w-card-section>
@@ -183,20 +179,14 @@
             <w-toggle
               v-model="pageStore.showSidebar"
               dense
-              :label="t(`editor.props.showSidebar`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.showSidebar`)" />
           </div>
           <div>
             <w-toggle
               v-if="pageStore.showSidebar"
               v-model="pageStore.showToc"
               dense
-              :label="t(`editor.props.showToc`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.showToc`)" />
           </div>
           <div v-if="pageStore.showSidebar && pageStore.showToc" style="padding-left: 40px">
             <div class="text-caption">
@@ -210,7 +200,6 @@
               color="primary"
               :left-label-value="`H` + pageStore.tocDepth.min"
               :right-label-value="`H` + pageStore.tocDepth.max"
-              snap
               label
               markers />
           </div>
@@ -219,10 +208,7 @@
               v-if="pageStore.showSidebar"
               v-model="pageStore.showTags"
               dense
-              :label="t(`editor.props.showTags`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.showTags`)" />
           </div>
         </w-form>
       </w-card-section>
@@ -233,28 +219,19 @@
             <w-toggle
               v-model="pageStore.allowComments"
               dense
-              :label="t(`editor.props.allowComments`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.allowComments`)" />
           </div>
           <div>
             <w-toggle
               v-model="pageStore.allowContributions"
               dense
-              :label="t(`editor.props.allowContributions`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.allowContributions`)" />
           </div>
           <div>
             <w-toggle
               v-model="pageStore.allowRatings"
               dense
-              :label="t(`editor.props.allowRatings`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.allowRatings`)" />
           </div>
         </w-form>
       </w-card-section>
@@ -288,29 +265,20 @@
             <w-toggle
               v-model="pageStore.isBrowsable"
               dense
-              :label="$t(`editor.props.showInTree`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="$t(`editor.props.showInTree`)" />
           </div>
           <div>
             <w-toggle
               v-model="pageStore.isSearchable"
               dense
-              :label="$t(`editor.props.isSearchable`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="$t(`editor.props.isSearchable`)" />
           </div>
           <div>
             <w-toggle
               v-model="state.requirePassword"
               @update:model-value="toggleRequirePassword"
               dense
-              :label="$t(`editor.props.requirePassword`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="$t(`editor.props.requirePassword`)" />
           </div>
           <div v-if="state.requirePassword" style="padding-left: 40px">
             <!-- -> Masked, with WInput's own reveal toggle: this is a secret to hand out rather than

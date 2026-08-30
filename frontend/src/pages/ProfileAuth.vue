@@ -139,7 +139,7 @@
           <w-item-section>
             <strong>{{ pkey.name }}</strong>
             <div class="text-caption">{{ pkey.siteHostname }}</div>
-            <div class="text-caption text-grey-7">{{ humanizeDate(pkey.createdAt) }}</div>
+            <div class="text-caption text-grey-7">{{ humanizeDate(t, pkey.createdAt) }}</div>
           </w-item-section>
           <w-item-section side>
             <w-btn
@@ -176,18 +176,13 @@ import { confirm, dialog } from '@/composables/dialog'
 import { onMounted, reactive } from 'vue'
 import { browserSupportsWebAuthn, startRegistration } from '@simplewebauthn/browser'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 import { localizeError } from '@/helpers/localization'
 
 import ChangePwdDialog from '@/components/ChangePwdDialog.vue'
 import SetupTfaDialog from '@/components/SetupTfaDialog.vue'
 import RecoveryCodesDialog from '@/components/RecoveryCodesDialog.vue'
 import PasskeyCreateDialog from '@/components/PasskeyCreateDialog.vue'
-
-import { useUserStore } from '@/stores/user'
-
-// STORES
-
-const userStore = useUserStore()
 
 // I18N
 
@@ -208,10 +203,6 @@ const state = reactive({
 })
 
 // METHODS
-
-function humanizeDate(val) {
-  return userStore.formatDateTime(t, val)
-}
 
 async function fetchAuthMethods() {
   state.loading++

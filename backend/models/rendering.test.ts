@@ -54,6 +54,29 @@ const DIAGRAM_BLOCKS: BlockDefinition[] = [
   }
 ]
 
+/*
+ * Two more fixtures, alongside the diagram blocks above: one whose declared prop is camelCase (the
+ * DOM -- and an author typing it, or Lit reflecting it -- only ever spells this lowercase), and a
+ * second block declaring no such prop at all, to prove `blockAllowances()` widening one tag's
+ * allow-list doesn't leak onto another's.
+ */
+const CAMEL_PROP_BLOCKS: BlockDefinition[] = [
+  {
+    block: 'checklist',
+    name: 'Checklist',
+    description: 'A checklist.',
+    icon: 'list-checks',
+    props: [{ name: 'runKey', type: 'string' }]
+  },
+  {
+    block: 'gallery',
+    name: 'Gallery',
+    description: 'An image gallery.',
+    icon: 'images',
+    props: [{ name: 'thumbnailSize', type: 'number' }]
+  }
+]
+
 let enabledBlocks = new Set<string>()
 
 /** Custom blocks (OpenProject #2132) -- the shape `models/blocks.ts#getCustomBlockDefinitions()` returns. */
@@ -64,7 +87,7 @@ let customBlocks: { block: string; props: { name: string }[] }[] = []
 ;(global as any).WIKI = {
   models: {
     blocks: {
-      definitions: DIAGRAM_BLOCKS,
+      definitions: [...DIAGRAM_BLOCKS, ...CAMEL_PROP_BLOCKS],
       async getEnabledKeys(_siteId: string) {
         return enabledBlocks
       },
@@ -191,6 +214,29 @@ describe('rendering.postProcess: custom blocks admitted to blockAllowances (Open
     assert.doesNotMatch(result.render, /block-gallery-custom/)
     // -> Same as any other disallowed tag: the element goes, the text inside it stays
     assert.match(result.render, /content/)
+  })
+})
+
+describe('rendering.postProcess: lowercase spelling of a camelCase block prop (OpenProject #1707)', () => {
+  test('keeps a camelCase-declared prop written in its lowercase DOM spelling', async () => {
+    enabledBlocks = new Set(['checklist'])
+    const html = '<block-checklist runkey="daily"></block-checklist>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /<block-checklist runkey="daily">/)
+  })
+
+  test('still strips a prop declared on one block tag when written on a different block tag', async () => {
+    enabledBlocks = new Set(['checklist', 'gallery'])
+    // -> `runKey`/`runkey` is declared on block-checklist, not block-gallery -- widening
+    //    block-checklist's allow-list must not leak the attribute onto a sibling tag
+    const html = '<block-gallery runkey="daily"></block-gallery>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /^<block-gallery>/)
+    assert.doesNotMatch(result.render, /runkey/)
   })
 })
 
@@ -641,5 +687,32 @@ describe('rendering.sanitize -- allowedStyles gates inline CSS by write:styles (
     const clean = (rendering as any).sanitize(html, { scripts: false, styles: false }, new Set())
 
     assert.doesNotMatch(clean, /style=/)
+  })
+})
+
+/*
+ * `resolveSiteOrigin` is what carries the site's real hostname into the headless renderer's context
+ * (OpenProject #1751), so `isExternalHref` in `frontend/src/renderers/markdown.js` classifies an
+ * absolute same-site link the same way whether it was just saved by the editor or re-rendered
+ * headlessly afterwards. Mirrors `models/mail.ts`'s `resolveMailBaseURL` -- same `https://<hostname>`
+ * assumption, same `*`-catch-all/unresolvable-siteId fallback.
+ */
+describe('rendering.resolveSiteOrigin (OpenProject #1751)', () => {
+  test('builds https://<hostname> for a real site', () => {
+    ;(global as any).WIKI.sites = { site1: { hostname: 'wiki.example.com' } }
+
+    assert.equal((rendering as any).resolveSiteOrigin('site1'), 'https://wiki.example.com')
+  })
+
+  test('returns undefined for the "*" catch-all site, which has no hostname of its own', () => {
+    ;(global as any).WIKI.sites = { site1: { hostname: '*' } }
+
+    assert.equal((rendering as any).resolveSiteOrigin('site1'), undefined)
+  })
+
+  test('returns undefined for a siteId with no cached site', () => {
+    ;(global as any).WIKI.sites = {}
+
+    assert.equal((rendering as any).resolveSiteOrigin('missing'), undefined)
   })
 })

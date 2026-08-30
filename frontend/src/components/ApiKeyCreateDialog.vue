@@ -154,8 +154,7 @@
                 :key="level.id"
                 v-model="state.keyClassifications"
                 :val="level.id"
-                :label="level.name"
-                dense />
+                :label="level.name" />
             </div>
             <div class="text-caption text-grey mt-1">
               {{ t(`admin.api.newKeyClassificationLevelsHint`) }}

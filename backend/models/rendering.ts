@@ -110,8 +110,12 @@ interface PageRenderer {
   /**
    * Markdown in, the editor's own HTML out — before `postProcess` gets to it.
    *
-   * `context` carries what the source cannot say about itself, currently the page's own path: a
-   * relative image in a page resolves against the folder it sits in, as it would in a repository.
+   * `context` carries what the source cannot say about itself: the page's own path, which a relative
+   * image resolves against the folder it sits in, as it would in a repository; and the site's own
+   * public origin, which `is-external-link` classification is judged against (OpenProject #1751) —
+   * this browser is navigated to its own loopback address, not the site's hostname, so without it
+   * every absolute same-site link would come back external here and internal in the editor that saved
+   * it.
    */
   render(
     content: string,
@@ -599,7 +603,17 @@ class Rendering {
       }
       const tag = `block-${definition.block}`
       tags.push(tag)
-      attributes[tag] = (definition.props ?? []).map((prop) => prop.name)
+      /*
+        `sanitize()` runs with `lowerCaseAttributeNames: false` (kept so SVG/MathML names like
+        `viewBox` survive), so it compares attribute names byte-for-byte. A camelCase-declared prop
+        (`runKey`) is what the block picker and definition.yml write, but the DOM -- and therefore
+        what an author actually types or Lit reflects -- only ever spells it lowercase (`runkey`).
+        Emit both spellings so either survives; a prop whose name is already all-lowercase just
+        dedupes against itself.
+      */
+      attributes[tag] = [
+        ...new Set((definition.props ?? []).flatMap((prop) => [prop.name, prop.name.toLowerCase()]))
+      ]
     }
     // -> Custom blocks are never children of another block (`isChild` is a built-in-only concept, set
     //    from a manifest a custom upload has none of), so the enabled check applies unconditionally.
@@ -1243,7 +1257,7 @@ class Rendering {
                 WIKI.models.groups.guestActor()
               )
             },
-            { pagePath: page.path }
+            { pagePath: page.path, siteOrigin: this.resolveSiteOrigin(entry.siteId) }
           )
           await WIKI.models.pages.storeRender(
             entry.siteId,
@@ -1277,6 +1291,21 @@ class Rendering {
     } catch (err: any) {
       WIKI.logger.debug(`Could not close the render browser cleanly: ${err.message}`)
     }
+  }
+
+  /**
+   * The site's real public origin, for the headless renderer's `is-external-link` classification to
+   * match what the same page's own editor save would have produced (OpenProject #1751).
+   *
+   * `https://<hostname>` is assumed, matching `models/mail.ts`'s `resolveMailBaseURL` — no per-site
+   * override setting exists for scheme/port (v1 scope decision, OpenProject #1023). `undefined` for
+   * the `*` catch-all site (no hostname of its own) or an unresolvable siteId: `isExternalHref` then
+   * falls back to the headless browser's own `location`, exactly the pre-#1751 behavior, since there
+   * is no real origin to compare against.
+   */
+  private resolveSiteOrigin(siteId: string): string | undefined {
+    const hostname = WIKI.sites[siteId]?.hostname
+    return hostname && hostname !== '*' ? `https://${hostname}` : undefined
   }
 
   /**

@@ -51,7 +51,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import WBtn from './WBtn.vue'
 import { useDictText } from '@/composables/i18nText'
 import { useCommonStore } from '@/stores/common'
@@ -139,6 +139,25 @@ const anchor = ref(
     return { year: today.year, month: today.month }
   })()
 )
+
+/**
+ * Re-sync the visible month whenever the selection's start date changes -- a `modelValue` set
+ * after mount, or set programmatically by the parent, otherwise leaves the calendar showing
+ * whatever month it opened on with the selection off-screen.
+ *
+ * Watches `selectedFrom` specifically rather than deep-watching `modelValue`: in range mode, a
+ * `to`-only edit (the second click of the two-click cycle in `pick()`) leaves `from` untouched, so
+ * this does not fire for it and the view stays put instead of yanking to the end date. It also
+ * never reads or writes `anchor` except in reaction to `selectedFrom` itself, so `shiftMonth()`
+ * remains free to navigate away afterwards without this watcher snapping the view back.
+ */
+watch(selectedFrom, (start) => {
+  if (!start) {
+    return
+  }
+  const [year, month] = start.split('-').map(Number)
+  anchor.value = { year, month }
+})
 
 const monthStart = computed(() =>
   Temporal.PlainDate.from({ year: anchor.value.year, month: anchor.value.month, day: 1 })

@@ -1,5 +1,5 @@
 <template>
-  <w-layout view="hHh lpR fFf" container>
+  <w-layout container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="img:/_assets/icons/fluent-sidebar-menu.svg" left size="md" />
       <span>{{ t(`navEdit.editMenuItems`) }}</span>
@@ -28,7 +28,7 @@
         target="_blank">
         <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
       </w-btn>
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
           push
           color="white"

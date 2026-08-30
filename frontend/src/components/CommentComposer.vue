@@ -143,6 +143,11 @@ async function submit() {
     const posted = await API_CLIENT.post(`sites/${siteStore.id}/pages/${pageStore.id}/comments`, {
       json: payload
     }).json()
+    // -> The API client does not throw for a 400, so a refusal comes back as a parsed error
+    //    envelope rather than a rejection: without this check it reads as a successful post.
+    if (posted?.ok === false) {
+      throw new Error(posted.message || t(`common.error.generic.title`))
+    }
 
     notify({ type: 'positive', message: t(`common.comments.postSuccess`) })
     content.value = ''

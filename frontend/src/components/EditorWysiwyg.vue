@@ -12,7 +12,6 @@
           :class="{ 'is-active': menuItem.isActive && menuItem.isActive() }"
           :color="menuItem.isActive && menuItem.isActive() ? `primary` : `grey-10`"
           :aria-label="menuItem.title"
-          split
           :disabled="menuItem.disabled && menuItem.disabled()">
           <w-menu>
             <w-list dense padding>
@@ -37,7 +36,7 @@
             </w-list>
           </w-menu>
         </w-btn>
-        <w-btn-group v-else-if="menuItem.type === `btngroup`" :key="`btngrp-` + menuItem.key" flat>
+        <w-btn-group v-else-if="menuItem.type === `btngroup`" :key="`btngrp-` + menuItem.key">
           <w-btn
             v-for="child of menuItem.children"
             :key="child.key"
@@ -72,8 +71,6 @@
       <!-- ) -->
     </div>
     <!-- q-scroll-area( -->
-    <!-- :thumb-style='thumbStyle' -->
-    <!-- :bar-style='barStyle' -->
     <!-- style='height: 100%;' -->
     <!-- ) -->
     <editor-content :editor="editor" />
@@ -169,18 +166,6 @@ let editor = null
 let stopCollabStatusWatch = null
 let stopCollabLastSaveWatch = null
 
-const thumbStyle = {
-  right: '2px',
-  borderRadius: '5px',
-  backgroundColor: '#000',
-  width: '5px',
-  opacity: 0.15
-}
-const barStyle = {
-  backgroundColor: '#FAFAFA',
-  width: '9px',
-  opacity: 1
-}
 /**
  * The hex values behind the "Text Color" dropdown's named entries (OpenProject #944). `Color`
  * (`@tiptap/extension-color`) writes whatever string `setColor()` is given straight onto the

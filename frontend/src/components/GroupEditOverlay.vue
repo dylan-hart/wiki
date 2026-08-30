@@ -1,5 +1,5 @@
 <template>
-  <w-layout view="hHh lpR fFf" container>
+  <w-layout container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="img:/_assets/icons/fluent-people.svg" left size="md" />
       <div>
@@ -7,7 +7,7 @@
         <div class="text-caption">{{ state.group.name }}</div>
       </div>
       <w-space />
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
           push
           color="grey-6"
@@ -157,7 +157,7 @@
                   <w-item-section>
                     <w-item-label>{{ t(`common.field.createdOn`) }}</w-item-label>
                     <w-item-label>
-                      <strong>{{ humanizeDate(state.group.createdAt) }}</strong>
+                      <strong>{{ humanizeDate(t, state.group.createdAt) }}</strong>
                     </w-item-label>
                   </w-item-section>
                 </w-item>
@@ -167,7 +167,7 @@
                   <w-item-section>
                     <w-item-label>{{ t(`common.field.lastUpdated`) }}</w-item-label>
                     <w-item-label>
-                      <strong>{{ humanizeDate(state.group.updatedAt) }}</strong>
+                      <strong>{{ humanizeDate(t, state.group.updatedAt) }}</strong>
                     </w-item-label>
                   </w-item-section>
                 </w-item>
@@ -223,7 +223,6 @@
         <div class="p-4">
           <w-banner
             v-if="!state.group.rules || state.group.rules.length < 1"
-            rounded
             :class="dark.isActive ? `bg-negative text-white` : `bg-grey-4 text-grey-9`"
             >{{ t('admin.groups.rulesNone') }}</w-banner
           >
@@ -263,8 +262,7 @@
                       option-label="title"
                       options-dense
                       multiple
-                      use-chips
-                      stack-label>
+                      use-chips>
                       <template #selected-item="scope">
                         <w-chip
                           square
@@ -281,9 +279,6 @@
                             <w-toggle
                               :model-value="selected"
                               @update:model-value="toggleOption(opt)"
-                              color="primary"
-                              checked-icon="la:check"
-                              unchecked-icon="la:times"
                               :aria-label="opt.label" />
                           </w-item-section>
                           <!-- q-item-section(side, style='flex-basis: 150px;') -->
@@ -326,7 +321,6 @@
                         option-value="id"
                         option-label="title"
                         multiple
-                        behavior="dialog"
                         :display-value="
                           t(`admin.groups.selectedSites`, rule.sites.length, {
                             count: rule.sites.length
@@ -341,9 +335,6 @@
                               <w-toggle
                                 :model-value="selected"
                                 @update:model-value="toggleOption(opt)"
-                                color="primary"
-                                checked-icon="la:check"
-                                unchecked-icon="la:times"
                                 :aria-label="opt.label" />
                             </w-item-section>
                           </w-item>
@@ -361,7 +352,6 @@
                         option-value="code"
                         option-label="name"
                         multiple
-                        behavior="dialog"
                         :display-value="
                           t(
                             `admin.groups.selectedLocales`,
@@ -383,9 +373,6 @@
                               <w-toggle
                                 :model-value="selected"
                                 @update:model-value="toggleOption(opt)"
-                                color="primary"
-                                checked-icon="la:check"
-                                unchecked-icon="la:times"
                                 :aria-label="opt.name" />
                             </w-item-section>
                           </w-item>
@@ -433,7 +420,6 @@
                         option-value="id"
                         option-label="name"
                         multiple
-                        behavior="dialog"
                         :display-value="
                           t(
                             `admin.groups.selectedClassifications`,
@@ -450,9 +436,6 @@
                               <w-toggle
                                 :model-value="selected"
                                 @update:model-value="toggleOption(opt)"
-                                color="primary"
-                                checked-icon="la:check"
-                                unchecked-icon="la:times"
                                 :aria-label="opt.name" />
                             </w-item-section>
                           </w-item>
@@ -511,9 +494,6 @@
                       <w-toggle
                         v-model="state.group.permissions"
                         :val="perm.permission"
-                        color="primary"
-                        checked-icon="la:check"
-                        unchecked-icon="la:times"
                         :disable="isSystemPermissionLocked(perm.permission)"
                         :aria-label="t(`admin.general.allowComments`)" />
                     </w-item-section>
@@ -603,7 +583,7 @@
                 <w-td :props="props">
                   <i18n-t class="text-caption" keypath="admin.users.createdAt" tag="div">
                     <template #date
-                      ><strong>{{ humanizeDate(props.value) }}</strong></template
+                      ><strong>{{ humanizeDate(t, props.value) }}</strong></template
                     >
                   </i18n-t>
                   <i18n-t
@@ -612,7 +592,7 @@
                     keypath="admin.users.lastLoginAt"
                     tag="div">
                     <template #date>
-                      <strong>{{ humanizeDate(props.row.lastLoginAt) }}</strong>
+                      <strong>{{ humanizeDate(t, props.row.lastLoginAt) }}</strong>
                     </template>
                   </i18n-t>
                 </w-td>
@@ -677,6 +657,7 @@ import { v4 as uuid } from 'uuid'
 import { fileOpen, fileSave } from 'browser-fs-access'
 import UserSearchDialog from '@/components/UserSearchDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 
 // COMPOSABLES
 
@@ -935,13 +916,6 @@ function checkRoute() {
   } else if (route.params.section === 'users') {
     refreshUsers()
   }
-}
-
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return userStore.formatDateTime(t, val)
 }
 
 /**

@@ -78,7 +78,7 @@
             <w-td :props="props">
               <span>{{ props.value }}</span>
               <div>
-                <small class="text-grey">{{ humanizeDate(props.row.dbFirstSeen) }}</small>
+                <small class="text-grey">{{ humanizeDate(t, props.row.dbFirstSeen) }}</small>
               </div>
             </w-td>
           </template>
@@ -86,7 +86,7 @@
             <w-td :props="props">
               <span>{{ props.value }}</span>
               <div>
-                <small class="text-grey">{{ humanizeDate(props.row.dbLastSeen) }}</small>
+                <small class="text-grey">{{ humanizeDate(t, props.row.dbLastSeen) }}</small>
               </div>
             </w-td>
           </template>
@@ -104,14 +104,12 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 
 import { useSiteStore } from '@/stores/site'
-import { useUserStore } from '@/stores/user'
 
-import { relativeDate } from '@/helpers/datetime'
+import { humanizeDate, relativeDate } from '@/helpers/datetime'
 
 // STORES
 
 const siteStore = useSiteStore()
-const userStore = useUserStore()
 
 // I18N
 
@@ -178,13 +176,6 @@ const nodesHeaders = [
 ]
 
 // METHODS
-
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return userStore.formatDateTime(t, val)
-}
 
 async function load() {
   state.loading++

@@ -32,25 +32,38 @@ export const useCommonStore = defineStore('common', {
   state: () => ({
     routerLoading: false,
     locale: localStorage.getItem('locale') || 'en',
-    desiredLocale: localStorage.getItem('locale'),
-    blocksLoaded: []
+    blocksLoaded: [],
+    // -> Tag -> in-flight import promise. Lets two overlapping `loadBlocks()` calls for the same
+    //    tag (e.g. two page renders racing on a slow connection) share one `import()` rather than
+    //    each starting their own -- `blocksLoaded` alone can't catch that, since neither call's
+    //    entry has landed there yet when the other one runs its filter.
+    blocksLoading: new Map()
   }),
   getters: {},
   actions: {
     async fetchLocaleStrings(locale) {
-      try {
-        return API_CLIENT.get(`locales/${locale}/strings`).json()
-      } catch (err) {
-        console.warn(err)
-        throw err
-      }
+      // -> No try/catch here: a rejection is the caller's to handle (App.vue#applyLocale already
+      //    does, raising a user-facing notify()). Wrapping a returned promise in try/catch here would
+      //    do nothing -- the rejection settles after this function has already returned.
+      return API_CLIENT.get(`locales/${locale}/strings`).json()
     },
     setLocale(locale) {
-      this.$patch({
-        locale,
-        desiredLocale: locale
-      })
+      this.locale = locale
       localStorage.setItem('locale', locale)
+    },
+    /**
+     * Imports one block's compiled component and records the outcome. Only ever called once per
+     * tag while its import is in flight -- `loadBlocks()` is what enforces that, via `blocksLoading`.
+     */
+    async _importBlock(entry, siteId) {
+      try {
+        await import(/* @vite-ignore */ blockImportUrl(entry, siteId))
+        this.blocksLoaded.push(entry.tag)
+      } catch (err) {
+        console.warn(`Failed to load ${entry.tag}: ${err.message}`)
+      } finally {
+        this.blocksLoading.delete(entry.tag)
+      }
     },
     /**
      * @param blocks Tags to load, each either a bare string (a built-in) or `{ tag, isCustom, id }`
@@ -59,15 +72,24 @@ export const useCommonStore = defineStore('common', {
     async loadBlocks(blocks = []) {
       const siteStore = useSiteStore()
       const entries = blocks.map(normalizeBlockEntry)
-      const toLoad = entries.filter((entry) => !this.blocksLoaded.includes(entry.tag))
-      for (const entry of toLoad) {
-        try {
-          await import(/* @vite-ignore */ blockImportUrl(entry, siteStore.id))
-          this.blocksLoaded.push(entry.tag)
-        } catch (err) {
-          console.warn(`Failed to load ${entry.tag}: ${err.message}`)
+      const seen = new Set()
+      const toAwait = []
+      for (const entry of entries) {
+        // -> Dedupe both against tags already loaded and, within this same call, against a
+        //    duplicate tag appearing more than once in `entries` -- the batched call Index.vue
+        //    now makes per render can legitimately contain the same tag several times.
+        if (this.blocksLoaded.includes(entry.tag) || seen.has(entry.tag)) {
+          continue
         }
+        seen.add(entry.tag)
+        let promise = this.blocksLoading.get(entry.tag)
+        if (!promise) {
+          promise = this._importBlock(entry, siteStore.id)
+          this.blocksLoading.set(entry.tag, promise)
+        }
+        toAwait.push(promise)
       }
+      await Promise.all(toAwait)
     }
   }
 })

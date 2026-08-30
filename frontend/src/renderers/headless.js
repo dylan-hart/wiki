@@ -18,7 +18,10 @@ import { MarkdownRenderer } from './markdown'
  * @param {object} config The site's markdown editor config, so the result matches what an author
  *                        would have produced in the editor
  * @param {object} context What the source cannot say about itself: `pagePath`, which a relative image
- *                         in it resolves against, exactly as the editor passes it
+ *                         in it resolves against, exactly as the editor passes it; and `siteOrigin`,
+ *                         which the editor never passes (its own `location` already is the site's
+ *                         origin) but this headless caller must, since it is not -- see
+ *                         `markdown.js#isExternalHref`.
  * @returns {string} Rendered HTML, before the server's own post-processing
  */
 window.__wikiRender = function (content, config = {}, context = {}) {

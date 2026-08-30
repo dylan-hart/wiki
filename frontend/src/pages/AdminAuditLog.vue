@@ -132,7 +132,7 @@
           </template>
           <template v-slot:body-cell-date="props">
             <w-td :props="props">
-              <span>{{ humanizeDate(props.value) }}</span>
+              <span>{{ humanizeDate(t, props.value) }}</span>
               <div>
                 <small class="text-grey">{{ relativeDate(props.value) }}</small>
               </div>
@@ -163,12 +163,15 @@
           <div class="flex items-end gap-3">
             <div style="width: 160px">
               <w-input
+                ref="retentionInput"
                 outlined
                 dense
                 type="number"
                 min="1"
                 max="3650"
                 v-model.number="state.retentionDays"
+                :rules="retentionDaysRules"
+                lazy-rules="ondemand"
                 :suffix="t('admin.audit.retentionDaysSuffix')" />
             </div>
             <w-btn
@@ -194,10 +197,9 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 
 import { apiErrorMessage } from '@/helpers/apiError'
-import { relativeDate } from '@/helpers/datetime'
+import { humanizeDate, relativeDate } from '@/helpers/datetime'
 
 import { useSiteStore } from '@/stores/site'
-import { useUserStore } from '@/stores/user'
 
 // COMPOSABLES
 
@@ -206,7 +208,6 @@ const dark = useDark()
 // STORES
 
 const siteStore = useSiteStore()
-const userStore = useUserStore()
 
 // I18N
 
@@ -295,14 +296,19 @@ const eventOptions = ref([
 
 const actorOptions = ref([{ label: t('admin.audit.allActors'), value: null }])
 
-// METHODS
+const retentionInput = ref(null)
 
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return userStore.formatDateTime(t, val)
-}
+/**
+ * `min`/`max` on the native control stop the spinner and the slider, not a pasted value -- typing or
+ * pasting "0" or "9999" bypasses both silently. Mirrors `ApprovalRuleDialog.vue`'s
+ * `minApprovalsValidation` convention.
+ */
+const retentionDaysRules = [
+  (val) =>
+    (Number.isInteger(val) && val >= 1 && val <= 3650) || t('admin.audit.retentionDaysInvalid')
+]
+
+// METHODS
 
 function resetFilters() {
   state.filters.actorId = null
@@ -398,6 +404,9 @@ async function loadRetention() {
 }
 
 async function saveRetention() {
+  if (retentionInput.value && !retentionInput.value.validate()) {
+    return
+  }
   state.savingRetention = true
   try {
     const resp = await API_CLIENT.put('audit-log/settings', {

@@ -95,7 +95,7 @@
               <em>{{ t('admin.analytics.providerNoConfiguration') }}</em>
             </w-banner>
           </w-card-section>
-          <template v-for="(cfg, cfgKey, idx) in provider.config">
+          <template v-for="(cfg, cfgKey, idx) in provider.config" :key="cfgKey">
             <template v-if="configIfCheck(cfg.if)">
               <w-separator class="my-2" inset v-if="idx > 0" />
               <w-item v-if="cfg.type === `boolean`" tag="label">

@@ -13,7 +13,6 @@
       <w-card-section>
         <w-banner
           v-if="!state.isLoading && state.entries.length < 1"
-          rounded
           :class="dark.isActive ? `bg-dark-4 text-white` : `bg-grey-4 text-grey-9`">
           {{ t('admin.classification.reportEmpty') }}
         </w-banner>

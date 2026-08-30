@@ -214,4 +214,41 @@ describe('CommentComposer', () => {
     expect(wrapper.find('textarea').element.value).toBe('Hello world')
     expect(wrapper.emitted('posted')).toBeUndefined()
   })
+
+  // -> The API client's `throwHttpErrors` is configured not to throw for exactly HTTP 400
+  //    (`boot/api.js`), so a refusal on this route resolves with a parsed `{ ok: false, message }`
+  //    envelope rather than rejecting -- e.g. a session that expired between render and submit,
+  //    landing the anonymous branch on `backend/api/comments.ts`'s `reply.badRequest(...)`. Without
+  //    an explicit check, that envelope is indistinguishable from a real posted comment.
+  it('shows the server message and leaves content/guestName/guestEmail intact on a 400 refusal, emitting no posted event', async () => {
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: false,
+          error: 'Bad Request',
+          statusCode: 400,
+          message: 'Guest posting is disabled.'
+        })
+    })
+
+    notifyQueue.splice(0, notifyQueue.length)
+    const { wrapper } = await mountComposer({ authenticated: false })
+
+    const textInputs = wrapper.findAll('input')
+    await textInputs[0].setValue('Guest Name')
+    await textInputs[1].setValue('guest@example.com')
+    await wrapper.find('textarea').setValue('Hello world')
+    await findButton(wrapper, 'Post Comment').trigger('click')
+    await flushPromises()
+
+    expect(notifyQueue[0]).toMatchObject({
+      type: 'negative',
+      message: 'Unexpected Error',
+      caption: 'Guest posting is disabled.'
+    })
+    expect(wrapper.find('textarea').element.value).toBe('Hello world')
+    expect(textInputs[0].element.value).toBe('Guest Name')
+    expect(textInputs[1].element.value).toBe('guest@example.com')
+    expect(wrapper.emitted('posted')).toBeUndefined()
+  })
 })

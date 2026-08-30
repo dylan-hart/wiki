@@ -115,7 +115,9 @@
               <w-td :props="props">
                 <span>{{ props.value }}</span>
                 <div>
-                  <small class="text-grey">{{ humanizeDate(props.row.createdAt) }}</small>
+                  <small class="text-grey">{{
+                    humanizeDateWithSeconds(t, props.row.createdAt)
+                  }}</small>
                 </div>
               </w-td>
             </template>
@@ -123,7 +125,9 @@
               <w-td :props="props">
                 <span>{{ props.value }}</span>
                 <div>
-                  <small class="text-grey">{{ humanizeDate(props.row.updatedAt) }}</small>
+                  <small class="text-grey">{{
+                    humanizeDateWithSeconds(t, props.row.updatedAt)
+                  }}</small>
                 </div>
               </w-td>
             </template>
@@ -181,7 +185,9 @@
               <w-td :props="props">
                 <span>{{ props.value }}</span>
                 <div>
-                  <small class="text-grey">{{ humanizeDate(props.row.waitUntil) }}</small>
+                  <small class="text-grey">{{
+                    humanizeDateWithSeconds(t, props.row.waitUntil)
+                  }}</small>
                 </div>
               </w-td>
             </template>
@@ -280,12 +286,10 @@
                   rounded />
                 <w-circular-progress
                   v-else-if="props.row.state === `active`"
-                  indeterminate
                   size="sm"
                   :thickness="0.4"
                   color="blue"
-                  track-color="blue-1"
-                  center-color="blue-2" />
+                  track-color="blue-1" />
               </w-td>
             </template>
             <template v-slot:body-cell-task="props">
@@ -307,7 +311,9 @@
                     </template>
                   </i18n-t>
                   <div>
-                    <small class="text-grey">{{ humanizeDate(props.row.completedAt) }}</small>
+                    <small class="text-grey">{{
+                      humanizeDateWithSeconds(t, props.row.completedAt)
+                    }}</small>
                   </div>
                 </template>
                 <template v-else-if="props.value === `active`">
@@ -349,7 +355,9 @@
               <w-td :props="props">
                 <span>{{ props.value }}</span>
                 <div>
-                  <small class="text-grey">{{ humanizeDate(props.row.startedAt) }}</small>
+                  <small class="text-grey">{{
+                    humanizeDateWithSeconds(t, props.row.startedAt)
+                  }}</small>
                 </div>
                 <div>
                   <i18n-t class="text-grey" keypath="admin.scheduler.createdBy" tag="small">
@@ -408,10 +416,9 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 
 import { apiErrorMessage } from '@/helpers/apiError'
-import { humanizeDuration, relativeDate } from '@/helpers/datetime'
+import { humanizeDateWithSeconds, humanizeDuration, relativeDate } from '@/helpers/datetime'
 
 import { useSiteStore } from '@/stores/site'
-import { useUserStore } from '@/stores/user'
 
 // COMPOSABLES
 
@@ -420,7 +427,6 @@ const dark = useDark()
 // STORES
 
 const siteStore = useSiteStore()
-const userStore = useUserStore()
 
 // I18N
 
@@ -625,14 +631,6 @@ watch(
 )
 
 // METHODS
-
-/** Absolute, and with seconds: for a job, the timing IS the thing being read. */
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return userStore.formatDateTime(t, val, { seconds: true })
-}
 
 async function load() {
   state.loading++

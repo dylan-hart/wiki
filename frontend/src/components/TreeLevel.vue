@@ -7,13 +7,7 @@
         <div class="treeview-label-text" :class="dark.isActive ? `text-purple-4` : `text-purple`">
           root
         </div>
-        <w-menu
-          v-if="rootContextActionList.length > 0"
-          touch-position
-          context-menu
-          auto-close
-          transition-show="jump-down"
-          transition-hide="jump-up">
+        <w-menu v-if="rootContextActionList.length > 0" context-menu auto-close>
           <w-card class="p-2">
             <w-list dense style="min-width: 150px">
               <w-item

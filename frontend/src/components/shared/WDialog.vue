@@ -271,6 +271,24 @@ function trapTab(ev) {
 
 // WATCHERS
 
+// -> Tracks whether THIS instance is the one that incremented wDialogDepth, so its release path
+// (the watcher's else-branch, and onBeforeUnmount) can only ever hand back a lock it actually took.
+// `{ immediate: true }` below runs the watcher once at mount for every instance, including one that
+// mounts closed -- without this flag that immediate run would decrement a counter it never touched.
+const hasLocked = ref(false)
+
+function releaseLock() {
+  document.removeEventListener('keydown', onKeydown, true)
+  const depth = Math.max(0, Number(document.body.dataset.wDialogDepth ?? 0) - 1)
+  document.body.dataset.wDialogDepth = String(depth)
+  if (depth === 0) {
+    document.body.style.overflow = ''
+    getAppRoot()?.removeAttribute('inert')
+  }
+  restoreFocus()
+  hasLocked.value = false
+}
+
 /**
  * Escape handling, scroll-locking, backgrounding and focus are bound only while open, so stacked
  * dialogs do not each keep a listener alive. Both the scroll lock and `inert` are reference-counted on
@@ -294,15 +312,9 @@ watch(
         getAppRoot()?.setAttribute('inert', '')
       }
       placeInitialFocus()
-    } else {
-      document.removeEventListener('keydown', onKeydown, true)
-      const depth = Math.max(0, Number(document.body.dataset.wDialogDepth ?? 0) - 1)
-      document.body.dataset.wDialogDepth = String(depth)
-      if (depth === 0) {
-        document.body.style.overflow = ''
-        getAppRoot()?.removeAttribute('inert')
-      }
-      restoreFocus()
+      hasLocked.value = true
+    } else if (hasLocked.value) {
+      releaseLock()
     }
   },
   // -> `post`, not the default `pre`: `placeInitialFocus()` needs the panel (`v-if="modelValue"`)
@@ -311,16 +323,12 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  // -> An unmount while open (route change, host teardown) would otherwise leak all four
-  if (props.modelValue) {
-    document.removeEventListener('keydown', onKeydown, true)
-    const depth = Math.max(0, Number(document.body.dataset.wDialogDepth ?? 0) - 1)
-    document.body.dataset.wDialogDepth = String(depth)
-    if (depth === 0) {
-      document.body.style.overflow = ''
-      getAppRoot()?.removeAttribute('inert')
-    }
-    restoreFocus()
+  // -> An unmount while open (route change, host teardown) would otherwise leak all four:
+  //    the keydown listener, the scroll lock, `inert` on the app root, and the trigger's focus.
+  //    Gated on `hasLocked` (not `props.modelValue`) for the same reason the watcher's close
+  //    branch is -- see the comment above `hasLocked`'s declaration.
+  if (hasLocked.value) {
+    releaseLock()
   }
 })
 </script>

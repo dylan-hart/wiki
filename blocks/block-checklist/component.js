@@ -55,10 +55,8 @@ export class BlockChecklistElement extends LitElement {
         hint: 'Shown above the checklist.'
       }
     ],
-    template: `::block-checklist{runkey="change-me"}
-- First step
-- Second step
-::`
+    template: `- First step
+- Second step`
   }
 
   static get styles() {

@@ -1,5 +1,5 @@
-import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 
 import { useCommonStore } from '@/stores/common'
 import { useUserStore } from '@/stores/user'
@@ -12,48 +12,57 @@ import {
   relativeDate
 } from './datetime.js'
 
-// -> Mirrors `common.datetime`'s real "{date} at {time}" shape (`backend/locales/en.json`) closely
-//    enough to assert on, without pulling the actual i18n instance into a helpers unit test.
-const t = (key, params) => `${params.date} at ${params.time}`
+// -> Not a real i18n instance -- these tests are about the delegation and the placeholder guard, not
+//    about `common.datetime`'s own wording, which is covered by the locale strings themselves.
+const fakeT = (key, params) => `${params.date} at ${params.time}`
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+})
 
 describe('humanizeDate', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia())
+  it('returns the placeholder for a nullish or empty value', () => {
+    expect(humanizeDate(fakeT, null)).toBe('---')
+    expect(humanizeDate(fakeT, undefined)).toBe('---')
+    expect(humanizeDate(fakeT, '')).toBe('---')
   })
 
-  it('returns the placeholder for a null/empty value', () => {
-    expect(humanizeDate(t, null)).toBe('---')
-    expect(humanizeDate(t, '')).toBe('---')
-  })
-
-  it("renders in the user's stored non-system timezone and date pattern, at minute precision", () => {
+  it('renders in the stored timezone and date pattern, at minute precision', () => {
     const store = useUserStore()
     store.timezone = 'Asia/Tokyo'
     store.dateFormat = 'DD/MM/YYYY'
     store.timeFormat = '24h'
 
-    // -> 2026-08-25T03:15:42Z is 2026-08-25 12:15:42 in Asia/Tokyo (UTC+9)
-    expect(humanizeDate(t, '2026-08-25T03:15:42Z')).toBe('25/08/2026 at 12:15')
+    // 2026-03-04T23:30:00Z is 2026-03-05 08:30 in Asia/Tokyo (UTC+9, no DST)
+    expect(humanizeDate(fakeT, '2026-03-04T23:30:00Z')).toBe('05/03/2026 at 08:30')
+  })
+
+  it('renders the same instant differently for a non-UTC stored timezone', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '24h'
+    store.timezone = 'UTC'
+
+    expect(humanizeDate(fakeT, '2026-03-04T15:30:00Z')).toBe('2026-03-04 at 15:30')
+
+    store.timezone = 'Asia/Tokyo'
+    expect(humanizeDate(fakeT, '2026-03-04T15:30:00Z')).toBe('2026-03-05 at 00:30')
   })
 })
 
 describe('humanizeDateWithSeconds', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia())
-  })
-
   it('returns the placeholder for a null/empty value', () => {
-    expect(humanizeDateWithSeconds(t, null)).toBe('---')
-    expect(humanizeDateWithSeconds(t, '')).toBe('---')
+    expect(humanizeDateWithSeconds(fakeT, null)).toBe('---')
   })
 
-  it("renders in the user's stored timezone with seconds included", () => {
+  it('renders the same moment as humanizeDate, with seconds added', () => {
     const store = useUserStore()
-    store.timezone = 'Asia/Tokyo'
-    store.dateFormat = 'DD/MM/YYYY'
+    store.timezone = 'UTC'
+    store.dateFormat = 'YYYY-MM-DD'
     store.timeFormat = '24h'
 
-    expect(humanizeDateWithSeconds(t, '2026-08-25T03:15:42Z')).toBe('25/08/2026 at 12:15:42')
+    expect(humanizeDate(fakeT, '2026-03-04T12:34:56Z')).toBe('2026-03-04 at 12:34')
+    expect(humanizeDateWithSeconds(fakeT, '2026-03-04T12:34:56Z')).toBe('2026-03-04 at 12:34:56')
   })
 
   it('is strictly more precise than humanizeDate for the same instant', () => {
@@ -62,14 +71,10 @@ describe('humanizeDateWithSeconds', () => {
     store.dateFormat = 'DD/MM/YYYY'
     store.timeFormat = '24h'
 
-    expect(humanizeDateWithSeconds(t, '2026-08-25T03:15:42Z')).not.toBe(
-      humanizeDate(t, '2026-08-25T03:15:42Z')
+    expect(humanizeDateWithSeconds(fakeT, '2026-08-25T03:15:42Z')).not.toBe(
+      humanizeDate(fakeT, '2026-08-25T03:15:42Z')
     )
   })
-})
-
-beforeEach(() => {
-  setActivePinia(createPinia())
 })
 
 describe('humanizeIsoDuration', () => {

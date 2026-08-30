@@ -42,6 +42,7 @@
           icon="la:plus"
           :label="t(`admin.classification.new`)"
           color="primary"
+          :loading="state.isLoading"
           @click="createLevel" />
       </div>
     </div>
@@ -117,7 +118,6 @@
       <div class="col-span-12 lg:col-span-4">
         <w-banner
           class="mb-4"
-          rounded
           :class="dark.isActive ? `bg-dark-4 text-white` : `bg-blue-1 text-dark`">
           {{ t('admin.classification.hint') }}
         </w-banner>
@@ -134,7 +134,7 @@
               v-for="row of state.report"
               :key="row.levelId"
               clickable
-              :disable="row.count === 0"
+              :disabled="row.count === 0"
               @click="openReport(row)">
               <w-item-section>
                 <w-item-label>{{ row.name }}</w-item-label>
@@ -218,6 +218,9 @@ async function load() {
 }
 
 function openReport(row) {
+  if (row.count === 0) {
+    return
+  }
   dialog({
     component: defineAsyncComponent(
       () => import('../components/ClassificationReportDrillDialog.vue')
@@ -230,12 +233,17 @@ function openReport(row) {
 }
 
 async function createLevel() {
+  if (state.isLoading) {
+    return
+  }
+  state.isLoading = true
   try {
     await API_CLIENT.post('classification-levels', {
       json: { name: t('admin.classification.newDefaultName') }
     }).json()
     await load()
   } catch (err) {
+    state.isLoading = false
     notify({
       type: 'negative',
       message: t('admin.classification.createFailed'),

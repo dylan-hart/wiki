@@ -374,6 +374,11 @@ async function saveEdit(comment) {
       `sites/${siteStore.id}/pages/${pageStore.id}/comments/${comment.id}`,
       { json: { content: (editDrafts.value[comment.id] ?? '').trim() } }
     ).json()
+    // -> The API client does not throw for a 400, so a refusal comes back as a parsed error
+    //    envelope rather than a rejection: without this check it reads as a successful edit.
+    if (updated?.ok === false) {
+      throw new Error(updated.message || t(`common.error.generic.title`))
+    }
     comment.content = updated.content
     comment.render = updated.render
     comment.updatedAt = updated.updatedAt
@@ -426,7 +431,14 @@ function confirmDelete(comment) {
 
 async function deleteComment(comment) {
   try {
-    await API_CLIENT.delete(`sites/${siteStore.id}/pages/${pageStore.id}/comments/${comment.id}`)
+    const resp = await API_CLIENT.delete(
+      `sites/${siteStore.id}/pages/${pageStore.id}/comments/${comment.id}`
+    )
+    // -> The API client does not throw for a 400, so a refusal comes back as a response with
+    //    `ok: false` rather than a rejection: without this check it reads as a successful delete.
+    if (!resp?.ok) {
+      throw new Error((await resp.json())?.message || t(`common.error.generic.title`))
+    }
     comments.value = removeCommentFromTree(comments.value, comment.id)
     pageStore.commentsCount -= countCommentTree(comment)
     notify({ type: 'positive', message: t(`common.comments.deleteSuccess`) })

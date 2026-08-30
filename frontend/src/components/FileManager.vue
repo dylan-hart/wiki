@@ -1,5 +1,5 @@
 <template>
-  <w-layout class="fileman" view="hHh lpR lFr" container>
+  <w-layout class="fileman" container>
     <!--
       Three toolbars in one flex row, which below ~700px is more than fits: the row overflowed and took the
       last of them -- the one holding Close -- off the side of the screen, so on a phone the overlay could
@@ -7,11 +7,11 @@
       also why each of the three carries a name.
     -->
     <w-header class="card-header">
-      <w-toolbar class="fileman-hdr-title" dark>
+      <w-toolbar class="fileman-hdr-title">
         <w-icon name="img:/_assets/icons/fluent-folder.svg" left size="md" />
         <span>{{ t(`fileman.title`) }}</span>
       </w-toolbar>
-      <w-toolbar class="fileman-hdr-search" dark>
+      <w-toolbar class="fileman-hdr-search">
         <!--
           -> The CONTENT locale being browsed, not the UI language -- `commonStore.locale` /
              `<locale-selector-menu/>` switch that, and mounting it here read as "which locale's
@@ -33,13 +33,7 @@
           :label="state.locale"
           :aria-label="state.locale"
           style="height: 40px">
-          <w-menu
-            class="translucent-menu"
-            auto-close
-            transition-show="jump-down"
-            transition-hide="jump-up"
-            anchor="bottom left"
-            self="top left">
+          <w-menu class="translucent-menu" auto-close anchor="bottom left" self="top left">
             <w-card class="p-2">
               <w-list dense style="min-width: 180px">
                 <w-item
@@ -101,7 +95,7 @@
         -> No right margin on the last control: the toolbar's own 12px is already close to the 9-10px the
            header leaves above and below.
       -->
-      <w-toolbar class="fileman-hdr-actions" dark>
+      <w-toolbar class="fileman-hdr-actions">
         <w-space />
         <w-btn
           class="mr-2"
@@ -137,7 +131,7 @@
       Narrower while it overlays, so there is a comfortable width of scrim left to tap on.
     -->
     <w-drawer class="fileman-left" v-model="treeDrawerOpen" :width="isTreeOverlay ? 300 : 350">
-      <w-scroll-area :thumb-style="thumbStyle" :bar-style="barStyle" style="height: 100%">
+      <w-scroll-area style="height: 100%">
         <!--
           -> No side padding: the tree's rows run the full width of the drawer, so a hovered or
              selected row reads as a band across it rather than a floating pill. `pt-2` is the gap
@@ -157,15 +151,13 @@
       </w-scroll-area>
     </w-drawer>
     <w-drawer class="fileman-right" :model-value="detailsPaneShown" :width="350" side="right">
-      <w-scroll-area :thumb-style="thumbStyle" :bar-style="barStyle" style="height: 100%">
+      <w-scroll-area style="height: 100%">
         <div class="p-4">
           <template v-if="currentFileDetails">
             <img
-              class="w-full object-cover rounded mb-4"
+              class="w-full aspect-[16/10] object-cover rounded mb-4"
               v-if="currentFileDetails.thumbnail"
-              :src="currentFileDetails.thumbnail"
-              width="100%"
-              :ratio="16 / 10" />
+              :src="currentFileDetails.thumbnail" />
             <div
               class="fileman-details-row"
               v-for="item of currentFileDetails.items"
@@ -252,11 +244,7 @@
               <w-tooltip anchor="bottom middle" self="top middle">{{
                 t(`fileman.viewOptions`)
               }}</w-tooltip>
-              <w-menu
-                transition-show="jump-down"
-                transition-hide="jump-up"
-                anchor="bottom right"
-                self="top right">
+              <w-menu anchor="bottom right" self="top right">
                 <w-card class="p-2">
                   <div class="text-center">
                     <small class="text-grey">{{ t(`fileman.viewOptions`) }}</small>
@@ -407,7 +395,7 @@
               <w-icon name="la:cloud-upload-alt" size="64px" />
               <span>{{ t('fileman.dropToUpload') }}</span>
             </div>
-            <w-scroll-area :thumb-style="thumbStyle" :bar-style="barStyle" style="height: 100%">
+            <w-scroll-area style="height: 100%">
               <div class="fileman-loadinglist" v-if="state.fileListLoading">
                 <w-spinner class="mr-2" color="primary" size="64px" />
                 <span class="text-primary">{{ t('fileman.fetchingFolderContents') }}</span>
@@ -436,13 +424,7 @@
                     <div class="text-caption">{{ item.side }}</div>
                   </w-item-section>
                   <!-- RIGHT-CLICK MENU -->
-                  <w-menu
-                    class="translucent-menu"
-                    touch-position
-                    context-menu
-                    auto-close
-                    transition-show="jump-down"
-                    transition-hide="jump-up">
+                  <w-menu class="translucent-menu" context-menu auto-close>
                     <w-card class="p-2">
                       <w-list dense style="min-width: 150px">
                         <w-item
@@ -567,7 +549,6 @@ import { notify } from '@/composables/notify'
 import { useMinWidth, useScreen } from '@/composables/screen'
 import { useDark } from '@/composables/dark'
 
-import { useCommonStore } from '@/stores/common'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
@@ -577,6 +558,7 @@ import NewMenu from './PageNewMenu.vue'
 import Tree from './TreeNav.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { assetUrl } from '@/helpers/assets'
+import { humanizeDate } from '@/helpers/datetime'
 import fileTypes from '@/helpers/fileTypes'
 import { isHomePath, localizedPagePath } from '@/helpers/pagePaths'
 import FolderCreateDialog from '@/components/FolderCreateDialog.vue'
@@ -591,7 +573,6 @@ const screen = useScreen()
 
 // STORES
 
-const commonStore = useCommonStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
@@ -705,19 +686,6 @@ watch(
     }
   }
 )
-
-const thumbStyle = {
-  right: '2px',
-  borderRadius: '5px',
-  backgroundColor: '#000',
-  width: '5px',
-  opacity: 0.15
-}
-const barStyle = {
-  backgroundColor: '#FAFAFA',
-  width: '9px',
-  opacity: 1
-}
 
 // REFS
 
@@ -847,11 +815,11 @@ const currentFileDetails = computed(() => {
       })
       items.push({
         label: t('fileman.detailsPageUpdated'),
-        value: formatDateTime(item.updatedAt)
+        value: humanizeDate(t, item.updatedAt)
       })
       items.push({
         label: t('fileman.detailsPageCreated'),
-        value: formatDateTime(item.createdAt)
+        value: humanizeDate(t, item.createdAt)
       })
       break
     }
@@ -913,15 +881,6 @@ function dismissTreeOverlay(ev) {
 
 function close() {
   siteStore.overlay = null
-}
-
-function formatDateTime(value) {
-  if (!value) {
-    return ''
-  }
-  return Temporal.Instant.from(value)
-    .toZonedDateTimeISO(Temporal.Now.timeZoneId())
-    .toLocaleString(commonStore.locale, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 function insertItem(item) {

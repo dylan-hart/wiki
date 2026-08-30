@@ -5,6 +5,7 @@ import { createI18n } from 'vue-i18n'
 
 import ClassificationResolutionDialog from './ClassificationResolutionDialog.vue'
 import { useSiteStore } from '@/stores/site'
+import { queue as notifyQueue } from '@/composables/notify'
 
 /**
  * OpenProject #1080: `PageHeader.vue` opens this dialog when a save raises a page's own
@@ -104,5 +105,26 @@ describe('ClassificationResolutionDialog', () => {
     await flushPromises()
 
     expect(wrapper.vm.state.items[0].resolved).toBe(false)
+  })
+
+  // -> A refused write (400, e.g. a page whose write:pages was revoked between the raising save and
+  //    the resolve) resolves through ky with no exception once boot/api.js stops special-casing 400 --
+  //    the server's own explanation lives on `err.data.message`, which `apiErrorMessage` reads.
+  //    `err.message` alone would show ky's generic "Request failed with status code 400" instead.
+  it("surfaces the server's own message, not ky's generic one, on a refused bump", async () => {
+    const queueLengthBefore = notifyQueue.length
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.reject({ data: { message: 'You may no longer edit this page.' } })
+    })
+    const { wrapper } = await mountDialog(CONFLICTS)
+
+    await wrapper.vm.bumpOne(wrapper.vm.state.items[0])
+    await flushPromises()
+
+    expect(wrapper.vm.state.items[0].resolved).toBe(false)
+    const lastNotification = notifyQueue[notifyQueue.length - 1]
+    expect(notifyQueue.length).toBe(queueLengthBefore + 1)
+    expect(lastNotification.type).toBe('negative')
+    expect(lastNotification.caption).toBe('You may no longer edit this page.')
   })
 })

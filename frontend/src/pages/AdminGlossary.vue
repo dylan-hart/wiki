@@ -76,7 +76,6 @@
     <div class="p-4">
       <w-banner
         v-if="state.terms.length < 1 && state.loading < 1"
-        rounded
         :class="dark.isActive ? `bg-dark-3 text-grey-4` : `bg-grey-2 text-grey-8`">
         {{ t('admin.glossary.noTerms') }}
       </w-banner>

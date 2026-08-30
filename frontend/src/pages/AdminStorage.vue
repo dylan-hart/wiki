@@ -436,29 +436,31 @@
                   >{{ t('admin.storage.noLiveSync') }}</w-banner
                 >
               </w-card-section>
-              <template v-if="state.target.isEnabled" v-for="(act, idx) in state.target.actions">
-                <w-separator class="my-2" inset v-if="idx > 0" />
-                <w-item>
-                  <blueprint-icon class="self-start" :icon="act.icon" :hue-rotate="45" />
-                  <w-item-section>
-                    <w-item-label>{{ act.label }}</w-item-label>
-                    <w-item-label caption>{{ act.hint }}</w-item-label>
-                    <w-item-label class="text-red" v-if="act.warn" caption>
-                      <strong>{{ act.warn }}</strong>
-                    </w-item-label>
-                  </w-item-section>
-                  <w-item-section side>
-                    <w-btn
-                      class="acrylic-btn"
-                      flat
-                      icon="la:arrow-circle-right"
-                      color="primary"
-                      @click="executeAction(act)"
-                      :label="t(`common.actions.proceed`)"
-                      :disable="state.runningAction"
-                      :loading="state.runningActionHandler === act.handler" />
-                  </w-item-section>
-                </w-item>
+              <template v-if="state.target.isEnabled">
+                <template v-for="(act, idx) in state.target.actions" :key="act.handler">
+                  <w-separator class="my-2" inset v-if="idx > 0" />
+                  <w-item>
+                    <blueprint-icon class="self-start" :icon="act.icon" :hue-rotate="45" />
+                    <w-item-section>
+                      <w-item-label>{{ act.label }}</w-item-label>
+                      <w-item-label caption>{{ act.hint }}</w-item-label>
+                      <w-item-label class="text-red" v-if="act.warn" caption>
+                        <strong>{{ act.warn }}</strong>
+                      </w-item-label>
+                    </w-item-section>
+                    <w-item-section side>
+                      <w-btn
+                        class="acrylic-btn"
+                        flat
+                        icon="la:arrow-circle-right"
+                        color="primary"
+                        @click="executeAction(act)"
+                        :label="t(`common.actions.proceed`)"
+                        :disable="state.runningAction"
+                        :loading="state.runningActionHandler === act.handler" />
+                    </w-item-section>
+                  </w-item>
+                </template>
               </template>
             </w-card>
           </div>

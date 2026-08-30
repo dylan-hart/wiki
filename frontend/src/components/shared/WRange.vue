@@ -38,6 +38,8 @@
       :aria-valuemax="handle === 'min' ? model.max : max"
       :aria-valuenow="model[handle]"
       :aria-valuetext="labelFor(handle)"
+      :disabled="isDisabled"
+      :aria-disabled="isDisabled || undefined"
       @keydown="onKeydown(handle, $event)">
       <!--
         -> `left-1/2 -translate-x-1/2` centers this label under its handle (OpenProject #1590's
@@ -221,6 +223,9 @@ const KEY_STEPS = {
 }
 
 function onKeydown(handle, ev) {
+  if (isDisabled.value) {
+    return
+  }
   if (ev.key === 'Home' || ev.key === 'End') {
     ev.preventDefault()
     update(handle, ev.key === 'Home' ? props.min : props.max)

@@ -7,6 +7,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import FileManager from './FileManager.vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 import { queue as notifyQueue } from '@/composables/notify'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 
@@ -26,6 +27,12 @@ const i18n = createI18n({
   locale: 'en',
   messages: {
     en: {
+      common: {
+        datetime: '{date} at {time}',
+        pageSelector: {
+          folderEmptyWarning: 'This folder is empty.'
+        }
+      },
       fileman: {
         dropToUpload: 'Drop files to upload',
         dropFoldersRejected: "Folders can't be uploaded by drag-and-drop.",
@@ -42,11 +49,6 @@ const i18n = createI18n({
         duplicateItem: 'Duplicate...',
         renameItem: 'Rename...',
         renameMovePage: 'Rename / Move Page...'
-      },
-      common: {
-        pageSelector: {
-          folderEmptyWarning: 'This folder is empty.'
-        }
       },
       pages: {
         homepageGuard: {
@@ -390,6 +392,61 @@ describe('FileManager context menu (OpenProject #859, #861, #862, #863, #864)', 
 })
 
 /**
+ * WP #1728: the detail thumbnail `<img>` carried leftover `q-img`-era props (`width="100%"`,
+ * `:ratio="16 / 10"`) that mean nothing on a plain `<img>` -- `ratio` lands as a dead DOM attribute
+ * and `width` is non-conforming markup, while reserving no actual height, so the pane reflows once
+ * the thumbnail loads. This asserts the markup is plain now: no `ratio`/`width` attributes, and the
+ * aspect ratio reserved via a class instead (`object-cover`, already present, does the rest).
+ */
+describe('FileManager detail thumbnail markup (WP #1728)', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders the detail thumbnail with no leftover q-img ratio/width attributes', async () => {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    const router = createRouter({ history: createWebHistory(), routes: [] })
+
+    const wrapper = mount(FileManager, {
+      global: {
+        plugins: [i18n, router],
+        stubs: { Tree: true, NewMenu: true, LocaleSelectorMenu: true }
+      },
+      attachTo: document.body
+    })
+    await flushPromises()
+
+    wrapper.vm.state.fileList = [
+      {
+        id: 'a1',
+        type: 'asset',
+        title: 'photo',
+        fileName: 'photo.png',
+        fileExt: 'png',
+        fileSize: 1024,
+        mimeType: 'image/png',
+        folderPath: ''
+      }
+    ]
+    wrapper.vm.state.currentFileId = 'a1'
+    await flushPromises()
+
+    const img = wrapper.find('.fileman-right img')
+    expect(img.exists()).toBe(true)
+    expect(img.attributes('ratio')).toBeUndefined()
+    expect(img.attributes('width')).toBeUndefined()
+    expect(img.classes()).toContain('aspect-[16/10]')
+    expect(img.classes()).toContain('object-cover')
+    expect(img.attributes('src')).toBe('/_thumb/a1.webp')
+
+    wrapper.unmount()
+  })
+})
+
+/**
  * WP #1149: extra confirmation before deleting or moving a site's homepage, from the file manager's
  * own delete/rename-move entry points (`delItem`/`renameMovePage`) -- the tree-item counterparts to
  * `PageActionsCol.test.js`'s "homepage guard" suite, which covers the page view's action rail. Calls
@@ -545,6 +602,87 @@ describe('FileManager homepage guard (WP #1149)', () => {
       expect.anything()
     )
 
+    wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #1755: the page-detail panel's "Updated"/"Created" fields used to spell out their own
+ * `toZonedDateTimeISO(Temporal.Now.timeZoneId())` + `commonStore.locale` formatting -- ignoring the
+ * user's stored timezone/date/time preferences entirely. Converted to the shared
+ * `helpers/datetime.js#humanizeDate`, which delegates to `userStore.formatDateTime`.
+ */
+describe('FileManager page detail dates (OpenProject #1755)', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  async function mountWithPageDetail(timezone) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    const userStore = useUserStore()
+    userStore.timezone = timezone
+    userStore.dateFormat = 'YYYY-MM-DD'
+    userStore.timeFormat = '24h'
+
+    const router = createRouter({ history: createWebHistory(), routes: [] })
+
+    const wrapper = mount(FileManager, {
+      global: {
+        plugins: [i18n, router],
+        stubs: { Tree: true, NewMenu: true, LocaleSelectorMenu: true }
+      },
+      attachTo: document.body
+    })
+    await flushPromises()
+
+    wrapper.vm.state.fileList = [
+      {
+        id: 'p1',
+        type: 'page',
+        title: 'Welcome',
+        fileName: 'welcome',
+        folderPath: '',
+        pageType: 'markdown',
+        updatedAt: '2026-03-04T15:30:00.000Z',
+        createdAt: '2026-01-01T00:00:00.000Z'
+      }
+    ]
+    wrapper.vm.state.currentFileId = 'p1'
+    await flushPromises()
+
+    return wrapper
+  }
+
+  it('renders the updated/created dates in the stored timezone, not the browser one', async () => {
+    const wrapperUtc = await mountWithPageDetail('UTC')
+    const updatedItemUtc = wrapperUtc.vm.currentFileDetails.items.find(
+      (i) => i.label === 'fileman.detailsPageUpdated'
+    )
+    expect(updatedItemUtc.value).toContain('2026-03-04')
+    expect(updatedItemUtc.value).toContain('15:30')
+    wrapperUtc.unmount()
+
+    const wrapperTokyo = await mountWithPageDetail('Asia/Tokyo')
+    const updatedItemTokyo = wrapperTokyo.vm.currentFileDetails.items.find(
+      (i) => i.label === 'fileman.detailsPageUpdated'
+    )
+    // -> Same instant, nine hours ahead -- proof the stored zone (not the sandbox's own) is honoured
+    expect(updatedItemTokyo.value).toContain('2026-03-05')
+    expect(updatedItemTokyo.value).toContain('00:30')
+    wrapperTokyo.unmount()
+  })
+
+  it('never falls back to a raw toLocaleString() call of its own', async () => {
+    const wrapper = await mountWithPageDetail('UTC')
+    const createdItem = wrapper.vm.currentFileDetails.items.find(
+      (i) => i.label === 'fileman.detailsPageCreated'
+    )
+    // -> `commonStore.locale` formatting produced no literal "at" separator; the shared
+    //    `humanizeDate` -> `common.datetime` ("{date} at {time}") does.
+    expect(createdItem.value).not.toBe('')
     wrapper.unmount()
   })
 })

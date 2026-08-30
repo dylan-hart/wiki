@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
@@ -10,6 +10,12 @@ import { useAdminStore } from '@/stores/admin'
 import { useFlagsStore } from '@/stores/flags'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
+import { loading } from '@/composables/loading'
+
+vi.mock('@/composables/loading', async (importOriginal) => ({
+  ...(await importOriginal()),
+  loading: { show: vi.fn(), hide: vi.fn() }
+}))
 
 /**
  * Regression coverage for task 489: `AdminEditors.vue` needs a `code` row that is enabled by default
@@ -19,10 +25,10 @@ import { useUserStore } from '@/stores/user'
  * initial value but missing from `load()`/`save()` would silently reset to off on every page visit
  * and never actually reach the server.
  */
-async function mountPage() {
+async function mountPage(siteId = 'site-1') {
   setActivePinia(createPinia())
   const adminStore = useAdminStore()
-  adminStore.currentSiteId = 'site-1'
+  adminStore.currentSiteId = siteId
   const siteStore = useSiteStore()
 
   // -> useSiteAdminAccess('site:editors') needs a real route (for its `siteid` param) and a
@@ -173,5 +179,30 @@ describe('AdminEditors', () => {
     expect(wrapper.vm.state.config.api).toBeUndefined()
     expect(wrapper.vm.state.config.blog).toBeUndefined()
     expect(wrapper.vm.state.config.channel).toBeUndefined()
+  })
+})
+
+/**
+ * OpenProject #1736: `onMounted` used to call `loading.show()` unconditionally, before the
+ * `if (adminStore.currentSiteId)` test that gates the `load()` call which would hide it again. On a
+ * zero-site instance (`currentSiteId` null) that left the full-screen overlay stuck on forever, with
+ * nothing in the UI explaining why. `loading.show()` must now be inside that branch.
+ */
+describe('AdminEditors: loading overlay on mount (OpenProject #1736)', () => {
+  it('does not show the loading overlay when adminStore.currentSiteId is null', async () => {
+    loading.show.mockClear()
+    await mountPage(null)
+    await flushPromises()
+
+    expect(loading.show).not.toHaveBeenCalled()
+  })
+
+  it('does show the loading overlay when adminStore.currentSiteId is set', async () => {
+    loading.show.mockClear()
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ editors: {} }) })
+    await mountPage('site-1')
+    await flushPromises()
+
+    expect(loading.show).toHaveBeenCalled()
   })
 })

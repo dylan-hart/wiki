@@ -1,6 +1,6 @@
 <template>
   <w-dialog v-model="dialogVisible" full-width full-height persistent @hide="onDialogHide">
-    <w-layout view="hHh lpR fFf" container>
+    <w-layout container>
       <w-header class="card-header px-4 py-2">
         <w-icon name="img:/_assets/icons/fluent-sidebar-menu.svg" left size="md" />
         <span>{{ title || t(`navEdit.editMenuItems`) }}</span>
@@ -8,7 +8,7 @@
         <transition name="syncing">
           <w-spinner class="mr-2" v-show="isBusy" color="accent" size="24px" />
         </transition>
-        <w-btn-group push>
+        <w-btn-group>
           <w-btn
             push
             color="white"
