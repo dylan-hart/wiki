@@ -509,5 +509,38 @@ describe('pages API — classification (OpenProject #1080)', () => {
       assert.equal(res.statusCode, 200)
       assert.equal(bulkSetClassificationCalls.length, 1)
     })
+
+    // -> OpenProject #1870: an over-limit pageIds array is rejected by schema validation before the
+    //    handler ever runs, not processed up to the 5 MB body-size limit.
+    test('an over-limit pageIds array is rejected with 400 by schema validation', async () => {
+      const oversized = Array.from(
+        { length: 501 },
+        (_, i) => `40000000-0000-4000-8000-${String(i).padStart(12, '0')}`
+      )
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/classification-conflicts/resolve`,
+        headers: sessionHeader,
+        payload: { pageIds: oversized, classification: RESTRICTED_ID }
+      })
+      assert.equal(res.statusCode, 400)
+      assert.equal(bulkSetClassificationCalls.length, 0)
+    })
+
+    // -> OpenProject #1870: a repeated id produces exactly one outcome and one audit row for that
+    //    page, instead of one per occurrence in the request body.
+    test('a body repeating one id produces exactly one outcome and one audit row', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/classification-conflicts/resolve`,
+        headers: sessionHeader,
+        payload: { pageIds: [PAGE_ID, PAGE_ID, PAGE_ID], classification: RESTRICTED_ID }
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(bulkSetClassificationCalls.length, 1)
+      assert.deepEqual(bulkSetClassificationCalls[0].ids, [PAGE_ID])
+      assert.equal(auditLogCalls.length, 1)
+      assert.equal(auditLogCalls[0].targetId, PAGE_ID)
+    })
   })
 })

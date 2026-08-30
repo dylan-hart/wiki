@@ -1406,7 +1406,12 @@ async function routes(app: FastifyInstance) {
           type: 'object',
           required: ['pageIds', 'classification'],
           properties: {
-            pageIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
+            pageIds: {
+              type: 'array',
+              items: { type: 'string', format: 'uuid' },
+              minItems: 1,
+              maxItems: 500
+            },
             classification: { type: 'string', format: 'uuid' }
           }
         },
@@ -1428,20 +1433,23 @@ async function routes(app: FastifyInstance) {
       if (!WIKI.models.classificationLevels.byId(req.body.classification)) {
         return reply.badRequest('This classification level does not exist.')
       }
+      // -> De-duplicate before processing: a repeated id would otherwise be fetched, permission-checked
+      //    and audit-logged once per occurrence instead of once per page.
+      const pageIds = [...new Set(req.body.pageIds)]
       // -> ONE batched select instead of a per-id `getPage` loop (OpenProject #1902): `getPage`'s
       //    full two-LEFT-JOIN select pulls `content`, `render`, `searchContent` and the tsvector,
       //    none of which `mayOnPage`/`meetsFloor` below need -- `getPagesByIds` projects only the
       //    five columns that do.
-      const pageMap = await WIKI.models.pages.getPagesByIds(req.params.siteId, req.body.pageIds)
-      const missingId = req.body.pageIds.find((pageId) => !pageMap.has(pageId))
+      const pageMap = await WIKI.models.pages.getPagesByIds(req.params.siteId, pageIds)
+      const missingId = pageIds.find((pageId) => !pageMap.has(pageId))
       if (missingId) {
         return reply.notFound('One of these pages does not exist.')
       }
-      // -> Preserves `req.body.pageIds`' own order (and any duplicate id in it) exactly the way the
-      //    original per-id loop iterated -- the per-page checks below still run one target at a time,
-      //    in this same order, and bail on the same first violation. Only the READS moved: what each
-      //    check evaluates is unchanged.
-      const orderedTargets = req.body.pageIds.map((pageId) => pageMap.get(pageId)!)
+      // -> Preserves `pageIds`' own (de-duplicated) order exactly the way the original per-id loop
+      //    iterated -- the per-page checks below still run one target at a time, in this same order,
+      //    and bail on the same first violation. Only the READS moved: what each check evaluates is
+      //    unchanged.
+      const orderedTargets = pageIds.map((pageId) => pageMap.get(pageId)!)
       // -> ONE batched parent-classification lookup instead of one `parentClassification` call per
       //    target, over the distinct (locale, parent path) pairs among them.
       const floorByTarget = await WIKI.models.pages.parentClassifications(
@@ -1483,7 +1491,7 @@ async function routes(app: FastifyInstance) {
       }
       const updated = await WIKI.models.pages.bulkSetClassification(
         req.params.siteId,
-        req.body.pageIds,
+        pageIds,
         req.body.classification
       )
       // -> ONE multi-row audit INSERT instead of one `record()` call per target.
