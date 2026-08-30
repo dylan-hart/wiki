@@ -2788,6 +2788,9 @@ describe('users.reassignContent (DB-backed)', { skip: !hasTestDatabase() }, () =
   })
 })
 
+/**
+ * `createUser()` atomicity (OpenProject #1607 / #1584): the insert and its group assignment now
+ * share one `WIKI.db.transaction()`, so a failure in `setUserGroups` after the insert must leave no
  * orphaned user row behind, and the ordinary path must still land both.
  */
 describe('users.createUser atomicity (DB-backed)', { skip: !hasTestDatabase() }, () => {
@@ -2972,7 +2975,9 @@ describe('users.deleteUser (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test('deleting a user with an avatar leaves no userAvatars row and getAvatar() returns nothing', async () => {
     const userId = await insertUser('avatar-owner@example.com')
-    await fixtures.db.insert(userAvatars).values({ id: userId, data: Buffer.from('fake-jpeg') })
+    await fixtures.db
+      .insert(userAvatars)
+      .values({ id: userId, data: Buffer.from('fake-jpeg'), hash: 'fake-hash' })
 
     const deleted = await usersModel.deleteUser(userId)
 

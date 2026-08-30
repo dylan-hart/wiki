@@ -307,7 +307,8 @@ describe('POST /import (streamed upload)', () => {
       config: { dataPath },
       models: {
         sites: { getSiteById },
-        import: importModel
+        import: importModel,
+        auditLog: { record: async () => {} }
       },
       scheduler: { addJob }
     }
