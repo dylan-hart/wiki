@@ -79,8 +79,9 @@ const FIXTURE_GRAPH = {
 
 /** Options for `API_CLIENT.get('system/pageviews')` -- defaults to tracking enabled so the
  *  'visits' sizing option is available in the default `mountGraph()` fixture; a test asserting the
- *  disabled case passes `{ pageviewsEnabled: false }`. */
-async function mountGraph({ pageviewsEnabled = true } = {}) {
+ *  disabled case passes `{ pageviewsEnabled: false }`. `graph` defaults to `FIXTURE_GRAPH` (a
+ *  single-locale graph); the locale-filter tests (OpenProject #2294) pass a multi-locale one. */
+async function mountGraph({ pageviewsEnabled = true, graph = FIXTURE_GRAPH } = {}) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
@@ -92,7 +93,7 @@ async function mountGraph({ pageviewsEnabled = true } = {}) {
   router.push('/')
   await router.isReady()
 
-  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_GRAPH) })
+  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(graph) })
   API_CLIENT.get.mockReturnValueOnce({
     json: () => Promise.resolve({ isEnabled: pageviewsEnabled })
   })
@@ -367,5 +368,44 @@ describe('Graph.vue (OpenProject #891)', () => {
     await flushPromises()
 
     expect(wrapper.find('canvas').exists()).toBe(true)
+  })
+
+  it('hides the locale filter on a single-locale site (OpenProject #2294)', async () => {
+    // -> FIXTURE_GRAPH's two nodes both carry locale 'en' -- the common single-locale install this
+    //    work package targets. Only `.graph-view-filters`'s own `w-select` is counted: `folderDepth`
+    //    is a `w-input`, not a `w-select`, so the tags filter is the only one left once locale hides.
+    const wrapper = await mountGraph()
+
+    expect(wrapper.vm.localeOptions).toEqual(['en'])
+    expect(wrapper.vm.showLocaleFilter).toBe(false)
+    expect(wrapper.find('.graph-view-filters').findAll('.w-select')).toHaveLength(1)
+  })
+
+  it('shows the locale filter on a multi-locale site, and clears a stale value once it hides (OpenProject #2294)', async () => {
+    const multiLocaleGraph = {
+      nodes: [
+        { ...FIXTURE_GRAPH.nodes[0], locale: 'en' },
+        { ...FIXTURE_GRAPH.nodes[1], locale: 'fr' }
+      ],
+      edges: FIXTURE_GRAPH.edges
+    }
+    const wrapper = await mountGraph({ graph: multiLocaleGraph })
+
+    expect(wrapper.vm.localeOptions).toEqual(['en', 'fr'])
+    expect(wrapper.vm.showLocaleFilter).toBe(true)
+    expect(wrapper.find('.graph-view-filters').findAll('.w-select')).toHaveLength(2)
+
+    // -> Picking a locale, then having the control disappear (simulated directly here, since this
+    //    fixture's own node set never actually narrows to one locale) must not leave a stale filter
+    //    value with no visible control left to clear it from.
+    wrapper.vm.activeFilters.locale = 'fr'
+    await flushPromises()
+    expect(wrapper.vm.activeFilters.locale).toBe('fr')
+
+    wrapper.vm.allNodes = [wrapper.vm.allNodes[0]]
+    await flushPromises()
+
+    expect(wrapper.vm.showLocaleFilter).toBe(false)
+    expect(wrapper.vm.activeFilters.locale).toBe(null)
   })
 })
