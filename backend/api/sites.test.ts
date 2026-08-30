@@ -467,6 +467,25 @@ test('manage:sites may still save a patch touching fields beyond theme', async (
 })
 
 /**
+ * OpenProject #1893: the route used to maintain a legacy `ratings` boolean alias under `features`,
+ * deriving it from `ratingsMode` on every write despite nothing ever reading it. That write has been
+ * deleted along with the alias's seeds and JSON Schema entry; a `ratingsMode` patch should reach
+ * `updateSite` carrying only the key that was actually sent, never a synthesized `ratings` key
+ * alongside it.
+ */
+test('a features.ratingsMode patch does not synthesize a legacy ratings alias key', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { features: { ratingsMode: 'stars' } }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls.length, 1)
+  assert.deepEqual(updateSiteCalls[0].patch.config.features, { ratingsMode: 'stars' })
+})
+
+/**
  * OpenProject #989: a site settings edit is one of the events the audit log is meant to capture.
  * The tests above stub `auditLog.record` only to keep the route from throwing — this checks it is
  * actually called, with the fields the patch actually touched.
