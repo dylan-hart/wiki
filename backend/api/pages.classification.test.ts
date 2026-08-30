@@ -24,6 +24,8 @@ import pagesRoutes from './pages.ts'
 describe('pages API — classification (OpenProject #1080)', () => {
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
   const PAGE_ID = '22222222-2222-4222-8222-222222222222'
+  const SECOND_PAGE_ID = '22222222-2222-4222-8222-222222222223'
+  const THIRD_PAGE_ID = '22222222-2222-4222-8222-222222222224'
   const PUBLIC_ID = '30000000-0000-4000-8000-000000000001'
   const INTERNAL_ID = '30000000-0000-4000-8000-000000000002'
   const RESTRICTED_ID = '30000000-0000-4000-8000-000000000003'
@@ -35,12 +37,49 @@ describe('pages API — classification (OpenProject #1080)', () => {
     [RESTRICTED_ID]: 2
   }
 
+  /**
+   * Every page `getPagesByIds`/`getPage` can resolve -- OpenProject #1902's batched select stands in
+   * for what used to be a per-id `getPage()` loop, so the fixture now needs more than one page on hand
+   * to exercise a real batch.
+   */
+  const PAGE_FIXTURES: Record<
+    string,
+    { id: string; path: string; locale: string; classification: string; tags: string[] }
+  > = {
+    [PAGE_ID]: {
+      id: PAGE_ID,
+      path: 'engineering/onboarding',
+      locale: 'en',
+      classification: INTERNAL_ID,
+      tags: []
+    },
+    [SECOND_PAGE_ID]: {
+      id: SECOND_PAGE_ID,
+      path: 'engineering/runbook',
+      locale: 'en',
+      classification: INTERNAL_ID,
+      tags: []
+    },
+    [THIRD_PAGE_ID]: {
+      id: THIRD_PAGE_ID,
+      path: 'engineering/glossary',
+      locale: 'en',
+      classification: INTERNAL_ID,
+      tags: []
+    }
+  }
+
   let updatePageCalls: any[] = []
   let checkAccessCalls: any[] = []
   /** Which permissions `checkAccess` grants, by permission name — every test overrides what it needs. */
   let grantedPermissions: Set<string>
+  /** A path `checkAccess` refuses every permission for, regardless of `grantedPermissions` -- what a
+   *  mixed-batch test uses to make one target in a batch fail while the others pass. */
+  let deniedForPath: string | null = null
   let bulkSetClassificationCalls: any[] = []
   let auditLogCalls: any[] = []
+  let getPagesByIdsCalls: any[] = []
+  let parentClassificationsCalls: any[] = []
   /** `WIKI.models.pages.parentClassification`'s stubbed return -- null (no parent) by default. */
   let parentClassificationFloor: string | null = null
 
@@ -74,16 +113,35 @@ describe('pages API — classification (OpenProject #1080)', () => {
       models: {
         pages: {
           getPage: async ({ id }: { id: string }) =>
-            id === PAGE_ID
-              ? {
-                  id: PAGE_ID,
-                  path: 'engineering/onboarding',
-                  locale: 'en',
-                  classification: INTERNAL_ID,
-                  tags: [],
-                  updatedAt: new Date()
-                }
-              : null,
+            PAGE_FIXTURES[id] ? { ...PAGE_FIXTURES[id], updatedAt: new Date() } : null,
+          // -> OpenProject #1902: the batched select `api/pages.ts`'s resolve route now calls instead
+          //    of a per-id `getPage` loop. One call per request regardless of how many ids are asked
+          //    for -- `getPagesByIdsCalls.length` is what the "query count does not grow with N" tests
+          //    below assert against.
+          getPagesByIds: async (siteId: string, ids: string[]) => {
+            getPagesByIdsCalls.push({ siteId, ids })
+            const map = new Map<string, any>()
+            for (const id of ids) {
+              if (PAGE_FIXTURES[id]) {
+                map.set(id, PAGE_FIXTURES[id])
+              }
+            }
+            return map
+          },
+          // -> OpenProject #1902: the batched parent-classification lookup, one call per request
+          //    regardless of how many targets it covers. `parentClassificationFloor` stands in for
+          //    every target's floor uniformly, the same way the single-target stub did.
+          parentClassifications: async (
+            siteId: string,
+            entries: { locale: string; path: string }[]
+          ) => {
+            parentClassificationsCalls.push({ siteId, entries })
+            const map = new Map<string, string | null>()
+            for (const { locale, path } of entries) {
+              map.set(`${locale}\0${path}`, parentClassificationFloor)
+            }
+            return map
+          },
           updatePage: async (siteId: string, id: string, patch: any) => {
             updatePageCalls.push({ siteId, id, patch })
             return {
@@ -114,8 +172,11 @@ describe('pages API — classification (OpenProject #1080)', () => {
         groups: {
           actorForRequest: () => ({ permissions: [] }),
           groupIdsForRequest: () => [],
-          checkAccess: (_actor: unknown, permission: string) => {
+          checkAccess: (_actor: unknown, permission: string, page: { path?: string } = {}) => {
             checkAccessCalls.push(permission)
+            if (deniedForPath && page.path === deniedForPath) {
+              return false
+            }
             return grantedPermissions.has(permission)
           }
         },
@@ -131,6 +192,12 @@ describe('pages API — classification (OpenProject #1080)', () => {
         auditLog: {
           record: async (args: any) => {
             auditLogCalls.push(args)
+          },
+          // -> OpenProject #1902: the resolve route's batched writes now go through `recordMany` --
+          //    flattened into `auditLogCalls` too, so the same per-entry assertions the PATCH-route
+          //    tests already make against a single `record()` call work unchanged here.
+          recordMany: async (entries: any[]) => {
+            auditLogCalls.push(...entries)
           }
         }
       },
@@ -174,7 +241,10 @@ describe('pages API — classification (OpenProject #1080)', () => {
     checkAccessCalls = []
     bulkSetClassificationCalls = []
     auditLogCalls = []
+    getPagesByIdsCalls = []
+    parentClassificationsCalls = []
     parentClassificationFloor = null
+    deniedForPath = null
     grantedPermissions = new Set(['write:pages'])
   })
 
@@ -312,11 +382,77 @@ describe('pages API — classification (OpenProject #1080)', () => {
       assert.deepEqual(bulkSetClassificationCalls[0].ids, [PAGE_ID])
       assert.equal(bulkSetClassificationCalls[0].classification, RESTRICTED_ID)
       // -> OpenProject #1081: a bulk resolve records one audit entry per page bumped, `from` being
-      //    that page's OWN classification as fetched during the permission-check loop (INTERNAL_ID
-      //    here, from the shared `getPage` stub).
+      //    that page's OWN classification as fetched by the batched `getPagesByIds` read (INTERNAL_ID
+      //    here, from the shared `PAGE_FIXTURES` fixture).
       assert.equal(auditLogCalls.length, 1)
       assert.equal(auditLogCalls[0].event, 'page.classificationChanged')
       assert.deepEqual(auditLogCalls[0].detail, { from: INTERNAL_ID, to: RESTRICTED_ID })
+    })
+
+    /*
+      OpenProject #1902: resolving N pages must produce the same per-page outcomes and the same N
+      audit rows the old per-id `getPage`/`parentClassification`/`record` loop would have, while
+      issuing a number of queries that does not grow with N -- `getPagesByIdsCalls.length` and
+      `parentClassificationsCalls.length` staying at 1 regardless of how many ids were submitted is
+      this test's stand-in for "one query", since this suite mocks the model layer rather than a
+      real database.
+    */
+    test('resolving a batch of N pages issues one batched read/lookup and N audit rows, not N of each', async () => {
+      const ids = [PAGE_ID, SECOND_PAGE_ID, THIRD_PAGE_ID]
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/classification-conflicts/resolve`,
+        headers: sessionHeader,
+        payload: { pageIds: ids, classification: RESTRICTED_ID }
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(bulkSetClassificationCalls.length, 1)
+      assert.deepEqual(bulkSetClassificationCalls[0].ids, ids)
+      // -> One call each, no matter how many pages were in the batch.
+      assert.equal(getPagesByIdsCalls.length, 1)
+      assert.deepEqual(getPagesByIdsCalls[0].ids, ids)
+      assert.equal(parentClassificationsCalls.length, 1)
+      // -> N audit rows for N pages, all from one `recordMany` flattened into `auditLogCalls`.
+      assert.equal(auditLogCalls.length, ids.length)
+      assert.deepEqual(auditLogCalls.map((c: any) => c.targetId).sort(), [...ids].sort())
+      for (const call of auditLogCalls) {
+        assert.deepEqual(call.detail, { from: INTERNAL_ID, to: RESTRICTED_ID })
+      }
+    })
+
+    test('refuses with 404 when one of the submitted ids does not exist, before any writes', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/classification-conflicts/resolve`,
+        headers: sessionHeader,
+        payload: {
+          pageIds: [PAGE_ID, '99999999-9999-4999-8999-999999999999'],
+          classification: RESTRICTED_ID
+        }
+      })
+      assert.equal(res.statusCode, 404)
+      assert.equal(bulkSetClassificationCalls.length, 0)
+      assert.equal(auditLogCalls.length, 0)
+    })
+
+    /*
+      A mixed batch -- one page the actor may write, one it may not -- must land on the SAME outcome
+      the old serial, early-returning loop would: the actor lacking write:pages on ANY target refuses
+      the whole request with 403 and writes nothing, rather than silently applying to the pages that
+      did pass. OpenProject #1902's batching changes how the targets are READ, not this per-page
+      permission semantics.
+    */
+    test('a mixed batch (one page permitted, one refused) is refused as a whole, matching the serial version', async () => {
+      deniedForPath = PAGE_FIXTURES[SECOND_PAGE_ID]!.path
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/classification-conflicts/resolve`,
+        headers: sessionHeader,
+        payload: { pageIds: [PAGE_ID, SECOND_PAGE_ID], classification: RESTRICTED_ID }
+      })
+      assert.equal(res.statusCode, 403)
+      assert.equal(bulkSetClassificationCalls.length, 0)
+      assert.equal(auditLogCalls.length, 0)
     })
 
     /*

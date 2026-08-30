@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, ne, or, sql } from 'drizzle-orm'
 import { pages as pagesTable, tree as treeTable, users as usersTable } from '../db/schema.ts'
 import {
   CustomError,
@@ -519,6 +519,102 @@ class Pages {
         locked: Boolean(row.page.password) && !isUnlocked
       }
     )
+  }
+
+  /**
+   * The permission-relevant projection of a set of pages, by id, all on this site — one query
+   * regardless of how many ids are asked for.
+   *
+   * Exists for a caller that needs to run `mayOnPage`/`pagePermissionsFor`-style checks over a batch
+   * (the classification-conflicts resolve route, OpenProject #1902) without paying for `getPage`'s
+   * full two-LEFT-JOIN select — `content`, `render`, `searchContent` and the tsvector — once per id.
+   *
+   * @returns A Map keyed by id, so a caller can tell an id that did not resolve (not on this site, or
+   *          not existing at all) apart from one that did via `Map#has`/`Map#get`, without re-deriving
+   *          that from array length the way filtering a `getPage` loop's results would.
+   */
+  async getPagesByIds(
+    siteId: string,
+    ids: string[]
+  ): Promise<
+    Map<
+      string,
+      { id: string; path: string; locale: string; tags: string[]; classification: string }
+    >
+  > {
+    if (ids.length < 1) {
+      return new Map()
+    }
+    const rows = await WIKI.db
+      .select({
+        id: pagesTable.id,
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        tags: pagesTable.tags,
+        classification: pagesTable.classification
+      })
+      .from(pagesTable)
+      .where(and(eq(pagesTable.siteId, siteId), inArray(pagesTable.id, ids)))
+    return new Map(rows.map((row) => [row.id, row]))
+  }
+
+  /**
+   * The immediate-parent classification floor for a set of `(locale, path)` pairs, in one query over
+   * their distinct parent paths — the batched form of `parentClassification`, for a caller checking
+   * the floor invariant against many targets at once (the classification-conflicts resolve route,
+   * OpenProject #1902).
+   *
+   * @returns A Map keyed by `${locale}\0${path}` (the ORIGINAL pair passed in, not the derived parent
+   *          path) so a caller looks up each of its own targets directly without re-deriving the
+   *          parent path itself. Every input pair gets an entry — `null` when `path` is root-level or
+   *          its parent has no page (an empty folder), the same "null means no floor" contract
+   *          `parentClassification` itself has.
+   */
+  async parentClassifications(
+    siteId: string,
+    entries: { locale: string; path: string }[]
+  ): Promise<Map<string, string | null>> {
+    const keyOf = (locale: string, path: string) => `${locale}\0${path}`
+    const result = new Map<string, string | null>()
+    const parentOf = new Map<string, { locale: string; parentPath: string }>()
+    for (const { locale, path } of entries) {
+      result.set(keyOf(locale, path), null)
+      const parentPath = path.split('/').slice(0, -1).join('/')
+      if (parentPath) {
+        parentOf.set(keyOf(locale, path), { locale, parentPath })
+      }
+    }
+    if (parentOf.size < 1) {
+      return result
+    }
+    const distinctParents = new Map<string, { locale: string; parentPath: string }>()
+    for (const parent of parentOf.values()) {
+      distinctParents.set(keyOf(parent.locale, parent.parentPath), parent)
+    }
+    const rows = await WIKI.db
+      .select({
+        locale: pagesTable.locale,
+        path: pagesTable.path,
+        classification: pagesTable.classification
+      })
+      .from(pagesTable)
+      .where(
+        and(
+          eq(pagesTable.siteId, siteId),
+          or(
+            ...[...distinctParents.values()].map(({ locale, parentPath }) =>
+              and(eq(pagesTable.locale, locale), eq(pagesTable.path, parentPath))
+            )
+          )
+        )
+      )
+    const floorByParent = new Map(
+      rows.map((row) => [keyOf(row.locale, row.path), row.classification])
+    )
+    for (const [entryKey, parent] of parentOf) {
+      result.set(entryKey, floorByParent.get(keyOf(parent.locale, parent.parentPath)) ?? null)
+    }
+    return result
   }
 
   /**
