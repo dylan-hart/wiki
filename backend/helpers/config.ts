@@ -13,7 +13,7 @@ export default {
    * @returns Parse configuration value
    */
   parseConfigValue(cfg: string): string {
-    return cfg.replaceAll(/\$\(([A-Z0-9_]+)(?::(.+))?\)/g, (fm: string, m: string, d: string) => {
+    return cfg.replaceAll(/\$\(([A-Z0-9_]+)(?::(.+?))?\)/g, (fm: string, m: string, d: string) => {
       return process.env[m] || d
     })
   },
