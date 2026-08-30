@@ -231,26 +231,28 @@ class AuditLog {
     ].filter((c) => c !== undefined)
     const where = conditions.length > 0 ? and(...conditions) : undefined
 
-    const totals = await WIKI.db.select({ total: count() }).from(auditLogTable).where(where)
-    const rows = await WIKI.db
-      .select({
-        id: auditLogTable.id,
-        event: auditLogTable.event,
-        actorId: auditLogTable.actorId,
-        actorName: auditLogTable.actorName,
-        actorIp: auditLogTable.actorIp,
-        targetType: auditLogTable.targetType,
-        targetId: auditLogTable.targetId,
-        targetLabel: auditLogTable.targetLabel,
-        detail: auditLogTable.detail,
-        siteId: auditLogTable.siteId,
-        createdAt: auditLogTable.createdAt
-      })
-      .from(auditLogTable)
-      .where(where)
-      .orderBy(desc(auditLogTable.createdAt))
-      .limit(limit)
-      .offset(offset)
+    const [rows, totals] = await Promise.all([
+      WIKI.db
+        .select({
+          id: auditLogTable.id,
+          event: auditLogTable.event,
+          actorId: auditLogTable.actorId,
+          actorName: auditLogTable.actorName,
+          actorIp: auditLogTable.actorIp,
+          targetType: auditLogTable.targetType,
+          targetId: auditLogTable.targetId,
+          targetLabel: auditLogTable.targetLabel,
+          detail: auditLogTable.detail,
+          siteId: auditLogTable.siteId,
+          createdAt: auditLogTable.createdAt
+        })
+        .from(auditLogTable)
+        .where(where)
+        .orderBy(desc(auditLogTable.createdAt))
+        .limit(limit)
+        .offset(offset),
+      WIKI.db.select({ total: count() }).from(auditLogTable).where(where)
+    ])
 
     return {
       total: totals[0]?.total ?? 0,

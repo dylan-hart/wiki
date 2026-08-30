@@ -411,14 +411,16 @@ class Users {
     }
     const where = conditions.length > 0 ? and(...conditions) : undefined
 
-    const totals = await WIKI.db.select({ total: count() }).from(usersTable).where(where)
-    const users = await WIKI.db
-      .select(userSelection)
-      .from(usersTable)
-      .where(where)
-      .orderBy(usersTable.name)
-      .limit(limit)
-      .offset((page - 1) * limit)
+    const [users, totals] = await Promise.all([
+      WIKI.db
+        .select(userSelection)
+        .from(usersTable)
+        .where(where)
+        .orderBy(usersTable.name)
+        .limit(limit)
+        .offset((page - 1) * limit),
+      WIKI.db.select({ total: count() }).from(usersTable).where(where)
+    ])
 
     return {
       total: totals[0]?.total ?? 0,
