@@ -32,9 +32,12 @@ REL_VERSION=3.0.0-alpha.$GITHUB_RUN_NUMBER
 
 - `backend/package.json` and `frontend/package.json` get `version` rewritten to that string for
   the duration of the build (not committed back to the repo — it's a build-time-only stamp).
-- The Docker image is pushed under **two** tags:
-  - `ghcr.io/requarks/wiki:3.0.0-alpha.<run_number>` — an immutable, uniquely-addressable build.
-  - `ghcr.io/requarks/wiki:3.0.0-alpha` — a floating tag that always points at the most recent
+- The Docker image is pushed under **two** tags, in this fork's own GHCR namespace
+  (`ghcr.io/${{ github.repository }}` — `docker/login-action` authenticates as
+  `github.repository_owner` with the run's `GITHUB_TOKEN`, whose `packages:write` scope only covers
+  that owner's packages, so the namespace is derived rather than hard-coded):
+  - `ghcr.io/dylan-hart/wiki:3.0.0-alpha.<run_number>` — an immutable, uniquely-addressable build.
+  - `ghcr.io/dylan-hart/wiki:3.0.0-alpha` — a floating tag that always points at the most recent
     alpha push. This is what "latest dev build" means on this fork; nobody should point production
     infrastructure at it.
 - `<run_number>` is `$GITHUB_RUN_NUMBER`: a per-workflow, monotonically increasing integer supplied
@@ -45,7 +48,7 @@ REL_VERSION=3.0.0-alpha.$GITHUB_RUN_NUMBER
   stays `3.0.0` even after a real `3.1.0` release ships, until 3.x's own alpha stream is
   deliberately rebased forward (see [Open question](#open-question-rebasing-the-alpha-base) below).
 - `:latest` is **never** touched by this channel. An alpha push must never become what
-  `docker pull ghcr.io/requarks/wiki:latest` resolves to.
+  `docker pull ghcr.io/dylan-hart/wiki:latest` resolves to.
 
 Nothing above requires a decision or a checklist — it is the existing, correct behavior, called
 out here so this document is a complete answer to "what version does this build get" for both
@@ -123,9 +126,9 @@ same note as a code comment at its own top, so it's visible from either side.
 
 It pushes:
 
-- `ghcr.io/requarks/wiki:<version>` — always, exactly matching the pushed tag with the leading `v`
+- `ghcr.io/dylan-hart/wiki:<version>` — always, exactly matching the pushed tag with the leading `v`
   stripped (e.g. tag `v3.0.1` → image tag `3.0.1`; tag `v3.0.0-rc.1` → image tag `3.0.0-rc.1`).
-- `ghcr.io/requarks/wiki:latest` — **only** on a stable release (no pre-release suffix). Pushing
+- `ghcr.io/dylan-hart/wiki:latest` — **only** on a stable release (no pre-release suffix). Pushing
   `v3.0.0-rc.1` or any other `-rc.N`/`-alpha.N`/`-beta.N` tag must **never** move `:latest`.
   `:latest` always means "the newest stable release", full stop — never a candidate, never a dev
   build.
