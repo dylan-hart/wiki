@@ -111,6 +111,48 @@ describe('block-qr-code', () => {
     })
   })
 
+  describe('accessibility', () => {
+    it('marks the code wrapper as an image with a short, non-empty label', async () => {
+      const el = await mountQrCode({
+        value:
+          'https://example.com/very/long/path?with=lots&of=query&params=to&make=sure&this=would&be=a&bad=accessible-name'
+      })
+      const qr = el.shadowRoot.querySelector('.qr')
+
+      expect(qr.getAttribute('role')).toBe('img')
+      const label = qr.getAttribute('aria-label')
+      expect(label).toBeTruthy()
+      expect(label.length).toBeLessThan(40)
+    })
+
+    it('exposes a URL value as a real, copyable link rather than plain text', async () => {
+      const el = await mountQrCode({ value: 'https://example.com/page' })
+      const link = el.shadowRoot.querySelector('.qr a')
+
+      expect(link).not.toBeNull()
+      expect(link.getAttribute('href')).toBe('https://example.com/page')
+      expect(link.textContent).toBe('https://example.com/page')
+      expect(link.classList.contains('visually-hidden')).toBe(true)
+    })
+
+    it('exposes a non-URL value as visually-hidden text, not a link', async () => {
+      const el = await mountQrCode({ value: 'not a web address' })
+      const hidden = el.shadowRoot.querySelector('.qr .visually-hidden')
+
+      expect(hidden).not.toBeNull()
+      expect(hidden.tagName).not.toBe('A')
+      expect(hidden.textContent).toBe('not a web address')
+    })
+
+    it('exposes the page-address fallback as a link when value is empty', async () => {
+      const el = await mountQrCode({ value: '' })
+      const link = el.shadowRoot.querySelector('.qr a.visually-hidden')
+
+      expect(link).not.toBeNull()
+      expect(link.getAttribute('href')).toBe(`${window.location.origin}${window.location.pathname}`)
+    })
+  })
+
   describe('dark mode', () => {
     it('follows body--dark via the shared DarkMode controller', async () => {
       document.body.classList.add('body--dark')
