@@ -8,7 +8,7 @@
           alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.comments.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.comments.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.comments.subtitle') }}
         </div>

@@ -8,9 +8,9 @@
           alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">
+        <h1 class="text-h5 text-primary animated fadeInLeft">
           {{ $t('admin.rendering.title') }}
-        </div>
+        </h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ $t('admin.rendering.subtitle') }}
         </div>
