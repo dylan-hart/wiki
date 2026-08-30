@@ -9,7 +9,6 @@ import {
   teardownTestDb,
   type TestFixtures
 } from '../test/db.ts'
-import { generatePathHash } from '../helpers/common.ts'
 import {
   navigation as navigationTable,
   sites as sitesTable,
@@ -116,7 +115,6 @@ describe('navigation listOverrides (DB-backed)', { skip: !hasTestDatabase() }, (
       id: folderId,
       folderPath: '',
       fileName: 'reference-folder',
-      hash: generatePathHash('reference-folder'),
       type: 'folder',
       locale: 'en',
       title: 'Reference Folder',

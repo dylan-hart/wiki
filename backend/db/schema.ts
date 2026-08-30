@@ -1506,7 +1506,6 @@ export const tree = pgTable(
     //    for. The locale beside it is not, and is a plain string.
     folderPath: ltree('folderPath').notNull().default(''),
     fileName: varchar({ length: 255 }).notNull(),
-    hash: varchar({ length: 255 }).notNull(),
     type: treeTypeEnum('tree').notNull(),
     locale: varchar({ length: 255 }).notNull(),
     title: varchar({ length: 255 }).notNull(),
@@ -1527,7 +1526,6 @@ export const tree = pgTable(
     index('tree_folderpath_idx').on(table.folderPath),
     index('tree_folderpath_gist_idx').using('gist', table.folderPath),
     index('tree_fileName_idx').on(table.fileName),
-    index('tree_hash_idx').on(table.hash),
     index('tree_type_idx').on(table.type),
     // -> A plain btree: the locale is a string compared for equality, and GiST — which is what an
     //    ltree column wanted — has no operator class for varchar at all
