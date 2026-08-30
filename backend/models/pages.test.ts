@@ -1218,6 +1218,114 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
+   * OpenProject #1902: the batched reads the classification-conflicts resolve route uses instead of
+   * a per-id `getPage`/`parentClassification` loop -- `api/pages.classification.test.ts` stubs the
+   * model entirely, so this is what proves each one actually resolves the right rows.
+   */
+  describe('getPagesByIds / parentClassifications (OpenProject #1902)', () => {
+    let internalId: string
+    let restrictedId: string
+
+    before(async () => {
+      const { classificationLevels } = await import('./classificationLevels.ts')
+      const levels = classificationLevels.list()
+      internalId = levels.find((l) => l.name === 'Internal')!.id
+      restrictedId = levels.find((l) => l.name === 'Restricted')!.id
+    })
+
+    test('getPagesByIds returns the permission-relevant columns for exactly the requested ids', async () => {
+      const one = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch/one', classification: internalId, tags: ['a'] }),
+        actor
+      )
+      const two = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch/two', classification: restrictedId }),
+        actor
+      )
+      const map = await pagesModel.getPagesByIds(fixtures.siteId, [one.id, two.id])
+      assert.equal(map.size, 2)
+      assert.deepEqual(map.get(one.id), {
+        id: one.id,
+        path: one.path,
+        locale: one.locale,
+        tags: ['a'],
+        classification: internalId
+      })
+      assert.equal(map.get(two.id)?.classification, restrictedId)
+    })
+
+    test('getPagesByIds omits an id that does not exist, without erroring', async () => {
+      const one = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch/exists-only' }),
+        actor
+      )
+      const map = await pagesModel.getPagesByIds(fixtures.siteId, [
+        one.id,
+        '99999999-9999-4999-8999-999999999999'
+      ])
+      assert.equal(map.size, 1)
+      assert.ok(map.has(one.id))
+    })
+
+    test('getPagesByIds returns an empty map for an empty id list, with no query issued', async () => {
+      const map = await pagesModel.getPagesByIds(fixtures.siteId, [])
+      assert.equal(map.size, 0)
+    })
+
+    test('parentClassifications resolves each path to the SAME floor the per-call method would, for a mixed set of paths', async () => {
+      const strictParent = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch-floor/strict-parent', classification: restrictedId }),
+        actor
+      )
+      const strictChild = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: `${strictParent.path}/child`, classification: restrictedId }),
+        actor
+      )
+      const rootLevel = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch-floor/root-level' }),
+        actor
+      )
+      // -> No page actually published at this parent path -- an empty-folder case.
+      const emptyFolderChild = {
+        locale: rootLevel.locale,
+        path: 'batch-floor/no-such-parent/child'
+      }
+
+      const [expectedChild, expectedRoot, expectedEmptyFolder] = await Promise.all([
+        pagesModel.parentClassification(fixtures.siteId, strictChild.locale, strictChild.path),
+        pagesModel.parentClassification(fixtures.siteId, rootLevel.locale, rootLevel.path),
+        pagesModel.parentClassification(
+          fixtures.siteId,
+          emptyFolderChild.locale,
+          emptyFolderChild.path
+        )
+      ])
+
+      const map = await pagesModel.parentClassifications(fixtures.siteId, [
+        { locale: strictChild.locale, path: strictChild.path },
+        { locale: rootLevel.locale, path: rootLevel.path },
+        emptyFolderChild
+      ])
+
+      assert.equal(map.get(`${strictChild.locale}\0${strictChild.path}`), expectedChild)
+      assert.equal(map.get(`${rootLevel.locale}\0${rootLevel.path}`), expectedRoot)
+      assert.equal(
+        map.get(`${emptyFolderChild.locale}\0${emptyFolderChild.path}`),
+        expectedEmptyFolder
+      )
+      assert.equal(expectedChild, restrictedId)
+      assert.equal(expectedRoot, null)
+      assert.equal(expectedEmptyFolder, null)
+    })
+  })
+
+  /**
    * OpenProject #1081: "everything currently classified as X" -- `classificationReport()`'s per-level
    * counts and `listByClassification()`'s drill-down, both instance-wide by default and narrowable to
    * one site.
