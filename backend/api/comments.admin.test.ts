@@ -1,4 +1,4 @@
-import { after, before, describe, test } from 'node:test'
+import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
@@ -173,6 +173,53 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
     assert.equal(res.statusCode, 200)
     const ids = res.json().results.map((c: any) => c.id)
     assert.ok(ids.includes(comment!.id))
+  })
+
+  test('manage:system never materialises the site-wide page-id list, and still returns the same rows', async () => {
+    const teamA = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'skip-materialise/team-a', title: 'Team A', editor: 'markdown', content: 'x' },
+      actor
+    )
+    const teamB = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'skip-materialise/team-b', title: 'Team B', editor: 'markdown', content: 'x' },
+      actor
+    )
+    const [commentA] = await fixtures.db
+      .insert(commentsTable)
+      .values({ siteId: fixtures.siteId, pageId: teamA.id, content: 'On team A' })
+      .returning()
+    const [commentB] = await fixtures.db
+      .insert(commentsTable)
+      .values({ siteId: fixtures.siteId, pageId: teamB.id, content: 'On team B' })
+      .returning()
+
+    // -> No rule grants anything at all — proves the rows below come from the `manage:system`
+    // short-circuit, not from a rule matching every page.
+    await setGroupRules([])
+    testSession = {
+      authenticated: true,
+      user: { id: fixtures.userId },
+      groups: [],
+      permissions: ['manage:system']
+    }
+
+    // `pageRefsForSite` is the only source of the page-id list `listForAdmin`'s `IN (...)` would be
+    // built from. A `manage:system` actor should never even call it — that's what "emits no `IN`
+    // list" means at this layer: there is no page-id array to bind into one in the first place.
+    const pageRefsSpy = mock.method(commentsModel, 'pageRefsForSite')
+    try {
+      const res = await app.inject({ method: 'GET', url: `/sites/${fixtures.siteId}/comments` })
+      assert.equal(res.statusCode, 200)
+      assert.equal(pageRefsSpy.mock.calls.length, 0)
+
+      const ids = res.json().results.map((c: any) => c.id)
+      assert.ok(ids.includes(commentA!.id))
+      assert.ok(ids.includes(commentB!.id))
+    } finally {
+      pageRefsSpy.mock.restore()
+    }
   })
 
   test('an actor with no matching rule at all gets an empty, not a 403', async () => {
