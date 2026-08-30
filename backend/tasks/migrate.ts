@@ -19,7 +19,7 @@
 
 import fs from 'node:fs/promises'
 import { bootstrapMigrationRuntime, buildSourceConnector } from '../migration/bootstrap.ts'
-import { parseMigrationArgs } from '../migration/cli.ts'
+import { parseMigrationArgs, refusalReason } from '../migration/cli.ts'
 import { MIGRATION_PHASES } from '../migration/phases/index.ts'
 import { runMigration } from '../migration/orchestrator.ts'
 import { createProvenanceStore } from '../migration/provenance.ts'
@@ -31,14 +31,29 @@ import type { ParsedMigrationArgs } from '../migration/cli.ts'
 async function main(): Promise<void> {
   const args = parseMigrationArgs(process.argv.slice(2))
 
+  // 2026-08-24 audit, correctness-migration.md §2 (WP #1797, part of epic #1788): no phase can write
+  // to the destination yet, so a non-`--dry-run` invocation is refused outright, before anything --
+  // including `bootstrapMigrationRuntime` -- touches the destination database. Checked here rather
+  // than folded into `parseMigrationArgs` so the refusal prints as a clean one-liner instead of the
+  // stack-trace-shaped output `main().catch()` below gives a genuine parse error.
+  const refusal = refusalReason(args)
+  if (refusal) {
+    console.error(refusal)
+    process.exitCode = 1
+    return
+  }
+
   const WIKI = await bootstrapMigrationRuntime('migrate-cli')
 
   WIKI.logger.info('=======================================')
   WIKI.logger.info('= Wiki.js 2.5.x -> 3.0 Migration CLI  =')
   WIKI.logger.info('=======================================')
-  if (args.dryRun) {
-    WIKI.logger.info('Dry run: no destination writes will be made.')
-  }
+  // Unconditional, not gated on `args.dryRun`: the refusal above guarantees every run reaching this
+  // line already IS a dry run, and the banner should say so truthfully regardless -- it must never
+  // again read as "no news means writes are happening".
+  WIKI.logger.info(
+    'Report-only mode: no migration phase can write to the destination yet; nothing will be written.'
+  )
   if (args.updateExisting) {
     WIKI.logger.info(
       'Update-existing: an already-imported row will be updated in place, not skipped.'

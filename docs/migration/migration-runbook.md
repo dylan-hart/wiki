@@ -16,14 +16,24 @@ what make step 6 a formality instead of a gamble.
 ## Current status of the tooling (read this first)
 
 As of this branch, the CLI's orchestration, dry-run/report mode, provenance tracking, and
-verification tooling are all real and tested — but the entity readers behind each phase
-(`users`/`groups`/`pages`/`pageHistory`/`tags`/`navigation`/`assets` on `SourceConnector`) are still
-`NotYetImplementedError` stubs, owned by sibling Features 414/416/418/420, none of which have landed
-yet. Running the commands in this runbook today against a real 2.x source will produce an honest
-`not_implemented` status for every entity rather than a fabricated success — the CLI has always
-reported this status truthfully rather than pretending to move data it cannot yet move (see Feature
-421 tasks 742/744/748's own notes). This runbook describes the real, intended procedure end to end so
-it is ready the moment those Features land; nothing below needs to change when they do.
+verification tooling are all real and tested. Some entity readers behind `SourceConnector` are real
+too — the `content` phase's `pages`/`pageHistory`/`tags` generators genuinely query a live Postgres
+source or read a real export bundle — but **no phase has a destination write path yet**: every
+`recorder.create()` call site across every phase (`settings`, `users`, `content`, `assets`) still
+omits the optional `write` callback `backend/migration/recorder.ts` exists to take, because the
+importer logic that would build one (Features 414/416/418/420) has not landed. `definePhase`
+(`backend/migration/phases/define-phase.ts`) knows this and reports `not_implemented` for every phase
+regardless of whether its source reader worked — so `content`'s real generators do not produce a
+false `ok`, they just contribute real `found`/`wouldCreate` counts to an otherwise-honest
+`not_implemented` result.
+
+Because of this, **`backend/tasks/migrate.ts` refuses to run at all without `--dry-run`**: it prints a
+one-line refusal and exits non-zero before ever opening a connection to the 3.0 destination database,
+rather than let an operator believe a live run happened. Every command below still works exactly as
+shown as long as `--dry-run` stays on it; drop it today and the CLI stops you, on purpose. This
+runbook describes the real, intended procedure end to end so it is ready the moment those importer
+Features land — at which point `--dry-run`'s absence will start a real (and no longer refused) write,
+and this paragraph is what needs to be deleted.
 
 ## Step 1 — Freeze writes on the 2.5.x source
 
@@ -160,25 +170,32 @@ implemented in `backend/migration/unmappable.ts`). There are exactly two:
   own deployment, whether they get a local-account password reset after cutover, an OIDC mapping if
   your IdP is OIDC-compatible, or manual account recreation. Do not expect the import to solve this
   for you — these users will not appear in the 3.0 destination at all until you've made that call.
-- **`no-destination-table`** — reported once per run, not per record: 2.5.x comments have no 3.0
-  destination table, model, or API route yet (blocked on Epic 335, a sibling of this migration
-  Feature's parent Epic 341). Comments are **not** imported by this tool, full stop, regardless of
-  dry-run or live. If comment continuity matters for your cutover, that is a gap this migration
-  cannot close — plan around it (e.g. keep the frozen 2.5.x instance reachable read-only, for
-  reference, alongside 3.0) rather than expecting a later flag to fix it.
+- **`no-destination-table`** — reported once per run, not per record: 3.0 has its own comments table,
+  model, and API route, but 2.5.x comments have no import path into them, because the
+  `SourceConnector` interface has no `comments()` generator to read them through yet. Comments are
+  **not** imported by this tool, full stop, regardless of dry-run or live. If comment continuity
+  matters for your cutover, that is a gap this migration cannot close — plan around it (e.g. keep the
+  frozen 2.5.x instance reachable read-only, for reference, alongside 3.0) rather than expecting a
+  later flag to fix it.
 
 Do not proceed past this step until you've reviewed every `conflicts` and `unmappable` entry in the
 report and are comfortable with what each one means for your users.
 
 ## Step 4 — Run the real import
 
-Once the dry-run report looks right, drop `--dry-run` and run the identical command for real:
+**Not available yet.** Once the dry-run report looks right, the intended next step is to drop
+`--dry-run` and run the identical command for real:
 
 ```sh
 npm run migrate -- --site-id <id> [source flags] --report-file /tmp/migration-live-report.json
 ```
 
-Useful flags for this step:
+As of this branch, the CLI itself refuses this — see "Current status of the tooling" above — with a
+one-line error and a non-zero exit, before it ever opens a connection to the 3.0 destination. That is
+not a bug to work around (no `--force`, no bypass flag): no phase has anywhere to write yet, so a live
+run would either do nothing or, before this fix, silently claim success while doing nothing. Wait for
+Features 414/416/418/420 to land before attempting this step; the flags below are what you will use
+once they have:
 
 - **`--only <phases>`** — re-run a subset of phases (comma-separated: `settings`, `users`, `content`,
   `assets`) instead of everything. Handy for retrying just the phase that errored, without repeating
@@ -190,9 +207,9 @@ Useful flags for this step:
   provenance tracking.
 - **`--report-file`** — keep doing this on the live run too. You want this exact JSON file for step 5.
 
-The command exits non-zero if any phase reports `status: 'error'` — check the printed summary and the
-JSON report for `errors` on any phase before moving on, and re-run with `--only <phase>` after fixing
-whatever caused it.
+Once this step is available, the command will exit non-zero if any phase reports `status: 'error'` —
+check the printed summary and the JSON report for `errors` on any phase before moving on, and re-run
+with `--only <phase>` after fixing whatever caused it.
 
 ## Step 5 — Verify, then spot-check by hand
 

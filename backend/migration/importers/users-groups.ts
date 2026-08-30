@@ -11,6 +11,8 @@ import {
 } from '../../db/schema.ts'
 import type { GroupRule, GroupRuleMatch } from '../../models/groups.ts'
 import type { SourceRecord } from '../connector.ts'
+import { coerceSourceBoolean } from '../source-coercion.ts'
+import { KNOWN_3_0_AUTH_MODULES } from '../unmappable.ts'
 
 /**
  * Users/Groups importer engine (Feature 414, Task 726).
@@ -322,10 +324,11 @@ const GLOBAL_PERMISSIONS = new Set([
  * (or anything else) is treated as malformed rather than guessed at. */
 const VALID_2X_RULE_MATCH = new Set(['START', 'END', 'REGEX', 'TAG', 'EXACT'])
 
-/** Reads a boolean column off a source record. */
+/** Reads a boolean column off a source record — see `coerceSourceBoolean` for the cross-engine
+ * representations this accepts (the export-bundle path can carry integer 0/1 as well as a real
+ * boolean). */
 function readSourceBoolean(source: SourceRecord, column: string): boolean | undefined {
-  const raw = source[column]
-  return typeof raw === 'boolean' ? raw : undefined
+  return coerceSourceBoolean(source[column])
 }
 
 /** Narrows an arbitrary value to a string array, dropping any non-string element rather than
@@ -451,10 +454,11 @@ export function createGroupConverter(): GroupConverter {
 // ---------------------------------------------------------------------------
 
 /** 2.x `providerKey` values that correspond to a 3.0 authentication module that actually exists
- * today — `backend/modules/authentication/{local,github,google,oidc}/` is the full list. Membership
- * here is necessary but not sufficient for a real provider-linked import: see
- * `needsProviderFallback()`. */
-const IMPLEMENTED_PROVIDER_MODULES = new Set(['local', 'github', 'google', 'oidc'])
+ * today — `../unmappable.ts`'s `KNOWN_3_0_AUTH_MODULES` (`backend/modules/authentication/*`,
+ * cross-checked live against disk by that module's test), reused here rather than duplicated so the
+ * two lists can't drift apart again. Membership here is necessary but not sufficient for a real
+ * provider-linked import: see `needsProviderFallback()`. */
+const IMPLEMENTED_PROVIDER_MODULES = KNOWN_3_0_AUTH_MODULES
 
 /**
  * Whether a source user's `providerKey` must be routed through the unsupported/reconfigured-provider
@@ -484,7 +488,7 @@ export function needsProviderFallback(
 function providerFallbackReason(providerKey: string): string {
   return IMPLEMENTED_PROVIDER_MODULES.has(providerKey)
     ? `source provider '${providerKey}' is implemented in 3.0, but no target-strategy mapping was supplied for it — a fresh install's ${providerKey} strategy (if configured at all) would not share the source's client id/secret, so the linked account cannot be assumed to resolve on this install`
-    : `source provider '${providerKey}' has no 3.0-native implementation (local/github/google/oidc is the full list — see Epic #333)`
+    : `source provider '${providerKey}' has no 3.0-native implementation (see backend/modules/authentication/ and docs/migration/2.5x-settings-auth-storage-field-mapping.md's Part 2 provider inventory for the confirmed no-destination providers)`
 }
 
 /** Reads a string column, treating an empty string the same as absent so a blank source field is
@@ -492,6 +496,24 @@ function providerFallbackReason(providerKey: string): string {
 function readSourceString(source: SourceRecord, column: string): string | undefined {
   const raw = source[column]
   return typeof raw === 'string' && raw.length > 0 ? raw : undefined
+}
+
+/** Reads a timestamp column off a source record. A live `PostgresSourceConnector` hands back a real
+ * `Date` (node-postgres's own decoding of a `timestamp` column); a bundle/JSON-backed connector may
+ * instead hand back an ISO string. Either is accepted; anything else (missing column, `null`,
+ * malformed string) degrades to `undefined` — the same "let the target column default rather than
+ * fail the whole record" tolerance `page-import.ts`'s `normalizeStagedDate` gives a malformed staged
+ * date — so one bad timestamp on one source row never blocks that user's import. */
+function readSourceDate(source: SourceRecord, column: string): Date | undefined {
+  const raw = source[column]
+  if (raw instanceof Date) {
+    return Number.isNaN(raw.getTime()) ? undefined : raw
+  }
+  if (typeof raw === 'string' && raw.length > 0) {
+    const millis = Date.parse(raw)
+    return Number.isNaN(millis) ? undefined : new Date(millis)
+  }
+  return undefined
 }
 
 export interface ProviderFallbackConverterOptions {
@@ -567,16 +589,30 @@ export function createProviderFallbackUserConverter(
         }
       },
       isSystem: false,
-      isActive: true,
-      isVerified: true,
-      meta: { location: '', jobTitle: '', pronouns: '' },
+      // -> Read off the source, never assumed — an account an administrator deliberately
+      //    deactivated on the source install must not be silently recreated as active. No 2.x
+      //    source row is missing this column (it's a real, non-nullable 2.x `users.isActive`), so
+      //    `false` here only ever covers a malformed/absent test fixture, not a real import.
+      isActive: readSourceBoolean(source, 'isActive') ?? false,
+      isVerified: readSourceBoolean(source, 'isVerified') ?? true,
+      meta: {
+        location: readSourceString(source, 'location') ?? '',
+        jobTitle: readSourceString(source, 'jobTitle') ?? '',
+        // -> No 2.x source column: `pronouns` is a 3.0-only field.
+        pronouns: ''
+      },
       prefs: {
-        timezone: 'America/New_York',
-        dateFormat: 'YYYY-MM-DD',
+        timezone: readSourceString(source, 'timezone') ?? 'America/New_York',
+        dateFormat: readSourceString(source, 'dateFormat') ?? 'YYYY-MM-DD',
+        // -> No 2.x source column: `timeFormat` has no `2.5x-to-3.0-mapping.md` entry.
         timeFormat: '12h',
-        appearance: 'site',
+        appearance: readSourceString(source, 'appearance') ?? 'site',
+        // -> No 2.x source column: `cvd` is a 3.0-only field.
         cvd: 'none'
-      }
+      },
+      createdAt: readSourceDate(source, 'createdAt'),
+      updatedAt: readSourceDate(source, 'updatedAt'),
+      lastLoginAt: readSourceDate(source, 'lastLoginAt')
     }
 
     return {

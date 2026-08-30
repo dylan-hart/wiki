@@ -1927,6 +1927,69 @@ describe('users.setUserGroups (DB-backed)', { skip: !hasTestDatabase() }, () => 
 })
 
 /**
+ * Coverage for `Users.importLocalUser()`'s carried-over source state (Task 1847): `isActive`, `meta`,
+ * `prefs` and the timestamps land as passed rather than the old hardcoded values. `users-import.test.ts`
+ * covers the rest of `importLocalUser()`'s behaviour (collision policy, 2FA reset, group assignment)
+ * against a fake `WIKI.db` — this is the one DB-backed round trip the WP scope asks for, confirming a
+ * passed `isActive: false` and source `createdAt` really persist through a real insert, not just get
+ * built into the values object correctly.
+ */
+describe('users.importLocalUser (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let usersModel: typeof import('./users.ts').users
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ users: usersModel } = await import('./users.ts'))
+    WIKI.data.systemIds = { localAuthId: 'import-local-auth-strategy-id' } as any
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('persists a passed isActive: false and the source createdAt, rather than the old hardcoded defaults', async () => {
+    const sourceCreatedAt = new Date('2018-05-01T00:00:00.000Z')
+
+    const result = await usersModel.importLocalUser({
+      name: 'Deactivated Import',
+      email: 'deactivated-import@example.com',
+      passwordHash: '$2a$12$fakehashfordbbackedtest',
+      isActive: false,
+      isVerified: false,
+      meta: { jobTitle: 'Staff Engineer', location: 'Remote' },
+      prefs: { timezone: 'Europe/Berlin' },
+      createdAt: sourceCreatedAt
+    })
+
+    assert.equal(result.status, 'created')
+    if (result.status !== 'created') return
+
+    const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, result.id))
+    assert.equal(row!.isActive, false)
+    assert.equal(row!.isVerified, false)
+    assert.deepEqual(row!.meta, { jobTitle: 'Staff Engineer', location: 'Remote', pronouns: '' })
+    assert.equal((row!.prefs as any).timezone, 'Europe/Berlin')
+    assert.equal(row!.createdAt.toISOString(), sourceCreatedAt.toISOString())
+  })
+
+  test('falls back to isActive: false and the column defaults when no source state is given', async () => {
+    const result = await usersModel.importLocalUser({
+      name: 'Bare Import',
+      email: 'bare-import@example.com',
+      passwordHash: '$2a$12$fakehashfordbbackedtest'
+    })
+
+    assert.equal(result.status, 'created')
+    if (result.status !== 'created') return
+
+    const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, result.id))
+    assert.equal(row!.isActive, false)
+    assert.ok(row!.createdAt) // -> column's own defaultNow(), not left null
+  })
+})
+
+/**
  * `applyUserUpdate()` atomicity (OpenProject #1609 / #1584): the profile patch, group replacement,
  * auth-flag write and session clear now share one `WIKI.db.transaction()` -- this is what
  * `PUT /users/:userId` calls in place of its previously separate, non-transactional sequence. A

@@ -124,6 +124,37 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
+// -> Mirrors `frontend/src/components/shared/WIcon.vue`'s `ICONIFY_REF` exactly: that component is
+//    what ultimately renders `item.icon`, and returns `kind: 'none'` (blank) for anything not
+//    matching this shape or an `img:` prefix. Kept in sync by inspection rather than a shared import
+//    — frontend and backend are separate workspaces with no shared module between them.
+const ICONIFY_REF = /^[a-z0-9]+(?:-[a-z0-9]+)*:[a-z0-9]+(?:[-.][a-z0-9]+)*$/
+
+/**
+ * Translates a 2.x icon value into the Iconify `prefix:name` reference 3.0 renders, or `null` when
+ * it cannot be carried across.
+ *
+ * 2.x's navigation editor stored a Material Design Icons *webfont class* (`mdi-home`;
+ * `mdi-chevron-right` was the default for a new item), never an Iconify reference — so the common
+ * case is a mechanical `mdi-<name>` → `mdi:<name>` prefix swap, which resolves through `/_icons`
+ * exactly as an author-picked `mdi:` icon does elsewhere in 3.0. An already-Iconify-shaped value (an
+ * item created by a build of 3.0's own nav editor, however unlikely on data staged from 2.x) passes
+ * through untouched. Anything else — 2.x's picker allowed any Vuetify/MDI webfont class, and a name
+ * the Iconify `mdi` set doesn't carry still resolves to nothing — is dropped; the caller is
+ * responsible for warning, since only it knows the item's title for the message.
+ */
+function translateIcon(raw: string): string | null {
+  if (ICONIFY_REF.test(raw)) {
+    return raw
+  }
+  const mdiMatch = /^mdi-([a-z0-9]+(?:-[a-z0-9]+)*)$/.exec(raw)
+  if (mdiMatch) {
+    const candidate = `mdi:${mdiMatch[1]}`
+    return ICONIFY_REF.test(candidate) ? candidate : null
+  }
+  return null
+}
+
 function pageLookupKey(locale: string, path: string): string {
   return `${locale}::${path}`
 }
@@ -213,7 +244,17 @@ export function mapNavigationItem(raw: unknown, ctx: MapItemContext): Navigation
 
   const item: NavigationItem = { id, type }
   if (label) item.label = label
-  if (typeof raw.icon === 'string' && raw.icon) item.icon = raw.icon
+  if (typeof raw.icon === 'string' && raw.icon) {
+    const icon = translateIcon(raw.icon)
+    if (icon) {
+      item.icon = icon
+    } else {
+      ctx.warnings.push(
+        `navigation item "${title}": dropped 2.x icon "${raw.icon}" — not a Material Design Icons ` +
+          'webfont class or Iconify reference this import can translate; item was imported with no icon.'
+      )
+    }
+  }
 
   if (
     raw.visibilityMode === 'restricted' &&

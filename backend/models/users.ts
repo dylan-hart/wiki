@@ -666,6 +666,20 @@ class Users {
    * re-enrollment post-import, so resetting is the safer default until a real product decision says
    * otherwise — that decision is out of this task's scope, not silently assumed away.
    *
+   * ## Carried-over state — explicit decision: read from the source, never assumed (Task 1847)
+   * `isActive`, `meta` (`location`/`jobTitle`/`pronouns`), `prefs`
+   * (`timezone`/`dateFormat`/`timeFormat`/`appearance`/`cvd`) and the three timestamps
+   * (`createdAt`/`updatedAt`/`lastLoginAt`) all have a `docs/migration/2.5x-to-3.0-mapping.md`
+   * "direct" mapping and are accepted as parameters here rather than hardcoded. `isActive` in
+   * particular defaults to `false` (matching the column's own default) rather than `true` when the
+   * caller omits it: a 2.x account an administrator deliberately deactivated must not be silently
+   * recreated as active. `meta`/`prefs` are merged field-by-field over the pre-existing defaults
+   * (including `WIKI.config.userDefaults`) so a caller — or the existing test suite — that omits
+   * some or all of them keeps the prior behavior. The three timestamps are left `undefined` when not
+   * given, which drizzle resolves to each column's own default (`defaultNow()` for
+   * `createdAt`/`updatedAt`, `NULL` for `lastLoginAt`) rather than inserting a literal `NULL`/`now()`
+   * value here.
+   *
    * @returns `{ status: 'created', id }`, or `{ status: 'skipped', reason: 'email-collision',
    * existingId }` when a user with this email already exists.
    */
@@ -675,7 +689,13 @@ class Users {
     passwordHash,
     groups = [],
     mustChangePassword = false,
-    isVerified = true
+    isVerified = true,
+    isActive = false,
+    meta = {},
+    prefs = {},
+    createdAt,
+    updatedAt,
+    lastLoginAt
   }: {
     name: string
     email: string
@@ -686,6 +706,23 @@ class Users {
     groups?: string[]
     mustChangePassword?: boolean
     isVerified?: boolean
+    /** Whether the source account was active. Always read from the source — see this method's doc.
+     * Defaults to `false` (never `true`) when the caller has no source value to give. */
+    isActive?: boolean
+    meta?: { location?: string; jobTitle?: string; pronouns?: string }
+    prefs?: {
+      timezone?: string
+      dateFormat?: string
+      timeFormat?: string
+      appearance?: string
+      cvd?: string
+    }
+    /** Source `createdAt`/`updatedAt`/`lastLoginAt`, carried over verbatim so an imported account's
+     * "member since" reflects the source install, not the import date. Omitted fields fall back to
+     * the column's own default rather than being written as a literal value. */
+    createdAt?: Date
+    updatedAt?: Date
+    lastLoginAt?: Date
   }): Promise<ImportLocalUserResult> {
     const normalizedEmail = email.toLowerCase()
 
@@ -713,20 +750,23 @@ class Users {
             }
           },
           isSystem: false,
-          isActive: true,
+          isActive,
           isVerified,
           meta: {
-            location: '',
-            jobTitle: '',
-            pronouns: ''
+            location: meta.location ?? '',
+            jobTitle: meta.jobTitle ?? '',
+            pronouns: meta.pronouns ?? ''
           },
           prefs: {
-            timezone: WIKI.config.userDefaults?.timezone ?? 'America/New_York',
-            dateFormat: WIKI.config.userDefaults?.dateFormat ?? 'YYYY-MM-DD',
-            timeFormat: WIKI.config.userDefaults?.timeFormat ?? '12h',
-            appearance: 'site',
-            cvd: 'none'
-          }
+            timezone: prefs.timezone ?? WIKI.config.userDefaults?.timezone ?? 'America/New_York',
+            dateFormat: prefs.dateFormat ?? WIKI.config.userDefaults?.dateFormat ?? 'YYYY-MM-DD',
+            timeFormat: prefs.timeFormat ?? WIKI.config.userDefaults?.timeFormat ?? '12h',
+            appearance: prefs.appearance ?? 'site',
+            cvd: prefs.cvd ?? 'none'
+          },
+          createdAt,
+          updatedAt,
+          lastLoginAt
         })
         .returning({ id: usersTable.id })
     } catch (err: any) {

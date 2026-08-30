@@ -3,23 +3,62 @@ import path from 'node:path'
 import { list as listTarball } from 'tar'
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
+import { chunk } from 'es-toolkit/array'
 import {
   assets as assetsTable,
   groups as groupsTable,
+  navigation as navigationTable,
+  pageHistory as pageHistoryTable,
   pages as pagesTable,
   sites as sitesTable,
   tree as treeTable
 } from '../db/schema.ts'
+import type { GroupRule } from './groups.ts'
 import { EXPORT_FORMAT_VERSION } from './export.ts'
 
 /** How long an uploaded import sits on disk before `purgeExpired` sweeps it, in seconds. */
 const IMPORT_TTL_SECONDS = 24 * 60 * 60
 
+/** One imported group rule whose `sites` still names a site id this instance cannot resolve, once the
+ *  archive's own source site has already been rewritten to `targetSiteId` — see `importSite`. */
+export interface UnresolvedRuleSite {
+  groupId: string
+  ruleId: string
+  siteId: string
+}
+
+/**
+ * Postgres's extended-query protocol packs each bound parameter into an Int16 slot in the Bind
+ * message, capping any single statement at 65535 total parameters. Drizzle's `.insert(...).values(rows)`
+ * flattens into one bind array of `rows.length * columnCount` parameters, and nothing upstream of
+ * `importSite` caps how many pages/tree entries/assets an archive can contain (see the class-level doc
+ * comment) — so a large-enough site trips this ceiling and the whole restore aborts with an opaque
+ * driver-level bind error instead of a readable "too many rows" message.
+ *
+ * Each table below gets its own chunk size, `floor(MAX_BIND_PARAMETERS / boundColumnCount)`: `pages`
+ * (`db/schema.ts`) declares 37 columns and `stripDerived` (`models/export.ts`) drops exactly three
+ * (`ts`, `isSearchableComputed`, `searchContent`) before a row ever reaches export/import, leaving 34
+ * bound per row. `tree` and `assets` each declare 14.
+ */
+const MAX_BIND_PARAMETERS = 65535
+const PAGE_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 34)
+const TREE_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 14)
+/**
+ * Assets get a chunk size far smaller than their column count alone would call for: unlike pages and
+ * tree rows, each asset row also carries the full `data`/`preview` bytea buffers as bind parameter
+ * *values* (see `mappedAssetRows` in `importSite`), so a batch of assets blows up the Bind message's
+ * byte size long before it comes anywhere near the parameter-count ceiling that governs pages/tree.
+ */
+const ASSET_INSERT_CHUNK_SIZE = 50
+
 export interface ImportResult {
   pages: number
   tree: number
   assets: number
+  pageHistory: number
+  navigation: number
   groups: number
+  unresolvedRuleSites: UnresolvedRuleSite[]
 }
 
 /**
@@ -75,32 +114,50 @@ function readJson<T>(entries: Record<string, Buffer>, name: string): T {
  * transaction, so a mid-import failure — a malformed row, a constraint violation, the process dying —
  * leaves the target site exactly as it was rather than half-restored.
  *
- * Two things the export cannot carry are resolved here, deliberately and not as a fallback for a case
- * that "shouldn't occur":
+ * Several things the export cannot carry are resolved here, deliberately and not as a fallback for a
+ * case that "shouldn't occur":
  *
- * - **Site content is replaced, not merged.** Every existing page, tree entry and asset belonging to
- *   the target site is deleted before the imported ones are inserted. Pages and tree entries are
- *   matched by path/locale with no natural merge order, so "restore" is defined as putting the site
- *   back to exactly what the archive describes, not layering it on top of whatever is already there.
- * - **Pages, tree entries and assets get fresh ids, unlike groups.** `pages.id`/`tree.id`/`assets.id`
- *   are one global primary-key space, not scoped per site, so re-using the archive's own ids would
- *   collide with the source site's rows the moment it still exists in the same database — restoring a
- *   backup while the original site is still around, or duplicating one site's content into another,
- *   are both ordinary uses of this, not edge cases. A page's and an asset's tree entry share its id
- *   (see below), so the new id is generated once per page/asset and carried through to its tree row
- *   rather than each row picking its own.
- * - **Groups are upserted by id, not replaced.** Unlike pages/tree/assets, groups are global rather
- *   than site-scoped (see CLAUDE.md's Permissions section) — wiping the whole table to restore one
- *   site's export would take every other site's access model with it. An imported group updates one
+ * - **Site content is replaced, not merged.** Every existing page, tree entry, asset and page-history
+ *   row belonging to the target site is deleted before the imported ones are inserted. Pages and tree
+ *   entries are matched by path/locale with no natural merge order, and history rows are not matched
+ *   to anything at all, so "restore" is defined as putting the site back to exactly what the archive
+ *   describes, not layering it on top of whatever is already there.
+ * - **Pages, tree entries, assets and page-history rows get fresh ids, unlike groups.**
+ *   `pages.id`/`tree.id`/`assets.id`/`pageHistory.id` are each one global primary-key space, not
+ *   scoped per site, so re-using the archive's own ids would collide with the source site's rows the
+ *   moment it still exists in the same database — restoring a backup while the original site is still
+ *   around, or duplicating one site's content into another, are both ordinary uses of this, not edge
+ *   cases. A page's and an asset's tree entry share its id (see below), so the new id is generated once
+ *   per page/asset and carried through to its tree row rather than each row picking its own; a
+ *   navigation row belonging to one specific tree entry (rather than the site-wide default menu) is the
+ *   same story, keyed by that entry's own id (`models/navigation.ts`), so it follows the same remap.
+ *   `pageHistory.pageId` is remapped through the same page id map when the page it belongs to still
+ *   exists in the archive, and left as the archive's own (now-dangling) id otherwise — exactly mirroring
+ *   what it already pointed at on the source instance, since it was never a foreign key there either.
+ * - **Groups are upserted by id, not replaced.** Unlike pages/tree/assets/history, groups are global
+ *   rather than site-scoped (see CLAUDE.md's Permissions section) — wiping the whole table to restore
+ *   one site's export would take every other site's access model with it. An imported group updates one
  *   already on this instance when its id matches (the ordinary case: restoring a backup onto the same
- *   instance that produced it) or is inserted as a new one when it does not (importing onto a
- *   different instance).
+ *   instance that produced it) or is inserted as a new one when it does not (importing onto a different
+ *   instance). `exportSite` never includes an `isSystem` group in the first place (see `models/export.ts`),
+ *   so this loop never touches Administrators/Users/Guests.
+ * - **An imported group rule's `sites` is re-scoped to the target site.** A rule addresses sites by id
+ *   (`GroupRule.sites`, see `models/groups.ts`), and the archive's rules still name the *source* site.
+ *   Left unchanged, restoring onto a different site would leave the imported content governed by no
+ *   rule at all — `helpers/pageRules.ts`/`helpers/siteRules.ts` both fail a rule closed when the page's
+ *   or site's id is not in that list. Every occurrence of the archive's own `manifest.siteId` is
+ *   rewritten to `targetSiteId`; anything left over that names neither a known site on this instance nor
+ *   the just-rewritten target is reported back as `unresolvedRuleSites` rather than silently kept.
  * - **Authorship cannot travel with the content**, since accounts are not part of the export — every
- *   imported page's and asset's author/creator/owner columns are rewritten to the account performing
- *   the import.
+ *   imported page's, asset's and page-history row's author/creator/owner columns are rewritten to the
+ *   account performing the import.
  * - **The target site's own config, hostname and enabled state are left untouched.** `site.json` is
  *   validated as present (it is part of the archive's structure) but its contents are not applied —
- *   only pages, tree entries, assets and groups are what this restores.
+ *   only pages, tree entries, page history, navigation, assets and groups are what this restores.
+ * - **`tags` is not part of the archive at all.** The `tags` table is never written by any code path in
+ *   this codebase (`models/tags.ts` derives the tag list from `pages.tags` on the fly instead), so there
+ *   is nothing to export, nothing to purge on the target, and nothing to rebuild — see
+ *   `docs/audit-2026-08-24/correctness-models.md` §15 for the table's own removal, tracked separately.
  */
 class ImportModel {
   /** `<dataPath>/imports` — created on first use, same as the export/icon/asset caches. */
@@ -163,9 +220,10 @@ class ImportModel {
    * Restore a tarball produced by `exportModel.exportSite` into `targetSiteId`.
    *
    * @param filePath Path to the uploaded archive, as returned by `saveUpload`.
-   * @param targetSiteId The site pages/tree/assets are restored into. Must already exist.
-   * @param importedById The account performing the import — every restored page/asset's
-   *   author/creator/owner columns are rewritten to this id, since accounts are not part of the
+   * @param targetSiteId The site pages/tree/history/navigation/assets are restored into. Must already
+   *   exist.
+   * @param importedById The account performing the import — every restored page's/asset's/history
+   *   row's author/creator/owner columns are rewritten to this id, since accounts are not part of the
    *   archive.
    * @returns How many rows of each kind were restored, which the caller (`importContent`'s task)
    *   records on the job's history row via `WIKI.models.jobs.setResult`.
@@ -180,7 +238,7 @@ class ImportModel {
     // -> Structure and version are validated in full before a single query runs against the
     //    database — an archive this code does not recognize is refused outright, never restored
     //    best-effort. `readJson` itself is what enforces every entry's mere presence.
-    const manifest = readJson<{ formatVersion?: number }>(entries, 'manifest.json')
+    const manifest = readJson<{ formatVersion?: number; siteId?: string }>(entries, 'manifest.json')
     if (manifest.formatVersion !== EXPORT_FORMAT_VERSION) {
       throw new Error(
         `Unsupported import archive version ${manifest.formatVersion ?? '(none)'} — this instance can only restore version ${EXPORT_FORMAT_VERSION} archives.`
@@ -191,6 +249,8 @@ class ImportModel {
     readJson<Record<string, any>>(entries, 'site.json')
     const pageRows = readJson<Record<string, any>[]>(entries, 'pages.json')
     const treeRows = readJson<Record<string, any>[]>(entries, 'tree.json')
+    const pageHistoryRows = readJson<Record<string, any>[]>(entries, 'pageHistory.json')
+    const navigationRows = readJson<Record<string, any>[]>(entries, 'navigation.json')
     const groupRows = readJson<Record<string, any>[]>(entries, 'groups.json')
     const assetManifest = readJson<Record<string, any>[]>(entries, 'assets/manifest.json')
 
@@ -228,7 +288,12 @@ class ImportModel {
       authorId: importedById
     }))
 
-    const mappedTreeRows = treeRows.map((row) => {
+    // -> Every tree row's new id, computed up front (rather than inline in the `.map()` below) so a
+    //    navigation row keyed by a tree entry's own id (see the class-level doc comment) can resolve
+    //    to the exact same new id its tree entry just got, and so each tree row's own `navigationId`
+    //    can be remapped right alongside it.
+    const treeIdMap = new Map<string, string>()
+    for (const row of treeRows) {
       // -> A folder has no page/asset counterpart to stay in step with, so it simply gets a new id
       //    of its own; a page's or asset's tree entry must resolve to the exact id that row just got
       const newId =
@@ -242,35 +307,109 @@ class ImportModel {
           `Malformed import archive: tree entry ${row.id} (${row.type}) has no matching entry in ${row.type === 'page' ? 'pages.json' : 'assets/manifest.json'}.`
         )
       }
-      return { ...row, id: newId, siteId: targetSiteId }
+      treeIdMap.set(row.id, newId)
+    }
+
+    // -> A navigation row's id is either a tree entry's own id (a per-entry override) or something
+    //    unrelated to any tree row at all (the site-wide default menu) — see the class-level doc
+    //    comment. The former follows its tree entry's new id; the latter gets a fresh one of its own.
+    const navIdMap = new Map<string, string>(
+      navigationRows.map((row) => [row.id, treeIdMap.get(row.id) ?? crypto.randomUUID()])
+    )
+
+    const mappedTreeRows = treeRows.map((row) => ({
+      ...row,
+      id: treeIdMap.get(row.id),
+      siteId: targetSiteId,
+      navigationId: row.navigationId ? (navIdMap.get(row.navigationId) ?? null) : null
+    }))
+
+    const mappedNavigationRows = navigationRows.map((row) => ({
+      ...row,
+      id: navIdMap.get(row.id),
+      siteId: targetSiteId
+    }))
+
+    const mappedPageHistoryRows = pageHistoryRows.map((row) => ({
+      ...row,
+      // -> Fresh id: a same-instance restore runs alongside the source site's own history rows, which
+      //    still hold the archive's original ids.
+      id: crypto.randomUUID(),
+      // -> Not every history row's page still exists in the archive (a deleted page's history is
+      //    exactly what makes recovering it possible) — left as the archive's own id when there is no
+      //    newly-inserted page to resolve to, mirroring what it already pointed at on the source
+      //    instance, since `pageHistory.pageId` was never a foreign key there either.
+      pageId: pageIdMap.get(row.pageId) ?? row.pageId,
+      siteId: targetSiteId,
+      authorId: importedById
+    }))
+
+    // -> Every site id known to this instance, for flagging a group rule's `sites` entry that names
+    //    neither the just-rewritten target nor anything else this instance actually has — see below.
+    const knownSiteRows = await WIKI.db.select({ id: sitesTable.id }).from(sitesTable)
+    const knownSiteIds = new Set(knownSiteRows.map((row) => row.id))
+
+    const unresolvedRuleSites: UnresolvedRuleSite[] = []
+    const mappedGroupRows = groupRows.map((group) => {
+      const rules = (Array.isArray(group.rules) ? group.rules : []) as GroupRule[]
+      const mappedRules = rules.map((rule) => {
+        const sites = Array.isArray(rule.sites) ? rule.sites : []
+        const mappedSites = sites.map((siteId) =>
+          siteId === manifest.siteId ? targetSiteId : siteId
+        )
+        for (const siteId of mappedSites) {
+          if (!knownSiteIds.has(siteId)) {
+            unresolvedRuleSites.push({ groupId: group.id, ruleId: rule.id, siteId })
+          }
+        }
+        return { ...rule, sites: mappedSites }
+      })
+      return { ...group, rules: mappedRules }
     })
 
     await WIKI.db.transaction(async (tx) => {
       // -> Site content is replaced outright — see the class-level doc comment. Deleted before
-      //    anything is inserted, all three scoped to the target site alone.
+      //    anything is inserted, all scoped to the target site alone.
       await tx.delete(assetsTable).where(eq(assetsTable.siteId, targetSiteId))
       await tx.delete(treeTable).where(eq(treeTable.siteId, targetSiteId))
       await tx.delete(pagesTable).where(eq(pagesTable.siteId, targetSiteId))
+      // -> `pageHistory.pageId` is not a foreign key (history outlives the page it describes), so
+      //    nothing above already cascaded this away — it has to be purged explicitly, in the same
+      //    transaction, or a repeated restore accumulates orphaned rows forever.
+      await tx.delete(pageHistoryTable).where(eq(pageHistoryTable.siteId, targetSiteId))
+      await tx.delete(navigationTable).where(eq(navigationTable.siteId, targetSiteId))
 
       // -> Groups are global, so they are upserted by id rather than replaced wholesale — see the
       //    class-level doc comment.
-      for (const group of groupRows) {
+      for (const group of mappedGroupRows) {
         await tx
           .insert(groupsTable)
           .values(group as any)
           .onConflictDoUpdate({ target: groupsTable.id, set: group as any })
       }
 
-      if (mappedPageRows.length > 0) {
-        await tx.insert(pagesTable).values(mappedPageRows as any)
+      // -> Chunked under the bind-parameter limit (see the constants above) rather than one
+      //    `.values(array)` call per table -- all three loops still run inside this same
+      //    transaction, so a mid-import failure on any chunk rolls back everything, not just the
+      //    chunk it was on.
+      for (const batch of chunk(mappedPageRows, PAGE_INSERT_CHUNK_SIZE)) {
+        await tx.insert(pagesTable).values(batch as any)
       }
 
-      if (mappedTreeRows.length > 0) {
-        await tx.insert(treeTable).values(mappedTreeRows as any)
+      for (const batch of chunk(mappedTreeRows, TREE_INSERT_CHUNK_SIZE)) {
+        await tx.insert(treeTable).values(batch as any)
       }
 
-      if (mappedAssetRows.length > 0) {
-        await tx.insert(assetsTable).values(mappedAssetRows as any)
+      for (const batch of chunk(mappedAssetRows, ASSET_INSERT_CHUNK_SIZE)) {
+        await tx.insert(assetsTable).values(batch as any)
+      }
+
+      if (mappedPageHistoryRows.length > 0) {
+        await tx.insert(pageHistoryTable).values(mappedPageHistoryRows as any)
+      }
+
+      if (mappedNavigationRows.length > 0) {
+        await tx.insert(navigationTable).values(mappedNavigationRows as any)
       }
     })
 
@@ -278,7 +417,10 @@ class ImportModel {
       pages: mappedPageRows.length,
       tree: mappedTreeRows.length,
       assets: mappedAssetRows.length,
-      groups: groupRows.length
+      pageHistory: mappedPageHistoryRows.length,
+      navigation: mappedNavigationRows.length,
+      groups: groupRows.length,
+      unresolvedRuleSites
     }
   }
 }

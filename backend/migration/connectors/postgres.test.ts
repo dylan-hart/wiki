@@ -472,6 +472,51 @@ describe('PostgresSourceConnector', () => {
         await connector.disconnect()
       })
 
+      test('pageHistory() yields each row exactly once across a tie straddling the batch boundary (WP 1780)', async () => {
+        // pageHistory()'s ORDER BY is `ph."pageId", ph."versionDate", ph.id` -- the trailing `ph.id`
+        // is the fix under test. Without it, ties on (pageId, versionDate) are broken arbitrarily by
+        // Postgres and can differ between paginatedQuery()'s separate LIMIT/OFFSET statements, letting
+        // a tied row be yielded twice (or dropped) when the tie group straddles a batch boundary.
+        // PAGE_BATCH_SIZE is 10, so this seeds one page (id 5) with 11 revisions: 9 with distinct
+        // versionDates, then a tied pair (ids 309/310, same versionDate) landing exactly on rows 10
+        // and 11 of the final order -- the last row of batch 1 (OFFSET 0) and the first row of batch 2
+        // (OFFSET 10).
+        await admin.query(`
+          INSERT INTO "pageHistory" (id, "pageId", path, "localeCode", title, action, "versionDate", "authorId")
+          VALUES
+            (300, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.001Z', 10),
+            (301, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.002Z', 10),
+            (302, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.003Z', 10),
+            (303, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.004Z', 10),
+            (304, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.005Z', 10),
+            (305, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.006Z', 10),
+            (306, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.007Z', 10),
+            (307, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.008Z', 10),
+            (308, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.009Z', 10),
+            (309, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.010Z', 10),
+            (310, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.010Z', 10)
+        `)
+
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.pageHistory())
+        await connector.disconnect()
+
+        // No duplicates and nothing dropped, across the whole table (not just the seeded tie group) --
+        // this is what paginatedQuery()'s totality precondition guarantees once the ORDER BY is total.
+        const ids = rows.map((r) => r.id as number)
+        assert.equal(new Set(ids).size, ids.length, 'pageHistory() yielded a duplicate row id')
+
+        const tieGroupIds = ids.filter((id) => id >= 300 && id <= 310).sort((a, b) => a - b)
+        assert.deepEqual(tieGroupIds, [300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 310])
+      })
+
       test('tags() yields the raw tags table', async () => {
         const connector = new PostgresSourceConnector({
           host: HOST,

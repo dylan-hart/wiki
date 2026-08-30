@@ -249,7 +249,11 @@ describe('needsProviderFallback', () => {
     assert.equal(needsProviderFallback('local', { local: 'some-uuid' }), false)
   })
 
-  test('an unimplemented 2.x provider (no 3.0 module at all) always falls back', () => {
+  test('any provider with no strategy mapping supplied always falls back, whether or not 3.0 has the module', () => {
+    // -> ldap/saml/auth0 are all real 3.0 modules today (Epic #333's territory since this test was
+    //    written), but `needsProviderFallback` never special-cases which providers are implemented —
+    //    it falls back for anything not named in `strategyMapping`. `providerFallbackReason` is what
+    //    branches on implementedness, tested separately above via `createProviderFallbackUserConverter`.
     assert.equal(needsProviderFallback('ldap'), true)
     assert.equal(needsProviderFallback('saml'), true)
     assert.equal(needsProviderFallback('auth0'), true)
@@ -273,11 +277,36 @@ describe('needsProviderFallback', () => {
 describe('createProviderFallbackUserConverter', () => {
   const LOCAL_STRATEGY_ID = 'local-strategy-uuid'
 
-  test('creates an unsupported-provider (e.g. ldap) account through the local strategy, mustChangePwd forced true', async () => {
+  test('creates an unsupported-provider (e.g. firebase — a confirmed no-destination 2.x provider) account through the local strategy, mustChangePwd forced true', async () => {
     const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
 
     const outcome = await convert({
       id: 1,
+      email: 'Firebase.User@Example.com',
+      name: 'Firebase User',
+      providerKey: 'firebase'
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return // -> type narrowing for the assertions below
+    assert.equal(outcome.row.email, 'firebase.user@example.com')
+    const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
+    assert.equal(authEntry.mustChangePwd, true)
+    assert.ok(authEntry.password.startsWith('$2')) // -> a bcrypt hash, not a plaintext/placeholder string
+    assert.ok(outcome.providerFallback)
+    assert.deepEqual(outcome.providerFallback, {
+      email: 'firebase.user@example.com',
+      sourceProvider: 'firebase',
+      reason: outcome.providerFallback!.reason
+    })
+    assert.match(outcome.providerFallback!.reason, /no 3\.0-native implementation/)
+  })
+
+  test('creates a 3.0-implemented-but-unmapped provider (e.g. ldap) account through the local strategy, with a mapping-specific reason', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const outcome = await convert({
+      id: 5,
       email: 'Ldap.User@Example.com',
       name: 'LDAP User',
       providerKey: 'ldap'
@@ -285,17 +314,12 @@ describe('createProviderFallbackUserConverter', () => {
 
     assert.equal(outcome.status, 'created')
     if (outcome.status !== 'created') return // -> type narrowing for the assertions below
-    assert.equal(outcome.row.email, 'ldap.user@example.com')
-    const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
-    assert.equal(authEntry.mustChangePwd, true)
-    assert.ok(authEntry.password.startsWith('$2')) // -> a bcrypt hash, not a plaintext/placeholder string
     assert.ok(outcome.providerFallback)
-    assert.deepEqual(outcome.providerFallback, {
-      email: 'ldap.user@example.com',
-      sourceProvider: 'ldap',
-      reason: outcome.providerFallback!.reason
-    })
-    assert.match(outcome.providerFallback!.reason, /no 3\.0-native implementation/)
+    assert.equal(outcome.providerFallback!.sourceProvider, 'ldap')
+    assert.match(
+      outcome.providerFallback!.reason,
+      /is implemented in 3\.0, but no target-strategy mapping was supplied/
+    )
   })
 
   test('creates a github account via fallback when no strategy mapping is supplied, with a mapping-specific reason', async () => {
@@ -359,6 +383,100 @@ describe('createProviderFallbackUserConverter', () => {
     const outcome = await convert({ id: 6, name: 'No Email', providerKey: 'ldap' })
 
     assert.equal(outcome.status, 'skipped')
+  })
+
+  test('carries isActive/isVerified, meta and prefs over from the source rather than hardcoding them (Task 1847)', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const outcome = await convert({
+      id: 7,
+      email: 'deactivated@example.com',
+      name: 'Deactivated User',
+      providerKey: 'ldap',
+      isActive: false,
+      isVerified: false,
+      jobTitle: 'Staff Engineer',
+      location: 'Remote',
+      timezone: 'Europe/Berlin',
+      dateFormat: 'DD/MM/YYYY',
+      appearance: 'dark'
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    // -> Never silently reopened: a departed employee's deliberately-deactivated 2.x account stays
+    //    inactive on import, not one password reset away from a working login.
+    assert.equal(outcome.row.isActive, false)
+    assert.equal(outcome.row.isVerified, false)
+    assert.deepEqual(outcome.row.meta, {
+      location: 'Remote',
+      jobTitle: 'Staff Engineer',
+      pronouns: ''
+    })
+    assert.deepEqual(outcome.row.prefs, {
+      timezone: 'Europe/Berlin',
+      dateFormat: 'DD/MM/YYYY',
+      timeFormat: '12h',
+      appearance: 'dark',
+      cvd: 'none'
+    })
+  })
+
+  test('falls back to isActive: false (never true) and the usual defaults when the source has nothing to give', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const outcome = await convert({
+      id: 8,
+      email: 'bare@example.com',
+      name: 'Bare Record',
+      providerKey: 'ldap'
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    assert.equal(outcome.row.isActive, false)
+    assert.equal(outcome.row.isVerified, true)
+    assert.deepEqual(outcome.row.meta, { location: '', jobTitle: '', pronouns: '' })
+    assert.equal((outcome.row.prefs as any).timezone, 'America/New_York')
+  })
+
+  test('carries createdAt/updatedAt/lastLoginAt timestamps over from the source', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+    const createdAt = new Date('2019-03-04T12:00:00.000Z')
+    const updatedAt = new Date('2022-06-01T08:30:00.000Z')
+    const lastLoginAt = new Date('2023-11-20T17:45:00.000Z')
+
+    const outcome = await convert({
+      id: 9,
+      email: 'timestamps@example.com',
+      name: 'Timestamped User',
+      providerKey: 'ldap',
+      createdAt,
+      updatedAt,
+      lastLoginAt
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    assert.deepEqual(outcome.row.createdAt, createdAt)
+    assert.deepEqual(outcome.row.updatedAt, updatedAt)
+    assert.deepEqual(outcome.row.lastLoginAt, lastLoginAt)
+  })
+
+  test('degrades a malformed source timestamp to undefined rather than failing the whole record', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const outcome = await convert({
+      id: 10,
+      email: 'malformed-date@example.com',
+      name: 'Malformed Date',
+      providerKey: 'ldap',
+      createdAt: 'not-a-date'
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    assert.equal(outcome.row.createdAt, undefined)
   })
 
   test('end-to-end through importUsersAndGroups: fallback-routed accounts are written and reported in providerFallbacks', async () => {
@@ -454,6 +572,29 @@ describe('createGroupConverter', () => {
     for (const rule of rules) {
       assert.notEqual(rule.mode, 'FORCEALLOW')
     }
+  })
+
+  test("converts an export-bundle source's integer-valued deny (0/1) the same as a real boolean (OpenProject #1850)", async () => {
+    // -> MySQL/MariaDB/SQLite via the export bundle connector represent 2.x boolean columns as JSON
+    //    integers (0/1) — convertPageRule() must widen deny's coercion the same as isSystem's, or
+    //    every imported page rule is dropped as malformed.
+    const outcome = await convert({
+      id: 1,
+      name: 'Editors',
+      isSystem: 0,
+      permissions: [],
+      pageRules: [
+        { id: '1', deny: 1, match: 'START', path: 'private', roles: ['read:pages'], locales: [] },
+        { id: '2', deny: 0, match: 'EXACT', path: '', roles: ['write:pages'], locales: ['en'] }
+      ]
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    const rules = outcome.row.rules as any[]
+    assert.equal(rules.length, 2)
+    assert.equal(rules[0].mode, 'DENY')
+    assert.equal(rules[1].mode, 'ALLOW')
   })
 
   test('drops a malformed page rule (missing deny, or an unsupported match value) instead of failing the group', async () => {
@@ -606,6 +747,35 @@ describe('system-row exclusion (Task 731)', () => {
         groups: iter([
           { id: 1, name: 'Administrators', isSystem: true },
           { id: 3, name: 'Editors', isSystem: false }
+        ]),
+        users: iter([]),
+        userGroups: iter([])
+      },
+      writer: createDryRunWriter(),
+      convertGroup
+    })
+
+    assert.equal(result.groups.skipped, 1)
+    assert.equal(result.groups.created, 1)
+    assert.equal(convertCalls, 1) // -> the system row never reached convertGroup at all
+    assert.match(result.groups.records[0].message ?? '', /system group/)
+  })
+
+  test("an export-bundle source's integer-valued isSystem (1) is still skipped (OpenProject #1850)", async () => {
+    // -> MySQL/MariaDB/SQLite via the export bundle connector represent 2.x boolean columns as JSON
+    //    integers (0/1), not real booleans — readSourceBoolean() must widen to accept that
+    //    representation, or a source's system Administrators/Guests rows import as duplicates.
+    let convertCalls = 0
+    const convertGroup = (source: { name?: unknown }) => {
+      convertCalls++
+      return { status: 'created', row: { name: String(source.name) } as NewGroupRow } as const
+    }
+
+    const result = await importUsersAndGroups({
+      source: {
+        groups: iter([
+          { id: 1, name: 'Administrators', isSystem: 1 },
+          { id: 3, name: 'Editors', isSystem: 0 }
         ]),
         users: iter([]),
         userGroups: iter([])

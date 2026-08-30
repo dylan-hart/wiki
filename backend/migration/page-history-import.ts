@@ -1,6 +1,10 @@
 import { isEqual } from 'es-toolkit/predicate'
 import type { PageHistoryAction } from '../models/pageHistory.ts'
-import type { StagedPage, StagedPageHistoryEntry } from './content-staging.ts'
+import type {
+  OrphanedPageHistoryEntry,
+  StagedPage,
+  StagedPageHistoryEntry
+} from './content-staging.ts'
 import { derivePublishState, mapEditor } from './page-import.ts'
 import type { IdMap } from './id-map.ts'
 
@@ -48,6 +52,43 @@ import type { IdMap } from './id-map.ts'
  * anything but `'created'`/`'updated'`/`'moved'`/`'deleted'`. `mapHistoryAction` folds 2.x's
  * `'restored'` onto 3.0's `'updated'` accordingly, and falls back to `'updated'` (with a warning) for
  * any other free-text value the column allows but no known writer ever produced.
+ *
+ * ## Chunked inserts (WP #1790 / Task #1801)
+ *
+ * `PageHistoryInsertRow` has 12 fields, and a single `WIKI.db.insert(pageHistoryTable).values(rows)`
+ * call binds every field of every row as its own parameter — Postgres refuses more than 65535 bind
+ * parameters per statement, a ceiling a mature 2.x install's most-edited page can cross alone at
+ * around 5461 revisions. `backfillPageHistoryForPage()` (called once per page, immediately after that
+ * page's `createPage()` — see `page-import.ts`'s `importPages()`) chunks a single page's rows at
+ * `HISTORY_INSERT_CHUNK_SIZE`, and never buffers more than one page's history in memory or in one
+ * `insertVersions()` call — see `content-staging.ts`'s own streaming design for the matching page-side
+ * half of this fix. An orphaned-history group (below) goes through the exact same
+ * `backfillPageHistoryForPage()` and therefore the exact same chunking.
+ *
+ * ## Orphaned history (a `pageId` naming no current 2.x page)
+ *
+ * `content-staging.ts`'s `extractContentStaging()` splits `pageHistory` rows into each page's own
+ * `StagedPage.history` and a separate `orphanedHistory: OrphanedPageHistoryEntry[]` list, for rows
+ * whose `pageId` matched no page among the source's current `pages` (almost always a 2.x page that
+ * was deleted and never recreated). `pageHistory.pageId` is a non-FK plain column on both 2.x and
+ * 3.0 *by design* (`db/schema.ts`'s comment on the column, `docs/migration/2.5x-to-3.0-mapping.md`)
+ * specifically so history outlives the page it belonged to — every `WIKI.models.pageHistory` reader
+ * (`list`, `getVersion`, `listRecoverable`, `getDeletedVersion`, `recoverDeletedPage`) keys off
+ * `siteId`+`pageId` or `siteId`+`locale`+`path`, never a join back to `pages`, so a `pageId` that
+ * names no live page is exactly the shape `listRecoverable`'s "recoverable" query already expects
+ * for any deleted page. `backfillPageHistory` inserts orphaned rows too, grouped by
+ * `sourcePageOldId` and given one freshly synthesized UUID per group (not one per row, so a deleted
+ * page's whole chain — including the `deleted` row itself — shares a single `pageId`, the same way
+ * a live page's history rows all share its real new `pages.id`). See
+ * `docs/migration/2.5x-to-3.0-mapping.md`'s `pageId` row for the full reasoning.
+ *
+ * ## `extra` merges into `meta`, underneath the computed keys
+ *
+ * 2.x's `pageHistory.extra` catch-all JSON blob (`content-staging.ts`'s `StagedPageHistoryEntry.extra`)
+ * is spread into `buildMeta`'s result, but *underneath* the 14 keys `buildMeta` itself computes —
+ * `Object.assign({}, entry.extra, computed)` order, not the reverse — so a same-named stray key
+ * inside an old `extra` blob (e.g. a leftover `extra.tags`) can never clobber the real derived
+ * value. See `docs/migration/2.5x-to-3.0-mapping.md`'s `extra` row.
  */
 
 /** One `pageHistory` row this module has finished building, ready to be inserted verbatim — column
@@ -69,24 +110,53 @@ export interface PageHistoryInsertRow {
 
 export interface PageHistoryImportDeps {
   /**
-   * Inserts already-built rows directly into the `pageHistory` table.
+   * Inserts already-built rows directly into the `pageHistory` table, for at most one page's worth
+   * of rows at a time (see `HISTORY_INSERT_CHUNK_SIZE` below — a single call is not guaranteed to be
+   * one page's *entire* history, only ever a chunk of it).
    *
    * DELIBERATE EXCEPTION to "always go through the model" (see the module doc comment above for
    * why `record()` cannot do this instead): the real implementation — wired up by Task 421's CLI,
    * same as every other injected dependency across this migration feature — is expected to do
-   * exactly one thing, `WIKI.db.insert(pageHistoryTable).values(rows)`, and nothing more. It must
-   * NOT call `WIKI.models.pageHistory.record()`, because `record()` ignores every field this module
-   * computed and re-derives its own from the current `pages` row instead — the opposite of what a
-   * historical backfill needs.
+   * exactly one thing per call, `WIKI.db.insert(pageHistoryTable).values(rows)`, and nothing more.
+   * It must NOT call `WIKI.models.pageHistory.record()`, because `record()` ignores every field this
+   * module computed and re-derives its own from the current `pages` row instead — the opposite of
+   * what a historical backfill needs.
+   *
+   * It also must not assume it will be called exactly once per run, or once per page: `rows` is
+   * chunked (per page, and further within a page above `HISTORY_INSERT_CHUNK_SIZE` rows) precisely
+   * so this can be a plain, unconditional `insert().values(rows)` without ever handing Postgres more
+   * bind parameters than its 65535 ceiling allows — see the module doc comment's "Chunked inserts"
+   * section.
    */
   insertVersions(rows: PageHistoryInsertRow[]): Promise<void>
 }
 
+/** One page whose history failed to backfill — the `pageId`/`content` values it *would* have carried
+ * either never left the process or landed in an earlier, already-committed chunk; either way, the
+ * page itself (already created by `importPages()`) is unaffected, only its history is incomplete. */
+export interface PageHistoryImportFailure {
+  oldId: number
+  message: string
+}
+
 export interface PageHistoryImportResult {
-  /** How many `pageHistory` rows were inserted, across every page. */
+  /** How many `pageHistory` rows were actually inserted, across every page and chunk — includes rows
+   * from any earlier chunk of a page whose backfill later failed partway through. */
   inserted: number
   warnings: string[]
+  /** One entry per page whose `insertVersions()` call(s) threw — modelled on `page-import.ts`'s
+   * `PageImportFailure`, so one page's history failing does not lose the run's ability to report on
+   * every other page's. */
+  failed: PageHistoryImportFailure[]
 }
+
+/**
+ * Rows per `insertVersions()` call. `PageHistoryInsertRow` has 12 fields, and Postgres refuses more
+ * than 65535 bind parameters in one statement — `floor(65535 / 12) = 5461` — so this stays safely
+ * under that ceiling with room to spare, chunking within a single page's history whenever it alone
+ * exceeds this (the largest 2.x installs' most-edited pages can), not only across pages.
+ */
+const HISTORY_INSERT_CHUNK_SIZE = 5000
 
 /** 2.x's confirmed `pageHistory.action` vocabulary (see the module doc comment) mapped onto 3.0's
  * four. `'restored'` collapses onto `'updated'` because 3.0 has no equivalent of its own. */
@@ -134,6 +204,10 @@ interface ComparableVersionState {
   publishState: string
   publishStartDate: string | null
   publishEndDate: string | null
+  /** The 2.x row's own `extra` catch-all blob, carried through so `buildMeta` can merge it — not
+   * itself part of the changed-fields diff (see `diffComparableStates`'s exclusion below), since
+   * `extra` was never a tracked 3.0 `pages` field to begin with. */
+  extra: Record<string, unknown>
 }
 
 function parseVersionDate(entry: StagedPageHistoryEntry): Date {
@@ -168,7 +242,8 @@ function buildComparableState(
     contentType: entry.contentType,
     publishState,
     publishStartDate: entry.publishStartDate,
-    publishEndDate: entry.publishEndDate
+    publishEndDate: entry.publishEndDate,
+    extra: entry.extra
   }
 }
 
@@ -179,9 +254,14 @@ function buildComparableState(
  * `alias`/`icon`/`config`/`relations`/`scripts`/`isBrowsable`/`isSearchable` of their own — none of
  * those exist in the 2.x schema at all — so each is set to the same default `createPage()` itself
  * would have used for a page that never specified one, per `db/schema.ts`'s column defaults.
+ *
+ * `state.extra` — 2.x's own `pageHistory.extra` catch-all blob — is spread in FIRST, so every key
+ * below it overrides a same-named key `extra` might carry (a stray old `extra.tags`, most plausibly).
+ * Only genuine extra keys with no computed counterpart survive into the result untouched.
  */
 function buildMeta(state: ComparableVersionState): Record<string, unknown> {
   return {
+    ...state.extra,
     alias: null,
     description: state.description,
     icon: null,
@@ -199,12 +279,18 @@ function buildMeta(state: ComparableVersionState): Record<string, unknown> {
   }
 }
 
+/** Every `ComparableVersionState` key that is not itself a `changedFields()`-comparable page field —
+ * `extra` is carried on the state purely so `buildMeta` can merge it (see above), it was never a
+ * tracked 3.0 `pages` column to diff. */
+const NOT_DIFFED: ReadonlySet<keyof ComparableVersionState> = new Set(['extra'])
+
 /**
  * Diffs two consecutive versions over the same field set `changedFields()` in
  * `backend/models/pageHistory.ts` compares, restricted to what `ComparableVersionState` actually
  * tracks. `NOT_REPORTED_AS_CHANGED` excludes bookkeeping (`render`/`toc`/`searchContent`/`ts`/`hash`/
  * `authorId`/`updatedAt`/rating/`historyData`/`isSearchableComputed`) — none of which is a field this
- * module diffs to begin with, so every key here is compared; nothing needs excluding a second time.
+ * module diffs to begin with, so every key here (besides `NOT_DIFFED`) is compared; nothing needs
+ * excluding a second time.
  */
 function diffComparableStates(
   previous: ComparableVersionState,
@@ -212,6 +298,7 @@ function diffComparableStates(
 ): string[] {
   const changed: string[] = []
   for (const key of Object.keys(current) as (keyof ComparableVersionState)[]) {
+    if (NOT_DIFFED.has(key)) continue
     if (!isEqual(previous[key], current[key])) {
       changed.push(key)
     }
@@ -232,9 +319,14 @@ function diffComparableStates(
  * already ran every entry's 2.x `authorId` through `resolveActorId()` with the same orphaned-author
  * operator fallback `StagedPage.authorId`/`creatorId` use, so `entry.authorId` is already the
  * resolved 3.0 UUID this row needs.
+ *
+ * `page` only needs `oldId` (used solely for warning context via `mapEditor`) and `history` — narrowed
+ * to that pair rather than the full `StagedPage` so `backfillPageHistory` can reuse this for an
+ * orphaned-history group too, which has no real `StagedPage` to hand in (see the module doc comment's
+ * "Orphaned history" section).
  */
 export function buildPageHistoryRowsForPage(
-  page: StagedPage,
+  page: Pick<StagedPage, 'oldId' | 'history'>,
   newPageId: string,
   siteId: string,
   warnings: string[]
@@ -273,35 +365,116 @@ export function buildPageHistoryRowsForPage(
   return rows
 }
 
+/** Groups `orphanedHistory` by `sourcePageOldId`, preserving each group's relative order — the list
+ * arrives already sorted by `versionDate` ascending (`content-staging.ts`'s `extractContentStaging`),
+ * so filtering into groups keeps every group internally sorted too, exactly what
+ * `buildPageHistoryRowsForPage` expects. */
+function groupOrphanedHistoryBySourcePage(
+  orphanedHistory: OrphanedPageHistoryEntry[]
+): Map<number, OrphanedPageHistoryEntry[]> {
+  const groups = new Map<number, OrphanedPageHistoryEntry[]>()
+  for (const entry of orphanedHistory) {
+    const group = groups.get(entry.sourcePageOldId)
+    if (group) {
+      group.push(entry)
+    } else {
+      groups.set(entry.sourcePageOldId, [entry])
+    }
+  }
+  return groups
+}
+
 /**
- * Backfills `pageHistory` for every successfully-imported page in `pages`, per this task's
- * description: immediately after `importPages()`'s own `createPage()` call for a page (resolved here
- * through `pageIdMap`, the same map `importPages()` populated), insert its whole 2.x history chain as
- * a direct `pageHistory` insert (see the module doc comment for why `record()` cannot do this).
+ * Backfills `pageHistory` for one already-created page — the per-page entry point `importPages()`
+ * (`page-import.ts`, Task #1818) calls immediately after its own `createPage()` call for that page,
+ * so a large corpus's history lands page by page rather than all at once at the end of a run. Builds
+ * the page's whole 2.x history chain as direct `pageHistory` inserts (see the module doc comment for
+ * why `record()` cannot do this), chunked at `HISTORY_INSERT_CHUNK_SIZE` rows per `insertVersions()`
+ * call so one page's history can never alone exceed Postgres's bind-parameter ceiling.
  *
- * A page absent from `pageIdMap` (one of `PageImportResult.failed`, per `page-import.ts`) is skipped
- * silently — there is no 3.0 page for its history to attach to, and `importPages()` already reported
- * why it failed.
+ * Never throws: an `insertVersions()` rejection is caught and reported as this page's own
+ * `PageHistoryImportFailure` rather than propagated, so one page's history failing cannot abort a
+ * run already past the point of having created that page (or any other).
+ *
+ * `page` only needs `oldId` and `history` (see `buildPageHistoryRowsForPage`'s own narrowing for why)
+ * — `backfillPageHistory` below reuses this same function for an orphaned-history group, which has no
+ * real `StagedPage` to hand in, only a synthesized `pageId` and the group's own entries.
+ */
+export async function backfillPageHistoryForPage(
+  page: Pick<StagedPage, 'oldId' | 'history'>,
+  newPageId: string,
+  siteId: string,
+  deps: PageHistoryImportDeps
+): Promise<PageHistoryImportResult> {
+  const warnings: string[] = []
+  const failed: PageHistoryImportFailure[] = []
+  let inserted = 0
+
+  if (page.history.length === 0) {
+    return { inserted, warnings, failed }
+  }
+
+  const rows = buildPageHistoryRowsForPage(page, newPageId, siteId, warnings)
+  try {
+    for (let offset = 0; offset < rows.length; offset += HISTORY_INSERT_CHUNK_SIZE) {
+      const chunk = rows.slice(offset, offset + HISTORY_INSERT_CHUNK_SIZE)
+      await deps.insertVersions(chunk)
+      inserted += chunk.length
+    }
+  } catch (err: any) {
+    failed.push({ oldId: page.oldId, message: `pageHistory insert failed: ${err.message}` })
+  }
+
+  return { inserted, warnings, failed }
+}
+
+/**
+ * Batch form of `backfillPageHistoryForPage()`, for a caller holding a full `StagedPage[]` plus the
+ * `pageIdMap` `importPages()` populated (e.g. a test, or any future caller that doesn't need the
+ * per-page interleaving `importPages()` itself uses) — resolves each page's new id through `pageIdMap`
+ * and folds every page's result together. A page absent from `pageIdMap` (one of
+ * `PageImportResult.failed`, per `page-import.ts`) is skipped silently — there is no 3.0 page for its
+ * history to attach to, and `importPages()` already reported why it failed.
+ *
+ * `orphanedHistory` — `pageHistory` rows whose `pageId` named no current 2.x page, staged separately
+ * by `content-staging.ts` — is backfilled too, per the module doc comment's "Orphaned history"
+ * section: grouped by `sourcePageOldId`, each group gets one freshly synthesized `pageId`
+ * (`crypto.randomUUID()`) shared by every row in that group, and goes through the exact same
+ * `backfillPageHistoryForPage` a real page's history goes through — chunking and per-group failure
+ * isolation included.
  */
 export async function backfillPageHistory(
   pages: StagedPage[],
+  orphanedHistory: OrphanedPageHistoryEntry[],
   pageIdMap: IdMap<number>,
   siteId: string,
   deps: PageHistoryImportDeps
 ): Promise<PageHistoryImportResult> {
   const warnings: string[] = []
-  const rows: PageHistoryInsertRow[] = []
+  const failed: PageHistoryImportFailure[] = []
+  let inserted = 0
 
   for (const page of pages) {
-    if (page.history.length === 0) continue
     const newPageId = pageIdMap.get(page.oldId)
     if (!newPageId) continue
-    rows.push(...buildPageHistoryRowsForPage(page, newPageId, siteId, warnings))
+    const result = await backfillPageHistoryForPage(page, newPageId, siteId, deps)
+    inserted += result.inserted
+    warnings.push(...result.warnings)
+    failed.push(...result.failed)
   }
 
-  if (rows.length > 0) {
-    await deps.insertVersions(rows)
+  for (const [sourcePageOldId, entries] of groupOrphanedHistoryBySourcePage(orphanedHistory)) {
+    const synthesizedPageId = crypto.randomUUID()
+    const result = await backfillPageHistoryForPage(
+      { oldId: sourcePageOldId, history: entries },
+      synthesizedPageId,
+      siteId,
+      deps
+    )
+    inserted += result.inserted
+    warnings.push(...result.warnings)
+    failed.push(...result.failed)
   }
 
-  return { inserted: rows.length, warnings }
+  return { inserted, warnings, failed }
 }

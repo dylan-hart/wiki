@@ -1,8 +1,4 @@
-import {
-  reconcileNaturalKeyMatch,
-  resolveExisting,
-  SOURCE_SYSTEM_WIKIJS_2_5X
-} from '../provenance.ts'
+import { resolveExisting, SOURCE_SYSTEM_WIKIJS_2_5X } from '../provenance.ts'
 import { classifyUserAuthProvider } from '../unmappable.ts'
 import { definePhase } from './define-phase.ts'
 import type { SourceRecord } from '../connector.ts'
@@ -14,13 +10,18 @@ import type { WriteRecorder } from '../recorder.ts'
  * `../unmappable.ts`); otherwise, Feature 421 task 746's provenance/idempotency check decides between
  * "already imported" (`skipExisting`) and a genuine "would create" — first the exact
  * `migrationRecords` lookup, falling back to a natural-key match on `email` for the interrupted-run
- * edge case `../provenance.ts` documents. `reconcileNaturalKeyMatch` backfills the provenance row for
- * that fallback case so a later run hits the fast exact-key path.
+ * edge case `../provenance.ts` documents.
  *
  * This is deliberately the read-only half of the mechanism (`resolveExisting`, not the full
  * `lookupOrInsert`): there is no real user-creation write to give it yet (Feature 414 owns that), so
  * `--update-existing` has nothing to act on here either — it only takes effect once a phase has a real
  * `create`/`update` to route through `lookupOrInsert`.
+ *
+ * A natural-key hit is *not* reconciled into `migrationRecords` here (OpenProject #1766): with no real
+ * user-creation write behind this read-only pass, persisting a mapping would freeze an email coincidence
+ * as an exact key with nothing actually imported to back it. `reconcileNaturalKeyMatch` already runs on
+ * every natural-key hit inside `lookupOrInsert` (`../provenance.ts:247-251`) once Feature 414's real
+ * write path exists; that is the only place a mapping should be persisted from.
  */
 async function classifyUser(
   record: unknown,
@@ -48,9 +49,6 @@ async function classifyUser(
     email ? () => ctx.provenanceStore.findExistingUserByEmail(email) : undefined
   )
   if (existing) {
-    if (existing.viaNaturalKey && !ctx.dryRun) {
-      await reconcileNaturalKeyMatch(ctx.provenanceStore, key, 'users', existing.destId)
-    }
     recorder.skipExisting(identifier)
     return
   }

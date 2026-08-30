@@ -115,31 +115,34 @@ describe('migration phases', () => {
     assert.equal(result.phase, 'settings')
   })
 
-  test('usersPhase counts records from a working connector', async () => {
+  test('usersPhase counts records from a working connector, but reports not_implemented — no phase has a write path yet', async () => {
     const result = await usersPhase.run(contextWith(workingConnector({ users: 3, groups: 2 })))
-    assert.equal(result.status, 'ok')
+    assert.equal(result.status, 'not_implemented')
     assert.deepEqual(result.counts, { users: 3, groups: 2 })
+    assert.deepEqual(result.notImplemented, ['users', 'groups'])
   })
 
-  test('usersPhase is partially not_implemented when only one entity generator works', async () => {
+  test('usersPhase is not_implemented when only one entity generator works, listing both entities (the other via its own stub, this one via the no-write-path reclassification)', async () => {
     const result = await usersPhase.run(contextWith(workingConnector({ users: 5 })))
     assert.equal(result.status, 'not_implemented')
     assert.deepEqual(result.counts, { users: 5 })
-    assert.deepEqual(result.notImplemented, ['groups'])
+    assert.deepEqual(result.notImplemented, ['groups', 'users'])
   })
 
-  test('contentPhase counts pages, pageHistory and tags', async () => {
+  test('contentPhase counts pages, pageHistory and tags, but reports not_implemented — no phase has a write path yet', async () => {
     const result = await contentPhase.run(
       contextWith(workingConnector({ pages: 4, pageHistory: 7, tags: 1 }))
     )
-    assert.equal(result.status, 'ok')
+    assert.equal(result.status, 'not_implemented')
     assert.deepEqual(result.counts, { pages: 4, pageHistory: 7, tags: 1 })
+    assert.deepEqual(result.notImplemented, ['pages', 'pageHistory', 'tags'])
   })
 
-  test('assetsPhase counts assets', async () => {
+  test('assetsPhase counts assets, but reports not_implemented — no phase has a write path yet', async () => {
     const result = await assetsPhase.run(contextWith(workingConnector({ assets: 9 })))
-    assert.equal(result.status, 'ok')
+    assert.equal(result.status, 'not_implemented')
     assert.deepEqual(result.counts, { assets: 9 })
+    assert.deepEqual(result.notImplemented, ['assets'])
   })
 
   test('a real (non-stub) error surfaces as status "error" rather than not_implemented', async () => {
@@ -170,11 +173,11 @@ describe('migration phases', () => {
   test('usersPhase classifies an unsupported auth provider as unmappable, not wouldCreate', async () => {
     async function* users(): AsyncGenerator<SourceRecord> {
       yield { id: 1, email: 'alice@example.com', providerKey: 'local' }
-      yield { id: 2, email: 'bob@example.com', providerKey: 'ldap' }
+      yield { id: 2, email: 'bob@example.com', providerKey: 'azure' }
     }
     const connector = { ...stubConnector(), users, groups: () => recordsOf(0) }
     const result = await usersPhase.run(contextWith(connector))
-    assert.equal(result.status, 'ok')
+    assert.equal(result.status, 'not_implemented')
     assert.ok(result.report)
     assert.equal(result.report!.found, 2)
     assert.equal(result.report!.wouldCreate, 1)
@@ -183,12 +186,12 @@ describe('migration phases', () => {
         identifier: 'bob@example.com',
         reason: 'unsupported-auth-provider',
         detail:
-          'providerKey "ldap" has no matching 3.0 authentication module (3.0 ships local/google/github/oidc only).'
+          'providerKey "azure" has no matching 3.0 authentication module (confirmed no-destination — see docs/migration/2.5x-settings-auth-storage-field-mapping.md\'s Part 2 provider inventory).'
       }
     ])
   })
 
-  test('assetsPhase always reports comments as unmappable (no destination table)', async () => {
+  test('assetsPhase always reports comments as unmappable (no connector read path)', async () => {
     const result = await assetsPhase.run(contextWith(stubConnector()))
     assert.ok(result.report)
     assert.deepEqual(result.report!.unmappable, [
@@ -196,7 +199,7 @@ describe('migration phases', () => {
         identifier: 'comments',
         reason: 'no-destination-table',
         detail:
-          'Wiki.js 3.0 has no comments table, model, or API route yet (blocked on Epic 335) — comments are not imported.'
+          'Wiki.js 3.0 has its own comments table, model, and API route, but this migration does not import 2.5.x comments because the SourceConnector interface has no comments() generator to read them through yet.'
       }
     ])
   })
@@ -249,12 +252,12 @@ describe('migration phases', () => {
       })
       const connector = { ...stubConnector(), users, groups: () => recordsOf(0) }
       const result = await usersPhase.run(contextWith(connector, store))
-      assert.equal(result.status, 'ok')
+      assert.equal(result.status, 'not_implemented')
       assert.equal(result.report!.wouldCreate, 0)
       assert.equal(result.report!.wouldSkipExisting, 1)
     })
 
-    test('usersPhase reconciles the interrupted-run edge case via the email natural-key fallback, and backfills the provenance record', async () => {
+    test('usersPhase matches the interrupted-run edge case via the email natural-key fallback, but persists nothing (OpenProject #1766)', async () => {
       async function* users(): AsyncGenerator<SourceRecord> {
         yield { id: 1, email: 'alice@example.com', providerKey: 'local' }
       }
@@ -265,10 +268,10 @@ describe('migration phases', () => {
       const result = await usersPhase.run(contextWith(connector, store))
       assert.equal(result.report!.wouldCreate, 0)
       assert.equal(result.report!.wouldSkipExisting, 1)
-      // The fallback match is backfilled into the provenance store so a later run hits the fast path.
-      assert.equal(store.records.length, 1)
-      assert.equal(store.records[0].destId, 'dest-alice-prior-run')
-      assert.equal(store.records[0].sourceId, '1')
+      // This is a read-only classification pass with no real user-creation write behind it — the
+      // natural-key match is not backfilled into migrationRecords. Only lookupOrInsert's write path
+      // (Feature 414) is allowed to persist a mapping.
+      assert.equal(store.records.length, 0)
     })
 
     test('usersPhase still reports a genuinely new user as wouldCreate', async () => {
@@ -281,7 +284,7 @@ describe('migration phases', () => {
       assert.equal(result.report!.wouldSkipExisting, 0)
     })
 
-    test('a dry run does not backfill the provenance record for a natural-key match', async () => {
+    test('dry run vs. live run persist nothing either way for a natural-key match', async () => {
       async function* users(): AsyncGenerator<SourceRecord> {
         yield { id: 1, email: 'alice@example.com', providerKey: 'local' }
       }
@@ -295,7 +298,7 @@ describe('migration phases', () => {
       assert.equal(store.records.length, 0)
     })
 
-    test('contentPhase skips a page already mapped by the exact (siteId, locale, path) natural key', async () => {
+    test('contentPhase matches a page via the exact (siteId, locale, path) natural key, but persists nothing (OpenProject #1766)', async () => {
       async function* pages(): AsyncGenerator<SourceRecord> {
         yield { id: 10, path: 'en/getting-started', localeCode: 'en' }
       }
@@ -309,8 +312,9 @@ describe('migration phases', () => {
       const result = await contentPhase.run(contextWith(connector, store))
       assert.equal(result.report!.wouldCreate, 0)
       assert.equal(result.report!.wouldSkipExisting, 1)
-      assert.equal(store.records.length, 1)
-      assert.equal(store.records[0].sourceTable, 'pages')
+      // Read-only classification pass, no real page-creation write behind it — the natural-key match
+      // is not backfilled into migrationRecords.
+      assert.equal(store.records.length, 0)
     })
 
     test('assetsPhase skips an asset file already mapped by an exact provenance record', async () => {
