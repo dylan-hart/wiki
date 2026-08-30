@@ -203,8 +203,8 @@ function buildMeta(state: ComparableVersionState): Record<string, unknown> {
  * Diffs two consecutive versions over the same field set `changedFields()` in
  * `backend/models/pageHistory.ts` compares, restricted to what `ComparableVersionState` actually
  * tracks. `NOT_REPORTED_AS_CHANGED` excludes bookkeeping (`render`/`toc`/`searchContent`/`ts`/`hash`/
- * `authorId`/`updatedAt`/rating/`historyData`/`isSearchableComputed`) — none of which is a field this
- * module diffs to begin with, so every key here is compared; nothing needs excluding a second time.
+ * `authorId`/`updatedAt`/rating/`historyData`) — none of which is a field this module diffs to begin
+ * with, so every key here is compared; nothing needs excluding a second time.
  */
 function diffComparableStates(
   previous: ComparableVersionState,
