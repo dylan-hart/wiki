@@ -12,10 +12,8 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -qy --no-in
     openssh-client \
     pandoc \
     && rm -rf /var/lib/apt/lists/*
-RUN mkdir -p /wiki && \
-    mkdir -p /logs && \
-    mkdir -p /wiki/data/content && \
-    chown -R node:node /wiki /logs
+RUN mkdir -p /wiki/data && \
+    chown -R node:node /wiki
 
 WORKDIR /wiki
 
@@ -53,9 +51,14 @@ RUN PUPPETEER_VERSION="$(sed -n 's/^installVersion: *//p' modules/extensions/pup
 
 WORKDIR /wiki
 
-VOLUME ["/wiki/data/content"]
+VOLUME ["/wiki/data"]
 
 EXPOSE 3000
-EXPOSE 3443
+
+# --start-period is generous because postBoot() (locale/strategy/site refresh, scheduler start) runs
+# after the HTTP server is already listening, so /_ready can otherwise be probed before the instance
+# is actually usable.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:3000/_ready || exit 1
 
 CMD ["node", "backend"]
