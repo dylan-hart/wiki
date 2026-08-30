@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { createI18n } from 'vue-i18n'
+import { isReactive } from 'vue'
 
 import Graph from './Graph.vue'
 import { useSiteStore } from '@/stores/site'
@@ -347,6 +348,64 @@ describe('Graph.vue (OpenProject #891)', () => {
     // -> At max zoom, the drawn font is scaled down so `fontPx * k` stops growing past the cap.
     expect(Number(atMaxZoomPx)).toBeLessThan(10)
     expect(Number(atMaxZoomPx) * 8).toBeLessThanOrEqual(24)
+  })
+
+  it('keeps node/edge arrays and node objects out of deep reactivity (OpenProject #1837)', async () => {
+    const wrapper = await mountGraph()
+
+    // -> The arrays handed to `forceSimulation`/`forceLink` are `shallowRef`s, and every node/edge
+    //    inside them is `markRaw()`'d as it's built -- neither the arrays nor their contents should
+    //    ever become a Vue reactive proxy, since d3-force writes `x`/`y`/`vx`/`vy` on every node on
+    //    every tick and nothing renders off these values reactively (canvas-only).
+    expect(isReactive(wrapper.vm.nodes)).toBe(false)
+    expect(isReactive(wrapper.vm.edges)).toBe(false)
+    expect(isReactive(wrapper.vm.allNodes)).toBe(false)
+    expect(isReactive(wrapper.vm.allEdges)).toBe(false)
+    expect(wrapper.vm.nodes.length).toBeGreaterThan(0)
+    for (const node of wrapper.vm.nodes) {
+      expect(isReactive(node)).toBe(false)
+    }
+    for (const edge of wrapper.vm.edges) {
+      expect(isReactive(edge)).toBe(false)
+    }
+  })
+
+  it('relayout() rebuilds the quadtree and recomputes clusters; repaint() does neither (OpenProject #1837)', async () => {
+    const wrapper = await mountGraph()
+
+    const quadtreeBeforeRepaint = wrapper.vm.nodeQuadtree
+    const clustersBeforeRepaint = wrapper.vm.clusters
+    wrapper.vm.repaint()
+    // -> A pure repaint must not touch layout-derived state -- same references, not just equal
+    //    content, since `relayout()` always produces a brand new quadtree/clusters array.
+    expect(wrapper.vm.nodeQuadtree).toBe(quadtreeBeforeRepaint)
+    expect(wrapper.vm.clusters).toBe(clustersBeforeRepaint)
+
+    wrapper.vm.relayout()
+    expect(wrapper.vm.nodeQuadtree).not.toBe(quadtreeBeforeRepaint)
+    expect(wrapper.vm.clusters).not.toBe(clustersBeforeRepaint)
+  })
+
+  it('the zoom handler only repaints; the simulation tick handler relayouts then repaints (OpenProject #1837)', async () => {
+    const wrapper = await mountGraph()
+
+    // -> Exercises the zoom-only path the way `attachZoom()`'s `.on('zoom', ...)` callback does
+    //    (set the transform, repaint) rather than driving a real DOM zoom gesture through jsdom.
+    const quadtreeBeforeZoom = wrapper.vm.nodeQuadtree
+    const clustersBeforeZoom = wrapper.vm.clusters
+    wrapper.vm.zoomTransform = { k: 2, x: 5, y: 5 }
+    wrapper.vm.repaint()
+    expect(wrapper.vm.nodeQuadtree).toBe(quadtreeBeforeZoom)
+    expect(wrapper.vm.clusters).toBe(clustersBeforeZoom)
+
+    // -> The actual registered 'tick' listener, retrieved off the live simulation the same
+    //    get-form way -- confirms `startSimulation()` really wired both steps together, not just
+    //    that `relayout`/`repaint` behave correctly called by hand.
+    const tickListener = wrapper.vm.simulation.on('tick')
+    expect(typeof tickListener).toBe('function')
+    tickListener()
+    expect(wrapper.vm.nodeQuadtree).not.toBe(quadtreeBeforeZoom)
+    expect(wrapper.vm.clusters).not.toBe(clustersBeforeZoom)
   })
 
   it('recovers from a fetch failure without throwing', async () => {
