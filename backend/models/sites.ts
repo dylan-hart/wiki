@@ -132,7 +132,6 @@ class Sites {
             features: {
               browse: true,
               collaborativeEditing: true,
-              ratings: false,
               ratingsMode: 'off',
               comments: false,
               profile: true,
@@ -430,7 +429,6 @@ class Sites {
         features: {
           browse: true,
           collaborativeEditing: true,
-          ratings: false,
           ratingsMode: 'off',
           comments: false,
           profile: true,
