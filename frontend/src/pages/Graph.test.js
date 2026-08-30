@@ -349,6 +349,74 @@ describe('Graph.vue (OpenProject #891)', () => {
     expect(Number(atMaxZoomPx) * 8).toBeLessThanOrEqual(24)
   })
 
+  it("sizes the fallback circle off the largest member node's edge, not just its centre (OpenProject #2296)", async () => {
+    const wrapper = await mountGraph()
+
+    // -> Distinct `folder` values put A and B in separate groups, each a single-node fallback-
+    //    circle case (`maxDist` from centroid is 0) -- including a group of exactly one node at
+    //    maximum radius, per the Done-when.
+    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
+    nodeA.folder = 'group-a'
+    nodeB.folder = 'group-b'
+    nodeA.x = 100
+    nodeA.y = 100
+    nodeB.x = 300
+    nodeB.y = 300
+    nodeA.contributors = {
+      editor: 1000,
+      mcp: 0,
+      all: 1000,
+      total: { editor: 1000, mcp: 0, all: 1000 }
+    }
+
+    wrapper.vm.computeClusters()
+
+    expect(wrapper.vm.radiusFor(nodeA)).toBe(22) // -> pinned at MAX_CONTRIBUTOR_RADIUS
+    const clusterA = wrapper.vm.clusters.find((c) => c.key === 'group-a')
+    expect(clusterA.circle).toBeDefined()
+    expect(clusterA.circle.r).toBeGreaterThan(wrapper.vm.radiusFor(nodeA))
+  })
+
+  it("grows hull padding by each vertex's own node radius, not a flat constant (OpenProject #2296)", async () => {
+    const wrapper = await mountGraph()
+
+    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
+    // -> A third node so this group has >=3 members and takes the `polygonHull` path rather than
+    //    falling back to the circle case covered above.
+    const nodeC = { ...nodeB, path: 'c' }
+    wrapper.vm.nodes.push(nodeC)
+
+    for (const node of [nodeA, nodeB, nodeC]) {
+      node.folder = 'group-c'
+    }
+    nodeA.x = 0
+    nodeA.y = 200
+    nodeB.x = 100
+    nodeB.y = 0
+    nodeC.x = 200
+    nodeC.y = 0
+    nodeA.contributors = {
+      editor: 1000,
+      mcp: 0,
+      all: 1000,
+      total: { editor: 1000, mcp: 0, all: 1000 }
+    }
+
+    wrapper.vm.computeClusters()
+
+    const clusterC = wrapper.vm.clusters.find((c) => c.key === 'group-c')
+    expect(clusterC.hullPoints).toBeDefined()
+    const cx = (nodeA.x + nodeB.x + nodeC.x) / 3
+    const cy = (nodeA.y + nodeB.y + nodeC.y) / 3
+    const distToNodeA = Math.hypot(nodeA.x - cx, nodeA.y - cy)
+    const maxHullDist = Math.max(...clusterC.hullPoints.map(([x, y]) => Math.hypot(x - cx, y - cy)))
+    // -> A flat 16px padding would fall short here since nodeA's radius (22) exceeds it -- this
+    //    only passes once the hull vertex at A is pushed out by A's own radius too.
+    expect(maxHullDist).toBeGreaterThan(distToNodeA + wrapper.vm.radiusFor(nodeA))
+  })
+
   it('recovers from a fetch failure without throwing', async () => {
     setActivePinia(createPinia())
     const siteStore = useSiteStore()
