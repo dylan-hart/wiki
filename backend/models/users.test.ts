@@ -9,7 +9,6 @@ import {
   authentication as authenticationTable,
   groups as groupsTable,
   pages as pagesTable,
-  userGroups,
   userGroups as userGroupsTable,
   userKeys,
   users as usersTable
@@ -1145,13 +1144,17 @@ describe('users.loginTFA', () => {
 describe('users recovery codes (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let usersModel: typeof import('./users.ts').users
+  let previousTemporal: any
 
   before(async () => {
     fixtures = await setupTestDb()
     ;({ users: usersModel } = await import('./users.ts'))
+    previousTemporal = (globalThis as any).Temporal
+    installFakeTemporal()
   })
 
   after(async () => {
+    uninstallFakeTemporal(previousTemporal)
     await teardownTestDb()
   })
 
@@ -1674,67 +1677,65 @@ describe('users.reassignContent (DB-backed)', { skip: !hasTestDatabase() }, () =
 })
 
 /**
- * `createUser()` wraps the user insert and its `setUserGroups()` call in one `WIKI.db.transaction()`
- * (work package 1607) so the two either both land or both roll back — before this, a group-assignment
- * failure left an orphaned user row committed, and a retry hit `userCreateDuplicateEmail` instead of
- * anything informative.
+ * `createUser()` atomicity (OpenProject #1607 / #1584): the insert and its group assignment now
+ * share one `WIKI.db.transaction()`, so a failure in `setUserGroups` after the insert must leave no
+ * orphaned user row behind, and the ordinary path must still land both.
  */
 describe('users.createUser atomicity (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
-  const localAuthId = 'create-user-atomic-local-auth-id'
 
   before(async () => {
     fixtures = await setupTestDb()
-    WIKI.data.systemIds = {
-      localAuthId,
-      // -> Any id that is not a real group's — `setUserGroups()`/`guestMembershipViolation()` only
-      //    need this to exist and not collide with `fixtures.groupId`.
-      guestsGroupId: '00000000-0000-0000-0000-000000000000'
-    } as any
+    // -> Matches `users.forgotPassword / resetPassword`'s own `createLocalUser` helper above: nothing
+    //    under test here logs in, so this needs no matching `authentication` row, just a key for
+    //    `createUser()` to store the password hash under.
+    WIKI.data.systemIds = { localAuthId: 'atomic-create-test-strategy' } as any
   })
 
   after(async () => {
     await teardownTestDb()
   })
 
-  test('rolls back the user insert when group assignment fails, leaving no orphaned row', async (t) => {
-    const email = 'atomic-rollback@example.com'
+  test('rolls back the user insert when group assignment fails', async (t) => {
     t.mock.method(users, 'setUserGroups', async () => {
       throw new Error('simulated group-assignment failure')
     })
 
     await assert.rejects(
       users.createUser({
-        name: 'Atomic Rollback',
-        email,
-        password: 'somepassword1',
-        groups: [fixtures.groupId]
+        name: 'Rollback Test',
+        email: 'rollback-atomic@example.com',
+        password: 'a-long-password',
+        groups: [fixtures.groupId],
+        isVerified: true
       }),
       /simulated group-assignment failure/
     )
 
-    const rows = await fixtures.db.select().from(usersTable).where(eq(usersTable.email, email))
-    assert.deepEqual(rows, [])
+    const rows = await fixtures.db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.email, 'rollback-atomic@example.com'))
+    assert.equal(rows.length, 0)
   })
 
-  test('lands both the user row and its group memberships on the ordinary path', async () => {
-    const email = 'atomic-ok@example.com'
-
+  test('the ordinary create path lands both the user row and its group memberships', async () => {
     const userId = await users.createUser({
-      name: 'Atomic Ok',
-      email,
-      password: 'somepassword1',
-      groups: [fixtures.groupId]
+      name: 'Ordinary Create',
+      email: 'ordinary-atomic@example.com',
+      password: 'a-long-password',
+      groups: [fixtures.groupId],
+      isVerified: true
     })
 
     const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, userId))
     assert.ok(row)
-    assert.equal(row!.email, email)
+    assert.equal(row!.email, 'ordinary-atomic@example.com')
 
     const memberships = await fixtures.db
       .select()
-      .from(userGroups)
-      .where(eq(userGroups.userId, userId))
+      .from(userGroupsTable)
+      .where(eq(userGroupsTable.userId, userId))
     assert.equal(memberships.length, 1)
     assert.equal(memberships[0]!.groupId, fixtures.groupId)
   })
@@ -1814,5 +1815,77 @@ describe('users.setUserGroups (DB-backed)', { skip: !hasTestDatabase() }, () => 
       [fixtures.groupId],
       'the prior membership survived the failed insert instead of being left empty'
     )
+  })
+})
+
+/**
+ * `applyUserUpdate()` atomicity (OpenProject #1609 / #1584): the profile patch, group replacement,
+ * auth-flag write and session clear now share one `WIKI.db.transaction()` -- this is what
+ * `PUT /users/:userId` calls in place of its previously separate, non-transactional sequence. A
+ * failure partway through must leave every earlier write in the same call rolled back too.
+ */
+describe('users.applyUserUpdate atomicity (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let targetUserId: string
+  const localStrategyId = 'atomic-update-test-strategy'
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    WIKI.data.systemIds = { localAuthId: localStrategyId } as any
+
+    targetUserId = await users.createUser({
+      name: 'Apply Update Target',
+      email: 'apply-update-target@example.com',
+      password: 'original-password1',
+      groups: [fixtures.groupId],
+      isVerified: true
+    })
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('a failure at the auth-flags step leaves the profile patch and group membership unchanged', async (t) => {
+    t.mock.method(users, 'setUserAuthFlags', async () => {
+      throw new Error('simulated auth-flag failure')
+    })
+
+    await assert.rejects(
+      users.applyUserUpdate(targetUserId, {
+        patch: { name: 'Renamed Mid-Transaction' },
+        groups: [],
+        authFlags: { mustChangePwd: true }
+      }),
+      /simulated auth-flag failure/
+    )
+
+    const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, targetUserId))
+    assert.equal(row!.name, 'Apply Update Target')
+
+    const memberships = await fixtures.db
+      .select()
+      .from(userGroupsTable)
+      .where(eq(userGroupsTable.userId, targetUserId))
+    assert.equal(memberships.length, 1)
+    assert.equal(memberships[0]!.groupId, fixtures.groupId)
+  })
+
+  test('the ordinary update path applies the profile patch, group change, and auth flags together', async () => {
+    await users.applyUserUpdate(targetUserId, {
+      patch: { name: 'Renamed For Real' },
+      groups: [],
+      authFlags: { mustChangePwd: true }
+    })
+
+    const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, targetUserId))
+    assert.equal(row!.name, 'Renamed For Real')
+    assert.equal((row!.auth as Record<string, any>)[localStrategyId].mustChangePwd, true)
+
+    const memberships = await fixtures.db
+      .select()
+      .from(userGroupsTable)
+      .where(eq(userGroupsTable.userId, targetUserId))
+    assert.equal(memberships.length, 0)
   })
 })

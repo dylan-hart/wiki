@@ -3,14 +3,14 @@
     class="w-date inline-block rounded p-3"
     :class="bordered ? 'border border-black/12 dark:border-white/15' : ''"
     role="group"
-    :aria-label="ariaLabel">
+    :aria-label="resolvedAriaLabel">
     <div class="mb-2 flex items-center justify-between gap-2">
       <w-btn
         flat
         dense
         round
         icon="mdi:chevron-left"
-        :aria-label="'Previous month'"
+        :aria-label="resolvedPreviousMonthLabel"
         @click="shiftMonth(-1)" />
       <div class="text-body2 font-medium">{{ monthLabel }}</div>
       <w-btn
@@ -18,7 +18,7 @@
         dense
         round
         icon="mdi:chevron-right"
-        :aria-label="'Next month'"
+        :aria-label="resolvedNextMonthLabel"
         @click="shiftMonth(1)" />
     </div>
 
@@ -53,6 +53,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import WBtn from './WBtn.vue'
+import { useDictText } from '@/composables/i18nText'
 
 /**
  * Calendar for picking a single date, or a date range with `range`.
@@ -83,13 +84,35 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  /** Falls back to the `common.date.chooseDate` dictionary entry when not given. */
   ariaLabel: {
     type: String,
-    default: 'Choose a date'
+    default: null
+  },
+  /** Accessible name for the previous-month control. Falls back to `common.date.previousMonth`. */
+  previousMonthLabel: {
+    type: String,
+    default: null
+  },
+  /** Accessible name for the next-month control. Falls back to `common.date.nextMonth`. */
+  nextMonthLabel: {
+    type: String,
+    default: null
   }
 })
 
 const emit = defineEmits(['update:modelValue'])
+
+const dictText = useDictText()
+const resolvedAriaLabel = computed(
+  () => props.ariaLabel ?? dictText('common.date.chooseDate', 'Choose a date')
+)
+const resolvedPreviousMonthLabel = computed(
+  () => props.previousMonthLabel ?? dictText('common.date.previousMonth', 'Previous month')
+)
+const resolvedNextMonthLabel = computed(
+  () => props.nextMonthLabel ?? dictText('common.date.nextMonth', 'Next month')
+)
 
 const WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
 

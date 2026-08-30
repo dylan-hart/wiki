@@ -92,7 +92,7 @@
                       color="positive"
                       padding="xs sm"
                       v-if="ext.isInstalled">
-                      <w-tooltip anchor="center left" self="center right">{{
+                      <w-tooltip labels anchor="center left" self="center right">{{
                         t('admin.extensions.installed')
                       }}</w-tooltip>
                     </w-btn>

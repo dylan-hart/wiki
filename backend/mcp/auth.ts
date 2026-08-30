@@ -124,7 +124,11 @@ export function actorFor(ctx: McpAuthContext): AccessActor {
     groupIds: ctx.groupIds,
     permissions: ctx.permissions,
     scope: ctx.scope,
-    allowedClassifications: ctx.allowedClassifications
+    allowedClassifications: ctx.allowedClassifications,
+    // -> Belt and braces alongside `assertSiteInScope()` (OpenProject #2189/#2199): the tool
+    //    routing layer already refuses a call against a site the key isn't pinned to, but carrying
+    //    the pin onto the actor closes `checkAccess()`/`checkSiteAccess()` themselves too.
+    siteId: ctx.siteId
   }
 }
 
@@ -150,18 +154,25 @@ export function pageActorFor(ctx: McpAuthContext): PageActor | null {
     groupIds: ctx.groupIds,
     scope: ctx.scope,
     allowedClassifications: ctx.allowedClassifications,
+    siteId: ctx.siteId,
     via: 'mcp'
   }
 }
 
 /**
- * Whether this actor holds `write:pages`/`manage:pages` ANYWHERE — the same question
+ * Whether this actor holds `write:pages`/`manage:pages` ANYWHERE ON THIS SITE — the same question
  * `api/pages.ts`'s search route asks before deciding whether unpublished pages and password-protected
  * excerpts belong in a result set. See `PAGE_PASSWORD_BYPASS_ROLES`'s doc comment there for why DENY
- * is ignored and why this is deliberately coarser than a per-page check.
+ * is ignored and why this is deliberately coarser than a per-page check. `siteId` (OpenProject #2162)
+ * keeps this site-aware: a delegation scoped to one site must not read as "sees everything" when
+ * searching another.
  */
-export function maySeeEverything(actor: AccessActor): boolean {
-  return WIKI.models.groups.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages'])
+export function maySeeEverything(actor: AccessActor, siteId: string): boolean {
+  return WIKI.models.groups.mayHoldPermissionSomewhere(
+    actor,
+    ['write:pages', 'manage:pages'],
+    siteId
+  )
 }
 
 /**

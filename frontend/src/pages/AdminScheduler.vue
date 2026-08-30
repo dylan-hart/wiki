@@ -226,7 +226,7 @@
                   icon="la:window-close"
                   color="negative"
                   @click="cancelJob(props.row.id)">
-                  <w-tooltip anchor="center left" self="center right">{{
+                  <w-tooltip labels anchor="center left" self="center right">{{
                     t('admin.scheduler.cancelJob')
                   }}</w-tooltip>
                 </w-btn>

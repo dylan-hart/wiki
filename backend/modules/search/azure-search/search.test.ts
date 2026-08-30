@@ -557,7 +557,13 @@ describe('azure-search module: query()', () => {
     }
   }
 
-  test('translates offset/limit into skip/top for a plain query', async () => {
+  /**
+   * OpenProject #2156: `offset`/`limit` are no longer sent straight through as Azure's own `skip`/
+   * `top` -- page-rule filtering happens after the query, so the module now always scans a bounded
+   * window from the start (`skip: 0`) and applies the caller's own pagination in JS, over the
+   * filtered set. See `query()`'s own comment for the full reasoning.
+   */
+  test('always scans from the start with a bounded top, regardless of the caller’s own offset/limit', async () => {
     const client = fakeQueryClient([{ count: 1, rows: [row()] }])
     const azureSearch = new AzureSearchModule(undefined, () => client)
 
@@ -570,8 +576,37 @@ describe('azure-search module: query()', () => {
     })
 
     assert.equal(client.searches.length, 1)
-    assert.equal(client.searches[0]!.options.skip, 10)
-    assert.equal(client.searches[0]!.options.top, 5)
+    assert.equal(client.searches[0]!.options.skip, 0)
+    assert.ok(
+      client.searches[0]!.options.top > 5,
+      'expected a bounded scan window larger than the requested page size'
+    )
+  })
+
+  test('applies the caller’s offset/limit in JS, over the filtered (visible) set', async () => {
+    const client = fakeQueryClient([
+      {
+        count: 3,
+        rows: [
+          row({ id: 'a', path: 'a' }, 3),
+          row({ id: 'b', path: 'b' }, 2),
+          row({ id: 'c', path: 'c' }, 1)
+        ]
+      }
+    ])
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+
+    const result = await azureSearch.query({
+      siteId: 'site-1',
+      query: 'kangaroo',
+      offset: 1,
+      limit: 1,
+      hideProtectedContent: false
+    })
+
+    assert.equal(result.results.length, 1)
+    assert.equal(result.results[0]!.id, 'b')
+    assert.equal(result.totalHits, 3)
   })
 
   test('returns the exact SearchPagesResult shape', async () => {
@@ -705,6 +740,40 @@ describe('azure-search module: query()', () => {
     assert.equal(protectedResult.title, 'Vault Secrets')
     // -> Found by title, but never carries an excerpt of the body behind the password
     assert.equal(protectedResult.highlight, null)
+  })
+
+  /**
+   * OpenProject #2151/#2156: `runProtectedSplitQuery`'s merged rows used to be sliced to the
+   * caller's page BEFORE `checkAccess()` ran, so a denied match elsewhere in the merge could still
+   * count toward -- and even occupy a slot in -- the page returned at `limit=1`, the audit's own
+   * repro shape. `totalHits` must never exceed the number of matches the actor can actually read.
+   */
+  test('the split-query path never counts or returns a denied match, even at limit=1', async () => {
+    const openRow = row({ id: 'open', path: 'docs/open', hasPassword: false }, 2)
+    const secretRow = row({ id: 'secret', path: 'docs/secret', hasPassword: false }, 1)
+    const client = fakeQueryClient([
+      { count: 2, rows: [openRow, secretRow] },
+      { count: 0, rows: [] }
+    ])
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+    const actor = { groupIds: [], permissions: [] }
+    ;(WIKI.models.groups.checkAccess as any) = (_actor: any, _perm: any, p: any) =>
+      p.path !== 'docs/secret'
+
+    try {
+      const result = await azureSearch.query({
+        siteId: 'site-1',
+        query: 'kangaroo',
+        actor,
+        limit: 1,
+        hideProtectedContent: true
+      })
+      assert.equal(result.totalHits, 1)
+      assert.equal(result.results.length, 1)
+      assert.equal(result.results[0]!.id, 'open')
+    } finally {
+      WIKI.models.groups.checkAccess = () => true
+    }
   })
 
   test('hideProtectedContent is skipped without a query, since there is no body text to leak', async () => {

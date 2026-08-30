@@ -234,6 +234,8 @@ export interface PageActor {
   /** Threaded through to `checkAccess()`'s `AccessActor` (OpenProject #930/#1205) — see that type. */
   scope?: string[] | null
   allowedClassifications?: string[] | null
+  /** Threaded through to `checkAccess()`'s `AccessActor.siteId` (OpenProject #2189) — see that type. */
+  siteId?: string | null
   /**
    * What actually made the save: the standard editor (undefined, the default) or an MCP tool call
    * (`mcp/auth.ts`'s `pageActorFor()` sets this to `'mcp'`). Threaded straight through to
@@ -1924,7 +1926,7 @@ class Pages {
     changedFields: string[] = []
   ): Promise<void> {
     try {
-      const watchers = await WIKI.models.pageWatching.listWatchers(pageId, actorId, action)
+      const watchers = await WIKI.models.pageWatching.listWatchers(siteId, pageId, actorId, action)
       if (watchers.length < 1) {
         return
       }

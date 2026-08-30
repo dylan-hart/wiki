@@ -8,6 +8,7 @@ import {
 import { CustomError, decodeTreePath, localizedPagePath } from '../helpers/common.ts'
 import { MAX_DEPTH, compareFoldersFirst, pageIsVisible } from './tree.ts'
 import type { TreeItemType } from './tree.ts'
+import type { AccessActor } from './groups.ts'
 
 export const NAVIGATION_MODES = [
   'inherit',
@@ -152,18 +153,32 @@ class Navigation {
    * `Main Menu`/`Browse` toggle 2.5.x used, which is the source of real user confusion this feature
    * deliberately does not reproduce.
    *
-   * `unfiltered` only ever controls the visibility-group pass at the end — it never changes whether
-   * generation runs, so a `full=true` read of an `auto`/`mixed` menu is the generated preview an editor
-   * needs to show, not just whatever happens to be stored. Note for whoever builds `mixed` editing
-   * (task 464): that preview is not safe to read back verbatim and re-save through `setNavItems` — it
-   * contains generated items alongside the stored ones, and saving it as-is would freeze a snapshot of
-   * the generated items into the stored `items` column. The editor needs to keep the two apart itself
-   * (e.g. only ever writing back the subset it loaded as stored), not rely on this method to do it.
+   * `unfiltered` never changes whether generation runs, so a `full=true` read of an `auto`/`mixed`
+   * menu is the generated preview an editor needs to show, not just whatever happens to be stored.
+   * It DOES control two filtering passes now (OpenProject #2155, previously just the one): the
+   * visibility-group pass at the end, and (threaded into `generateFromTree`) the `read:pages` check
+   * every generated candidate is run through — both skipped under `unfiltered`, since the "full"
+   * preview an authorized editor asked for is meant to show the whole structure being edited,
+   * regardless of the caller's OWN page-level access, the same reasoning that already applied to
+   * visibility groups. Note for whoever builds `mixed` editing (task 464): that preview is not safe
+   * to read back verbatim and re-save through `setNavItems` — it contains generated items alongside
+   * the stored ones, and saving it as-is would freeze a snapshot of the generated items into the
+   * stored `items` column. The editor needs to keep the two apart itself (e.g. only ever writing
+   * back the subset it loaded as stored), not rely on this method to do it.
    *
    * @param siteId The site the menu is expected to belong to. Scopes the read the same way
    *               `setNavItems`/`copyNav`'s writes already do — a row belonging to another site
    *               answers as not-found rather than being handed back (OpenProject #941).
    * @param id Menu id — a tree entry id, or a site-wide menu's own row id (see `ensureSiteNav`)
+   * @param actor Who is reading (OpenProject #2155) — required, not optional: a `static` menu's
+   *              hand-authored items were never gated by page rules (they carry their own
+   *              `visibilityGroups`, checked below via `isVisibleTo`), but a generated (`auto`/
+   *              `mixed`) entry comes straight off the tree and has to be checked against
+   *              `read:pages` the same way `tree.browse()` would, or an anonymous visitor on a menu
+   *              switched to `auto`/`mixed` sees the title, path and icon of every published,
+   *              browsable page in the tree — including ones a path, tag or classification DENY
+   *              keeps them out of. An anonymous request is the guests actor, never an absence of
+   *              one — see CLAUDE.md's Permissions section.
    * @param userGroups Groups the viewer belongs to. Items limited to other groups are dropped, at both
    *                   levels, unless `unfiltered` is set.
    * @param unfiltered Return every item regardless of visibility, which is what editing one needs —
@@ -172,7 +187,11 @@ class Navigation {
   async getNav(
     siteId: string,
     id: string,
-    { userGroups = [], unfiltered = false }: { userGroups?: string[]; unfiltered?: boolean } = {}
+    {
+      actor,
+      userGroups = [],
+      unfiltered = false
+    }: { actor: AccessActor; userGroups?: string[]; unfiltered?: boolean }
   ): Promise<NavigationItem[]> {
     const rows = await WIKI.db
       .select({
@@ -194,7 +213,7 @@ class Navigation {
     } else {
       const { rootFolderPath, locale } = await this.resolveGeneratorRoot(row.siteId, id, row.locale)
       const generated = markGenerated(
-        await this.generateFromTree(row.siteId, rootFolderPath, locale)
+        await this.generateFromTree(row.siteId, actor, unfiltered, rootFolderPath, locale)
       )
       if (row.mode === 'auto') {
         combined = generated
@@ -232,13 +251,18 @@ class Navigation {
    * preselect the option that is actually stored rather than always defaulting to `static`. `static`
    * (the schema default) for a menu with no row yet, same fallback `getNav` uses.
    *
+   * @param siteId Required (OpenProject #2127), scoping the lookup the same way every neighbouring
+   *               method here (`getNav()`, `setNavItems()`, `copyNav()`) already does -- without it,
+   *               a `site:navigation` delegate on one site could learn whether an arbitrary
+   *               navigation row on ANOTHER site is `static`/`auto`/`mixed`, since the route's own
+   *               authorization is checked against the site in the URL while this read was not.
    * @param id Menu id -- a tree entry id, or a site id for the site-wide menu
    */
-  async getMode(id: string): Promise<NavigationSourceMode> {
+  async getMode(siteId: string, id: string): Promise<NavigationSourceMode> {
     const rows = await WIKI.db
       .select({ mode: navigationTable.mode })
       .from(navigationTable)
-      .where(eq(navigationTable.id, id))
+      .where(and(eq(navigationTable.id, id), eq(navigationTable.siteId, siteId)))
       .limit(1)
     return rows[0]?.mode ?? 'static'
   }
@@ -391,6 +415,21 @@ class Navigation {
    * (edited separately through the normal override/manual-items path), so the walk does not recurse
    * into it.
    *
+   * Every candidate is also checked against `read:pages` (OpenProject #2155) before it is added: a
+   * page with its own path/tags/classification, a folder (a boundary leaf, or a non-boundary one
+   * left empty once every one of ITS OWN candidates was filtered out in turn) with its own path,
+   * `classification: null` -- same treatment `mayOnFolder()` in `api/tree.ts` already gives a
+   * folder, since a folder is not a page and carries no classification of its own. This is on top
+   * of, not instead of, `holdsVisiblePages`: that rule drops a folder with no visible descendant AT
+   * ALL; this drops one whose remaining descendants, after this actor's own rules are applied,
+   * amount to nothing -- the two dead-end checks compose rather than one replacing the other.
+   *
+   * @param unfiltered Skip the `read:pages` check entirely, same meaning `getNav()`'s own
+   *                    `unfiltered` carries for `isVisibleTo` -- what an editor's "full" preview
+   *                    needs, gated on `manage:navigation`/`site:navigation` at the route, to see
+   *                    the whole structure it is editing regardless of the caller's OWN page-level
+   *                    access. Never reachable by an anonymous or unprivileged caller, which is what
+   *                    keeps this from reopening the leak the check exists to close.
    * @param rootFolderPath Encoded ltree path of the folder whose contents this builds a menu from —
    *                        empty at the site root, exactly what `tree.browse()` calls `encodedPath`.
    * @param depth How many folder levels below `rootFolderPath` this call already is. Callers always
@@ -398,6 +437,8 @@ class Navigation {
    */
   private async generateFromTree(
     siteId: string,
+    actor: AccessActor,
+    unfiltered: boolean,
     rootFolderPath: string,
     locale: string,
     depth = 0
@@ -436,7 +477,12 @@ class Navigation {
         title: treeTable.title,
         icon: pagesTable.icon,
         navigationMode: treeTable.navigationMode,
-        holdsVisiblePages: sql<boolean>`${holdsVisiblePages}`.mapWith(Boolean)
+        holdsVisiblePages: sql<boolean>`${holdsVisiblePages}`.mapWith(Boolean),
+        // -> Only a `page`-type row's id ever matches `pagesTable.id`; a folder row leaves these
+        //    null, which `checkAccess()` below reads exactly as "no classification"/"no tags" —
+        //    the same treatment `mayOnFolder()` gives a folder in `api/tree.ts`.
+        tags: pagesTable.tags,
+        classification: pagesTable.classification
       })
       .from(treeTable)
       .leftJoin(pagesTable, eq(pagesTable.id, treeTable.id))
@@ -469,8 +515,27 @@ class Navigation {
         )
       )
 
-    return Promise.all(
-      candidates.map(async (row): Promise<NavigationItem> => {
+    const items = await Promise.all(
+      candidates.map(async (row): Promise<NavigationItem | null> => {
+        const path = parentPath ? `${parentPath}/${row.fileName}` : row.fileName
+
+        // -> OpenProject #2155: checked for every candidate, page or folder, before it is added --
+        //    a folder is not a page and carries no classification/tags of its own, same treatment
+        //    `mayOnFolder()` gives it in `api/tree.ts`. Skipped under `unfiltered`, same as
+        //    `isVisibleTo` is skipped by `getNav()` itself -- see this method's own doc comment.
+        if (
+          !unfiltered &&
+          !WIKI.models.groups.checkAccess(actor, 'read:pages', {
+            path,
+            siteId,
+            locale,
+            tags: (row.tags ?? []) as string[],
+            classification: row.type === 'page' ? (row.classification ?? null) : null
+          })
+        ) {
+          return null
+        }
+
         // -> Only a folder has descendants to walk; a page is always a leaf here regardless of its own
         //    mode, since `override`/`overrideExact` only matters where there is a subtree to stop at
         const isBoundary =
@@ -479,8 +544,24 @@ class Navigation {
         const childFolderPath = rootFolderPath ? `${rootFolderPath}.${row.fileName}` : row.fileName
         const children =
           row.type === 'folder' && !isBoundary
-            ? await this.generateFromTree(siteId, childFolderPath, locale, depth + 1)
+            ? await this.generateFromTree(
+                siteId,
+                actor,
+                unfiltered,
+                childFolderPath,
+                locale,
+                depth + 1
+              )
             : []
+
+        // -> A non-boundary folder whose every candidate was itself filtered out (recursively) is
+        //    the same dead end `holdsVisiblePages` already drops for "no visible descendant at
+        //    all" -- this is that same rule, composed with THIS actor's own page rules rather than
+        //    only with `pageIsVisible`. Not reachable under `unfiltered`, since nothing above ever
+        //    filters a candidate out in that mode.
+        if (row.type === 'folder' && !isBoundary && children.length === 0 && !unfiltered) {
+          return null
+        }
 
         return {
           id: row.id,
@@ -491,16 +572,13 @@ class Navigation {
           //    (`localizedPagePath`), matching how `NavItemEditor.vue`'s manual page-picker builds a
           //    link target, so a generated item and a hand-picked one render identically on the frontend
           ...(row.type === 'page' && {
-            target: localizedPagePath(
-              parentPath ? `${parentPath}/${row.fileName}` : row.fileName,
-              locale,
-              locales
-            )
+            target: localizedPagePath(path, locale, locales)
           }),
           ...(children.length > 0 && { children })
         }
       })
     )
+    return items.filter((item): item is NavigationItem => item !== null)
   }
 
   /**

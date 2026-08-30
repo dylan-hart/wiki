@@ -3,8 +3,8 @@
     <w-header class="bg-black text-white">
       <div class="flex flex-nowrap">
         <w-toolbar style="height: 64px">
-          <w-btn dense flat to="/">
-            <w-avatar size="34px" square><img src="/_assets/logo-wikijs.svg" /></w-avatar>
+          <w-btn dense flat to="/" :aria-label="t(`common.header.home`)">
+            <w-avatar size="34px" square><img src="/_assets/logo-wikijs.svg" alt="" /></w-avatar>
           </w-btn>
           <w-toolbar-title class="text-h6">Wiki.js</w-toolbar-title>
         </w-toolbar>
@@ -452,6 +452,10 @@
       `relative` from its own class list, and Tailwind emits `relative` after `fixed`, so a `fixed`
       alongside it loses. `.corner-btn` is in `css/_base.scss`, since this layout never loads MainLayout's
       stylesheet.
+
+      `left-0` (not `start-0`) is deliberate, matching `MainLayout`'s own corner button -- OpenProject
+      #1590's physical-positioning triage: a fixed screen corner, not a reading-direction gutter. See
+      `frontend/src/physicalPositioning.test.js`.
     -->
     <transition name="corner-btn">
       <div v-if="showSidebarBtn" class="fixed bottom-0 left-0 z-30">

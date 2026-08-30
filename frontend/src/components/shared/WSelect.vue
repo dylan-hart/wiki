@@ -14,7 +14,7 @@
       :for="selectId"
       class="mb-1 block text-caption text-black/60 dark:text-white/70">
       {{ label }}
-      <span v-if="required" class="text-negative pr-1" aria-hidden="true">&nbsp;*</span>
+      <span v-if="required" class="text-negative pe-1" aria-hidden="true">&nbsp;*</span>
     </label>
 
     <!--
@@ -38,7 +38,7 @@
         !useInput && isOpen && activeIndex >= 0 ? optionId(activeIndex) : undefined
       "
       :disabled="useInput ? undefined : isDisabled"
-      class="w-unstyled w-input-control flex w-full flex-nowrap items-center gap-2 rounded text-left"
+      class="w-unstyled w-input-control flex w-full flex-nowrap items-center gap-2 rounded text-start"
       :class="controlClasses"
       :style="controlStyle"
       @click="onControlClick"
@@ -54,7 +54,7 @@
         <legend :class="isFloating ? 'w-input-outline-notch--open' : ''">
           <span
             >{{ label
-            }}<span v-if="required" class="text-negative pr-1" aria-hidden="true"
+            }}<span v-if="required" class="text-negative pe-1" aria-hidden="true"
               >&nbsp;*</span
             ></span
           >
@@ -73,7 +73,7 @@
         class="w-input-float"
         :class="[isFloating ? 'w-input-float--up' : '', floatColorClass]">
         {{ label }}
-        <span v-if="required" class="text-negative pr-1" aria-hidden="true">&nbsp;*</span>
+        <span v-if="required" class="text-negative pe-1" aria-hidden="true">&nbsp;*</span>
       </span>
 
       <slot name="prepend" />
@@ -160,7 +160,7 @@
             role="option"
             :aria-selected="String(isSelected(opt.value))"
             :aria-disabled="opt.disable || undefined"
-            class="w-select-option flex w-full flex-nowrap items-center gap-2 px-4 text-left"
+            class="w-select-option flex w-full flex-nowrap items-center gap-2 px-4 text-start"
             :class="[
               optionsDense ? 'min-h-8 py-1 text-body2' : 'min-h-10 py-2',
               isSelected(opt.value) ? 'text-primary' : '',
@@ -195,7 +195,7 @@
           <div
             v-if="!filteredOptions.length"
             class="px-4 py-2 text-body2 text-black/54 dark:text-white/60">
-            {{ noOptionsLabel }}
+            {{ resolvedNoOptionsLabel }}
           </div>
         </div>
       </w-menu>
@@ -226,6 +226,7 @@ import { computed, inject, nextTick, ref, useId, useSlots, watch } from 'vue'
 import WChip from './WChip.vue'
 import WMenu from './WMenu.vue'
 import WSpinner from './WSpinner.vue'
+import { useDictText } from '@/composables/i18nText'
 
 /**
  * Dropdown select.
@@ -356,9 +357,10 @@ const props = defineProps({
     type: String,
     default: ''
   },
+  /** Falls back to the `common.select.noOptions` dictionary entry when not given. */
   noOptionsLabel: {
     type: String,
-    default: 'No options'
+    default: null
   },
   /**
    * Type to narrow the list.
@@ -414,6 +416,11 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue', 'create'])
+
+const dictText = useDictText()
+const resolvedNoOptionsLabel = computed(
+  () => props.noOptionsLabel ?? dictText('common.select.noOptions', 'No options')
+)
 
 const isOpen = ref(false)
 /** Pointer-over, for the ring: the ring is an inline style, so CSS `:hover` cannot reach it. */

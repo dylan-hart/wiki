@@ -509,6 +509,7 @@ async function routes(app: FastifyInstance) {
       reply.preventCache()
       return WIKI.models.approvals.getReviewableSubmissions(
         req.params.siteId,
+        WIKI.models.groups.actorForRequest(req),
         reviewerFor(req, req.params.siteId)
       )
     }
@@ -544,6 +545,7 @@ async function routes(app: FastifyInstance) {
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
+        WIKI.models.groups.actorForRequest(req),
         reviewerFor(req, req.params.siteId)
       )
       if (!submission) {
@@ -606,6 +608,7 @@ async function routes(app: FastifyInstance) {
             }
           },
           401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
           404: { $ref: 'ApiError#' }
         }
       }
@@ -618,6 +621,7 @@ async function routes(app: FastifyInstance) {
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
+        WIKI.models.groups.actorForRequest(req),
         reviewerFor(req, req.params.siteId)
       )
       if (!submission) {
@@ -640,6 +644,11 @@ async function routes(app: FastifyInstance) {
           return reply.conflict(
             'This page has changed since you loaded this suggestion. Reload it and reconcile the changes before approving.'
           )
+        }
+        // -> OpenProject #2165: the reviewer queue and `write:pages` disagreeing -- being one of
+        //    this page's approval-rule reviewers is not the same grant as being allowed to write it.
+        if (applied.reason === 'forbidden') {
+          return reply.forbidden('You do not have permission to write this page.')
         }
         return reply.notFound('This edit suggestion does not exist.')
       }
@@ -690,6 +699,7 @@ async function routes(app: FastifyInstance) {
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
+        WIKI.models.groups.actorForRequest(req),
         reviewerFor(req, req.params.siteId)
       )
       if (!submission) {
@@ -773,10 +783,11 @@ async function routes(app: FastifyInstance) {
       }
       return {
         canReview: true,
-        submissions: await WIKI.models.approvals.getReviewableSubmissions(req.params.siteId, {
-          ...scope,
-          pageId: req.params.pageId
-        })
+        submissions: await WIKI.models.approvals.getReviewableSubmissions(
+          req.params.siteId,
+          WIKI.models.groups.actorForRequest(req),
+          { ...scope, pageId: req.params.pageId }
+        )
       }
     }
   )

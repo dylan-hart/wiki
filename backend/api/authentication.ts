@@ -1,4 +1,5 @@
 import { nanoid } from 'nanoid'
+import { normalizeHostname } from '../helpers/common.ts'
 import { limitAuthAttempts } from '../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
@@ -1024,7 +1025,7 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('There is no such login provider.')
       }
 
-      const siteId = req.query.siteId ?? WIKI.sitesMappings[req.hostname] ?? ''
+      const siteId = req.query.siteId ?? WIKI.sitesMappings[normalizeHostname(req.hostname)] ?? ''
       const flow = {
         strategyId: strategy.id,
         siteId,

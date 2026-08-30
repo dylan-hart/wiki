@@ -14,9 +14,11 @@ import { groups as groupsTable } from '../db/schema.ts'
 import {
   pages as pagesTable,
   pageWatchEvents as pageWatchEventsTable,
+  userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
+import type { GroupRule } from './groups.ts'
 import { mail } from './mail.ts'
 import { task as notifyPageWatchers } from '../tasks/simple/notify-page-watchers.ts'
 
@@ -1369,6 +1371,31 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       .values({ email: 'watcher@example.com', name: 'Watcher', isActive: true, isVerified: true })
       .returning({ id: usersTable.id })
     watcherId = watcher!.id
+
+    // -> The watcher is an ordinary reader, not an admin: OpenProject #2173's read:pages re-check in
+    //    `pageWatching.listWatchers` needs them to actually hold it, the same way a real watcher
+    //    would need to in order to be notified at all.
+    await fixtures.db
+      .insert(userGroupsTable)
+      .values({ userId: watcherId, groupId: fixtures.groupId })
+    await fixtures.db
+      .update(groupsTable)
+      .set({
+        rules: [
+          {
+            id: 'watch-trigger-read-everywhere',
+            name: 'Read everywhere',
+            roles: ['read:pages'],
+            match: 'START',
+            mode: 'ALLOW',
+            path: '',
+            locales: [],
+            sites: []
+          } satisfies GroupRule
+        ]
+      })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await WIKI.models.groups.reloadCache()
   })
 
   after(async () => {

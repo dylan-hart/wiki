@@ -15,6 +15,7 @@ import pagesRoutes, { mayOnPage, pagePermissionsFor } from './pages.ts'
 import { MAX_IMPORT_SIZE } from '../models/import.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { CustomError } from '../helpers/common.ts'
+import { apiKeySitePinPreHandler } from '../helpers/apiKeySite.ts'
 import type { GroupRule } from '../models/groups.ts'
 
 /**
@@ -201,6 +202,11 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
         ;(req as any).session = JSON.parse(rawSession)
       }
     })
+    // -> OpenProject #2189/#2194: the site pin used to be enforced by a per-route
+    //    `enforceApiKeySite()` call this file's routes made directly; it is now a single global
+    //    `preHandler` registered in `index.ts`, which this test's own standalone app has to mirror
+    //    to keep exercising the same real behavior.
+    app.addHook('preHandler', apiKeySitePinPreHandler)
     await registerApprovalSchemas(app)
     await registerSchemas(app)
     await registerErrorSchema(app)
@@ -2179,6 +2185,12 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     getDeletedVersionResult = { path: 'original', locale: 'en', title: 'T', content: 'c', meta: {} }
     const seenTargets: any[] = []
     checkAccessImpl = (_actor, permission, page) => {
+      // -> The source-side read:pages/read:source check (OpenProject #2168) runs first, against
+      //    the version's OWN path -- granted here so this test can reach the write:pages check it
+      //    actually exercises, against the TARGET path.
+      if (permission === 'read:pages' || permission === 'read:source') {
+        return true
+      }
       if (permission === 'write:pages') {
         seenTargets.push(page)
       }
@@ -2196,6 +2208,58 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     assert.deepEqual(seenTargets, [
       { path: 'overridden', locale: 'fr', classification: null, siteId: SITE_ID }
     ])
+  })
+
+  test('POST recover refuses when the caller cannot read the deleted path, even holding write:pages on the destination (OpenProject #2168)', async () => {
+    getDeletedVersionResult = {
+      path: 'secret/original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      tags: [],
+      classification: null,
+      meta: {}
+    }
+    // -> The caller may write anywhere (the destination check would pass), but was never granted
+    //    read:pages/read:source at the path the page was actually deleted from -- recovering it
+    //    would let them read and republish source they were never allowed to read.
+    checkAccessImpl = (_actor, permission) => permission === 'write:pages'
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/deleted/${VERSION_ID}/recover`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' } }),
+      payload: {}
+    })
+
+    assert.equal(res.statusCode, 403)
+  })
+
+  test('GET /sites/:siteId/pages/deleted carries no authorEmail on any row (OpenProject #2168)', async () => {
+    listRecoverableResult = [
+      {
+        id: 'v1',
+        path: 'visible',
+        locale: 'en',
+        title: 'Visible',
+        action: 'deleted',
+        tags: [],
+        classification: null,
+        author: { id: 'u1', name: 'Someone' }
+      }
+    ]
+    checkAccessImpl = () => true
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/deleted`
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.length, 1)
+    assert.equal(body[0].author.email, undefined)
+    assert.equal('authorEmail' in body[0], false)
   })
 
   test('POST recover recreates the page and returns it', async () => {

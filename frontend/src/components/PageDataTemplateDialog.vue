@@ -3,7 +3,12 @@
     <w-toolbar class="bg-primary text-white">
       <div class="text-subtitle2">{{ t('editor.pageData.manageTemplates') }}</div>
       <w-space />
-      <w-btn icon="la:times" dense flat @click="$emit('close')" />
+      <w-btn
+        icon="la:times"
+        dense
+        flat
+        :aria-label="t(`common.actions.close`)"
+        @click="$emit('close')" />
     </w-toolbar>
     <w-card-section class="page-datatmpl-selector">
       <div class="flex gap-4">

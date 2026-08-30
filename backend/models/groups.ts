@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
-import { and, count, eq, ilike, or, sql } from 'drizzle-orm'
+import { and, count, eq, ilike, inArray, or, sql } from 'drizzle-orm'
+import { uniq } from 'es-toolkit/array'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
@@ -143,12 +144,23 @@ const groupSelection = {
  * say. Checked by `checkAccess()` only: it is page-blind everywhere else
  * (`mayHoldPermissionSomewhere()`, `checkSiteAccess()`) so there is no single page's classification to
  * compare the allow-set against.
+ *
+ * `siteId`, when present, is the same key's own site pin (`ApiKeyIdentity.siteId`,
+ * `models/apiKeys.ts`) — `null`/absent means instance-wide (a session, or an unpinned key).
+ * OpenProject #2189/#2199: this is the engine-level half of the site-pin fix, closing
+ * `checkAccess()`/`checkSiteAccess()` themselves rather than relying only on the routing-layer
+ * `preHandler` (`helpers/apiKeySite.ts#apiKeySitePinPreHandler`) to have already refused a
+ * mismatched `:siteId`. Checked the same way `allowedClassifications` is: a ref whose own `siteId`
+ * disagrees with the pin is refused before `manage:system` is even consulted, for the identical
+ * reason -- a site pin is the administrator's own choice at mint time, not a page rule
+ * `manage:system` is entitled to override.
  */
 export interface AccessActor {
   groupIds: string[]
   permissions: string[]
   scope?: string[] | null
   allowedClassifications?: string[] | null
+  siteId?: string | null
 }
 
 /**
@@ -270,7 +282,9 @@ class Groups {
       // -> A session has no scope concept at all (null = unrestricted); an API key's own narrowing,
       //    if any -- see the `AccessActor.scope` doc comment for what this gates.
       scope: req.apiKey?.scope ?? null,
-      allowedClassifications: req.apiKey?.allowedClassifications ?? null
+      allowedClassifications: req.apiKey?.allowedClassifications ?? null,
+      // -> Same treatment: a session has no site pin, only an API key can carry one
+      siteId: req.apiKey?.siteId ?? null
     }
   }
 
@@ -283,6 +297,33 @@ class Groups {
    */
   guestActor(): AccessActor {
     return { groupIds: [WIKI.data.systemIds.guestsGroupId], permissions: [] }
+  }
+
+  /**
+   * The actor for one user, resolved fresh from their CURRENT group membership rather than from a
+   * session or a cached row — for a code path that has only a stored `userId` and nothing more, and
+   * needs today's answer rather than whatever it was when the caller last had a session (OpenProject
+   * #2173: a page-watch notification is queued once, at CHANGE time, but sent — and re-read from the
+   * inbox — much later; a watcher who has since lost their group membership, or `read:pages` on the
+   * path specifically, must not go on receiving or seeing it just because they were still a member
+   * when they first subscribed).
+   *
+   * A user in no group at all (never assigned one, or every membership since removed) gets the empty
+   * actor — no groups, no permissions — same as `checkAccess` would resolve for them directly.
+   */
+  async actorForUserId(userId: string): Promise<AccessActor> {
+    const groupIds = await WIKI.models.users.getUserGroupIds(userId)
+    if (groupIds.length < 1) {
+      return { groupIds: [], permissions: [] }
+    }
+    const rows = await WIKI.db
+      .select({ permissions: groupsTable.permissions })
+      .from(groupsTable)
+      .where(inArray(groupsTable.id, groupIds))
+    return {
+      groupIds,
+      permissions: uniq(rows.flatMap((row) => (row.permissions ?? []) as string[]))
+    }
   }
 
   /**
@@ -307,22 +348,18 @@ class Groups {
    * @param permission A single page permission, e.g. `read:pages` or `read:history`
    */
   checkAccess(actor: AccessActor, permission: string, page: RulePageRef): boolean {
-    // -> Above the rules entirely: an administrator is not something a rule can lock out, and a
-    //    wiki whose only administrator had denied themselves would have nobody left to fix it
-    if (actor.permissions.includes('manage:system')) {
-      return true
-    }
-    if (!this.withinScope(actor, permission)) {
-      return false
-    }
     /*
       OpenProject #1205 (replacing the earlier #1055 single-value ceiling): a classification-scoped
       key/token may never be granted a page permission on a page whose classification is not in its
-      `allowedClassifications` allow-set, regardless of what its groups' rules say -- checked the same
-      way `scope` is, before any rule is resolved. Skipped when the page's own classification is
-      unknown (`null` — an asset, a folder, a not-yet-existing page) rather than treated as a denial:
-      there is nothing to compare the allow-set against, and this is a narrowing on top of the rules,
-      not a rule itself, so it has no fail-closed obligation of its own the way a CLASSIFICATION rule
+      `allowedClassifications` allow-set, regardless of what its groups' rules say, and regardless of
+      whether the identity also happens to hold `manage:system` -- checked ahead of the
+      `manage:system` bypass below on purpose. A credential narrowing is not a page rule an
+      administrator can override by fiat; it is the administrator's OWN choice, made when the
+      key/token was minted, and an administrator opting into a classification-scoped credential is
+      asking for it to actually hold. Skipped when the page's own classification is unknown (`null`
+      — an asset, a folder, a not-yet-existing page) rather than treated as a denial: there is
+      nothing to compare the allow-set against, and this is a narrowing on top of the rules, not a
+      rule itself, so it has no fail-closed obligation of its own the way a CLASSIFICATION rule
       match does in `helpers/pageRules.ts`.
     */
     if (
@@ -332,14 +369,35 @@ class Groups {
     ) {
       return false
     }
+    /*
+      OpenProject #2189/#2199: the engine-level half of the API key site-pin fix -- a key pinned to
+      one site may never be granted a page permission on a page belonging to another, regardless of
+      what its groups' rules say and regardless of `manage:system`, for the identical reason the
+      classification check above already runs ahead of that bypass. The routing-layer `preHandler`
+      (`helpers/apiKeySite.ts`) already refuses a mismatched `:siteId` on every `/sites/:siteId/...`
+      route, but this closes the engine itself for any call path that reaches `checkAccess()`
+      without going through that hook. Skipped when the page's own `siteId` is unknown (`null`) for
+      the same reason the classification check is: there is nothing to compare the pin against.
+    */
+    if (actor.siteId != null && page.siteId != null && actor.siteId !== page.siteId) {
+      return false
+    }
+    // -> Above the rules entirely: an administrator is not something a rule can lock out, and a
+    //    wiki whose only administrator had denied themselves would have nobody left to fix it
+    if (actor.permissions.includes('manage:system')) {
+      return true
+    }
+    if (!this.withinScope(actor, permission)) {
+      return false
+    }
     const rule = resolvePageRule(this.rulesForGroups(actor.groupIds), permission, page)
     return rule ? rule.mode !== 'DENY' : false
   }
 
   /**
-   * Whether this actor holds any of these page permissions ANYWHERE — deliberately coarse, path- and
-   * site-blind, for a caller that spans many pages at once (search is the only one today) and so has
-   * no single page to ask `checkAccess()` about.
+   * Whether this actor holds any of these page permissions ANYWHERE — deliberately coarse and
+   * path-blind, for a caller that spans many pages at once (search is the only one today) and so
+   * has no single page to ask `checkAccess()` about.
    *
    * Page permissions are granted by rules, not by the group-wide `permissions` list (same caveat as
    * `checkAccess()` above) — so this pools every rule across the actor's groups and asks whether any
@@ -350,21 +408,53 @@ class Groups {
    * question here is "is this actor generally the kind of person who holds `permission`", not "may
    * they use it on a particular page" — a rule that denies it under one subtree does not change the
    * answer for the rest of the site.
+   *
+   * @param siteId (OpenProject #2162) The site the answer is being asked FOR, or `null` when the
+   *   caller genuinely has none (the icon picker's `mayUseIconPicker()` is the one caller today —
+   *   it is asking "is this actor generally an author anywhere on the instance", not about one
+   *   site). A concrete `siteId` applies the same `rule.sites` match filter `ruleMatchesPage()`
+   *   applies for a real page: a rule scoped to other sites only does not count. `null` applies NO
+   *   site filter at all — every rule counts, regardless of its own `sites` list — which is the
+   *   opposite of `ruleMatchesPage()`'s fail-closed treatment of an unknown site on purpose: there
+   *   this is a narrowing applied to a concrete page whose site really is unknown, whereas here
+   *   `null` means the question itself is legitimately global, not that the site is unknown.
    */
-  mayHoldPermissionSomewhere(actor: AccessActor, permissions: string[]): boolean {
+  mayHoldPermissionSomewhere(
+    actor: AccessActor,
+    permissions: string[],
+    siteId: string | null
+  ): boolean {
     if (actor.permissions.includes('manage:system')) {
       return true
     }
     // -> Same scope narrowing as `checkAccess()`, applied before any rule is read rather than after —
     //    a scoped key must not read as "generally holds `permission`" for a name outside its own
-    //    scope, whatever its groups' rules say. `allowedClassifications` has no equivalent here: this
-    //    method is path- and page-blind by design (see the doc comment above), so there is no single
-    //    page's classification to compare the allow-set against.
+    //    scope, whatever its groups' rules say.
+    //
+    //    DECISION (OpenProject #2121): `allowedClassifications` deliberately applies NO narrowing
+    //    here, and `manage:system` deliberately stays a full bypass, unlike the reordering
+    //    `checkAccess()` now applies. The two methods differ in what they are answering:
+    //    `checkAccess()` decides whether a permission may be used on ONE concrete page, so a
+    //    classification-scoped credential can be compared against that page's actual
+    //    classification and correctly refused even for a `manage:system` holder. This method
+    //    answers a page-blind, structurally coarser question ("does this identity generally hold
+    //    this kind of role at all") with no page to compare a classification against — an empty
+    //    `allowedClassifications` allow-set does NOT imply "denied on every page", because
+    //    `checkAccess()`'s classification narrowing only applies when the page's own
+    //    classification is non-null, so an unclassified page stays reachable regardless of how
+    //    narrow the allow-set is. Any page-blind approximation here would therefore either produce
+    //    false negatives (blocking a generically-held capability flag a real page could still
+    //    grant) or no real security benefit, since actual content access is always re-checked
+    //    per-page by `checkAccess()`, which DOES apply the narrowing correctly. Leaving this
+    //    method coarse and letting `checkAccess()` be the sole enforcement point is the considered
+    //    choice, not an oversight.
     const inScope = permissions.filter((permission) => this.withinScope(actor, permission))
     if (inScope.length === 0) {
       return false
     }
-    const rules = this.rulesForGroups(actor.groupIds)
+    const rules = this.rulesForGroups(actor.groupIds).filter(
+      (rule) => siteId === null || !rule.sites?.length || rule.sites.includes(siteId)
+    )
     return inScope.some((permission) =>
       rules.some((rule) => rule.mode !== 'DENY' && rule.roles.includes(permission))
     )
@@ -381,6 +471,11 @@ class Groups {
    * @param siteId The site being administered
    */
   checkSiteAccess(actor: AccessActor, permission: string, siteId: string): boolean {
+    // -> Same site-pin guard as checkAccess(), ahead of manage:system for the same reason -- see
+    //    that method's own comment (OpenProject #2189/#2199)
+    if (actor.siteId != null && actor.siteId !== siteId) {
+      return false
+    }
     // -> Above the rules entirely, same guard as checkAccess()
     if (actor.permissions.includes('manage:system')) {
       return true

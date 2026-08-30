@@ -79,6 +79,7 @@ async function routes(app: FastifyInstance) {
         )
       }
       return WIKI.models.navigation.getNav(req.params.siteId, req.params.navId, {
+        actor: WIKI.models.groups.actorForRequest(req),
         userGroups: req.session?.authenticated ? (req.session.groups ?? []) : [],
         unfiltered
       })
@@ -126,7 +127,7 @@ async function routes(app: FastifyInstance) {
       if (!canManageNavigation(req, req.params.siteId)) {
         return reply.forbidden()
       }
-      return { mode: await WIKI.models.navigation.getMode(req.params.navId) }
+      return { mode: await WIKI.models.navigation.getMode(req.params.siteId, req.params.navId) }
     }
   )
 

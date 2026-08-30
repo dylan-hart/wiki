@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { eq, inArray, sql } from 'drizzle-orm'
 import { sessions as sessionsTable, userGroups as userGroupsTable } from '../db/schema.ts'
+import type { WikiDbOrTx } from '../core/db.ts'
 
 /**
  * Sessions model
@@ -81,8 +82,8 @@ class Sessions {
    *
    * @param userId User ID
    */
-  async clearSessionsFromUser(userId: string) {
-    return WIKI.db.delete(sessionsTable).where(eq(sessionsTable.userId, userId))
+  async clearSessionsFromUser(userId: string, db: WikiDbOrTx = WIKI.db) {
+    return db.delete(sessionsTable).where(eq(sessionsTable.userId, userId))
   }
 
   /**

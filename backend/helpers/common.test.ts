@@ -8,6 +8,7 @@ import {
   localePrefixStripTarget,
   localizedPagePath,
   matchLocaleCode,
+  normalizeHostname,
   requestOrigin,
   resolveRequestSite,
   shouldPrefixLocale,
@@ -346,6 +347,37 @@ describe('resolveRequestSite', () => {
       exemptSegments: LOGIN_EXEMPT
     })
     assert.deepEqual(result, { outcome: 'exempt' })
+  })
+
+  /**
+   * OpenProject #2127: `sitesMappings` is keyed lowercase (site hostnames are constrained to
+   * lowercase on write), but a request's `Host` header case was never folded before the lookup --
+   * a mixed-case `Host` for an otherwise-valid hostname fell through to the wildcard mapping or to
+   * "not-found", the same as an unrelated, genuinely unknown hostname.
+   */
+  test('resolves a mixed-case Host header to the same site as its lowercase form', () => {
+    const result = resolveRequestSite({
+      firstSegment: 'some-page',
+      hostname: 'Wiki.Example.Com',
+      sitesMappings,
+      sites,
+      exemptSegments: NO_EXEMPT_SEGMENTS
+    })
+    assert.deepEqual(result, { outcome: 'ok', site: sites[ENABLED_SITE_ID] })
+  })
+})
+
+describe('normalizeHostname', () => {
+  test('lowercases', () => {
+    assert.equal(normalizeHostname('Wiki.Example.Com'), 'wiki.example.com')
+  })
+
+  test('is a no-op on an already-lowercase hostname', () => {
+    assert.equal(normalizeHostname('wiki.example.com'), 'wiki.example.com')
+  })
+
+  test('leaves the wildcard mapping key untouched', () => {
+    assert.equal(normalizeHostname('*'), '*')
   })
 })
 

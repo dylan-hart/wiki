@@ -171,7 +171,13 @@
         <w-card-section class="flex flex-wrap items-center pb-0">
           <div class="text-h6">{{ t('admin.icons.addSet') }}</div>
           <w-space />
-          <w-btn icon="la:times" flat round dense @click="state.addSetDialog = false" />
+          <w-btn
+            icon="la:times"
+            flat
+            round
+            dense
+            :aria-label="t(`common.actions.close`)"
+            @click="state.addSetDialog = false" />
         </w-card-section>
         <w-card-section>
           <div class="text-body2 text-grey">{{ t('admin.icons.addSetHint') }}</div>

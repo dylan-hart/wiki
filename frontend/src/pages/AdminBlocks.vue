@@ -248,7 +248,13 @@
             }}
           </div>
           <w-space />
-          <w-btn icon="la:times" flat round dense @click="closeConfig" />
+          <w-btn
+            icon="la:times"
+            flat
+            round
+            dense
+            :aria-label="t(`common.actions.close`)"
+            @click="closeConfig" />
         </w-card-section>
         <w-card-section>
           <block-props-form

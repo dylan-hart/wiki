@@ -193,7 +193,7 @@ export function resolveRequestSite({
   if (exemptSegments.has(firstSegment)) {
     return { outcome: 'exempt' }
   }
-  const siteId = sitesMappings[hostname] || sitesMappings['*']
+  const siteId = sitesMappings[normalizeHostname(hostname)] || sitesMappings['*']
   const site = siteId ? sites[siteId] : null
   if (!site) {
     return { outcome: 'not-found' }
@@ -230,6 +230,29 @@ export const SITE_DISABLED_MESSAGE = 'This wiki site is currently disabled.'
  *
  * Returns `true` once a reply has been sent, so the caller can `return` immediately after.
  */
+/**
+ * The one place a hostname is folded to the form `WIKI.sitesMappings` is keyed and looked up by
+ * (OpenProject #2127).
+ *
+ * DNS names are case-insensitive, but `models/sites.ts#reloadCache()` used to key
+ * `WIKI.sitesMappings` by `site.hostname` exactly as stored (already constrained to lowercase by
+ * the site create/update schemas — see `api/sites.ts`'s `^(\*|[a-z0-9.-]+)$` pattern — so the
+ * WRITE side was already fine) while every READ side indexed it with `req.hostname` exactly as
+ * Fastify's `hostname` getter delivers it — case preserved, only the port stripped. A `Host:
+ * Wiki.Example.Com` request for a site stored as `wiki.example.com` therefore matched nothing and
+ * fell through to the `*` catch-all, or to "not found" with none configured — an unauthenticated
+ * correctness/availability defect for any client or intermediary that preserves `Host` case (curl,
+ * some HTTP libraries, some proxies), not an escalation, since a mixed-case `Host` already landed
+ * on the same catch-all any unknown hostname reaches.
+ *
+ * Every lookup (and the write side, belt and braces) routes through this rather than each call
+ * site lowercasing for itself, so a future lookup added elsewhere cannot silently reintroduce the
+ * mismatch.
+ */
+export function normalizeHostname(hostname: string): string {
+  return hostname.toLowerCase()
+}
+
 export function guardSiteEnabled(
   site: { isEnabled?: boolean } | null | undefined,
   reply: FastifyReply

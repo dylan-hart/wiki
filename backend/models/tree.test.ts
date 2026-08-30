@@ -8,6 +8,7 @@ import {
   type TestFixtures
 } from '../test/db.ts'
 import { generatePathHash } from '../helpers/common.ts'
+import { sites as sitesTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
@@ -70,7 +71,12 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    await treeModel.renameFolder({ folderId: en.id, pathName: 'guides', title: 'Guides' })
+    await treeModel.renameFolder({
+      folderId: en.id,
+      siteId: fixtures.siteId,
+      pathName: 'guides',
+      title: 'Guides'
+    })
 
     const frPage = await pagesModel.getPage({
       siteId: fixtures.siteId,
@@ -116,17 +122,17 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    const removed = await treeModel.deleteFolder(en.id)
+    const removed = await treeModel.deleteFolder(en.id, fixtures.siteId)
     await pagesModel.deleteOrphaned(fixtures.siteId, removed.pages, actor)
 
     const frPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: frPage.id })
     assert.ok(frPageAfter, 'the fr page must still exist')
-    const frFolderAfter = await treeModel.getFolderById(fr.id)
+    const frFolderAfter = await treeModel.getFolderById(fr.id, fixtures.siteId)
     assert.ok(frFolderAfter, 'the fr folder row must still exist')
 
     const enPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: enPage.id })
     assert.equal(enPageAfter, null, 'the en page must be gone')
-    const enFolderAfter = await treeModel.getFolderById(en.id)
+    const enFolderAfter = await treeModel.getFolderById(en.id, fixtures.siteId)
     assert.equal(enFolderAfter, null, 'the en folder row must be gone')
   })
 
@@ -150,8 +156,8 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    const enFolder = await treeModel.getFolderById(en.id)
-    const frFolder = await treeModel.getFolderById(fr.id)
+    const enFolder = await treeModel.getFolderById(en.id, fixtures.siteId)
+    const frFolder = await treeModel.getFolderById(fr.id, fixtures.siteId)
     assert.equal(enFolder!.meta.children, 1, "only the en folder's count should have moved")
     assert.equal(frFolder!.meta.children, 0, "the fr folder's count must be untouched")
   })
@@ -286,7 +292,12 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       siteId: fixtures.siteId
     })
     await assert.rejects(
-      treeModel.renameFolder({ folderId: folder.id, pathName: 'en', title: 'Renameable' }),
+      treeModel.renameFolder({
+        folderId: folder.id,
+        siteId: fixtures.siteId,
+        pathName: 'en',
+        title: 'Renameable'
+      }),
       (err: any) => err.name === 'treeReservedLocaleSegment'
     )
   })
@@ -373,6 +384,141 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
       assert.equal(pages.length, 1)
       assert.equal(pages[0]!.classification, fixtures.classificationId)
+    })
+  })
+
+  /**
+   * OpenProject #2093/#2098: `listDescendants()` is the non-mutating read `api/tree.ts`'s folder
+   * DELETE and PATCH (rename) handlers depend on to authorize every descendant page and asset
+   * before letting either cascade -- these lock down its own contract: every page/asset at or
+   * below the folder comes back with real path/locale/tags/classification, the folder's OWN row is
+   * excluded, and an empty folder answers with empty arrays rather than throwing.
+   */
+  describe('listDescendants (OpenProject #2098)', () => {
+    test('returns every page and asset at or below the folder, with real metadata, excluding the folder itself', async () => {
+      const levelsModel = (await import('./classificationLevels.ts')).classificationLevels
+      const restricted = await levelsModel.create({
+        name: 'Test Descendants Restricted',
+        sortOrder: 99
+      })
+
+      const reports = await treeModel.createFolder({
+        pathName: 'reports-desc',
+        title: 'Reports',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await treeModel.createFolder({
+        parentId: reports.id,
+        pathName: '2026',
+        title: '2026',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'reports-desc/2026/summary',
+          title: 'Summary',
+          locale: 'en',
+          tags: ['finance'],
+          classification: restricted.id
+        }),
+        actor
+      )
+
+      await treeModel.addAsset({
+        parentId: reports.id,
+        fileName: 'logo.png',
+        title: 'logo.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      const descendants = await treeModel.listDescendants(reports.id, fixtures.siteId)
+
+      assert.equal(descendants.pages.length, 1)
+      assert.equal(descendants.pages[0]!.path, 'reports-desc/2026/summary')
+      assert.deepEqual(descendants.pages[0]!.tags, ['finance'])
+      assert.equal(descendants.pages[0]!.classification, restricted.id)
+
+      assert.equal(descendants.assets.length, 1)
+      assert.equal(descendants.assets[0]!.path, 'reports-desc/logo.png')
+      assert.deepEqual(descendants.assets[0]!.tags, [])
+      assert.equal(descendants.assets[0]!.classification, null)
+
+      // -> The folder itself, and its nested subfolder, are never returned -- descendants only
+      const ids = [...descendants.pages, ...descendants.assets].map((e) => e.id)
+      assert.equal(ids.includes(reports.id), false)
+
+      // -> No cleanup of `restricted` here: the page created above still references it (deleting it
+      //    would 409 on the "in use" guard), and this test's whole schema is dropped by
+      //    teardownTestDb() regardless.
+    })
+
+    test('an empty folder answers with empty arrays rather than throwing', async () => {
+      const empty = await treeModel.createFolder({
+        pathName: 'empty-desc',
+        title: 'Empty',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const descendants = await treeModel.listDescendants(empty.id, fixtures.siteId)
+      assert.deepEqual(descendants, { pages: [], assets: [] })
+    })
+
+    test('throws for a folder id belonging to a different site', async () => {
+      const [otherSite] = await WIKI.db
+        .insert(sitesTable)
+        .values({ hostname: `listdescendants-other-${Date.now()}.example.com`, config: {} })
+        .returning({ id: sitesTable.id })
+      const otherFolder = await treeModel.createFolder({
+        pathName: 'other-site-desc',
+        title: 'Other',
+        locale: 'en',
+        siteId: otherSite!.id
+      })
+      await assert.rejects(
+        treeModel.listDescendants(otherFolder.id, fixtures.siteId),
+        (err: any) => err.name === 'treeInvalidFolder'
+      )
+      // -> No site cleanup here: `otherFolder`'s tree row still references it (a bare site delete
+      //    would 23503 on the FK), and this test's whole schema is dropped by teardownTestDb()
+      //    regardless.
+    })
+  })
+
+  /**
+   * OpenProject #2127: `getFolderById()` used to select on `id` alone, so a caller holding a
+   * folder id from ANOTHER site (a real UUID, not a guess) got that folder's path/locale back —
+   * `POST /sites/:siteId/tree/folders` fed a `parentId` straight through it with no site check at
+   * all. `siteId` is now a required argument, filtered into the query, so a foreign id resolves to
+   * null exactly like an unknown one.
+   */
+  describe('getFolderById siteId scoping (OpenProject #2127)', () => {
+    test('does not resolve a folder belonging to a different site', async () => {
+      const [otherSite] = await WIKI.db
+        .insert(sitesTable)
+        .values({ hostname: `getfolderbyid-other-${Date.now()}.example.com`, config: {} })
+        .returning({ id: sitesTable.id })
+
+      const folder = await treeModel.createFolder({
+        pathName: 'other-site-folder',
+        title: 'Other Site Folder',
+        locale: 'en',
+        siteId: otherSite!.id
+      })
+
+      // -> Resolves fine when asked for with its OWN site
+      const resolved = await treeModel.getFolderById(folder.id, otherSite!.id)
+      assert.ok(resolved, 'expected the folder to resolve for its own site')
+
+      // -> Must not resolve when asked for with a DIFFERENT site, even though the id is real
+      const foreign = await treeModel.getFolderById(folder.id, fixtures.siteId)
+      assert.equal(foreign, null)
+
+      // -> No site cleanup here: `folder`'s tree row still references it (a bare site delete would
+      //    23503 on the FK), and this test's whole schema is dropped by teardownTestDb() regardless.
     })
   })
 })

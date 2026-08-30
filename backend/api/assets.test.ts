@@ -402,9 +402,13 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
           }
         },
         tree: {
+          // -> Echoes back a resolved-in-this-site folder for the given id (OpenProject #2127:
+          //    getFolderById is now siteId-scoped, and the upload route trusts its resolved `.id`
+          //    rather than the raw query param) -- a foreign/unknown id is exercised in its own
+          //    dedicated test below with a `null`-returning override.
           getFolderById: async (id: string) => {
             getFolderByIdCalls.push(id)
-            return null
+            return { id, folderPath: '', fileName: '' }
           },
           getFolder: async (opts: any) => {
             getFolderCalls.push(opts)
@@ -527,6 +531,41 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
     assert.deepEqual(getFolderByIdCalls, [explicitFolderId])
     assert.equal(getFolderCalls.length, 0)
     assert.equal(uploadCalls[0].folderId, explicitFolderId)
+  })
+
+  /**
+   * OpenProject #2127/#2131: `getFolderById()` is now scoped to the request's own site, so a
+   * `folderId` that resolves to nothing there (unknown, or belonging to another site) must not
+   * reach `upload()` as a parent -- previously the raw, unverified query param was passed straight
+   * through regardless of whether it resolved to anything at all.
+   */
+  test('a folderId that does not resolve in this site is never passed through to upload()', async () => {
+    getFolderCalls = []
+    getFolderByIdCalls = []
+    uploadCalls = []
+    checkAccessCalls = []
+    const foreignFolderId = '99999999-9999-4999-8999-999999999999'
+    const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
+    ;(globalThis as any).WIKI.models.tree.getFolderById = async (id: string) => {
+      getFolderByIdCalls.push(id)
+      return null
+    }
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/assets?fileName=photo.png&folderId=${foreignFolderId}`,
+        headers: { ...sessionHeader(), 'content-type': 'image/png' },
+        payload: Buffer.from([1, 2, 3])
+      })
+      assert.equal(res.statusCode, 200)
+      assert.deepEqual(getFolderByIdCalls, [foreignFolderId])
+      // -> Checked against the root, not the foreign folder's (nonexistent, from this site's view)
+      //    path -- the whole point of scoping the lookup
+      assert.equal(checkAccessCalls[0].path, 'photo.png')
+      assert.equal(uploadCalls[0].folderId, undefined)
+    } finally {
+      ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
+    }
   })
 
   test('a denied permission never resolves-or-creates the folder: no side effect from an unauthorized upload', async () => {

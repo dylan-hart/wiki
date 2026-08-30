@@ -220,6 +220,47 @@ describe('ruleMatchesPage', () => {
       )
     })
   })
+
+  /**
+   * OpenProject #2182: page paths are always stored lowercased, but a rule's own `path` is free
+   * text -- an author who typed any uppercase character used to write a rule that silently never
+   * matched anything. Worst for DENY: a mixed-case DENY failed OPEN (whatever broader ALLOW
+   * existed kept deciding), while a mixed-case ALLOW failed visibly. `normalizePath` now folds
+   * case the same way locale/tag comparisons already do.
+   */
+  describe('case-insensitive path matching (OpenProject #2182)', () => {
+    test('a DENY rule written in mixed case still matches the lowercase-stored page path (START)', () => {
+      const rule = makeRule({ match: 'START', mode: 'DENY', path: 'HR/Salaries' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries/2026' })), true)
+    })
+
+    test('EXACT matches case-insensitively', () => {
+      const rule = makeRule({ match: 'EXACT', path: 'HR/Salaries' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries' })), true)
+    })
+
+    test('END matches case-insensitively', () => {
+      const rule = makeRule({ match: 'END', path: 'Salaries' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries' })), true)
+    })
+
+    test('REGEX is unaffected by the case fold -- an author-written character class stays literal', () => {
+      // -> Would behave differently if the pattern itself were lowercased or forced case-insensitive:
+      //    [A-Z] would then match a lowercase page path, which it deliberately must not
+      const rule = makeRule({ match: 'REGEX', path: '^[A-Z]' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries' })), false)
+    })
+
+    test('REGEX stays case-sensitive for a pattern with no explicit case class -- unlike every other match kind', () => {
+      // -> Page paths are always stored lowercase, so a pattern written in uppercase simply never
+      //    matches an ordinary page path -- the same behavior as before the #2182 fix, deliberately
+      //    left unchanged for this branch
+      const rule = makeRule({ match: 'REGEX', path: '^HR/' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries' })), false)
+      const lowercaseRule = makeRule({ match: 'REGEX', path: '^hr/' })
+      assert.equal(ruleMatchesPage(lowercaseRule, page({ path: 'hr/salaries' })), true)
+    })
+  })
 })
 
 describe('resolvePageRule / rulesAllow', () => {
@@ -522,6 +563,61 @@ describe('resolvePageRule / rulesAllow', () => {
       const target = page({ classification: 'internal' })
       const winner = resolvePageRule([allow, deny], 'read:pages', target)
       assert.equal(winner?.id, 'c-deny')
+    })
+  })
+
+  /**
+   * OpenProject #2093: pins the exact relocation escalation the audit describes -- a group holding
+   * a root ALLOW plus a narrower DENY on `docs/hr` still passes a gate checked at `docs` itself
+   * (the DENY is more specific and wins there), but if the folder `docs/hr` sits under were simply
+   * renamed with no per-descendant check, the DENY's path no longer matches its new location and
+   * the broader ALLOW decides instead. This asserts both halves of that: the DENY wins BEFORE the
+   * move, and would silently stop applying AFTER it (the whole reason `mayRenameEveryDescendant()`
+   * in `api/tree.ts` re-checks every descendant against its POST-rename path rather than trusting
+   * the folder-root check alone).
+   */
+  describe('relocation escalation (OpenProject #2093)', () => {
+    const rootAllow = makeRule({
+      id: 'root-allow',
+      match: 'START',
+      mode: 'ALLOW',
+      path: '',
+      roles: ['manage:pages']
+    })
+    const hrDeny = makeRule({
+      id: 'hr-deny',
+      match: 'START',
+      mode: 'DENY',
+      path: 'docs/hr',
+      roles: ['manage:pages']
+    })
+
+    test('before the move: the narrower docs/hr DENY wins over the root ALLOW', () => {
+      const winner = resolvePageRule(
+        [rootAllow, hrDeny],
+        'manage:pages',
+        page({ path: 'docs/hr/salaries' })
+      )
+      assert.equal(winner?.id, 'hr-deny')
+      assert.equal(
+        rulesAllow([rootAllow, hrDeny], 'manage:pages', page({ path: 'docs/hr/salaries' })),
+        false
+      )
+    })
+
+    test('after a naive rename (docs -> docs2, DENY path left unchanged): the DENY no longer matches, and the root ALLOW decides instead', () => {
+      // -> This is exactly the escalation: the same two rules, unchanged, now resolve differently
+      //    purely because the page's address moved out from under a path-addressed DENY
+      const winner = resolvePageRule(
+        [rootAllow, hrDeny],
+        'manage:pages',
+        page({ path: 'docs2/hr/salaries' })
+      )
+      assert.equal(winner?.id, 'root-allow')
+      assert.equal(
+        rulesAllow([rootAllow, hrDeny], 'manage:pages', page({ path: 'docs2/hr/salaries' })),
+        true
+      )
     })
   })
 })

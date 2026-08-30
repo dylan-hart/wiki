@@ -132,6 +132,23 @@ export type PageHistoryVersion = PageHistoryEntry & {
 }
 
 /**
+ * A row of {@link Pages.listRecoverable} — deliberately NOT `PageHistoryEntry`, in two ways
+ * (OpenProject #2168): it carries `tags`/`classification` so the route can narrow the per-row
+ * `read:history` check with the same TAG/TAGALL/CLASSIFICATION rules any other read of the page
+ * would apply, not just a bare path/locale match; and its `author` carries no `email` at all, which
+ * `PageHistoryEntry.author` normally does for an ordinary (still-live-page) history timeline where
+ * `read:history` on the page already gates it. This listing exists precisely so a caller who does
+ * NOT hold `read:pages` at the deleted path can still discover that something recoverable is there
+ * -- handing back the deleting/creating author's email address on every row would leak PII to a
+ * reader `read:history` was never meant to give it to.
+ */
+export type RecoverablePageEntry = Omit<PageHistoryEntry, 'author'> & {
+  tags: string[]
+  classification: string | null
+  author: Omit<PageHistoryAuthor, 'email'>
+}
+
+/**
  * Unique-contributor counts for one page, split by `via` (OpenProject #1141's edit-volume node
  * sizing) -- `editor`/`mcp` are `pageHistory.via`'s own two buckets, and `all` is the union across
  * both, precomputed here rather than left for a caller to add `editor + mcp` together: a
@@ -463,7 +480,7 @@ class PageHistory {
    * same `(siteId, locale, path)` excludes it via `NOT EXISTS`. Between the two, a path drops off this
    * list the moment it stops being an actual gap, with no flag to set or clear anywhere.
    */
-  async listRecoverable(siteId: string): Promise<PageHistoryEntry[]> {
+  async listRecoverable(siteId: string): Promise<RecoverablePageEntry[]> {
     const rows = await WIKI.db
       .selectDistinctOn([pageHistoryTable.locale, pageHistoryTable.path], {
         id: pageHistoryTable.id,
@@ -475,9 +492,9 @@ class PageHistory {
         locale: pageHistoryTable.locale,
         path: pageHistoryTable.path,
         title: pageHistoryTable.title,
+        meta: pageHistoryTable.meta,
         authorId: usersTable.id,
-        authorName: usersTable.name,
-        authorEmail: usersTable.email
+        authorName: usersTable.name
       })
       .from(pageHistoryTable)
       .leftJoin(usersTable, eq(usersTable.id, pageHistoryTable.authorId))
@@ -501,22 +518,26 @@ class PageHistory {
       )
       .orderBy(pageHistoryTable.locale, pageHistoryTable.path, desc(pageHistoryTable.versionDate))
 
-    return rows.map((row: any) => ({
-      id: row.id,
-      action: row.action,
-      via: row.via,
-      changedFields: row.changedFields ?? [],
-      reason: row.reason ?? '',
-      versionDate: row.versionDate,
-      locale: row.locale,
-      path: row.path,
-      title: row.title,
-      author: {
-        id: row.authorId ?? null,
-        name: row.authorName ?? '',
-        email: row.authorEmail ?? ''
+    return rows.map((row: any) => {
+      const meta = (row.meta ?? {}) as Record<string, any>
+      return {
+        id: row.id,
+        action: row.action,
+        via: row.via,
+        changedFields: row.changedFields ?? [],
+        reason: row.reason ?? '',
+        versionDate: row.versionDate,
+        locale: row.locale,
+        path: row.path,
+        title: row.title,
+        tags: meta.tags ?? [],
+        classification: meta.classification ?? null,
+        author: {
+          id: row.authorId ?? null,
+          name: row.authorName ?? ''
+        }
       }
-    }))
+    })
   }
 
   /**
@@ -524,8 +545,14 @@ class PageHistory {
    *
    * Exposed separately from `recoverDeletedPage` so a caller can inspect a version — its path and
    * locale, most usefully — before deciding whether to actually recover it. The REST route asks this
-   * first, to check `write:pages` against the *target* path ahead of the write, and to answer 404
+   * first, to check `read:pages`/`read:source` against the version's OWN path (OpenProject #2168 --
+   * recovering into a writable destination is not the same as being allowed to read what is being
+   * recovered) and `write:pages` against the *target* path ahead of the write, and to answer 404
    * cleanly for an id that names no recoverable version.
+   *
+   * `tags`/`classification` are pulled out of `meta` alongside the always-present fields, so a caller
+   * can build a full `RulePageRef` without reaching into `meta` itself — the same reasoning
+   * `recoverDeletedPage` below already applies to `tags` when rebuilding the page.
    *
    * @returns The version, or null when no `deleted` version exists at this id for this site.
    */
@@ -537,6 +564,8 @@ class PageHistory {
     locale: string
     title: string
     content: string
+    tags: string[]
+    classification: string | null
     meta: Record<string, any>
   } | null> {
     const rows = await WIKI.db
@@ -561,12 +590,15 @@ class PageHistory {
     if (!row) {
       return null
     }
+    const meta = (row.meta ?? {}) as Record<string, any>
     return {
       path: row.path,
       locale: row.locale,
       title: row.title,
       content: row.content ?? '',
-      meta: (row.meta ?? {}) as Record<string, any>
+      tags: meta.tags ?? [],
+      classification: meta.classification ?? null,
+      meta
     }
   }
 

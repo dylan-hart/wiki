@@ -206,6 +206,14 @@ class PageWatching {
    * Joined to the pages rather than storing a copy of the title and the path, so a page that is
    * renamed or moved is listed where it is now — which is the point of watching it. A deleted page
    * takes its rows with it through the foreign key, so nothing here can point at one that is gone.
+   *
+   * OpenProject #2173: `read:pages` was checked once, at subscribe time, and never again. A watcher
+   * whose group lost the page (a path DENY written after they subscribed, a CLASSIFICATION rule, a
+   * group membership change) kept seeing the page's title, path and current location here
+   * indefinitely — this now re-checks `read:pages` live, against the row's CURRENT
+   * path/locale/tags/classification, every time the list is read, and simply drops a row that no
+   * longer passes rather than surfacing a 403 for the one entry: watching is per-page, so one revoked
+   * page must not fail the caller's whole list.
    */
   async listForUser(siteId: string, userId: string): Promise<WatchedPage[]> {
     const rows = await WIKI.db
@@ -213,6 +221,8 @@ class PageWatching {
         pageId: pagesTable.id,
         path: pagesTable.path,
         locale: pagesTable.locale,
+        tags: pagesTable.tags,
+        classification: pagesTable.classification,
         title: pagesTable.title,
         description: pagesTable.description,
         icon: pagesTable.icon,
@@ -227,15 +237,39 @@ class PageWatching {
       .innerJoin(pagesTable, eq(pagesTable.id, watchingTable.pageId))
       .where(and(eq(watchingTable.userId, userId), eq(watchingTable.siteId, siteId)))
       .orderBy(desc(watchingTable.createdAt))
-    return rows.map(({ notifyMode, notifyOnEdited, notifyOnMoved, notifyOnDeleted, ...page }) => ({
-      ...page,
-      preference: resolvePreference({
-        notifyMode: notifyMode as WatchNotifyMode | null,
-        notifyOnEdited,
-        notifyOnMoved,
-        notifyOnDeleted
-      })
-    })) as WatchedPage[]
+    if (rows.length < 1) {
+      return []
+    }
+    const actor = await WIKI.models.groups.actorForUserId(userId)
+    return rows
+      .filter((row) =>
+        WIKI.models.groups.checkAccess(actor, 'read:pages', {
+          path: row.path,
+          siteId,
+          locale: row.locale,
+          tags: row.tags ?? [],
+          classification: row.classification ?? null
+        })
+      )
+      .map(
+        ({
+          notifyMode,
+          notifyOnEdited,
+          notifyOnMoved,
+          notifyOnDeleted,
+          tags: _tags,
+          classification: _classification,
+          ...page
+        }) => ({
+          ...page,
+          preference: resolvePreference({
+            notifyMode: notifyMode as WatchNotifyMode | null,
+            notifyOnEdited,
+            notifyOnMoved,
+            notifyOnDeleted
+          })
+        })
+      ) as WatchedPage[]
   }
 
   /**
@@ -253,8 +287,17 @@ class PageWatching {
    *
    * A watcher whose preference excludes this action type entirely (`wantsAction` false) is left out of
    * the result, not merely marked — there is nothing to queue for them.
+   *
+   * OpenProject #2173: also filtered through `read:pages`, checked fresh for each watcher's CURRENT
+   * group membership against the page's CURRENT (pre-delete, for a `deleted` action) path, locale,
+   * tags and classification — a watcher whose group has since lost the page entirely must not be
+   * queued a notification, mailed one, or have a `pageWatchEvents` row recorded for one at all. Joined
+   * against `pagesTable` rather than requiring the caller to pass the page's own fields in: this
+   * method already runs while the row still exists (see this class's `notifyWatchers`-facing doc
+   * comment above), so the live row is right there to read.
    */
   async listWatchers(
+    siteId: string,
     pageId: string,
     excludeUserId: string,
     action: PageWatchNotifiableAction
@@ -265,20 +308,47 @@ class PageWatching {
         notifyMode: watchingTable.notifyMode,
         notifyOnEdited: watchingTable.notifyOnEdited,
         notifyOnMoved: watchingTable.notifyOnMoved,
-        notifyOnDeleted: watchingTable.notifyOnDeleted
+        notifyOnDeleted: watchingTable.notifyOnDeleted,
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        tags: pagesTable.tags,
+        classification: pagesTable.classification
       })
       .from(watchingTable)
+      .innerJoin(pagesTable, eq(pagesTable.id, watchingTable.pageId))
       .where(and(eq(watchingTable.pageId, pageId), ne(watchingTable.userId, excludeUserId)))
-    return rows
+    const preferred = rows
       .map((row) => ({
         userId: row.userId,
+        path: row.path,
+        locale: row.locale,
+        tags: row.tags ?? [],
+        classification: row.classification ?? null,
         preference: resolvePreference({
           ...row,
           notifyMode: row.notifyMode as WatchNotifyMode | null
         })
       }))
       .filter(({ preference }) => wantsAction(preference, action))
-      .map(({ userId, preference }) => ({ userId, notifyMode: preference.notifyMode }))
+    if (preferred.length < 1) {
+      return []
+    }
+    const readable: { userId: string; notifyMode: WatchNotifyMode }[] = []
+    for (const watcher of preferred) {
+      const actor = await WIKI.models.groups.actorForUserId(watcher.userId)
+      if (
+        WIKI.models.groups.checkAccess(actor, 'read:pages', {
+          path: watcher.path,
+          siteId,
+          locale: watcher.locale,
+          tags: watcher.tags,
+          classification: watcher.classification
+        })
+      ) {
+        readable.push({ userId: watcher.userId, notifyMode: watcher.preference.notifyMode })
+      }
+    }
+    return readable
   }
 }
 

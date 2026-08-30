@@ -33,11 +33,13 @@ import configSvc from './core/config.ts'
 import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
+import { apiKeySitePinPreHandler } from './helpers/apiKeySite.ts'
 import { resolveAppShellLocale, templateAppShell } from './helpers/appShell.ts'
 import { assertValidAuthSecret } from './helpers/authSecret.ts'
 import {
   localePrefixRedirectTarget,
   localePrefixStripTarget,
+  normalizeHostname,
   resolveRequestSite,
   stripPageExtension
 } from './helpers/common.ts'
@@ -653,6 +655,22 @@ async function initHTTPServer() {
   })
 
   // ----------------------------------------
+  // API Key Site Pin
+  // ----------------------------------------
+
+  /*
+    OpenProject #2189/#2194: `apiKeys.siteId` pins a key to one site, but only 2 of the 117
+    `/sites/:siteId/...` routes ever checked it before this -- the other 115 evaluated the key's
+    group rules against whatever `:siteId` the URL named, with nothing stopping a key deliberately
+    narrowed to site A from reading, writing or deleting content on site B. One global preHandler
+    covers the whole surface at once, rather than each route remembering its own call -- see
+    `helpers/apiKeySite.ts`'s doc comments for the full reasoning and for the couple of routes that
+    resolve their site from somewhere other than `req.params.siteId` and still have to call
+    `enforceApiKeySite()` directly.
+  */
+  app.addHook('preHandler', apiKeySitePinPreHandler)
+
+  // ----------------------------------------
   // Permissions
   // ----------------------------------------
 
@@ -717,7 +735,7 @@ async function initHTTPServer() {
     if (isPageUrl(trimmed)) {
       // -> Straight off the site caches rather than through the model: this runs on every request, and
       //    both lookups are the ones `getSiteByHostname` would do, minus its optional reload
-      const siteId = WIKI.sitesMappings[req.hostname] || WIKI.sitesMappings['*']
+      const siteId = WIKI.sitesMappings[normalizeHostname(req.hostname)] || WIKI.sitesMappings['*']
       const siteConfig = WIKI.sites[siteId]?.config
       const withoutExtension = stripPageExtension(trimmed, siteConfig?.pageExtensions)
       if (withoutExtension) {
@@ -872,7 +890,7 @@ async function initHTTPServer() {
       const shell = await readFile(appShellPath, 'utf8')
       // -> Same site resolution as the SEO hook above: straight off the caches, since this also
       //    runs on every request that reaches the shell.
-      const siteId = WIKI.sitesMappings[req.hostname] || WIKI.sitesMappings['*']
+      const siteId = WIKI.sitesMappings[normalizeHostname(req.hostname)] || WIKI.sitesMappings['*']
       const siteConfig = WIKI.sites[siteId]?.config
       const lang = resolveAppShellLocale(urlPath!, urlSearch, siteConfig?.locales)
       const locales = await WIKI.models.locales.getLocales()

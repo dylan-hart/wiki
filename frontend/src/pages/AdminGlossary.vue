@@ -29,7 +29,7 @@
           flat
           color="indigo"
           @click="openVersionHistory">
-          <w-tooltip>{{ t('admin.glossary.versionHistory') }}</w-tooltip>
+          <w-tooltip labels>{{ t('admin.glossary.versionHistory') }}</w-tooltip>
         </w-btn>
         <w-btn
           class="acrylic-btn mr-2"
@@ -37,7 +37,7 @@
           flat
           color="indigo"
           @click="exportGlossary">
-          <w-tooltip>{{ t('common.actions.export') }}</w-tooltip>
+          <w-tooltip labels>{{ t('common.actions.export') }}</w-tooltip>
         </w-btn>
         <w-btn
           class="acrylic-btn mr-2"
@@ -45,7 +45,7 @@
           flat
           color="indigo"
           @click="openImportDialog">
-          <w-tooltip>{{ t('common.actions.import') }}</w-tooltip>
+          <w-tooltip labels>{{ t('common.actions.import') }}</w-tooltip>
         </w-btn>
         <w-btn
           v-if="isDirty"

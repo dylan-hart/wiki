@@ -1,13 +1,15 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import {
   hasTestDatabase,
   setupTestDb,
   teardownTestDb,
   type TestFixtures
 } from '../../../test/db.ts'
+import { groups as groupsTable } from '../../../db/schema.ts'
 import type { PageActor, PageInput } from '../../../models/pages.ts'
+import type { GroupRule } from '../../../models/groups.ts'
 
 /**
  * Task #561 moved every bit of postgres full-text logic (`dictionaryForLocale`, `searchPages` ->
@@ -27,12 +29,14 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let pagesModel: typeof import('../../../models/pages.ts').pages
   let searchModel: typeof import('../../../models/search.ts').search
+  let groupsModel: typeof import('../../../models/groups.ts').groups
   let actor: PageActor
 
   before(async () => {
     fixtures = await setupTestDb()
     ;({ pages: pagesModel } = await import('../../../models/pages.ts'))
     ;({ search: searchModel } = await import('../../../models/search.ts'))
+    ;({ groups: groupsModel } = await import('../../../models/groups.ts'))
     actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
   })
 
@@ -243,6 +247,102 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
     // -> Sanity check: the same query against the same page finds it once access is not blocked
     const unfiltered = await searchModel.query({ siteId: fixtures.siteId, query: 'numbat' })
     assert.equal(unfiltered.totalHits, 1)
+  })
+
+  /**
+   * OpenProject #2151: `totalHits` used to be derived from the SQL window count corrected only for
+   * rows dropped from the CURRENT page, so a match on a page the actor could not read still
+   * inflated the total even when it never appeared in `results` — a count oracle. `limit=1` against
+   * a corpus with two matches, one denied, is the audit's own repro: before the fix this reported
+   * `totalHits: 1` (the correction only ever subtracted what was dropped from the single fetched
+   * row, so a distinct denied match elsewhere in the result set was still counted). `totalHits` must
+   * now never exceed the number of matches the actor can actually read, at every `limit`.
+   */
+  test('totalHits never exceeds the number of readable matches, including at limit=1 (OpenProject #2151)', async () => {
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({
+        path: 'docs/wallaroo-public',
+        title: 'Wallaroo Public Notes',
+        content: '# Wallaroo\n\nEveryone may read this one.'
+      }),
+      actor
+    )
+    const secretPage = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({
+        path: 'docs/wallaroo-secret',
+        title: 'Wallaroo Secret Notes',
+        content: '# Wallaroo\n\nNobody but an admin may read this one.'
+      }),
+      actor
+    )
+
+    const rules: GroupRule[] = [
+      {
+        id: 'allow-all',
+        name: 'Allow all',
+        roles: ['read:pages'],
+        match: 'START',
+        mode: 'ALLOW',
+        path: '',
+        locales: [],
+        sites: []
+      },
+      {
+        id: 'deny-secret',
+        name: 'Deny secret',
+        roles: ['read:pages'],
+        match: 'EXACT',
+        mode: 'DENY',
+        path: secretPage.path,
+        locales: [],
+        sites: []
+      }
+    ]
+    await fixtures.db.update(groupsTable).set({ rules }).where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    /** Denies `read:pages` on exactly the secret page, and allows everything else. */
+    const restrictedActor: PageActor = {
+      id: fixtures.userId,
+      groupIds: [fixtures.groupId],
+      permissions: []
+    }
+
+    // -> Sanity check: the restricted actor really can read one and not the other
+    assert.equal(
+      groupsModel.checkAccess(restrictedActor as any, 'read:pages', {
+        path: 'docs/wallaroo-public',
+        locale: 'en',
+        siteId: fixtures.siteId,
+        classification: null
+      }),
+      true
+    )
+    assert.equal(
+      groupsModel.checkAccess(restrictedActor as any, 'read:pages', {
+        path: secretPage.path,
+        locale: 'en',
+        siteId: fixtures.siteId,
+        classification: null
+      }),
+      false
+    )
+
+    for (const limit of [1, 10]) {
+      const result = await searchModel.query({
+        siteId: fixtures.siteId,
+        query: 'wallaroo',
+        actor: restrictedActor,
+        limit
+      })
+      assert.equal(result.totalHits, 1, `expected exactly 1 readable match at limit=${limit}`)
+      assert.ok(
+        result.results.every((r) => r.path !== secretPage.path),
+        'the denied page must never appear in results, at any limit'
+      )
+    }
   })
 
   /**

@@ -191,6 +191,7 @@
             flat
             color="grey"
             type="a"
+            :aria-label="t(`common.actions.viewDocs`)"
             :href="siteStore.docsBase + `/admin/permissions#rules`"
             target="_blank" />
           <w-btn
@@ -199,7 +200,7 @@
             color="indigo"
             icon="la:file-export"
             @click="exportRules">
-            <w-tooltip>{{ t('admin.groups.exportRules') }}</w-tooltip>
+            <w-tooltip labels>{{ t('admin.groups.exportRules') }}</w-tooltip>
           </w-btn>
           <w-btn
             class="acrylic-btn mr-2"
@@ -208,7 +209,7 @@
             icon="la:file-import"
             v-if="canManage"
             @click="importRules">
-            <w-tooltip>{{ t('admin.groups.importRules') }}</w-tooltip>
+            <w-tooltip labels>{{ t('admin.groups.importRules') }}</w-tooltip>
           </w-btn>
           <w-btn
             v-if="canManage"
@@ -307,6 +308,7 @@
                       padding="sm sm"
                       size="md"
                       v-if="canManage"
+                      :aria-label="t(`common.actions.delete`)"
                       @click="deleteRule(rule.id)" />
                   </w-card-section>
                   <w-card-section horizontal>
@@ -490,6 +492,7 @@
                       flat
                       color="grey"
                       type="a"
+                      :aria-label="t(`common.actions.viewDocs`)"
                       :href="siteStore.docsBase + `/admin/permissions#system-permissions`"
                       target="_blank" />
                   </template>
@@ -534,6 +537,7 @@
             flat
             color="grey"
             type="a"
+            :aria-label="t(`common.actions.viewDocs`)"
             :href="siteStore.docsBase + `/admin/groups#users`"
             target="_blank" />
           <w-input
@@ -549,6 +553,7 @@
             icon="la:redo-alt"
             flat
             color="secondary"
+            :aria-label="t(`common.actions.refresh`)"
             @click="refreshUsers" />
           <w-btn
             class="mr-1"

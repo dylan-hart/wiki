@@ -17,7 +17,6 @@ import {
 } from '../helpers/common.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
 import { PAGE_PERMISSIONS } from '../helpers/permissions.ts'
-import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 
 /**
@@ -89,7 +88,8 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
       permissions: req.apiKey.permissions,
       groupIds: req.apiKey.groupIds,
       scope: req.apiKey.scope,
-      allowedClassifications: req.apiKey.allowedClassifications
+      allowedClassifications: req.apiKey.allowedClassifications,
+      siteId: req.apiKey.siteId
     }
   }
   if (!req.session?.authenticated || !req.session.user?.id) {
@@ -514,7 +514,8 @@ async function routes(app: FastifyInstance) {
       //    DENY is ignored and why this can't be asked per page the way `mayOnPage()` is elsewhere.
       const maySeeEverything = WIKI.models.groups.mayHoldPermissionSomewhere(
         accessActor,
-        PAGE_PASSWORD_BYPASS_ROLES
+        PAGE_PASSWORD_BYPASS_ROLES,
+        req.params.siteId
       )
       return WIKI.models.search.query({
         siteId: req.params.siteId,
@@ -665,10 +666,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> A site-scoped key may not reach a site it isn't scoped to; see `helpers/apiKeySite.ts`.
-      if (!enforceApiKeySite(req, reply, req.params.siteId)) {
-        return reply
-      }
+      // -> A site-scoped key may not reach a site it isn't scoped to -- now enforced globally by
+      //    `apiKeySitePinPreHandler` in `index.ts` for every `/sites/:siteId/...` route, this one
+      //    included; see `helpers/apiKeySite.ts`.
       const isId = isValidUuid(req.params.pageIdOrHash)
       const actor = actorFrom(req)
       // -> The source is what an editor loads, and editing is not something an anonymous reader does
@@ -863,10 +863,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> A site-scoped key may not reach a site it isn't scoped to; see `helpers/apiKeySite.ts`.
-      if (!enforceApiKeySite(req, reply, req.params.siteId)) {
-        return reply
-      }
+      // -> A site-scoped key may not reach a site it isn't scoped to -- now enforced globally by
+      //    `apiKeySitePinPreHandler` in `index.ts` for every `/sites/:siteId/...` route, this one
+      //    included; see `helpers/apiKeySite.ts`.
       const actor = actorFrom(req)
       if (!actor) {
         return reply.unauthorized('Saving a page requires a logged in user.')
@@ -2165,7 +2164,12 @@ async function routes(app: FastifyInstance) {
     async (req) => {
       const rows = await WIKI.models.pageHistory.listRecoverable(req.params.siteId)
       return rows.filter((row) =>
-        mayOnPage(req, 'read:history', req.params.siteId, { path: row.path, locale: row.locale })
+        mayOnPage(req, 'read:history', req.params.siteId, {
+          path: row.path,
+          locale: row.locale,
+          tags: row.tags,
+          classification: row.classification
+        })
       )
     }
   )
@@ -2236,6 +2240,23 @@ async function routes(app: FastifyInstance) {
       )
       if (!version) {
         return reply.notFound('No deleted version exists with this id.')
+      }
+      // -> OpenProject #2168: a source-side check, ahead of the destination one below. Holding
+      //    `write:pages` on where the page is going back to says nothing about being allowed to read
+      //    what it actually contained -- without this, a caller who was denied `read:pages`/
+      //    `read:source` at the path it was deleted from could still recover it into anywhere they
+      //    hold `write:pages`, reading and republishing source they were never allowed to read.
+      const source = {
+        path: version.path,
+        locale: version.locale,
+        tags: version.tags,
+        classification: version.classification
+      }
+      if (
+        !mayOnPage(req, 'read:pages', req.params.siteId, source) ||
+        !mayOnPage(req, 'read:source', req.params.siteId, source)
+      ) {
+        return reply.forbidden('You are not allowed to read the page being recovered.')
       }
       const overrides = req.body ?? {}
       const target = {

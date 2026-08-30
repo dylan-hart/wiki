@@ -3,7 +3,11 @@ import assert from 'node:assert/strict'
 import type { FastifyRequest } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { groups as groupsTable } from '../db/schema.ts'
+import {
+  groups as groupsTable,
+  userGroups as userGroupsTable,
+  users as usersTable
+} from '../db/schema.ts'
 import { groups, type GroupRule } from './groups.ts'
 import { GUEST_SCENARIO_RULES, GUEST_SCENARIO_CASES } from '../test/permissionScenario.ts'
 
@@ -106,8 +110,39 @@ describe('groups.actorForRequest', () => {
       groupIds: ['key-group'],
       permissions: ['read:pages'],
       scope: ['read:pages'],
-      allowedClassifications: null
+      allowedClassifications: null,
+      siteId: null
     })
+  })
+
+  /**
+   * OpenProject #2189/#2199: `actorForRequest()` is where an API key's site pin reaches
+   * `AccessActor` at all -- `checkAccess()`/`checkSiteAccess()` only ever see what this returns.
+   */
+  test("carries a site-pinned API key's siteId through onto the actor", () => {
+    const req = {
+      apiKey: {
+        id: 'key-1',
+        userId: null,
+        permissions: ['read:pages'],
+        groupIds: ['key-group'],
+        siteId: 'site-1',
+        scope: null
+      }
+    } as unknown as FastifyRequest
+    assert.equal(groups.actorForRequest(req).siteId, 'site-1')
+  })
+
+  test('a session-authenticated request (no API key) always gets a null siteId', () => {
+    const req = {
+      session: {
+        authenticated: true,
+        user: { id: 'user-1' },
+        groups: ['g'],
+        permissions: ['read:pages']
+      }
+    } as unknown as FastifyRequest
+    assert.equal(groups.actorForRequest(req).siteId, null)
   })
 
   test("an unscoped API key's null scope comes through as null, not absent", () => {
@@ -327,7 +362,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
     assert.equal(
-      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages']),
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages'], null),
       true
     )
   })
@@ -337,7 +372,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
     assert.equal(
-      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages']),
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages'], null),
       false
     )
   })
@@ -346,7 +381,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await setGroupRules([])
 
     const actor = { groupIds: [fixtures.groupId], permissions: ['manage:system'] }
-    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), true)
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], null), true)
   })
 
   test('mayHoldPermissionSomewhere ignores a DENY rule elsewhere: it answers "holds it somewhere", not "may use it here"', async () => {
@@ -356,7 +391,45 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     ])
 
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
-    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), true)
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], null), true)
+  })
+
+  /**
+   * OpenProject #2162: `mayHoldPermissionSomewhere()` used to pool every rule regardless of the
+   * rule's own `sites` scoping, so a delegation deliberately narrowed to one site read as "holds it
+   * somewhere" for every other site too. A concrete `siteId` now applies the same `rule.sites`
+   * match filter `ruleMatchesPage()` applies for a real page; `null` applies none, for the rare
+   * caller (the icon picker) that is genuinely asking an instance-wide question.
+   */
+  test('mayHoldPermissionSomewhere applies the rule.sites filter for a concrete siteId', async () => {
+    await setGroupRules([rule({ roles: ['write:pages'], sites: [fixtures.siteId] })])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], fixtures.siteId),
+      true
+    )
+    assert.equal(
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], 'some-other-site-id'),
+      false
+    )
+  })
+
+  test('mayHoldPermissionSomewhere with a null siteId applies no site filter at all', async () => {
+    await setGroupRules([rule({ roles: ['write:pages'], sites: [fixtures.siteId] })])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], null), true)
+  })
+
+  test('mayHoldPermissionSomewhere still matches an unscoped rule (empty sites) for any concrete siteId', async () => {
+    await setGroupRules([rule({ roles: ['write:pages'], sites: [] })])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], 'any-site-id'),
+      true
+    )
   })
 
   /**
@@ -449,9 +522,9 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages', 'write:pages'] })])
 
     const scoped = { groupIds: [fixtures.groupId], permissions: [], scope: ['read:pages'] }
-    assert.equal(groupsModel.mayHoldPermissionSomewhere(scoped, ['write:pages']), false)
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(scoped, ['write:pages'], null), false)
     assert.equal(
-      groupsModel.mayHoldPermissionSomewhere(scoped, ['read:pages', 'write:pages']),
+      groupsModel.mayHoldPermissionSomewhere(scoped, ['read:pages', 'write:pages'], null),
       true
     )
   })
@@ -491,6 +564,100 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(groupsModel.checkAccess(uncapped, 'read:pages', restrictedPage), true)
 
     await levelsModel.delete(restricted.id)
+  })
+
+  /**
+   * OpenProject #2119: `allowedClassifications` now compares BEFORE the `manage:system` bypass, not
+   * after -- a credential narrowing is the administrator's own choice at mint time, not a page rule
+   * `manage:system` is entitled to override. Locks down the reordering in `checkAccess()`.
+   */
+  test('allowedClassifications refuses even a manage:system-holding actor on a page outside its allow-set (OpenProject #2119)', async () => {
+    await setGroupRules([])
+    const levelsModel = (await import('./classificationLevels.ts')).classificationLevels
+    const restricted = await levelsModel.create({ name: 'Test Restricted 2119', sortOrder: 99 })
+
+    const cappedAdmin = {
+      groupIds: [fixtures.groupId],
+      permissions: ['manage:system'],
+      allowedClassifications: [fixtures.classificationId]
+    }
+    const restrictedPage = {
+      path: 'restricted-page-2119',
+      locale: 'en',
+      siteId: null,
+      classification: restricted.id
+    }
+    const publicPage = {
+      path: 'public-page-2119',
+      locale: 'en',
+      siteId: null,
+      classification: fixtures.classificationId
+    }
+
+    assert.equal(groupsModel.checkAccess(cappedAdmin, 'read:pages', restrictedPage), false)
+    // -> manage:system still bypasses the (absent) rules for a page within the allow-set
+    assert.equal(groupsModel.checkAccess(cappedAdmin, 'read:pages', publicPage), true)
+
+    await levelsModel.delete(restricted.id)
+  })
+
+  /**
+   * OpenProject #2189/#2199: `AccessActor.siteId` closes `checkAccess()` itself against a foreign
+   * site, engine-side rather than only at the routing layer -- an actor built from an API key
+   * pinned to one site must never be granted a page permission on ANOTHER site's page, even a
+   * `manage:system`-holding one, for the same "administrator's own choice at mint time" reasoning
+   * #2119 established for `allowedClassifications`.
+   */
+  test('a site-pinned actor is refused on a page belonging to a different site, even holding manage:system (OpenProject #2199)', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW' })])
+    const pinnedAdmin = {
+      groupIds: [fixtures.groupId],
+      permissions: ['manage:system'],
+      siteId: fixtures.siteId
+    }
+    const ownSitePage = {
+      path: 'own-site-page',
+      locale: 'en',
+      siteId: fixtures.siteId,
+      classification: null
+    }
+    const foreignSitePage = {
+      path: 'foreign-site-page',
+      locale: 'en',
+      siteId: 'some-other-site-id',
+      classification: null
+    }
+
+    assert.equal(groupsModel.checkAccess(pinnedAdmin, 'read:pages', ownSitePage), true)
+    assert.equal(groupsModel.checkAccess(pinnedAdmin, 'read:pages', foreignSitePage), false)
+  })
+
+  test('a site-pinned actor is unaffected when the page ref has no known siteId (null)', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW' })])
+    const pinned = { groupIds: [fixtures.groupId], permissions: [], siteId: fixtures.siteId }
+    assert.equal(
+      groupsModel.checkAccess(pinned, 'read:pages', {
+        path: 'some-asset',
+        locale: 'en',
+        siteId: null,
+        classification: null
+      }),
+      true
+    )
+  })
+
+  test('an unpinned actor (siteId absent/null) is unaffected by the site check', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW' })])
+    const unpinned = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(
+      groupsModel.checkAccess(unpinned, 'read:pages', {
+        path: 'any-site-page',
+        locale: 'en',
+        siteId: 'any-site-id',
+        classification: null
+      }),
+      true
+    )
   })
 
   test('allowedClassifications does not gate a page whose own classification is unknown (null)', async () => {
@@ -537,6 +704,65 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         `expected read:pages on '${path}' to be ${expected} (${note})`
       )
     }
+  })
+})
+
+/**
+ * `groups.actorForUserId` (OpenProject #2173) — the `AccessActor` counterpart to `actorForRequest`
+ * for a code path that has only a stored `userId`, no live request: a page-watch notification is
+ * queued once at change time but sent, and read from the inbox, much later, so the actor it checks
+ * `read:pages` against has to be resolved fresh from CURRENT group membership rather than carried
+ * from whenever the watch was first set up.
+ */
+describe('groups.actorForUserId (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let groupsModel: typeof import('./groups.ts').groups
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ groups: groupsModel } = await import('./groups.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  async function makeUser(email: string): Promise<string> {
+    const [user] = await fixtures.db
+      .insert(usersTable)
+      .values({ email, name: email, isActive: true, isVerified: true })
+      .returning({ id: usersTable.id })
+    return user!.id
+  }
+
+  test('a user in no group at all resolves to the empty actor', async () => {
+    const userId = await makeUser('actor-for-user-no-group@example.com')
+    assert.deepEqual(await groupsModel.actorForUserId(userId), {
+      groupIds: [],
+      permissions: []
+    })
+  })
+
+  test("resolves the user's current groupIds and the union of those groups' global permissions", async () => {
+    const userId = await makeUser('actor-for-user-with-group@example.com')
+    await fixtures.db.insert(userGroupsTable).values({ userId, groupId: fixtures.groupId })
+    await fixtures.db
+      .update(groupsTable)
+      .set({ permissions: ['manage:navigation'] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+
+    const actor = await groupsModel.actorForUserId(userId)
+    assert.deepEqual(actor.groupIds, [fixtures.groupId])
+    assert.deepEqual(actor.permissions, ['manage:navigation'])
+  })
+
+  test('reflects a group membership change made after the caller last resolved this user', async () => {
+    const userId = await makeUser('actor-for-user-live@example.com')
+    assert.deepEqual((await groupsModel.actorForUserId(userId)).groupIds, [])
+
+    await fixtures.db.insert(userGroupsTable).values({ userId, groupId: fixtures.groupId })
+
+    assert.deepEqual((await groupsModel.actorForUserId(userId)).groupIds, [fixtures.groupId])
   })
 })
 
@@ -648,6 +874,28 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
 
     const actor = { groupIds: [fixtures.groupId], permissions: ['manage:system'] }
     assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', fixtures.siteId), true)
+  })
+
+  /**
+   * OpenProject #2189/#2199: same engine-level closure as `checkAccess()` -- a site-pinned actor
+   * (an API key's `siteId`) is refused `checkSiteAccess()` for any OTHER site, even a
+   * `manage:system`-holding one, ahead of that bypass for the same "administrator's own choice at
+   * mint time" reasoning.
+   */
+  test('a site-pinned actor is refused checkSiteAccess for a different site, even holding manage:system (OpenProject #2199)', async () => {
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [rule({ sites: [] })] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    const pinnedAdmin = {
+      groupIds: [fixtures.groupId],
+      permissions: ['manage:system'],
+      siteId: fixtures.siteId
+    }
+    assert.equal(groupsModel.checkSiteAccess(pinnedAdmin, 'site:theme', fixtures.siteId), true)
+    assert.equal(groupsModel.checkSiteAccess(pinnedAdmin, 'site:theme', 'some-other-site'), false)
   })
 
   test('a group with no matching rule denies rather than falling through to allow', async () => {
