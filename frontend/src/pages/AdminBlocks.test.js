@@ -10,7 +10,7 @@ import WBtn from '@/components/shared/WBtn.vue'
 import WInput from '@/components/shared/WInput.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
-import { dialog } from '@/composables/dialog'
+import { closeDialog, dialog, openDialogs } from '@/composables/dialog'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -264,6 +264,59 @@ describe('AdminBlocks credentials list', () => {
         }
       })
     )
+  })
+})
+
+/**
+ * OpenProject #2039: `deleteCredential()` and `deleteBlock()` used to pass `cancel: true, persistent:
+ * true` but never `color`/`okLabel`, leaving a primary-blue OK on an irreversible delete. Both now
+ * match the reference treatment (`AdminIcons.vue`'s `confirmDeleteSet()`).
+ */
+describe('AdminBlocks destructive confirmations', () => {
+  it('deleteCredential() opens a negative-coloured, delete-labelled confirmation', async () => {
+    const wrapper = await mountAdminBlocks(
+      [],
+      [{ id: 'cred-1', siteId: 'site-1', name: 'Weather API', createdAt: '', updatedAt: '' }]
+    )
+
+    const deleteBtn = wrapper.find('[aria-label="common.actions.delete"]')
+    expect(deleteBtn.exists()).toBe(true)
+    await deleteBtn.trigger('click')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props.color).toBe('negative')
+    expect(openDialogs[0].props.cancel).toBe(true)
+    expect(openDialogs[0].props.okLabel).toBe('common.actions.delete')
+
+    closeDialog(openDialogs[0].id, false)
+  })
+
+  it('deleteBlock() opens a negative-coloured, delete-labelled confirmation', async () => {
+    const customBlock = {
+      id: 'custom-1',
+      block: 'custom-block',
+      name: 'Custom Block',
+      description: 'A custom block',
+      icon: 'puzzle-piece',
+      isEnabled: true,
+      isCustom: true,
+      config: {},
+      configFields: [],
+      props: [],
+      template: ''
+    }
+    const wrapper = await mountAdminBlocks([customBlock])
+
+    const deleteBtn = wrapper.find('[aria-label="common.actions.delete"]')
+    expect(deleteBtn.exists()).toBe(true)
+    await deleteBtn.trigger('click')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props.color).toBe('negative')
+    expect(openDialogs[0].props.cancel).toBe(true)
+    expect(openDialogs[0].props.okLabel).toBe('common.actions.delete')
+
+    closeDialog(openDialogs[0].id, false)
   })
 })
 

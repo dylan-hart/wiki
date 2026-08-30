@@ -56,6 +56,17 @@
         </tr>
       </tbody>
     </table>
+    <!--
+      Rendered once `filter` (or the caller's own pre-filtering of `rows`) has driven the visible set
+      to zero -- not merely `rows.length === 0`, so a filter that legitimately matches nothing does not
+      flash the caller's "nothing exists yet" wording. `totalRows`/`filter` are exposed so a caller
+      using this component's own `filter` prop can tell the two cases apart without keeping its own
+      copy of the unfiltered count; a caller that filters `rows` itself before passing them in (as
+      `AdminNavigation.vue` does) already has that distinction from its own state and can ignore both.
+    -->
+    <div v-if="visibleRows.length === 0 && !loading" class="w-table__no-data">
+      <slot name="no-data" :totalRows="rows.length" :filter="filter" />
+    </div>
     <w-inner-loading :showing="loading" />
   </div>
 </template>
@@ -74,6 +85,12 @@ import { computed, reactive } from 'vue'
  * scrolling, no top/bottom slots. Every call site passed `:rows-per-page-options="[0]"` and
  * `hide-bottom`, i.e. "show all rows, no footer", so the whole paging apparatus was dead weight.
  * Sorting is kept because several tables mark columns sortable and the header is visible there.
+ *
+ * An empty result renders the caller's own `#no-data` slot content instead of an empty `<table>`,
+ * gated on `!loading` so a fetch in flight doesn't flash it before the first response lands. The
+ * slot receives `{ totalRows, filter }` (the raw `rows` prop length and the current `filter` prop)
+ * so a caller can distinguish "nothing exists yet" from "nothing matched the filter" -- see the
+ * template comment just above the slot for how that reads for a caller that filters `rows` itself.
  */
 const props = defineProps({
   rows: {

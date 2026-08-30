@@ -55,27 +55,26 @@
     <w-separator inset />
     <div class="p-4 gap-4">
       <template v-if="state.displayMode === `scheduled`">
-        <w-card
-          class="rounded"
-          v-if="state.scheduledJobs.length < 1 && state.loading < 1"
-          flat
-          :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
-          <w-card-section class="items-center" horizontal>
-            <w-card-section class="flex-none pr-0">
-              <w-icon name="la:info-circle" size="sm" />
-            </w-card-section>
-            <w-card-section class="text-caption">{{
-              t('admin.scheduler.scheduledNone')
-            }}</w-card-section>
-          </w-card-section>
-        </w-card>
-        <w-card v-else>
+        <w-card>
           <w-table
             :rows="state.scheduledJobs"
             :columns="scheduledJobsHeaders"
             row-key="id"
             flat
             :loading="state.loading > 0">
+            <template #no-data>
+              <w-card-section
+                class="items-center rounded"
+                horizontal
+                :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
+                <w-card-section class="flex-none pr-0">
+                  <w-icon name="la:info-circle" size="sm" />
+                </w-card-section>
+                <w-card-section class="text-caption">{{
+                  t('admin.scheduler.scheduledNone')
+                }}</w-card-section>
+              </w-card-section>
+            </template>
             <template v-slot:body-cell-id="props">
               <w-td :props="props">
                 <!--
@@ -147,27 +146,26 @@
         </w-card>
       </template>
       <template v-else-if="state.displayMode === `upcoming`">
-        <w-card
-          class="rounded"
-          v-if="state.upcomingJobs.length < 1 && state.loading < 1"
-          flat
-          :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
-          <w-card-section class="items-center" horizontal>
-            <w-card-section class="flex-none pr-0">
-              <w-icon name="la:info-circle" size="sm" />
-            </w-card-section>
-            <w-card-section class="text-caption">{{
-              t('admin.scheduler.upcomingNone')
-            }}</w-card-section>
-          </w-card-section>
-        </w-card>
-        <w-card v-else>
+        <w-card>
           <w-table
             :rows="state.upcomingJobs"
             :columns="upcomingJobsHeaders"
             row-key="id"
             flat
             :loading="state.loading > 0">
+            <template #no-data>
+              <w-card-section
+                class="items-center rounded"
+                horizontal
+                :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
+                <w-card-section class="flex-none pr-0">
+                  <w-icon name="la:info-circle" size="sm" />
+                </w-card-section>
+                <w-card-section class="text-caption">{{
+                  t('admin.scheduler.upcomingNone')
+                }}</w-card-section>
+              </w-card-section>
+            </template>
             <template v-slot:body-cell-id="props">
               <w-td :props="props"><w-icon name="la:clock" color="primary" size="sm" /></w-td>
             </template>
@@ -237,27 +235,26 @@
         </w-card>
       </template>
       <template v-else>
-        <w-card
-          class="rounded"
-          v-if="state.jobs.length < 1 && state.loading < 1"
-          flat
-          :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
-          <w-card-section class="items-center" horizontal>
-            <w-card-section class="flex-none pr-0">
-              <w-icon name="la:info-circle" size="sm" />
-            </w-card-section>
-            <w-card-section class="text-caption">{{
-              t('admin.scheduler.' + state.displayMode + 'None')
-            }}</w-card-section>
-          </w-card-section>
-        </w-card>
-        <w-card v-else>
+        <w-card>
           <w-table
             :rows="state.jobs"
             :columns="jobsHeaders"
             row-key="id"
             flat
             :loading="state.loading > 0">
+            <template #no-data>
+              <w-card-section
+                class="items-center rounded"
+                horizontal
+                :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
+                <w-card-section class="flex-none pr-0">
+                  <w-icon name="la:info-circle" size="sm" />
+                </w-card-section>
+                <w-card-section class="text-caption">{{
+                  t('admin.scheduler.' + state.displayMode + 'None')
+                }}</w-card-section>
+              </w-card-section>
+            </template>
             <template v-slot:body-cell-id="props">
               <w-td :props="props">
                 <w-avatar

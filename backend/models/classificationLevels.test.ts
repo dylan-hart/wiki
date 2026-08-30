@@ -35,14 +35,47 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
       [0, 1, 2]
     )
 
-    const extra = await levelsModel.create({ name: 'Extra', sortOrder: 3 })
+    const extra = await levelsModel.create({ name: 'Extra' })
+    assert.equal(extra.sortOrder, 3)
     assert.equal(levelsModel.list().length, 4)
     await levelsModel.delete(extra.id)
     assert.equal(levelsModel.list().length, 3)
   })
 
+  /**
+   * OpenProject #1651: the collision this closes -- deleting out of the middle of the seeded
+   * Public(0)/Internal(1)/Restricted(2) used to leave a gap ({0, 2}) that the next append landed on,
+   * colliding with the level already sitting there.
+   */
+  test('delete-then-create does not produce a sortOrder collision', async () => {
+    const seeded = levelsModel.list()
+    assert.equal(seeded.length, 3)
+    const middle = seeded[1]!
+
+    await levelsModel.delete(middle.id)
+    const afterDelete = levelsModel.list()
+    assert.equal(afterDelete.length, 2)
+    assert.deepEqual(
+      afterDelete.map((l) => l.sortOrder),
+      [0, 1]
+    )
+
+    const created = await levelsModel.create({ name: 'Replacement' })
+    const afterCreate = levelsModel.list()
+    const sortOrders = afterCreate.map((l) => l.sortOrder)
+    assert.deepEqual(sortOrders, [0, 1, 2])
+    assert.equal(new Set(sortOrders).size, sortOrders.length, 'no two levels share a sortOrder')
+    assert.equal(created.sortOrder, 2)
+
+    // -> Restore the baseline count for the tests that follow
+    await levelsModel.delete(created.id)
+    await levelsModel.create({ name: middle.name })
+  })
+
   test('defaultLevel() is the most-open (lowest sortOrder) level', async () => {
-    const openest = await levelsModel.create({ name: 'Openest', sortOrder: -5 })
+    const openest = await levelsModel.create({ name: 'Openest' })
+    const rest = levelsModel.list().filter((l) => l.id !== openest.id)
+    await levelsModel.reorder([openest.id, ...rest.map((l) => l.id)])
     assert.equal(levelsModel.defaultLevel().id, openest.id)
     // -> Restore the baseline sortOrder ordering for the tests that follow
     await levelsModel.delete(openest.id)
@@ -50,8 +83,8 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
   test('meetsFloor: at or above the floor is satisfied, below it is not', async () => {
     const publicId = fixtures.classificationId
-    const internal = await levelsModel.create({ name: 'Meets-Floor Internal', sortOrder: 10 })
-    const restricted = await levelsModel.create({ name: 'Meets-Floor Restricted', sortOrder: 11 })
+    const internal = await levelsModel.create({ name: 'Meets-Floor Internal' })
+    const restricted = await levelsModel.create({ name: 'Meets-Floor Restricted' })
 
     assert.equal(levelsModel.meetsFloor(internal.id, publicId), true)
     assert.equal(levelsModel.meetsFloor(restricted.id, internal.id), true)
@@ -66,6 +99,45 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
   test('meetsFloor fails closed for an id that does not resolve to a real level', () => {
     assert.equal(levelsModel.meetsFloor('no-such-level', fixtures.classificationId), false)
     assert.equal(levelsModel.meetsFloor(fixtures.classificationId, 'no-such-level'), false)
+  })
+
+  /**
+   * OpenProject #1651: `meetsFloor`/`isLowerThan` both compare raw `sortOrder` values, so they are
+   * only as correct as the numbers `delete()` leaves behind. This proves they answer correctly once
+   * a delete has renumbered the set out from under them -- not against the original sortOrder a level
+   * happened to be seeded or created with.
+   */
+  test('meetsFloor/isLowerThan answer correctly across a renumbered set', async () => {
+    const publicId = fixtures.classificationId
+    const seeded = levelsModel.list()
+    const internalId = seeded[1]!.id
+    const restrictedId = seeded[2]!.id
+
+    // -> Before delete: Restricted(2) is stricter than Internal(1), which is stricter than Public(0)
+    assert.equal(levelsModel.meetsFloor(restrictedId, internalId), true)
+    assert.equal(levelsModel.isLowerThan(publicId, internalId), true)
+
+    await levelsModel.delete(internalId)
+    // -> Restricted is renumbered from 2 down to 1; a stale cached "2" would still (accidentally)
+    //    compare correctly against Public's 0, so the real proof is the next append not colliding.
+    assert.deepEqual(
+      levelsModel.list().map((l) => l.sortOrder),
+      [0, 1]
+    )
+    assert.equal(levelsModel.meetsFloor(restrictedId, publicId), true)
+    assert.equal(levelsModel.isLowerThan(publicId, restrictedId), true)
+
+    const created = await levelsModel.create({ name: 'New Middle' })
+    // -> created lands at 2 (max+1), one past the renumbered Restricted at 1 -- not a collision, and
+    //    not the stale "3" a caller trusting the pre-delete numbering would have produced
+    assert.equal(created.sortOrder, 2)
+    assert.equal(levelsModel.meetsFloor(created.id, restrictedId), true)
+    assert.equal(levelsModel.isLowerThan(restrictedId, created.id), true)
+    assert.equal(levelsModel.meetsFloor(restrictedId, created.id), false)
+
+    // -> Restore the baseline count for the tests that follow
+    await levelsModel.delete(created.id)
+    await levelsModel.create({ name: 'Internal' })
   })
 
   /**
@@ -86,7 +158,7 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
   test('stricterOf returns whichever id has the higher sortOrder', async () => {
     const publicId = fixtures.classificationId
-    const internal = await levelsModel.create({ name: 'StricterOf Internal', sortOrder: 20 })
+    const internal = await levelsModel.create({ name: 'StricterOf Internal' })
 
     assert.equal(levelsModel.stricterOf(publicId, internal.id), internal.id)
     assert.equal(levelsModel.stricterOf(internal.id, publicId), internal.id)
@@ -97,7 +169,7 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
   })
 
   test('stricterOf falls back to whichever id still resolves when the other has been deleted out from under it', async () => {
-    const gone = await levelsModel.create({ name: 'Deleted Before Compare', sortOrder: 30 })
+    const gone = await levelsModel.create({ name: 'Deleted Before Compare' })
     const goneId = gone.id
     await levelsModel.delete(goneId)
 
@@ -112,11 +184,19 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
   })
 
   test('reorder assigns sortOrder = position in the given array', async () => {
-    const a = await levelsModel.create({ name: 'Reorder A', sortOrder: 100 })
-    const b = await levelsModel.create({ name: 'Reorder B', sortOrder: 101 })
-    const c = await levelsModel.create({ name: 'Reorder C', sortOrder: 102 })
+    // -> The unique index on sortOrder (OpenProject #1654) means a partial reorder call would
+    //    collide its target 0..N-1 positions against whatever baseline levels still hold them --
+    //    the same "every existing level must be named" contract `api/classificationLevels.ts`'s
+    //    `/reorder` route documents, so name every level currently in play, not just the three new
+    //    ones under test. `create()` no longer accepts a caller-supplied `sortOrder` (OpenProject
+    //    #1651) -- it always appends after the current max, so these three land wherever the
+    //    baseline currently ends.
+    const baselineIds = levelsModel.list().map((level) => level.id)
+    const a = await levelsModel.create({ name: 'Reorder A' })
+    const b = await levelsModel.create({ name: 'Reorder B' })
+    const c = await levelsModel.create({ name: 'Reorder C' })
 
-    await levelsModel.reorder([c.id, a.id, b.id])
+    await levelsModel.reorder([c.id, a.id, b.id, ...baselineIds])
 
     const byId = new Map(levelsModel.list().map((l) => [l.id, l]))
     assert.equal(byId.get(c.id)!.sortOrder, 0)
@@ -143,12 +223,12 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
     )
 
     // -> Restore the baseline for any test that runs after this one
-    await levelsModel.create({ name: before[1]!.name, sortOrder: before[1]!.sortOrder })
-    await levelsModel.create({ name: before[2]!.name, sortOrder: before[2]!.sortOrder })
+    await levelsModel.create({ name: before[1]!.name })
+    await levelsModel.create({ name: before[2]!.name })
   })
 
   test('delete refuses to remove a level a page still carries', async () => {
-    const inUse = await levelsModel.create({ name: 'In Use', sortOrder: 40 })
+    const inUse = await levelsModel.create({ name: 'In Use' })
     await fixtures.db.execute(
       `INSERT INTO pages (locale, path, hash, title, editor, "contentType", "authorId", "creatorId", "ownerId", "siteId", classification)
        VALUES ('en', 'classification-delete-guard', 'classification-delete-guard', 'Guard', 'markdown', 'markdown', '${fixtures.userId}', '${fixtures.userId}', '${fixtures.userId}', '${fixtures.siteId}', '${inUse.id}')`
@@ -169,7 +249,7 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
    * array still has to be caught, not just an exact single-element match.
    */
   test('delete refuses to remove a level an API key still names in its allowedClassifications', async () => {
-    const inUse = await levelsModel.create({ name: 'Guarded By Key', sortOrder: 41 })
+    const inUse = await levelsModel.create({ name: 'Guarded By Key' })
     await fixtures.db.execute(
       `INSERT INTO "apiKeys" (name, "keyShort", "allowedClassifications")
        VALUES ('Guard Key', 'abcd1234', '["${fixtures.classificationId}", "${inUse.id}"]')`
@@ -183,10 +263,11 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
   })
 
   test('update validates the name and applies a partial patch', async () => {
-    const level = await levelsModel.create({ name: 'Renameable', sortOrder: 50 })
+    const level = await levelsModel.create({ name: 'Renameable' })
     const updated = await levelsModel.update(level.id, { name: 'Renamed' })
     assert.equal(updated?.name, 'Renamed')
-    assert.equal(updated?.sortOrder, 50)
+    // -> `update()` has no way to change `sortOrder` (OpenProject #1651) -- renaming leaves it as-is
+    assert.equal(updated?.sortOrder, level.sortOrder)
 
     await assert.rejects(levelsModel.update(level.id, { name: '   ' }), /needs a name/i)
 
@@ -195,5 +276,27 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
   test('create refuses an empty name', async () => {
     await assert.rejects(levelsModel.create({ name: '  ' }), /needs a name/i)
+  })
+
+  /**
+   * OpenProject #1654: the unique index on `classificationLevels.sortOrder`
+   * (`db/schema.ts`) is what `meetsFloor`/`isLowerThan` depend on staying collision-free at the
+   * database level, independent of whatever the write paths above already guard against. A direct
+   * insert (raw SQL, bypassing `create()` entirely) proves the constraint itself is what refuses the
+   * collision, not merely application-level validation.
+   */
+  test('sortOrder has a unique constraint at the database level', async () => {
+    const dupeSortOrder = levelsModel.byId(fixtures.classificationId)!.sortOrder
+
+    await assert.rejects(
+      fixtures.db.execute(
+        `INSERT INTO "classificationLevels" (name, "sortOrder") VALUES ('Duplicate Sort Order', ${dupeSortOrder})`
+      ),
+      // -> Drizzle wraps the raw pg error as a `DrizzleQueryError` whose own `.message` is just
+      //    "Failed query: ..." -- the actual constraint-violation text pg reports is nested on
+      //    `.cause`, which `assert.rejects`' RegExp form only ever matches against the top-level
+      //    message, so this validates the cause directly instead.
+      (err: any) => /duplicate key value violates unique constraint/i.test(err?.cause?.message)
+    )
   })
 })

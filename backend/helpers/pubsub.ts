@@ -125,6 +125,7 @@ export async function connectListener(opts: ListenerOptions): Promise<ListenerHa
       }
       WIKI.logger.warn(`Lost the ${label} listener connection, reconnecting: ${err.message}`)
       setClient(null)
+      client.release(true)
       void reconnect()
     })
   }

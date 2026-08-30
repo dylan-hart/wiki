@@ -4,6 +4,7 @@ import { createI18n } from 'vue-i18n'
 
 import BlueprintIcon from './BlueprintIcon.vue'
 import ApiKeyCopyDialog from './ApiKeyCopyDialog.vue'
+import { queue as notifyQueue } from '@/composables/notify'
 
 /**
  * Covers #1117: the dialog's `mcpInstallCommand` computed builds a ready-to-paste `claude mcp add`
@@ -72,5 +73,79 @@ describe('ApiKeyCopyDialog mcp install command', () => {
     await wrapper.vm.copyMcpInstallCommand()
 
     expect(writeText).toHaveBeenCalledWith(wrapper.vm.mcpInstallCommand)
+  })
+})
+
+/**
+ * OpenProject #2052: the dialog is opened from both the admin API-key form and the user Personal
+ * Access Token form, but hardcoded every string to the `admin.api.*` family. `labelPrefix` (mirroring
+ * `ApiKeyRevokeDialog`'s own prop of the same name) lets each caller supply its own vocabulary.
+ */
+function mountWithPrefix(props) {
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    messages: {
+      en: {
+        admin: {
+          api: {
+            copyKeyTitle: 'Copy API Key',
+            key: 'API Key',
+            copySuccess: 'API key copied to the clipboard.',
+            copyFailed: 'Could not copy the API key to the clipboard.'
+          }
+        },
+        profile: {
+          api: {
+            copyKeyTitle: 'Copy Access Token',
+            key: 'Access Token',
+            copySuccess: 'Token copied to the clipboard.',
+            copyFailed: 'Could not copy the token to the clipboard.'
+          }
+        }
+      }
+    }
+  })
+  return mount(ApiKeyCopyDialog, {
+    props: { keyValue: 'wiki_abc123.def456', ...props },
+    global: {
+      plugins: [i18n],
+      components: { BlueprintIcon }
+    }
+  })
+}
+
+describe('ApiKeyCopyDialog labelPrefix', () => {
+  it('defaults to the admin label namespace, unchanged from before the prop existed', () => {
+    const wrapper = mountWithPrefix()
+
+    expect(wrapper.vm.labelPrefix).toBe('admin.api')
+    expect(wrapper.vm.t(`${wrapper.vm.labelPrefix}.copyKeyTitle`)).toBe('Copy API Key')
+    expect(wrapper.vm.t(`${wrapper.vm.labelPrefix}.key`)).toBe('API Key')
+  })
+
+  it('renders its own vocabulary when given the profile label namespace', () => {
+    const wrapper = mountWithPrefix({ labelPrefix: 'profile.api' })
+
+    expect(wrapper.vm.labelPrefix).toBe('profile.api')
+    expect(wrapper.vm.t(`${wrapper.vm.labelPrefix}.copyKeyTitle`)).toBe('Copy Access Token')
+    expect(wrapper.vm.t(`${wrapper.vm.labelPrefix}.key`)).toBe('Access Token')
+  })
+
+  it('notifies using the given label namespace on copy success', async () => {
+    notifyQueue.splice(0, notifyQueue.length)
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true
+    })
+
+    const wrapper = mountWithPrefix({ labelPrefix: 'profile.api' })
+    await wrapper.vm.copyKey()
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: 'Token copied to the clipboard.'
+    })
   })
 })

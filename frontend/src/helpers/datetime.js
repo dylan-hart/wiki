@@ -2,10 +2,15 @@
  * Date and duration rendering for the admin tables, in the reader's own locale.
  *
  * Shared because three screens had grown their own copy of the same walk down a units table — one of
- * them under a different name — and the copies had already started to drift. What stays local to a
- * screen is ABSOLUTE formatting: the scheduler spells out seconds because a job's timing is the point,
- * where the instances table does not, and anything a user chose a pattern for goes through
- * `userStore.formatDate()` instead.
+ * them under a different name — and the copies had already started to drift. `humanizeDate` and
+ * `humanizeDateWithSeconds` below close a second, larger case of the same drift: fifteen screens had
+ * each grown their own ABSOLUTE-timestamp formatter, calling `Temporal.Instant.prototype.toLocaleString`
+ * directly with a hardcoded field list in the browser's system zone — ignoring the `timezone`,
+ * `dateFormat` and `timeFormat` a user actually chose in their profile. Both delegate to
+ * `userStore.formatDateTime`, the single source of truth for those three preferences (built on
+ * `toUserZone`, `stores/user.js:39-52`); `humanizeDateWithSeconds` exists because two screens — the
+ * scheduler and the webhook delivery history — have the job/attempt's exact timing as the point of the
+ * row, where the default minute precision would be a regression.
  *
  * `Intl` rather than a formatting library: the browser already knows how the reader's locale words
  * "3 minutes ago" and "1h 4m 32s", which is what luxon's `toRelative()` and `Duration.toHuman()` were
@@ -18,6 +23,37 @@
  * app to a different one. Read fresh on every call instead: cheap (a cache hit is a `Map.get`), and it
  * is what makes a live locale switch take effect with no reload.
  */
+import { useUserStore } from '@/stores/user'
+
+/**
+ * An absolute moment, in this user's own timezone, date pattern and 12h/24h choice — minute precision.
+ *
+ * @param t The screen's `useI18n()` translator, for `common.datetime`'s word order.
+ * @param value A `Temporal.Instant`, a `Date`, or a string one can be parsed from — what the API
+ *   returns. Nullable columns are common, so nothing at all renders as the placeholder rather than
+ *   blowing up mid-render.
+ * @returns {string} e.g. `2026-08-25 at 14:32`, or `---` for nothing at all.
+ */
+export function humanizeDate(t, value) {
+  if (!value) {
+    return '---'
+  }
+  return useUserStore().formatDateTime(t, value)
+}
+
+/**
+ * Same as `humanizeDate`, with seconds. For the two screens where the precision IS the point — a job's
+ * scheduled run (`AdminScheduler.vue`), a webhook delivery attempt (`WebhookHistoryDialog.vue`) —
+ * flattening onto the minute-precision `humanizeDate` above would be a regression.
+ *
+ * @returns {string} e.g. `2026-08-25 at 14:32:07`, or `---` for nothing at all.
+ */
+export function humanizeDateWithSeconds(t, value) {
+  if (!value) {
+    return '---'
+  }
+  return useUserStore().formatDateTime(t, value, { seconds: true })
+}
 
 import { useCommonStore } from '@/stores/common'
 

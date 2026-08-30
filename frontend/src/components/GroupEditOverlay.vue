@@ -566,12 +566,6 @@
         </w-toolbar>
         <w-separator />
         <div class="p-4">
-          <w-banner
-            v-if="!state.users || state.users.length < 1"
-            rounded
-            :class="dark.isActive ? `bg-negative text-white` : `bg-grey-4 text-grey-9`"
-            >{{ t('admin.groups.usersNone') }}</w-banner
-          >
           <w-card class="shadow-1">
             <w-table
               :rows="state.users"
@@ -580,6 +574,13 @@
               flat
               hide-header
               :loading="state.isLoadingUsers">
+              <template #no-data>
+                <w-banner
+                  rounded
+                  :class="dark.isActive ? `bg-negative text-white` : `bg-grey-4 text-grey-9`"
+                  >{{ t('admin.groups.usersNone') }}</w-banner
+                >
+              </template>
               <template #body-cell-id="props">
                 <w-td :props="props"><w-icon name="la:user" color="primary" size="sm" /></w-td>
               </template>
@@ -1379,7 +1380,9 @@ async function unassignUser(user) {
     title: t('admin.groups.unassignUser'),
     message: t('admin.groups.unassignUserConfirm', { userName: user.name }),
     cancel: true,
-    persistent: true
+    persistent: true,
+    color: 'negative',
+    okLabel: t('common.actions.delete')
   }).onOk(async () => {
     state.isLoadingUsers = true
     try {

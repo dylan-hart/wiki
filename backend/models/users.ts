@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import QRCode from 'qrcode'
 import {
@@ -930,10 +931,14 @@ class Users {
    */
   async setAvatar(userId: string, data: Buffer): Promise<void> {
     const normalized = (await resizeImageToSquareJpeg(data, avatarSize)) ?? data
+    // -> Kept in step with `data` on every write -- `hash` is NOT NULL with no default, and this is
+    //    the same sha1-hex digest `controllers/user.ts` computes from the blob for its ETag, so a
+    //    future hash-only reader agrees with what a full blob read would have produced.
+    const hash = crypto.createHash('sha1').update(normalized).digest('hex')
     await WIKI.db
       .insert(userAvatars)
-      .values({ id: userId, data: normalized })
-      .onConflictDoUpdate({ target: userAvatars.id, set: { data: normalized } })
+      .values({ id: userId, data: normalized, hash })
+      .onConflictDoUpdate({ target: userAvatars.id, set: { data: normalized, hash } })
     await WIKI.db
       .update(usersTable)
       .set({ hasAvatar: true, updatedAt: sql`now()` })

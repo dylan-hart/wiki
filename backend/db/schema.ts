@@ -388,15 +388,19 @@ export const blockCredentials = pgTable(
  *
  * Instance-wide, not per-site, mirroring `groups` itself.
  */
-export const classificationLevels = pgTable('classificationLevels', {
-  id: uuid().primaryKey().defaultRandom(),
-  name: varchar({ length: 255 }).notNull(),
-  // -> Lower is more open. This is the floor-invariant ordering (#1080) and the display order --
-  //    independent of insertion order or id, both of which an admin cannot rearrange by renaming.
-  sortOrder: integer().notNull().default(0),
-  createdAt: timestamp().notNull().defaultNow(),
-  updatedAt: timestamp().notNull().defaultNow()
-})
+export const classificationLevels = pgTable(
+  'classificationLevels',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    name: varchar({ length: 255 }).notNull(),
+    // -> Lower is more open. This is the floor-invariant ordering (#1080) and the display order --
+    //    independent of insertion order or id, both of which an admin cannot rearrange by renaming.
+    sortOrder: integer().notNull().default(0),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [uniqueIndex('classificationLevels_sortOrder_idx').on(table.sortOrder)]
+)
 
 // GROUPS ------------------------------
 export const groups = pgTable('groups', {
@@ -598,15 +602,24 @@ export const jobHistory = pgTable(
 )
 
 // JOB SCHEDULE ------------------------
-export const jobSchedule = pgTable('jobSchedule', {
-  id: uuid().primaryKey().defaultRandom(),
-  task: varchar({ length: 255 }).notNull(),
-  cron: varchar({ length: 255 }).notNull(),
-  type: varchar({ length: 255 }).notNull().default('system'),
-  payload: jsonb(),
-  createdAt: timestamp().notNull().defaultNow(),
-  updatedAt: timestamp().notNull().defaultNow()
-})
+export const jobSchedule = pgTable(
+  'jobSchedule',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    task: varchar({ length: 255 }).notNull(),
+    cron: varchar({ length: 255 }).notNull(),
+    type: varchar({ length: 255 }).notNull().default('system'),
+    payload: jsonb(),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [
+    // Defence in depth behind the boot-time advisory lock (see
+    // `core/scheduler.ts`'s cron-seeding path): a duplicate `task` value must be rejected at the
+    // db, not merely absorbed silently if the lock is ever bypassed or a seed runs twice.
+    uniqueIndex('jobSchedule_task_idx').on(table.task)
+  ]
+)
 
 // JOB LOCK ----------------------------
 export const jobLock = pgTable('jobLock', {
@@ -616,19 +629,29 @@ export const jobLock = pgTable('jobLock', {
 })
 
 // JOBS --------------------------------
-export const jobs = pgTable('jobs', {
-  id: uuid().primaryKey().defaultRandom(),
-  task: varchar({ length: 255 }).notNull(),
-  useWorker: boolean().notNull().default(false),
-  payload: jsonb(),
-  retries: integer().notNull().default(0),
-  maxRetries: integer().notNull().default(0),
-  waitUntil: timestamp(),
-  isScheduled: boolean().notNull().default(false),
-  createdBy: varchar({ length: 255 }),
-  createdAt: timestamp().notNull().defaultNow(),
-  updatedAt: timestamp().notNull().defaultNow()
-})
+export const jobs = pgTable(
+  'jobs',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    task: varchar({ length: 255 }).notNull(),
+    useWorker: boolean().notNull().default(false),
+    payload: jsonb(),
+    retries: integer().notNull().default(0),
+    maxRetries: integer().notNull().default(0),
+    waitUntil: timestamp(),
+    isScheduled: boolean().notNull().default(false),
+    createdBy: varchar({ length: 255 }),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [
+    // -> Supports `core/scheduler.ts#processJob`'s claim subquery, which orders by
+    //    `waitUntil ASC NULLS FIRST, createdAt ASC` under `FOR UPDATE SKIP LOCKED` (matching
+    //    `models/jobs.ts#getUpcoming()`) rather than by `id` -- this table previously carried no
+    //    index beyond the primary key, which otherwise sorts a sequential scan on every poll.
+    index('jobs_waitUntil_createdAt_idx').on(table.waitUntil, table.createdAt)
+  ]
+)
 
 // LOCALES -----------------------------
 export const locales = pgTable(
@@ -1428,7 +1451,10 @@ export const siteAssets = pgTable(
       .notNull()
       .references(() => sites.id),
     kind: varchar({ length: 255 }).notNull(),
-    data: bytea().notNull()
+    data: bytea().notNull(),
+    // -> sha1 hex digest of `data`, kept in sync by every write path -- lets a conditional request
+    //    (ETag) be answered without reading the blob back out of the database.
+    hash: varchar({ length: 255 }).notNull()
   },
   (table) => [primaryKey({ columns: [table.siteId, table.kind] })]
 )
@@ -1513,7 +1539,9 @@ export const tree = pgTable(
     locale: varchar({ length: 255 }).notNull(),
     title: varchar({ length: 255 }).notNull(),
     navigationMode: treeNavigationModeEnum('navigationMode').notNull().default('inherit'),
-    navigationId: uuid(),
+    // -> `set null` on delete: a tree row whose menu was deleted falls back to the site menu at
+    //    render (see `models/navigation.ts`), so there is no reason to block or cascade the delete.
+    navigationId: uuid().references(() => navigation.id, { onDelete: 'set null' }),
     tags: text()
       .array()
       .notNull()
@@ -1554,7 +1582,10 @@ export const tree = pgTable(
 // USER AVATARS ------------------------
 export const userAvatars = pgTable('userAvatars', {
   id: uuid().primaryKey(),
-  data: bytea().notNull()
+  data: bytea().notNull(),
+  // -> sha1 hex digest of `data`, kept in sync by every write path -- lets a conditional request
+  //    (ETag) be answered without reading the blob back out of the database.
+  hash: varchar({ length: 255 }).notNull()
 })
 
 // USER KEYS ---------------------------

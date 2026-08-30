@@ -344,6 +344,28 @@ describe('GroupEditOverlay assignUser partial failure', () => {
 })
 
 /**
+ * OpenProject #2039: `unassignUser()` used to pass `cancel: true, persistent: true` but never
+ * `color`/`okLabel`, leaving a primary-blue OK on an irreversible unassign. Now matches the reference
+ * treatment (`AdminIcons.vue`'s `confirmDeleteSet()`).
+ */
+describe('GroupEditOverlay unassignUser confirmation', () => {
+  it('opens a negative-coloured, delete-labelled confirmation', async () => {
+    const wrapper = await mountWithGroup()
+
+    const unassignBtn = wrapper.find('[aria-label="admin.groups.unassignUser"]')
+    expect(unassignBtn.exists()).toBe(true)
+    await unassignBtn.trigger('click')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props.color).toBe('negative')
+    expect(openDialogs[0].props.cancel).toBe(true)
+    expect(openDialogs[0].props.okLabel).toBe('common.actions.delete')
+
+    closeDialog(openDialogs[0].id, false)
+  })
+})
+
+/**
  * OpenProject #1079: the rule editor's match dropdown gains a `CLASSIFICATION` option, which reads
  * `rule.classifications` (a level-id multi-select) rather than `rule.path` (the plain text input
  * every other match kind shares) -- `PagePropertiesDialog.vue`'s own picker is covered separately, at

@@ -45,9 +45,13 @@ defaults:
       maxRetries: 2
       retryBackoff: 60
       historyExpiration: 90000
-      # How long, in seconds, a job running in a worker thread may take before the scheduler stops
-      # waiting for it and counts it as failed. A safety net rather than a schedule: a worker thread
-      # that dies mid-task never answers at all, and without a ceiling the scheduler waits forever.
+      # How long, in seconds, a job may take before the scheduler stops waiting for it and counts it
+      # as failed. Applies to both worker-thread jobs (aborted via AbortSignal, plus a backup timer
+      # for a worker that dies mid-task and never answers at all) and in-process jobs (raced against
+      # a timer only -- an in-process task cannot actually be aborted, so the scheduler's own
+      # bookkeeping becoming finite is the point: without this, a task whose promise never settles
+      # -- `withAdvisoryLock` waiting past its own lock_timeout is the documented case -- permanently
+      # strands the worker slot it holds). A safety net rather than a schedule either way.
       taskTimeout: 300
       # How long, in seconds, a job may sit marked as running before it is assumed that whatever was
       # running it is gone, and it is requeued. Deliberately generous: it has to outlast the longest

@@ -3,12 +3,12 @@
     <w-card style="min-width: 600px">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-key-2.svg" size="sm" class="mr-2" />
-        <span>{{ t(`admin.api.copyKeyTitle`) }}</span>
+        <span>{{ t(`${labelPrefix}.copyKeyTitle`) }}</span>
       </w-card-section>
       <w-card-section class="card-negative">
-        <i18n-t tag="span" keypath="admin.api.newKeyCopyWarn" scope="global">
+        <i18n-t tag="span" :keypath="`${labelPrefix}.newKeyCopyWarn`" scope="global">
           <template #bold>
-            <strong>{{ t('admin.api.newKeyCopyWarnBold') }}</strong>
+            <strong>{{ t(`${labelPrefix}.newKeyCopyWarnBold`) }}</strong>
           </template>
         </i18n-t>
       </w-card-section>
@@ -23,7 +23,7 @@
               readonly
               dense
               hide-bottom-space
-              :label="t(`admin.api.key`)"
+              :label="t(`${labelPrefix}.key`)"
               autofocus />
           </w-item-section>
         </w-item>
@@ -96,6 +96,14 @@ const props = defineProps({
   keyValue: {
     type: String,
     required: true
+  },
+  // -> `admin.api.*` for the admin-issued key flow, `profile.api.*` for the self-service personal
+  //    access token flow -- the two string sets say the same things ("Copy Access Token", ...) under
+  //    different i18n namespaces, since a personal token isn't an admin's "API Key" to the reader
+  //    holding it. `admin.api.mcpInstallCommand*` is genuinely global and is not routed through this.
+  labelPrefix: {
+    type: String,
+    default: 'admin.api'
   }
 })
 
@@ -136,12 +144,12 @@ async function copyKey() {
     await copyToClipboard(props.keyValue)
     notify({
       type: 'positive',
-      message: t('admin.api.copySuccess')
+      message: t(`${props.labelPrefix}.copySuccess`)
     })
   } catch (err) {
     notify({
       type: 'negative',
-      message: t('admin.api.copyFailed'),
+      message: t(`${props.labelPrefix}.copyFailed`),
       caption: err.message
     })
   }

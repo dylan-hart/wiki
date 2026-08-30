@@ -22,18 +22,30 @@ import maintenance from './maintenance.ts'
  * Built here rather than on the object below because `notifyViaDB` is handed to Emittery as a bare
  * listener and so has no `this` to reach it through. The client is read per send for the same reason
  * it is elsewhere: it does not exist until `subscribeToNotifications`.
+ *
+ * The getter is defensive (`WIKI.dbManager?.pubsubClient`) rather than a bare dereference: this module
+ * is also imported from `worker.ts` (transitively, as part of the task-loading import graph), whose own
+ * minimal `WIKI` never sets `dbManager` at all — no worker task currently emits an outbound event, so
+ * this getter has never actually been invoked from a worker thread, but a bare `WIKI.dbManager.pubsubClient`
+ * would throw `TypeError: Cannot read properties of undefined` the moment one did, rather than degrading
+ * to the silent no-op `createNotifier`'s own contract already documents for "nobody currently has a live
+ * LISTEN client".
  */
-const notifier = createNotifier(() => WIKI.dbManager.pubsubClient, 'event bus')
+const notifier = createNotifier(() => WIKI.dbManager?.pubsubClient ?? null, 'event bus')
 
 /**
  * Postgres extensions the schema depends on, installed before the migrations run.
  *
  * `ltree` types the folder paths of the page tree and answers the ancestor queries the navigation is
- * built from; `pg_trgm` backs fuzzy text matching. `pgcrypto` used to be here for `gen_random_uuid()`,
- * which every primary key defaults to — that has been core since Postgres 13, and 16 is the minimum
- * this runs on, so nothing needs it any more.
+ * built from; `pg_trgm` backs fuzzy text matching. `pgcrypto` was dropped from this list once for
+ * `gen_random_uuid()` (core since Postgres 13, and 16 is the minimum this runs on) but is back for
+ * `digest()`: the `userAvatars`/`siteAssets` hash-column migration
+ * (`db/migrations/20260825203005_main`) backfills a sha1 hex digest of every existing row's blob, and
+ * any future one-time backfill needing a digest can reach for it the same way. Listed here rather
+ * than as a `CREATE EXTENSION` preamble hand-written into that migration's own SQL for the reason
+ * explained below: a migration file cannot express it durably.
  */
-const REQUIRED_EXTENSIONS = ['ltree', 'pg_trgm']
+const REQUIRED_EXTENSIONS = ['ltree', 'pg_trgm', 'pgcrypto']
 
 /**
  * Tables whose presence means the database belongs to a Wiki.js 2.x installation.
@@ -187,6 +199,23 @@ export default {
       options: `-c search_path=${WIKI.config.db.schema}`
     })
 
+    // -> `Pool extends EventEmitter`, and node-postgres emits `error` on it whenever a checked-in,
+    //    idle client's connection fails (a Postgres restart, a failover, an idle-in-transaction
+    //    timeout, a network-side idle reap) -- `pg-pool`'s `makeIdleListener` discards the client
+    //    itself and re-emits the error on the pool. With no listener attached, an `EventEmitter`
+    //    re-throws an unhandled `error` event as an uncaught exception, and nothing in this codebase
+    //    registers an `uncaughtException` handler, so that would otherwise crash the whole process on
+    //    something as ordinary as a routine database maintenance restart. `connectListener`
+    //    (`helpers/pubsub.ts`) already gets this right for the three dedicated LISTEN clients; this is
+    //    the same treatment for the main pool every other query goes through. Logging is the whole
+    //    fix -- node-postgres has already discarded the broken client, so the next checkout simply
+    //    opens a fresh connection.
+    this.pool.on('error', (err: any, client: any) => {
+      WIKI.logger.error(
+        `Postgres pool error${err.code ? ` (${err.code})` : ''}${client ? ` on a checked-in client` : ''}: ${err.message}`
+      )
+    })
+
     const db = createDb(this.pool)
 
     // Connect
@@ -228,15 +257,16 @@ export default {
    * mirror that faithfully on the sending side rather than trying to paper over it: a send with no
    * live client is a silent no-op, never buffered.
    *
-   * All five current subscribers below already tolerate a missed notification, but not for the same
+   * All current subscribers below already tolerate a missed notification, but not for the same
    * reason a naive read of their code might suggest — none re-checks the DB on a timer:
    *  - `configSvc.subscribeToEvents()`'s `reloadConfig` handler, `maintenance.subscribeToEvents()`'s
-   *    `flushCaches`/`disconnectWebsockets` handlers, and `groups`/`sites`/`approvals`'
-   *    `reloadGroups`/`reloadSites`/`reloadApprovals` handlers (each model's own `broadcastReload()`
-   *    is what emits the matching outbound event, right after refreshing this instance's own cache —
-   *    see `models/groups.ts`'s `broadcastReload()` for the shape every one of them follows) are
-   *    purely edge-triggered. A missed one has no independent side channel back except another
-   *    matching event later, or this instance's own restart.
+   *    `flushCaches`/`disconnectWebsockets` handlers, and `groups`/`sites`/`approvals`/
+   *    `classificationLevels`/`glossary`/`locales`' `reloadGroups`/`reloadSites`/`reloadApprovals`/
+   *    `reloadClassificationLevels`/`reloadGlossary`/`reloadLocales` handlers (each model's own
+   *    `broadcastReload()` is what emits the matching outbound event, right after refreshing this
+   *    instance's own cache — see `models/groups.ts`'s `broadcastReload()` for the shape every one of
+   *    them follows) are purely edge-triggered. A missed one has no independent side channel back
+   *    except another matching event later, or this instance's own restart.
    *  - What actually closes the common case is `index.ts`: `preBoot()` calls
    *    `configSvc.loadFromDb()` and `postBoot()` calls `groups`/`sites`/`locales`/`approvals`
    *    `.reloadCache()` **unconditionally on every boot**, not gated on any notification having
@@ -298,6 +328,9 @@ export default {
     WIKI.models.groups.subscribeToEvents()
     WIKI.models.sites.subscribeToEvents()
     WIKI.models.approvals.subscribeToEvents()
+    WIKI.models.classificationLevels.subscribeToEvents()
+    WIKI.models.glossary.subscribeToEvents()
+    WIKI.models.locales.subscribeToEvents()
     // WIKI.db.pages.subscribeToEvents()
 
     WIKI.logger.info('Event Listener initialized successfully: [ OK ]')
@@ -383,34 +416,57 @@ export default {
   },
   /**
    * Migrate DB Schemas
+   *
+   * The schema/extension setup and the migration run are held under one session-scoped Postgres
+   * advisory lock ('wiki:migrate'), taken on a dedicated client checked out of `this.pool` rather than
+   * through drizzle's own query interface — the lock and its release must run on the exact same
+   * physical connection, the same constraint `helpers/advisoryLock.ts` documents and `test/db.ts`'s
+   * `createExtensionsSerialized` already follows. Drizzle's `migrate()` itself takes no lock (verified
+   * in the vendored source): two instances starting together against a fresh database both compute the
+   * same non-empty migration list and both try to apply it, and the loser's transaction fails on
+   * `relation already exists`. Serializing here closes that race; `index.ts#preBoot()` takes the same
+   * key around the is-empty check and first-run seed that follows this, as one atomic boot-time
+   * decision (they cannot share a single lock *acquisition*, since `WIKI.db` — what
+   * `helpers/advisoryLock.ts`'s shared `withAdvisoryLock` reads its connection from — does not exist
+   * yet at this point in boot).
    */
   async syncSchemas(db: WikiDb) {
     await this.checkForLegacyInstall(db)
 
-    WIKI.logger.info('Ensuring DB schema exists...')
-    await db.execute(`CREATE SCHEMA IF NOT EXISTS ${WIKI.config.db.schema}`)
+    const lockClient = await this.pool!.connect()
+    try {
+      await lockClient.query(`SELECT pg_advisory_lock(hashtext('wiki:migrate'))`)
+      try {
+        WIKI.logger.info('Ensuring DB schema exists...')
+        await db.execute(`CREATE SCHEMA IF NOT EXISTS ${WIKI.config.db.schema}`)
 
-    /*
-      Here rather than at the top of the first migration, for the same reason the schema itself is:
-      the migrations need these to exist and cannot express them.
+        /*
+          Here rather than at the top of the first migration, for the same reason the schema itself is:
+          the migrations need these to exist and cannot express them.
 
-      `drizzle-kit generate` builds a migration by diffing the schema definition against the previous
-      snapshot, and an extension is part of neither — so a hand-written `CREATE EXTENSION` preamble
-      survives only until somebody regenerates, at which point the very first migration fails on the
-      `ltree` column it can no longer create. Stated here, that cannot happen.
+          `drizzle-kit generate` builds a migration by diffing the schema definition against the previous
+          snapshot, and an extension is part of neither — so a hand-written `CREATE EXTENSION` preamble
+          survives only until somebody regenerates, at which point the very first migration fails on the
+          `ltree` column it can no longer create. Stated here, that cannot happen.
 
-      Idempotent, so a database whose extensions an administrator installed by hand is untouched.
-    */
-    WIKI.logger.info('Ensuring required DB extensions are installed...')
-    for (const extension of REQUIRED_EXTENSIONS) {
-      await db.execute(`CREATE EXTENSION IF NOT EXISTS ${extension}`)
+          Idempotent, so a database whose extensions an administrator installed by hand is untouched.
+        */
+        WIKI.logger.info('Ensuring required DB extensions are installed...')
+        for (const extension of REQUIRED_EXTENSIONS) {
+          await db.execute(`CREATE EXTENSION IF NOT EXISTS ${extension}`)
+        }
+
+        WIKI.logger.info('Ensuring DB migrations have been applied...')
+        return await migrate(db, {
+          migrationsFolder: path.join(WIKI.SERVERPATH, 'db/migrations'),
+          migrationsSchema: WIKI.config.db.schema,
+          migrationsTable: 'migrations'
+        })
+      } finally {
+        await lockClient.query(`SELECT pg_advisory_unlock(hashtext('wiki:migrate'))`)
+      }
+    } finally {
+      lockClient.release()
     }
-
-    WIKI.logger.info('Ensuring DB migrations have been applied...')
-    return migrate(db, {
-      migrationsFolder: path.join(WIKI.SERVERPATH, 'db/migrations'),
-      migrationsSchema: WIKI.config.db.schema,
-      migrationsTable: 'migrations'
-    })
   }
 }

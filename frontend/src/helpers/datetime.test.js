@@ -2,8 +2,71 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import { useCommonStore } from '@/stores/common'
+import { useUserStore } from '@/stores/user'
 
-import { humanizeDuration, humanizeIsoDuration, relativeDate } from './datetime.js'
+import {
+  humanizeDate,
+  humanizeDateWithSeconds,
+  humanizeDuration,
+  humanizeIsoDuration,
+  relativeDate
+} from './datetime.js'
+
+// -> Mirrors `common.datetime`'s real "{date} at {time}" shape (`backend/locales/en.json`) closely
+//    enough to assert on, without pulling the actual i18n instance into a helpers unit test.
+const t = (key, params) => `${params.date} at ${params.time}`
+
+describe('humanizeDate', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('returns the placeholder for a null/empty value', () => {
+    expect(humanizeDate(t, null)).toBe('---')
+    expect(humanizeDate(t, '')).toBe('---')
+  })
+
+  it("renders in the user's stored non-system timezone and date pattern, at minute precision", () => {
+    const store = useUserStore()
+    store.timezone = 'Asia/Tokyo'
+    store.dateFormat = 'DD/MM/YYYY'
+    store.timeFormat = '24h'
+
+    // -> 2026-08-25T03:15:42Z is 2026-08-25 12:15:42 in Asia/Tokyo (UTC+9)
+    expect(humanizeDate(t, '2026-08-25T03:15:42Z')).toBe('25/08/2026 at 12:15')
+  })
+})
+
+describe('humanizeDateWithSeconds', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+  })
+
+  it('returns the placeholder for a null/empty value', () => {
+    expect(humanizeDateWithSeconds(t, null)).toBe('---')
+    expect(humanizeDateWithSeconds(t, '')).toBe('---')
+  })
+
+  it("renders in the user's stored timezone with seconds included", () => {
+    const store = useUserStore()
+    store.timezone = 'Asia/Tokyo'
+    store.dateFormat = 'DD/MM/YYYY'
+    store.timeFormat = '24h'
+
+    expect(humanizeDateWithSeconds(t, '2026-08-25T03:15:42Z')).toBe('25/08/2026 at 12:15:42')
+  })
+
+  it('is strictly more precise than humanizeDate for the same instant', () => {
+    const store = useUserStore()
+    store.timezone = 'Asia/Tokyo'
+    store.dateFormat = 'DD/MM/YYYY'
+    store.timeFormat = '24h'
+
+    expect(humanizeDateWithSeconds(t, '2026-08-25T03:15:42Z')).not.toBe(
+      humanizeDate(t, '2026-08-25T03:15:42Z')
+    )
+  })
+})
 
 beforeEach(() => {
   setActivePinia(createPinia())

@@ -398,8 +398,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     test('returns every page and asset at or below the folder, with real metadata, excluding the folder itself', async () => {
       const levelsModel = (await import('./classificationLevels.ts')).classificationLevels
       const restricted = await levelsModel.create({
-        name: 'Test Descendants Restricted',
-        sortOrder: 99
+        name: 'Test Descendants Restricted'
       })
 
       const reports = await treeModel.createFolder({

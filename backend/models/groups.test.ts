@@ -575,7 +575,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('an allowedClassifications-scoped actor is refused on a page outside its allow-set, even though a rule grants it (OpenProject #1205)', async () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW' })])
     const levelsModel = (await import('./classificationLevels.ts')).classificationLevels
-    const restricted = await levelsModel.create({ name: 'Test Restricted', sortOrder: 99 })
+    const restricted = await levelsModel.create({ name: 'Test Restricted' })
 
     const capped = {
       groupIds: [fixtures.groupId],
@@ -612,7 +612,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('allowedClassifications refuses even a manage:system-holding actor on a page outside its allow-set (OpenProject #2119)', async () => {
     await setGroupRules([])
     const levelsModel = (await import('./classificationLevels.ts')).classificationLevels
-    const restricted = await levelsModel.create({ name: 'Test Restricted 2119', sortOrder: 99 })
+    const restricted = await levelsModel.create({ name: 'Test Restricted 2119' })
 
     const cappedAdmin = {
       groupIds: [fixtures.groupId],
@@ -670,7 +670,11 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(groupsModel.checkAccess(pinnedAdmin, 'read:pages', foreignSitePage), false)
   })
 
-  test('a site-pinned actor is unaffected when the page ref has no known siteId (null)', async () => {
+  // -> Fails closed the same as a site-scoped rule (`ruleMatchesPage()` in `helpers/pageRules.ts`)
+  //    treats an unknown page siteId against a site-restricted rule -- see `withinSitePin()`'s own
+  //    doc comment. Locked down again, with a different page ref, at "a siteId-pinned actor is
+  //    refused checkAccess on a page ref with no site context at all (null)" below.
+  test('a site-pinned actor is refused when the page ref has no known siteId (null)', async () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW' })])
     const pinned = { groupIds: [fixtures.groupId], permissions: [], siteId: fixtures.siteId }
     assert.equal(
@@ -680,7 +684,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         siteId: null,
         classification: null
       }),
-      true
+      false
     )
   })
 

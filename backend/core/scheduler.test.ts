@@ -87,23 +87,26 @@ describe('addScheduled (fake WIKI)', () => {
               set: () => ({
                 where: async () => ({ rowCount: 1 })
               })
+            }),
+            // -> `addScheduled()` now reads both selects through `trx` rather than the ambient
+            //    `WIKI.db` pool handle (finding §15) -- same fake data, same table-dispatch shape as
+            //    `WIKI.db.select()` below.
+            select: () => ({
+              from: (table: any) => {
+                if (table === jobScheduleTable) {
+                  return scheduleJobsMock
+                }
+                if (table === jobsTable) {
+                  return { where: async () => existingJobsMock }
+                }
+                throw new Error(`Unexpected table in test fake: ${String(table)}`)
+              }
             })
           }),
-        select: () => ({
-          from: (table: any) => {
-            if (table === jobScheduleTable) {
-              return scheduleJobsMock
-            }
-            if (table === jobsTable) {
-              return { where: async () => existingJobsMock }
-            }
-            throw new Error(`Unexpected table in test fake: ${String(table)}`)
-          }
-        }),
         insert: (_table: any) => ({
           values: async (v: any) => {
             insertedJobs.push(v)
-            return {}
+            return { id: v.id ?? 'fake-id' }
           }
         })
       }
@@ -399,6 +402,55 @@ describe('executeOnWorker (real worker pool)', () => {
 })
 
 /**
+ * 2026-08-24 audit finding §2: `executeInProcess` gives an in-process task the same `taskTimeout`
+ * ceiling `executeOnWorker` already has for a worker-thread one. A pure-unit test, unlike
+ * `executeOnWorker`'s real-worker-pool suite above: there is no thread to crash here, only the
+ * scheduler's own bookkeeping to keep finite, so a task whose promise simply never resolves is
+ * enough to exercise it.
+ */
+describe('executeInProcess (fake WIKI)', () => {
+  let previousWiki: any
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = {
+      INSTANCE_ID: 'test-instance',
+      // -> Short enough to keep the suite fast.
+      config: { scheduler: { taskTimeout: 0.05 } },
+      logger: { info: () => {}, warn: () => {}, debug: () => {} }
+    }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('a task whose promise never settles is abandoned at the taskTimeout ceiling', async () => {
+    scheduler.tasks = {
+      // -> Never resolves or rejects, modeling `withAdvisoryLock` blocking forever on an
+      //    unavailable lock -- the documented real-world case (audit finding §2).
+      neverSettles: () => new Promise(() => {})
+    }
+    const start = Date.now()
+    await assert.rejects(
+      scheduler.executeInProcess({ task: 'neverSettles', payload: {}, id: 'job-1' }),
+      /did not complete within/
+    )
+    const elapsed = Date.now() - start
+    assert.ok(elapsed < 2000, `expected the taskTimeout ceiling (~50ms) to fire, took ${elapsed}ms`)
+  })
+
+  test('a task that resolves before the ceiling is not treated as timed out', async () => {
+    scheduler.tasks = {
+      quick: async () => {}
+    }
+    await assert.doesNotReject(
+      scheduler.executeInProcess({ task: 'quick', payload: {}, id: 'job-2' })
+    )
+  })
+})
+
+/**
  * Task 704 (b)/(c): `reapStaleJobs()`'s stale-claim recovery and its concurrency guarantee, plus a
  * regression for a bug this verification turned up in `processJob()`'s reclaim path — all run against
  * a real, migrated Postgres (see `test/db.ts`), not a mock of the query builder: the thing under test
@@ -678,3 +730,63 @@ describe(
     })
   }
 )
+
+/**
+ * OpenProject #2051: `jobSchedule.task` needs a unique index as defence in depth behind the
+ * boot-time advisory lock (Epic #2037) — this asserts the db itself rejects a duplicate `task`
+ * value, not just that the lock happens to prevent one in practice. Run against a real, migrated
+ * Postgres (see `test/db.ts`) because the thing under test *is* the generated migration's
+ * constraint, which a mock of the query builder couldn't verify.
+ */
+describe('jobSchedule.task unique index (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let scheduleIds: string[]
+
+  before(async () => {
+    fixtures = await setupTestDb()
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  beforeEach(() => {
+    scheduleIds = []
+  })
+
+  afterEach(async () => {
+    if (scheduleIds.length > 0) {
+      await fixtures.db.delete(jobScheduleTable).where(inArray(jobScheduleTable.id, scheduleIds))
+    }
+  })
+
+  test('allows a single jobSchedule row for a given task', async () => {
+    const [row] = await fixtures.db
+      .insert(jobScheduleTable)
+      .values({ task: 'uniqueTaskTest', cron: '0 0 * * *' })
+      .returning()
+    scheduleIds.push(row!.id)
+
+    assert.equal(row!.task, 'uniqueTaskTest')
+  })
+
+  test('rejects inserting a second jobSchedule row with an existing task value', async () => {
+    const [row] = await fixtures.db
+      .insert(jobScheduleTable)
+      .values({ task: 'duplicateTaskTest', cron: '0 0 * * *' })
+      .returning()
+    scheduleIds.push(row!.id)
+
+    await assert.rejects(
+      () =>
+        fixtures.db
+          .insert(jobScheduleTable)
+          .values({ task: 'duplicateTaskTest', cron: '0 12 * * *' }),
+      (err: any) => {
+        // Postgres unique_violation SQLSTATE, per the `jobSchedule_task_idx` unique index.
+        assert.equal(err.code ?? err.cause?.code, '23505')
+        return true
+      }
+    )
+  })
+})

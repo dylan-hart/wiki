@@ -83,24 +83,24 @@
         </w-card-section>
       </w-card>
 
-      <w-card
-        v-if="state.entries.length < 1"
-        flat
-        :class="dark.isActive ? `bg-dark-5` : `bg-grey-3`">
-        <w-card-section class="items-center" horizontal>
-          <w-card-section class="flex-none pr-0">
-            <w-icon name="la:info-circle" size="sm" />
-          </w-card-section>
-          <w-card-section class="text-caption">{{ t('admin.audit.none') }}</w-card-section>
-        </w-card-section>
-      </w-card>
-      <w-card v-else flat>
+      <w-card flat>
         <w-table
           :rows="state.entries"
           :columns="headers"
           row-key="id"
           flat
           :loading="state.loading > 0">
+          <template #no-data>
+            <w-card-section
+              class="items-center"
+              horizontal
+              :class="dark.isActive ? `bg-dark-5` : `bg-grey-3`">
+              <w-card-section class="flex-none pr-0">
+                <w-icon name="la:info-circle" size="sm" />
+              </w-card-section>
+              <w-card-section class="text-caption">{{ t('admin.audit.none') }}</w-card-section>
+            </w-card-section>
+          </template>
           <template v-slot:body-cell-event="props">
             <w-td :props="props">
               <strong>{{ eventLabel(props.value) }}</strong>

@@ -9,14 +9,19 @@ import maintenance from './maintenance.ts'
 import { groups } from '../models/groups.ts'
 import { sites } from '../models/sites.ts'
 import { approvals } from '../models/approvals.ts'
+import { classificationLevels } from '../models/classificationLevels.ts'
+import { glossary } from '../models/glossary.ts'
+import { locales } from '../models/locales.ts'
 
 /**
  * Task 708 (feature 411): confirms what `core/db.ts`'s `subscribeToNotifications()` /
  * `notifyViaDB()` actually guarantee for a cross-instance event relayed over the `wiki` NOTIFY
  * channel, and whether any current subscriber (`core/config.ts`'s `reloadConfig`,
- * `core/maintenance.ts`'s `disconnectWebsockets`/`flushCaches`, and — added by OpenProject #966 —
- * `models/groups.ts`/`sites.ts`/`approvals.ts`'s `reloadGroups`/`reloadSites`/`reloadApprovals`)
- * depends on more than that.
+ * `core/maintenance.ts`'s `disconnectWebsockets`/`flushCaches`, added by OpenProject #966 —
+ * `models/groups.ts`/`sites.ts`/`approvals.ts`'s `reloadGroups`/`reloadSites`/`reloadApprovals` —
+ * and, from the 2026-08-24 audit (findings §3/§6), `models/classificationLevels.ts`/`glossary.ts`/
+ * `locales.ts`'s `reloadClassificationLevels`/`reloadGlossary`/`reloadLocales`) depends on more than
+ * that.
  *
  * Postgres NOTIFY has no persistence and no delivery guarantee: a message published while nobody
  * is LISTENing on that channel is dropped by the server, not queued for later delivery. `notifier`
@@ -83,6 +88,9 @@ let disconnectWebsocketsMock: any
 let groupsReloadCacheMock: any
 let sitesReloadCacheMock: any
 let approvalsReloadCacheMock: any
+let classificationLevelsReloadCacheMock: any
+let glossaryClearCacheMock: any
+let localesReloadCacheMock: any
 
 before(() => {
   previousWiki = (globalThis as any).WIKI
@@ -99,12 +107,21 @@ beforeEach(() => {
   groupsReloadCacheMock = mock.fn(async () => {})
   sitesReloadCacheMock = mock.fn(async () => {})
   approvalsReloadCacheMock = mock.fn(async () => {})
+  // -> Audit 2026-08-24, findings §3/§6: `classificationLevels`/`glossary`/`locales` now propagate
+  //    the same way `groups`/`sites`/`approvals` already did (OpenProject #966) -- stubbed here the
+  //    same way.
+  classificationLevelsReloadCacheMock = mock.fn(async () => {})
+  glossaryClearCacheMock = mock.fn(() => {})
+  localesReloadCacheMock = mock.fn(async () => {})
   configSvc.loadFromDb = loadFromDbMock
   maintenance.flushCaches = flushCachesMock
   maintenance.disconnectWebsockets = disconnectWebsocketsMock
   groups.reloadCache = groupsReloadCacheMock
   sites.reloadCache = sitesReloadCacheMock
   approvals.reloadCache = approvalsReloadCacheMock
+  classificationLevels.reloadCache = classificationLevelsReloadCacheMock
+  ;(glossary as any).clearCache = glossaryClearCacheMock
+  locales.reloadCache = localesReloadCacheMock
 
   ;(globalThis as any).WIKI = {
     INSTANCE_ID: 'instance-a',
@@ -112,7 +129,7 @@ beforeEach(() => {
     events: { inbound: new Emittery(), outbound: new Emittery() },
     configSvc,
     dbManager,
-    models: { groups, sites, approvals }
+    models: { groups, sites, approvals, classificationLevels, glossary, locales }
   }
 
   dbManager.pool = null
@@ -204,7 +221,7 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.deepEqual(received, [{ event: 'reloadConfig', value: null }])
   })
 
-  test('wires all five current subscribers, each purely reactive to the notify with no independent re-check', async () => {
+  test('wires all current subscribers, each purely reactive to the notify with no independent re-check', async () => {
     const pool = new FakePool()
     const client = new FakeClient()
     pool.queueClient(client)
@@ -237,6 +254,28 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
       channel: 'wiki',
       payload: JSON.stringify({ source: 'instance-b', event: 'reloadApprovals', value: null })
     })
+    // -> Audit 2026-08-24 §3/§6: classification-level, glossary and locale cache invalidation now
+    //    propagate the same way.
+    client.emit('notification', {
+      channel: 'wiki',
+      payload: JSON.stringify({
+        source: 'instance-b',
+        event: 'reloadClassificationLevels',
+        value: null
+      })
+    })
+    client.emit('notification', {
+      channel: 'wiki',
+      payload: JSON.stringify({
+        source: 'instance-b',
+        event: 'reloadGlossary',
+        value: { siteId: 'site-a' }
+      })
+    })
+    client.emit('notification', {
+      channel: 'wiki',
+      payload: JSON.stringify({ source: 'instance-b', event: 'reloadLocales', value: null })
+    })
 
     // -> Emittery's inbound handlers run as microtasks; give them a tick.
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -247,5 +286,9 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.equal(groupsReloadCacheMock.mock.calls.length, 1)
     assert.equal(sitesReloadCacheMock.mock.calls.length, 1)
     assert.equal(approvalsReloadCacheMock.mock.calls.length, 1)
+    assert.equal(classificationLevelsReloadCacheMock.mock.calls.length, 1)
+    assert.equal(glossaryClearCacheMock.mock.calls.length, 1)
+    assert.deepEqual(glossaryClearCacheMock.mock.calls[0]!.arguments, ['site-a'])
+    assert.equal(localesReloadCacheMock.mock.calls.length, 1)
   })
 })

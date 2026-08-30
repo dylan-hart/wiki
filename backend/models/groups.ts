@@ -389,10 +389,11 @@ class Groups {
       classification check above already runs ahead of that bypass. The routing-layer `preHandler`
       (`helpers/apiKeySite.ts`) already refuses a mismatched `:siteId` on every `/sites/:siteId/...`
       route, but this closes the engine itself for any call path that reaches `checkAccess()`
-      without going through that hook. Skipped when the page's own `siteId` is unknown (`null`) for
-      the same reason the classification check is: there is nothing to compare the pin against.
+      without going through that hook. Delegates to `withinSitePin()`, which fails closed for a page
+      ref with no site context at all (`null`) rather than treating it as nothing to compare against
+      -- see that method's own doc comment for why an unknown site is not a pass for a pinned actor.
     */
-    if (actor.siteId != null && page.siteId != null && actor.siteId !== page.siteId) {
+    if (!this.withinSitePin(actor, page.siteId)) {
       return false
     }
     // -> Above the rules entirely: an administrator is not something a rule can lock out, and a
