@@ -131,7 +131,12 @@ export default defineConfig(({ mode }) => {
   return {
     build: {
       assetsDir: '_assets',
-      chunkSizeWarningLimit: 5000,
+      // -> Left at (near) Rollup's own 500 kB default rather than raised again -- a warning here is
+      //    the signal that a change grew a chunk, not something to silence. It was previously raised
+      //    to 5000 with no comment and no docs/ entry, which is how markdown-*.js and Monaco's
+      //    editor.api-*.js grew past 500 kB with nothing printing about it. The chunks that still
+      //    exceed this limit are accounted for in docs/variances.md, not by moving this number again.
+      chunkSizeWarningLimit: 500,
       dynamicImportVarsOptions: {
         include: ['!/_blocks/**']
       },
