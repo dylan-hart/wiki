@@ -108,7 +108,7 @@
         dense
         :label="t('graph.filters.folderDepth')" />
       <w-select
-        v-if="siteStore.locales.showMenu"
+        v-if="showLocaleFilter"
         v-model="activeFilters.locale"
         outlined
         dense
@@ -262,6 +262,17 @@ function clearFilters() {
 const filterOptions = computed(() => deriveFilterOptions(allNodes.value))
 const tagOptions = computed(() => filterOptions.value.tags)
 const localeOptions = computed(() => filterOptions.value.locales)
+
+/** Whether the locale filter control is worth showing at all (OpenProject #2294): gated on both the
+ *  reader-facing locale-switcher setting AND there being more than one locale actually represented
+ *  among the loaded nodes -- `showMenu` alone says nothing about how many locales the site has, so a
+ *  single-locale site with the menu enabled would otherwise render a `w-select` whose one option is
+ *  always a no-op, the same class of dead control `groupBy` already avoids for site grouping (see
+ *  that const's own doc comment above). Derived from `localeOptions`, not site config, so the
+ *  control also disappears once the current filter set leaves only one locale represented. */
+const showLocaleFilter = computed(
+  () => siteStore.locales.showMenu && localeOptions.value.length > 1
+)
 
 function groupKeyFor(node) {
   if (groupBy.value === 'tag') {
@@ -804,6 +815,16 @@ watch([sizeBy, sizeCountMode, contributorTypes, pageviewsWindow, pageviewClientT
 watch(pageviewsTrackingEnabled, (enabled) => {
   if (!enabled && sizeBy.value === 'visits') {
     sizeBy.value = 'edits'
+  }
+})
+
+/** OpenProject #2294: once the locale filter control disappears (single locale left, either from the
+ *  outset or after tags/folder-depth narrow the visible set down to one), clear any value chosen on
+ *  it -- otherwise a locale picked before the narrowing keeps filtering the graph with no visible
+ *  control left to clear it from. */
+watch(showLocaleFilter, (visible) => {
+  if (!visible && activeFilters.locale !== null) {
+    activeFilters.locale = null
   }
 })
 
