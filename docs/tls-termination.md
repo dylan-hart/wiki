@@ -6,25 +6,25 @@ is the explicit call: **Wiki.js does not terminate TLS itself.** A reverse proxy
 
 ## The decision
 
-`initHTTPServer()` (`backend/index.ts:234-266`) constructs Fastify with no `https` option — the
-process only ever speaks plain HTTP. That is deliberate, not an oversight to fix:
+`initHTTPServer()` (`backend/index.ts`, its `const app = fastify({` call) constructs Fastify with no
+`https` option — the process only ever speaks plain HTTP. That is deliberate, not an oversight to fix:
 
 - Multi-site support resolves which site a request belongs to by **hostname**
-  (`WIKI.sitesMappings[req.hostname]`, `backend/index.ts:614`, feeding the `onRequest` hook that sets
+  (`WIKI.sitesMappings[req.hostname]`, `backend/index.ts`'s "Site Resolution" `onRequest` hook, feeding
   `req.site` for the rest of the request). Serving several hostnames' certificates out of one process
   means picking the right one per connection _before_ the HTTP layer — that's exactly what TLS's SNI
   extension exists for, and every mainstream reverse proxy (nginx, Traefik, Caddy, HAProxy, a cloud
   load balancer) already does it well, with certificate issuance/rotation (e.g. ACME/Let's Encrypt)
   as a solved, independently-updated concern.
 - `trustProxy` already exists as exactly the config knob this topology needs
-  (`WIKI.config.security.trustProxy`, consumed at `backend/index.ts:275` as Fastify's `trustProxy`
-  option). With it enabled, Fastify reads the client's real IP and protocol from the `X-Forwarded-*`
-  headers the proxy sets, instead of seeing the proxy's own loopback connection. This is precisely
-  the "proxy terminates TLS, forwards plain HTTP downstream" topology `trustProxy`'s own hint text
-  describes (`admin.security.trustProxyHint` in `backend/locales/en.json`): _"Should be enabled when
-  using a reverse-proxy like nginx, apache, CloudFlare, etc in front of Wiki.js."_
-- The Docker and Helm deployment assets under `dev/` are already built around this shape — they ship
-  Wiki.js as a plain-HTTP backend service, not a TLS-terminating edge.
+  (`WIKI.config.security.trustProxy`, consumed inside `initHTTPServer()`'s `fastify({ ... })` call as
+  its `trustProxy` option). With it enabled, Fastify reads the client's real IP and protocol from the
+  `X-Forwarded-*` headers the proxy sets, instead of seeing the proxy's own loopback connection. This
+  is precisely the "proxy terminates TLS, forwards plain HTTP downstream" topology `trustProxy`'s own
+  hint text describes (`admin.security.trustProxyHint` in `backend/locales/en.json`): _"Should be
+  enabled when using a reverse-proxy like nginx, apache, CloudFlare, etc in front of Wiki.js."_
+- The Docker deployment assets under `dev/` are already built around this shape — they ship Wiki.js
+  as a plain-HTTP backend service, not a TLS-terminating edge.
 
 Building real in-process SNI support instead (per-site certificate storage and rotation, an ACME
 account per site, `SecureContext` selection via `https.createServer`'s `SNICallback`) is a

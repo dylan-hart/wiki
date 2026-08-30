@@ -73,9 +73,8 @@ logFormat: default
 # full audited list and the supported air-gapped deployment path.
 #
 # In the official container image this is also settable via the WIKI_OFFLINE
-# environment variable (or the Helm chart's `offline` value), so a
-# containerized/air-gapped deployment provisioned through env vars or Helm
-# does not need to hand-edit this file.
+# environment variable, so a containerized/air-gapped deployment provisioned
+# through env vars does not need to hand-edit this file.
 #
 # To add or update a locale pack without rebuilding or redeploying, drop a
 # JSON file into <dataPath>/locales/ (see docs/offline-deployment.md) and
