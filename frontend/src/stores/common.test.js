@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 import { blockImportUrl, useCommonStore } from './common.js'
@@ -23,6 +23,21 @@ describe('common store: blockImportUrl()', () => {
     expect(blockImportUrl({ tag: 'block-widget', isCustom: true, id: 'block-1' }, 'site-1')).toBe(
       '/_blocks/custom/site-1/block-1.js'
     )
+  })
+})
+
+describe('common store: fetchLocaleStrings()', () => {
+  it('propagates a rejected API_CLIENT.get() to the caller without swallowing it', async () => {
+    const store = useCommonStore()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    API_CLIENT.get.mockImplementationOnce(() => {
+      throw new Error('network')
+    })
+
+    await expect(store.fetchLocaleStrings('en')).rejects.toThrow('network')
+    expect(warnSpy).not.toHaveBeenCalled()
+
+    warnSpy.mockRestore()
   })
 })
 
