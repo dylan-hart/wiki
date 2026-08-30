@@ -555,37 +555,47 @@ class Search {
    * implementation's `init()` is safe to run again for. Each site is provisioned independently -- one
    * site's bad credentials or unreachable service is logged and skipped, not allowed to abort boot for
    * every other site.
+   *
+   * Sites are provisioned concurrently (OpenProject #1848): the `for` loop this used to be awaited each
+   * site's `init()` -- and its up-to-`ENGINE_INIT_TIMEOUT_MS` race -- before starting the next, so N
+   * sites pointed at unreachable external engines cost up to 30xN seconds of boot. `Promise.allSettled`
+   * runs every site's init (each still wrapped in its own try/catch and timeout race) in parallel, so
+   * the worst case is one timeout, not N. `ensureModule()` memoises into `this.modules[key]` and
+   * concurrent `import()` calls for the same module hit Node's own ESM cache, so two sites sharing an
+   * engine key racing through `ensureModule()` here is safe.
    */
   async initActiveEngines(): Promise<void> {
-    for (const siteId of Object.keys(WIKI.sites)) {
-      const key = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
-      const module = await this.ensureModule(key)
-      if (!module) {
-        continue
-      }
-      let timer: NodeJS.Timeout | undefined
-      try {
-        await Promise.race([
-          module.init(siteId, this.getEngineConfig(siteId, key)),
-          new Promise<never>((_resolve, reject) => {
-            timer = setTimeout(() => {
-              reject(
-                new Error(
-                  `Timed out after ${ENGINE_INIT_TIMEOUT_MS / 1000}s waiting for "${key}" to initialize.`
+    await Promise.allSettled(
+      Object.keys(WIKI.sites).map(async (siteId) => {
+        const key = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
+        const module = await this.ensureModule(key)
+        if (!module) {
+          return
+        }
+        let timer: NodeJS.Timeout | undefined
+        try {
+          await Promise.race([
+            module.init(siteId, this.getEngineConfig(siteId, key)),
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(() => {
+                reject(
+                  new Error(
+                    `Timed out after ${ENGINE_INIT_TIMEOUT_MS / 1000}s waiting for "${key}" to initialize.`
+                  )
                 )
-              )
-            }, ENGINE_INIT_TIMEOUT_MS)
-          })
-        ])
-      } catch (err: any) {
-        WIKI.logger.warn(
-          `(SEARCH) Failed to initialize search engine "${key}" for site ${siteId} [ FAILED ]`
-        )
-        WIKI.logger.warn(err.message)
-      } finally {
-        clearTimeout(timer)
-      }
-    }
+              }, ENGINE_INIT_TIMEOUT_MS)
+            })
+          ])
+        } catch (err: any) {
+          WIKI.logger.warn(
+            `(SEARCH) Failed to initialize search engine "${key}" for site ${siteId} [ FAILED ]`
+          )
+          WIKI.logger.warn(err.message)
+        } finally {
+          clearTimeout(timer)
+        }
+      })
+    )
   }
 
   /**

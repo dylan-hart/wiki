@@ -1047,4 +1047,67 @@ describe('search.initActiveEngines()', () => {
     assert.ok(warnings.some((w) => w.includes('hanging-engine')))
     assert.ok(warnings.some((w) => w.includes('Timed out')))
   })
+
+  /**
+   * OpenProject #1848: sites are now provisioned concurrently, so N sites each timing out costs one
+   * `ENGINE_INIT_TIMEOUT_MS` wait total, not N of them stacked up serially. Two sites here hang at once
+   * -- if the old `for` loop were still in place, the second site's own timeout race wouldn't even be
+   * set up until the first one's 30s race had already rejected, so settling this within a single
+   * timeout window's worth of ticked time is only possible when both races run in parallel.
+   */
+  test('two sites hanging at once cost one timeout window, not one per hung site', async (t) => {
+    const { calls: dbCalls, module: dbModule } = makeFakeSearchModule()
+    const hangingModule: SearchModule = {
+      ...dbModule,
+      init: () => new Promise<void>(() => {}) // never resolves or rejects
+    }
+    const warnings: string[] = []
+    ;(globalThis as any).WIKI = {
+      sites: {
+        'site-hanging-a': {
+          id: 'site-hanging-a',
+          config: { search: { engine: 'hanging-engine-a', engines: {} } }
+        },
+        'site-hanging-b': {
+          id: 'site-hanging-b',
+          config: { search: { engine: 'hanging-engine-b', engines: {} } }
+        },
+        'site-ok': { id: 'site-ok', config: {} }
+      },
+      logger: {
+        info: () => {},
+        error: () => {},
+        warn: (msg: string) => warnings.push(msg),
+        debug: () => {}
+      }
+    }
+    search.modules.db = dbModule
+    search.modules['hanging-engine-a'] = hangingModule
+    search.modules['hanging-engine-b'] = hangingModule
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+
+    let settled = false
+    try {
+      const promise = search.initActiveEngines().then(() => {
+        settled = true
+      })
+      // -> Tick a total of 40s (< 2x the 30s timeout a serial second-site wait would need), in small
+      //    increments with a microtask flush between each so both hanging sites' timers -- set up only
+      //    after their own `ensureModule()` await resolves -- get a chance to be scheduled. If either
+      //    hung site's race were still waiting on the other to finish first, this would not be enough
+      //    ticked time for `initActiveEngines()` to settle.
+      for (let i = 0; i < 8; i++) {
+        await Promise.resolve()
+        t.mock.timers.tick(5000)
+      }
+      await promise
+    } finally {
+      t.mock.timers.reset()
+    }
+
+    assert.equal(settled, true)
+    assert.deepEqual(dbCalls, ['init:site-ok:{}'])
+    assert.ok(warnings.some((w) => w.includes('hanging-engine-a')))
+    assert.ok(warnings.some((w) => w.includes('hanging-engine-b')))
+  })
 })
