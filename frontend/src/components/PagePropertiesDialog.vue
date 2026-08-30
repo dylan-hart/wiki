@@ -176,54 +176,6 @@
           <w-tooltip>{{ t('editor.props.relationAddHint') }}</w-tooltip>
         </w-btn>
       </w-card-section>
-      <!--
-        Gated on `write:scripts`/`write:styles` (OpenProject #1131), not just the `write:pages` this
-        whole panel is already behind: the backend drops an edit to a field the actor lacks the
-        specific permission for rather than refusing the save (`buildScripts()` in
-        `backend/models/pages.ts`), so a control offered without the matching permission would look
-        like it worked and silently no-op. The section itself, and its quick-access jump-rail entry
-        below, disappear together when neither permission is held -- nothing left in the section to
-        jump to otherwise.
-      -->
-      <w-card-section
-        class="alt-card"
-        id="refCardScripts"
-        v-if="userStore.can(`write:scripts`) || userStore.can(`write:styles`)">
-        <div class="w-section-header">{{ t('editor.props.scripts') }}</div>
-        <w-btn
-          v-if="userStore.can(`write:scripts`)"
-          class="w-full"
-          :label="t(`editor.props.jsLoad`)"
-          icon="la:js-square"
-          no-caps
-          unelevated
-          color="secondary"
-          @click="editScripts(`jsLoad`)">
-          <w-tooltip>{{ t('editor.props.jsLoadHint') }}</w-tooltip>
-        </w-btn>
-        <w-btn
-          v-if="userStore.can(`write:scripts`)"
-          class="w-full mt-2"
-          :label="t(`editor.props.jsUnload`)"
-          icon="la:js-square"
-          no-caps
-          unelevated
-          color="secondary"
-          @click="editScripts(`jsUnload`)">
-          <w-tooltip>{{ t('editor.props.jsUnloadHint') }}</w-tooltip>
-        </w-btn>
-        <w-btn
-          v-if="userStore.can(`write:styles`)"
-          class="w-full mt-2"
-          :label="t(`editor.props.styles`)"
-          icon="la:css3-alt"
-          no-caps
-          unelevated
-          color="secondary"
-          @click="editScripts(`styles`)">
-          <w-tooltip>{{ t('editor.props.stylesHint') }}</w-tooltip>
-        </w-btn>
-      </w-card-section>
       <w-card-section class="pb-6" id="refCardSidebar">
         <div class="w-section-header">{{ t('editor.props.sidebar') }}</div>
         <w-form class="gap-4 pt-2">
@@ -389,9 +341,6 @@
         :edit-id="state.editRelationId"
         @close="state.showRelationDialog = false" />
     </w-dialog>
-    <w-dialog v-model="state.showScriptsDialog">
-      <page-scripts-dialog :mode="state.pageScriptsMode" @close="state.showScriptsDialog = false" />
-    </w-dialog>
   </w-card>
 </template>
 
@@ -406,7 +355,6 @@ import { useUserStore } from '@/stores/user'
 
 import IconPickerDialog from './IconPickerDialog.vue'
 import PageRelationDialog from './PageRelationDialog.vue'
-import PageScriptsDialog from './PageScriptsDialog.vue'
 import PageTags from './PageTags.vue'
 
 // STORES
@@ -424,10 +372,8 @@ const { t } = useI18n()
 
 const state = reactive({
   showRelationDialog: false,
-  showScriptsDialog: false,
   requirePassword: false,
   editRelationId: null,
-  pageScriptsMode: 'jsLoad',
   showQuickAccess: true,
   /**
    * The classification this page was loaded with, before anything in this panel touched it -- what
@@ -437,18 +383,10 @@ const state = reactive({
   originalClassification: pageStore.classification
 })
 
-/**
- * The `refCardScripts` entry is dropped when the reader holds neither `write:scripts` nor
- * `write:styles` (OpenProject #1131) -- that section itself doesn't render for them either, so a
- * jump-rail button that scrolled to nothing would be its own small bug.
- */
 const quickaccess = computed(() => [
   { key: 'refCardInfo', icon: 'la:info-circle', label: t('editor.props.info') },
   { key: 'refCardPublishState', icon: 'la:power-off', label: t('editor.props.publishState') },
   { key: 'refCardRelations', icon: 'la:link', label: t('editor.props.relations') },
-  ...(userStore.can(`write:scripts`) || userStore.can(`write:styles`)
-    ? [{ key: 'refCardScripts', icon: 'la:code', label: t('editor.props.scripts') }]
-    : []),
   { key: 'refCardSidebar', icon: 'la:ruler-vertical', label: t('editor.props.sidebar') },
   { key: 'refCardSocial', icon: 'la:comments', label: t('editor.props.social') },
   { key: 'refCardTags', icon: 'la:tags', label: t('editor.props.tags') },
@@ -513,10 +451,6 @@ const mayLowerClassification = computed(() => {
 
 // METHODS
 
-function editScripts(mode) {
-  state.pageScriptsMode = mode
-  state.showScriptsDialog = true
-}
 function newRelation() {
   state.editRelationId = null
   state.showRelationDialog = true

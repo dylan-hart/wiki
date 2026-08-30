@@ -374,40 +374,6 @@ class Users {
   }
 
   /**
-   * A user's permissions and group memberships, shaped as the `AccessActor`/`PageActor`
-   * `WIKI.models.groups.checkAccess()` (and `models/pages.ts#hasPermission`) expect — the same
-   * flattening `updateSession()` does for the session, computed fresh here instead of read off a
-   * live session, for a caller that has only a user id on hand (`models/approvals.ts#approveSubmission`
-   * resolving an edit suggestion's *submitter*, who is not the request's own actor and so has no
-   * session to read).
-   *
-   * @returns `null` for an id that resolves to no user.
-   */
-  async getPageActor(
-    id: string
-  ): Promise<{ id: string; permissions: string[]; groupIds: string[] } | null> {
-    const groups: any[] | null = await WIKI.db.query.users
-      .findFirst({
-        columns: {},
-        where: { id },
-        with: {
-          groups: {
-            columns: { id: true, permissions: true }
-          }
-        }
-      })
-      .then((r: any) => r?.groups ?? null)
-    if (groups === null) {
-      return null
-    }
-    return {
-      id,
-      permissions: uniq(flatten(groups.map((g: any) => g.permissions as string[]))),
-      groupIds: groups.map((g: any) => g.id)
-    }
-  }
-
-  /**
    * Fetch the users who logged in most recently, most recent first.
    *
    * Identity and the moment only — this answers a dashboard panel readable by anyone in the admin area,

@@ -6,7 +6,7 @@ import {
   tree as treeTable
 } from '../db/schema.ts'
 import { CustomError, decodeTreePath, localizedPagePath } from '../helpers/common.ts'
-import { isFollowableRedirect } from '../helpers/redirect.ts'
+import { isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
 import { MAX_DEPTH, compareFoldersFirst, pageIsVisible } from './tree.ts'
 import type { TreeItemType } from './tree.ts'
 import type { AccessActor } from './groups.ts'
@@ -131,39 +131,66 @@ function cloneItemsWithFreshIds(items: NavigationItem[]): NavigationItem[] {
 }
 
 /**
- * Whether a navigation item's `target` is safe to bind onto `<a :href>` (`WItem.vue`) or a router
- * link. Same rule `isFollowableRedirect` enforces for a redirect target, plus `mailto:`/`tel:`,
- * which `frontend/src/composables/navSidebarDestination.js`'s own doc comment calls out as a
- * deliberately-supported case for a nav item specifically (a redirect target never has a reason to
- * open a mail client or a phone dialer, which is why the shared helper itself does not carry them).
+ * Protocols a navigation item's `target` may use, beyond a same-origin rooted path: `mailto:`/`tel:`
+ * are legitimate menu destinations with no script-execution risk, alongside plain `http:`/`https:`.
  */
-function isValidNavTarget(target: string): boolean {
-  return isFollowableRedirect(target) || /^(mailto|tel):/i.test(target)
+const NAV_TARGET_PROTOCOLS = ['http:', 'https:', 'mailto:', 'tel:'] as const
+
+/**
+ * Whether one item's own `target` (its `children`, if any, are the caller's to recurse into
+ * separately) is safe to store. An empty/absent target is fine — a `header`/`separator` item, or a
+ * `link` nobody has pointed anywhere yet.
+ *
+ * Exported (alongside `assertValidNavItems`/`sanitizeNavItemTargets` below) purely so
+ * `navigation.test.ts` can exercise this validation directly as a pure unit test, rather than only
+ * indirectly through a DB-backed `setNavItems`/`copyNav` round trip -- see this repo's own testing
+ * convention for preferring a pure test over a database one wherever the thing under test does not
+ * actually require SQL orchestration to verify.
+ */
+export function isValidNavItemTarget(target: string | undefined): boolean {
+  if (target === undefined || target === '') {
+    return true
+  }
+  return isFollowableRedirectTarget(target, { allowedProtocols: NAV_TARGET_PROTOCOLS })
 }
 
 /**
- * Refuse a menu whose `target` (top-level, or on any nested `children`) is not
- * `isValidNavTarget` — a `javascript:` or scheme-relative `//host` link nobody chose to write, most
- * likely payload for someone with `site:navigation` on one site or `manage:navigation` everywhere but
- * not `manage:system`. OpenProject #1360/#2208, 2026-08-24 security audit
- * (`security/08-frontend-client.md` §3): every reader of every page on the site renders this, so a
- * poisoned target is a same-origin script execution reachable by one click from a non-administrator
- * grant. Called from every write path — `setNavItems` (the two `PUT` routes) and `copyNav` — so a
- * poisoned source menu cannot be reintroduced onto a clean target through a copy either.
+ * Refuse a menu whose items — at any depth — carry a `target` that is not `isValidNavItemTarget`.
+ * OpenProject #1360/#2208 §3, 2026-08-24 security audit: a `site:navigation` holder (a delegated,
+ * non-administrator permission) can otherwise store `javascript:...` as an item's target, which runs
+ * for any reader who clicks the sidebar entry it renders as. Called from every write path —
+ * `setNavItems` (the two `PUT` routes) and `copyNav` — so a poisoned source menu cannot be
+ * reintroduced onto a clean target through a copy either.
+ *
+ * @throws {CustomError} 400, naming the offending item, on the first invalid target found
  */
-function validateNavItems(items: NavigationItem[]): void {
+export function assertValidNavItems(items: NavigationItem[]): void {
   for (const item of items) {
-    if (item.target && !isValidNavTarget(item.target)) {
+    if (!isValidNavItemTarget(item.target)) {
       throw new CustomError(
-        'navItemTargetInvalid',
-        `Navigation item target is not a valid destination: ${item.target}`,
-        400
+        'navigationInvalidTarget',
+        `Navigation item "${item.id}" has an invalid target. Only a path on this wiki, or a complete http(s)/mailto/tel address, is allowed.`
       )
     }
     if (item.children?.length) {
-      validateNavItems(item.children)
+      assertValidNavItems(item.children)
     }
   }
+}
+
+/**
+ * Recursively blank any `target` that fails `isValidNavItemTarget`, leaving the rest of the item (and
+ * its children) intact. Used by `copyNav` rather than `assertValidNavItems`'s hard refusal: the items
+ * it clones were written by `cloneItemsWithFreshIds` from whatever the source menu already holds,
+ * which may predate this validation existing at all — dropping just the poisoned target lets the copy
+ * still succeed instead of failing the whole operation over data this route did not itself accept.
+ */
+export function sanitizeNavItemTargets(items: NavigationItem[]): NavigationItem[] {
+  return items.map((item) => ({
+    ...item,
+    target: isValidNavItemTarget(item.target) ? item.target : '',
+    ...(item.children?.length ? { children: sanitizeNavItemTargets(item.children) } : {})
+  }))
 }
 
 /**
@@ -631,8 +658,7 @@ class Navigation {
    *              this site
    */
   async setNavItems(siteId: string, navId: string, items: NavigationItem[]): Promise<void> {
-    validateNavItems(items)
-
+    assertValidNavItems(items)
     const existing = await WIKI.db
       .select({ id: navigationTable.id })
       .from(navigationTable)
@@ -664,12 +690,12 @@ class Navigation {
    * "copy from locale" merge behavior).
    *
    * `visibilityGroups` travels over unchanged — groups are instance-wide, so a group reference from
-   * the source site/locale is still valid on the target. Item `target` paths are copied unrewritten:
-   * REPOINTING them against the destination locale/site (a relative path meant for one locale landing
-   * unchanged on another) is a known best-effort limitation, same as 2.5.x. They are, however,
-   * VALIDATED — `validateNavItems` below refuses the whole copy if any survives as something other
-   * than a same-origin path or `http(s)`/`mailto`/`tel` target (OpenProject #1360/#2208), so a source
-   * menu poisoned before that validation existed cannot be reintroduced onto a clean target this way.
+   * the source site/locale is still valid on the target. A safe item `target` (a rooted path or a
+   * complete `http(s)`/`mailto`/`tel` target) is copied unrewritten: repointing it against the
+   * destination locale/site is a known best-effort limitation, same as 2.5.x. An UNSAFE one
+   * (`javascript:` and friends — see `isValidNavItemTarget` above) is stripped rather than carried
+   * over (OpenProject #1360/#2208/#2217), so a source menu poisoned before this validation existed,
+   * or one written straight to the database, cannot be reintroduced onto a clean target this way.
    *
    * @param sourceSiteId Site the source row belongs to — the same as `targetSiteId` for a same-site
    *                      "copy from locale", different for a cross-site copy
@@ -710,11 +736,9 @@ class Navigation {
       throw new CustomError('navCopyTargetNotFound', 'The target menu does not exist.', 404)
     }
 
-    const clonedItems = cloneItemsWithFreshIds((sourceRow.items ?? []) as NavigationItem[])
-    // -> Refuses the whole copy rather than silently stripping the offending item(s): the source menu
-    //    is what needs fixing, and a copy that quietly dropped an item would be a harder bug to
-    //    notice than a copy that failed outright.
-    validateNavItems(clonedItems)
+    const clonedItems = sanitizeNavItemTargets(
+      cloneItemsWithFreshIds((sourceRow.items ?? []) as NavigationItem[])
+    )
     const items =
       mode === 'append'
         ? [...((targetRow.items ?? []) as NavigationItem[]), ...clonedItems]
@@ -834,6 +858,10 @@ class Navigation {
     const fullPath = folderPath ? `${folderPath}.${entry.fileName}` : entry.fileName
 
     const ancestorId = await this.ancestorNavId(siteId, entry.locale, folderPath)
+
+    if (items) {
+      assertValidNavItems(items)
+    }
 
     if (items || menuMode) {
       /*

@@ -1,79 +1,110 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { defineComponent, h } from 'vue'
+import { mount } from '@vue/test-utils'
+import { createMemoryHistory, createRouter } from 'vue-router'
+
 import { useNavSidebarDestination } from './navSidebarDestination'
-
-const mockRoute = { path: '/' }
-const mockRouter = { resolve: (to) => ({ path: to }) }
-
-vi.mock('vue-router', () => ({
-  useRoute: () => mockRoute,
-  useRouter: () => mockRouter
-}))
+import routes from '@/router/routes'
 
 /**
- * OpenProject #1360/#2208 (2026-08-24 security audit §3): `destination()`'s fallback branch — for
- * whatever `routableHref` declined as not routable — used to return the author-typed `target`
- * verbatim as `href`, with no scheme check of its own. `javascript:…` parses as a valid `URL` against
- * any base (it just reports back `.protocol === 'javascript:'`), so `routableHref` declining it is not
- * the same as this composable declining it — the fallback has to look at what it got back.
+ * A focused unit test of `destination()` alone, alongside the fuller case matrix
+ * `components/NavSidebar.test.js` runs through the actual rendered component -- see that file for
+ * every category `routableHref` and the protocol allowlist here sort a nav item's `target` into.
+ * OpenProject #1360/#2208 §3, 2026-08-24 security audit: a `javascript:` (or `data:`) target used to
+ * be handed straight to `<w-item>`'s `href` binding, which Vue does not sanitize -- `javascript:…`
+ * parses as a valid `URL` against any base (it just reports back `.protocol === 'javascript:'`), so
+ * `routableHref` declining it is not the same as this composable declining it: the fallback has to
+ * look at what it got back, not just that something parsed.
  */
-describe('useNavSidebarDestination', () => {
-  const { destination } = useNavSidebarDestination()
-
-  it('routes a same-origin path to the SPA router rather than a plain href', () => {
-    const result = destination({ target: '/some/page' })
-    expect(result.to).toBe('/some/page')
-    expect(result.href).toBeUndefined()
+async function mountDestination() {
+  let captured
+  const Host = defineComponent({
+    setup() {
+      captured = useNavSidebarDestination()
+      return () => h('div')
+    }
   })
 
-  it('yields no href/to at all for a javascript: target — the actual finding', () => {
-    const result = destination({ target: 'javascript:alert(1)' })
-    expect(result.href).toBeUndefined()
-    expect(result.to).toBeUndefined()
+  const router = createRouter({ history: createMemoryHistory(), routes })
+  await router.push('/')
+  await router.isReady()
+
+  mount(Host, { global: { plugins: [router] } })
+  return captured
+}
+
+describe('useNavSidebarDestination#destination', () => {
+  it('refuses a javascript: target -- neither to nor href', async () => {
+    const { destination } = await mountDestination()
+    expect(destination({ target: 'javascript:alert(1)' })).toEqual({})
   })
 
-  it('yields no href/to for a javascript: target disguised with leading whitespace/newlines', () => {
+  it('refuses a javascript: target disguised behind a line-comment (the naive-regex bypass)', async () => {
+    const { destination } = await mountDestination()
+    expect(destination({ target: 'javascript://%0aalert(1)' })).toEqual({})
+  })
+
+  it('refuses a javascript: target disguised with leading whitespace/newlines', async () => {
+    const { destination } = await mountDestination()
     const result = destination({ target: 'java\nscript:alert(1)' })
     expect(result.href).toBeUndefined()
     expect(result.to).toBeUndefined()
   })
 
-  it('still opens a plain https:// external link as a plain href', () => {
-    const result = destination({ target: 'https://example.com/docs' })
-    expect(result.href).toBe('https://example.com/docs')
-    expect(result.to).toBeUndefined()
+  it('refuses a data: target', async () => {
+    const { destination } = await mountDestination()
+    expect(destination({ target: 'data:text/html,<script>alert(1)</script>' })).toEqual({})
   })
 
-  it('still opens a plain http:// external link as a plain href', () => {
+  it('still routes a same-origin rooted target', async () => {
+    const { destination } = await mountDestination()
+    expect(destination({ target: '/some/page' })).toEqual({ to: '/some/page' })
+  })
+
+  it('still routes an absolute https:// target as a plain link', async () => {
+    const { destination } = await mountDestination()
+    expect(destination({ target: 'https://example.org/x' })).toEqual({
+      href: 'https://example.org/x',
+      target: undefined
+    })
+  })
+
+  it('still opens a plain http:// external link as a plain href', async () => {
+    const { destination } = await mountDestination()
     const result = destination({ target: 'http://example.com/docs' })
     expect(result.href).toBe('http://example.com/docs')
   })
 
-  it('still allows mailto:, per this composable’s own documented intent', () => {
-    const result = destination({ target: 'mailto:hello@example.com' })
-    expect(result.href).toBe('mailto:hello@example.com')
-    expect(result.to).toBeUndefined()
+  it('still hands out a mailto: target as a plain href', async () => {
+    const { destination } = await mountDestination()
+    expect(destination({ target: 'mailto:hello@example.org' })).toEqual({
+      href: 'mailto:hello@example.org',
+      target: undefined
+    })
   })
 
-  it('still allows tel:', () => {
+  it('still allows tel:', async () => {
+    const { destination } = await mountDestination()
     const result = destination({ target: 'tel:+15551234567' })
     expect(result.href).toBe('tel:+15551234567')
   })
 
-  it('refuses data: the same as javascript:', () => {
-    const result = destination({ target: 'data:text/html,<script>alert(1)</script>' })
-    expect(result.href).toBeUndefined()
-    expect(result.to).toBeUndefined()
+  it('defaults a missing target to the site root', async () => {
+    const { destination } = await mountDestination()
+    const result = destination({})
+    expect(result.to).toBe('/')
   })
 
-  it('an item asking for a new tab goes out as a plain href, not routed, even for a same-origin path', () => {
+  it('an item asking for a new tab goes out as a plain href, not routed, even for a same-origin path', async () => {
+    const { destination } = await mountDestination()
     const result = destination({ target: '/some/page', openInNewWindow: true })
     expect(result.to).toBeUndefined()
     expect(result.href).toBe('/some/page')
     expect(result.target).toBe('_blank')
   })
 
-  it('defaults a missing target to the site root', () => {
-    const result = destination({})
-    expect(result.to).toBe('/')
+  it('respects openInNewWindow for a refused target too -- still no href, still no to', async () => {
+    const { destination } = await mountDestination()
+    expect(destination({ target: 'javascript:alert(1)', openInNewWindow: true })).toEqual({})
   })
 })

@@ -9,15 +9,18 @@ import { registerSchemas } from './schemas/asset.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import routes, { mayOnAsset } from './assets.ts'
 import { siteEnabledPreHandler } from '../helpers/common.ts'
+import { SVG_CSP } from '../helpers/security.ts'
 
 describe('download route: byte-serving behavior', () => {
   /**
    * Exercises `/sites/:siteId/assets/:assetId/content` at the HTTP layer via `app.inject()`,
    * mirroring `controllers/files.test.ts` for the public route: `readContent()`'s own
    * streaming/directAccess branching is covered at the model level in `models/assets.test.ts`, so
-   * this proves only what this task changed at the route layer — that `Content-Disposition` and
-   * `X-Content-Type-Options` are set exactly the same way whichever kind of result `readContent()`
-   * hands back, and that a `redirectUrl` short-circuits to a 302 before any of them are touched.
+   * this proves only what this task changed at the route layer — that `Content-Disposition`,
+   * `X-Content-Type-Options` and (for an SVG- or HTML-typed asset) `Content-Security-Policy` are set
+   * exactly the same way whichever kind of result `readContent()` hands back, that the unified
+   * `dispositionFor()` predicate (OpenProject #2164) agrees with `/_files/`'s, and that a
+   * `redirectUrl` short-circuits to a 302 before any of them are touched.
    */
   const siteId = '11111111-1111-1111-1111-111111111111'
   const assetId = '22222222-2222-2222-2222-222222222222'
@@ -42,9 +45,9 @@ describe('download route: byte-serving behavior', () => {
   let resolvedAsset: any
 
   /**
-   * `forceAssetDownload: true` matches `base.yml`'s real default, the same reason
-   * `controllers/files.test.ts`'s own `buildApp()` defaults it — this stub bypasses the base.yml
-   * merge entirely, so a test wanting realistic behavior needs it set explicitly.
+   * `security.forceAssetDownload: true` matches `base.yml`'s real default, same as
+   * `controllers/files.test.ts`'s own `buildApp` -- a test that wants realistic behavior needs it
+   * here too, since this stub bypasses the base.yml merge entirely.
    */
   async function buildApp(security: Record<string, unknown> = { forceAssetDownload: true }) {
     global.WIKI = {
@@ -142,13 +145,13 @@ describe('download route: byte-serving behavior', () => {
   })
 
   /**
-   * OpenProject #1360/#2152 (2026-08-24 security audit §3): this route's `Content-Disposition`
+   * OpenProject #1360/#2152/#2164 (2026-08-24 security audit §3): this route's `Content-Disposition`
    * predicate used to be inverted relative to `/_files/*`'s — `forceAssetDownload ||
    * !INLINE_EXTS.has(ext)` forced every image to download whenever `forceAssetDownload` was on (the
    * shipped default), and forced every non-image extension to download regardless of the setting.
-   * Both routes now call the one shared `models/assets.ts#shouldForceDownload` predicate.
+   * Both routes now call the one shared `models/assets.ts#dispositionFor` predicate.
    */
-  test('never forces an image to download, even with forceAssetDownload on', async () => {
+  test('never forces an inline (INLINE_EXTS) extension to download, even with forceAssetDownload on (dispositionFor, OpenProject #2164)', async () => {
     resolvedAsset = { ...asset, fileName: 'photo.png', fileExt: 'png', mimeType: 'image/png' }
     readContentResult = { body: Buffer.from('the bytes'), size: 9 }
     const app = await buildApp({ forceAssetDownload: true })
@@ -162,7 +165,7 @@ describe('download route: byte-serving behavior', () => {
     await app.close()
   })
 
-  test('does not force a non-image extension to download when forceAssetDownload is off', async () => {
+  test('does not force a non-inline extension to download when forceAssetDownload is off, matching /_files/ (dispositionFor, OpenProject #2164)', async () => {
     readContentResult = { body: Buffer.from('the bytes'), size: 9 }
     const app = await buildApp({ forceAssetDownload: false })
     const res = await app.inject({
@@ -174,7 +177,7 @@ describe('download route: byte-serving behavior', () => {
     await app.close()
   })
 
-  test('attaches the sandboxing CSP to an SVG asset, with and without forceAssetDownload', async () => {
+  test('attaches SVG_CSP for an image/svg+xml asset, with and without forceAssetDownload (OpenProject #2157)', async () => {
     resolvedAsset = { ...asset, fileName: 'diagram.svg', fileExt: 'svg', mimeType: 'image/svg+xml' }
     readContentResult = { body: Buffer.from('<svg><script>alert(1)</script></svg>'), size: 37 }
     for (const forceAssetDownload of [true, false]) {
@@ -184,16 +187,27 @@ describe('download route: byte-serving behavior', () => {
         url: `/sites/${siteId}/assets/${assetId}/content`
       })
       assert.equal(res.statusCode, 200)
-      assert.equal(
-        res.headers['content-security-policy'],
-        "default-src 'none'; style-src 'unsafe-inline'; sandbox"
-      )
+      assert.equal(res.headers['content-security-policy'], SVG_CSP)
       await app.close()
     }
     resolvedAsset = undefined
   })
 
-  test('sets no Content-Security-Policy header on an ordinary, non-dangerous asset', async () => {
+  test('attaches SVG_CSP when the served asset is HTML-typed (OpenProject #2157)', async () => {
+    resolvedAsset = { ...asset, fileName: 'snippet.html', fileExt: 'html', mimeType: 'text/html' }
+    readContentResult = { body: Buffer.from('<script>evil()</script>'), size: 24 }
+    const app = await buildApp({ forceAssetDownload: false })
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${siteId}/assets/${assetId}/content`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.headers['content-security-policy'], SVG_CSP)
+    resolvedAsset = undefined
+    await app.close()
+  })
+
+  test('sets no Content-Security-Policy for an ordinary, non-active-document asset', async () => {
     readContentResult = { body: Buffer.from('the bytes'), size: 9 }
     const app = await buildApp()
     const res = await app.inject({

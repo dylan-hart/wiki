@@ -662,6 +662,14 @@ async function fetchStrategies(showAll = false) {
  * Where a provider button goes: the backend builds the URL at the provider, because everything that
  * ties the answer back to this browser — `state`, `nonce`, the PKCE verifier — is generated there and
  * kept on the session.
+ *
+ * No `redirect` param is set here: this used to be read off a `loginRedirect` cookie, but nothing in
+ * this app ever wrote one (OpenProject #2208 §9 -- confirmed by grep, not assumed), so it was a dead
+ * read of a value that could only ever come from something else able to set a cookie on this wiki's
+ * registrable domain. The backend's own `GET /_api/auth/:strategyId/authorize` already defaults an
+ * absent `redirect` to `/`, and validates one that IS given (`helpers/redirectTarget.ts`) -- so
+ * dropping this rather than reintroducing a writer is the "where I was going" memory this component
+ * loses, not a regression in what a caller can still ask for explicitly via a query param of its own.
  */
 function authorizeUrl(str) {
   const params = new URLSearchParams({ siteId: siteStore.id })

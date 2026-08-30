@@ -5,6 +5,7 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import filesRoutes from './files.ts'
+import { SVG_CSP } from '../helpers/security.ts'
 
 describe('response headers (byte-serving behavior)', () => {
   /**
@@ -124,7 +125,7 @@ describe('response headers (byte-serving behavior)', () => {
     await app.close()
   })
 
-  test('does not force a non-image extension to download when forceAssetDownload is off', async () => {
+  test('does not force a non-image extension to download when forceAssetDownload is off (dispositionFor, OpenProject #2164)', async () => {
     readContentResult = { body: Buffer.from('the bytes'), size: 9 }
     const app = await buildApp({ forceAssetDownload: false })
     const res = await app.inject({ method: 'GET', url: '/docs/archive.zip' })
@@ -134,46 +135,42 @@ describe('response headers (byte-serving behavior)', () => {
   })
 
   /**
-   * OpenProject #1360/#2152 (2026-08-24 security audit §1, §3): an `.svg` asset can never take the
-   * attachment branch (it is always in `INLINE_EXTS`), so the durable fix is this response carrying
-   * the same sandboxing `Content-Security-Policy` the admin-uploaded site logo/favicon path
-   * (`controllers/site.ts`) already sends — regardless of `forceAssetDownload`, since an attachment
-   * hint is not honoured on every direct navigation.
+   * OpenProject #1360/#2152/#2157 (2026-08-24 security audit §1, §3): an `.svg` asset can never take
+   * the attachment branch (it is always in `INLINE_EXTS`), so the durable fix is this response
+   * carrying the same sandboxing `SVG_CSP` the admin-uploaded site logo/favicon path
+   * (`controllers/site.ts`) already sends — sourced from one shared constant (`helpers/security.ts`)
+   * so the two cannot drift, and regardless of `forceAssetDownload`, since an attachment hint is not
+   * honoured on every direct navigation.
    */
-  test('attaches the sandboxing CSP to an SVG asset, with and without forceAssetDownload', async () => {
+  test('attaches SVG_CSP for an image/svg+xml asset, with and without forceAssetDownload (OpenProject #2157)', async () => {
     resolvedAsset = { ...asset, fileName: 'diagram.svg', fileExt: 'svg', mimeType: 'image/svg+xml' }
     readContentResult = { body: Buffer.from('<svg><script>alert(1)</script></svg>'), size: 37 }
     for (const forceAssetDownload of [true, false]) {
       const app = await buildApp({ forceAssetDownload })
       const res = await app.inject({ method: 'GET', url: '/docs/diagram.svg' })
       assert.equal(res.statusCode, 200)
-      assert.equal(
-        res.headers['content-security-policy'],
-        "default-src 'none'; style-src 'unsafe-inline'; sandbox"
-      )
+      assert.equal(res.headers['content-security-policy'], SVG_CSP)
       await app.close()
     }
     resolvedAsset = undefined
   })
 
-  test('attaches the same CSP to an HTML-typed asset, closing the forceAssetDownload:false gap (§3)', async () => {
+  test('attaches SVG_CSP for an HTML-typed asset too, closing the forceAssetDownload:false gap (§3)', async () => {
     resolvedAsset = { ...asset, fileName: 'page.html', fileExt: 'html', mimeType: 'text/html' }
     readContentResult = { body: Buffer.from('<script>alert(1)</script>'), size: 26 }
     const app = await buildApp({ forceAssetDownload: false })
     const res = await app.inject({ method: 'GET', url: '/docs/page.html' })
     assert.equal(res.statusCode, 200)
-    assert.equal(
-      res.headers['content-security-policy'],
-      "default-src 'none'; style-src 'unsafe-inline'; sandbox"
-    )
+    assert.equal(res.headers['content-security-policy'], SVG_CSP)
     resolvedAsset = undefined
     await app.close()
   })
 
-  test('sets no Content-Security-Policy header on an ordinary, non-dangerous asset', async () => {
+  test('sets no Content-Security-Policy for an ordinary, non-active-document asset', async () => {
     readContentResult = { body: Buffer.from('the bytes'), size: 9 }
     const app = await buildApp()
     const res = await app.inject({ method: 'GET', url: '/docs/archive.zip' })
+    assert.equal(res.statusCode, 200)
     assert.equal(res.headers['content-security-policy'], undefined)
     await app.close()
   })

@@ -3,36 +3,6 @@
  * HTTP plugins expect.
  */
 
-/**
- * The Content-Security-Policy attached to any response whose body is SVG or HTML — a document type a
- * browser will run as active content if it is ever opened directly (a top-level navigation, or an
- * `<iframe>`/`<object>`/`<embed>`) rather than merely referenced from an `<img src>`, which never
- * executes markup regardless of headers. `sandbox` with no allowances disables scripts, forms,
- * top-level navigation and popups; `default-src 'none'` refuses every other kind of resource load;
- * `style-src 'unsafe-inline'` is the one allowance, because inline `style="…"` is common and
- * harmless once script execution is already off. Originally local to `controllers/site.ts` (the
- * admin-uploaded logo/favicon path) and verified there against a `<script>`-carrying SVG in both
- * Chrome and Firefox — opened directly in a new tab, `sandbox` neutralized it in both. Exported here
- * so every response serving SVG/HTML-typed bytes shares the exact same string rather than each
- * serving site defining (and risking drifting) its own.
- */
-export const SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
-
-/**
- * MIME types a browser treats as an HTML-capable *document* rather than passive data — i.e. types
- * that can carry a `<script>` or an event-handler attribute that actually runs when the response is
- * opened directly. `svgMimeType` (`image/svg+xml`) is the one an ordinary asset upload can produce
- * with no admin permission at all; `text/html` and `application/xhtml+xml` are reachable the same
- * way once an `.html`/`.xhtml` upload is stored, since nothing on the upload path restricts the
- * extension. Anything else `mime.getType()` resolves — images, PDFs, archives — is not a browser
- * scripting context regardless of headers, so it does not need this CSP.
- */
-export function isDangerousInlineType(mimeType: string): boolean {
-  return (
-    mimeType === 'image/svg+xml' || mimeType === 'text/html' || mimeType === 'application/xhtml+xml'
-  )
-}
-
 /** CORS modes offered by the admin area, in the order they appear there. */
 export const CORS_MODES = ['OFF', 'REFLECT', 'HOSTNAMES', 'REGEX'] as const
 export type CorsMode = (typeof CORS_MODES)[number]
@@ -137,34 +107,46 @@ export function shouldBlockCrossOriginApiRequest(req: SameOriginApiCheckRequest)
 }
 
 /**
- * Turn a Content-Security-Policy string into helmet's directives object.
+ * Locks down a response that is otherwise an active document — an SVG (which can carry `<script>`
+ * and event-handler attributes) or an HTML/XHTML file — so that opening it directly (typed into the
+ * address bar, or reached through `<object>`/`<iframe>`/a same-origin top-level navigation) cannot
+ * run anything in this origin. `X-Content-Type-Options: nosniff` does not help here: the declared
+ * type is honestly `image/svg+xml` or `text/html`, which a browser treats as a document either way.
+ * A browser never executes script markup found through an `<img src>` either way, so this is not
+ * what stops such a payload from running embedded in the app's own UI; nothing needs to, because
+ * `<img>` already can't run it. (Verified manually against an uploaded SVG carrying a `<script>`
+ * payload in both Chrome and Firefox: rendered via `<img src>` it never runs, matching the reasoning
+ * above regardless of this header; opened directly in a new tab, this header's `sandbox` neutralizes
+ * it in both browsers.)
  *
- * `default-src 'self'; img-src * data:` becomes
- * `{ 'default-src': ["'self'"], 'img-src': ['*', 'data:'] }`. A directive with no value, such as
- * `upgrade-insecure-requests`, maps to an empty list, which is how helmet expresses it too.
+ * Originally local to `controllers/site.ts` (which attaches it to admin-uploaded logo/favicon SVGs)
+ * and moved here so `controllers/files.ts` and `api/assets.ts`'s `/content` route reference the
+ * exact same constant rather than a copy that could drift (OpenProject #2157).
  */
-export function parseCspDirectives(value: string): Record<string, string[]> {
-  const directives: Record<string, string[]> = {}
-  for (const chunk of value.split(';')) {
-    const parts = chunk.trim().split(/\s+/).filter(Boolean)
-    const name = parts.shift()
-    if (!name) {
-      continue
-    }
-    directives[name.toLowerCase()] = parts
-  }
-  return directives
+export const SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+
+/**
+ * Extensions whose declared MIME type is a document a browser will parse and can execute
+ * script/markup within, rather than passive image or binary data — SVG and HTML/XHTML. Every route
+ * that serves stored asset bytes by extension (`controllers/files.ts`, `api/assets.ts`'s `/content`)
+ * checks this before deciding whether to attach `SVG_CSP`.
+ */
+const ACTIVE_DOCUMENT_EXTS = new Set(['svg', 'html', 'htm', 'xhtml'])
+
+/** Whether a served asset needs `SVG_CSP` attached, based on its stored extension. */
+export function needsSvgCsp(fileExt: string): boolean {
+  return ACTIVE_DOCUMENT_EXTS.has(fileExt.toLowerCase())
 }
 
 /**
- * Every directive name a browser actually recognises in a `Content-Security-Policy` header — fetch
- * directives, document/navigation directives, and the two reporting directives. Kept as the allowlist
- * `models/security.ts#validate` checks a saved `cspDirectives` string against, so a typo (`scirpt-src`,
- * or a directive from an unrelated header like `x-frame-options`) is caught at save time rather than
- * stored and silently doing nothing once an operator turns `enforceCsp` on. Source: the W3C CSP3
- * directive registry plus the still-widely-supported CSP2 `plugin-types`/`block-all-mixed-content`.
+ * Directive names recognised by the CSP3 spec (fetch, document, navigation, reporting and
+ * trusted-types directives — https://www.w3.org/TR/CSP3/#csp-directives) plus the two long-deprecated
+ * ones (`block-all-mixed-content`, `plugin-types`) some still-supported browsers accept. Anything
+ * outside this set is almost certainly a typo, which is exactly the case `parseCspDirectives` is
+ * built to catch: a misspelled `srcipt-src` previously stored (and enforced) silently as nothing,
+ * rather than refusing the save.
  */
-export const KNOWN_CSP_DIRECTIVES = new Set([
+export const CSP_DIRECTIVE_NAMES = new Set([
   'base-uri',
   'block-all-mixed-content',
   'child-src',
@@ -178,6 +160,7 @@ export const KNOWN_CSP_DIRECTIVES = new Set([
   'img-src',
   'manifest-src',
   'media-src',
+  'navigate-to',
   'object-src',
   'plugin-types',
   'prefetch-src',
@@ -197,18 +180,31 @@ export const KNOWN_CSP_DIRECTIVES = new Set([
 ])
 
 /**
- * The first directive name in a `cspDirectives` string this browser does not actually recognise, or
- * `null` when every directive parsed out of it is a real one. Used by `models/security.ts#validate`
- * to refuse a save with a typo rather than storing a policy that quietly leaves that one aspect
- * unprotected.
+ * Turn a Content-Security-Policy string into helmet's directives object.
+ *
+ * `default-src 'self'; img-src * data:` becomes
+ * `{ 'default-src': ["'self'"], 'img-src': ['*', 'data:'] }`. A directive with no value, such as
+ * `upgrade-insecure-requests`, maps to an empty list, which is how helmet expresses it too.
+ *
+ * @throws {Error} naming the offending token when a chunk's directive name is not one of
+ * `CSP_DIRECTIVE_NAMES` — `models/security.ts#validate` is what turns this into a rejected save
+ * rather than a silently-narrower policy.
  */
-export function findUnknownCspDirective(value: string): string | null {
-  for (const name of Object.keys(parseCspDirectives(value))) {
-    if (!KNOWN_CSP_DIRECTIVES.has(name)) {
-      return name
+export function parseCspDirectives(value: string): Record<string, string[]> {
+  const directives: Record<string, string[]> = {}
+  for (const chunk of value.split(';')) {
+    const parts = chunk.trim().split(/\s+/).filter(Boolean)
+    const name = parts.shift()
+    if (!name) {
+      continue
     }
+    const key = name.toLowerCase()
+    if (!CSP_DIRECTIVE_NAMES.has(key)) {
+      throw new Error(`Unknown Content-Security-Policy directive "${name}".`)
+    }
+    directives[key] = parts
   }
-  return null
+  return directives
 }
 
 /**

@@ -456,6 +456,20 @@
                 :aria-label="t(`admin.security.maxUploadSize`)" />
             </w-item-section>
           </w-item>
+          <w-separator class="my-2" inset />
+          <w-item tag="label">
+            <blueprint-icon icon="scan-stock" />
+            <w-item-section>
+              <w-item-label>{{ t(`admin.security.scanSVG`) }}</w-item-label>
+              <w-item-label caption>{{ t(`admin.security.scanSVGHint`) }}</w-item-label>
+            </w-item-section>
+            <w-item-section avatar>
+              <w-toggle
+                v-model="state.config.uploadScanSVG"
+                :loading="state.loading > 0"
+                :aria-label="t(`admin.security.scanSVG`)" />
+            </w-item-section>
+          </w-item>
         </w-card>
         <!-- ----------------------- -->
         <!-- CORS -->
@@ -615,7 +629,8 @@ const state = reactive({
     apiRateLimitMax: 300,
     apiRateLimitWindow: '5m',
     apiRateLimitBan: '15m',
-    uploadMaxFileSize: 0
+    uploadMaxFileSize: 0,
+    uploadScanSVG: false
   },
   humanUploadMaxFileSize: '0'
 })

@@ -326,6 +326,31 @@ class Blocks {
   }
 
   /**
+   * A site's custom blocks, in just the shape `blockAllowances()` (`models/rendering.ts`) needs to
+   * admit them to the sanitizer's per-block allowlist: the tag they register under and the prop names
+   * a saved page may put on them.
+   *
+   * Every custom row, not only enabled ones — `blockAllowances()` already has `getEnabledKeys()`'s
+   * answer and applies that filter itself, the same way it does for the built-in half of the same
+   * list; duplicating the filter here would just be a second copy of the same rule that could disagree
+   * with the first.
+   *
+   * Prop names are trusted here without a second check: `helpers/blockDefinition.ts#extractBlockDefinition()`
+   * is what actually stands between an uploaded prop name and the sanitizer's attribute allowlist
+   * (`/^[a-z][a-z0-9-]*$/`, rejecting anything shaped like a `*`-glob or an `on*` inline-handler name at
+   * upload time) — this method is a plain read, not a second gate.
+   */
+  async getCustomBlockDefinitions(
+    siteId: string
+  ): Promise<{ block: string; props: BlockProp[] }[]> {
+    const rows = await WIKI.db
+      .select({ block: blocksTable.block, props: blocksTable.props })
+      .from(blocksTable)
+      .where(and(eq(blocksTable.siteId, siteId), eq(blocksTable.isCustom, true)))
+    return rows.map((row) => ({ block: row.block, props: (row.props as BlockProp[]) ?? [] }))
+  }
+
+  /**
    * The keys of the blocks a site has switched on.
    *
    * Read from the database on every call rather than kept in a cache like this model's definitions.

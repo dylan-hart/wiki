@@ -92,7 +92,35 @@ defaults:
       trustProxy: false
       enforceHsts: false
       hstsDuration: 0
-      cspDirectives: ''
+      # -> A known-good starting point for `enforceCsp`, not enabled by default (WP #2158/#2154): the
+      #    admin area's `cspDirectivesHint` requires at least one directive once enforcement is turned
+      #    on, and an operator with nothing to start from was previously left to author one from
+      #    scratch. `object-src`/`base-uri`/`frame-ancestors` are the "at minimum" baseline; the rest
+      #    is sized to what the app itself actually needs:
+      #      - `script-src 'self'` / `worker-src 'self' blob:` -- Monaco's language workers
+      #        (`frontend/src/boot/monaco.js`) and the custom-blocks loader (`/_blocks/**`) are both
+      #        same-origin; `blob:` covers a worker Monaco spins up via an object URL rather than a
+      #        same-origin script URL, which some of its language services still do internally.
+      #      - `style-src 'self' 'unsafe-inline'` -- KaTeX (`frontend/src/renderers/markdown.js`)
+      #        renders every expression as a tree of inline `style="..."` attributes; there is no
+      #        practical nonce/hash story for content an editor can retype at any time.
+      #      - `img-src 'self' data: https:` / `connect-src 'self' https:` -- `block-kroki` and
+      #        `block-plantuml` `fetch()` and `<img src>` an *admin-configured* diagram-rendering
+      #        server (kroki.io / plantuml.com by default, but changeable per block instance), so the
+      #        host can't be pinned to one name; `data:` covers KaTeX/icon-inlined images.
+      #      - `frame-src 'self' https:` -- `block-youtube`/`block-vimeo`/`block-dailymotion`/
+      #        `block-m365-video` each embed a provider iframe; the exact host is either fixed per
+      #        block or, for m365, entirely operator-supplied.
+      #      - `font-src 'self' data:` -- KaTeX's bundled webfonts.
+      #    Deliberately NOT covered: theme HTML injection (`site.theme.injectHead`/`injectBody`, an
+      #    operator-authored inline `<script>`/`<style>`) and the `google`/`gtm`/`matomo` analytics
+      #    modules, which each load a script from their own external origin -- both need directives
+      #    this default can't guess in advance, called out in `AdminSecurity.vue`'s CSP hint instead
+      #    of silently widened for here. See `docs/audit-2026-08-24/security/08-frontend-client.md`
+      #    §10 and the co-located `backend/helpers/security.test.ts` case asserting this parses as
+      #    expected.
+      cspDirectives: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; media-src 'self' https:; frame-src 'self' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+      uploadScanSVG: true
       disallowIframe: true
       uploadMaxFileSize: 10485760
       forceAssetDownload: true

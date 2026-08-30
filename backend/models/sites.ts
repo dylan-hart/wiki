@@ -21,7 +21,13 @@ import {
 } from '../db/schema.ts'
 import { and, eq } from 'drizzle-orm'
 import { CustomError, normalizeHostname } from '../helpers/common.ts'
-import { detectImageMime, detectSvg, normalizeImage, svgMimeType } from '../helpers/images.ts'
+import {
+  detectImageMime,
+  detectSvg,
+  normalizeImage,
+  sanitizeSvg,
+  svgMimeType
+} from '../helpers/images.ts'
 import type { ImageNormalization } from '../helpers/images.ts'
 import type { SystemIds } from './types.ts'
 
@@ -370,8 +376,12 @@ class Sites {
    * @param data The uploaded image, already known to be one of the supported formats
    */
   async setAsset(siteId: string, kind: SiteAssetKind, data: Buffer): Promise<void> {
+    // -> Only reached when the flag is on: a disabled `security.uploadScanSVG` stores the bytes
+    //    exactly as uploaded, same as before this existed.
     const normalized = detectSvg(data)
-      ? data
+      ? WIKI.config.security?.uploadScanSVG
+        ? sanitizeSvg(data)
+        : data
       : ((await normalizeImage(data, SITE_ASSET_NORMALIZATION[kind])) ?? data)
     // -> Kept in step with `data` on every write -- `hash` is NOT NULL with no default, and this is
     //    the same sha1-hex digest `controllers/site.ts` computes from the blob for its ETag, so a

@@ -1,8 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 import { decodeTreePath, normalizePagePath } from '../helpers/common.ts'
-import { shouldForceDownload } from '../models/assets.ts'
-import { SVG_CSP, isDangerousInlineType } from '../helpers/security.ts'
+import { needsSvgCsp, SVG_CSP } from '../helpers/security.ts'
+import { dispositionFor } from '../models/assets.ts'
 
 const assetIdParam = {
   type: 'object',
@@ -309,19 +309,21 @@ async function routes(app: FastifyInstance) {
         return reply.redirect(content.redirectUrl, 302)
       }
 
-      // -> Same unified predicate `/_files/*` uses (`models/assets.ts#shouldForceDownload`) — this
-      //    route used to invert it (`forceAssetDownload || !INLINE_EXTS.has(ext)`), which forced
-      //    every image to download whenever `forceAssetDownload` was on, the shipped default
-      //    (OpenProject #1360/#2152, 2026-08-24 security audit §3).
-      if (shouldForceDownload(asset.fileExt, !!WIKI.config.security?.forceAssetDownload)) {
+      // -> Same unified predicate `/_files/*` uses (`models/assets.ts#dispositionFor`) — this route
+      //    used to invert it (`forceAssetDownload || !INLINE_EXTS.has(ext)`), which forced every
+      //    image to download whenever `forceAssetDownload` was on, the shipped default (OpenProject
+      //    #1360/#2152/#2164, 2026-08-24 security audit §3).
+      if (dispositionFor(asset.fileExt)) {
         reply.header(
           'Content-Disposition',
           `attachment; filename="${encodeURIComponent(asset.fileName)}"`
         )
       }
-      // -> SVG/HTML-typed bytes are active content on direct navigation; see the identical guard in
-      //    `controllers/files.ts`.
-      if (isDangerousInlineType(asset.mimeType)) {
+      // -> Neutralizes an SVG or HTML/XHTML file opened as a document rather than embedded — see
+      //    `helpers/security.ts`'s `SVG_CSP` for the full reasoning. Reachable whenever
+      //    `forceAssetDownload` is off, which is what would otherwise leave this route serving one
+      //    inline with no CSP at all.
+      if (needsSvgCsp(asset.fileExt)) {
         reply.header('Content-Security-Policy', SVG_CSP)
       }
       // -> The bytes came from a user, so the browser must take the type at its word rather than

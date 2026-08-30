@@ -1,6 +1,6 @@
 import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
-import { assets, shouldForceDownload } from './assets.ts'
+import { assets, dispositionFor } from './assets.ts'
 import type { StorageTarget } from './storage.ts'
 
 /**
@@ -400,21 +400,125 @@ test('readContent returns null when the asset row is gone, whichever path was ta
 })
 
 /**
- * OpenProject #1360/#2152 (2026-08-24 security audit §3): `controllers/files.ts`'s `/_files/*` route
- * and `api/assets.ts`'s `/content` route used to compute this independently, with inverted
+ * OpenProject #1360/#2152/#2164 (2026-08-24 security audit §3): `controllers/files.ts`'s `/_files/*`
+ * route and `api/assets.ts`'s `/content` route used to compute this independently, with inverted
  * predicates — this is the one function both now call, so the same asset/setting combination answers
  * identically on both routes by construction rather than by two implementations staying in sync.
+ *
+ * `dispositionFor()` is the single predicate `controllers/files.ts` and `api/assets.ts`'s `/content`
+ * route both call, replacing two expressions that used to disagree (OpenProject #2164). What matters
+ * here is that it answers the SAME way for the same inputs regardless of which route asks — this is
+ * a pure function of `fileExt` plus `WIKI.config.security.forceAssetDownload`, no I/O, so both
+ * "routes" are just calling it directly with the same arguments.
  */
-test('shouldForceDownload: never forces an INLINE_EXTS member, regardless of the setting', () => {
-  assert.equal(shouldForceDownload('png', true), false)
-  assert.equal(shouldForceDownload('png', false), false)
-  assert.equal(shouldForceDownload('svg', true), false)
-  assert.equal(shouldForceDownload('svg', false), false)
+function withSecurityConfig<T>(security: Record<string, unknown>, fn: () => T): T {
+  const original = (globalThis as any).WIKI
+  ;(globalThis as any).WIKI = { ...original, config: { security } }
+  try {
+    return fn()
+  } finally {
+    ;(globalThis as any).WIKI = original
+  }
+}
+
+test('dispositionFor: an INLINE_EXTS member is never forced to download, forceAssetDownload on or off', () => {
+  assert.equal(
+    withSecurityConfig({ forceAssetDownload: true }, () => dispositionFor('png')),
+    false
+  )
+  assert.equal(
+    withSecurityConfig({ forceAssetDownload: false }, () => dispositionFor('png')),
+    false
+  )
 })
 
-test('shouldForceDownload: forces a non-INLINE_EXTS extension only when the setting is on', () => {
-  assert.equal(shouldForceDownload('zip', true), true)
-  assert.equal(shouldForceDownload('zip', false), false)
-  assert.equal(shouldForceDownload('html', true), true)
-  assert.equal(shouldForceDownload('html', false), false)
+test('dispositionFor: a non-inline extension downloads only when forceAssetDownload is on', () => {
+  assert.equal(
+    withSecurityConfig({ forceAssetDownload: true }, () => dispositionFor('zip')),
+    true
+  )
+  assert.equal(
+    withSecurityConfig({ forceAssetDownload: false }, () => dispositionFor('zip')),
+    false
+  )
+})
+
+// ---------------------------------------------------------------------------------------------
+// upload() — the security.uploadScanSVG gate
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Stubs everything `upload()` touches on a fresh-name (no conflict) path: no existing tree entry,
+ * `addAsset` echoing back a synthesized row, and no-op hooks/dispatch/extensions. `WIKI.db.insert`
+ * captures what was actually handed to it, which is what these tests assert against.
+ */
+function stubUploadPath(uploadScanSVG: boolean) {
+  let inserted: any
+  global.WIKI = {
+    ...global.WIKI,
+    config: { security: { uploadScanSVG } },
+    sites: {},
+    models: {
+      ...(global.WIKI as any).models,
+      tree: {
+        getEntryAt: async () => null,
+        addAsset: async ({ fileName, siteId }: any) => ({
+          id: 'asset-svg-1',
+          fileName,
+          folderPath: '',
+          title: fileName,
+          siteId,
+          createdAt: new Date('2024-01-01T00:00:00Z'),
+          updatedAt: new Date('2024-01-01T00:00:00Z')
+        })
+      },
+      hooks: { emit: () => {} },
+      storage: { dispatch: () => {} },
+      extensions: { getDefinition: () => null, isInstalled: async () => false }
+    },
+    db: {
+      insert: () => ({
+        values: async (row: any) => {
+          inserted = row
+        }
+      }),
+      delete: () => ({ where: async () => {} })
+    }
+  } as unknown as WikiGlobal
+  return {
+    getInserted: () => inserted
+  }
+}
+
+test('upload sanitizes an SVG when security.uploadScanSVG is on, stripping a script tag', async () => {
+  const { getInserted } = stubUploadPath(true)
+  const svg = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><circle cx="1" cy="1" r="1"/></svg>'
+  )
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'malicious.svg',
+    data: svg,
+    authorId: 'user-1'
+  })
+  const stored: Buffer = getInserted().data
+  const storedText = stored.toString('utf8')
+  assert.ok(!storedText.includes('<script'))
+  assert.ok(!storedText.includes('alert(1)'))
+  assert.ok(storedText.includes('<circle'))
+})
+
+test('upload stores an SVG untouched when security.uploadScanSVG is off', async () => {
+  const { getInserted } = stubUploadPath(false)
+  const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'untouched.svg',
+    data: svg,
+    authorId: 'user-1'
+  })
+  const stored: Buffer = getInserted().data
+  assert.deepEqual(stored, svg)
 })

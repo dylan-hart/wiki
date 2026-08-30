@@ -180,18 +180,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           max: { type: 'integer', minimum: 1, maximum: 6 }
         }
       },
-      scriptJsLoad: {
-        type: 'string',
-        description: 'Requires the `write:scripts` permission. Ignored without it.'
-      },
-      scriptJsUnload: {
-        type: 'string',
-        description: 'Requires the `write:scripts` permission. Ignored without it.'
-      },
-      scriptCss: {
-        type: 'string',
-        description: 'Requires the `write:styles` permission. Ignored without it.'
-      },
       reasonForChange: {
         type: 'string',
         maxLength: 255,
@@ -281,9 +269,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           max: { type: 'integer' }
         }
       },
-      scriptJsLoad: { type: 'string' },
-      scriptJsUnload: { type: 'string' },
-      scriptCss: { type: 'string' },
       navigationId: { type: ['string', 'null'] },
       navigationMode: { type: 'string' },
       authorId: { type: 'string', format: 'uuid' },

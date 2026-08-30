@@ -48,12 +48,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       disallowOpenRedirect: {
         type: 'boolean',
         description:
-          "Enforced, on by default: a group's redirectOnLogin/redirectOnFirstLogin/redirectOnLogout and a site's loginRedirect/welcomeRedirect/logoutRedirect must be a same-origin path while this is on. Turning it off additionally permits those six fields to be a complete http(s) URL leaving this wiki entirely -- e.g. to land on an external identity provider's own logged-out page. Every one of those fields refuses a `javascript:`/`data:`/scheme-relative target regardless of this setting -- it only ever widens what a legitimate absolute redirect may target."
+          'When on (the default), a group/site login/logout redirect and the `?redirect=` query parameter on a provider login must name a path on this wiki; an absolute URL to another host is refused. Turning it off additionally permits a complete `https?://` URL. Every one of those fields refuses a `javascript:`/`data:`/scheme-relative target regardless of this setting -- it only ever widens what a legitimate absolute redirect may target. Read live on each request via `helpers/redirectTarget.ts#absoluteRedirectsAllowed()`, unlike most of this card — flipping it applies immediately, no restart needed.'
       },
       forceAssetDownload: {
         type: 'boolean',
         description:
-          'Enforced on both `GET /_files/*` and `GET /sites/:siteId/assets/:assetId/content`, which share one predicate: a non-image, non-SVG extension downloads when this is on, and an image or SVG never downloads regardless of the setting (SVG still gets a sandboxing Content-Security-Policy either way). Read live on each request, unlike the rest of this card — flipping it applies immediately, no restart needed.'
+          'Enforced identically by both routes that serve a stored asset — `GET /sites/:siteId/assets/:assetId/content` and the public `/_files/*` path: neither ever forces an inline-renderable extension (image types) to download, and both attach `Content-Disposition: attachment` to every other extension only when this is on (SVG still gets a sandboxing Content-Security-Policy either way). Read live on each request, unlike the rest of this card — flipping it applies immediately, no restart needed.'
       },
       trustProxy: {
         // -> Two real (non-null) types, so `oneOf` rather than `type: ['boolean', 'string']` -- AJV's
@@ -77,6 +77,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         minimum: 1,
         description:
           'Bytes. Enforced as the request body size limit on `POST /sites/:siteId/assets`.'
+      },
+      uploadScanSVG: {
+        type: 'boolean',
+        description:
+          'Whether an uploaded SVG is run through a structure-and-shapes-only tag/attribute allowlist before being stored, stripping `<script>`, event-handler attributes, `foreignObject` and SMIL animation. Enforced on `POST /sites/:siteId/assets` and on a site image upload (logo, favicon, login background). Read live at upload time, unlike the rest of this card.'
       },
       authRateLimitEnabled: {
         type: 'boolean',

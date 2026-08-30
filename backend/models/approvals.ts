@@ -1118,6 +1118,8 @@ class Approvals {
         id: submissionsTable.id,
         pageId: submissionsTable.pageId,
         baseHash: submissionsTable.baseHash,
+        // -> Whose markup this is, for resolving submitter render permissions -- null for a guest
+        //    submission (`POST .../submissions` allows one; see that route)
         authorId: submissionsTable.authorId
       })
       .from(submissionsTable)
@@ -1244,27 +1246,6 @@ class Approvals {
     }
 
     /*
-      OpenProject #2165: accepting a suggestion writes the page, so it takes the same permission a
-      direct save would -- approval-rule membership was the entire gate before this, so a member of a
-      `match: 'START', path: ''` rule's `reviewerGroups` could write arbitrary content to any page with
-      a pending suggestion, bypassing `write:pages` and any classification DENY. Checked here rather
-      than earlier: the vote just recorded above stands either way (a lower-privilege act than the
-      write itself), but the page is left untouched and the submission stays open rather than being
-      partially applied.
-    */
-    if (
-      !WIKI.models.groups.checkAccess(actor, 'write:pages', {
-        path: page.path,
-        locale: page.locale,
-        siteId,
-        tags: page.tags ?? [],
-        classification: page.classification
-      })
-    ) {
-      return { ok: false, reason: 'forbidden' }
-    }
-
-    /*
       The render has to move with the content, or the page keeps serving HTML that no longer matches
       its source. The markdown pipeline lives in the frontend, so the reviewer's browser produces it
       the same way the editor does on any other save, and it arrives with the approval.
@@ -1286,40 +1267,63 @@ class Approvals {
       allows one -- unauthenticated) submitter's markup launder through a reviewer's grant, which is
       a permission bypass neither side individually has: the reviewer never wrote the script, and the
       submitter never held the permission (OpenProject #1360/#2180, 2026-08-24 security audit §4).
-      `getPageActor` returns `null` for a guest submission (`authorId` is null), which is treated the
-      same as "holds nothing".
+      `resolveSubmitterRenderPermissions` returns neither permission for a guest submission
+      (`authorId` is null), which is treated the same as "holds nothing".
     */
-    const pageRef: RulePageRef = {
-      path: page.path,
-      locale: page.locale,
-      siteId,
-      tags: page.tags ?? [],
-      classification: page.classification
-    }
-    const submitterActor = submission.authorId
-      ? await WIKI.models.users.getPageActor(submission.authorId)
-      : null
-    const renderPermissions: RenderPermissions = submitterActor
-      ? {
-          scripts: hasPermission(submitterActor, 'write:scripts', pageRef),
-          styles: hasPermission(submitterActor, 'write:styles', pageRef)
-        }
-      : { scripts: false, styles: false }
-
+    const submitterRenderPermissions = await this.resolveSubmitterRenderPermissions(
+      submission.authorId,
+      {
+        path: page.path,
+        locale: page.locale,
+        siteId,
+        tags: page.tags ?? [],
+        classification: page.classification
+      }
+    )
     await WIKI.models.pages.updatePage(
       siteId,
       page.id,
       { content, ...(render && { render }) },
       actor,
-      renderPermissions
+      submitterRenderPermissions
     )
     if (!render) {
       // -> Briefly stale rather than wrong: the browser is a queue away, and a suggestion approved
       //    while it is busy waits its turn instead of starting a second one
-      await WIKI.models.pages.queueRerender(siteId, page.id, actor, renderPermissions)
+      await WIKI.models.pages.queueRerender(siteId, page.id, actor, submitterRenderPermissions)
     }
     WIKI.logger.debug(`Approved edit suggestion ${submissionId} onto page ${page.id}`)
     return decision
+  }
+
+  /**
+   * What `write:scripts`/`write:styles` the SUBMITTER holds on this page -- not the reviewer.
+   *
+   * `POST /sites/:siteId/pages/:pageId/submissions` only requires a matching submit rule, and
+   * explicitly allows a guest (no `authorId`) to raise a suggestion; the reviewer's own browser then
+   * renders that markdown and posts the resulting HTML to `approveSubmission`. Resolving these
+   * permissions from `actor` (the reviewer) the way an ordinary save does would let a reviewer who
+   * holds `write:scripts`/`write:styles` launder a submitter's `<script>`/inline `style` past a
+   * permission the submitter never had -- a confused-deputy path, since the reviewer could always
+   * have written the same markup themselves, but one that quietly turns a technical control into a
+   * human one for third-party content the reviewer only skimmed as a diff (`InboxReview.vue`).
+   *
+   * A guest submission gets neither permission, unconditionally -- there is no group to check.
+   */
+  private async resolveSubmitterRenderPermissions(
+    authorId: string | null,
+    pageRef: RulePageRef
+  ): Promise<RenderPermissions> {
+    if (!authorId) {
+      return { scripts: false, styles: false }
+    }
+    // -> Resolved fresh from the db, not from a session/API key -- the submitter has no request of
+    //    their own for the reviewer's `approveSubmission` call to read one from.
+    const submitterActor = { id: authorId, ...(await WIKI.models.groups.actorForUserId(authorId)) }
+    return {
+      scripts: hasPermission(submitterActor, 'write:scripts', pageRef),
+      styles: hasPermission(submitterActor, 'write:styles', pageRef)
+    }
   }
 
   /**

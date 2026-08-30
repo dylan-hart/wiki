@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import {
+  assertValidNavItems,
   NAV_COPY_MODES,
   NAVIGATION_MODES,
   NAVIGATION_SOURCE_MODES,
@@ -396,6 +397,7 @@ async function routes(app: FastifyInstance) {
               message: { type: 'string' }
             }
           },
+          400: { $ref: 'ApiError#' },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' }
         }
@@ -405,6 +407,7 @@ async function routes(app: FastifyInstance) {
       if (!canManageNavigation(req, req.params.siteId)) {
         return reply.forbidden()
       }
+      assertValidNavItems(req.body.items)
       await WIKI.models.navigation.setNavItems(req.params.siteId, req.params.navId, req.body.items)
       return {
         ok: true,
@@ -573,6 +576,9 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       if (!canManageNavigation(req, req.params.siteId)) {
         return reply.forbidden()
+      }
+      if (req.body.items) {
+        assertValidNavItems(req.body.items)
       }
       const result = await WIKI.models.navigation.updateNavigation({
         siteId: req.params.siteId,

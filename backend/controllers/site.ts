@@ -49,7 +49,7 @@ const SITE_ASSET_CACHE = 'public, no-cache'
  * header; opened directly in a new tab, this header's `sandbox` neutralizes it in both browsers.)
  *
  * `SVG_CSP` itself now lives in `helpers/security.ts`, shared with `controllers/files.ts` and
- * `api/assets.ts`'s `/content` route so all three cannot drift apart on the exact same question.
+ * `api/assets.ts`'s `/content` route so all three cannot drift apart (OpenProject #2157).
  */
 
 /**

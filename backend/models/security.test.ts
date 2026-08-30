@@ -177,42 +177,81 @@ describe("Security#validate — the widened 'trustProxy' field", () => {
 })
 
 /**
- * OpenProject #1360/#2154 (2026-08-24 security audit §10): `validate()` now refuses an unknown CSP
- * directive name whenever `cspDirectives` is being saved at all, not only while `enforceCsp` is on
- * — a typo saved while CSP is off would otherwise sit silently wrong until the moment an operator
- * flips the toggle.
+ * Unit test for WP #2161 (part of #2154): `Security#validate` is what stands between an admin-area
+ * save and `WIKI.config.security` -- an unknown CSP directive name must be refused here, with a
+ * message naming the offending token, rather than reaching `parseCspDirectives` for the first time
+ * at request-serving time in `index.ts`. Directive names are validated regardless of `enforceCsp`:
+ * a typo'd or invented directive stored while enforcement is off would otherwise resurface,
+ * unvalidated, the moment enforcement is later switched on.
  */
-describe('Security#validate — CSP directive names', () => {
+describe('Security#validate CSP directive checks', () => {
   let security: typeof import('./security.ts').security
 
   beforeEach(async () => {
-    // -> `corsMode: 'OFF'` so `validate()`'s CORS-mode check (unrelated to this describe block)
-    //    passes before its CSP check is ever reached.
-    ;(globalThis as any).WIKI = { config: { security: { corsMode: 'OFF' } } }
+    // -> A baseline that passes every OTHER validate() check (CORS off, no rate limiting), so each
+    //    test's patch only has to touch the CSP fields it actually cares about.
+    ;(globalThis as any).WIKI = {
+      config: {
+        security: {
+          corsMode: 'OFF',
+          corsConfig: '',
+          enforceCsp: false,
+          cspDirectives: '',
+          enforceHsts: false,
+          hstsDuration: 0,
+          authRateLimitEnabled: false,
+          apiRateLimitEnabled: false
+        }
+      }
+    }
     ;({ security } = await import(`./security.ts?t=${Math.random()}`))
   })
 
-  test('accepts a patch with only recognised directive names, enforceCsp off', () => {
+  test('the shipped default (CSP off, no directives) is valid', () => {
+    assert.equal(security.validate({}), null)
+  })
+
+  test('rejects turning enforceCsp on with an empty directive string', () => {
+    assert.match(
+      security.validate({ enforceCsp: true, cspDirectives: '' }) ?? '',
+      /at least one directive/
+    )
+  })
+
+  test('rejects an unknown directive name, naming it, once enforceCsp is on', () => {
+    const reason = security.validate({
+      enforceCsp: true,
+      cspDirectives: "default-src 'self'; not-a-real-directive 'none'"
+    })
+    assert.match(reason ?? '', /"not-a-real-directive"/)
+  })
+
+  test('rejects an unknown directive name even while enforcement is off, so it cannot be stored and resurface later', () => {
+    const result = security.validate({ cspDirectives: 'not-a-real-directive foo' })
+    assert.match(result ?? '', /"not-a-real-directive"/)
+  })
+
+  test('accepts a valid operator-authored policy', () => {
     assert.equal(
-      security.validate({ cspDirectives: "default-src 'self'; object-src 'none'" }),
+      security.validate({
+        enforceCsp: true,
+        cspDirectives: "default-src 'self'; object-src 'none'"
+      }),
       null
     )
   })
 
-  test('refuses an unknown directive name even while enforceCsp is off', () => {
-    const reason = security.validate({ cspDirectives: "scirpt-src 'self'" })
-    assert.match(reason ?? '', /scirpt-src/)
-  })
-
-  test('refuses an unknown directive name when enforceCsp is being turned on in the same patch', () => {
-    const reason = security.validate({
-      enforceCsp: true,
-      cspDirectives: "default-src 'self'; not-a-directive 'x'"
-    })
-    assert.match(reason ?? '', /not-a-directive/)
-  })
-
-  test('an empty cspDirectives patch is not checked against the directive allowlist at all', () => {
-    assert.equal(security.validate({ cspDirectives: '' }), null)
+  test('accepts the shipped backend/base.yml default', async () => {
+    const { load } = await import('js-yaml')
+    const { readFileSync } = await import('node:fs')
+    const path = await import('node:path')
+    const config: any = load(readFileSync(path.join(import.meta.dirname, '../base.yml'), 'utf8'))
+    assert.equal(
+      security.validate({
+        enforceCsp: true,
+        cspDirectives: config.defaults.config.security.cspDirectives
+      }),
+      null
+    )
   })
 })

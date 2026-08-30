@@ -339,16 +339,23 @@ class Groups {
   }
 
   /**
-   * The actor for one user, resolved fresh from their CURRENT group membership rather than from a
-   * session or a cached row — for a code path that has only a stored `userId` and nothing more, and
-   * needs today's answer rather than whatever it was when the caller last had a session (OpenProject
-   * #2173: a page-watch notification is queued once, at CHANGE time, but sent — and re-read from the
-   * inbox — much later; a watcher who has since lost their group membership, or `read:pages` on the
-   * path specifically, must not go on receiving or seeing it just because they were still a member
-   * when they first subscribed).
+   * The actor a specific user speaks for, resolved fresh from their CURRENT group membership rather
+   * than from a session, a cached row, or an API key — for a caller that has only a stored `userId`
+   * and nothing more, and needs today's answer rather than whatever it was when the caller last had a
+   * session. Two motivating cases: OpenProject #2173, a page-watch notification queued once, at
+   * CHANGE time, but sent — and re-read from the inbox — much later, where a watcher who has since
+   * lost their group membership, or `read:pages` on the path specifically, must not go on receiving
+   * or seeing it just because they were still a member when they first subscribed; and OpenProject
+   * #2187, a caller that has to check what SOMEBODY ELSE is allowed, not the caller making the
+   * request — `approveSubmission` resolving `write:scripts`/`write:styles` against the submitter who
+   * wrote the markup, not the reviewer whose browser rendered it, since the submitter has no request
+   * of their own for `actorForRequest()` to read.
    *
    * A user in no group at all (never assigned one, or every membership since removed) gets the empty
    * actor — no groups, no permissions — same as `checkAccess` would resolve for them directly.
+   *
+   * No `scope`/`allowedClassifications` narrowing here — those exist only for a session/API-key
+   * caller's own narrowing (see `AccessActor`'s doc comment), and a user resolved by id has neither.
    */
   async actorForUserId(userId: string): Promise<AccessActor> {
     const groupIds = await WIKI.models.users.getUserGroupIds(userId)

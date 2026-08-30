@@ -203,15 +203,18 @@ describe('mapSiteSettings', () => {
     const rows: SiteSettingsSourceRow[] = [
       {
         key: 'uploads',
-        value: { maxFileSize: 5242880, maxFiles: 10, scanSVG: false, forceDownload: false }
+        // -> `maxFiles` has no 3.0 destination (`security.uploadMaxFiles` was removed as a dead key
+        //    that nothing ever enforced; OpenProject #2174) and is expected to be dropped, not mapped.
+        //    `scanSVG` does map across -- `uploadScanSVG` is enforced in 3.0 (OpenProject #2170).
+        value: { maxFileSize: 5242880, scanSVG: false, forceDownload: false }
       }
     ]
     const { instanceSettings } = mapSiteSettings(rows)
-    // -> `maxFiles`/`scanSVG` are 2.x-only: `uploadMaxFiles`/`uploadScanSVG` were dead 3.0 settings
-    //    nothing enforced (OpenProject #1360/#2152) and have been deleted, so there is nowhere for
-    //    either to land here.
+    // -> `maxFiles` is 2.x-only: `uploadMaxFiles` was a dead 3.0 setting nothing enforced
+    //    (OpenProject #1360/#2152/#2174) and has been deleted, so there is nowhere for it to land.
     assert.deepEqual(instanceSettings.security, {
       uploadMaxFileSize: 5242880,
+      uploadScanSVG: false,
       forceAssetDownload: false
     })
   })

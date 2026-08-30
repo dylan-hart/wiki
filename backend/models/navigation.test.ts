@@ -16,7 +16,14 @@ import {
   sites as sitesTable,
   tree as treeTable
 } from '../db/schema.ts'
-import { NAVIGATION_MODES, type NavigationItem, type NavigationMode } from './navigation.ts'
+import {
+  assertValidNavItems,
+  isValidNavItemTarget,
+  NAVIGATION_MODES,
+  sanitizeNavItemTargets,
+  type NavigationItem,
+  type NavigationMode
+} from './navigation.ts'
 import type { PageActor, PageInput } from './pages.ts'
 import type { AccessActor } from './groups.ts'
 
@@ -25,6 +32,111 @@ import type { AccessActor } from './groups.ts'
  *  entirely, matching this file's pre-#2155 behavior for everything but the dedicated
  *  permission-filtering tests, which build their own narrower actor. */
 const ADMIN_ACTOR = { groupIds: [] as string[], permissions: ['manage:system'] }
+
+/**
+ * OpenProject #2208 §3: pure unit coverage of the item-target validation `setNavItems`,
+ * `updateNavigation` and `copyNav` all now call before writing — no `WIKI` global and no database
+ * needed, per this repo's own preference for a pure test over a DB-backed one wherever the thing
+ * under test is not itself SQL orchestration (see CLAUDE.md's "Testing (backend)" section). The
+ * DB-backed `setNavItems`/`copyNav` describe blocks further down in this file cover the write/copy
+ * round trip itself; this covers the validation logic they both now run on the way in.
+ */
+describe('isValidNavItemTarget / assertValidNavItems / sanitizeNavItemTargets', () => {
+  test('an absent or empty target is valid (header/separator, or an unpointed link)', () => {
+    assert.equal(isValidNavItemTarget(undefined), true)
+    assert.equal(isValidNavItemTarget(''), true)
+  })
+
+  test('a bare rooted path is valid', () => {
+    assert.equal(isValidNavItemTarget('/some/page'), true)
+  })
+
+  test('an absolute https:// URL is valid', () => {
+    assert.equal(isValidNavItemTarget('https://example.com/x'), true)
+  })
+
+  test('mailto: and tel: are valid -- legitimate nav item destinations', () => {
+    assert.equal(isValidNavItemTarget('mailto:person@example.com'), true)
+    assert.equal(isValidNavItemTarget('tel:+15555550100'), true)
+  })
+
+  test('javascript: is refused', () => {
+    assert.equal(isValidNavItemTarget('javascript:alert(1)'), false)
+  })
+
+  test('javascript://%0aalert(1) is refused (the naive-regex bypass)', () => {
+    assert.equal(isValidNavItemTarget('javascript://%0aalert(1)'), false)
+  })
+
+  test('data: is refused', () => {
+    assert.equal(isValidNavItemTarget('data:text/html,<script>alert(1)</script>'), false)
+  })
+
+  test('a protocol-relative //host is refused', () => {
+    assert.equal(isValidNavItemTarget('//evil.example'), false)
+  })
+
+  test('assertValidNavItems throws on a top-level item with a javascript: target', () => {
+    assert.throws(
+      () => assertValidNavItems([{ id: 'a', type: 'link', target: 'javascript:alert(1)' }]),
+      /invalid target/i
+    )
+  })
+
+  test('assertValidNavItems throws on a NESTED child target, not just top-level items', () => {
+    assert.throws(
+      () =>
+        assertValidNavItems([
+          {
+            id: 'a',
+            type: 'link',
+            target: '/fine',
+            children: [{ id: 'b', type: 'link', target: 'javascript:alert(1)' }]
+          }
+        ]),
+      /invalid target/i
+    )
+  })
+
+  test('assertValidNavItems does not throw for a menu with only valid targets', () => {
+    assert.doesNotThrow(() =>
+      assertValidNavItems([
+        { id: 'a', type: 'link', target: '/fine' },
+        { id: 'b', type: 'header' },
+        {
+          id: 'c',
+          type: 'link',
+          target: 'https://example.com',
+          children: [{ id: 'd', type: 'link', target: 'mailto:x@example.com' }]
+        }
+      ])
+    )
+  })
+
+  test('sanitizeNavItemTargets blanks an invalid target, top-level and nested alike, leaving the rest of the item intact', () => {
+    const sanitized = sanitizeNavItemTargets([
+      {
+        id: 'a',
+        type: 'link',
+        label: 'Evil',
+        target: 'javascript:alert(1)',
+        children: [
+          { id: 'b', type: 'link', label: 'Also evil', target: 'data:text/html,x' },
+          { id: 'c', type: 'link', label: 'Fine', target: '/ok' }
+        ]
+      }
+    ])
+    assert.equal(sanitized[0]!.target, '')
+    assert.equal(sanitized[0]!.label, 'Evil')
+    assert.equal(sanitized[0]!.children![0]!.target, '')
+    assert.equal(sanitized[0]!.children![1]!.target, '/ok')
+  })
+
+  test('sanitizeNavItemTargets leaves an already-valid menu untouched', () => {
+    const items: NavigationItem[] = [{ id: 'a', type: 'link', target: '/fine' }]
+    assert.deepEqual(sanitizeNavItemTargets(items), items)
+  })
+})
 
 /**
  * `listOverrides` is a flat, indexed scan against `tree` — no ltree ancestry logic to mock, so this
@@ -399,6 +511,49 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
     assert.equal(targetItems[0]!.id, 'append-target')
     assert.notEqual(targetItems[1]!.id, 'append-source')
+  })
+
+  /**
+   * OpenProject #2217: `copyNav` used to copy `target` unrewritten, so a source menu poisoned before
+   * this check existed (or written straight to the database) could reintroduce a `javascript:` item
+   * into a fresh menu via a plain "copy from locale". A safe target still travels over unchanged.
+   *
+   * `setNavItems` itself now refuses a `javascript:` target outright (`assertValidNavItems`), so the
+   * poisoned source row here is written straight to the table with a raw `WIKI.db.update` -- exactly
+   * the "predates this validation" scenario `sanitizeNavItemTargets`'s own doc comment describes --
+   * rather than through the model, which this test would never get past otherwise.
+   */
+  test('drops an unsafe target instead of duplicating it onto the target menu', async () => {
+    const sourceId = await navigationModel.ensureSiteNav(fixtures.siteId, 'ja')
+    const targetId = await navigationModel.ensureSiteNav(fixtures.siteId, 'ko')
+
+    await WIKI.db
+      .update(navigationTable)
+      .set({
+        items: [
+          { id: 'safe-path', type: 'link', label: 'Safe Path', target: '/safe' },
+          { id: 'safe-url', type: 'link', label: 'Safe URL', target: 'https://example.com' },
+          { id: 'unsafe', type: 'link', label: 'Unsafe', target: 'javascript:alert(1)' }
+        ]
+      })
+      .where(eq(navigationTable.id, sourceId))
+
+    await navigationModel.copyNav({
+      sourceSiteId: fixtures.siteId,
+      sourceId,
+      targetSiteId: fixtures.siteId,
+      targetId,
+      mode: 'replace'
+    })
+
+    const targetItems = await navigationModel.getNav(fixtures.siteId, targetId, {
+      actor: ADMIN_ACTOR,
+      unfiltered: true
+    })
+    const byLabel = Object.fromEntries(targetItems.map((i) => [i.label, i.target]))
+    assert.equal(byLabel['Safe Path'], '/safe')
+    assert.equal(byLabel['Safe URL'], 'https://example.com')
+    assert.equal(byLabel['Unsafe'], '')
   })
 
   test('rejects a sourceId that does not resolve to an existing menu row', async () => {

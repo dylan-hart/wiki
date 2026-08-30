@@ -813,7 +813,6 @@ export const pages = pgTable(
     password: varchar({ length: 255 }),
     ratingScore: integer().notNull().default(0),
     ratingCount: timestamp({ withTimezone: true }).notNull().defaultNow(),
-    scripts: jsonb().notNull().default({}),
     historyData: jsonb().notNull().default({}),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -1058,8 +1057,8 @@ export const pageHistory = pgTable(
     content: text(),
     /**
      * The rest of the page as it stood: description, icon, tags, publish state and dates, relations,
-     * scripts, config, editor and content type. Kept whole rather than as columns of its own so that a
-     * field added to a page does not have to be added here too.
+     * config, editor and content type. Kept whole rather than as columns of its own so that a field
+     * added to a page does not have to be added here too.
      */
     meta: jsonb().notNull().default({}),
     /**

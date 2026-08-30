@@ -503,9 +503,14 @@ EVENT_BUS.on('logout', ({ redirect } = {}) => {
     just "does this look like `scheme://…`".
   */
   const target = redirect && isFollowableRedirectTarget(redirect) ? redirect : '/'
-  // -> A group or the site can send logged out users to another site entirely, which the router cannot
-  //    navigate to — and leaving the wiki means there is no point notifying anyone either
-  if (/^https?:\/\//i.test(target)) {
+  /*
+    A group or the site can send logged out users to another site entirely, which the router cannot
+    navigate to — and leaving the wiki means there is no point notifying anyone either. Told apart by
+    shape now that `target` is already validated: a rooted path (the only other shape
+    `isFollowableRedirectTarget` accepts) is same-origin and the router's; anything else is a
+    complete http(s) address to a real elsewhere.
+  */
+  if (!target.startsWith('/')) {
     window.location.assign(target)
     return
   }

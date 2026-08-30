@@ -56,6 +56,9 @@ const DIAGRAM_BLOCKS: BlockDefinition[] = [
 
 let enabledBlocks = new Set<string>()
 
+/** Custom blocks (OpenProject #2132) -- the shape `models/blocks.ts#getCustomBlockDefinitions()` returns. */
+let customBlocks: { block: string; props: { name: string }[] }[] = []
+
 // -> A minimal stub rather than `test/db.ts`'s full `installTestWiki`: nothing under test here
 //    reaches the database, so the only real dependency is `WIKI.models.blocks` itself
 ;(global as any).WIKI = {
@@ -64,6 +67,9 @@ let enabledBlocks = new Set<string>()
       definitions: DIAGRAM_BLOCKS,
       async getEnabledKeys(_siteId: string) {
         return enabledBlocks
+      },
+      async getCustomBlockDefinitions(_siteId: string) {
+        return customBlocks
       }
     }
   }
@@ -150,6 +156,41 @@ describe('rendering.postProcess: diagram block-vs-fence handoff', () => {
 
     assert.match(result.render, /<block-diagram theme="auto">/)
     assert.doesNotMatch(result.render, /onclick/)
+  })
+})
+
+/*
+ * `blockAllowances()` used to read only `WIKI.models.blocks.definitions` -- the compiled manifest,
+ * which a custom block (a `blocks` row with `isCustom: true`, uploaded through `api/blocks.ts`) has no
+ * entry in at all. That meant `block-<customTag>` never reached the sanitizer's allowlist and was
+ * silently stripped from every saved page, however the editor's own preview rendered it. OpenProject
+ * #2132 admits custom blocks from `getCustomBlockDefinitions()` (stubbed here as the mutable
+ * `customBlocks`, mirroring `enabledBlocks` above) the same way built-ins are admitted -- gated on
+ * being enabled, and with only the prop names the block's own upload declared.
+ */
+describe('rendering.postProcess: custom blocks admitted to blockAllowances (OpenProject #2132)', () => {
+  test("keeps a custom block's tag and declared prop, but strips an attribute it never declared", async () => {
+    enabledBlocks = new Set(['gallery-custom'])
+    customBlocks = [{ block: 'gallery-custom', props: [{ name: 'caption' }] }]
+    const html =
+      '<block-gallery-custom caption="Trip photos" onclick="alert(1)"><p>content</p></block-gallery-custom>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /<block-gallery-custom caption="Trip photos">/)
+    assert.doesNotMatch(result.render, /onclick/)
+  })
+
+  test('drops the element, but keeps its text content, when the custom block is not enabled for the site', async () => {
+    enabledBlocks = new Set() // -> nothing enabled, including the custom block below
+    customBlocks = [{ block: 'gallery-custom', props: [{ name: 'caption' }] }]
+    const html = '<block-gallery-custom caption="Trip photos">content</block-gallery-custom>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.doesNotMatch(result.render, /block-gallery-custom/)
+    // -> Same as any other disallowed tag: the element goes, the text inside it stays
+    assert.match(result.render, /content/)
   })
 })
 
@@ -466,63 +507,139 @@ describe('rendering.sanitize -- allowedStyles (OpenProject #2180)', () => {
   })
 })
 
-/**
- * OpenProject #1360/#2124 (2026-08-24 security audit §7): `postProcess()` ran `sanitize()` BEFORE
- * `inlineIcons()`, so an icon's SVG `body` -- fetched from `models/icons.ts`'s disk/db/upstream-
- * Iconify tiers, screened only by `isSafeIconBody`'s denylist regex -- was written into the stored
- * page verbatim, never through the sanitizer at all. A denylist can miss what an allowlist cannot: an
- * entity-encoded scheme (`&#106;avascript:…`) doesn't literally contain the substring `javascript:`,
- * so a regex denylist checking for that string misses it, but a real HTML parser decodes the entity
- * before `sanitize-html`'s scheme check ever runs. `WIKI.models.icons` is stubbed directly with a
- * malicious body rather than exercising `isSafeIconBody` -- this proves the fix (a second sanitize
- * pass after `inlineIcons()`) closes the gap even for whatever a future upstream response manages to
- * get past that first, narrower gate.
+/*
+ * `postProcess` used to run `sanitize()` before `inlineIcons()`, so the last step that draws more
+ * markup into the document (an icon's SVG body, resolved from a third party) ran AFTER the only step
+ * that filtered what a page may contain -- `isSafeIconBody` (`models/icons.ts`) is a denylist over the
+ * icon's raw, still HTML-entity-encoded body at ingest time, and never sees what that decodes to once
+ * `iconSvg()`'s own `$(...)` call parses it straight into the live DOM, entity-decoding attribute
+ * values exactly like a browser would. OpenProject #2139 closes the gap with a second sanitize pass
+ * after `inlineIcons()`, against the identical options object the first pass used.
+ *
+ * `WIKI.models.icons` is stubbed only with what `inlineIcons()`/`iconSvg()` actually call --
+ * `parseRef`, `resolveIcons`, `renderInlineSvg` -- keyed off a `resolvedIcons` map this describe block
+ * populates per test, the same "minimal stub of the one real dependency" approach the file's own
+ * header comment already uses for `WIKI.models.blocks`.
  */
-describe('rendering.postProcess -- re-sanitizes after inlineIcons (OpenProject #2124)', () => {
-  test('strips an entity-encoded javascript: href an icon body could carry', async () => {
-    ;(globalThis as any).WIKI.models.icons = {
-      parseRef: (ref: string) => {
-        const [prefix, name] = ref.split(':')
-        return prefix && name ? { prefix, name } : null
-      },
-      resolveIcons: async (_prefix: string, names: string[]) => ({
-        icons: Object.fromEntries(names.map((n) => [n, {}]))
-      }),
-      renderInlineSvg: () =>
-        '<svg xmlns="http://www.w3.org/2000/svg"><a href="&#106;avascript:alert(1)">x</a></svg>'
+describe('rendering.postProcess: re-sanitizes after inlineIcons (OpenProject #2139)', () => {
+  const resolvedIcons = new Map<string, { body: string }>()
+
+  ;(global as any).WIKI.models.icons = {
+    parseRef(ref: string) {
+      const [prefix, name] = `${ref}`.split(':')
+      return prefix && name ? { prefix, name } : null
+    },
+    async resolveIcons(prefix: string, names: string[]) {
+      const icons: Record<string, { body: string }> = {}
+      for (const name of names) {
+        const found = resolvedIcons.get(`${prefix}:${name}`)
+        if (found) {
+          icons[name] = found
+        }
+      }
+      return { icons, notFound: names.filter((name) => !icons[name]) }
+    },
+    // -> A trimmed stand-in for the real `iconToSVG`/`iconToHTML`/`replaceIDs` pipeline: wraps the
+    //    icon's body in an <svg> exactly the way the real method does, without needing a real
+    //    IconifyIcon shape -- what's under test is `postProcess`'s two sanitize passes, not this
+    //    method's own rendering, which has no coverage gap of its own to fill here.
+    renderInlineSvg(icon: { body: string }) {
+      return `<svg viewBox="0 0 24 24">${icon.body}</svg>`
     }
+  }
 
-    try {
-      const html = '<p><iconify-icon icon="mdi:home"></iconify-icon></p>'
-      const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+  test('removes an entity-encoded javascript: href that only exists after inlineIcons, not before', async () => {
+    // -> `&#106;avascript:` is `javascript:` with its first letter as a numeric character reference --
+    //    `isSafeIconBody`'s denylist matches the literal string `javascript:`, so this passes ingest,
+    //    and only becomes a real `javascript:` value once something HTML-parses it (`iconSvg()`'s
+    //    `$(...)` call does exactly that, the same as a browser would).
+    resolvedIcons.set('mdi:trap', {
+      body: '<a href="&#106;avascript:alert(1)">click</a><circle cx="12" cy="12" r="10"></circle>'
+    })
+    const html = '<iconify-icon icon="mdi:trap"></iconify-icon>'
 
-      assert.doesNotMatch(result.render, /javascript:/)
-    } finally {
-      delete (globalThis as any).WIKI.models.icons
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.doesNotMatch(result.render, /javascript:/i)
+    assert.doesNotMatch(result.render, /\shref=/)
+    // -> The rest of the icon body, which is not itself dangerous, still comes through
+    assert.match(result.render, /<circle cx="12" cy="12" r="10">/)
+  })
+
+  test('still inlines an ordinary icon with its shape primitives and attributes intact', async () => {
+    resolvedIcons.set('mdi:plain', {
+      body: '<path d="M12 2L2 7l10 5 10-5-10-5z" fill="currentColor"></path>'
+    })
+    const html = '<iconify-icon icon="mdi:plain"></iconify-icon>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /<svg viewBox="0 0 24 24"[^>]*>/)
+    assert.match(result.render, /<path d="M12 2L2 7l10 5 10-5-10-5z" fill="currentColor">/)
+  })
+})
+
+/**
+ * OpenProject #2183: `sanitize()` now passes `allowedStyles` to `sanitize-html`, gating which inline
+ * `style` *declarations* survive (not just whether the attribute itself is present) on `write:styles`
+ * -- `position: fixed` with no clipping ancestor is what lets an author without the permission cover
+ * the viewport or hide content from readers while it stays in the source and search index.
+ */
+describe('rendering.sanitize -- allowedStyles gates inline CSS by write:styles (OpenProject #2183)', () => {
+  test('drops position/inset/z-index declarations for an author without write:styles, keeping an unrelated color declaration', () => {
+    const html = '<div style="position: fixed; inset: 0; z-index: 9999; color: red;">x</div>'
+
+    const clean = (rendering as any).sanitize(html, { scripts: false, styles: false }, new Set())
+
+    assert.doesNotMatch(clean, /position/)
+    assert.doesNotMatch(clean, /inset/)
+    assert.doesNotMatch(clean, /z-index/)
+    assert.match(clean, /color:\s*red/)
+  })
+
+  test('keeps position/inset/z-index declarations for an author with write:styles', () => {
+    const html = '<div style="position: fixed; inset: 0; z-index: 9999; color: red;">x</div>'
+
+    const clean = (rendering as any).sanitize(html, { scripts: false, styles: true }, new Set())
+
+    assert.match(clean, /position:\s*fixed/)
+    assert.match(clean, /inset:\s*0/)
+    assert.match(clean, /z-index:\s*9999/)
+    assert.match(clean, /color:\s*red/)
+  })
+
+  test('keeps the KaTeX-sized safe properties for an author without write:styles, so no formula loses its layout', () => {
+    // -> The shape KaTeX actually writes onto formula spans: sizing, fine positioning within a
+    //    relatively-positioned ancestor, and colour -- none of it needs `write:styles` to render.
+    const html =
+      '<span style="height: 0.8em; width: 1.2em; margin-right: 0.05em; ' +
+      'padding-left: 0.1em; top: -0.3em; left: 0.02em; vertical-align: -0.2em; ' +
+      'font-size: 1.2em; border-color: red; background-color: yellow; text-align: center;">x</span>'
+
+    const clean = (rendering as any).sanitize(html, { scripts: false, styles: false }, new Set())
+
+    for (const declaration of [
+      'height:0.8em',
+      'width:1.2em',
+      'margin-right:0.05em',
+      'padding-left:0.1em',
+      'top:-0.3em',
+      'left:0.02em',
+      'vertical-align:-0.2em',
+      'font-size:1.2em',
+      'border-color:red',
+      'background-color:yellow',
+      'text-align:center'
+    ]) {
+      assert.ok(clean.includes(declaration), `expected "${declaration}" to survive, got: ${clean}`)
     }
   })
 
-  test('still inlines a legitimate icon svg body, unaffected by the extra pass', async () => {
-    ;(globalThis as any).WIKI.models.icons = {
-      parseRef: (ref: string) => {
-        const [prefix, name] = ref.split(':')
-        return prefix && name ? { prefix, name } : null
-      },
-      resolveIcons: async (_prefix: string, names: string[]) => ({
-        icons: Object.fromEntries(names.map((n) => [n, {}]))
-      }),
-      renderInlineSvg: () =>
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2 2 12" /></svg>'
-    }
+  test('drops the style attribute entirely once every declaration it carried is disallowed', () => {
+    const html = '<div style="position: fixed; transform: translateX(10px);">x</div>'
 
-    try {
-      const html = '<p><iconify-icon icon="mdi:home"></iconify-icon></p>'
-      const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+    const clean = (rendering as any).sanitize(html, { scripts: false, styles: false }, new Set())
 
-      assert.match(result.render, /<svg/)
-      assert.match(result.render, /<path d="M12 2 2 12">/)
-    } finally {
-      delete (globalThis as any).WIKI.models.icons
-    }
+    assert.doesNotMatch(clean, /style=/)
   })
 })

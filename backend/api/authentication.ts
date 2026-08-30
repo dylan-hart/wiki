@@ -2,7 +2,7 @@ import { nanoid } from 'nanoid'
 import { normalizeHostname } from '../helpers/common.ts'
 import { limitAuthAttempts } from '../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
-import { isFollowableRedirect } from '../helpers/redirect.ts'
+import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
 import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
@@ -146,14 +146,17 @@ async function finishProviderLogin(
       req
     )
     /*
-      `result.redirect` is a group's `redirectOnLogin` (OpenProject #1360/#2208, 2026-08-24 security
-      audit) -- validated at write time by `api/groups.ts`'s update route, but checked again here as
-      defence in depth against a row written before that validation existed (a direct DB write, or a
-      2.5.x import). `redirect` (the flow's own return path, already validated at #1035 below) is the
-      fallback either way.
+      `result.redirect` is a group's `redirectOnLogin`/`redirectOnFirstLogin` value (OpenProject
+      #1360/#2208, 2026-08-24 security audit) -- validated at write time by `api/groups.ts`'s update
+      route, but checked again here as defence in depth against a row written before that validation
+      existed (a direct DB write, or a 2.5.x import). `redirect` (the flow's own return path, already
+      validated at #1035 below) is the fallback either way.
     */
     const target =
-      result.redirect && isFollowableRedirect(result.redirect) ? result.redirect : redirect
+      result.redirect &&
+      isFollowableRedirectTarget(result.redirect, { allowAbsolute: absoluteRedirectsAllowed() })
+        ? result.redirect
+        : redirect
     return reply.redirect(target)
   } catch (err: any) {
     WIKI.models.flags.authDebug(
@@ -1065,15 +1068,14 @@ async function routes(app: FastifyInstance) {
           `AuthFlow.authnRequestId` in `models/authentication.ts`.
         */
         authnRequestId: `_${nanoid(40)}`,
-        /*
-          Only a same-origin path on this wiki: an open redirect is how a login page is turned into a
-          lure. `startsWith('/')` alone (the previous check) let `//evil.example` through --
-          `'//evil.example'.startsWith('/')` is `true`, and a browser normalizes a leading `/\` to `//`
-          the same way, resolving either as an absolute, off-origin URL rather than a path
-          (OpenProject #1360/#2208, 2026-08-24 security audit). `allowExternal: false` because this is
-          purely a return-to-where-you-were path within the wiki, never a legitimate off-site target.
-        */
-        redirect: isFollowableRedirect(req.query.redirect, { allowExternal: false })
+        // -> Only a path on this wiki (or, with `security.disallowOpenRedirect` off, a complete
+        //    https:// URL): an open redirect is how a login page is turned into a lure, and
+        //    `startsWith('/')` alone let `//evil.example` and `/\evil.example` both through, since a
+        //    browser resolves either as protocol-relative to whatever host follows (OpenProject
+        //    #1360/#2208, 2026-08-24 security audit).
+        redirect: isFollowableRedirectTarget(req.query.redirect, {
+          allowAbsolute: absoluteRedirectsAllowed()
+        })
           ? req.query.redirect!
           : '/',
         startedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })

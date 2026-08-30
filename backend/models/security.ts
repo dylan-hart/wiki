@@ -1,5 +1,5 @@
 import proxyAddr from '@fastify/proxy-addr'
-import { CORS_MODES, findUnknownCspDirective, parseCspDirectives } from '../helpers/security.ts'
+import { CORS_MODES, parseCspDirectives } from '../helpers/security.ts'
 
 /** Fields stored in the `security` settings blob. */
 export const SECURITY_FIELDS = [
@@ -22,7 +22,8 @@ export const SECURITY_FIELDS = [
   'forceAssetDownload',
   'hstsDuration',
   'trustProxy',
-  'uploadMaxFileSize'
+  'uploadMaxFileSize',
+  'uploadScanSVG'
 ] as const
 
 /** A duration as the admin area writes it: `30m`, `14d`, `1y`. */
@@ -167,22 +168,19 @@ class Security {
       }
     }
 
-    if (merged.enforceCsp) {
-      if (Object.keys(parseCspDirectives(merged.cspDirectives ?? '')).length < 1) {
-        return 'Enforcing a Content-Security-Policy needs at least one directive.'
+    // -> Parsed (and its directive names validated) regardless of `enforceCsp`: a typo'd or invented
+    //    directive stored while enforcement is off would otherwise resurface, unvalidated, the
+    //    moment enforcement is later switched on.
+    let cspDirectives: Record<string, string[]> = {}
+    if (merged.cspDirectives) {
+      try {
+        cspDirectives = parseCspDirectives(merged.cspDirectives)
+      } catch (err: any) {
+        return err.message
       }
     }
-    /*
-      Checked whenever ANY directive string is stored, not only while `enforceCsp` is on: a typo
-      saved while CSP is off would otherwise sit silently wrong until the moment an operator flips
-      the toggle, which is exactly the wrong time to discover it (OpenProject #1360/#2154, 2026-08-24
-      security audit §10).
-    */
-    if (merged.cspDirectives) {
-      const unknown = findUnknownCspDirective(merged.cspDirectives)
-      if (unknown) {
-        return `"${unknown}" is not a Content-Security-Policy directive a browser recognises.`
-      }
+    if (merged.enforceCsp && Object.keys(cspDirectives).length < 1) {
+      return 'Enforcing a Content-Security-Policy needs at least one directive.'
     }
 
     if (merged.enforceHsts && !(merged.hstsDuration > 0)) {

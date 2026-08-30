@@ -2,7 +2,7 @@ import { and, count, eq, inArray } from 'drizzle-orm'
 import { pages as pagesTable } from '../db/schema.ts'
 import { CustomError, isValidUuid } from '../helpers/common.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
-import { isFollowableRedirect } from '../helpers/redirect.ts'
+import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
 import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 import { siteAssetKinds } from '../models/sites.ts'
@@ -636,6 +636,26 @@ async function routes(app: FastifyInstance) {
         throw new CustomError('siteUpdateInvalidTitle', 'Invalid Site Title')
       }
 
+      // -> Guard against a `javascript:` (or any other non-http(s)) `auth.*Redirect` field the same
+      //    way the group redirect fields are guarded — OpenProject #2208 §2. `welcomeRedirect` and
+      //    `logoutRedirect` are handed straight to the browser the same way `loginRedirect` is.
+      if (req.body.auth) {
+        const allowAbsolute = absoluteRedirectsAllowed()
+        for (const field of ['loginRedirect', 'welcomeRedirect', 'logoutRedirect'] as const) {
+          const value = req.body.auth[field]
+          if (
+            value !== undefined &&
+            value !== '' &&
+            !isFollowableRedirectTarget(value, { allowAbsolute })
+          ) {
+            throw new CustomError(
+              'siteUpdateInvalidRedirect',
+              `auth.${field} must be a path on this wiki${allowAbsolute ? ' or a complete https:// URL' : ''}.`
+            )
+          }
+        }
+      }
+
       const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
       if (!site) {
         return reply.notFound('Site does not exist.')
@@ -747,29 +767,6 @@ async function routes(app: FastifyInstance) {
       // -> Keep the legacy `features.ratings` flag in sync with the ratings mode
       if (config.features?.ratingsMode !== undefined) {
         config.features.ratings = config.features.ratingsMode !== 'off'
-      }
-
-      /*
-        OpenProject #1360/#2208, 2026-08-24 security audit: these three fields have the identical
-        shape and risk as a group's `redirectOnLogin`/`redirectOnFirstLogin`/`redirectOnLogout` (see
-        `api/groups.ts`'s update route) -- writable by `manage:sites` or the delegated `site:login`
-        permission, and unvalidated until now.
-      */
-      if (config.auth) {
-        const allowExternal = !WIKI.config.security?.disallowOpenRedirect
-        for (const field of ['loginRedirect', 'welcomeRedirect', 'logoutRedirect'] as const) {
-          const value = config.auth[field]
-          if (value === undefined) {
-            continue
-          }
-          if (!isFollowableRedirect(value, { allowExternal })) {
-            throw new CustomError(
-              'siteRedirectInvalid',
-              `${field} must be a same-origin path (starting with a single /) or a complete http(s) URL.`,
-              400
-            )
-          }
-        }
       }
 
       // -> Update site

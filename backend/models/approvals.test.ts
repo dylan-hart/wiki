@@ -1340,26 +1340,79 @@ describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabas
 })
 
 /**
- * OpenProject #1360/#2180 (2026-08-24 security audit §4): `approveSubmission` used to sanitize the
- * approved HTML against the REVIEWER's `write:scripts`/`write:styles` — `updatePage(..., actor)` where
- * `actor` is the reviewer performing the approve — even though the markup being written is the
- * SUBMITTER's. A reviewer holding those permissions could turn a lower-privileged (or, for a guest
- * submission, unauthenticated) submitter's `<script>`/`style="position:fixed"` into stored, live
- * markup just by clicking approve, without ever having written it themselves. These tests approve as
- * a reviewer who genuinely holds both permissions, submitting on behalf of an author who holds
- * neither, and assert the stored render is sanitized as if the submitter saved it directly.
+ * OpenProject #2187: `approveSubmission` must resolve `write:scripts`/`write:styles` from the
+ * SUBMITTER, not the reviewer finalizing the approval -- otherwise a reviewer who happens to hold
+ * either permission launders a submitter's `<script>`/inline handler past a grant the submitter
+ * never had (see `resolveSubmitterRenderPermissions`'s own comment in `models/approvals.ts`).
+ * `reviewer` below holds `manage:system` specifically because that is the case where laundering
+ * would be easiest to miss -- it bypasses every page-rule check for the reviewer themselves.
  */
 describe(
-  'approvals approveSubmission: render permissions from the submitter, not the reviewer (DB-backed)',
+  'approvals render permissions resolve from the submitter, not the reviewer (DB-backed)',
   { skip: !hasTestDatabase() },
   () => {
     let fixtures: TestFixtures
     let pagesModel: typeof import('./pages.ts').pages
     let approvalsModel: typeof import('./approvals.ts').approvals
-    let usersModel: typeof import('./users.ts').users
-    let actor: PageActor
-    let reviewerId: string
-    let submitterId: string
+    let reviewer: PageActor
+    let scriptedAuthorId: string
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ pages: pagesModel } = await import('./pages.ts'))
+      ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+      reviewer = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+
+      await approvalsModel.createRule(fixtures.siteId, {
+        name: 'covers everything',
+        isEnabled: true,
+        match: 'START',
+        path: '',
+        submitterGroups: [],
+        reviewerGroups: []
+      })
+
+      // -> A second user, granted `write:scripts` through a real group rule -- the "submitter who
+      //    DOES hold the permission" half of the assertion below.
+      const [scriptedAuthor] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'scripted-author@example.com',
+          name: 'Scripted Author',
+          isActive: true,
+          isVerified: true
+        })
+        .returning({ id: usersTable.id })
+      scriptedAuthorId = scriptedAuthor!.id
+
+      const [scriptsGroup] = await fixtures.db
+        .insert(groupsTable)
+        .values({
+          name: 'Scripters',
+          permissions: [],
+          rules: [
+            {
+              id: 'allow-scripts',
+              name: 'Allow scripts',
+              roles: ['write:scripts', 'write:pages'],
+              match: 'START',
+              mode: 'ALLOW',
+              path: '',
+              locales: [],
+              sites: []
+            }
+          ]
+        })
+        .returning({ id: groupsTable.id })
+      await fixtures.db
+        .insert(userGroupsTable)
+        .values({ userId: scriptedAuthorId, groupId: scriptsGroup!.id })
+      await WIKI.models.groups.reloadCache()
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
 
     function pageRef(page: { id: string; path: string }): ApprovalPageRef {
       return {
@@ -1372,141 +1425,23 @@ describe(
       }
     }
 
-    /** Same reasoning as the reviewer-notification describe block above: a plain `userGroups` row. */
-    async function assignToGroup(groupId: string, userId: string) {
-      await fixtures.db.insert(userGroupsTable).values({ groupId, userId })
-    }
-
-    before(async () => {
-      fixtures = await setupTestDb()
-      ;({ pages: pagesModel } = await import('./pages.ts'))
-      ;({ approvals: approvalsModel } = await import('./approvals.ts'))
-      ;({ users: usersModel } = await import('./users.ts'))
-      actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
-
-      const [reviewer] = await fixtures.db
-        .insert(usersTable)
-        .values({
-          email: 'styles-reviewer@example.com',
-          name: 'Styles Reviewer',
-          isActive: true,
-          isVerified: true
-        })
-        .returning({ id: usersTable.id })
-      reviewerId = reviewer!.id
-
-      const [submitter] = await fixtures.db
-        .insert(usersTable)
-        .values({
-          email: 'no-styles-submitter@example.com',
-          name: 'No Styles Submitter',
-          isActive: true,
-          isVerified: true
-        })
-        .returning({ id: usersTable.id })
-      submitterId = submitter!.id
-
-      // -> The reviewer, and only the reviewer, holds write:scripts/write:styles everywhere. The
-      //    submitter holds neither -- membership in `fixtures.groupId` alone (`permissions:
-      //    ['read:pages']`, `rules: []`) grants nothing page-rule-scoped.
-      //
-      //    Inserted directly rather than through `groups.createGroup()` + `updateGroup()`: the
-      //    latter's `clampGuestPatch` reads `WIKI.data.systemIds.guestsGroupId`, a full-boot value
-      //    this fixture's minimal `WIKI` does not set (same reasoning as `assignToGroup` below
-      //    bypassing `groups.assignUserToGroup`).
-      const [privilegedGroup] = await fixtures.db
-        .insert(groupsTable)
-        .values({
-          name: 'Scripts and Styles Everywhere',
-          permissions: [],
-          rules: [
-            {
-              id: 'rule-1',
-              name: 'everywhere',
-              roles: ['write:scripts', 'write:styles'],
-              match: 'START',
-              mode: 'ALLOW',
-              path: '',
-              locales: [],
-              sites: []
-            }
-          ]
-        })
-        .returning({ id: groupsTable.id })
-      await assignToGroup(privilegedGroup!.id, reviewerId)
-
-      await approvalsModel.createRule(fixtures.siteId, {
-        name: 'covers everything',
-        isEnabled: true,
-        match: 'START',
-        path: '',
-        submitterGroups: [],
-        reviewerGroups: []
-      })
-    })
-
-    after(async () => {
-      await teardownTestDb()
-    })
-
-    test('sanitizes an authenticated submitter-without-permissions edit against the SUBMITTER, even though the reviewer holds both permissions', async () => {
+    test('strips <script> and on* from a guest-authored submission even though the reviewer holds write:scripts', async () => {
       const page = await pagesModel.createPage(
         fixtures.siteId,
         {
-          path: 'approvals/render-perms/authenticated-submitter',
-          title: 'Authenticated Submitter',
+          path: 'approvals/render-perms/guest',
+          title: 'Guest',
           editor: 'markdown',
           content: 'Original'
         },
-        actor
+        reviewer
       )
-      const payload =
-        '<p onclick="alert(1)">hi</p><script>alert(1)</script><div style="position:fixed;inset:0;">x</div>'
-
+      const html = '<p onclick="alert(1)">hi</p><script>alert(2)</script>'
       const submission = await approvalsModel.saveSubmission({
         siteId: fixtures.siteId,
         page: pageRef(page),
         baseContent: 'Original',
-        content: 'Suggested content',
-        authorId: submitterId
-      })
-
-      const result = await approvalsModel.approveSubmission({
-        siteId: fixtures.siteId,
-        submissionId: submission.id,
-        content: 'Suggested content',
-        render: payload,
-        actor: { id: reviewerId, permissions: ['manage:system'], groupIds: [] }
-      })
-      assert.equal(result.ok, true)
-
-      const updated = await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id })
-      assert.doesNotMatch(updated!.render, /<script>/)
-      assert.doesNotMatch(updated!.render, /onclick/)
-      assert.doesNotMatch(updated!.render, /position:\s*fixed/)
-      // -> Not a blanket strip of the div: it survives, just without the dangerous declaration --
-      //    proving this is the allowlist-filtering path, not `<script>`-stripping alone
-      assert.match(updated!.render, /<div>/)
-    })
-
-    test('sanitizes a guest submission (no account at all) as holding neither permission, even though the reviewer holds both', async () => {
-      const page = await pagesModel.createPage(
-        fixtures.siteId,
-        {
-          path: 'approvals/render-perms/guest-submitter',
-          title: 'Guest Submitter',
-          editor: 'markdown',
-          content: 'Original'
-        },
-        actor
-      )
-      const payload = '<script>alert(1)</script><div style="position:fixed;">x</div>'
-
-      const submission = await approvalsModel.saveSubmission({
-        siteId: fixtures.siteId,
-        page: pageRef(page),
-        baseContent: 'Original',
-        content: 'Guest suggested content',
+        content: 'Guest suggestion',
         authorId: null,
         guestName: 'Guest',
         guestEmail: 'guest@example.com'
@@ -1515,24 +1450,57 @@ describe(
       const result = await approvalsModel.approveSubmission({
         siteId: fixtures.siteId,
         submissionId: submission.id,
-        content: 'Guest suggested content',
-        render: payload,
-        actor: { id: reviewerId, permissions: ['manage:system'], groupIds: [] }
+        content: 'Guest suggestion',
+        render: html,
+        actor: reviewer
       })
-      assert.equal(result.ok, true)
 
-      const updated = await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id })
-      assert.doesNotMatch(updated!.render, /<script>/)
-      assert.doesNotMatch(updated!.render, /position:\s*fixed/)
+      assert.equal(result.ok, true)
+      const updated = await pagesModel.getPage({
+        siteId: fixtures.siteId,
+        id: page.id,
+        withContent: true
+      })
+      assert.doesNotMatch(updated!.render, /<script/)
+      assert.doesNotMatch(updated!.render, /onclick/)
     })
 
-    test('getPageActor resolves the same permissions checkAccess would grant a live session for that user', async () => {
-      const actorFor = await usersModel.getPageActor(reviewerId)
-      assert.ok(actorFor)
-      assert.ok(actorFor!.groupIds.length > 0)
+    test('keeps <script> and on* from a submission whose author does hold write:scripts', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'approvals/render-perms/scripted',
+          title: 'Scripted',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        reviewer
+      )
+      const html = '<p onclick="alert(1)">hi</p><script>alert(2)</script>'
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Scripted suggestion',
+        authorId: scriptedAuthorId
+      })
 
-      const nobody = await usersModel.getPageActor('00000000-0000-0000-0000-000000000000')
-      assert.equal(nobody, null)
+      const result = await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Scripted suggestion',
+        render: html,
+        actor: reviewer
+      })
+
+      assert.equal(result.ok, true)
+      const updated = await pagesModel.getPage({
+        siteId: fixtures.siteId,
+        id: page.id,
+        withContent: true
+      })
+      assert.match(updated!.render, /<script/)
+      assert.match(updated!.render, /onclick/)
     })
   }
 )

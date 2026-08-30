@@ -130,9 +130,6 @@ export interface Page {
   showTags: boolean
   showToc: boolean
   tocDepth: { min: number; max: number }
-  scriptJsLoad: string
-  scriptJsUnload: string
-  scriptCss: string
   navigationId: string | null
   navigationMode: string
   authorId: string
@@ -182,9 +179,6 @@ export interface PageInput {
   showTags?: boolean
   showToc?: boolean
   tocDepth?: { min: number; max: number }
-  scriptJsLoad?: string
-  scriptJsUnload?: string
-  scriptCss?: string
   /**
    * Why this save is being made, as the editor's reason-for-change prompt collected it. Not a page
    * field: it belongs to the version this save produces, and is recorded on the history row.
@@ -397,7 +391,6 @@ class Pages {
     }: { withContent?: boolean; withPassword?: boolean; locked?: boolean } = {}
   ): Page {
     const config = row.config ?? {}
-    const scripts = row.scripts ?? {}
     return {
       id: row.id,
       path: row.path,
@@ -430,9 +423,6 @@ class Pages {
       showTags: config.showTags ?? true,
       showToc: config.showToc ?? true,
       tocDepth: config.tocDepth ?? { min: 1, max: 2 },
-      scriptJsLoad: scripts.jsLoad ?? '',
-      scriptJsUnload: scripts.jsUnload ?? '',
-      scriptCss: scripts.css ?? '',
       navigationId: row.navigationId ?? null,
       navigationMode: row.navigationMode ?? 'inherit',
       authorId: row.authorId,
@@ -901,7 +891,6 @@ class Pages {
           links,
           render,
           searchContent: text,
-          scripts: this.buildScripts(input, actor, pageRef),
           siteId,
           tags: input.tags ?? [],
           title,
@@ -975,21 +964,20 @@ class Pages {
   /**
    * Update a page. Only the fields present in the patch are touched.
    *
-   * @param renderPermissionsOverride What `patch.render`'s `postProcess()` pass treats as
-   *   `write:scripts`/`write:styles`, in place of computing it from `actor` — for the one caller
-   *   where `actor` is not who authored the markup: `models/approvals.ts#approveSubmission` writes
-   *   the *reviewer's* approval, but the HTML being written was the *submitter's*, so sanitizing it
-   *   against the reviewer's permissions would let a reviewer's `write:scripts`/`write:styles` grant
-   *   launder a lower-privileged (or, for a guest submission, unauthenticated) submitter's markup
-   *   through unfiltered (OpenProject #1360/#2180, 2026-08-24 security audit §4). Every other caller
-   *   leaves this unset and gets the pre-existing actor-derived behavior.
+   * @param renderPermissions Overrides what `patch.render` is post-processed against, instead of
+   *   deriving it from `actor`. `approveSubmission` (`models/approvals.ts`) is the reason this
+   *   exists: `actor` there is the reviewer finalizing someone else's edit suggestion, and the HTML
+   *   being written is the submitter's, not the reviewer's -- resolving `write:scripts`/`write:styles`
+   *   from `actor` would let a reviewer's own grants launder a submitter's `<script>`/`style` past a
+   *   permission the submitter never held (OpenProject #1360/#2180, 2026-08-24 security audit §4).
+   *   Every other caller leaves this unset and gets the long-standing actor-derived behaviour.
    */
   async updatePage(
     siteId: string,
     id: string,
     patch: Partial<PageInput>,
     actor: PageActor,
-    renderPermissionsOverride?: RenderPermissions
+    renderPermissions?: RenderPermissions
   ): Promise<Page | null> {
     const results = await WIKI.db
       .select()
@@ -1101,7 +1089,7 @@ class Pages {
       const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
         siteId,
         patch.render,
-        renderPermissionsOverride ?? {
+        renderPermissions ?? {
           scripts: hasPermission(actor, 'write:scripts', existingRef),
           styles: hasPermission(actor, 'write:styles', existingRef)
         },
@@ -1115,18 +1103,6 @@ class Pages {
 
     if (CONFIG_FIELDS.some((field) => patch[field] !== undefined)) {
       values.config = this.buildConfig(patch, siteId, existing.config as Record<string, any>)
-    }
-    if (
-      patch.scriptJsLoad !== undefined ||
-      patch.scriptJsUnload !== undefined ||
-      patch.scriptCss !== undefined
-    ) {
-      values.scripts = this.buildScripts(
-        patch,
-        actor,
-        existingRef,
-        existing.scripts as Record<string, any>
-      )
     }
 
     // -> The author is whoever last changed it; the creator and owner do not move
@@ -1707,10 +1683,11 @@ class Pages {
    * What the render may carry is settled here, while there is still an actor to ask, and travels with
    * the queued request.
    *
-   * @param renderPermissionsOverride Same override `updatePage` accepts, and for the same reason —
-   *   see its doc comment. `approveSubmission`'s no-render fallback path reaches this too, and must
-   *   pass the identical submitter-derived permissions the direct `postProcess()` branch used, or
-   *   the queued re-render would launder the content back through the reviewer's permissions anyway.
+   * @param renderPermissions Same override `updatePage` accepts, and for the same reason — see its
+   *   doc comment (OpenProject #2187). `approveSubmission`'s no-render fallback path reaches this
+   *   too, and must pass the identical submitter-derived permissions the direct `postProcess()`
+   *   branch used, or the queued re-render would launder the content back through the reviewer's
+   *   permissions anyway.
    * @returns False when there is no such page
    * @throws `renderUnsupportedEditor` for a page the server cannot render, or
    *         `renderPuppeteerMissing` when nothing here could drain the queue
@@ -1719,7 +1696,7 @@ class Pages {
     siteId: string,
     id: string,
     actor: PageActor,
-    renderPermissionsOverride?: RenderPermissions
+    renderPermissions?: RenderPermissions
   ): Promise<boolean> {
     const page = await this.getPage({ siteId, id })
     if (!page) {
@@ -1730,7 +1707,7 @@ class Pages {
     await WIKI.models.rendering.queuePage({
       siteId,
       pageId: page.id,
-      permissions: renderPermissionsOverride ?? {
+      permissions: renderPermissions ?? {
         scripts: hasPermission(actor, 'write:scripts', { ...page, siteId }),
         styles: hasPermission(actor, 'write:styles', { ...page, siteId })
       },
@@ -1956,29 +1933,6 @@ class Pages {
       showTags: input.showTags ?? existing.showTags ?? true,
       showToc: input.showToc ?? existing.showToc ?? true,
       tocDepth: input.tocDepth ?? existing.tocDepth ?? defaults.tocDepth ?? { min: 1, max: 2 }
-    }
-  }
-
-  /**
-   * Same for the per-page scripts — which only an author holding the matching permission may set.
-   *
-   * Silently dropped rather than refused, as with the rest of the sanitizing: an author pasting a
-   * page template that carries scripts should get their page, minus the scripts.
-   */
-  private buildScripts(
-    input: Partial<PageInput>,
-    actor: PageActor,
-    page: RulePageRef,
-    existing: Record<string, any> = {}
-  ): Record<string, any> {
-    const mayScript = hasPermission(actor, 'write:scripts', page)
-    const mayStyle = hasPermission(actor, 'write:styles', page)
-    return {
-      jsLoad: mayScript ? (input.scriptJsLoad ?? existing.jsLoad ?? '') : (existing.jsLoad ?? ''),
-      jsUnload: mayScript
-        ? (input.scriptJsUnload ?? existing.jsUnload ?? '')
-        : (existing.jsUnload ?? ''),
-      css: mayStyle ? (input.scriptCss ?? existing.css ?? '') : (existing.css ?? '')
     }
   }
 

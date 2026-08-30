@@ -1,8 +1,10 @@
+import sanitizeHtml from 'sanitize-html'
+
 /**
  * Image helpers
  *
- * Only what the server needs to accept an uploaded image safely: recognizing what it actually is, and
- * normalizing it when the Sharp extension is available.
+ * Only what the server needs to accept an uploaded image safely: recognizing what it actually is,
+ * normalizing it when the Sharp extension is available, and sanitizing it when it is SVG.
  */
 
 /** The image formats an upload may use. */
@@ -192,4 +194,129 @@ export async function makeImageThumbnail(
     WIKI.logger.debug(`Could not generate a thumbnail for an upload: ${err.message}`)
     return null
   }
+}
+
+/**
+ * Presentation attributes shared by the SVG elements `sanitizeSvg` allows below. Kept apart from, but
+ * deliberately mirroring, `models/rendering.ts`'s `SVG_ATTRIBUTES` -- that one sanitizes an inline
+ * `<svg>` fragment pasted into a page, this one sanitizes a whole uploaded SVG file, so the two lists
+ * are independent, but both exist for the same reason and should be kept in step.
+ */
+const SVG_ATTRIBUTES = [
+  'clip-path',
+  'clip-rule',
+  'cx',
+  'cy',
+  'd',
+  'fill',
+  'fill-opacity',
+  'fill-rule',
+  'height',
+  'href',
+  'mask',
+  'offset',
+  'opacity',
+  'points',
+  'preserveAspectRatio',
+  'r',
+  'rx',
+  'ry',
+  'stop-color',
+  'stop-opacity',
+  'stroke',
+  'stroke-dasharray',
+  'stroke-linecap',
+  'stroke-linejoin',
+  'stroke-opacity',
+  'stroke-width',
+  'transform',
+  'viewBox',
+  'width',
+  'x',
+  'x1',
+  'x2',
+  'y',
+  'y1',
+  'y2'
+]
+
+/**
+ * Tags an uploaded SVG file may use: structure and shapes only. `script`, `foreignObject` and the SMIL
+ * animation tags (`animate`, `set`, ...) are all left out on purpose -- each is a way to get script, or
+ * arbitrary embedded markup, back into what is nominally just a picture.
+ */
+const SVG_ALLOWED_TAGS = [
+  'svg',
+  'circle',
+  'clipPath',
+  'defs',
+  'desc',
+  'ellipse',
+  'g',
+  'line',
+  'linearGradient',
+  'marker',
+  'mask',
+  'path',
+  'pattern',
+  'polygon',
+  'polyline',
+  'radialGradient',
+  'rect',
+  'stop',
+  'symbol',
+  'text',
+  'tspan',
+  'use'
+]
+
+const SVG_ALLOWED_ATTRIBUTES: Record<string, string[]> = {
+  '*': ['id', 'class'],
+  svg: [...SVG_ATTRIBUTES, 'xmlns', 'xmlns:xlink', 'version'],
+  circle: SVG_ATTRIBUTES,
+  clipPath: SVG_ATTRIBUTES,
+  defs: SVG_ATTRIBUTES,
+  ellipse: SVG_ATTRIBUTES,
+  g: SVG_ATTRIBUTES,
+  line: SVG_ATTRIBUTES,
+  linearGradient: [...SVG_ATTRIBUTES, 'gradientUnits', 'gradientTransform'],
+  marker: [...SVG_ATTRIBUTES, 'markerWidth', 'markerHeight', 'orient', 'refX', 'refY'],
+  mask: [...SVG_ATTRIBUTES, 'maskUnits'],
+  path: SVG_ATTRIBUTES,
+  pattern: [...SVG_ATTRIBUTES, 'patternUnits'],
+  polygon: SVG_ATTRIBUTES,
+  polyline: SVG_ATTRIBUTES,
+  radialGradient: [...SVG_ATTRIBUTES, 'gradientUnits', 'gradientTransform', 'fx', 'fy'],
+  rect: SVG_ATTRIBUTES,
+  stop: SVG_ATTRIBUTES,
+  symbol: SVG_ATTRIBUTES,
+  text: [...SVG_ATTRIBUTES, 'dx', 'dy', 'text-anchor', 'font-size', 'font-family'],
+  tspan: [...SVG_ATTRIBUTES, 'dx', 'dy'],
+  use: SVG_ATTRIBUTES
+}
+
+/**
+ * Strip an uploaded SVG down to the allowlist above, dropping `<script>`, event-handler attributes
+ * (`onload`, `onclick`, ...), `foreignObject`, SMIL animation and anything else outside it.
+ *
+ * Gated behind `security.uploadScanSVG` by its two callers (`models/assets.ts#upload`,
+ * `models/sites.ts#setAsset`) rather than here, so a disabled flag stores the file exactly as
+ * uploaded and this function is never reached.
+ */
+export function sanitizeSvg(data: Buffer): Buffer {
+  const cleaned = sanitizeHtml(data.toString('utf8'), {
+    allowedTags: SVG_ALLOWED_TAGS,
+    allowedAttributes: SVG_ALLOWED_ATTRIBUTES,
+    allowedSchemes: [],
+    allowProtocolRelative: false,
+    // -> Applies only to tags that were dropped: without it, a stripped `<script>`'s body would come
+    //    back out as visible text inside the SVG
+    nonTextTags: ['script', 'style', 'foreignObject', 'textarea', 'option', 'noscript'],
+    parser: {
+      // -> SVG attributes are case-sensitive (`viewBox`, `preserveAspectRatio`), which lowercasing
+      //    would quietly break
+      lowerCaseAttributeNames: false
+    }
+  })
+  return Buffer.from(cleaned, 'utf8')
 }

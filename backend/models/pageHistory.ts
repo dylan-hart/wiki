@@ -652,7 +652,6 @@ class PageHistory {
 
     const meta = row.meta
     const config = (meta.config ?? {}) as Record<string, any>
-    const scripts = (meta.scripts ?? {}) as Record<string, any>
 
     // -> `meta.password`, when present, is already a `bcrypt` verifier (OpenProject #2232) copied
     //    verbatim off the deleted row's own `password` column -- not a plaintext to hash again. It is
@@ -682,10 +681,7 @@ class PageHistory {
       showSidebar: config.showSidebar,
       showTags: config.showTags,
       showToc: config.showToc,
-      tocDepth: config.tocDepth,
-      scriptJsLoad: scripts.jsLoad,
-      scriptJsUnload: scripts.jsUnload,
-      scriptCss: scripts.css
+      tocDepth: config.tocDepth
     }
 
     const page = await WIKI.models.pages.createPage(siteId, input, actor)
@@ -757,8 +753,8 @@ class PageHistory {
         Not `JSON.stringify` either, which was the same bug one level down. Postgres stores a `jsonb`
         column with its keys in its own order — by length, then bytewise — so `config` came back as
         `showToc, showTags, tocDepth, …` while `buildConfig` produces them in its own fixed order.
-        Two identical objects, two different strings, and `config` and `scripts` were therefore
-        reported as changed on every single save.
+        Two identical objects, two different strings, and `config` was therefore reported as changed
+        on every single save.
       */
       if (!isEqual(existing[key], value)) {
         changed.push(key)

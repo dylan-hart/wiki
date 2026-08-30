@@ -4,7 +4,7 @@ import mime from 'mime'
 import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { assets as assetsTable, tree as treeTable } from '../db/schema.ts'
 import { CustomError, decodeTreePath, encodeTreePath } from '../helpers/common.ts'
-import { makeImageThumbnail } from '../helpers/images.ts'
+import { makeImageThumbnail, sanitizeSvg, svgMimeType } from '../helpers/images.ts'
 import { belongsInTarget } from '../helpers/blobTarget.ts'
 import { DB_MODULE } from './storage.ts'
 import type { Readable } from 'node:stream'
@@ -45,21 +45,23 @@ const SWEEP_TARGET_RATIO = 0.8
 export const INLINE_EXTS = new Set(['png', 'apng', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'])
 
 /**
- * Whether a served asset should be forced to download rather than opened in place.
+ * Whether a served asset should be sent as `Content-Disposition: attachment` rather than inline.
  *
- * The one predicate both `controllers/files.ts`'s `/_files/*` route and `api/assets.ts`'s
- * `/content` route call, replacing what used to be two independently-written — and, on this exact
- * question, inverted — expressions (OpenProject #1360/#2152, 2026-08-24 security audit §3). An
- * `INLINE_EXTS` member is never forced regardless of the setting, so a `forceAssetDownload: true`
- * instance still shows images inline in page content — adopting the API route's old, stricter
- * `forceAssetDownload || !INLINE_EXTS.has(ext)` everywhere would have broken exactly that. This is
- * intentionally *not* the durable defence for the SVG/HTML case (an asset can still take the inline
- * branch): that is `helpers/security.ts#isDangerousInlineType` and its per-response
- * Content-Security-Policy, applied unconditionally regardless of what this function returns. This
- * predicate is disposition-only, and its role here is defence in depth for every other extension.
+ * The single predicate both byte-serving routes call (`controllers/files.ts` and `api/assets.ts`'s
+ * `/content`), replacing two expressions that used to disagree — and, on this exact question, were
+ * inverted (OpenProject #1360/#2152/#2164, 2026-08-24 security audit §3): an `INLINE_EXTS` member is
+ * never forced to download, whatever `forceAssetDownload` says — that flag only ever adds attachment
+ * framing to what would otherwise be sent as a plain download already. Adopting the API route's old,
+ * stricter `forceAssetDownload || !INLINE_EXTS.has(fileExt)` everywhere instead would break every
+ * inline image in every page's content the moment an operator turned the setting on, which is why
+ * `controllers/files.ts` was written the other way to begin with. This is intentionally *not* the
+ * durable defence for the SVG/HTML case (an asset can still take the inline branch): that is
+ * `helpers/security.ts#needsSvgCsp` and its per-response Content-Security-Policy, applied
+ * unconditionally regardless of what this function returns. This predicate is disposition-only, and
+ * its role here is defence in depth for every other extension.
  */
-export function shouldForceDownload(fileExt: string, forceAssetDownload: boolean): boolean {
-  return !INLINE_EXTS.has(fileExt) && forceAssetDownload
+export function dispositionFor(fileExt: string): boolean {
+  return !INLINE_EXTS.has(fileExt) && Boolean(WIKI.config.security?.forceAssetDownload)
 }
 
 /** What an asset is, for the sake of grouping and filtering. Mirrors the `assetKind` schema enum. */
@@ -275,10 +277,14 @@ class Assets {
     //    like sending, and this value is what gets served back to a browser later
     const resolvedMime = mime.getType(safeName) ?? mimeType ?? 'application/octet-stream'
     const kind = kindOf(resolvedMime, fileExt)
+    // -> Only reached when the flag is on: a disabled `security.uploadScanSVG` stores the bytes
+    //    exactly as uploaded, same as before this existed.
+    const fileData =
+      resolvedMime === svgMimeType && WIKI.config.security?.uploadScanSVG ? sanitizeSvg(data) : data
 
     const preview =
       kind === 'image'
-        ? await makeImageThumbnail(data, THUMBNAIL_SIZE.width, THUMBNAIL_SIZE.height)
+        ? await makeImageThumbnail(fileData, THUMBNAIL_SIZE.width, THUMBNAIL_SIZE.height)
         : null
 
     // -> What is already at this name, if anything, and what the site says to do about it. Asked
@@ -320,7 +326,7 @@ class Assets {
         fileExt,
         kind,
         mimeType: resolvedMime,
-        data,
+        data: fileData,
         preview,
         authorId
       })
@@ -336,7 +342,7 @@ class Assets {
       locale,
       siteId,
       meta: {
-        fileSize: data.length,
+        fileSize: fileData.length,
         fileExt,
         mimeType: resolvedMime
       }
@@ -350,8 +356,8 @@ class Assets {
         fileExt,
         kind,
         mimeType: resolvedMime,
-        fileSize: data.length,
-        data,
+        fileSize: fileData.length,
+        data: fileData,
         preview,
         authorId,
         siteId
@@ -368,7 +374,7 @@ class Assets {
       folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
       siteId,
       authorId,
-      metadata: { fileSize: data.length, mimeType: resolvedMime, kind }
+      metadata: { fileSize: fileData.length, mimeType: resolvedMime, kind }
     })
     WIKI.models.storage.dispatch('asset:upload', {
       id: entry.id,
@@ -377,7 +383,7 @@ class Assets {
       siteId,
       authorId,
       kind,
-      fileSize: data.length
+      fileSize: fileData.length
     })
 
     return {
@@ -386,7 +392,7 @@ class Assets {
       fileExt,
       kind,
       mimeType: resolvedMime,
-      fileSize: data.length,
+      fileSize: fileData.length,
       folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
       title: entry.title,
       hasPreview: Boolean(preview),

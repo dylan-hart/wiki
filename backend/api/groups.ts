@@ -1,5 +1,5 @@
 import { CustomError } from '../helpers/common.ts'
-import { isFollowableRedirect } from '../helpers/redirect.ts'
+import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 import { SYSTEM_PERMISSION } from '../models/groups.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
@@ -303,7 +303,7 @@ async function routes(app: FastifyInstance) {
         let ANY string through here, including `javascript:…`, which `AuthLoginPanel.vue`'s
         `window.location.replace()` would execute in the next administrator's session on login.
       */
-      const allowExternal = !WIKI.config.security?.disallowOpenRedirect
+      const allowAbsolute = absoluteRedirectsAllowed()
       for (const field of [
         'redirectOnLogin',
         'redirectOnFirstLogin',
@@ -313,15 +313,16 @@ async function routes(app: FastifyInstance) {
         if (value === undefined) {
           continue
         }
-        if (value !== '' && !isFollowableRedirect(value, { allowExternal })) {
+        if (value !== '' && !isFollowableRedirectTarget(value, { allowAbsolute })) {
           throw new CustomError(
             'groupRedirectInvalid',
-            `${field} must be a same-origin path (starting with a single /) or a complete http(s) URL.`,
+            `${field} must be a path on this wiki${allowAbsolute ? ' or a complete http(s) URL' : ''}.`,
             400
           )
         }
         patch[field] = value
       }
+
       if (req.body.permissions !== undefined) {
         patch.permissions = req.body.permissions
       }
