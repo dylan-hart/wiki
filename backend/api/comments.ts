@@ -83,7 +83,9 @@ const commentIdParam = {
  * `WIKI.models.groups.checkAccess` is a synchronous, in-memory call — `models/groups.ts` keeps every
  * group's rules cached, reloaded on write, so evaluating it repeatedly costs no database round trip at
  * all — so the only DB-bound work is one query for the site's page refs (`comments.pageRefsForSite`,
- * `pages_siteId_idx`, narrowed further by a `pathFilter` prefix match pushed into the query itself)
+ * served off `pages_siteId_locale_path_idx`/`pages_siteId_locale_hash_idx` -- both leading on
+ * `siteId`, so either can serve a bare `WHERE siteId = ?` -- narrowed further by a `pathFilter`
+ * prefix match pushed into the query itself)
  * plus the `manage:comments` evaluation against each row, all in memory. The result — a `Set` of
  * accessible page ids, typically a small fraction of a site's total comment volume — is what actually
  * reaches `comments.listForAdmin`, which does the real pagination (`LIMIT`/`OFFSET` in SQL) against
