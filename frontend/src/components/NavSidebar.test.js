@@ -40,7 +40,11 @@ async function mountNav(items, { path = '/' } = {}) {
   await router.push(path)
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    messages: { en: { common: { sidebar: { browse: 'Browse' } } } }
+  })
 
   const wrapper = mount(NavSidebar, {
     global: {
@@ -490,7 +494,11 @@ async function mountSidebar(sidebarPosition) {
   router.push('/')
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    messages: { en: { common: { sidebar: { browse: 'Browse' } } } }
+  })
 
   return mount(NavSidebar, {
     global: {
@@ -500,6 +508,22 @@ async function mountSidebar(sidebarPosition) {
 }
 
 describe('NavSidebar', () => {
+  /**
+   * OpenProject #1640: the sidebar had no `<nav>` landmark at all -- a screen reader's landmarks
+   * rotor had nothing to jump to for the primary navigation, distinct from the page's own `<nav
+   * class="page-toc">` (`PageToc.vue`). Asserted here that a `<nav>` wraps the rendered list AND
+   * carries the resolved (not hardcoded) accessible name, so the two landmarks are both present and
+   * distinguishable.
+   */
+  it('wraps the sidebar list in a named <nav> landmark', async () => {
+    const wrapper = await mountSidebar('left')
+
+    const nav = wrapper.find('nav')
+    expect(nav.exists()).toBe(true)
+    expect(nav.attributes('aria-label')).toBe('Browse')
+    expect(nav.find('.sidebar-nav-list').exists()).toBe(true)
+  })
+
   it('applies sidebar-nav--flipped only when sidebarPosition is "right"', async () => {
     const defaultSidebar = await mountSidebar('left')
     expect(defaultSidebar.classes()).not.toContain('sidebar-nav--flipped')
