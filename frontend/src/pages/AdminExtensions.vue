@@ -258,7 +258,7 @@ async function install(ext) {
       timeout: INSTALL_TIMEOUT
     }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     // -> A reinstall repairs the files on disk, but a server that already failed to load the module
     //    keeps failing until it restarts — so that answer is a warning, not a success

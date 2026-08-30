@@ -404,7 +404,7 @@ async function addSet(set) {
   try {
     const resp = await API_CLIENT.post('icons/sets', { json: { prefix: set.prefix } }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     set.isAdded = true
     notify({
@@ -427,7 +427,7 @@ async function setSetState(set, isEnabled) {
   try {
     const resp = await API_CLIENT.put(`icons/sets/${set.prefix}`, { json: { isEnabled } }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',
@@ -459,7 +459,7 @@ function confirmDeleteSet(set) {
     try {
       const resp = await API_CLIENT.delete(`icons/sets/${set.prefix}`).json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       notify({
         type: 'positive',
@@ -495,7 +495,7 @@ function purgeCache() {
     try {
       const resp = await API_CLIENT.delete('icons/cache').json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       notify({
         type: 'positive',

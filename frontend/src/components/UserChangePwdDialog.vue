@@ -186,7 +186,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.users.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.users.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     notify({
@@ -200,7 +200,7 @@ async function save() {
     // -> ky throws above 400 with the reason in the body, which is where the server explains itself
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   state.isLoading = false

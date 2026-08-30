@@ -288,7 +288,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.locale.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.locale.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     state.active = active

@@ -125,7 +125,7 @@ async function uploadImage() {
         }
       }).json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       notify({
         type: 'positive',
@@ -153,7 +153,7 @@ async function clearImage() {
   try {
     const resp = await API_CLIENT.delete('users/profile/avatar').json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

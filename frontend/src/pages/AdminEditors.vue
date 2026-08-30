@@ -231,7 +231,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.editors.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.editors.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     if (adminStore.currentSiteId === siteStore.id) {

@@ -678,7 +678,7 @@ async function runNow(entry) {
   try {
     const resp = await API_CLIENT.post(`scheduler/schedule/${entry.id}/run`).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     // -> Nothing on this tab changes: the job it queued shows up under upcoming, then in the history
     notify({
@@ -700,7 +700,7 @@ async function cancelJob(jobId) {
   try {
     const resp = await API_CLIENT.delete(`scheduler/upcoming/${jobId}`)
     if (!resp?.ok) {
-      throw new Error((await resp.json())?.message || 'An unexpected error occured.')
+      throw new Error((await resp.json())?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',
@@ -723,7 +723,7 @@ async function retryJob(jobId) {
   try {
     const resp = await API_CLIENT.post(`scheduler/jobs/${jobId}/retry`).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

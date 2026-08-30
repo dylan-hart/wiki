@@ -1193,7 +1193,7 @@ async function fetchGroup() {
   try {
     const resp = await API_CLIENT.get(`groups/${adminStore.overlayOpts.id}`).json()
     if (!resp?.id) {
-      throw new Error('An unexpected error occured while fetching group details.')
+      throw new Error(t('common.error.unexpected'))
     }
     state.group = resp
     state.usersTotal = state.group.userCount ?? 0
@@ -1221,7 +1221,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.groups.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.groups.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     notify({
@@ -1232,7 +1232,7 @@ async function save() {
     // -> ky throws above 400 with the reason in the body, which is where the server explains itself
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   state.isLoading = false
@@ -1343,7 +1343,7 @@ async function refreshUsers() {
       }
     }).json()
     if (!Array.isArray(resp?.users)) {
-      throw new Error('An unexpected error occured while fetching group users.')
+      throw new Error(t('common.error.unexpected'))
     }
     state.usersTotal = resp.total ?? 0
     state.users = resp.users
@@ -1373,7 +1373,7 @@ function assignUser() {
       try {
         const resp = await API_CLIENT.post(`groups/${state.group.id}/users/${usr.id}`).json()
         if (!resp?.ok) {
-          throw new Error(resp?.message || 'An unexpected error occured.')
+          throw new Error(resp?.message || t('common.error.unexpected'))
         }
         assigned++
       } catch (err) {
@@ -1406,7 +1406,7 @@ async function unassignUser(user) {
     try {
       const resp = await API_CLIENT.delete(`groups/${state.group.id}/users/${user.id}`)
       if (!resp?.ok) {
-        throw new Error((await resp.json())?.message || 'An unexpected error occured.')
+        throw new Error((await resp.json())?.message || t('common.error.unexpected'))
       }
       notify({
         type: 'positive',

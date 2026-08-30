@@ -109,7 +109,7 @@ async function check() {
       state.latest = resp.latest
       state.latestDate = userStore.formatDate(resp.latestDate)
     } else {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
   } catch (err) {
     notify({

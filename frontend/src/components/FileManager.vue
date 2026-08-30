@@ -1047,7 +1047,7 @@ async function loadTree({ parentId = null, parentPath = null, types, initLoad = 
     notify({
       type: 'negative',
       message: 'Failed to load folder tree.',
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   if (parentId === state.currentFolderId) {
@@ -1215,7 +1215,7 @@ function duplicatePage(item) {
       notify({
         type: 'negative',
         message: 'Failed to duplicate page.',
-        caption: apiErrorMessage(err, 'An unexpected error occured.')
+        caption: apiErrorMessage(err, t('common.error.unexpected'))
       })
     }
   })
@@ -1284,7 +1284,7 @@ async function applyRenameOrMovePage(item, opts, isMove) {
     notify({
       type: 'negative',
       message: 'Failed to rename or move page.',
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
 }
@@ -1407,7 +1407,7 @@ async function uploadFiles(filesToUpload) {
           }).json()
           // -> The API client does not throw on 400, so a refused file comes back as a parsed error
           if (resp?.ok === false) {
-            throw new Error(resp.message || 'An unexpected error occured.')
+            throw new Error(resp.message || t('common.error.unexpected'))
           }
         }
         state.uploadPercentage = 100
@@ -1422,7 +1422,7 @@ async function uploadFiles(filesToUpload) {
         notify({
           type: 'negative',
           message: 'Failed to upload file.',
-          caption: apiErrorMessage(err, 'An unexpected error occured.')
+          caption: apiErrorMessage(err, t('common.error.unexpected'))
         })
       }
       state.loading--
@@ -1631,7 +1631,7 @@ async function downloadItem(item) {
     notify({
       type: 'negative',
       message: 'Failed to download file.',
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
 }

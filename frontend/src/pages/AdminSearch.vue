@@ -363,7 +363,7 @@ async function save() {
       { json: payloadFor(selectedEngine.value) }
     ).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
 
     if (dictOverrides !== undefined) {
@@ -371,7 +371,7 @@ async function save() {
         json: { dictOverrides }
       }).json()
       if (!dictResp?.ok) {
-        throw new Error(dictResp?.message || 'An unexpected error occured.')
+        throw new Error(dictResp?.message || t('common.error.unexpected'))
       }
     }
 
@@ -398,7 +398,7 @@ async function rebuild() {
   try {
     const resp = await API_CLIENT.post(`sites/${adminStore.currentSiteId}/search/rebuild`).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

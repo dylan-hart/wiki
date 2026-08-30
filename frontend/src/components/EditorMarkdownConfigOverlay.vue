@@ -299,7 +299,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.editors.markdown.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.editors.markdown.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     notify({

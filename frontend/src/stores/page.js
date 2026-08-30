@@ -6,6 +6,7 @@ import { useSiteStore } from './site'
 import { useEditorStore } from './editor'
 import { useUserStore } from './user'
 import { isHomePath, localizedPagePath } from '@/helpers/pagePaths'
+import { i18n } from '@/boot/i18n'
 
 /**
  * The icon a page starts with.
@@ -573,7 +574,7 @@ export const usePageStore = defineStore('page', {
         }
       }).json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || i18n.global.t('common.error.unexpected'))
       }
       this.hasOpenSuggestion = true
       return resp.submission
@@ -919,7 +920,7 @@ export const usePageStore = defineStore('page', {
  */
 function unwrap(resp) {
   if (resp?.ok === false) {
-    throw new Error(resp.message || 'An unexpected error occured.')
+    throw new Error(resp.message || i18n.global.t('common.error.unexpected'))
   }
   return resp
 }

@@ -219,7 +219,7 @@ async function submit() {
         { json: { secret: state.secret } }
       ).json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       notify({ type: 'positive', message: t('admin.blocks.credentialRotateSuccess') })
       onDialogOK()
@@ -229,7 +229,7 @@ async function submit() {
         { json: { allowedDomains: state.allowedDomains } }
       ).json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       notify({ type: 'positive', message: t('admin.blocks.credentialDomainsUpdateSuccess') })
       onDialogOK()
