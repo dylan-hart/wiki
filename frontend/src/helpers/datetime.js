@@ -50,6 +50,13 @@ export function relativeDate(value) {
 /** Narrow, largest-first and skipping empty units — "1h 4m 32s", or "820ms" for a quick job. */
 const DURATION_UNITS = ['hour', 'minute', 'second', 'millisecond']
 const durationListFormat = new Intl.ListFormat(undefined, { style: 'narrow', type: 'unit' })
+// -> One formatter per unit, built once rather than once per `humanizeDuration()` call
+const durationNumberFormats = new Map(
+  DURATION_UNITS.map((unit) => [
+    unit,
+    new Intl.NumberFormat(undefined, { style: 'unit', unit, unitDisplay: 'narrow' })
+  ])
+)
 
 /**
  * How long something took.
@@ -67,11 +74,7 @@ export function humanizeDuration(start, end) {
     smallestUnit: 'millisecond'
   })
   const parts = DURATION_UNITS.filter((unit) => dur[`${unit}s`] > 0).map((unit) =>
-    new Intl.NumberFormat(undefined, {
-      style: 'unit',
-      unit,
-      unitDisplay: 'narrow'
-    }).format(dur[`${unit}s`])
+    durationNumberFormats.get(unit).format(dur[`${unit}s`])
   )
   // -> Something that took under a millisecond still has to render as something
   return parts.length > 0 ? durationListFormat.format(parts) : '0ms'
@@ -84,6 +87,21 @@ export function humanizeDuration(start, end) {
  */
 const ISO_DURATION_UNITS = ['years', 'months', 'weeks', 'days', 'hours', 'minutes', 'seconds']
 const isoDurationListFormat = new Intl.ListFormat(undefined, { style: 'long', type: 'conjunction' })
+/*
+  One formatter per (singular) unit, built once rather than once per `humanizeIsoDuration()` call.
+  A separate map from `durationNumberFormats` above rather than a shared one -- `unitDisplay: 'long'`
+  here vs. `'narrow'` there means the two can't be the same `Intl.NumberFormat` instance even for a
+  unit both lists happen to share (`hour`/`minute`/`second`).
+*/
+const isoDurationNumberFormats = new Map(
+  ISO_DURATION_UNITS.map((unit) => {
+    const singular = unit.slice(0, -1)
+    return [
+      singular,
+      new Intl.NumberFormat(undefined, { style: 'unit', unit: singular, unitDisplay: 'long' })
+    ]
+  })
+)
 
 /**
  * How long an ISO-8601 duration is, in words.
@@ -98,11 +116,7 @@ export function humanizeIsoDuration(value) {
   }
   const dur = Temporal.Duration.from(value)
   const parts = ISO_DURATION_UNITS.filter((unit) => dur[unit] > 0).map((unit) =>
-    new Intl.NumberFormat(undefined, {
-      style: 'unit',
-      unit: unit.slice(0, -1),
-      unitDisplay: 'long'
-    }).format(dur[unit])
+    isoDurationNumberFormats.get(unit.slice(0, -1)).format(dur[unit])
   )
   return parts.length > 0 ? isoDurationListFormat.format(parts) : '0 seconds'
 }
