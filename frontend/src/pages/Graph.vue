@@ -508,12 +508,12 @@ function drawNodes() {
 }
 
 /** Below this zoom level a label is unreadably small anyway; skipping the fillText calls entirely
- *  is also what keeps a dense graph's label layer from becoming visual noise. Lowered from the
- *  earlier `1.5` (OpenProject #1287/#1288) so labels persist roughly 4px of effective on-screen
- *  size longer before hiding: at the `10px` base font, `1.5` hid labels at 15px effective, `1.1`
- *  now hides them at 11px. */
+ *  is also what keeps a dense graph's label layer from becoming visual noise. Lowered from `1.1`
+ *  to `0.75` (OpenProject #2292, a follow-up to #1287/#1288) so labels persist further into a
+ *  zoomed-out view: at the `10px` base font, `1.1` hid labels at 11px effective -- still
+ *  comfortably readable -- while `0.75` now hides them at 7.5px effective. */
 const LABEL_BASE_FONT_PX = 10
-const LABEL_VISIBILITY_ZOOM_THRESHOLD = 1.1
+const LABEL_VISIBILITY_ZOOM_THRESHOLD = 0.75
 
 /** Caps how large a label ever draws on screen, regardless of zoom -- without this, the base font is
  *  drawn inside the canvas's `ctx.scale(k, k)` transform, so effective on-screen size is
