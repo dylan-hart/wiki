@@ -797,11 +797,6 @@ async function routes(app: FastifyInstance) {
         }
       }
 
-      // -> Keep the legacy `features.ratings` flag in sync with the ratings mode
-      if (config.features?.ratingsMode !== undefined) {
-        config.features.ratings = config.features.ratingsMode !== 'off'
-      }
-
       // -> Update site
       try {
         await WIKI.models.sites.updateSite(req.params.siteId, {

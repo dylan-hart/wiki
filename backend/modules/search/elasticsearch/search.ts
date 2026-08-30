@@ -483,6 +483,9 @@ export class ElasticsearchSearchModule implements SearchModule {
       //    actually read. Exact whenever the true match count is within SCAN_CAP; a floor beyond
       //    that (see the `query()` comment above), never an overcount.
       totalHits: visible.length,
+      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
+      //    above actually dropped a hit from this page, same signal `db/search.ts` uses.
+      totalHitsApproximate: hits.length !== visible.length,
       // -> No "did you mean" here: Elasticsearch's own fuzzy-suggestion features (a "suggest"
       //    context or a completion suggester) need dedicated index-side setup this module does not
       //    configure, unlike `db`'s pg_trgm similarity which needs nothing beyond the extension.

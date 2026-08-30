@@ -741,6 +741,9 @@ export class AzureSearchModule implements SearchModule {
       //    before filtering, and therefore never able to exceed what the actor can actually read.
       //    See `db/search.ts#query()`'s comment for the exact/floor distinction.
       totalHits: visible.length,
+      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
+      //    above actually dropped a row from this page, same signal `db/search.ts` uses.
+      totalHitsApproximate: rows.length !== visible.length,
       // -> No "did you mean" here: Azure AI Search's own fuzzy/suggester features are a separate
       //    setup step (a suggester definition on the index) this module does not configure, and
       //    building one out of band is future scope, not this task's.

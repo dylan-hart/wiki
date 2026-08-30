@@ -65,6 +65,11 @@ describe('comment provider routes', () => {
     if (moduleKey === 'invalid') {
       throw new Error('Some Prop must be a string.')
     }
+    if (moduleKey === 'unselectable') {
+      throw new Error(
+        'Unselectable Provider cannot be activated: it has no server-side implementation and does not declare codeTemplate.'
+      )
+    }
     return { ...ALPHA_PROVIDER, module: moduleKey, config }
   }
 
@@ -146,6 +151,19 @@ describe('comment provider routes', () => {
     })
     assert.equal(res.statusCode, 400)
     assert.match(res.json().message, /must be a string/)
+  })
+
+  // -> OpenProject #1962: a module `models/commentProviders.ts#setActiveProvider` refuses as
+  //    non-selectable (no server-side implementation, no `codeTemplate`) must not become storable
+  //    just because it made it past this route's own site-existence check.
+  test('PUT .../comments/providers turns a non-selectable-module error into a 400', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/comments/providers`,
+      payload: { module: 'unselectable' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.match(res.json().message, /cannot be activated/i)
   })
 })
 

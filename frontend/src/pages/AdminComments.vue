@@ -43,7 +43,7 @@
           :label="t(`common.actions.apply`)"
           color="secondary"
           @click="save()"
-          :disable="!selectedProvider"
+          :disable="!selectedProvider || !selectedProvider.isSelectable"
           :loading="state.loading > 0" />
       </div>
     </div>
@@ -66,18 +66,21 @@
               :key="prov.module"
               active-class="bg-primary text-white"
               :active="state.selectedModule === prov.module"
-              :disabled="!prov.isAvailable"
+              :disabled="!prov.isAvailable || !prov.isSelectable"
               clickable
               @click="state.selectedModule = prov.module">
               <w-item-section side>
-                <w-icon v-if="!prov.isAvailable" name="mdi:minus-box-outline" color="grey" />
+                <w-icon
+                  v-if="!prov.isAvailable || !prov.isSelectable"
+                  name="mdi:minus-box-outline"
+                  color="grey" />
                 <w-icon
                   v-else-if="state.selectedModule === prov.module"
                   name="mdi:checkbox-marked-circle-outline" />
                 <w-icon v-else name="mdi:checkbox-blank-circle-outline" color="grey" />
               </w-item-section>
               <w-item-section>
-                <w-item-label :class="!prov.isAvailable ? `text-grey` : ``">{{
+                <w-item-label :class="!prov.isAvailable || !prov.isSelectable ? `text-grey` : ``">{{
                   prov.title
                 }}</w-item-label>
                 <w-item-label caption>{{ prov.description }}</w-item-label>

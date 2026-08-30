@@ -552,8 +552,14 @@ export default {
         })
       )
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to complete job ${job.id}: ${job.task} [ FAILED ]`)
-      WIKI.logger.warn(err)
+      // -> Only the terminal, retries-exhausted branch logs at `error`. A job that will still be
+      //    retried logs at `warn`, matching the "Rescheduling new attempt" line below it — an
+      //    operator shipping only `error` to alerting must see a storm of failing-and-retrying jobs,
+      //    not just the final give-up.
+      const retriesExhausted = job.retries >= job.maxRetries
+      const failureLog = retriesExhausted ? WIKI.logger.error : WIKI.logger.warn
+      failureLog(`Failed to complete job ${job.id}: ${job.task} [ FAILED ]`)
+      failureLog(err)
       try {
         await WIKI.db
           .update(jobHistoryTable)

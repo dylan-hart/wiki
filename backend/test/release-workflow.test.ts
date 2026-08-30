@@ -55,8 +55,13 @@ describe('publish workflow split (build.yml + release.yml)', () => {
       assert.match(raw, /REL_VERSION=3\.0\.0-alpha\.\$GITHUB_RUN_NUMBER/)
     })
 
-    test('still pushes the floating alpha tag alongside the run-numbered one', () => {
-      assert.match(raw, /ghcr\.io\/requarks\/wiki:3\.0\.0-alpha\b/)
+    test('still pushes the floating alpha tag alongside the run-numbered one, under a namespace derived from the repository', () => {
+      assert.match(raw, /\$\{\{\s*env\.IMAGE_NAMESPACE\s*\}\}:3\.0\.0-alpha\b/)
+      assert.doesNotMatch(raw, /ghcr\.io\/requarks\/wiki/)
+    })
+
+    test('derives the GHCR namespace from github.repository rather than hard-coding an owner', () => {
+      assert.match(raw, /IMAGE_NAMESPACE:\s*ghcr\.io\/\$\{\{\s*github\.repository\s*\}\}/)
     })
   })
 
@@ -118,6 +123,11 @@ describe('publish workflow split (build.yml + release.yml)', () => {
       assert.equal(dockerStep.with.push, true)
       // Must not hardcode the alpha channel's tags, and must be driven by the derived version.
       assert.doesNotMatch(JSON.stringify(dockerStep.with.tags), /3\.0\.0-alpha/)
+    })
+
+    test('derives the GHCR namespace from github.repository rather than hard-coding an owner', () => {
+      assert.match(raw, /IMAGE_NAMESPACE:\s*ghcr\.io\/\$\{\{\s*github\.repository\s*\}\}/)
+      assert.doesNotMatch(raw, /ghcr\.io\/requarks\/wiki/)
     })
 
     test('all hard-required quality gates run BEFORE the Docker publish step (fail closed)', () => {

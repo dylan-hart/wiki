@@ -462,6 +462,9 @@ export class AlgoliaSearchModule implements SearchModule {
       //    Algolia's own `nbHits`, and therefore never able to exceed what the actor can actually
       //    read. See `db/search.ts#query()`'s comment for the exact/floor distinction.
       totalHits: visible.length,
+      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
+      //    above actually dropped a row from this page, same signal `db/search.ts` uses.
+      totalHitsApproximate: hits.length !== visible.length,
       // -> No "did you mean" here: Algolia's own typo-tolerance already retries a query internally,
       //    which is a different mechanism from `db`'s pg_trgm-based post-hoc suggestion and not
       //    something this module surfaces as a distinct suggestion string.

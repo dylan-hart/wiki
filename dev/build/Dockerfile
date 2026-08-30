@@ -22,12 +22,14 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -qy --no-in
 # step, Node loads `/wiki/backend/**/*.ts` directly on every start, so a writable source tree would
 # turn any future arbitrary-write primitive into RCE that survives a restart. Only what `node`
 # actually needs to write at runtime is chowned to it: `node_modules` (the two `npm` installs below
-# run as `node`), `/wiki/data` (page/asset storage, cache, and the locale sideload directory --
-# everything under `dataPath`), and `/logs`. `node_modules` is created (empty) and chowned *before*
-# `./backend` is copied in, so the copy -- run as root, since it happens before `USER node` below --
-# merges into it without touching its ownership.
-RUN mkdir -p /wiki/backend/node_modules /wiki/data /logs && \
-    chown -R node:node /wiki/backend/node_modules /wiki/data /logs
+# run as `node`) and `/wiki/data` (page/asset storage, cache, and the locale sideload directory --
+# everything under `dataPath`). No separate log directory: `core/logger.ts` writes to stdout/stderr
+# only, with no file destination -- a 2.x-era leftover, not something this image needs to create or
+# own. `node_modules` is created (empty) and chowned *before* `./backend` is copied in, so the copy --
+# run as root, since it happens before `USER node` below -- merges into it without touching its
+# ownership.
+RUN mkdir -p /wiki/backend/node_modules /wiki/data && \
+    chown -R node:node /wiki/backend/node_modules /wiki/data
 
 WORKDIR /wiki
 
@@ -81,13 +83,17 @@ WORKDIR /wiki
 # exclude.
 VOLUME ["/wiki/data"]
 
-# Only 3000: Fastify is constructed with no `https` option (`initHTTPServer()`), and this image never
-# terminates TLS (`docs/tls-termination.md`) -- an `EXPOSE 3443` advertised a port nothing ever opens.
+# Only the plain-HTTP port: Fastify is constructed with no `https` option (`initHTTPServer()`), and
+# this image never terminates TLS (`docs/tls-termination.md`) -- a second, higher EXPOSEd port for it
+# would advertise a listener that never opens.
 EXPOSE 3000
 
 # `/_ready` (registered by `gracefulServer` in `backend/index.ts`) is the same readiness signal a
 # Kubernetes probe would use; a plain Docker deployment gets it too via `docker inspect`/`docker ps`.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+# --start-period is generous because postBoot() (locale/strategy/site refresh, scheduler start) runs
+# after the HTTP server is already listening, so /_ready can otherwise be probed before the instance
+# is actually usable.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD curl -fsS http://localhost:3000/_ready || exit 1
 
 CMD ["node", "backend"]

@@ -49,6 +49,12 @@ jobs:
       packages: write
       actions: read
 
+    # docker/login-action authenticates as github.repository_owner using the run's GITHUB_TOKEN,
+    # whose packages:write scope only covers that owner's packages -- so the pushed tags must live
+    # under this repo's own namespace, not a hard-coded one that may belong to someone else.
+    env:
+      IMAGE_NAMESPACE: ghcr.io/${{ github.repository }}
+
     steps:
       - uses: actions/checkout@v7
         with:
@@ -162,13 +168,13 @@ jobs:
           fi
           echo "stable=$STABLE" >> "$GITHUB_OUTPUT"
 
-          # ghcr.io/requarks/wiki:<version> always; ghcr.io/requarks/wiki:latest only rewritten on
-          # a stable (non-prerelease) tag — an -rc.N/-alpha.N/-beta.N tag must never move :latest.
+          # $IMAGE_NAMESPACE:<version> always; $IMAGE_NAMESPACE:latest only rewritten on a stable
+          # (non-prerelease) tag — an -rc.N/-alpha.N/-beta.N tag must never move :latest.
           {
             echo "tags<<TAGS_EOF"
-            echo "ghcr.io/requarks/wiki:$VERSION"
+            echo "$IMAGE_NAMESPACE:$VERSION"
             if [ "$STABLE" = "true" ]; then
-              echo "ghcr.io/requarks/wiki:latest"
+              echo "$IMAGE_NAMESPACE:latest"
             fi
             echo "TAGS_EOF"
           } >> "$GITHUB_OUTPUT"

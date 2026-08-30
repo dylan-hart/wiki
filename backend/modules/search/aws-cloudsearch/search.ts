@@ -1187,6 +1187,9 @@ export class AwsCloudSearchModule implements SearchModule {
       //    reported before filtering, and therefore never able to exceed what the actor can
       //    actually read. See `db/search.ts#query()`'s comment for the exact/floor distinction.
       totalHits: visible.length,
+      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
+      //    above actually dropped a row from this page, same signal `db/search.ts` uses.
+      totalHitsApproximate: rows.length !== visible.length,
       // -> No "did you mean" here: CloudSearch has no built-in fuzzy-title suggestion API comparable
       //    to `db`'s `pg_trgm` similarity, and building one out of band is future scope, not this task's.
       suggestion: null

@@ -51,6 +51,7 @@
             <w-item-section>
               <w-item-label>{{ t(`admin.utilities.export`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.utilities.exportHint`) }}</w-item-label>
+              <w-item-label caption>{{ t(`admin.utilities.exportExclusions`) }}</w-item-label>
             </w-item-section>
             <w-item-section side>
               <w-btn

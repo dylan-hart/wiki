@@ -493,6 +493,11 @@ async function routes(app: FastifyInstance) {
                 description:
                   "How many pages match and are visible to you, ignoring `limit` and `offset`. Counted only from rows you may actually read — a page you have no access to is never included, even at `limit=1`. Exact up to the search engine's own scan cap; beyond that cap it is a floor (at least this many), not a precise total."
               },
+              totalHitsApproximate: {
+                type: 'boolean',
+                description:
+                  "`true` when `totalHits` is not exact: this searcher's page rules dropped one or more matching rows, so the real total they could ever see is a floor, not the number shown."
+              },
               suggestion: {
                 type: ['string', 'null'],
                 description:

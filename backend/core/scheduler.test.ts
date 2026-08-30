@@ -308,6 +308,123 @@ describe('processJob claim ordering (fake WIKI)', () => {
 })
 
 /**
+ * OpenProject #1931: `runJob()`'s terminal, retries-exhausted failure must log at `error` so an
+ * operator shipping only `error` to alerting actually sees it -- `wikijs_jobs_queued` counts
+ * *pending* jobs, so a storm of failing-and-retrying jobs looks identical to a healthy queue from
+ * that metric alone. A still-retryable failure must keep logging at `warn`, matching the
+ * "Rescheduling new attempt" line right after it.
+ *
+ * Drives the real `runJob()` against a fake `WIKI.db`/`notifier`-reachable state, not a live
+ * Postgres connection -- there is no SQL orchestration worth a real database here, just a branch on
+ * `job.retries` vs. `job.maxRetries` deciding which logger method gets called.
+ */
+describe('runJob log level on failure (fake WIKI)', () => {
+  let previousWiki: any
+  let logCalls: { level: string; args: any[] }[]
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    scheduler.tasks = {}
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  beforeEach(() => {
+    logCalls = []
+    const makeLogFn =
+      (level: string) =>
+      (...args: any[]) =>
+        logCalls.push({ level, args })
+    ;(globalThis as any).WIKI = {
+      INSTANCE_ID: 'test-instance',
+      config: { scheduler: { retryBackoff: 1 } },
+      logger: {
+        info: makeLogFn('info'),
+        warn: makeLogFn('warn'),
+        error: makeLogFn('error'),
+        debug: makeLogFn('debug')
+      },
+      db: {
+        update: () => ({
+          set: () => ({
+            where: async () => ({ rowCount: 1 })
+          })
+        }),
+        insert: (_table: any) => ({
+          values: async () => ({})
+        })
+      }
+      // -> No `WIKI.scheduler.pubsubClient`: `notifier.send()` reads it fresh on each call, catches the
+      //    resulting `TypeError` internally, and logs a `warn` of its own -- fire-and-forget, so it
+      //    never surfaces synchronously here. See `helpers/pubsub.ts#createNotifier`.
+    }
+  })
+
+  test('a still-retryable failure logs the failure message at warn, not error', async () => {
+    scheduler.tasks.willFail = async () => {
+      throw new Error('transient failure')
+    }
+    const job = {
+      id: 'job-retryable',
+      task: 'willFail',
+      useWorker: false,
+      payload: {},
+      retries: 0,
+      maxRetries: 3
+    }
+
+    await scheduler.runJob(job)
+
+    const failureCalls = logCalls.filter(
+      (c) => c.args[0] === 'Failed to complete job job-retryable: willFail [ FAILED ]'
+    )
+    assert.equal(failureCalls.length, 1, 'the failure message must be logged exactly once')
+    assert.equal(failureCalls[0]!.level, 'warn')
+    assert.equal(
+      logCalls.filter((c) => c.level === 'error').length,
+      0,
+      'no error-level log for a failure that still has retries left'
+    )
+  })
+
+  test('a retries-exhausted failure logs the failure message at error, not warn', async () => {
+    scheduler.tasks.willFail = async () => {
+      throw new Error('permanent failure')
+    }
+    const job = {
+      id: 'job-exhausted',
+      task: 'willFail',
+      useWorker: false,
+      payload: {},
+      retries: 3,
+      maxRetries: 3
+    }
+
+    await scheduler.runJob(job)
+
+    const failureCalls = logCalls.filter(
+      (c) => c.args[0] === 'Failed to complete job job-exhausted: willFail [ FAILED ]'
+    )
+    assert.equal(failureCalls.length, 1, 'the failure message must be logged exactly once')
+    assert.equal(failureCalls[0]!.level, 'error')
+    assert.equal(
+      logCalls.filter((c) => c.level === 'warn' && c.args[0] === failureCalls[0]!.args[0]).length,
+      0,
+      'the exhausted-retries failure message must not also be logged at warn'
+    )
+    // -> No reschedule attempted once retries are exhausted, so no "Rescheduling new attempt" line.
+    assert.equal(
+      logCalls.some(
+        (c) => typeof c.args[0] === 'string' && c.args[0].startsWith('Rescheduling new attempt')
+      ),
+      false
+    )
+  })
+})
+
+/**
  * `expireCompletionPromises()`, OpenProject #928: the only way an `addJob({ promise: true })` deferred
  * ever otherwise settled was a `jobCompleted` NOTIFY -- and postgres NOTIFY is not durable, so one
  * missed during a LISTEN reconnect left the deferred, and everything awaiting it, pending forever. This

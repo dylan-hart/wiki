@@ -150,13 +150,18 @@ For a fresh instance that will never reach the network:
   every day.
 - **Any locale beyond the vendored set**, pre-populated into `<dataPath>/locales/` before or shortly
   after first boot (see above) — there is no other way to add one offline.
-- **Puppeteer, if server-side Mermaid rendering (PDF export with diagrams) is wanted.** The Docker
-  image already installs Chromium itself and sets `PUPPETEER_EXECUTABLE_PATH`, but the Puppeteer
-  _extension_ — the npm package Wiki.js loads to drive it — is not installed into the image by default,
-  and installing it through Admin → Utilities fetches it from the npm registry. An air-gapped
-  deployment that wants this needs a custom image with `puppeteer` pre-installed into
-  `backend/node_modules` (see `dev/build/Dockerfile`'s own comment on why it is not there by default),
-  or a private npm registry mirror reachable from inside the air gap.
+- **Puppeteer, if server-side Mermaid rendering (PDF export with diagrams) is wanted.** The official
+  Docker image already installs both Chromium and the Puppeteer _extension_ itself — pinned to the
+  version in `backend/modules/extensions/puppeteer/definition.yml`, and pointed at that Chromium via
+  `PUPPETEER_EXECUTABLE_PATH`/`PUPPETEER_SKIP_DOWNLOAD` (`dev/build/Dockerfile`) — so no further action
+  is needed for the official image. The caveat only applies to a source checkout or a custom image:
+  neither has Puppeteer in `backend/node_modules`, and installing it through Admin → Utilities fetches
+  it from the npm registry. An air-gapped deployment building its own image from source needs
+  `puppeteer` pre-installed the same way the Dockerfile does (see its own comment on why the package
+  isn't in `package.json` by default), or a private npm registry mirror reachable from inside the air
+  gap. Either way, a later `npm ci` inside that same container prunes the `--no-save` copy — the same
+  warning `.devcontainer/app-init.sh` gives for the dev container — so re-run the install if Admin →
+  Utilities reports it missing after a dependency reinstall.
 - **A self-hosted PlantUML/Kroki server, if those diagram types are used at all.** Every page using
   `block-plantuml`/`block-kroki` needs its own `server` attribute pointing at one reachable inside the
   network — there is no way to make the public default work air-gapped, and (per the client-side note

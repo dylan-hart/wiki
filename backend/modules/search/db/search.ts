@@ -414,7 +414,11 @@ class DbSearchModule implements SearchModule {
         ? await this.suggestTitle({ siteId, query: terms, publicOnly, includeDrafts, actor })
         : null
 
-    return { results: result, totalHits, suggestion }
+    // -> Rows were dropped from this page by the rules filter above, so the corrected `totalHits`
+    //    is a floor, not an exact count -- see `SearchPagesResult.totalHitsApproximate`'s own doc.
+    const totalHitsApproximate = ((rows.rows ?? rows) as any[]).length !== visible.length
+
+    return { results: result, totalHits, totalHitsApproximate, suggestion }
   }
 
   /**

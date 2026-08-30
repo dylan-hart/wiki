@@ -93,6 +93,17 @@ export interface SearchPagesResult {
    */
   totalHits: number
   /**
+   * `true` when `totalHits` is not exact: an actor's page rules dropped one or more of the rows the
+   * engine's own count included, on this page of results. Every engine's `totalHits` is corrected by
+   * exactly what was dropped from *this* page (see each engine's own comment by its `totalHits`
+   * calculation), but rows on other, unfetched pages the same actor could not see either are never
+   * counted at all — so a searcher with restrictive rules can still see fewer results than the total
+   * promises. `false` means every row the engine counted was actually visible to the actor, or no
+   * actor was given to check against (an internal caller, or a config that trusts the caller already
+   * filtered).
+   */
+  totalHitsApproximate: boolean
+  /**
    * The closest page title to a query that matched nothing, for a "did you mean" prompt.
    *
    * `null` whenever there is nothing to suggest: no query was given, the query already found

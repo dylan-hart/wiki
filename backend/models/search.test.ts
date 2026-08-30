@@ -81,7 +81,7 @@ function makeFakeSearchModule(): { calls: string[]; module: SearchModule } {
     },
     async query(params: SearchPagesParams): Promise<SearchPagesResult> {
       calls.push(`query:${params.siteId}:${params.query ?? ''}`)
-      return { results: [], totalHits: 0, suggestion: null }
+      return { results: [], totalHits: 0, totalHitsApproximate: false, suggestion: null }
     },
     async rebuild(siteId: string): Promise<RebuildResult> {
       calls.push(`rebuild:${siteId}`)
@@ -113,7 +113,12 @@ describe('SearchModule interface', () => {
       'query:site-1:wiki',
       'rebuild:site-1'
     ])
-    assert.deepEqual(queryResult, { results: [], totalHits: 0, suggestion: null })
+    assert.deepEqual(queryResult, {
+      results: [],
+      totalHits: 0,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
     assert.deepEqual(rebuildResult, { pages: 0, locales: [] })
   })
 })
@@ -394,7 +399,12 @@ describe('search dispatcher (query/rebuild/created/updated/deleted/renamed)', ()
     const result = await search.query({ siteId: 'site-default', query: 'wiki' })
 
     assert.deepEqual(calls, ['query:site-default:wiki'])
-    assert.deepEqual(result, { results: [], totalHits: 0, suggestion: null })
+    assert.deepEqual(result, {
+      results: [],
+      totalHits: 0,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
   })
 
   test('a site with a configured engine dispatches to that engine instead of db', async () => {

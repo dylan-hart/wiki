@@ -6,7 +6,7 @@
  * same claims). Run it against a disposable Postgres:
  *
  *   docker run --rm -d --name wiki-collab-load -p 56078:5432 \
- *     -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:17
+ *     -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:18
  *   DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56078/postgres \
  *     node --experimental-strip-types backend/scripts/collab-load-test.ts
  *

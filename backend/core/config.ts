@@ -13,6 +13,27 @@ import crypto from 'node:crypto'
  */
 type ConfigObject = Record<string, any>
 
+/**
+ * Recursively walks a parsed config.yml against base.yml's `defaults.config` shape and warns once
+ * per key that has no counterpart there — the only signal a mistyped key (`logLvel:`, `sceduler:`)
+ * ever gets, since `toMerged()` otherwise accepts it silently and it does nothing.
+ *
+ * Only descends into a key present on both sides as a plain object; anything else either matches
+ * (nothing to walk further) or is already reported as unknown at that path.
+ */
+function warnUnknownConfigKeys(config: ConfigObject, schema: ConfigObject, pathPrefix = ''): void {
+  for (const key of Object.keys(config)) {
+    const keyPath = pathPrefix ? `${pathPrefix}.${key}` : key
+    if (!Object.hasOwn(schema, key)) {
+      WIKI.logger.warn(`Unknown configuration key \`${keyPath}\` in config.yml — ignored.`)
+      continue
+    }
+    if (isPlainObject(config[key]) && isPlainObject(schema[key])) {
+      warnUnknownConfigKeys(config[key], schema[key], keyPath)
+    }
+  }
+}
+
 export default {
   /**
    * Load root config from disk
@@ -57,7 +78,13 @@ export default {
 
     // Merge with defaults
 
+    const rawConfig = appconfig
     appconfig = toMerged(appdata.defaults.config, appconfig)
+
+    // Warn about any config.yml key with no counterpart in base.yml's schema -- checked against the
+    // pre-merge parse so only what the file itself specified is walked, not the merged result (which
+    // would have every default key present and nothing left to flag).
+    warnUnknownConfigKeys(rawConfig, appdata.defaults.config)
 
     // Override port
 
