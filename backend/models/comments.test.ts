@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, describe, it, test } from 'node:test'
+import { after, before, beforeEach, describe, it, mock, test } from 'node:test'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { comments as commentsTable } from '../db/schema.ts'
 import type { PageActor } from './pages.ts'
@@ -514,6 +514,96 @@ describe('comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
     assert.equal(result.totalHits, 1)
     assert.equal(result.results[0]!.id, inRange.id)
+  })
+
+  test('listForAdmin treats pageIds: null as no restriction at all (the manage:system case)', async () => {
+    const pageX = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'null-pageids/x', title: 'X', editor: 'markdown', content: 'x' },
+      actor
+    )
+    const pageY = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'null-pageids/y', title: 'Y', editor: 'markdown', content: 'x' },
+      actor
+    )
+    const commentX = await insertComment({ pageId: pageX.id, content: 'On X, null-restricted' })
+    const commentY = await insertComment({ pageId: pageY.id, content: 'On Y, null-restricted' })
+
+    const result = await commentsModel.listForAdmin({
+      siteId: fixtures.siteId,
+      pageIds: null,
+      limit: 100
+    })
+    const ids = result.results.map((c) => c.id)
+    assert.ok(ids.includes(commentX.id))
+    assert.ok(ids.includes(commentY.id))
+  })
+
+  test('listForAdmin chunks pageIds into several queries once the set exceeds pageIdChunkSize, and still returns correct, merged pagination and totals', async () => {
+    const pageA = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'chunking/a', title: 'A', editor: 'markdown', content: 'x' },
+      actor
+    )
+    const pageB = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'chunking/b', title: 'B', editor: 'markdown', content: 'x' },
+      actor
+    )
+    const pageC = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'chunking/c', title: 'C', editor: 'markdown', content: 'x' },
+      actor
+    )
+    const base = new Date('2026-03-01T00:00:00Z').getTime()
+    await insertComment({ pageId: pageA.id, content: 'Chunk A', createdAt: new Date(base) })
+    await insertComment({
+      pageId: pageB.id,
+      content: 'Chunk B',
+      createdAt: new Date(base + 60_000)
+    })
+    await insertComment({
+      pageId: pageC.id,
+      content: 'Chunk C',
+      createdAt: new Date(base + 120_000)
+    })
+
+    // -> chunkSize 1 against 3 page ids forces the chunked path (3 chunks), never a single query
+    // binding all three ids into one `IN (...)`. `fixtures.db` is the exact instance installed as
+    // `WIKI.db`, so spying on it observes every query `listForAdmin` actually issues.
+    const selectSpy = mock.method(fixtures.db, 'select')
+    let firstPage
+    try {
+      firstPage = await commentsModel.listForAdmin({
+        siteId: fixtures.siteId,
+        pageIds: [pageA.id, pageB.id, pageC.id],
+        pageIdChunkSize: 1,
+        limit: 2,
+        offset: 0
+      })
+      // Each of the 3 chunks issues its own page query + its own `count(*)` — 6 `select` calls,
+      // versus 2 for one unchunked query. Proves several bind-safe queries ran, not one oversized one.
+      assert.equal(selectSpy.mock.calls.length, 6)
+    } finally {
+      selectSpy.mock.restore()
+    }
+
+    assert.equal(firstPage.totalHits, 3)
+    assert.equal(firstPage.results.length, 2)
+    // -> Merged and re-sorted newest-first across chunks, exactly like the unchunked path.
+    assert.equal(firstPage.results[0]!.content, 'Chunk C')
+    assert.equal(firstPage.results[1]!.content, 'Chunk B')
+
+    const secondPage = await commentsModel.listForAdmin({
+      siteId: fixtures.siteId,
+      pageIds: [pageA.id, pageB.id, pageC.id],
+      pageIdChunkSize: 1,
+      limit: 2,
+      offset: 2
+    })
+    assert.equal(secondPage.results.length, 1)
+    assert.equal(secondPage.results[0]!.content, 'Chunk A')
   })
 
   test('getWithPage returns the comment with its page ref, or null when it does not exist', async () => {

@@ -91,17 +91,22 @@ const commentIdParam = {
  * fetched, let alone permission-checked, unless it belongs to a page already known to be accessible.
  *
  * `manage:system` short-circuits entirely, matching `checkAccess` itself: every page is accessible,
- * so the per-page evaluation is skipped rather than trivially answering `true` for each one.
+ * so neither the per-page evaluation NOR the `pageRefsForSite` query behind it ever runs — the
+ * caller gets back `null` ("no restriction") rather than the full site's page-id list. That list has
+ * no `LIMIT` (`comments.pageRefsForSite`) and, materialised, would become `listForAdmin`'s
+ * `pageId IN (...)`, bound twice (page query + its `count(*)`) at up to postgres'
+ * 65,535-bind-parameter ceiling — real cost paid, and on a large enough site an outright failure,
+ * for an actor who by definition needed no filter at all.
  */
 async function accessiblePageIdsForAdmin(
   actor: AccessActor,
   siteId: string,
   pathFilter?: string
-): Promise<string[]> {
-  const pageRefs: AdminPageRef[] = await WIKI.models.comments.pageRefsForSite(siteId, pathFilter)
+): Promise<string[] | null> {
   if (actor.permissions.includes('manage:system')) {
-    return pageRefs.map((page) => page.id)
+    return null
   }
+  const pageRefs: AdminPageRef[] = await WIKI.models.comments.pageRefsForSite(siteId, pathFilter)
   return pageRefs
     .filter((page) => WIKI.models.groups.checkAccess(actor, 'manage:comments', { ...page, siteId }))
     .map((page) => page.id)

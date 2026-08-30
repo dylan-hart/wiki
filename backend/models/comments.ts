@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gte, ilike, inArray, lte, sql } from 'drizzle-orm'
+import { chunk } from 'es-toolkit/array'
 import {
   comments as commentsTable,
   pages as pagesTable,
@@ -87,18 +88,35 @@ export interface ListForAdminOptions {
   siteId: string
   /**
    * The accessible-pages set the caller has already computed (see `accessiblePageIdsForAdmin` in
-   * `api/comments.ts`) — every comment returned is restricted to one of these page ids. An empty
-   * array is a legitimate "nothing is accessible" answer, not "no filter": it short-circuits to an
-   * empty result without touching `comments` at all.
+   * `api/comments.ts`) — every comment returned is restricted to one of these page ids.
+   *
+   * `null` means no restriction at all — a `manage:system` actor, who may see every page on the
+   * site. The `pageId IN (...)` condition is omitted entirely rather than populated with every page
+   * id on the site: that used to be exactly backwards, materialising the full page list only to
+   * immediately turn it back into "everything", and binding it twice (once for the page query, once
+   * for its `count(*)`) at up to postgres' 65,535-parameter ceiling.
+   *
+   * An empty array is still a legitimate "nothing is accessible" answer, not "no filter": it
+   * short-circuits to an empty result without touching `comments` at all.
    */
-  pageIds: string[]
+  pageIds: string[] | null
   /** Substring match against the resolved author name (account name, or `guestName`). */
   author?: string
   dateFrom?: Date
   dateTo?: Date
   offset?: number
   limit?: number
+  /**
+   * Max page ids bound into one `pageId IN (...)` query before `pageIds` is split into several
+   * queries whose rows are merged in memory instead. Defaults to a value comfortably under
+   * postgres' 65,535-bind-parameter limit; exposed mainly so a test can exercise the chunking path
+   * without needing tens of thousands of real rows in a throwaway database.
+   */
+  pageIdChunkSize?: number
 }
+
+/** {@link ListForAdminOptions.pageIdChunkSize}'s default. */
+const DEFAULT_PAGE_ID_CHUNK_SIZE = 20000
 
 /** Trimmed content shorter than this is not a comment. Matches 2.5.x's `postNewComment`. */
 const MIN_CONTENT_LENGTH = 2
@@ -307,54 +325,88 @@ class Comments {
     dateFrom,
     dateTo,
     offset = 0,
-    limit = DEFAULT_LIMIT
+    limit = DEFAULT_LIMIT,
+    pageIdChunkSize = DEFAULT_PAGE_ID_CHUNK_SIZE
   }: ListForAdminOptions): Promise<{ results: AdminComment[]; totalHits: number }> {
-    if (pageIds.length === 0) {
+    if (pageIds !== null && pageIds.length === 0) {
       return { results: [], totalHits: 0 }
     }
 
     const authorName = sql<string>`coalesce(${usersTable.name}, ${commentsTable.guestName}, '')`
-    const conditions = [eq(commentsTable.siteId, siteId), inArray(commentsTable.pageId, pageIds)]
+    const baseConditions = [eq(commentsTable.siteId, siteId)]
     if (dateFrom) {
-      conditions.push(gte(commentsTable.createdAt, dateFrom))
+      baseConditions.push(gte(commentsTable.createdAt, dateFrom))
     }
     if (dateTo) {
-      conditions.push(lte(commentsTable.createdAt, dateTo))
+      baseConditions.push(lte(commentsTable.createdAt, dateTo))
     }
     if (author) {
-      conditions.push(ilike(authorName, `%${author}%`))
+      baseConditions.push(ilike(authorName, `%${author}%`))
     }
-    const where = and(...conditions)
 
-    const [results, countRows] = await Promise.all([
-      WIKI.db
-        .select({
-          id: commentsTable.id,
-          siteId: commentsTable.siteId,
-          pageId: commentsTable.pageId,
-          pagePath: pagesTable.path,
-          authorId: commentsTable.authorId,
-          authorName,
-          replyTo: commentsTable.replyTo,
-          content: commentsTable.content,
-          createdAt: commentsTable.createdAt,
-          updatedAt: commentsTable.updatedAt
-        })
-        .from(commentsTable)
-        .innerJoin(pagesTable, eq(pagesTable.id, commentsTable.pageId))
-        .leftJoin(usersTable, eq(usersTable.id, commentsTable.authorId))
-        .where(where)
-        .orderBy(desc(commentsTable.createdAt))
-        .limit(limit)
-        .offset(offset),
-      WIKI.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(commentsTable)
-        .leftJoin(usersTable, eq(usersTable.id, commentsTable.authorId))
-        .where(where)
-    ])
+    // One query pair for a slice of `pageIds` (or none at all, for `null` — no restriction), sharing
+    // the same `WHERE` between the page query and its `count(*)`, exactly as a single unchunked call
+    // always has.
+    const fetchSlice = (ids: string[] | null, sliceLimit: number, sliceOffset: number) => {
+      const where = and(...baseConditions, ...(ids ? [inArray(commentsTable.pageId, ids)] : []))
+      return Promise.all([
+        WIKI.db
+          .select({
+            id: commentsTable.id,
+            siteId: commentsTable.siteId,
+            pageId: commentsTable.pageId,
+            pagePath: pagesTable.path,
+            authorId: commentsTable.authorId,
+            authorName,
+            replyTo: commentsTable.replyTo,
+            content: commentsTable.content,
+            createdAt: commentsTable.createdAt,
+            updatedAt: commentsTable.updatedAt
+          })
+          .from(commentsTable)
+          .innerJoin(pagesTable, eq(pagesTable.id, commentsTable.pageId))
+          .leftJoin(usersTable, eq(usersTable.id, commentsTable.authorId))
+          .where(where)
+          .orderBy(desc(commentsTable.createdAt))
+          .limit(sliceLimit)
+          .offset(sliceOffset),
+        WIKI.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(commentsTable)
+          .leftJoin(usersTable, eq(usersTable.id, commentsTable.authorId))
+          .where(where)
+      ])
+    }
 
-    return { results: results as AdminComment[], totalHits: countRows[0]?.count ?? 0 }
+    const pageIdChunks = pageIds === null ? null : chunk(pageIds, pageIdChunkSize)
+
+    // No restriction, or few enough ids to bind in one query: identical shape (and identical query
+    // count) to before this task — pagination stays pushed to SQL, nothing merged in memory.
+    if (pageIdChunks === null || pageIdChunks.length <= 1) {
+      const [results, countRows] = await fetchSlice(pageIds, limit, offset)
+      return { results: results as AdminComment[], totalHits: countRows[0]?.count ?? 0 }
+    }
+
+    /*
+     * More accessible page ids than fit in one bind-safe `IN (...)` (a delegated moderator with a
+     * huge rule-matched page set — `manage:system` never reaches here, since its `pageIds` is
+     * `null`): one query per chunk instead of one oversized bind. Each chunk pulls only up to
+     * `offset + limit` rows — enough to guarantee correctness once every chunk's rows are merged and
+     * re-sorted, since any chunk's rows could sort ahead of or behind another chunk's — then the
+     * merged, re-sorted set is sliced down to the requested page. `totalHits` sums each chunk's own
+     * `count(*)`, which stays exact since the chunks are disjoint page-id sets.
+     */
+    const chunkResults = await Promise.all(
+      pageIdChunks.map((idsChunk) => fetchSlice(idsChunk, offset + limit, 0))
+    )
+    const merged = chunkResults.flatMap(([rows]) => rows as AdminComment[])
+    merged.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    const totalHits = chunkResults.reduce(
+      (sum, [, countRows]) => sum + (countRows[0]?.count ?? 0),
+      0
+    )
+
+    return { results: merged.slice(offset, offset + limit), totalHits }
   }
 
   /** A single comment plus enough of its page to decide `manage:comments` against, or `null`. */
