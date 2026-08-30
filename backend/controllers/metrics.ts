@@ -62,13 +62,25 @@ async function routes(app: FastifyInstance) {
       return reply.forbidden()
     }
 
+    // -> All six lookups are independent round trips, so issue them concurrently rather than
+    //    serially — a serial chain holds a pool connection for the sum of their latencies instead
+    //    of the max, on every Prometheus scrape (task 1842).
+    const [activeWorkers, pagesTotal, usersTotal, groupsTotal, clusterNodes, jobsQueued] =
+      await Promise.all([
+        WIKI.models.jobs.countActive(),
+        WIKI.db.$count(pagesTable),
+        WIKI.db.$count(usersTable),
+        WIKI.db.$count(groupsTable),
+        getClusterNodes(),
+        WIKI.models.jobs.countPending()
+      ])
     const snapshot: MetricsSnapshot = {
-      activeWorkers: await WIKI.models.jobs.countActive(),
-      pagesTotal: await WIKI.db.$count(pagesTable),
-      usersTotal: await WIKI.db.$count(usersTable),
-      groupsTotal: await WIKI.db.$count(groupsTable),
-      instancesTotal: (await getClusterNodes()).length,
-      jobsQueued: await WIKI.models.jobs.countPending()
+      activeWorkers,
+      pagesTotal,
+      usersTotal,
+      groupsTotal,
+      instancesTotal: clusterNodes.length,
+      jobsQueued
     }
 
     return reply
