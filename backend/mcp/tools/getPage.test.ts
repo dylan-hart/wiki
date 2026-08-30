@@ -29,14 +29,24 @@ const BASE_PAGE = {
 }
 
 let previousWiki: any
+let getPageCalls: any[]
 
 /**
  * @param hasPassword Whether the page carries a password — `getPage()`'s own `unlocked` callback
  *                     decides whether that locks it, mirroring the real model's `locked = hasPassword
  *                     && !isUnlocked` (see `models/pages.ts`'s `toPage()`).
  * @param access Which page-rule permissions `checkAccess()` grants on this page.
+ * @param publishState The page's own publish state -- mirrors `models/pages.ts#getPage()`'s
+ *                      `publicOnly` filtering, so a test can assert the tool never even reaches an
+ *                      unpublished page when it derives `publicOnly: true`.
  */
-function install({ pageExists = true, hasPassword = false, access = [] as string[] } = {}) {
+function install({
+  pageExists = true,
+  hasPassword = false,
+  access = [] as string[],
+  publishState = 'published' as string
+} = {}) {
+  getPageCalls = []
   ;(globalThis as any).WIKI = {
     data: { systemIds: { guestsGroupId: GUEST_GROUP_ID } },
     sites: { [SITE_ID]: { id: SITE_ID, hostname: 'a.example.com', isEnabled: true, config: {} } },
@@ -45,8 +55,14 @@ function install({ pageExists = true, hasPassword = false, access = [] as string
         checkAccess: (_actor: any, permission: string) => access.includes(permission)
       },
       pages: {
-        getPage: async ({ withContent, unlocked }: any) => {
+        getPage: async ({ withContent, unlocked, publicOnly }: any) => {
+          getPageCalls.push({ publicOnly })
           if (!pageExists) {
+            return null
+          }
+          // -> Mirrors `models/pages.ts#getPage()`'s own `publicOnly` filtering: an anonymous reader
+          //    never sees a page that isn't published, regardless of what `access` grants.
+          if (publicOnly && publishState !== 'published') {
             return null
           }
           const unlockRef = {
@@ -59,6 +75,7 @@ function install({ pageExists = true, hasPassword = false, access = [] as string
           const locked = hasPassword && !isUnlocked
           return {
             ...BASE_PAGE,
+            publishState,
             isLocked: locked,
             render: locked ? '' : BASE_PAGE.render,
             ...((withContent && !locked) || false ? { content: BASE_PAGE.content } : {})
@@ -143,4 +160,26 @@ test('handleGetPage: write:pages bypasses the password lock', async () => {
   assert.equal(page.isLocked, false)
   assert.equal(page.render, BASE_PAGE.render)
   assert.equal(page.content, BASE_PAGE.content)
+})
+
+// -> OpenProject #2203: an admin-issued key (`ctx.userId === null`) has no attributable user behind
+//    it, exactly like a bearer-token REST caller with no session -- `actorFrom(req)` resolves `null`
+//    for it there, and `pageActorFor(ctx)` must resolve `null` for it here, so both transports derive
+//    the same `publicOnly` for the same key.
+test('handleGetPage: an admin-issued key (no userId) is publicOnly, same as an unauthenticated REST caller', async () => {
+  install({ access: ['read:pages'], publishState: 'draft' })
+  assert.equal(CTX.userId, null)
+  await assert.rejects(() => handleGetPage(CTX, { path: BASE_PAGE.path }), /does not exist/)
+  assert.equal(getPageCalls.length, 1)
+  assert.equal(getPageCalls[0].publicOnly, true)
+})
+
+test('handleGetPage: a personal-access-token key (userId set) is not publicOnly and may read a draft', async () => {
+  install({ access: ['read:pages'], publishState: 'draft' })
+  const pat = { ...CTX, userId: 'user-1' }
+  const result = await handleGetPage(pat, { path: BASE_PAGE.path })
+  const page = textOf(result)
+  assert.equal(page.publishState, 'draft')
+  assert.equal(getPageCalls.length, 1)
+  assert.equal(getPageCalls[0].publicOnly, false)
 })

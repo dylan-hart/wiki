@@ -230,9 +230,21 @@ export const authentication = pgTable('authentication', {
   isEnabled: boolean().notNull().default(false),
   displayName: varchar({ length: 255 }).notNull().default(''),
   config: jsonb().notNull().default({}),
-  registration: boolean().notNull().default(false),
+  // -> Split from a single `registration` column: a form-based module's own self-registration form
+  //    and a redirect-based provider's auto-provisioning of new accounts are gated separately, since
+  //    an administrator may want one without the other (WP #2130).
+  selfRegistration: boolean().notNull().default(false),
+  autoProvision: boolean().notNull().default(false),
   allowedEmailRegex: varchar({ length: 255 }).notNull().default(''),
-  autoEnrollGroups: uuid().array().default([])
+  autoEnrollGroups: uuid().array().default([]),
+  // -> Off by default: an existing account is only ever claimed by a provider login once this
+  //    strategy is explicitly told to trust the address it reports. See
+  //    `models/users.ts#findOrCreateProviderUser()`.
+  trustEmailForLinking: boolean().notNull().default(false),
+  // -> Admin-chosen subset of groups a provider login is allowed to grant/revoke via `mapGroups`.
+  //    Empty by default, meaning a login changes no group memberships. See
+  //    `models/users.ts#syncProviderGroups()`.
+  mappableGroups: uuid().array().default([])
 })
 
 // CONTENT SYNC STATE -------------------

@@ -87,16 +87,18 @@ export function classifyMailError(err: any): 'connection' | 'tls' | 'auth' | 'se
  *
  * Builds a single `nodemailer` SMTP transporter from `WIKI.config.mail` (CRUD'd by `api/mail.ts`)
  * and exposes a generic `send()` plus the transactional templates this feature needs: verify-email,
- * forgot-password (the reset-*request* email, with the actual reset link), password-reset-confirmed
- * (the after-the-fact notice once a reset completes — a distinct email from the request one above),
- * test-email (the admin "Send Test Email" action), and the page-watch notification. Every subject
- * and body is a `mail.*` key in `backend/locales/en.json`, resolved through
- * `WIKI.models.locales.resolveString`/`resolvePluralString` against a `locale` each send method
- * accepts (typically the recipient's `users.prefs.locale`, `en` as the fallback — OpenProject
- * #1611/#1623) — building a DB-backed, admin-editable template system is a separate, larger scope
- * this deliberately stays out of. `MailTemplateEditorOverlay.vue` and the `admin.mail.templates`
- * admin-area section are unwired UI for that unbuilt system, gated behind `flagStore.experimental`
- * on the frontend; there is no `db/schema.ts` table to back them, and none is added by this change.
+ * registration-collision (the non-enumerating notice `register()` sends the real owner instead of
+ * throwing `ERR_EMAIL_ALREADY_EXISTS`), forgot-password (the reset-*request* email, with the actual
+ * reset link), password-reset-confirmed (the after-the-fact notice once a reset completes — a
+ * distinct email from the request one above), test-email (the admin "Send Test Email" action), and
+ * the page-watch notification. Every subject and body is a `mail.*` key in `backend/locales/en.json`,
+ * resolved through `WIKI.models.locales.resolveString`/`resolvePluralString` against a `locale` each
+ * send method accepts (typically the recipient's `users.prefs.locale`, `en` as the fallback —
+ * OpenProject #1611/#1623) — building a DB-backed, admin-editable template system is a separate,
+ * larger scope this deliberately stays out of. `MailTemplateEditorOverlay.vue` and the
+ * `admin.mail.templates` admin-area section are unwired UI for that unbuilt system, gated behind
+ * `flagStore.experimental` on the frontend; there is no `db/schema.ts` table to back them, and none
+ * is added by this change.
  *
  * `getTransporter()` re-reads `WIKI.config.mail` on every call (it is called once per `send()`) and
  * rebuilds the transporter whenever the resulting options differ from the last build, compared by a
@@ -366,6 +368,34 @@ class MailModel {
       subject: await WIKI.models.locales.resolveString(locale, 'mail.passwordChanged.subject'),
       text: await WIKI.models.locales.resolveString(locale, 'mail.passwordChanged.text', params),
       html: await WIKI.models.locales.resolveString(locale, 'mail.passwordChanged.html', params)
+    })
+  }
+
+  /**
+   * Notice sent to an address's real, already-verified owner when someone else attempts to register
+   * a new account with it. `models/users.ts#register()` sends this -- and answers the attempt itself
+   * with the same generic `{ nextAction: 'verify' }` a genuinely new registration gets -- instead of
+   * throwing `ERR_EMAIL_ALREADY_EXISTS`, which is what would otherwise let an unauthenticated caller
+   * confirm whether a given address already has an account here.
+   *
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   */
+  async sendRegistrationAttemptNotice({
+    to,
+    name,
+    locale
+  }: {
+    to: string
+    name: string
+    locale?: string | null
+  }): Promise<void> {
+    const link = this.buildLink('/login')
+    const params = { name, link }
+    await this.send({
+      to,
+      subject: await WIKI.models.locales.resolveString(locale, 'mail.registrationAttempt.subject'),
+      text: await WIKI.models.locales.resolveString(locale, 'mail.registrationAttempt.text', params),
+      html: await WIKI.models.locales.resolveString(locale, 'mail.registrationAttempt.html', params)
     })
   }
 

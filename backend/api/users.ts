@@ -2102,10 +2102,9 @@ async function routes(app: FastifyInstance) {
       try {
         // -> One transaction for the whole write sequence (OpenProject #1609): a failure partway
         //    through used to leave an earlier write here already committed behind a bare 500. Session
-        //    clearing on deactivation/group-change (OpenProject #936) is folded into the same method,
-        //    since `session.groups`/`session.permissions` are snapshots taken at login and otherwise
-        //    live for up to the 30-day cookie age -- the same reasoning a personal API token's live
-        //    `isActive` revalidation on every request (`models/apiKeys.ts`) already follows.
+        //    clearing on deactivation/group-change (OpenProject #936) and outstanding-token purging on
+        //    deactivation (OpenProject #2094) are both folded into the same method -- see
+        //    `applyUserUpdate`'s own doc comment.
         await WIKI.models.users.applyUserUpdate(req.params.userId, {
           patch,
           groups: req.body.groups,

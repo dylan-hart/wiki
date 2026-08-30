@@ -142,8 +142,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       isEnabled: {
         type: 'boolean'
       },
-      registration: {
-        type: 'boolean'
+      selfRegistration: {
+        type: 'boolean',
+        description:
+          'Whether a visitor may create their own account through this form-based module.'
+      },
+      autoProvision: {
+        type: 'boolean',
+        description:
+          'Whether an account is created automatically for somebody this redirect-based provider signs in for the first time.'
       },
       allowedEmailRegex: {
         type: 'string'
@@ -154,6 +161,20 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           type: 'string',
           format: 'uuid'
         }
+      },
+      trustEmailForLinking: {
+        type: 'boolean',
+        description:
+          'Off by default. When on, a provider login for an address matching an existing, still-unlinked account is bound to it automatically; when off, that login is refused with ERR_ACCOUNT_NOT_LINKED instead.'
+      },
+      mappableGroups: {
+        type: 'array',
+        items: {
+          type: 'string',
+          format: 'uuid'
+        },
+        description:
+          'Admin-chosen allow-list of groups a provider login may grant or revoke via `mapGroups`. Empty by default, meaning a login changes no group memberships. A group carrying `manage:system`, or the root administrators group, is never mapped regardless of this list.'
       },
       // Deliberately loose: values for whatever `props` the module (see `AuthModule` above)
       // declares — a different set of keys per module.
@@ -187,16 +208,21 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       isEnabled: {
         type: 'boolean'
       },
-      registration: {
+      selfRegistration: {
         type: 'boolean',
         description:
-          'Whether an account is created for somebody signing in for the first time. Enforced for the providers that sign users in elsewhere (OpenID Connect, Google, GitHub); the local module has a registration flow of its own.'
+          "Whether a visitor may create their own account through this strategy's form. Enforced only for a form-based module (e.g. Local, LDAP) — refused for any other module regardless of this flag, since only a form-based module verifies the credentials it registers."
+      },
+      autoProvision: {
+        type: 'boolean',
+        description:
+          'Whether an account is created automatically for somebody signing in for the first time. Enforced only for a redirect-based provider (OpenID Connect, Google, GitHub, ...) — a form-based module has `selfRegistration` instead.'
       },
       allowedEmailRegex: {
         type: 'string',
         maxLength: 255,
         description:
-          'Must be a valid regular expression. Limits which addresses an account may be created for, and applies where registration does — a pattern that will not compile allows nobody.'
+          'Must be a valid regular expression. Limits which addresses an account may be created for, and applies wherever `selfRegistration` or `autoProvision` does — a pattern that will not compile allows nobody.'
       },
       autoEnrollGroups: {
         type: 'array',
@@ -205,7 +231,21 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           format: 'uuid'
         },
         description:
-          'Groups a self-registered user would join. The guests group is refused. Stored but not enforced, as above.'
+          'Groups a new self-registered or auto-provisioned user would join. The guests group is refused.'
+      },
+      trustEmailForLinking: {
+        type: 'boolean',
+        description:
+          "Off by default. Turning it on tells this strategy that an address it reports may be trusted to claim an existing, unlinked account by email match alone — appropriate only for a provider whose email is verified. Leave off for a provider that will assert any address it's told to."
+      },
+      mappableGroups: {
+        type: 'array',
+        items: {
+          type: 'string',
+          format: 'uuid'
+        },
+        description:
+          'Allow-list of groups this strategy is permitted to grant/revoke on login via `mapGroups`. The guests group is refused. Empty by default, meaning no group memberships are changed. A group carrying `manage:system`, or the root administrators group, is never mapped regardless of this list.'
       },
       // Deliberately loose: same reason as `AuthStrategy.config` above.
       config: {

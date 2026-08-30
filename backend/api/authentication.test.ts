@@ -58,9 +58,9 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
         authentication: {
           getStrategyById: async (id: string) =>
             id === STRATEGY_ID
-              ? { id: STRATEGY_ID, module: 'saml', isEnabled: true, registration: true }
+              ? { id: STRATEGY_ID, module: 'saml', isEnabled: true, autoProvision: true }
               : id === CAS_STRATEGY_ID
-                ? { id: CAS_STRATEGY_ID, module: 'cas', isEnabled: true, registration: true }
+                ? { id: CAS_STRATEGY_ID, module: 'cas', isEnabled: true, autoProvision: true }
                 : null
         },
         users: {
@@ -710,5 +710,223 @@ describe('POST /authentication/strategies (unknown module)', () => {
     })
     assert.equal(res.statusCode, 400)
     assert.equal(res.json().message, 'ERR_UNKNOWN_AUTH_MODULE')
+  })
+})
+
+/**
+ * `GET /sites/:siteId/auth/strategies` is public and unauthenticated, so it must never publish more
+ * than the login screen can act on. `selfRegistration` is only ever included for a form-based
+ * strategy — a redirect-based provider's new-account path is `autoProvision`, which the public login
+ * screen has no use for and which used to leak (as `registration`) which provider currently accepted
+ * a self-registration POST, the vulnerability WP #2126 closed.
+ */
+describe('GET /sites/:siteId/auth/strategies', () => {
+  const SITE_ID = 'b1111111-1111-1111-1111-111111111111'
+  const LOCAL_STRATEGY_ID = 'b2222222-2222-2222-2222-222222222222'
+  const SAML_STRATEGY_ID = 'b3333333-3333-3333-3333-333333333333'
+
+  let app: FastifyInstance
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      data: {
+        authentication: [
+          {
+            key: 'local',
+            title: 'Local',
+            useForm: true,
+            icon: '',
+            color: 'primary',
+            usernameType: 'email'
+          },
+          {
+            key: 'saml',
+            title: 'SAML',
+            useForm: false,
+            icon: '',
+            color: 'primary',
+            usernameType: 'email'
+          }
+        ]
+      },
+      models: {
+        sites: {
+          getSiteById: async () => ({
+            id: SITE_ID,
+            config: {
+              authStrategies: [
+                { id: LOCAL_STRATEGY_ID, order: 0, isVisible: true },
+                { id: SAML_STRATEGY_ID, order: 1, isVisible: true }
+              ]
+            }
+          })
+        },
+        authentication: {
+          getActiveStrategies: async () => [
+            {
+              id: LOCAL_STRATEGY_ID,
+              module: 'local',
+              displayName: 'Local',
+              isEnabled: true,
+              selfRegistration: true,
+              autoProvision: false,
+              config: {}
+            },
+            {
+              id: SAML_STRATEGY_ID,
+              module: 'saml',
+              displayName: 'SAML',
+              isEnabled: true,
+              selfRegistration: false,
+              autoProvision: true,
+              config: {}
+            }
+          ]
+        }
+      }
+    }
+
+    app = fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    await registerErrorSchema(app)
+    await registerAuthSchema(app)
+    await app.register(authenticationRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('carries selfRegistration for a form-based strategy but omits it entirely for a redirect-based one', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/auth/strategies`
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json() as any[]
+    const local = body.find((s) => s.id === LOCAL_STRATEGY_ID)
+    const saml = body.find((s) => s.id === SAML_STRATEGY_ID)
+
+    assert.equal(local.activeStrategy.selfRegistration, true)
+    assert.equal('selfRegistration' in saml.activeStrategy, false)
+  })
+})
+
+/**
+ * `PUT /sites/:siteId/auth/login`'s body schema (task 2169): `password` used to carry only
+ * `minLength: 1`, which constrains a *present* value but does nothing for an omitted key, so
+ * `{ strategyId, username }` validated and reached `users.login()` with `password: undefined`.
+ * `password` is now in the schema's own `required` list, alongside the pre-existing `strategyId` —
+ * this is the first of the fix's two guards (the model-level check in `users.login()` is the second,
+ * covered in `models/users.test.ts`).
+ */
+describe('PUT login: password is required by the route schema', () => {
+  let app: FastifyInstance
+  let loginMock: ReturnType<typeof mock.fn>
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      config: { security: { authRateLimitEnabled: false } },
+      models: {
+        users: {
+          login: (...args: any[]) => loginMock(...args)
+        },
+        flags: {
+          authDebug: () => {}
+        }
+      },
+      logger: {
+        warn: mock.fn(),
+        error: mock.fn(),
+        info: mock.fn(),
+        debug: mock.fn()
+      }
+    }
+
+    app = fastify()
+    await app.register(fastifySensible)
+    app.decorateRequest('session', null as any)
+    app.addHook('onRequest', async (req) => {
+      req.session = {} as any
+    })
+    // -> Mirrors `index.ts`'s real `setErrorHandler`, and — unlike the `local account lifecycle`
+    //    block above, whose routes declare no `400` response schema — must be registered before the
+    //    schemas/routes below: this route's `400` response is `$ref: 'ApiError#'`, which requires an
+    //    `ok` field, and Fastify only applies a custom error handler ahead of response-schema
+    //    serialization when it is set before the schema that serialization would run against is
+    //    compiled in. Left unset (or registered too late), Fastify's own validation-error body
+    //    (`{statusCode, code, error, message}`, no `ok`) fails ApiError serialization and comes back
+    //    as a 500 -- a test-harness ordering artifact this app never hits in production, where
+    //    `index.ts` always shapes `/_api/` errors this way first.
+    app.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerErrorSchema(app)
+    await registerAuthSchema(app)
+    await app.register(authenticationRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    loginMock = mock.fn(async () => ({
+      authenticated: true,
+      nextAction: 'redirect',
+      redirect: '/'
+    }))
+  })
+
+  const SITE_URL = '/sites/22222222-2222-2222-2222-222222222222/auth/login'
+  const STRATEGY_ID = '11111111-1111-1111-1111-111111111111'
+
+  test('an omitted password is rejected as 400 before the model is ever called', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: SITE_URL,
+      payload: { strategyId: STRATEGY_ID, username: 'ada' }
+    })
+
+    assert.equal(res.statusCode, 400)
+    assert.equal(loginMock.mock.calls.length, 0)
+  })
+
+  test('an empty-string password is rejected as 400 before the model is ever called', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: SITE_URL,
+      payload: { strategyId: STRATEGY_ID, username: 'ada', password: '' }
+    })
+
+    assert.equal(res.statusCode, 400)
+    assert.equal(loginMock.mock.calls.length, 0)
+  })
+
+  test('a present password still reaches the model as before', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: SITE_URL,
+      payload: { strategyId: STRATEGY_ID, username: 'ada', password: 'correct-password' }
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(loginMock.mock.calls.length, 1)
+    const arg = loginMock.mock.calls[0].arguments[0] as any
+    assert.equal(arg.password, 'correct-password')
   })
 })

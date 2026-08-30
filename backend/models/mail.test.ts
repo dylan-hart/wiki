@@ -392,6 +392,16 @@ describe('mail template senders', () => {
     assert.match(msg.text, /Ada/)
   })
 
+  test('sendRegistrationAttemptNotice notifies the existing owner without leaking a token', async () => {
+    await mail.sendRegistrationAttemptNotice({ to: 'fixture@example.com', name: 'Fixture User' })
+    assert.equal(sendCalls.length, 1)
+    const msg = sendCalls[0]
+    assert.equal(msg.to, 'fixture@example.com')
+    assert.match(msg.subject, /register/i)
+    assert.match(msg.text, /Fixture User/)
+    assert.match(msg.text, /already has an account/i)
+  })
+
   test('sendForgotPassword includes the reset link', async () => {
     await mail.sendForgotPassword({ to: 'ada@example.com', name: 'Ada', token: 'tok456' })
     const msg = sendCalls[0]

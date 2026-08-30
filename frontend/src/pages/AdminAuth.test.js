@@ -20,7 +20,9 @@ const MESSAGES = {
         addStrategy: 'Add Strategy',
         filterModules: 'Filter modules...',
         noModulesToAdd: 'No other authentication module is installed on this server.',
-        noModulesMatchFilter: 'No installed module matches your filter.'
+        noModulesMatchFilter: 'No installed module matches your filter.',
+        mappableGroups: 'Mappable group(s)',
+        mappableGroupsHint: 'Only a group selected here can ever be granted or revoked.'
       }
     }
   }
@@ -28,38 +30,90 @@ const MESSAGES = {
 
 /** The generic modules plus every branded preset Feature 355 is adding -- 12 entries total. */
 const MODULES = [
-  { key: 'local', title: 'Local', icon: 'ultraviolet-local.svg', description: 'Built-in.' },
+  {
+    key: 'local',
+    title: 'Local',
+    icon: 'ultraviolet-local.svg',
+    description: 'Built-in.',
+    useForm: true
+  },
   {
     key: 'oidc',
     title: 'Generic OIDC',
     icon: 'ultraviolet-oidc.svg',
-    description: 'Generic OIDC.'
+    description: 'Generic OIDC.',
+    useForm: false
   },
   {
     key: 'oauth2',
     title: 'Generic OAuth2',
     icon: 'ultraviolet-oauth2.svg',
-    description: 'Generic OAuth2.'
+    description: 'Generic OAuth2.',
+    useForm: false
   },
-  { key: 'auth0', title: 'Auth0', icon: 'ultraviolet-auth0.svg', description: 'Auth0 OIDC.' },
-  { key: 'okta', title: 'Okta', icon: 'ultraviolet-okta.svg', description: 'Okta OIDC.' },
+  {
+    key: 'auth0',
+    title: 'Auth0',
+    icon: 'ultraviolet-auth0.svg',
+    description: 'Auth0 OIDC.',
+    useForm: false
+  },
+  {
+    key: 'okta',
+    title: 'Okta',
+    icon: 'ultraviolet-okta.svg',
+    description: 'Okta OIDC.',
+    useForm: false
+  },
   {
     key: 'microsoft',
     title: 'Microsoft',
     icon: 'ultraviolet-microsoft.svg',
-    description: 'Microsoft Entra ID.'
+    description: 'Microsoft Entra ID.',
+    useForm: false
   },
   {
     key: 'keycloak',
     title: 'Keycloak',
     icon: 'ultraviolet-keycloak.svg',
-    description: 'Self-hosted Keycloak.'
+    description: 'Self-hosted Keycloak.',
+    useForm: false
   },
-  { key: 'gitlab', title: 'GitLab', icon: 'ultraviolet-gitlab.svg', description: 'GitLab OIDC.' },
-  { key: 'twitch', title: 'Twitch', icon: 'ultraviolet-twitch.svg', description: 'Twitch OIDC.' },
-  { key: 'discord', title: 'Discord', icon: 'ultraviolet-discord.svg', description: 'Discord.' },
-  { key: 'slack', title: 'Slack', icon: 'ultraviolet-slack.svg', description: 'Slack OIDC.' },
-  { key: 'github', title: 'GitHub', icon: 'ultraviolet-github.svg', description: 'GitHub.' }
+  {
+    key: 'gitlab',
+    title: 'GitLab',
+    icon: 'ultraviolet-gitlab.svg',
+    description: 'GitLab OIDC.',
+    useForm: false
+  },
+  {
+    key: 'twitch',
+    title: 'Twitch',
+    icon: 'ultraviolet-twitch.svg',
+    description: 'Twitch OIDC.',
+    useForm: false
+  },
+  {
+    key: 'discord',
+    title: 'Discord',
+    icon: 'ultraviolet-discord.svg',
+    description: 'Discord.',
+    useForm: false
+  },
+  {
+    key: 'slack',
+    title: 'Slack',
+    icon: 'ultraviolet-slack.svg',
+    description: 'Slack OIDC.',
+    useForm: false
+  },
+  {
+    key: 'github',
+    title: 'GitHub',
+    icon: 'ultraviolet-github.svg',
+    description: 'GitHub.',
+    useForm: false
+  }
 ]
 
 async function mountPage({ strategies = [] } = {}) {
@@ -197,6 +251,110 @@ describe('AdminAuth add-strategy picker', () => {
       const img = icon.querySelector('img')
       expect(img?.getAttribute('src')).toBe(icon.dataset.icon.slice(4))
     }
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * Task 2188: the `mappableGroups` allow-list picker. Gated on the module's own `mapGroups` config
+ * prop, same as the module's own `groupsScope`/`groupSearchFilter`/... fields are gated in their
+ * `definition.yml` -- shown only once group-mapping is actually turned on for this strategy, since
+ * an allow-list means nothing to a strategy that never maps groups at all.
+ */
+describe('AdminAuth mappable-groups picker', () => {
+  const LDAP_MODULE_WITH_MAP_GROUPS = {
+    key: 'ldap',
+    title: 'LDAP / AD',
+    icon: 'ultraviolet-ldap.svg',
+    description: 'LDAP.',
+    props: {
+      mapGroups: { type: 'boolean', title: 'Map Groups', default: false, hint: '', order: 1 }
+    }
+  }
+
+  function mappablePickerNode(wrapper) {
+    return wrapper.find('[aria-label="Mappable group(s)"]')
+  }
+
+  it('is not rendered when the strategy has not turned Map Groups on', async () => {
+    setActivePinia(createPinia())
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'authentication/modules') {
+        return { json: () => Promise.resolve([LDAP_MODULE_WITH_MAP_GROUPS]) }
+      }
+      if (url === 'authentication/strategies') {
+        return {
+          json: () =>
+            Promise.resolve([
+              {
+                id: 's-ldap',
+                module: 'ldap',
+                displayName: 'Directory login',
+                isEnabled: true,
+                isNew: false,
+                config: { mapGroups: false },
+                mappableGroups: []
+              }
+            ])
+        }
+      }
+      if (url === 'groups') {
+        return { json: () => Promise.resolve([{ id: 'g-editors', name: 'Editors' }]) }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: MESSAGES })
+    const wrapper = mount(AdminAuth, { attachTo: document.body, global: { plugins: [i18n] } })
+    await flushPromises()
+
+    expect(mappablePickerNode(wrapper).exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('renders, gated by Map Groups being on, with no selection when the allow-list is empty', async () => {
+    setActivePinia(createPinia())
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'authentication/modules') {
+        return { json: () => Promise.resolve([LDAP_MODULE_WITH_MAP_GROUPS]) }
+      }
+      if (url === 'authentication/strategies') {
+        return {
+          json: () =>
+            Promise.resolve([
+              {
+                id: 's-ldap',
+                module: 'ldap',
+                displayName: 'Directory login',
+                isEnabled: true,
+                isNew: false,
+                config: { mapGroups: true },
+                mappableGroups: []
+              }
+            ])
+        }
+      }
+      if (url === 'groups') {
+        return {
+          json: () =>
+            Promise.resolve([
+              { id: 'g-editors', name: 'Editors' },
+              { id: 'g-reviewers', name: 'Reviewers' }
+            ])
+        }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: MESSAGES })
+    const wrapper = mount(AdminAuth, { attachTo: document.body, global: { plugins: [i18n] } })
+    await flushPromises()
+
+    const picker = mappablePickerNode(wrapper)
+    expect(picker.exists()).toBe(true)
+    // -> The `#selected` slot's empty-list branch renders a bare `<span>`, no selection caption
+    expect(picker.text()).not.toContain('Editors')
+    expect(picker.text()).not.toContain('Reviewers')
 
     wrapper.unmount()
   })

@@ -112,7 +112,7 @@ describe('remapAutoEnrollGroups', () => {
 })
 
 describe('mapAuthenticationRow', () => {
-  test('local row: config always {} in, fully-defaulted config out, selfRegistration -> registration', async () => {
+  test('local row: config always {} in, fully-defaulted config out, source selfRegistration mirrored onto both target flags', async () => {
     const result = mapAuthenticationRow(
       baseRow({ selfRegistration: true, displayName: 'Local Database' }),
       {
@@ -121,7 +121,8 @@ describe('mapAuthenticationRow', () => {
     )
     assert.equal(result.status, 'created')
     assert.equal(result.row!.module, 'local')
-    assert.equal(result.row!.registration, true)
+    assert.equal(result.row!.selfRegistration, true)
+    assert.equal(result.row!.autoProvision, true)
     assert.equal(result.row!.allowedEmailRegex, '')
     assert.deepEqual(result.row!.config, {
       enforceTfa: false,

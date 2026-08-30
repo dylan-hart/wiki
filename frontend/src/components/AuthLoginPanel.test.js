@@ -18,7 +18,7 @@ const LOCAL_STRATEGY = {
   id: 'strat-1',
   activeStrategy: {
     displayName: 'Local',
-    registration: false,
+    selfRegistration: false,
     allowForgotPassword: false,
     strategy: {
       key: 'local',
@@ -145,7 +145,7 @@ const REGISTRATION_STRATEGY = {
   id: 'strategy-1',
   activeStrategy: {
     displayName: 'Local',
-    registration: true,
+    selfRegistration: true,
     allowForgotPassword: true,
     strategy: {
       key: 'local',

@@ -36,7 +36,9 @@ import scheduler from './core/scheduler.ts'
 import { apiKeySitePinHook } from './helpers/apiKeySite.ts'
 import { resolveAppShellLocale, templateAppShell } from './helpers/appShell.ts'
 import { assertValidAuthSecret } from './helpers/authSecret.ts'
+import { authSecretSigner } from './helpers/authSecretSigner.ts'
 import {
+  isSameOriginWebSocketHandshake,
   localePrefixRedirectTarget,
   localePrefixStripTarget,
   normalizeHostname,
@@ -49,8 +51,7 @@ import {
   corsOptions,
   parseCspDirectives,
   SESSION_COOKIE_NAME,
-  shouldBlockCrossOriginApiRequest,
-  websocketVerifyClient
+  shouldBlockCrossOriginApiRequest
 } from './helpers/security.ts'
 import { withAdvisoryLock } from './helpers/advisoryLock.ts'
 
@@ -358,7 +359,13 @@ async function initHTTPServer() {
     //    is what turns a string into a compiled `proxy-addr` trust function, so it is passed through
     //    verbatim rather than coerced. A trusted-proxy address/CIDR list (not the bare `true` this
     //    admin toggle used to send) is what keeps `req.ip`/`req.hostname` from trusting
-    //    `X-Forwarded-For`/`X-Forwarded-Host` sent by an untrusted client -- see `docs/tls-termination.md`.
+    //    `X-Forwarded-For`/`X-Forwarded-Host` sent by an untrusted client -- see
+    //    `docs/tls-termination.md`. Every hostname-keyed site lookup (this hook's own
+    //    `resolveRequestSite` call below, the SEO hook and app-shell fallback further down,
+    //    `models/sites.ts#getSiteByHostname`, and the hostname reads in
+    //    `controllers/files.ts`/`seo.ts`/`site.ts` and `api/authentication.ts`) reads
+    //    `req.hostname`, so narrowing this one setting closes the cross-site `X-Forwarded-Host`
+    //    steering gap for all of them (task 2085).
     trustProxy: WIKI.config.security.trustProxy ?? false,
     routerOptions: {
       ignoreTrailingSlash: true
@@ -404,18 +411,31 @@ async function initHTTPServer() {
     `maxPayload` bounds a single frame: these carry keystrokes and cursor positions, and the largest
     legitimate one is a client handing over a document it edited while offline.
 
-    `verifyClient` (task 2120 / WP 2105 §5, `helpers/security.ts#websocketVerifyClient`) gates the
-    handshake itself -- see that function's own doc comment for why. Passed here, on the single
-    registration, so both current routes (`controllers/terminal.ts`, `controllers/collab.ts`) and
-    any future websocket route inherit it rather than each needing its own check. @fastify/websocket
-    hands `options` straight to `ws`'s own `WebSocket.Server`, which runs `verifyClient` before
-    Fastify's own request object (and therefore its hooks) ever exists for this connection, so the
-    rejection genuinely happens before either controller's session check runs.
+    `verifyClient` (task 2120 / WP 2105 §5) is the cross-origin gate for every current and future
+    `websocket: true` route: a WebSocket handshake is not subject to the same-origin policy and is
+    not preflighted, so CORS governs neither it nor the frames that follow — unlike a form POST, the
+    response is fully readable by whichever origin opened the socket, and each route's own
+    session/permission check runs against whatever cookie the browser attached regardless of which
+    page attached it. One `verifyClient` here closes that for both current routes
+    (`controllers/terminal.ts`, `controllers/collab.ts`) and any future one, rather than each handler
+    re-deriving its own origin check. See `helpers/common.ts#isSameOriginWebSocketHandshake` --
+    passed `WIKI.sitesMappings`' own hostnames too, so a handshake between two sites this same
+    instance actually serves is also accepted, not only a request whose Origin matches the exact Host
+    it landed on.
   */
   app.register(fastifyWebsocket, {
     options: {
       maxPayload: 5242880,
-      verifyClient: websocketVerifyClient
+      verifyClient: (info: {
+        origin: string
+        secure: boolean
+        req: import('node:http').IncomingMessage
+      }) =>
+        isSameOriginWebSocketHandshake(
+          info.origin,
+          info.req.headers.host,
+          Object.keys(WIKI.sitesMappings)
+        )
     }
   })
 
@@ -506,23 +526,22 @@ async function initHTTPServer() {
   // too-short secret -- see `helpers/authSecret.ts` for why this exists.
   assertValidAuthSecret(WIKI.config.auth.secret)
 
-  // FIXME: `WIKI.config.auth.secret` is read once, here, at plugin registration — not re-read per
-  // request the way `WIKI.config.auth.certs` is in `models/apiKeys.ts#verify`. That means
+  // `authSecretSigner` (OpenProject #2172) hands both plugins an object that reads
+  // `WIKI.config.auth.secret` at call time instead of a value captured once here at registration, so
   // `models/sessions.ts#rotateSecret()` (verified under a real two-instance HA setup for task 589)
-  // only stops working cookies on an instance once that instance is later restarted; every other
-  // still-running instance keeps signing *new* cookies with the secret that was just invalidated, for
-  // as long as it stays up. If the secret was rotated because it leaked, that gap is the whole point
-  // of the action failing to close on a live instance. `WIKI.events.inbound` already carries
-  // `reloadConfig` to every instance the moment the row saves — the missing piece is handing
-  // @fastify/cookie / @fastify/session a secret they re-read (or re-registering the plugin) instead of
-  // one captured by value here, and there is no instance registry (see `core/maintenance.ts`'s file
-  // header) to prompt an operator to restart the others in the meantime.
+  // takes effect on a still-running instance immediately: this instance signs and verifies against the
+  // rotated secret starting with the very next request, and so does every other instance the moment
+  // `WIKI.events.inbound`'s `reloadConfig` (already fanned out by `saveToDb()`) reassigns its own
+  // `WIKI.config`. No restart, and no plugin re-registration, required.
   app.register(fastifyCookie, {
-    secret: WIKI.config.auth.secret,
+    secret: authSecretSigner,
     hook: 'onRequest'
   })
   app.register(fastifySession, {
-    secret: WIKI.config.auth.secret,
+    secret: authSecretSigner,
+    // -> task 2109: `__Host-`-prefixed and pinned explicit, not `secure: 'auto'` -- see
+    //    `SESSION_COOKIE_NAME`'s doc comment for why `cookiePrefix` (what the task's own text
+    //    suggested) cannot get there, and the two notes below for what pinning these two costs.
     cookieName: SESSION_COOKIE_NAME,
     cookie: {
       httpOnly: true,

@@ -869,14 +869,28 @@ class Groups {
     return this.actorForRequest(req).permissions.includes(SYSTEM_PERMISSION)
   }
 
-  /** The ids of every group carrying `manage:system`. */
+  /**
+   * The ids of every group carrying `manage:system`, plus the root administrators group itself
+   * (`WIKI.config.auth.rootAdminGroupId`) even on the off chance it is ever queried before that
+   * permission is flattened onto it — losing the ability to grant `manage:system` back is
+   * unrecoverable, so this list is the single shared definition of "never touch this group without
+   * already holding `manage:system`" that both `api/users.ts`'s membership-change guard and
+   * `models/users.ts#syncProviderGroups`'s provider-group sync read from.
+   */
   async systemGroupIds(): Promise<string[]> {
     const rows = await WIKI.db
       .select({ id: groupsTable.id, permissions: groupsTable.permissions })
       .from(groupsTable)
-    return rows
-      .filter((row) => ((row.permissions ?? []) as string[]).includes(SYSTEM_PERMISSION))
-      .map((row) => row.id)
+    const ids = new Set(
+      rows
+        .filter((row) => ((row.permissions ?? []) as string[]).includes(SYSTEM_PERMISSION))
+        .map((row) => row.id)
+    )
+    const rootAdminGroupId = WIKI.config?.auth?.rootAdminGroupId
+    if (rootAdminGroupId) {
+      ids.add(rootAdminGroupId)
+    }
+    return [...ids]
   }
 
   /**

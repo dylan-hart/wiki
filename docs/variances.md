@@ -19,25 +19,12 @@ cast, until their real fix lands. This entry is the audit trail so a marker sitt
 as "reviewed and intentional" rather than "forgotten." `backend/test/docs-todo-fixme-drift.test.ts` re-scans the tree on every `npm run test` and fails if a file
 carrying a marker isn't named here, so this list cannot silently drift out of date.
 
-- **`backend/index.ts`** (FIXME) — `WIKI.config.auth.secret` is read once at plugin registration, not
-  re-read per request. A secret rotation only stops working cookies on an instance once that instance
-  is later restarted; every other still-running instance keeps signing new cookies with the
-  just-invalidated secret until it restarts too. Real, narrow, already-cross-referenced from
-  `models/apiKeys.ts` and `models/sessions.ts` below — not forgotten, just not yet worth the
-  per-request config re-read it would take to close.
 - **`backend/mcp/site.ts`** (TODO, via its own doc comment) — flags that the site type it re-exports is
   narrowed off `WIKI.sites`' `Record<string, any>` shape, standing on the same untightened type
   `backend/types/global.d.ts` tracks below rather than duplicating a separate fix.
-- **`backend/models/apiKeys.ts`** (comment referencing the FIXME above) — notes that `verify()`'s own
-  cert-based check needs no restart to pick up a rotated value, unlike the session-secret path the
-  FIXME in `index.ts` describes; not a marker of its own so much as a pointer keeping the two paths'
-  different behavior from reading as inconsistent by accident.
 - **`backend/models/approvals.ts`** (`TODO(#375)`) — send the actual reviewer notification once
   Feature 375 exposes a delivery primitive. Explicitly scoped to a real, tracked OpenProject item;
   resolve by closing #375 and wiring this call, not by deleting the comment.
-- **`backend/models/sessions.ts`** (comment referencing the FIXME above) — same cross-reference as
-  `apiKeys.ts`: notes that a rotated secret invalidates a _new_ session immediately, unlike the
-  still-signing-until-restart gap the `index.ts` FIXME describes for already-issued cookies.
 - **`backend/types/global.d.ts`** (TODO) — `WIKI.sites` is typed `Record<string, any>` though `sites`
   has been a real Drizzle table for a while now; tightening it to the row type is a real but
   low-priority cleanup, not a design gap.
@@ -409,6 +396,16 @@ must itself be signed, not just the assertion inside it). That default would rej
 real-world case — Okta/Auth0-style providers that sign only the assertion — so this module's
 `buildSaml()` hardcodes it `false` and exposes only `wantAssertionsSigned` (default `true`) as a
 config field, matching 2.5.x's own field set, which never exposed this knob either.
+
+With that pinned, and `node-saml` never validating a `SubjectConfirmationData`'s `Recipient` against
+`callbackUrl` under any setting, `audience` and `InResponseTo` are the only two things binding a given
+assertion to this SP and this specific login — see `buildSaml()`'s own header comment (Feature 2145)
+for how both are now enforced by default: `audience` falls back to the strategy's `issuer` rather than
+disabling the check, and `validateInResponseTo` is pinned `always` against an AuthnRequest id carried
+on the session, via `singleRequestCacheProvider`. `maxAssertionAgeMs` is likewise pinned to a fixed
+ceiling — never configurable, never left at the library's own `0` default of "no cap beyond the
+assertion's own `NotOnOrAfter`" — matched to `AUTH_FLOW_MINUTES` in `api/authentication.ts` (see
+`buildSaml()`'s `MAX_ASSERTION_AGE_MS` comment).
 
 ### `mappingPicture` (LDAP, SAML) and CAS's `baseUrl` are present in config but inert
 
@@ -1450,3 +1447,41 @@ docker compose -f dev/docker-compose.search-test.yml down -v
 Revisit if the Elasticsearch module gains active development (new query features, a mapping change)
 frequent enough that a manual run stops being a reliable gate — at that point a scheduled
 `workflow_dispatch`/nightly job earns its ongoing service-container cost.
+
+## OpenProject #2109 — session cookie `secure: true` pinned unconditionally, not `secure: 'auto'`
+
+**Date:** 2026-08-26
+
+Task #2109 asked for `sameSite: 'lax'` plus `cookiePrefix: '__Host-'` on the session cookie
+registration in `index.ts`, describing the `__Host-` prefix as "free" since there is no `domain` and
+`path` is already `/`. Verified against `@fastify/session` 11.1.2's own source
+(`node_modules/@fastify/session/index.js`) that this is not quite right: `cookiePrefix` only
+prefixes the *value* `@fastify/session` round-trips through the session store — an
+express-session-compatibility shim — and never touches the `Set-Cookie` name a browser actually
+checks the `__Host-` prefix's guarantees against. Getting a literal `__Host-wikiSession` cookie
+means naming it via `cookieName` instead, which is what was implemented (see
+`helpers/security.ts`'s `SESSION_COOKIE_NAME` and its use in `index.ts`).
+
+That substitution has one unavoidable consequence the ticket's text didn't anticipate: a browser
+enforces the `__Host-` prefix by *rejecting outright* any cookie under that name lacking `Secure`,
+with no exception for a plaintext connection — so keeping `secure: 'auto'` (which resolves `false`
+over plain HTTP) would silently break every login on such a connection instead of merely weakening
+the cookie. `index.ts`'s registration pins `secure: true` unconditionally instead. This is safe and,
+for the ticket's own target case (a reverse proxy terminating TLS with `trustProxy` off), strictly
+more correct than `'auto'` — the browser's own connection is what `Secure` is checked against, not
+this instance's often-wrong belief about it — and `localhost`/`127.0.0.1` dev keeps working, since
+every major browser treats loopback as a trustworthy origin for `Secure` cookies regardless of
+scheme (the same reasoning `models/pdfExport.ts`'s puppeteer cookie-forward already relied on,
+now also marked `secure: true` since Chromium's cookie store enforces the same `__Host-` rule at
+the CDP `Network.setCookie` level).
+
+The one real cost: a deployment that is genuinely all-plaintext, end to end, with no TLS anywhere in
+the path, now fails closed on login (the browser drops the cookie) rather than failing open with an
+insecure one. That is the intended trade-off for this hardening pass — a wiki serving 100% unencrypted
+HTTP is not a configuration this fork means to keep working, and failing loudly (broken login) beats
+failing quietly (a cookie an on-path attacker can read) — but it is a real behavior change worth a
+second look if some deployment this fork still wants to support genuinely has no TLS anywhere.
+`models/security.ts`'s `insecureCookieRiskAt` diagnostic (task 833) is repointed accordingly: it no
+longer means the session cookie came out weak (that path is closed now, unconditionally), only that
+this instance's `request.protocol` is wrong, which still misdirects the OAuth/SAML callback URL
+(`api/authentication.ts#callbackUrl()`) and the sitemap/robots URLs (`controllers/seo.ts`).

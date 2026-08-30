@@ -11,11 +11,18 @@ await ensureTemporal()
 /**
  * Unit test for task 833: `Security#observeRequest` is the runtime detector behind
  * `insecureCookieRiskAt` on `GET /system/security`, the diagnostic that warns when this instance
- * sits behind a reverse proxy terminating TLS while `trustProxy` is off -- see the doc comment on
- * `models/security.ts` for the full mechanism (`request.protocol` never reflects
- * `X-Forwarded-Proto` in that configuration). Since task 2109 / WP 2105 §2 made the session
- * cookie's `Secure` attribute unconditional, this no longer risks that cookie specifically -- see
- * the updated doc comment on `insecureCookieRiskAt` for what it still catches.
+ * sits behind a reverse proxy terminating TLS while `trustProxy` is off, because `request.protocol`
+ * never reflects `X-Forwarded-Proto` in that configuration -- see the doc comment on
+ * `models/security.ts` for the full mechanism.
+ *
+ * Trigger condition and behavior are unchanged by task 2109: that task pinned the session cookie's
+ * `Secure`/`SameSite`/`__Host-` name unconditionally in `index.ts`, which stopped this specific
+ * misdetection from being able to weaken the cookie at all -- but `observeRequest` itself doesn't
+ * know or care about the cookie, only about the header/protocol mismatch, so nothing here needed to
+ * change. What changed is what the diagnostic *means* once it fires (see `models/security.ts`'s
+ * updated doc comment: now it points at `callbackUrl()`/sitemap URL generation still trusting the
+ * wrong scheme, not a weakened cookie) -- this suite still just needs to prove the detector itself
+ * keeps firing on exactly the same evidence it always did.
  *
  * Exercises the model directly against a minimal `WIKI.config.security` stand-in rather than a
  * real Fastify request, since `observeRequest` only ever reads two things: the raw header bag and

@@ -152,7 +152,7 @@
                   outlined
                   v-model="trustProxyAddresses"
                   dense
-                  placeholder="10.0.0.0/8, 192.168.1.1"
+                  :placeholder="t(`admin.security.trustProxyAddressesPlaceholder`)"
                   :aria-label="t(`admin.security.trustProxyAddresses`)" />
               </w-item-section>
             </w-item>
@@ -562,7 +562,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
@@ -641,29 +641,35 @@ const corsModes = [
   `validate()`): `false` off, or a comma-separated trusted-proxy address/CIDR list on. The toggle
   below still needs a plain boolean to bind to, and the new text field below it needs a plain string
   -- these two computed properties are that split, rather than a second field in `state.config` that
-  would need to be kept in sync with it by hand.
+  would need to be kept in sync with it by hand. `trustProxyAddressCache` remembers the last-typed
+  list across a toggle-off/on cycle -- flipping the toggle off sets `state.config.trustProxy` to
+  `false`, which would otherwise lose whatever address list was typed in the moment the field is
+  hidden (`v-if="trustProxyEnabled"` above), forcing a re-type on every accidental toggle.
 */
+const trustProxyAddressCache = ref('')
+
 const trustProxyEnabled = computed({
   get: () => Boolean(state.config.trustProxy),
   set: (val) => {
-    // -> Flipping on lands on `true` (not `''`), not just as a UI nicety: `!state.config.trustProxy`
-    //    is what the insecure-cookie-risk warning below keys off of to hide itself the instant the
-    //    toggle flips, and an empty string is just as falsy as `false` there. `true` still validates
-    //    on the backend (see `models/security.test.ts`'s "still accepts the bare boolean true"), so
-    //    this is a real, save-able value on its own -- filling in the address field below (which
-    //    overwrites it with the real string) is what the admin should still do before saving, not
-    //    something this toggle can silently paper over by picking a falsy placeholder instead.
-    state.config.trustProxy = val
-      ? typeof state.config.trustProxy === 'string'
-        ? state.config.trustProxy
-        : true
-      : false
+    // -> Flipping on lands on the cached address list if there is one, else `true` (not `''`) --
+    //    `!state.config.trustProxy` is what the insecure-cookie-risk warning below keys off of to
+    //    hide itself the instant the toggle flips, and an empty string is just as falsy as `false`
+    //    there. `true` still validates on the backend (see `models/security.test.ts`'s "still
+    //    accepts the bare boolean true"), so it is a real, save-able value on its own -- filling in
+    //    the address field below (which overwrites it with the real string) is what the admin should
+    //    still do before saving, not something this toggle can silently paper over by picking a
+    //    falsy placeholder instead.
+    state.config.trustProxy = val ? trustProxyAddressCache.value || true : false
   }
 })
 const trustProxyAddresses = computed({
   get: () => (typeof state.config.trustProxy === 'string' ? state.config.trustProxy : ''),
   set: (val) => {
-    state.config.trustProxy = val
+    trustProxyAddressCache.value = val
+    // -> Clearing the field entirely falls back to `true` (trust every proxy) rather than saving an
+    //    ambiguous empty string -- the toggle is still on, so the field being blank should mean "no
+    //    address list configured yet," the same state as just having flipped the toggle on.
+    state.config.trustProxy = val.trim() === '' ? true : val
   }
 })
 
@@ -683,6 +689,9 @@ async function load() {
   try {
     const resp = await API_CLIENT.get('system/security').json()
     state.config = { ...state.config, ...resp }
+    if (typeof state.config.trustProxy === 'string') {
+      trustProxyAddressCache.value = state.config.trustProxy
+    }
     state.humanUploadMaxFileSize = filesize(state.config.uploadMaxFileSize ?? 0, {
       base: 2,
       standard: 'jedec'

@@ -4,6 +4,7 @@ import fastify from 'fastify'
 import {
   defaultLocale,
   guardSiteEnabled,
+  isSameOriginWebSocketHandshake,
   localePrefixRedirectTarget,
   localePrefixStripTarget,
   localizedPagePath,
@@ -161,6 +162,69 @@ describe('requestOrigin', () => {
   test('never inserts a port of its own — whatever the hostname carries is what is used', () => {
     assert.equal(requestOrigin('https', 'wiki.example.com'), 'https://wiki.example.com')
     assert.ok(!requestOrigin('https', 'wiki.example.com').includes(':443'))
+  })
+})
+
+describe('isSameOriginWebSocketHandshake', () => {
+  test('accepts a same-origin handshake', () => {
+    assert.equal(
+      isSameOriginWebSocketHandshake('https://wiki.example.com', 'wiki.example.com'),
+      true
+    )
+  })
+
+  test('accepts a same-origin handshake with a matching non-default port', () => {
+    assert.equal(isSameOriginWebSocketHandshake('http://localhost:3001', 'localhost:3001'), true)
+  })
+
+  test('rejects a foreign origin', () => {
+    assert.equal(
+      isSameOriginWebSocketHandshake('https://evil.example.com', 'wiki.example.com'),
+      false
+    )
+  })
+
+  test('rejects a same hostname on a different port', () => {
+    // -> The origin's `host` carries the port; a page served on :8080 is not this handshake's origin
+    //    just because the hostname matches.
+    assert.equal(
+      isSameOriginWebSocketHandshake('https://wiki.example.com:8080', 'wiki.example.com'),
+      false
+    )
+  })
+
+  test('rejects a missing Origin header', () => {
+    // -> Unlike `resolveOrigin` in `models/passkeys.ts`, a WebSocket handshake has no legitimate
+    //    non-browser caller that would omit it — every real one is a browser upgrade request.
+    assert.equal(isSameOriginWebSocketHandshake(undefined, 'wiki.example.com'), false)
+  })
+
+  test('rejects an Origin header that fails to parse as a URL', () => {
+    assert.equal(isSameOriginWebSocketHandshake('not a url', 'wiki.example.com'), false)
+  })
+
+  test('rejects a missing Host header even with a well-formed Origin', () => {
+    assert.equal(isSameOriginWebSocketHandshake('https://wiki.example.com', undefined), false)
+  })
+
+  test("accepts a foreign-looking origin whose hostname is one of this instance's own other sites", () => {
+    assert.equal(
+      isSameOriginWebSocketHandshake('https://second-site.example.com', 'wiki.example.com', [
+        'wiki.example.com',
+        'second-site.example.com'
+      ]),
+      true
+    )
+  })
+
+  test('still rejects a hostname absent from the site list', () => {
+    assert.equal(
+      isSameOriginWebSocketHandshake('https://evil.example.com', 'wiki.example.com', [
+        'wiki.example.com',
+        'second-site.example.com'
+      ]),
+      false
+    )
   })
 })
 
@@ -379,6 +443,75 @@ describe('normalizeHostname', () => {
 
   test('leaves the wildcard mapping key untouched', () => {
     assert.equal(normalizeHostname('*'), '*')
+  })
+})
+
+/**
+ * Task 2085: an unauthenticated client naming another site's hostname in `X-Forwarded-Host` must not
+ * be able to steer site resolution, unless it genuinely arrived through a proxy address the instance
+ * has been told to trust. `resolveRequestSite` itself trusts whatever `hostname` it is handed (see its
+ * doc comment) -- the refusal happens one layer up, in Fastify's own `trustProxy`-aware
+ * `request.hostname` getter, exercised here exactly as `index.ts`'s site-resolution hook uses it: a
+ * real Fastify instance, a real `trustProxy` address spec, and `.inject()`'s `remoteAddress` standing
+ * in for the socket peer.
+ */
+describe('resolveRequestSite via Fastify: X-Forwarded-Host trust boundary (task 2085)', () => {
+  const TRUSTED_PROXY_ADDRESS = '10.0.0.1'
+  const UNTRUSTED_ADDRESS = '203.0.113.7'
+
+  async function buildApp() {
+    const app = fastify({ trustProxy: TRUSTED_PROXY_ADDRESS })
+    app.decorateRequest('siteResolution', null)
+    app.addHook('onRequest', (req: any, _reply, done) => {
+      req.siteResolution = resolveRequestSite({
+        firstSegment: 'some-page',
+        hostname: req.hostname,
+        sitesMappings,
+        sites,
+        exemptSegments: NO_EXEMPT_SEGMENTS
+      })
+      done()
+    })
+    app.get('/some-page', async (req: any) => req.siteResolution)
+    return app
+  }
+
+  test("an untrusted peer's X-Forwarded-Host naming a different site is ignored in favor of Host", async () => {
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/some-page',
+      remoteAddress: UNTRUSTED_ADDRESS,
+      headers: { host: 'wiki.example.com', 'x-forwarded-host': 'off.example.com' }
+    })
+    // -> Falls back to the socket's own `Host`, resolving as the enabled site it actually named --
+    //    not the disabled one an attacker tried to steer it toward via the forwarded header.
+    assert.deepEqual(res.json(), { outcome: 'ok', site: sites[ENABLED_SITE_ID] })
+    await app.close()
+  })
+
+  test('the same header from a trusted proxy address still resolves to the forwarded site', async () => {
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/some-page',
+      remoteAddress: TRUSTED_PROXY_ADDRESS,
+      headers: { host: 'wiki.example.com', 'x-forwarded-host': 'off.example.com' }
+    })
+    assert.deepEqual(res.json(), { outcome: 'disabled', site: sites[DISABLED_SITE_ID] })
+    await app.close()
+  })
+
+  test('an untrusted peer with no X-Forwarded-Host at all is unaffected -- Host was already authoritative', async () => {
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/some-page',
+      remoteAddress: UNTRUSTED_ADDRESS,
+      headers: { host: 'off.example.com' }
+    })
+    assert.deepEqual(res.json(), { outcome: 'disabled', site: sites[DISABLED_SITE_ID] })
+    await app.close()
   })
 })
 

@@ -25,8 +25,11 @@ function asStringArray(value: unknown): string[] {
  * Where an OIDC provider's ID token would carry the subject's identity claims, this module is told
  * where to find the same information on whatever JSON the provider's user-info endpoint answers with:
  * `userIdClaim`, `emailClaim`, `displayNameClaim`. A provider with no verified-email concept (unlike
- * GitHub's `/user/emails`) is simply trusted to report a real address at `emailClaim` — there is no
- * verification step to add without a protocol feature to hang it on.
+ * GitHub's `/user/emails`) is simply trusted to report a real address at `emailClaim` — but one that
+ * does answer a verification flag can name it via `emailVerifiedClaim`, checked in `mapProfile()`
+ * the same way `google/authentication.ts` honours OIDC's `email_verified`: a claim present and
+ * `false` refuses the login, an absent claim (unconfigured, or the provider just didn't send it) is
+ * accepted unchanged.
  *
  * `assertConfigured`/`exchangeCode`/`fetchUserInfo`/`mapProfile` are `protected` rather than folded
  * into `profile()` so a fixed-endpoint preset built on top of this module — `discord/authentication.ts`
@@ -145,7 +148,14 @@ export default class OAuth2Authentication {
     return (await infoResp.json()) as Record<string, any>
   }
 
-  /** Map raw userinfo JSON onto a `ProviderProfile` using the configured claim names. */
+  /**
+   * Map raw userinfo JSON onto a `ProviderProfile` using the configured claim names.
+   *
+   * Unlike an OIDC provider there is no standard claim to read here -- `emailVerifiedClaim` names
+   * whichever field of the userinfo response answers the question, left unset by default because most
+   * plain OAuth2 providers have no such concept at all (see the class doc comment). Only a claim that is
+   * explicitly `false` refuses the login: an unconfigured or absent claim is not assumed unverified.
+   */
   protected mapProfile(info: Record<string, any>): ProviderProfile {
     const id = info[this.conf.userIdClaim || 'id']
     if (id === undefined || id === null || id === '') {
@@ -155,6 +165,13 @@ export default class OAuth2Authentication {
     const email = info[this.conf.emailClaim || 'email']
     if (!email || typeof email !== 'string') {
       throw new Error('ERR_NO_EMAIL_FROM_PROVIDER')
+    }
+
+    if (this.conf.emailVerifiedClaim) {
+      const emailVerified = info[this.conf.emailVerifiedClaim]
+      if (emailVerified === false && this.conf.allowUnverifiedEmail !== true) {
+        throw new Error('ERR_EMAIL_NOT_VERIFIED')
+      }
     }
 
     return {

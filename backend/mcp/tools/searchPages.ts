@@ -4,6 +4,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import {
   actorFor,
   maySeeEverything,
+  pageActorFor,
   type McpAuthContext,
   type McpAuthContextGetter
 } from '../auth.ts'
@@ -41,6 +42,10 @@ function toResult(payload: unknown): CallToolResult {
  * engine, same `read:pages` filtering and password-excerpt hiding as `/_api/sites/:siteId/pages/search`
  * (`api/pages.ts`), just reached in-process instead of over HTTP. See `mcp/auth.ts`'s `McpAuthContext`
  * doc comment for what "may actually read" resolves to — the caller's own real group membership.
+ *
+ * `publicOnly` is derived from `pageActorFor(ctx)` exactly as the REST route derives it from
+ * `actorFrom(req)`, so an admin-issued key (no `ctx.userId`) does not see a non-`draft` unpublished
+ * page in results it would not see over REST.
  */
 export async function handleSearchPages(
   ctx: McpAuthContext,
@@ -56,7 +61,10 @@ export async function handleSearchPages(
     locales: args.locale ? [args.locale] : undefined,
     tags: args.tags,
     limit: args.limit ?? DEFAULT_LIMIT,
-    publicOnly: false,
+    // -> Mirrors `actorFrom(req)` on `POST /_api/sites/:siteId/pages/search`: no attributable user
+    //    behind the key means an anonymous searcher, restricted to published pages, on both
+    //    transports alike.
+    publicOnly: !pageActorFor(ctx),
     // -> So that a page the key could not open never reaches the caller
     actor,
     // -> An unpublished page is only of interest to someone who could have written it

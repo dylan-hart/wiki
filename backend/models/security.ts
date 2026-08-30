@@ -62,22 +62,22 @@ export function validateTrustProxySpec(spec: string): string | null {
 class Security {
   /**
    * Runtime diagnostic, not a stored setting: the moment (if ever, since this process started) a
-   * request showed the classic reverse-proxy cookie misconfiguration (upstream discussion #6866,
-   * task 833) -- the proxy says the original connection was HTTPS (`X-Forwarded-Proto: https`),
-   * but this instance neither trusts that header (`trustProxy` is off) nor terminated TLS itself.
-   * `request.protocol` can only ever reflect the raw, plaintext connection in that case.
+   * request showed the classic reverse-proxy misconfiguration (upstream discussion #6866, task
+   * 833) -- the proxy says the original connection was HTTPS (`X-Forwarded-Proto: https`), but
+   * this instance neither trusts that header (`trustProxy` is off) nor terminated TLS itself, so
+   * `request.protocol` can only ever reflect the raw, plaintext connection.
    *
-   * Task 2109 / WP 2105 §2 made the session cookie's own `Secure`/`SameSite` attributes
-   * unconditional (`index.ts`'s `fastifySession` registration no longer uses `secure: 'auto'` --
-   * see the comment there for why the `__Host-` cookie-name prefix requires that), so this
-   * misconfiguration no longer risks the session cookie specifically: it is marked `Secure`
-   * either way, and every browser in front of the proxy is really talking HTTPS regardless of
-   * whether this instance believes it. What the misconfiguration still gets wrong is every OTHER
-   * place `request.protocol` (or `trustProxy`) feeds scheme-sensitive decisions elsewhere in the
-   * app -- absolute URL / redirect generation, HSTS enforcement -- which is why this diagnostic is
-   * still worth surfacing rather than deleted along with the risk it originally described. Reset
-   * only by a restart -- it describes how the process was started, not something that self-heals
-   * while it keeps running the same way.
+   * Originally this meant the session cookie itself came out insecure (`secure: 'auto'` resolving
+   * `false`). As of task 2109 that is no longer true: the session cookie's `Secure`, `SameSite` and
+   * `__Host-` name are all pinned unconditionally in `index.ts`'s `fastifySession` registration, so
+   * this misdetection can no longer weaken it. What it still breaks is everything else that reads
+   * `request.protocol` to decide what scheme it is talking: `api/authentication.ts#callbackUrl()`
+   * builds the OAuth/SAML return URL from it (wrong scheme there fails the whole federated login,
+   * not just the cookie), and `controllers/seo.ts` builds the sitemap/robots URLs the same way. The
+   * field name and trigger stay as they are -- same underlying misconfiguration, same fix (turn on
+   * Trust Proxy) -- but the risk it warns about is this broader one now, not a weakened cookie.
+   * Reset only by a restart -- it describes how the process was started, not something that
+   * self-heals while it keeps running the same way.
    */
   private insecureCookieRiskAt: string | null = null
 
@@ -217,6 +217,19 @@ class Security {
       }
     }
 
+    // -> `trustProxy` accepts a boolean (trust every/no peer, unchanged legacy behavior) or a
+    //    comma-separated address/CIDR list -- the form `index.ts` passes straight through to
+    //    Fastify's own `trustProxy` option, whose vendored `request.js` already refuses to read
+    //    `X-Forwarded-Host`/`-For`/`-Proto` from a peer address the list doesn't cover, falling
+    //    back to the raw socket's own `Host` header instead. That is what closes the tenancy-
+    //    isolation gap where any client could steer `req.hostname` (and therefore site
+    //    resolution) by sending its own `X-Forwarded-Host` while the setting was a bare `true` --
+    //    see `docs/audit-2026-08-24/security/13-tenancy-isolation.md` §6. Validated by
+    //    {@link validateTrustProxySpec}, the same comma-splitting Fastify's own `getTrustProxyFn`
+    //    does before handing a string `trustProxy` option to `proxyAddr.compile`
+    //    (`fastify/lib/request.js`) -- round-tripping through the identical package and shape this
+    //    ultimately gets passed to verbatim (`index.ts`'s `trustProxy:
+    //    WIKI.config.security.trustProxy`) is what makes "accepted here" mean "accepted there".
     if (typeof merged.trustProxy === 'string' && merged.trustProxy.trim() !== '') {
       const err = validateTrustProxySpec(merged.trustProxy)
       if (err) {

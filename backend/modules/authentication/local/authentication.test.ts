@@ -67,13 +67,32 @@ describe('LocalAuthentication.authenticate', () => {
     )
   })
 
-  test('throws ERR_INVALID_STRATEGY when the user has no local auth data (e.g. SSO-only account)', async () => {
+  test('throws ERR_LOGIN_FAILED (not ERR_INVALID_STRATEGY) when the user has no local auth data (e.g. SSO-only account)', async () => {
     stubGetByEmail(makeUser({ auth: { google: {} } }))
     const local = new LocalAuthentication('local', {})
     await assert.rejects(
       local.authenticate({ username: 'ada@example.com', password: 'correct-horse' }),
-      /ERR_INVALID_STRATEGY/
+      /ERR_LOGIN_FAILED/
     )
+  })
+
+  test('an unknown address and a known address with no strategy entry produce the identical response', async () => {
+    stubGetByEmail(null)
+    const unknownAddress = new LocalAuthentication('local', {})
+    const unknownError = await unknownAddress
+      .authenticate({ username: 'nobody@example.com', password: 'anything' })
+      .catch((err: any) => err)
+
+    stubGetByEmail(makeUser({ auth: { google: {} } }))
+    const noStrategyEntry = new LocalAuthentication('local', {})
+    const noStrategyError = await noStrategyEntry
+      .authenticate({ username: 'ada@example.com', password: 'anything' })
+      .catch((err: any) => err)
+
+    assert.ok(unknownError instanceof Error)
+    assert.ok(noStrategyError instanceof Error)
+    assert.equal(unknownError.message, 'ERR_LOGIN_FAILED')
+    assert.equal(noStrategyError.message, unknownError.message)
   })
 
   test('throws ERR_LOGIN_FAILED on an incorrect password', async () => {
@@ -85,45 +104,17 @@ describe('LocalAuthentication.authenticate', () => {
     )
   })
 
-  test('throws ERR_INACTIVE_USER for a correct password on a deactivated account', async () => {
-    stubGetByEmail(makeUser({ isActive: false }))
-    const local = new LocalAuthentication('local', {})
-    await assert.rejects(
-      local.authenticate({ username: 'ada@example.com', password: 'correct-horse' }),
-      /ERR_INACTIVE_USER/
-    )
-  })
-
+  // -> `isActive`/`isVerified` are no longer checked here (OpenProject #2094): they moved to
+  //    `models/users.ts#afterLoginChecks()`, the funnel every login path -- including this one --
+  //    ends in, so a coverage for those two now belongs to that method's own test suite
+  //    (`models/users.test.ts`) rather than this module's. `restrictLogin` has no other enforcement
+  //    point and stays checked here.
   test('throws ERR_LOGIN_RESTRICTED when the strategy data marks the login restricted', async () => {
     stubGetByEmail(makeUser({ auth: { local: makeAuthStrategyData({ restrictLogin: true }) } }))
     const local = new LocalAuthentication('local', {})
     await assert.rejects(
       local.authenticate({ username: 'ada@example.com', password: 'correct-horse' }),
       /ERR_LOGIN_RESTRICTED/
-    )
-  })
-
-  test('throws ERR_USER_NOT_VERIFIED for an unverified account', async () => {
-    stubGetByEmail(makeUser({ isVerified: false }))
-    const local = new LocalAuthentication('local', {})
-    await assert.rejects(
-      local.authenticate({ username: 'ada@example.com', password: 'correct-horse' }),
-      /ERR_USER_NOT_VERIFIED/
-    )
-  })
-
-  test('checks isActive/restrictLogin/isVerified in that order (inactive wins over restricted/unverified)', async () => {
-    stubGetByEmail(
-      makeUser({
-        isActive: false,
-        isVerified: false,
-        auth: { local: makeAuthStrategyData({ restrictLogin: true }) }
-      })
-    )
-    const local = new LocalAuthentication('local', {})
-    await assert.rejects(
-      local.authenticate({ username: 'ada@example.com', password: 'correct-horse' }),
-      /ERR_INACTIVE_USER/
     )
   })
 })

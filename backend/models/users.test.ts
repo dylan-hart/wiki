@@ -183,15 +183,20 @@ describe('users.updateSession', () => {
  * `register()` is SQL orchestration -- a strategy lookup, an existence check, then coordinating the
  * `users`, `userGroups` and `userKeys` tables -- so this runs the real method against a migrated,
  * per-run-fresh database (see `test/db.ts`), the same DB-backed pattern `models/pages.test.ts` uses.
- * `mail.sendVerifyEmail` is stubbed rather than pulling in a real SMTP transport, matching how
- * `api/mail.test.ts` isolates the route it covers from `models/mail.test.ts`'s own coverage of that
- * mapping.
+ * `mail.sendVerifyEmail` and `mail.sendRegistrationAttemptNotice` are stubbed rather than pulling in a
+ * real SMTP transport, matching how `api/mail.test.ts` isolates the route it covers from
+ * `models/mail.test.ts`'s own coverage of that mapping.
  */
 describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let sendVerifyEmailMock: ReturnType<typeof mock.fn>
+  let sendRegistrationAttemptNoticeMock: ReturnType<typeof mock.fn>
 
   const MODULE_KEY = 'local-test'
+  // -> A stand-in for a redirect-based module (SAML/OIDC/LDAP-delegation-style): `useForm: false`,
+  //    same as every non-local, non-LDAP module's `definition.yml`. Used to prove `register()` refuses
+  //    it outright regardless of its `selfRegistration` flag.
+  const NON_FORM_MODULE_KEY = 'redirect-test'
 
   function req(): any {
     // -> `regenerate` is a no-op stub, not a full `@fastify/session` fake: these tests assert on
@@ -203,25 +208,40 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   }
 
   async function createStrategy({
-    registration = true,
+    module = MODULE_KEY,
+    selfRegistration = true,
+    autoProvision = false,
     allowedEmailRegex = '',
     autoEnrollGroups = [] as string[],
     emailValidation = true,
-    isEnabled = true
+    isEnabled = true,
+    attachToSite = true
   } = {}): Promise<string> {
     const [row] = await fixtures.db
       .insert(authenticationTable)
       .values({
-        module: MODULE_KEY,
+        module,
         isEnabled,
         displayName: 'Test Local',
-        registration,
+        selfRegistration,
+        autoProvision,
         allowedEmailRegex,
         autoEnrollGroups,
         config: { emailValidation }
       })
       .returning({ id: authenticationTable.id })
-    return row!.id
+    const strategyId = row!.id
+    // -> `register()` now also checks the strategy is attached to the site the request came in on
+    //    (`site.config.authStrategies`) -- `getSiteById()` reads the in-memory `WIKI.sites` cache, not
+    //    the database, so the fixture site installed by `setupTestDb()` is what needs updating here.
+    if (attachToSite) {
+      const site = (WIKI.sites as any)[fixtures.siteId]
+      site.config.authStrategies = [
+        ...(site.config.authStrategies ?? []),
+        { id: strategyId, order: 0, isVisible: true }
+      ]
+    }
+    return strategyId
   }
 
   /**
@@ -234,6 +254,19 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     ;(WIKI.auth.strategies as any)[strategyId] = { config }
   }
 
+  /**
+   * `register()` reads the site's attached-strategies list off `WIKI.sites[siteId].config`, the same
+   * in-memory cache `getSiteById()` reads without `forceReload` -- `setupTestDb()` seeds that cache
+   * once with no `authStrategies` key, so a strategy created by `createStrategy()` starts out
+   * unattached to `fixtures.siteId` and every test that expects a strategy to actually work has to
+   * attach it here first.
+   */
+  function attachStrategyToSite(strategyId: string): void {
+    ;(WIKI.sites[fixtures.siteId].config as Record<string, any>).authStrategies = [
+      { id: strategyId, order: 0, isVisible: true }
+    ]
+  }
+
   before(async () => {
     // -> `generateToken()`/`validateToken()` call `Now.instant()`, `.add()`, `Instant.compare()` and
     //    `Date.prototype.toTemporalInstant()` between them.
@@ -242,6 +275,11 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     fixtures = await setupTestDb()
     const { mail } = await import('./mail.ts')
     sendVerifyEmailMock = mock.method(mail, 'sendVerifyEmail', async () => {})
+    sendRegistrationAttemptNoticeMock = mock.method(
+      mail,
+      'sendRegistrationAttemptNotice',
+      async () => {}
+    )
 
     WIKI.data.authentication = [
       {
@@ -254,6 +292,15 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
         props: {
           emailValidation: { type: 'Boolean', title: 'Email Validation', default: true }
         }
+      },
+      {
+        key: NON_FORM_MODULE_KEY,
+        title: 'Test Redirect',
+        description: '',
+        isAvailable: true,
+        useForm: false,
+        usernameType: 'email',
+        props: {}
       }
     ] as any
     // -> `getActiveStrategies()` reads this unconditionally (to sort the built-in local strategy
@@ -269,6 +316,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   beforeEach(() => {
     sendVerifyEmailMock.mock.resetCalls()
+    sendRegistrationAttemptNoticeMock.mock.resetCalls()
   })
 
   test('refuses an unknown strategy id', async () => {
@@ -288,7 +336,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   test('refuses when the strategy does not accept new users', async () => {
-    const strategyId = await createStrategy({ registration: false })
+    const strategyId = await createStrategy({ selfRegistration: false })
 
     await assert.rejects(
       users.register(
@@ -305,8 +353,81 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
   })
 
+  test('refuses a strategy whose module is not form-based, even with selfRegistration set', async () => {
+    const strategyId = await createStrategy({ module: NON_FORM_MODULE_KEY, selfRegistration: true })
+
+    await assert.rejects(
+      users.register(
+        {
+          siteId: fixtures.siteId,
+          strategyId,
+          name: 'Ada Lovelace',
+          email: 'ada.redirect@example.com',
+          password: 'longenough1'
+        },
+        req()
+      ),
+      /ERR_INVALID_STRATEGY/
+    )
+  })
+
+  test('refuses a strategy not attached to the target site', async () => {
+    const strategyId = await createStrategy({ attachToSite: false })
+
+    await assert.rejects(
+      users.register(
+        {
+          siteId: fixtures.siteId,
+          strategyId,
+          name: 'Ada Lovelace',
+          email: 'ada.unattached@example.com',
+          password: 'longenough1'
+        },
+        req()
+      ),
+      /ERR_INVALID_STRATEGY/
+    )
+  })
+
+  test('autoProvision alone does not permit self-registration', async () => {
+    const strategyId = await createStrategy({ selfRegistration: false, autoProvision: true })
+
+    await assert.rejects(
+      users.register(
+        {
+          siteId: fixtures.siteId,
+          strategyId,
+          name: 'Ada Lovelace',
+          email: 'ada.autoprovision-only@example.com',
+          password: 'longenough1'
+        },
+        req()
+      ),
+      /ERR_REGISTRATION_DISABLED/
+    )
+  })
+
+  test('selfRegistration alone does not permit provider auto-provisioning', async () => {
+    await assert.rejects(
+      (users as any).findOrCreateProviderUser(
+        {
+          id: 'strategy-self-registration-only',
+          module: MODULE_KEY,
+          selfRegistration: true,
+          autoProvision: false,
+          allowedEmailRegex: '',
+          autoEnrollGroups: [],
+          config: {}
+        },
+        { id: 'ext-1', email: 'selfreg.only@example.com', name: 'Self Reg Only' }
+      ),
+      /ERR_REGISTRATION_DISABLED/
+    )
+  })
+
   test('refuses an address outside allowedEmailRegex', async () => {
     const strategyId = await createStrategy({ allowedEmailRegex: '^[^@]+@allowed\\.example$' })
+    attachStrategyToSite(strategyId)
 
     await assert.rejects(
       users.register(
@@ -323,29 +444,72 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
   })
 
-  test('refuses a duplicate of an already-verified address', async () => {
-    const strategyId = await createStrategy()
+  test('a duplicate of an already-verified address, with emailValidation on, answers the same generic result a fresh registration would and notifies the real owner instead of confirming the address is taken', async () => {
+    const strategyId = await createStrategy({ emailValidation: true })
+    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    const request = req()
+
+    const result = await users.register(
+      {
+        siteId: fixtures.siteId,
+        strategyId,
+        name: 'Attacker-Supplied Name',
+        // -> setupTestDb() seeds this address already verified, owned by "Fixture User"
+        email: 'fixture@example.com',
+        password: 'longenough1'
+      },
+      request
+    )
+
+    // -> Not an oracle: indistinguishable from the fresh-registration success shape
+    assert.deepEqual(result, { nextAction: 'verify' })
+    assert.equal(request.session.authenticated, undefined)
+    assert.equal(sendVerifyEmailMock.mock.calls.length, 0)
+    assert.equal(sendRegistrationAttemptNoticeMock.mock.calls.length, 1)
+    const call = sendRegistrationAttemptNoticeMock.mock.calls[0].arguments[0] as any
+    assert.equal(call.to, 'fixture@example.com')
+
+    // -> The submitted name and password were discarded -- the existing account is untouched
+    const existing = await users.getByEmail('fixture@example.com')
+    assert.equal(existing!.name, 'Fixture User')
+  })
+
+  test('a duplicate address on a strategy with emailValidation off still refuses as a duplicate -- no email step to route secrecy through', async () => {
+    const strategyId = await createStrategy({ emailValidation: false })
+    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    registerLiveStrategy(strategyId)
+
+    await users.register(
+      {
+        siteId: fixtures.siteId,
+        strategyId,
+        name: 'First Registration',
+        email: 'immediate-login@example.com',
+        password: 'longenough1'
+      },
+      req()
+    )
 
     await assert.rejects(
       users.register(
         {
           siteId: fixtures.siteId,
           strategyId,
-          name: 'Fixture User',
-          // -> setupTestDb() seeds this address already verified
-          email: 'fixture@example.com',
-          password: 'longenough1'
+          name: 'Second Attempt',
+          email: 'immediate-login@example.com',
+          password: 'longenough2'
         },
         req()
       ),
       /ERR_EMAIL_ALREADY_EXISTS/
     )
-    assert.equal(sendVerifyEmailMock.mock.calls.length, 0)
+    assert.equal(sendRegistrationAttemptNoticeMock.mock.calls.length, 0)
   })
 
   test('emailValidation on: creates an unverified account and emails a verification link, without logging in', async () => {
     const strategyId = await createStrategy({ emailValidation: true })
     WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
     const request = req()
 
     const result = await users.register(
@@ -384,6 +548,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('emailValidation off: logs the new account straight in, like every other successful auth path', async () => {
     const strategyId = await createStrategy({ emailValidation: false })
     WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
     registerLiveStrategy(strategyId)
     const request = req()
 
@@ -414,6 +579,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
       autoEnrollGroups: [fixtures.groupId]
     })
     WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
     registerLiveStrategy(strategyId)
 
     await users.register(
@@ -435,6 +601,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('re-registering a still-unverified address resends the link for the same account instead of creating a duplicate', async () => {
     const strategyId = await createStrategy({ emailValidation: true })
     WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
 
     const first = await users.register(
       {
@@ -477,6 +644,196 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
 })
 
 /**
+ * `findOrCreateProviderUser()` (private, exercised directly rather than through `loginWithProvider()`
+ * so these don't also need a live `WIKI.auth.strategies` entry and a session-bearing `req` just to
+ * reach `afterLoginChecks()`) is SQL orchestration in the same sense `register()`'s suite above is: a
+ * user lookup, an identity check against what is already stored, and a write. `strategy` is handed in
+ * directly as a plain object matching `AuthStrategy` rather than round-tripped through
+ * `authenticationTable` -- nothing under test reads the strategy back from the database.
+ */
+describe('users.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+
+  function baseStrategy(overrides: Partial<any> = {}): any {
+    return {
+      id: 'provider-strategy-1',
+      module: 'test-oidc',
+      displayName: 'Test Provider',
+      isEnabled: true,
+      autoProvision: true,
+      allowedEmailRegex: '',
+      autoEnrollGroups: [],
+      trustEmailForLinking: false,
+      config: {},
+      ...overrides
+    }
+  }
+
+  function findOrCreate(strategy: any, profile: any): Promise<any> {
+    return (users as any).findOrCreateProviderUser(strategy, profile)
+  }
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    WIKI.data.systemIds = { localAuthId: 'placeholder-local-auth-id' } as any
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('refuses a profile whose address belongs to a system account', async () => {
+    await fixtures.db.insert(usersTable).values({
+      email: 'guest-provider@example.com',
+      name: 'Guest',
+      isSystem: true,
+      isActive: true,
+      isVerified: true,
+      auth: {}
+    })
+
+    await assert.rejects(
+      findOrCreate(baseStrategy(), {
+        id: 'provider-account-1',
+        email: 'guest-provider@example.com',
+        name: 'Anyone'
+      }),
+      /ERR_LOGIN_FAILED/
+    )
+  })
+
+  test('refuses an existing account with no stored link for this strategy when trustEmailForLinking is off', async () => {
+    await fixtures.db.insert(usersTable).values({
+      email: 'unlinked@example.com',
+      name: 'Unlinked User',
+      isSystem: false,
+      isActive: true,
+      isVerified: true,
+      auth: {}
+    })
+
+    await assert.rejects(
+      findOrCreate(baseStrategy({ trustEmailForLinking: false }), {
+        id: 'provider-account-2',
+        email: 'unlinked@example.com',
+        name: 'Unlinked User'
+      }),
+      /ERR_ACCOUNT_NOT_LINKED/
+    )
+  })
+
+  test('trustEmailForLinking on: links an existing, previously-unlinked account instead of refusing it', async () => {
+    const [created] = await fixtures.db
+      .insert(usersTable)
+      .values({
+        email: 'trusted@example.com',
+        name: 'Trusted User',
+        isSystem: false,
+        isActive: true,
+        isVerified: true,
+        auth: {}
+      })
+      .returning({ id: usersTable.id })
+
+    const strategy = baseStrategy({ id: 'trusting-strategy', trustEmailForLinking: true })
+    const result = await findOrCreate(strategy, {
+      id: 'provider-account-3',
+      email: 'trusted@example.com',
+      name: 'Trusted User'
+    })
+
+    assert.equal(result.id, created!.id)
+    assert.equal(result.auth[strategy.id].id, 'provider-account-3')
+  })
+
+  test('refuses a profile id that does not match the id stored for this strategy', async () => {
+    const strategy = baseStrategy({ id: 'mismatch-strategy' })
+    await fixtures.db.insert(usersTable).values({
+      email: 'linked@example.com',
+      name: 'Linked User',
+      isSystem: false,
+      isActive: true,
+      isVerified: true,
+      auth: {
+        [strategy.id]: { id: 'the-real-provider-id', email: 'linked@example.com' }
+      }
+    })
+
+    await assert.rejects(
+      findOrCreate(strategy, {
+        id: 'an-attackers-provider-id',
+        email: 'linked@example.com',
+        name: 'Linked User'
+      }),
+      /ERR_ACCOUNT_NOT_LINKED/
+    )
+  })
+
+  test('accepts a profile id matching the stored link, and re-writes the link', async () => {
+    const strategy = baseStrategy({ id: 'matching-strategy' })
+    const [created] = await fixtures.db
+      .insert(usersTable)
+      .values({
+        email: 'matched@example.com',
+        name: 'Matched User',
+        isSystem: false,
+        isActive: true,
+        isVerified: true,
+        auth: {
+          [strategy.id]: { id: 'stable-provider-id', email: 'matched@example.com' }
+        }
+      })
+      .returning({ id: usersTable.id })
+
+    const result = await findOrCreate(strategy, {
+      id: 'stable-provider-id',
+      email: 'matched@example.com',
+      name: 'Matched User'
+    })
+
+    assert.equal(result.id, created!.id)
+    assert.equal(result.auth[strategy.id].id, 'stable-provider-id')
+  })
+
+  test('applies allowedEmailRegex on an existing, already-linked account too, not only on creation', async () => {
+    const strategy = baseStrategy({
+      id: 'regex-strategy',
+      allowedEmailRegex: '^[^@]+@allowed\\.example$'
+    })
+    await fixtures.db.insert(usersTable).values({
+      email: 'linked-outside-pattern@example.com',
+      name: 'Linked Outside Pattern',
+      isSystem: false,
+      isActive: true,
+      isVerified: true,
+      auth: {
+        [strategy.id]: { id: 'still-a-valid-link', email: 'linked-outside-pattern@example.com' }
+      }
+    })
+
+    await assert.rejects(
+      findOrCreate(strategy, {
+        id: 'still-a-valid-link',
+        email: 'linked-outside-pattern@example.com',
+        name: 'Linked Outside Pattern'
+      }),
+      /ERR_EMAIL_NOT_ALLOWED/
+    )
+  })
+
+  test('still refuses a brand-new address when the strategy does not accept registration', async () => {
+    await assert.rejects(
+      findOrCreate(baseStrategy({ id: 'closed-strategy', autoProvision: false }), {
+        id: 'provider-account-closed',
+        email: 'never-seen-before@example.com',
+        name: 'Nobody Yet'
+      }),
+      /ERR_REGISTRATION_DISABLED/
+    )
+  })
+})
+
+/**
  * `forgotPassword()` and `resetPassword()` are also SQL orchestration -- a strategy/config lookup, a
  * user lookup, and a token round-trip through `userKeys` -- so this runs the real methods the same
  * DB-backed way `register()`'s suite above does. `mail.sendForgotPassword` and
@@ -509,7 +866,7 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
         module: MODULE_KEY,
         isEnabled,
         displayName: 'Test Local Reset',
-        registration: true,
+        selfRegistration: true,
         allowedEmailRegex: '',
         autoEnrollGroups: [],
         config: { allowForgotPassword }
@@ -604,6 +961,29 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
       await createLocalUser(otherStrategyId, { email: 'elsewhere@example.com' })
 
       await users.forgotPassword({ strategyId, email: 'elsewhere@example.com' })
+
+      assert.equal(sendForgotPasswordMock.mock.calls.length, 0)
+    })
+
+    test('a deactivated account sends nothing (OpenProject #2094)', async () => {
+      const strategyId = await createStrategy()
+      const userId = await createLocalUser(strategyId, { email: 'deactivated@example.com' })
+      await fixtures.db.update(usersTable).set({ isActive: false }).where(eq(usersTable.id, userId))
+
+      await users.forgotPassword({ strategyId, email: 'deactivated@example.com' })
+
+      assert.equal(sendForgotPasswordMock.mock.calls.length, 0)
+    })
+
+    test('an account with password login restricted sends nothing (OpenProject #2094)', async () => {
+      const strategyId = await createStrategy()
+      const userId = await createLocalUser(strategyId, { email: 'restricted@example.com' })
+      const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, userId))
+      const auth = row!.auth as Record<string, any>
+      auth[strategyId].restrictLogin = true
+      await fixtures.db.update(usersTable).set({ auth }).where(eq(usersTable.id, userId))
+
+      await users.forgotPassword({ strategyId, email: 'restricted@example.com' })
 
       assert.equal(sendForgotPasswordMock.mock.calls.length, 0)
     })
@@ -718,6 +1098,45 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
       assert.equal(tokenRow, undefined)
     })
 
+    test('afterLoginChecks refuses a deactivated account, even with a still-valid reset token (OpenProject #2094)', async () => {
+      const strategyId = await createStrategy()
+      registerLiveStrategy(strategyId)
+      const userId = await createLocalUser(strategyId, { email: 'inactive-reset@example.com' })
+      // -> Minted directly rather than via `forgotPassword()`, which now refuses to mint one for a
+      //    deactivated account at all: this proves `afterLoginChecks()` itself enforces the check,
+      //    for a token that existed before deactivation (e.g. one purged too late, or by a path other
+      //    than the admin API's `clearKeysFromUser()` call).
+      const token = await users.generateToken({ kind: 'resetPwd', userId, meta: { strategyId } })
+      await fixtures.db.update(usersTable).set({ isActive: false }).where(eq(usersTable.id, userId))
+
+      await assert.rejects(
+        users.resetPassword(
+          { siteId: fixtures.siteId, strategyId, token, newPassword: 'brandnewpwd1' },
+          req()
+        ),
+        /ERR_INACTIVE_USER/
+      )
+    })
+
+    test('afterLoginChecks refuses an unverified account, even with a still-valid reset token (OpenProject #2094)', async () => {
+      const strategyId = await createStrategy()
+      registerLiveStrategy(strategyId)
+      const userId = await createLocalUser(strategyId, { email: 'unverified-reset@example.com' })
+      const token = await users.generateToken({ kind: 'resetPwd', userId, meta: { strategyId } })
+      await fixtures.db
+        .update(usersTable)
+        .set({ isVerified: false })
+        .where(eq(usersTable.id, userId))
+
+      await assert.rejects(
+        users.resetPassword(
+          { siteId: fixtures.siteId, strategyId, token, newPassword: 'brandnewpwd1' },
+          req()
+        ),
+        /ERR_USER_NOT_VERIFIED/
+      )
+    })
+
     test('an account with 2FA active is not logged straight in -- a code is still required first', async () => {
       const strategyId = await createStrategy()
       registerLiveStrategy(strategyId)
@@ -742,6 +1161,208 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
       assert.equal(result.authenticated, undefined)
       assert.equal(request.session.authenticated, undefined)
     })
+  })
+
+  /**
+   * `clearKeysFromUser()` is what `api/users.ts`'s deactivation path (`patch.isActive === false`)
+   * calls alongside `sessions.clearSessionsFromUser()` (OpenProject #2094): purging a user's
+   * outstanding `userKeys` rows is what stops a `resetPwd` token minted before deactivation from
+   * still being redeemable afterwards.
+   */
+  describe('clearKeysFromUser', () => {
+    test('deactivating a user with an outstanding resetPwd key leaves no usable key behind', async () => {
+      const strategyId = await createStrategy()
+      const userId = await createLocalUser(strategyId, { email: 'purge-keys@example.com' })
+      const token = await users.generateToken({ kind: 'resetPwd', userId, meta: { strategyId } })
+
+      const [before] = await fixtures.db.select().from(userKeys).where(eq(userKeys.token, token))
+      assert.ok(before, 'the token should exist before deactivation')
+
+      await users.clearKeysFromUser(userId)
+
+      const [after] = await fixtures.db.select().from(userKeys).where(eq(userKeys.token, token))
+      assert.equal(after, undefined)
+
+      // -> Redeeming it now fails on the token itself, not merely on the account state
+      await assert.rejects(
+        users.resetPassword(
+          { siteId: fixtures.siteId, strategyId, token, newPassword: 'brandnewpwd1' },
+          req()
+        ),
+        /ERR_INVALID_VALIDATION_TOKEN/
+      )
+    })
+
+    test('a key belonging to a different user is left alone', async () => {
+      const strategyId = await createStrategy()
+      const targetUserId = await createLocalUser(strategyId, { email: 'purge-target@example.com' })
+      const otherUserId = await createLocalUser(strategyId, { email: 'purge-other@example.com' })
+      const otherToken = await users.generateToken({
+        kind: 'resetPwd',
+        userId: otherUserId,
+        meta: { strategyId }
+      })
+
+      await users.clearKeysFromUser(targetUserId)
+
+      const [row] = await fixtures.db.select().from(userKeys).where(eq(userKeys.token, otherToken))
+      assert.ok(row)
+    })
+  })
+})
+
+/**
+ * `loginWithProvider()` used to hard-skip 2FA for every provider login (see WP 2101 /
+ * `docs/decisions/provider-login-2fa.md`): a TOTP secret enrolled under the local strategy is a
+ * signal the account's owner wants a second factor regardless of which door is used to sign in, so
+ * `afterLoginChecks()` now falls back to the local strategy's own secret when the strategy actually
+ * used to log in (the provider) has none of its own. `findOrCreateProviderUser()` is stubbed so
+ * this suite can drive an already-provisioned account directly, the same way the `resetPassword`
+ * suite above builds its account with `createUser()` and mutates its `auth` blob straight in the
+ * database -- provider registration/email-matching is `findOrCreateProviderUser()`'s own concern,
+ * not this one's.
+ */
+describe('users.loginWithProvider (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let previousTemporal: any
+
+  const localStrategyId = 'local-provider-test'
+  const providerStrategyId = 'oauth-provider-test'
+
+  function req(): any {
+    return { session: {} }
+  }
+
+  function registerLiveStrategies(): void {
+    ;(WIKI.auth.strategies as any)[localStrategyId] = { config: {} }
+    ;(WIKI.auth.strategies as any)[providerStrategyId] = { config: {} }
+  }
+
+  async function createLocalUser(email: string, name: string): Promise<string> {
+    WIKI.data.systemIds = { localAuthId: localStrategyId } as any
+    return users.createUser({ name, email, password: 'originalpwd1', isVerified: true })
+  }
+
+  async function enableLocalTfa(userId: string): Promise<void> {
+    const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, userId))
+    const auth = row!.auth as Record<string, any>
+    auth[localStrategyId].tfaIsActive = true
+    auth[localStrategyId].tfaSecret = 'JBSWY3DPEHPK3PXP'
+    await fixtures.db.update(usersTable).set({ auth }).where(eq(usersTable.id, userId))
+  }
+
+  before(async () => {
+    previousTemporal = (globalThis as any).Temporal
+    installFakeTemporal()
+    fixtures = await setupTestDb()
+  })
+
+  after(async () => {
+    mock.restoreAll()
+    await teardownTestDb()
+    uninstallFakeTemporal(previousTemporal)
+  })
+
+  test('a TOTP secret enrolled under the local strategy still gates a login through a provider strategy', async (t) => {
+    registerLiveStrategies()
+    const userId = await createLocalUser('provider-2fa@example.com', 'Provider Target')
+    await enableLocalTfa(userId)
+    const user = await users.getById(userId)
+    t.mock.method(users, 'findOrCreateProviderUser' as any, async () => user)
+
+    const result = await users.loginWithProvider(
+      {
+        siteId: fixtures.siteId,
+        strategy: { id: providerStrategyId } as any,
+        profile: { id: 'ext-1', email: 'provider-2fa@example.com', name: 'Provider Target' },
+        ip: '127.0.0.1'
+      },
+      req()
+    )
+
+    assert.equal(result.nextAction, 'provideTfa')
+    assert.ok(result.continuationToken)
+    assert.equal(result.authenticated, undefined)
+
+    // -> The continuation verifies against the local strategy's own secret, not the provider's --
+    //    but still remembers the provider as the strategy actually logging in, for hooks/audit.
+    const [tokenRow] = await fixtures.db
+      .select()
+      .from(userKeys)
+      .where(eq(userKeys.token, result.continuationToken!))
+    assert.deepEqual(tokenRow!.meta, {
+      strategyId: providerStrategyId,
+      tfaStrategyId: localStrategyId
+    })
+  })
+
+  test('an account with no locally-enrolled 2FA still logs straight in through a provider', async (t) => {
+    registerLiveStrategies()
+    const userId = await createLocalUser('provider-no-2fa@example.com', 'No 2FA')
+    const user = await users.getById(userId)
+    t.mock.method(users, 'findOrCreateProviderUser' as any, async () => user)
+    const request = req()
+
+    const result = await users.loginWithProvider(
+      {
+        siteId: fixtures.siteId,
+        strategy: { id: providerStrategyId } as any,
+        profile: { id: 'ext-2', email: 'provider-no-2fa@example.com', name: 'No 2FA' },
+        ip: '127.0.0.1'
+      },
+      request
+    )
+
+    assert.equal(result.authenticated, true)
+    assert.equal(result.nextAction, 'redirect')
+    assert.equal(request.session.authenticated, true)
+  })
+
+  test('a correct code from loginTFA completes the provider login the local secret stopped', async (t) => {
+    registerLiveStrategies()
+    const userId = await createLocalUser('provider-2fa-complete@example.com', 'Completes Login')
+    await enableLocalTfa(userId)
+    const user = await users.getById(userId)
+    t.mock.method(users, 'findOrCreateProviderUser' as any, async () => user)
+    const verifyTfaCode = t.mock.method(users, 'verifyTfaCode', () => true)
+    const request = req()
+
+    const stopped = await users.loginWithProvider(
+      {
+        siteId: fixtures.siteId,
+        strategy: { id: providerStrategyId } as any,
+        profile: {
+          id: 'ext-3',
+          email: 'provider-2fa-complete@example.com',
+          name: 'Completes Login'
+        },
+        ip: '127.0.0.1'
+      },
+      request
+    )
+
+    const result = await users.loginTFA(
+      {
+        strategyId: providerStrategyId,
+        siteId: fixtures.siteId,
+        securityCode: '123456',
+        continuationToken: stopped.continuationToken!
+      },
+      request
+    )
+
+    // -> Verified against the local strategy's secret, even though the login itself is the
+    //    provider's. Compared field-by-field rather than with the `user` object above: that
+    //    reference gets `.groups` mutated onto it by `afterLoginChecks()`'s own run inside
+    //    `loginWithProvider()`, which a freshly re-fetched row from `loginTFA()`'s own
+    //    `validateToken()` call never carries.
+    const verifyArgs = verifyTfaCode.mock.calls[0].arguments as [any, string, string]
+    assert.equal(verifyArgs[0].id, userId)
+    assert.equal(verifyArgs[1], localStrategyId)
+    assert.equal(verifyArgs[2], '123456')
+    assert.equal(result.authenticated, true)
+    assert.equal(result.nextAction, 'redirect')
+    assert.equal(request.session.authenticated, true)
   })
 })
 
@@ -838,17 +1459,21 @@ describe('users.matchRecoveryCode', () => {
 /**
  * `syncProviderGroups` reconciles a user's wiki group membership with what an identity provider just
  * reported for them — add/remove by difference, mirroring 2.5.x's `passport-ldapauth` /
- * `passport-saml` modules, but never touching the guests group or a group the strategy's own
- * `autoEnrollGroups` still grants. `WIKI.models.groups` and `users.getUserGroupIds` are stubbed rather
+ * `passport-saml` modules, but never touching the guests group, a group the strategy's own
+ * `autoEnrollGroups` still grants, a group carrying `manage:system`, or the configured root
+ * administrators group — and never granting or revoking a group outside the strategy's own
+ * `mappableGroups` allow-list. `WIKI.models.groups` and `users.getUserGroupIds` are stubbed rather
  * than run against a real database: what is under test here is the diffing logic, not group
  * persistence, which `models/groups.test.ts`-style DB-backed suites would be the place to cover.
  */
 describe('users.syncProviderGroups', () => {
   const guestsGroupId = 'group-guests'
+  const rootAdminGroupId = 'group-root-admin'
 
   before(() => {
     ;(globalThis as any).WIKI = {
       data: { systemIds: { guestsGroupId } },
+      config: { auth: { rootAdminGroupId } },
       models: {
         flags: { authDebug: () => {} }
       }
@@ -859,61 +1484,85 @@ describe('users.syncProviderGroups', () => {
     delete (globalThis as any).WIKI
   })
 
+  // `mappableGroups` defaults to empty, same as the real column default — a test exercising a grant
+  // or removal has to opt a group into the allow-list explicitly, same as an administrator would.
   function makeStrategy(overrides: Partial<any> = {}): any {
     return {
       id: 'strategy-1',
       module: 'ldap',
       autoEnrollGroups: [],
+      mappableGroups: [],
       ...overrides
     }
   }
 
-  function stubGroups(t: any, allGroups: Array<{ id: string; name: string }>) {
+  /**
+   * @param allGroups A group may carry `permissions: ['manage:system']`, which is what
+   *   `groups.systemGroupIds()` is stubbed to key off of — mirroring the real implementation.
+   */
+  function stubGroups(
+    t: any,
+    allGroups: Array<{ id: string; name: string; permissions?: string[] }>
+  ) {
     const assignUserToGroup = t.mock.fn(async () => true)
     const unassignUserFromGroup = t.mock.fn(async () => true)
     ;(globalThis as any).WIKI.models.groups = {
       getAllGroups: async () => allGroups,
+      systemGroupIds: async () =>
+        allGroups.filter((g) => g.permissions?.includes('manage:system')).map((g) => g.id),
       assignUserToGroup,
       unassignUserFromGroup
     }
     return { assignUserToGroup, unassignUserFromGroup }
   }
 
-  test('relates a group matching a reported name that the user does not yet have', async (t) => {
+  test('relates an allow-listed group matching a reported name that the user does not yet have', async (t) => {
     const { assignUserToGroup, unassignUserFromGroup } = stubGroups(t, [
       { id: 'group-editors', name: 'Editors' },
       { id: 'group-other', name: 'Other' }
     ])
     t.mock.method(users, 'getUserGroupIds', async () => [])
 
-    await users.syncProviderGroups({ id: 'user-1' }, makeStrategy(), ['editors'])
+    await users.syncProviderGroups(
+      { id: 'user-1' },
+      makeStrategy({ mappableGroups: ['group-editors', 'group-other'] }),
+      ['editors']
+    )
 
     assert.equal(assignUserToGroup.mock.calls.length, 1)
     assert.deepEqual(assignUserToGroup.mock.calls[0].arguments, ['group-editors', 'user-1'])
     assert.equal(unassignUserFromGroup.mock.calls.length, 0)
   })
 
-  test('unrelates a group the user currently has that is no longer reported', async (t) => {
+  test('unrelates an allow-listed group the user currently has that is no longer reported', async (t) => {
     const { assignUserToGroup, unassignUserFromGroup } = stubGroups(t, [
       { id: 'group-editors', name: 'Editors' },
       { id: 'group-other', name: 'Other' }
     ])
     t.mock.method(users, 'getUserGroupIds', async () => ['group-editors', 'group-other'])
 
-    await users.syncProviderGroups({ id: 'user-1' }, makeStrategy(), ['Editors'])
+    await users.syncProviderGroups(
+      { id: 'user-1' },
+      makeStrategy({ mappableGroups: ['group-editors', 'group-other'] }),
+      ['Editors']
+    )
 
     assert.equal(assignUserToGroup.mock.calls.length, 0)
     assert.equal(unassignUserFromGroup.mock.calls.length, 1)
     assert.deepEqual(unassignUserFromGroup.mock.calls[0].arguments, ['group-other', 'user-1'])
   })
 
-  test('never adds or removes the guests group, even if reported by name', async (t) => {
+  test('never adds or removes the guests group, even if reported by name and allow-listed', async (t) => {
     const { assignUserToGroup, unassignUserFromGroup } = stubGroups(t, [
       { id: guestsGroupId, name: 'Guests' }
     ])
     t.mock.method(users, 'getUserGroupIds', async () => [guestsGroupId])
 
-    await users.syncProviderGroups({ id: 'user-1' }, makeStrategy(), ['Guests'])
+    await users.syncProviderGroups(
+      { id: 'user-1' },
+      makeStrategy({ mappableGroups: [guestsGroupId] }),
+      ['Guests']
+    )
 
     assert.equal(assignUserToGroup.mock.calls.length, 0)
     assert.equal(unassignUserFromGroup.mock.calls.length, 0)
@@ -927,7 +1576,7 @@ describe('users.syncProviderGroups', () => {
 
     await users.syncProviderGroups(
       { id: 'user-1' },
-      makeStrategy({ autoEnrollGroups: ['group-editors'] }),
+      makeStrategy({ autoEnrollGroups: ['group-editors'], mappableGroups: ['group-editors'] }),
       []
     )
 
@@ -942,10 +1591,93 @@ describe('users.syncProviderGroups', () => {
     ])
     t.mock.method(users, 'getUserGroupIds', async () => ['group-reviewers'])
 
-    await users.syncProviderGroups({ id: 'user-1' }, makeStrategy(), ['Editors'])
+    await users.syncProviderGroups(
+      { id: 'user-1' },
+      makeStrategy({ mappableGroups: ['group-editors', 'group-reviewers'] }),
+      ['Editors']
+    )
 
     assert.deepEqual(assignUserToGroup.mock.calls[0].arguments, ['group-editors', 'user-1'])
     assert.deepEqual(unassignUserFromGroup.mock.calls[0].arguments, ['group-reviewers', 'user-1'])
+  })
+
+  test('a reported name matching a manage:system group grants nothing, even if allow-listed', async (t) => {
+    const { assignUserToGroup, unassignUserFromGroup } = stubGroups(t, [
+      { id: 'group-admins', name: 'Administrators', permissions: ['manage:system'] }
+    ])
+    t.mock.method(users, 'getUserGroupIds', async () => [])
+
+    await users.syncProviderGroups(
+      { id: 'user-1' },
+      makeStrategy({ mappableGroups: ['group-admins'] }),
+      ['administrators']
+    )
+
+    assert.equal(assignUserToGroup.mock.calls.length, 0)
+    assert.equal(unassignUserFromGroup.mock.calls.length, 0)
+  })
+
+  test('the root administrators group is never granted, even if allow-listed and reported', async (t) => {
+    const { assignUserToGroup, unassignUserFromGroup } = stubGroups(t, [
+      { id: rootAdminGroupId, name: 'Root Admins' }
+    ])
+    t.mock.method(users, 'getUserGroupIds', async () => [])
+
+    await users.syncProviderGroups(
+      { id: 'user-1' },
+      makeStrategy({ mappableGroups: [rootAdminGroupId] }),
+      ['root admins']
+    )
+
+    assert.equal(assignUserToGroup.mock.calls.length, 0)
+    assert.equal(unassignUserFromGroup.mock.calls.length, 0)
+  })
+
+  test('an existing Administrators membership survives a login whose IdP reports no groups', async (t) => {
+    const { assignUserToGroup, unassignUserFromGroup } = stubGroups(t, [
+      { id: 'group-admins', name: 'Administrators', permissions: ['manage:system'] }
+    ])
+    t.mock.method(users, 'getUserGroupIds', async () => ['group-admins'])
+
+    await users.syncProviderGroups(
+      { id: 'user-1' },
+      makeStrategy({ mappableGroups: ['group-admins'] }),
+      []
+    )
+
+    assert.equal(assignUserToGroup.mock.calls.length, 0)
+    assert.equal(unassignUserFromGroup.mock.calls.length, 0)
+  })
+
+  test('a group outside the allow-list is neither granted nor removed', async (t) => {
+    const { assignUserToGroup, unassignUserFromGroup } = stubGroups(t, [
+      { id: 'group-editors', name: 'Editors' },
+      { id: 'group-reviewers', name: 'Reviewers' }
+    ])
+    // -> The user already holds group-reviewers, and the IdP reports Editors: with a full
+    //    allow-list both halves of the diff would fire, but neither group is listed here.
+    t.mock.method(users, 'getUserGroupIds', async () => ['group-reviewers'])
+
+    await users.syncProviderGroups({ id: 'user-1' }, makeStrategy({ mappableGroups: [] }), [
+      'Editors'
+    ])
+
+    assert.equal(assignUserToGroup.mock.calls.length, 0)
+    assert.equal(unassignUserFromGroup.mock.calls.length, 0)
+  })
+
+  test('the default empty allow-list makes a provider login a no-op for memberships', async (t) => {
+    const { assignUserToGroup, unassignUserFromGroup } = stubGroups(t, [
+      { id: 'group-editors', name: 'Editors' },
+      { id: 'group-reviewers', name: 'Reviewers' }
+    ])
+    t.mock.method(users, 'getUserGroupIds', async () => ['group-reviewers'])
+
+    // -> makeStrategy() defaults mappableGroups to [], matching an unconfigured real strategy.
+    await users.syncProviderGroups({ id: 'user-1' }, makeStrategy(), ['Editors', 'Reviewers'])
+
+    assert.equal(assignUserToGroup.mock.calls.length, 0)
+    assert.equal(unassignUserFromGroup.mock.calls.length, 0)
   })
 })
 
@@ -1175,6 +1907,46 @@ describe('users.loginTFA', () => {
     assert.equal('recoveryCodes' in result, false)
   })
 
+  test('verifies against tfaStrategyId from the token, not the login strategyId, when the token carries one', async (t) => {
+    const user = makeUser({ auth: { strat: {}, local: {} } })
+    t.mock.method(users, 'validateToken', async () => ({
+      user,
+      strategyId: 'strat',
+      tfaStrategyId: 'local'
+    }))
+    const verifyTfaCode = t.mock.method(users, 'verifyTfaCode', () => true)
+    t.mock.method(users, 'destroyToken', async () => {})
+    t.mock.method(users, 'afterLoginChecks', async () => ({
+      nextAction: 'redirect',
+      redirect: '/'
+    }))
+
+    await users.loginTFA(
+      { strategyId: 'strat', siteId: 'site-1', securityCode: '123456', continuationToken: 'tok' },
+      {}
+    )
+
+    assert.deepEqual(verifyTfaCode.mock.calls[0].arguments, [user, 'local', '123456'])
+  })
+
+  test('falls back to the login strategyId when the token carries no tfaStrategyId', async (t) => {
+    const user = makeUser()
+    t.mock.method(users, 'validateToken', async () => ({ user, strategyId: 'strat' }))
+    const verifyTfaCode = t.mock.method(users, 'verifyTfaCode', () => true)
+    t.mock.method(users, 'destroyToken', async () => {})
+    t.mock.method(users, 'afterLoginChecks', async () => ({
+      nextAction: 'redirect',
+      redirect: '/'
+    }))
+
+    await users.loginTFA(
+      { strategyId: 'strat', siteId: 'site-1', securityCode: '123456', continuationToken: 'tok' },
+      {}
+    )
+
+    assert.deepEqual(verifyTfaCode.mock.calls[0].arguments, [user, 'strat', '123456'])
+  })
+
   test('rejects a submission whose strategyId does not match the one the token was issued for', async (t) => {
     const user = makeUser()
     t.mock.method(users, 'validateToken', async () => ({
@@ -1251,6 +2023,32 @@ describe('users recovery codes (DB-backed)', { skip: !hasTestDatabase() }, () =>
       await usersModel.verifyAndConsumeRecoveryCode(secondAttempt, strategyId, code!),
       false
     )
+  })
+
+  test('two concurrent verifyAndConsumeRecoveryCode calls for the same code redeem exactly one entry', async () => {
+    // -> Distinct from the sequential single-use test above, which re-reads the user between
+    //    attempts and so exercises only the serialized case: this fires both attempts at once, off
+    //    two separately-loaded copies of the same row, to prove the advisory lock -- not just
+    //    request ordering -- is what prevents a double-spend.
+    const strategyId = freshStrategyId()
+    const owner = await usersModel.getById(fixtures.userId)
+    const [code] = await usersModel.enableTfa(owner, strategyId)
+
+    const [attemptA, attemptB] = await Promise.all([
+      usersModel.getById(fixtures.userId),
+      usersModel.getById(fixtures.userId)
+    ])
+
+    const [resultA, resultB] = await Promise.all([
+      usersModel.verifyAndConsumeRecoveryCode(attemptA, strategyId, code!),
+      usersModel.verifyAndConsumeRecoveryCode(attemptB, strategyId, code!)
+    ])
+
+    assert.equal([resultA, resultB].filter(Boolean).length, 1, 'exactly one attempt should redeem')
+
+    const reloaded = (await usersModel.getById(fixtures.userId)) as any
+    const entries = reloaded.auth[strategyId].recoveryCodes as RecoveryCodeEntry[]
+    assert.equal(entries.filter((entry) => entry.usedAt).length, 1)
   })
 
   test('verifyAndConsumeRecoveryCode rejects a code that was never issued', async () => {
@@ -1461,6 +2259,141 @@ describe('users recovery codes (DB-backed)', { skip: !hasTestDatabase() }, () =>
       /ERR_INVALID_USER/
     )
   })
+
+  describe('verifyTfaCode single-use (RFC 6238 §5.2)', () => {
+    // -> RFC 6238 Appendix B's SHA-1 test vector, the same secret/code pair `helpers/totp.test.ts`
+    //    verifies against -- reused here rather than re-derived, since what is under test is the
+    //    persistence/replay-refusal wrapper around `verifyTotpCode`, not the HOTP algorithm itself.
+    const rfcSecret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
+    const codeForCounter1 = '287082' // Time=59_000ms -> counter = floor(59 / 30) = 1
+
+    test('accepts a code once, then refuses the identical code presented again', async () => {
+      const strategyId = freshStrategyId()
+      const owner = (await usersModel.getById(fixtures.userId)) as any
+      await fixtures.db
+        .update(usersTable)
+        .set({ auth: { ...owner.auth, [strategyId]: { tfaSecret: rfcSecret, tfaIsActive: true } } })
+        .where(eq(usersTable.id, fixtures.userId))
+
+      mock.timers.enable({ apis: ['Date'], now: 59_000 })
+      try {
+        const firstAttempt = await usersModel.getById(fixtures.userId)
+        assert.equal(
+          await usersModel.verifyTfaCode(firstAttempt, strategyId, codeForCounter1),
+          true
+        )
+
+        // -> Same code, same still-valid drift window, freshly-reloaded user: only the persisted
+        //    `tfaLastCounter` this first call wrote stands between this and a second acceptance.
+        const secondAttempt = await usersModel.getById(fixtures.userId)
+        assert.equal(
+          await usersModel.verifyTfaCode(secondAttempt, strategyId, codeForCounter1),
+          false
+        )
+      } finally {
+        mock.timers.reset()
+      }
+    })
+
+    test('persists the matched counter as tfaLastCounter', async () => {
+      const strategyId = freshStrategyId()
+      const owner = (await usersModel.getById(fixtures.userId)) as any
+      await fixtures.db
+        .update(usersTable)
+        .set({ auth: { ...owner.auth, [strategyId]: { tfaSecret: rfcSecret, tfaIsActive: true } } })
+        .where(eq(usersTable.id, fixtures.userId))
+
+      mock.timers.enable({ apis: ['Date'], now: 59_000 })
+      try {
+        const attempt = await usersModel.getById(fixtures.userId)
+        await usersModel.verifyTfaCode(attempt, strategyId, codeForCounter1)
+      } finally {
+        mock.timers.reset()
+      }
+
+      const reloaded = (await usersModel.getById(fixtures.userId)) as any
+      assert.equal(reloaded.auth[strategyId].tfaLastCounter, 1)
+    })
+  })
+})
+
+/**
+ * The lost-update case #2149 closes: every whole-blob `auth` write in `models/users.ts` now reads,
+ * mutates and writes while holding a `user-auth:<id>` advisory lock (`helpers/advisoryLock.ts`), so
+ * two of these calls racing the same user's row can no longer have the second writer's stale copy of
+ * the blob clobber the first writer's change. Before this, `adminInvalidateTfa()` blanking
+ * `tfaSecret`/`tfaIsActive`/`recoveryCodes` was observed being undone by a concurrent
+ * `changeOwnPassword()` that had already read the (still-active) blob and later wrote its own copy of
+ * it back, with the password change alone surviving -- silently restoring 2FA the admin had just
+ * turned off.
+ *
+ * This runs both calls concurrently via a real advisory lock against Postgres (not a mock), which is
+ * the only way to actually exercise the serialization rather than merely asserting the source calls
+ * `withAdvisoryLock`.
+ */
+describe('users auth-write serialization (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let usersModel: typeof import('./users.ts').users
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ users: usersModel } = await import('./users.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  function freshStrategyId(): string {
+    return `strategy-${Math.random().toString(36).slice(2)}`
+  }
+
+  test('an adminInvalidateTfa concurrent with a changeOwnPassword leaves 2FA blanked, not restored', async () => {
+    const strategyId = freshStrategyId()
+    const currentPassword = 'the-old-password'
+
+    // -> Seed a strategy entry with both a password (changeOwnPassword's target) and active 2FA
+    //    (adminInvalidateTfa's target) so the two operations' writes genuinely overlap on the same
+    //    `auth[strategyId]` object rather than touching disjoint strategies.
+    const seeded = (await usersModel.getById(fixtures.userId)) as any
+    await fixtures.db
+      .update(usersTable)
+      .set({
+        auth: {
+          ...seeded.auth,
+          [strategyId]: {
+            password: await bcrypt.hash(currentPassword, 12),
+            mustChangePwd: false,
+            tfaIsActive: true,
+            tfaSecret: 'existing-secret',
+            recoveryCodes: [{ hash: 'x', usedAt: null }]
+          }
+        }
+      })
+      .where(eq(usersTable.id, fixtures.userId))
+
+    await Promise.all([
+      usersModel.adminInvalidateTfa(fixtures.userId, strategyId),
+      usersModel.changeOwnPassword({
+        userId: fixtures.userId,
+        strategyId,
+        currentPassword,
+        newPassword: 'a-brand-new-password'
+      })
+    ])
+
+    const reloaded = (await usersModel.getById(fixtures.userId)) as any
+    const strategyAuth = reloaded.auth[strategyId]
+
+    // -> The admin's action must have stuck, regardless of which write happened to land second.
+    assert.equal(strategyAuth.tfaIsActive, false)
+    assert.equal(strategyAuth.tfaSecret, '')
+    assert.deepEqual(strategyAuth.recoveryCodes, [])
+
+    // -> The password change must have stuck too -- neither write may be the one that gets lost.
+    assert.equal(strategyAuth.mustChangePwd, false)
+    assert.equal(await bcrypt.compare('a-brand-new-password', strategyAuth.password), true)
+  })
 })
 
 /**
@@ -1473,8 +2406,8 @@ describe('users recovery codes (DB-backed)', { skip: !hasTestDatabase() }, () =>
  * without a database.
  *
  * Regression coverage for a real bug this suite caught: `login()` used to refuse *every* form-based
- * provider login with `ERR_REGISTRATION_DISABLED` the moment a strategy's `registration` flag was off —
- * including a returning user who already has an account. `registration` means "accepts new users", not
+ * provider login with `ERR_REGISTRATION_DISABLED` the moment a strategy's `autoProvision` flag was off —
+ * including a returning user who already has an account. `autoProvision` means "accepts new users", not
  * "accepts logins", and `findOrCreateProviderUser()` already enforces it correctly on its own (only for
  * an address with no existing account) — so `login()` no longer re-checks it before calling in.
  */
@@ -1514,8 +2447,8 @@ describe('users.login (form-based provider auto-provisioning)', () => {
     delete (globalThis as any).WIKI
   })
 
-  test('a returning provider user is not refused just because the strategy has registration disabled', async (t) => {
-    installWiki(async () => ({ id: strategyId, module: 'ldap', registration: false, config: {} }))
+  test('a returning provider user is not refused just because the strategy has autoProvision disabled', async (t) => {
+    installWiki(async () => ({ id: strategyId, module: 'ldap', autoProvision: false, config: {} }))
     const fakeUser = { id: 'user-1' }
     const findOrCreate = t.mock.method(
       users,
@@ -1540,7 +2473,7 @@ describe('users.login (form-based provider auto-provisioning)', () => {
   })
 
   test('a brand-new address is still refused when the strategy does not accept new users', async (t) => {
-    installWiki(async () => ({ id: strategyId, module: 'ldap', registration: false, config: {} }))
+    installWiki(async () => ({ id: strategyId, module: 'ldap', autoProvision: false, config: {} }))
     t.mock.method(users, 'findOrCreateProviderUser' as any, async () => {
       throw new Error('ERR_REGISTRATION_DISABLED')
     })
@@ -1554,8 +2487,8 @@ describe('users.login (form-based provider auto-provisioning)', () => {
     )
   })
 
-  test('registration enabled still provisions a brand-new address', async (t) => {
-    installWiki(async () => ({ id: strategyId, module: 'ldap', registration: true, config: {} }))
+  test('autoProvision enabled still provisions a brand-new address', async (t) => {
+    installWiki(async () => ({ id: strategyId, module: 'ldap', autoProvision: true, config: {} }))
     const fakeUser = { id: 'user-2' }
     t.mock.method(users, 'findOrCreateProviderUser' as any, async () => fakeUser)
     const afterLogin = t.mock.method(users, 'afterLoginChecks', async () => ({
@@ -1584,6 +2517,70 @@ describe('users.login (form-based provider auto-provisioning)', () => {
       /ERR_INVALID_STRATEGY/
     )
     assert.equal(findOrCreate.mock.calls.length, 0)
+  })
+})
+
+/**
+ * `login()`'s own defense-in-depth guard against an empty/missing password on a `useForm` strategy
+ * (LDAP being the one this actually protects, since its module-level check is the other half of the
+ * same fix) — the route schema requiring `password` is the first guard, this is the second, and
+ * neither is allowed to depend on the other alone.
+ */
+describe('users.login (empty/missing password guard)', () => {
+  const strategyId = 'strategy-1'
+
+  function installWiki(authenticate: () => Promise<any>) {
+    ;(globalThis as any).WIKI = {
+      data: { authentication: [{ key: 'ldap', useForm: true }] },
+      auth: {
+        strategies: {
+          [strategyId]: {
+            module: 'ldap',
+            authenticate
+          }
+        }
+      },
+      models: {
+        flags: { authDebug: () => {} },
+        authentication: { getStrategyById: async () => null }
+      }
+    }
+  }
+
+  after(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('an empty-string password is refused as ERR_LOGIN_FAILED without ever calling the strategy', async (t) => {
+    const authenticate = t.mock.fn(async () => {
+      throw new Error('should not be called')
+    })
+    installWiki(authenticate)
+
+    await assert.rejects(
+      users.login(
+        { siteId: 'site-1', strategyId, username: 'ada', password: '', ip: '127.0.0.1' },
+        { session: {} }
+      ),
+      /ERR_LOGIN_FAILED/
+    )
+    assert.equal(authenticate.mock.calls.length, 0)
+  })
+
+  test('an omitted (undefined) password is refused as ERR_LOGIN_FAILED without ever calling the strategy', async (t) => {
+    const authenticate = t.mock.fn(async () => {
+      throw new Error('should not be called')
+    })
+    installWiki(authenticate)
+
+    await assert.rejects(
+      users.login(
+        { siteId: 'site-1', strategyId, username: 'ada', ip: '127.0.0.1' },
+        { session: {} }
+      ),
+      /ERR_LOGIN_FAILED/
+    )
+    assert.equal(authenticate.mock.calls.length, 0)
   })
 })
 

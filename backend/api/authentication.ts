@@ -135,6 +135,7 @@ async function finishProviderLogin(
       state: flow.state,
       nonce: flow.nonce,
       codeVerifier: flow.codeVerifier,
+      authnRequestId: flow.authnRequestId,
       currentUrl: extra.currentUrl,
       code: extra.code,
       ticket: extra.ticket,
@@ -222,8 +223,10 @@ async function routes(app: FastifyInstance) {
                     displayName: {
                       type: 'string'
                     },
-                    registration: {
-                      type: 'boolean'
+                    selfRegistration: {
+                      type: 'boolean',
+                      description:
+                        'Present only for a form-based strategy — whether it accepts a new self-registered account. Omitted for a redirect-based strategy: that kind is provisioned automatically or not at all, never through this public self-registration flag.'
                     },
                     allowForgotPassword: {
                       type: 'boolean',
@@ -287,11 +290,17 @@ async function routes(app: FastifyInstance) {
             isVisible: siteStr.isVisible ?? false,
             activeStrategy: {
               displayName: str.displayName,
-              registration: str.registration,
               /*
                 Named explicitly, like every other field here: this endpoint is public and a strategy's
                 config is where an OAuth client secret lives, so nothing may reach it by spreading.
 
+                Only ever present for a form-based module: a redirect-based strategy's new-account path
+                is `autoProvision`, which is never the public login screen's business to know about --
+                publishing it unauthenticated is exactly what told an attacker which provider currently
+                accepts a self-registration POST (see `models/users.ts#register()`'s `useForm` check).
+              */
+              ...(authModule?.useForm && { selfRegistration: str.selfRegistration }),
+              /*
                 A module that declares no such prop reads as false, which is correct rather than a
                 default -- a strategy with no password of its own has no password to reset.
               */
@@ -340,7 +349,11 @@ async function routes(app: FastifyInstance) {
         },
         body: {
           type: 'object',
-          required: ['strategyId'],
+          // -> `password` is required here too, not just checked deeper in `users.login()`: an
+          //    omitted key skips `minLength`'s check entirely (it only constrains a *present*
+          //    value), so without this a body of `{ strategyId, username }` validated and reached
+          //    the LDAP strategy with `password: undefined`.
+          required: ['strategyId', 'password'],
           properties: {
             strategyId: {
               type: 'string',
@@ -414,7 +427,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Register a new account',
         description:
-          "Creates an account under a strategy configured to accept new users. When that strategy's `emailValidation` setting is on (the local strategy's default), the account starts unverified and this answers `nextAction: 'verify'` rather than logging in — a link mailed to the address is what finishes it, at `GET /auth/verify/:token`. With `emailValidation` off, this logs the account straight in like any other successful auth attempt.",
+          "Creates an account under a strategy configured to accept new users. When that strategy's `emailValidation` setting is on (the local strategy's default), the account starts unverified and this answers `nextAction: 'verify'` rather than logging in — a link mailed to the address is what finishes it, at `GET /auth/verify/:token`. With `emailValidation` off, this logs the account straight in like any other successful auth attempt. Submitting an address that already has a verified account under such a strategy answers the same generic `nextAction: 'verify'` rather than an error — that account's owner is emailed a notice instead — so this endpoint cannot be used to test which addresses are already registered.",
         tags: ['Authentication'],
         params: {
           type: 'object',
@@ -1044,6 +1057,15 @@ async function routes(app: FastifyInstance) {
         nonce: nanoid(32),
         codeVerifier: nanoid(64),
         /*
+          SAML only: an XML NCName-safe id (must not start with a digit, which `nanoid`'s own
+          alphabet does not guarantee) for the outbound AuthnRequest — ignored by every other
+          module's `authorizationUrl()`, the same way SAML ignores `nonce`/`codeVerifier`. Generated
+          here, ahead of the request being built, so it can be written onto the session first and
+          read back by `finishProviderLogin()` below once the identity provider answers — see
+          `AuthFlow.authnRequestId` in `models/authentication.ts`.
+        */
+        authnRequestId: `_${nanoid(40)}`,
+        /*
           Only a same-origin path on this wiki: an open redirect is how a login page is turned into a
           lure. `startsWith('/')` alone (the previous check) let `//evil.example` through --
           `'//evil.example'.startsWith('/')` is `true`, and a browser normalizes a leading `/\` to `//`
@@ -1063,7 +1085,8 @@ async function routes(app: FastifyInstance) {
           redirectUri: callbackUrl(req, strategy.id),
           state: flow.state,
           nonce: flow.nonce,
-          codeVerifier: flow.codeVerifier
+          codeVerifier: flow.codeVerifier,
+          authnRequestId: flow.authnRequestId
         })
         WIKI.models.flags.authDebug(
           `Redirecting to ${strategy.module} provider for strategy ${strategy.id} from ${req.ip}`
@@ -1490,7 +1513,8 @@ async function routes(app: FastifyInstance) {
           displayName: req.body.displayName,
           isEnabled: req.body.isEnabled,
           allowedEmailRegex: req.body.allowedEmailRegex,
-          autoEnrollGroups: req.body.autoEnrollGroups
+          autoEnrollGroups: req.body.autoEnrollGroups,
+          mappableGroups: req.body.mappableGroups
         })) ?? WIKI.models.authentication.validateConfig(req.body.module, req.body.config)
       if (invalid) {
         return reply.badRequest(invalid)
@@ -1565,9 +1589,12 @@ async function routes(app: FastifyInstance) {
       for (const field of [
         'displayName',
         'isEnabled',
-        'registration',
+        'selfRegistration',
+        'autoProvision',
         'allowedEmailRegex',
         'autoEnrollGroups',
+        'trustEmailForLinking',
+        'mappableGroups',
         'config'
       ] as const) {
         if (req.body[field] !== undefined) {

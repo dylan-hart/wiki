@@ -8,6 +8,8 @@ import {
   users as usersTable,
   userGroups as userGroupsTable
 } from '../db/schema.ts'
+import { authSecretSigner } from '../helpers/authSecretSigner.ts'
+import configSvc from '../core/config.ts'
 
 /**
  * OpenProject #936: `session.groups`/`session.permissions` are snapshots taken at login and
@@ -26,6 +28,12 @@ describe('sessions model (DB-backed)', { skip: !hasTestDatabase() }, () => {
   before(async () => {
     fixtures = await setupTestDb()
     ;({ sessions: sessionsModel } = await import('./sessions.ts'))
+    // -> Not part of the minimal `installTestWiki()` fixture (`test/db.ts`) — added here because
+    //    `rotateSecret()` below is the one model method that needs it, via `saveToDb()`. The real
+    //    module, not a stub: it upserts through `WIKI.models.settings.updateConfig`, which works fine
+    //    unseeded against this suite's own fresh schema.
+    WIKI.configSvc = configSvc
+    WIKI.config.auth = { secret: 'fixture-initial-secret-value' }
 
     const [secondUser] = await fixtures.db
       .insert(usersTable)
@@ -124,5 +132,31 @@ describe('sessions model (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const ended = await sessionsModel.clearSessionsForGroup(secondGroupId)
     assert.equal(ended, 0)
     assert.equal((await fixtures.db.select().from(sessionsTable)).length, 1)
+  })
+
+  /**
+   * OpenProject #2172: a cookie signed before `rotateSecret()` must stop unsigning right after it
+   * runs, with no restart -- the real regression this whole mechanism exists to close (the old
+   * `index.ts` FIXME this task removed). `helpers/authSecretSigner.test.ts` covers the signer's
+   * read-fresh-per-call mechanism in isolation, with no DB; this is the round trip through the real
+   * model method, which is also what actually swaps `WIKI.config.auth.secret` here.
+   */
+  test('rotateSecret invalidates already-signed cookies immediately, and new ones verify under the new secret', async () => {
+    const signedBeforeRotation = authSecretSigner.sign('session-before-rotation')
+    assert.equal(authSecretSigner.unsign(signedBeforeRotation).valid, true)
+
+    const ended = await sessionsModel.rotateSecret()
+    assert.notEqual(ended, null)
+
+    assert.equal(
+      authSecretSigner.unsign(signedBeforeRotation).valid,
+      false,
+      'a cookie signed under the pre-rotation secret must not still unsign'
+    )
+
+    const signedAfterRotation = authSecretSigner.sign('session-after-rotation')
+    const result = authSecretSigner.unsign(signedAfterRotation)
+    assert.equal(result.valid, true)
+    assert.equal(result.value, 'session-after-rotation')
   })
 })

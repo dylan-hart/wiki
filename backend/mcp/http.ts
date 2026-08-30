@@ -20,10 +20,22 @@
  * every request after. `sessions` below is the process-local map from that id to its transport (and
  * the key that opened it); a session that outlives its own key's revocation still gets refused, since
  * the bearer token is re-verified on every request regardless of which session it names.
+ *
+ * That map is capped and idle-expiring (OpenProject #2207, security/09-dos-resource §7), not a plain
+ * unbounded `Map`: the only insertion was `onsessioninitialized` and the only removal was
+ * `transport.onclose` (itself only ever fired by an explicit `DELETE`), so nothing swept an entry a
+ * client abandoned by crashing or losing its network, and `limitApiKey`'s 300-requests-per-5-minutes
+ * ceiling still let a single low-privilege key open on the order of 80,000 sessions a day. `sessions`
+ * is now an `LRUCache` — `updateAgeOnGet` so the idle clock restarts on every request against a session
+ * still in genuine use (every handler below reads a session via `.get()` before doing anything else),
+ * `max` so a sustained flood evicts the longest-idle entry rather than growing forever, and `dispose`
+ * closes the evicted entry's transport so the SDK's own cleanup still runs for a session nothing ever
+ * called `DELETE` on.
  */
 
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+import { LRUCache } from 'lru-cache'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { limitApiKey } from '../helpers/rateLimit.ts'
@@ -46,8 +58,18 @@ interface McpSession {
   ctx: McpAuthContext
 }
 
-/** Process-local: an HTTP/SSE session belongs to whichever instance's request created it. */
-const sessions = new Map<string, McpSession>()
+/** A session idle this long (no request naming it) is evicted -- see the file header comment. */
+const DEFAULT_SESSION_IDLE_TTL_MS = 30 * 60 * 1000
+
+/** Hard cap on live sessions; once exceeded, the longest-idle entry is evicted first. */
+const DEFAULT_SESSION_CAP = 1000
+
+interface HttpRoutesOptions {
+  /** Test-only override for `DEFAULT_SESSION_IDLE_TTL_MS`, so a suite need not wait 30 real minutes. */
+  sessionIdleTtlMs?: number
+  /** Test-only override for `DEFAULT_SESSION_CAP`, so a suite need not open 1000 real sessions. */
+  sessionCap?: number
+}
 
 function sessionIdOf(req: {
   headers: Record<string, string | string[] | undefined>
@@ -56,7 +78,28 @@ function sessionIdOf(req: {
   return Array.isArray(raw) ? raw[0] : raw
 }
 
-async function routes(app: FastifyInstance) {
+async function routes(app: FastifyInstance, opts: HttpRoutesOptions = {}) {
+  /** Process-local: an HTTP/SSE session belongs to whichever instance's request created it. */
+  const sessions = new LRUCache<string, McpSession>({
+    max: opts.sessionCap ?? DEFAULT_SESSION_CAP,
+    ttl: opts.sessionIdleTtlMs ?? DEFAULT_SESSION_IDLE_TTL_MS,
+    // -> Idle-based, not absolute-lifetime: every handler below `.get()`s a session before acting on
+    //    it, so this restarts the ttl clock on every request against a session still genuinely in use.
+    updateAgeOnGet: true,
+    // -> Only an automatic eviction (cap exceeded or ttl expired) needs the transport closed here — an
+    //    explicit `sessions.delete()` below (DELETE /, or the transport's own `onclose` firing after
+    //    the SDK itself already tore it down) means the transport is already closing/closed, and
+    //    calling `close()` on it again would be redundant at best.
+    dispose: (session, _sessionId, reason) => {
+      if (reason === 'delete') {
+        return
+      }
+      Promise.resolve(session.transport.close()).catch((err: any) => {
+        WIKI.logger.debug(`Failed to close an evicted MCP session's transport: ${err.message}`)
+      })
+    }
+  })
+
   app.decorateRequest('mcpCtx', null)
 
   app.addHook('onRequest', async (req, reply) => {

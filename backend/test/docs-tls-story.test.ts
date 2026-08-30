@@ -70,6 +70,47 @@ describe('TLS/SSL story (task #701)', () => {
     }
   })
 
+  /**
+   * Work package #2088: step 3 used to prescribe the boolean `security.trustProxy: true`, which
+   * trusts `X-Forwarded-*` unconditionally from anywhere — including a client connecting directly —
+   * making `req.ip` the leftmost, client-written `X-Forwarded-For` entry and the login rate limiter
+   * bypassable per request. The doc must prescribe the address/CIDR form instead, state that the
+   * fronting proxy must overwrite (not append to) `X-Forwarded-For`, and call out
+   * `X-Forwarded-Host` as security-relevant to tenant resolution rather than interchangeable
+   * plumbing.
+   */
+  test('step 3 no longer prescribes the broken boolean trustProxy: true', async () => {
+    const doc = await readFile(DOC_PATH, 'utf8')
+    assert.ok(
+      !doc.includes('security.trustProxy: true` in Wiki'),
+      'docs/tls-termination.md still prescribes `security.trustProxy: true` as the deployment step'
+    )
+    assert.ok(
+      doc.includes('address or CIDR range') || doc.includes('address/CIDR'),
+      'docs/tls-termination.md should name the address/CIDR form of `security.trustProxy`'
+    )
+    assert.ok(
+      /overwrit/i.test(doc) && doc.includes('X-Forwarded-For'),
+      'docs/tls-termination.md should state that the proxy must overwrite, not append to, X-Forwarded-For'
+    )
+    const nginxBlocks = [...doc.matchAll(/```nginx([\s\S]*?)```/g)].map((m) => m[1])
+    assert.ok(nginxBlocks.length > 0, 'expected at least one ```nginx sample block')
+    for (const block of nginxBlocks) {
+      assert.ok(
+        block.includes('$remote_addr'),
+        'the nginx sample should set X-Forwarded-For from $remote_addr'
+      )
+      assert.ok(
+        !block.includes('$proxy_add_x_forwarded_for'),
+        'the nginx sample should not use the appending $proxy_add_x_forwarded_for idiom'
+      )
+    }
+    assert.ok(
+      /security-relevant/i.test(doc) && doc.includes('X-Forwarded-Host'),
+      'docs/tls-termination.md should mark X-Forwarded-Host as security-relevant to tenant resolution'
+    )
+  })
+
   test('db.ssl / db.sslOptions in config.sample.yml are distinguished from app-level TLS', async () => {
     const sample = await readFile(path.join(REPO_ROOT, 'config.sample.yml'), 'utf8')
     const sslLineIndex = sample.split('\n').findIndex((line) => line.trim() === 'ssl: false')

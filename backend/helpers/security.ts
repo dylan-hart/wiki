@@ -43,19 +43,25 @@ export type CorsMode = (typeof CORS_MODES)[number]
  * `Domain` are also required, and are set unconditionally alongside it in `index.ts`'s
  * `fastifySession` registration) — a value-only prefix would leave the name `wikiSession`, which a
  * sibling hostname on the same registrable domain could still plant a cookie under, defeating the
- * whole point. Every place that names the cookie literally — the `fastifySession` registration, the
- * `clearCookie` call in `api/authentication.ts`'s logout, the same-origin `/_api/` guard below, and
- * `models/pdfExport.ts`'s loopback cookie forward to the headless-browser export — imports this
- * constant instead, so the name can only ever drift in one place.
+ * whole point. `@fastify/session`'s `cookiePrefix` option does not get this for free either, despite
+ * the name — it only prefixes the session id *value* round-tripped through the store (an
+ * express-session compatibility shim), never the `Set-Cookie` name itself; naming it via
+ * `cookieName` is what actually produces a `__Host-` cookie. Every place that names the cookie
+ * literally — the `fastifySession` registration, the `clearCookie` call in `api/authentication.ts`'s
+ * logout, the same-origin `/_api/` guard below, and the two places (`models/pdfExport.ts`,
+ * `api/pages.ts`) that read the raw cookie value back off the request to forward it to the PDF
+ * export's headless browser — imports this constant instead, so the name can only ever drift in one
+ * place.
  */
 export const SESSION_COOKIE_NAME = '__Host-wikiSession'
 
 /**
- * Whether an `Origin` header names the same host a request was addressed to. Shared by the
- * cookie-authenticated same-origin check on state-changing `/_api/` requests (`index.ts`) and the
- * `verifyClient` gate on the single `fastifyWebsocket` registration (`index.ts`) — both need "does
- * this request's stated origin agree with where it landed," and both fail closed on anything that
- * doesn't parse or doesn't say so.
+ * Whether an `Origin` header names the same host a request was addressed to. Used by the
+ * cookie-authenticated same-origin check on state-changing `/_api/` requests below — needs "does
+ * this request's stated origin agree with where it landed," and fails closed on anything that
+ * doesn't parse or doesn't say so. The WebSocket handshake's own origin gate uses a related but
+ * distinct check instead — see `helpers/common.ts#isSameOriginWebSocketHandshake` — since it also
+ * accepts a handshake between two sites this same instance serves, not only an exact host match.
  *
  * Host only (hostname *and* port, via `URL#host`), not the full origin: deliberately not
  * scheme-sensitive, matching `models/passkeys.ts#resolveOrigin`'s own hostname-based comparison —
@@ -128,31 +134,6 @@ export function shouldBlockCrossOriginApiRequest(req: SameOriginApiCheckRequest)
   }
   const origin = req.headers.origin
   return !isSameOriginHeader(Array.isArray(origin) ? origin[0] : origin, req.host)
-}
-
-/**
- * The `verifyClient` callback for the single `fastifyWebsocket` registration in `index.ts` (task
- * 2120 / WP 2105 §5) -- exported here, rather than written inline at the registration, so it can be
- * exercised directly (including against a real `ws` handshake, which is what actually proves a
- * foreign origin is refused before either websocket controller's own `req.session` check ever
- * runs) with no need to duplicate the callback body in a test.
- *
- * A WebSocket handshake is not subject to the same-origin policy and is never preflighted, so CORS
- * governs neither it nor the frames after it, and both current routes
- * (`controllers/terminal.ts`, `controllers/collab.ts`) authorize purely from `req.session` -- an
- * ambient credential a foreign page could ride on the same way it could a form POST. `ws` hands
- * this the raw Node `http.IncomingMessage` for the upgrade request as `info.req`, since Fastify's
- * own request object (and therefore its hooks) does not exist yet for this connection.
- */
-export function websocketVerifyClient(
-  info: { req: { headers: { origin?: string; host?: string } } },
-  callback: (result: boolean, code?: number, message?: string) => void
-): void {
-  if (isSameOriginHeader(info.req.headers.origin, info.req.headers.host)) {
-    callback(true)
-  } else {
-    callback(false, 403, 'Cross-origin WebSocket handshake blocked')
-  }
 }
 
 /**
