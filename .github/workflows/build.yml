@@ -46,6 +46,10 @@ jobs:
 
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      # docker/login-action authenticates as github.repository_owner using the run's GITHUB_TOKEN,
+      # whose packages:write scope only covers that owner's packages -- so the pushed tags must live
+      # under this repo's own namespace, not a hard-coded one that may belong to someone else.
+      IMAGE_NAMESPACE: ghcr.io/${{ github.repository }}
 
     steps:
       - uses: actions/checkout@v7
@@ -138,8 +142,8 @@ jobs:
           platforms: linux/amd64
           # platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/requarks/wiki:3.0.0-alpha
-            ghcr.io/requarks/wiki:${{ env.REL_VERSION }}
+            ${{ env.IMAGE_NAMESPACE }}:3.0.0-alpha
+            ${{ env.IMAGE_NAMESPACE }}:${{ env.REL_VERSION }}
 
       - name: Prepare build archive
         run: |

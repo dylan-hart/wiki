@@ -78,15 +78,15 @@ Once the workflow finishes green:
 - **Docker tags** — confirm both expected tags resolve:
 
   ```sh
-  docker pull ghcr.io/requarks/wiki:$VERSION
+  docker pull ghcr.io/dylan-hart/wiki:$VERSION
   ```
 
   and, only if this was a stable (non-`-rc.`/`-alpha.`/`-beta.`) release, also confirm `:latest`
   now points at the same digest:
 
   ```sh
-  docker pull ghcr.io/requarks/wiki:latest
-  docker inspect --format '{{.Id}}' ghcr.io/requarks/wiki:$VERSION ghcr.io/requarks/wiki:latest
+  docker pull ghcr.io/dylan-hart/wiki:latest
+  docker inspect --format '{{.Id}}' ghcr.io/dylan-hart/wiki:$VERSION ghcr.io/dylan-hart/wiki:latest
   ```
 
   The two `Id` values must match. If this was a release candidate, confirm the opposite: `:latest`
