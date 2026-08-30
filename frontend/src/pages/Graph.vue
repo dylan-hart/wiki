@@ -662,26 +662,38 @@ function startSimulation() {
 
 /*
   `16`px is a starting point sized against the `5`px node-dot radius in `drawNodes()` -- tune
-  visually so the hull clearly contains the dots without ballooning past neighboring clusters.
+  visually so the hull clearly contains the dots without ballooning past neighboring clusters. It's
+  a floor added on top of each node's own `radiusFor()` (OpenProject #2296), not the whole gap any
+  more -- see `padHull()` and `computeClusters()`'s circle case below, both of which used to pad by
+  this constant alone and let a large node (up to `MAX_CONTRIBUTOR_RADIUS`/`MAX_PAGEVIEW_RADIUS`,
+  22) poke through its own group tint.
 */
 const HULL_PADDING = 16
 
 /** Pads a hull outward from its own centroid so the fill visually contains the node dots rather
- *  than passing through their centers, per the spec's "Obsidian-style" sector requirement. */
+ *  than passing through their centers, per the spec's "Obsidian-style" sector requirement. Each
+ *  `point` is a `[x, y, node]` triple (see `computeClusters()`) so the offset can grow by that
+ *  vertex's own `radiusFor(node)` on top of the flat `padding` (OpenProject #2296) -- a large node
+ *  sitting on the hull boundary would otherwise poke through the tint by the difference between its
+ *  drawn radius and the flat padding. `polygonHull` (`d3-polygon`) returns references to the exact
+ *  input elements it hulled, so the third element survives intact into `points` here. */
 function padHull(points, padding) {
   const cx = points.reduce((sum, p) => sum + p[0], 0) / points.length
   const cy = points.reduce((sum, p) => sum + p[1], 0) / points.length
-  return points.map(([x, y]) => {
+  return points.map(([x, y, node]) => {
     const dx = x - cx
     const dy = y - cy
     const len = Math.hypot(dx, dy) || 1
-    return [x + (dx / len) * padding, y + (dy / len) * padding]
+    const vertexPadding = padding + (node ? radiusFor(node) : 0)
+    return [x + (dx / len) * vertexPadding, y + (dy / len) * vertexPadding]
   })
 }
 
 /** Populates `clusters.value` -- one entry per visible group with `hullPoints` (>=3 nodes) or a
  *  fallback `circle` (1-2 nodes, or a degenerate >=3-node group `polygonHull` can't hull, e.g.
- *  every point collinear). */
+ *  every point collinear). Both shapes are sized off each node's edge (its centre plus its own
+ *  `radiusFor()`), not just its centre (OpenProject #2296) -- `collideRadiusFor()` above already
+ *  adds `radiusFor(node)` to a constant the same way, and is the pattern this mirrors. */
 function computeClusters() {
   const byGroup = new Map()
   for (const node of nodes.value) {
@@ -698,7 +710,7 @@ function computeClusters() {
   for (const [key, groupNodes] of byGroup) {
     const color = colorForGroup(key)
     if (groupNodes.length >= 3) {
-      const hull = polygonHull(groupNodes.map((n) => [n.x, n.y]))
+      const hull = polygonHull(groupNodes.map((n) => [n.x, n.y, n]))
       if (hull) {
         result.push({ key, color, hullPoints: padHull(hull, HULL_PADDING) })
         continue
@@ -708,7 +720,10 @@ function computeClusters() {
     }
     const cx = groupNodes.reduce((s, n) => s + n.x, 0) / groupNodes.length
     const cy = groupNodes.reduce((s, n) => s + n.y, 0) / groupNodes.length
-    const maxDist = Math.max(...groupNodes.map((n) => Math.hypot(n.x - cx, n.y - cy)), 0)
+    const maxDist = Math.max(
+      ...groupNodes.map((n) => Math.hypot(n.x - cx, n.y - cy) + radiusFor(n)),
+      0
+    )
     result.push({ key, color, circle: { x: cx, y: cy, r: maxDist + HULL_PADDING } })
   }
   clusters.value = result
