@@ -46,17 +46,18 @@ describe('AdminSecurity apiRateLimit* round-trip', () => {
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('system/security')
 
-    // -> `aria-label` lands on `WInput`'s root `<div>` via attr fallthrough, not the inner
-    //    `<input>` (WInput does not set `inheritAttrs: false`), so the real form control is one
-    //    level down.
-    const maxInput = wrapper.find('[aria-label="admin.security.apiRateLimitMax"] input')
+    // -> `WInput` sets `inheritAttrs: false` and binds `$attrs` explicitly onto the real
+    //    `<input>`/`<textarea>` (see its own file header comment), so `aria-label` lands on the
+    //    control itself, not on the wrapping `<div>` -- `input[aria-label=...]`, not
+    //    `[aria-label=...] input`.
+    const maxInput = wrapper.find('input[aria-label="admin.security.apiRateLimitMax"]')
     expect(maxInput.exists()).toBe(true)
     expect(maxInput.element.value).toBe('300')
 
-    const windowInput = wrapper.find('[aria-label="admin.security.apiRateLimitWindow"] input')
+    const windowInput = wrapper.find('input[aria-label="admin.security.apiRateLimitWindow"]')
     expect(windowInput.element.value).toBe('5m')
 
-    const banInput = wrapper.find('[aria-label="admin.security.apiRateLimitBan"] input')
+    const banInput = wrapper.find('input[aria-label="admin.security.apiRateLimitBan"]')
     expect(banInput.element.value).toBe('15m')
   })
 
@@ -77,8 +78,8 @@ describe('AdminSecurity apiRateLimit* round-trip', () => {
     const wrapper = mountSecurity()
     await flushPromises()
 
-    await wrapper.find('[aria-label="admin.security.apiRateLimitMax"] input').setValue('500')
-    await wrapper.find('[aria-label="admin.security.apiRateLimitBan"] input').setValue('30m')
+    await wrapper.find('input[aria-label="admin.security.apiRateLimitMax"]').setValue('500')
+    await wrapper.find('input[aria-label="admin.security.apiRateLimitBan"]').setValue('30m')
 
     const applyButton = wrapper
       .findAll('button')
@@ -308,7 +309,7 @@ describe('AdminSecurity trustProxy controls', () => {
     await wrapper.find('button[aria-label="admin.security.trustProxy"]').trigger('click')
     await wrapper.vm.$nextTick()
 
-    const addressField = wrapper.find('[aria-label="admin.security.trustProxyAddresses"] input')
+    const addressField = wrapper.find('input[aria-label="admin.security.trustProxyAddresses"]')
     expect(addressField.exists()).toBe(true)
     expect(addressField.element.value).toBe('')
 
@@ -324,7 +325,7 @@ describe('AdminSecurity trustProxy controls', () => {
     const wrapper = mountPage()
     await flushPromises()
 
-    const addressField = wrapper.find('[aria-label="admin.security.trustProxyAddresses"] input')
+    const addressField = wrapper.find('input[aria-label="admin.security.trustProxyAddresses"]')
     expect(addressField.exists()).toBe(true)
     expect(addressField.element.value).toBe('10.0.0.0/8, 192.168.1.1')
 
@@ -347,7 +348,7 @@ describe('AdminSecurity trustProxy controls', () => {
     await wrapper.find('button[aria-label="admin.security.trustProxy"]').trigger('click')
     await wrapper.vm.$nextTick()
 
-    const addressField = wrapper.find('[aria-label="admin.security.trustProxyAddresses"] input')
+    const addressField = wrapper.find('input[aria-label="admin.security.trustProxyAddresses"]')
     await addressField.setValue('10.0.0.0/8')
 
     await wrapper.vm.save()
@@ -375,7 +376,7 @@ describe('AdminSecurity trustProxy controls', () => {
     await toggle.trigger('click')
     await wrapper.vm.$nextTick()
     await wrapper
-      .find('[aria-label="admin.security.trustProxyAddresses"] input')
+      .find('input[aria-label="admin.security.trustProxyAddresses"]')
       .setValue('10.0.0.0/8')
     await toggle.trigger('click')
     await wrapper.vm.$nextTick()

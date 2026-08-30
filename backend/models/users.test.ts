@@ -1224,13 +1224,17 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
  */
 describe('users.loginWithProvider (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
-  let previousTemporal: any
 
   const localStrategyId = 'local-provider-test'
   const providerStrategyId = 'oauth-provider-test'
 
   function req(): any {
-    return { session: {} }
+    // -> `regenerate` is a no-op stub, not a full `@fastify/session` fake: these tests assert on
+    //    login outcomes, not on session-id churn -- that is `users.updateSession`'s own describe
+    //    block's job (see the stub there for the real reassignment behavior). This just needs to
+    //    exist so `updateSession`'s `await req.session.regenerate()` (task 2115 / WP 2105 §4)
+    //    doesn't throw on a path that reaches it.
+    return { session: { regenerate: async () => {} } }
   }
 
   function registerLiveStrategies(): void {
@@ -1252,15 +1256,15 @@ describe('users.loginWithProvider (DB-backed)', { skip: !hasTestDatabase() }, ()
   }
 
   before(async () => {
-    previousTemporal = (globalThis as any).Temporal
-    installFakeTemporal()
+    // -> `generateToken()`/`validateToken()` call `Now.instant()`, `.add()`, `Instant.compare()` and
+    //    `Date.prototype.toTemporalInstant()` between them.
+    await ensureTemporal()
     fixtures = await setupTestDb()
   })
 
   after(async () => {
     mock.restoreAll()
     await teardownTestDb()
-    uninstallFakeTemporal(previousTemporal)
   })
 
   test('a TOTP secret enrolled under the local strategy still gates a login through a provider strategy', async (t) => {

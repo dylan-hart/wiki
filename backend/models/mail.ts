@@ -394,7 +394,11 @@ class MailModel {
     await this.send({
       to,
       subject: await WIKI.models.locales.resolveString(locale, 'mail.registrationAttempt.subject'),
-      text: await WIKI.models.locales.resolveString(locale, 'mail.registrationAttempt.text', params),
+      text: await WIKI.models.locales.resolveString(
+        locale,
+        'mail.registrationAttempt.text',
+        params
+      ),
       html: await WIKI.models.locales.resolveString(locale, 'mail.registrationAttempt.html', params)
     })
   }
