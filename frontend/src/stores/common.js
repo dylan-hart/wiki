@@ -38,12 +38,7 @@ export const useCommonStore = defineStore('common', {
   getters: {},
   actions: {
     async fetchLocaleStrings(locale) {
-      try {
-        return API_CLIENT.get(`locales/${locale}/strings`).json()
-      } catch (err) {
-        console.warn(err)
-        throw err
-      }
+      return API_CLIENT.get(`locales/${locale}/strings`).json()
     },
     setLocale(locale) {
       this.$patch({
