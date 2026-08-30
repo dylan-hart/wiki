@@ -1091,6 +1091,13 @@ export const pageHistory = pgTable(
   ]
 )
 
+/**
+ * Where a suggestion stands: `open` while it awaits review, `approved`/`declined` once a reviewer has
+ * resolved it. Resolved rows are retained (see `pageEditSubmissions` below) rather than deleted, so
+ * this is what every "still pending" query filters on.
+ */
+export const submissionStatusEnum = pgEnum('submissionStatus', ['open', 'approved', 'declined'])
+
 // PAGE EDIT SUBMISSIONS ---------------
 /**
  * An edit suggested by somebody who may read a page but not change it, waiting to be reviewed.
@@ -1100,6 +1107,10 @@ export const pageHistory = pgTable(
  * people suggesting edits to different parts of a page can both be accepted. The source is what the
  * author resumes from and what a review screen shows, and it cannot be reconstructed from the patch
  * alone once the page has moved on.
+ *
+ * A resolved submission (`approved` or `declined`) is retained rather than deleted, so its author can
+ * be shown what happened and why: `resolvedReason` carries the reviewer's optional decline note (or is
+ * null for an approval, or while still `open`), and `resolvedBy` is who resolved it.
  */
 export const pageEditSubmissions = pgTable(
   'pageEditSubmissions',
@@ -1114,6 +1125,11 @@ export const pageEditSubmissions = pgTable(
     //    logged in author, whose name is on `authorId` instead.
     guestName: varchar({ length: 255 }),
     guestEmail: varchar({ length: 255 }),
+    status: submissionStatusEnum().notNull().default('open'),
+    /** The reviewer's note on why an `approved`/`declined` submission was resolved that way. */
+    resolvedReason: text(),
+    /** Who approved or declined this submission. Null while `open`. */
+    resolvedBy: uuid().references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     pageId: uuid()
@@ -1132,11 +1148,13 @@ export const pageEditSubmissions = pgTable(
     index('pageEditSubmissions_pageId_idx').on(table.pageId),
     index('pageEditSubmissions_siteId_idx').on(table.siteId),
     index('pageEditSubmissions_authorId_idx').on(table.authorId),
-    // -> One open suggestion per person per page: coming back to the button continues that one rather
-    //    than starting a second. Guests are excluded because they are all the same nobody.
+    // -> One OPEN suggestion per person per page: coming back to the button continues that one rather
+    //    than starting a second. Guests are excluded because they are all the same nobody. Scoped to
+    //    `status = 'open'` rather than every row for the pair, so a resolved submission -- retained now
+    //    rather than deleted -- does not block the same author from suggesting again later.
     uniqueIndex('pageEditSubmissions_page_author_idx')
       .on(table.pageId, table.authorId)
-      .where(sql`"authorId" IS NOT NULL`)
+      .where(sql`"authorId" IS NOT NULL AND "status" = 'open'`)
   ]
 )
 

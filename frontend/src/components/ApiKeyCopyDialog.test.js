@@ -12,10 +12,19 @@ import { queue as notifyQueue } from '@/composables/notify'
  * `--scope local` (never `project`, which would write the bearer token into a committed `.mcp.json`
  * -- see the component's own doc comment).
  */
-function mountDialog(keyValue = 'wiki_abc123.def456') {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+function mountDialog(props = {}) {
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    messages: {
+      en: {
+        admin: { api: { copyKeyTitle: 'Copy API Key', key: 'API Key' } },
+        profile: { api: { copyKeyTitle: 'Copy Access Token', key: 'Access Token' } }
+      }
+    }
+  })
   return mount(ApiKeyCopyDialog, {
-    props: { keyValue },
+    props: { keyValue: 'wiki_abc123.def456', ...props },
     global: {
       plugins: [i18n],
       components: { BlueprintIcon }
@@ -41,7 +50,7 @@ describe('ApiKeyCopyDialog mcp install command', () => {
   })
 
   it('builds a claude mcp add command with the origin, key, and --scope local', () => {
-    const wrapper = mountDialog('wiki_abc123.def456')
+    const wrapper = mountDialog({ keyValue: 'wiki_abc123.def456' })
 
     expect(wrapper.vm.mcpInstallCommand).toBe(
       'claude mcp add --transport http wikijs https://wiki.example.com/_mcp ' +
@@ -55,7 +64,7 @@ describe('ApiKeyCopyDialog mcp install command', () => {
       writable: true
     })
 
-    const wrapper = mountDialog('another-key')
+    const wrapper = mountDialog({ keyValue: 'another-key' })
 
     expect(wrapper.vm.mcpInstallCommand).toContain('http://localhost:3000/_mcp')
     expect(wrapper.vm.mcpInstallCommand).toContain('--scope local')
@@ -69,7 +78,7 @@ describe('ApiKeyCopyDialog mcp install command', () => {
       configurable: true
     })
 
-    const wrapper = mountDialog('wiki_abc123.def456')
+    const wrapper = mountDialog({ keyValue: 'wiki_abc123.def456' })
     await wrapper.vm.copyMcpInstallCommand()
 
     expect(writeText).toHaveBeenCalledWith(wrapper.vm.mcpInstallCommand)

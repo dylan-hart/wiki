@@ -61,10 +61,22 @@ function mountDialog(site = { id: 1, title: 'Test Site' }) {
   searches the latter, so the confirm button has to be found (and triggered, via a real DOM event)
   through `document` directly.
 */
+function deleteButton() {
+  const buttons = document.body.querySelectorAll('.card-actions button')
+  return buttons[buttons.length - 1]
+}
+
 async function clickDelete() {
   await flushPromises()
-  const buttons = document.body.querySelectorAll('.card-actions button')
-  buttons[buttons.length - 1].dispatchEvent(new Event('click', { bubbles: true }))
+  deleteButton().dispatchEvent(new Event('click', { bubbles: true }))
+  await flushPromises()
+}
+
+async function typeConfirmText(text) {
+  await flushPromises()
+  const input = document.body.querySelector('.w-input input')
+  input.value = text
+  input.dispatchEvent(new Event('input', { bubbles: true }))
   await flushPromises()
 }
 
@@ -75,6 +87,7 @@ describe('SiteDeleteDialog confirm()', () => {
     })
 
     const wrapper = mountDialog()
+    await typeConfirmText('Test Site')
     await clickDelete()
 
     expect(notifyQueue.at(-1)?.message).toBe('You cannot delete the last remaining site.')
@@ -88,18 +101,45 @@ describe('SiteDeleteDialog confirm()', () => {
     })
 
     const wrapper = mountDialog()
+    await typeConfirmText('Test Site')
     await clickDelete()
 
     expect(notifyQueue.at(-1)?.message).toBe('This site still holds content and cannot be deleted.')
   })
 
-  it('confirms and closes on success', async () => {
+  it('confirms and closes on success once the site title is typed exactly', async () => {
     API_CLIENT.delete.mockReturnValueOnce({ ok: true })
 
     const wrapper = mountDialog()
+    await typeConfirmText('Test Site')
     await clickDelete()
 
     expect(wrapper.emitted('ok')).toBeTruthy()
     expect(notifyQueue.at(-1)?.type).toBe('positive')
+  })
+
+  it('keeps the Delete button disabled until the typed value matches the site title exactly', async () => {
+    mountDialog()
+    await flushPromises()
+
+    expect(deleteButton().disabled).toBe(true)
+
+    await typeConfirmText('Test Sit')
+    expect(deleteButton().disabled).toBe(true)
+
+    await typeConfirmText('test site')
+    expect(deleteButton().disabled).toBe(true)
+
+    await typeConfirmText('Test Site')
+    expect(deleteButton().disabled).toBe(false)
+  })
+
+  it('does not call the API or emit confirm while the typed value does not match', async () => {
+    const wrapper = mountDialog()
+    await typeConfirmText('not the site title')
+    await clickDelete()
+
+    expect(API_CLIENT.delete).not.toHaveBeenCalled()
+    expect(wrapper.emitted('ok')).toBeUndefined()
   })
 })

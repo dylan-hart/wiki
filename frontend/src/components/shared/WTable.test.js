@@ -118,76 +118,6 @@ describe('WTable', () => {
     expect(rows.map((r) => r.name)).toEqual(['Charlie', 'Alice', 'Bob'])
   })
 
-  describe('#no-data slot', () => {
-    const columns = [{ name: 'name', label: 'Name', align: 'left', field: 'name' }]
-
-    it('is not rendered while rows are present', () => {
-      const wrapper = mount(WTable, {
-        props: { rows: [{ name: 'Alice' }], columns },
-        slots: { 'no-data': 'Nothing here' }
-      })
-
-      expect(wrapper.text()).not.toContain('Nothing here')
-    })
-
-    it('is not rendered while loading, even with no rows', () => {
-      const wrapper = mount(WTable, {
-        props: { rows: [], columns, loading: true },
-        slots: { 'no-data': 'Nothing here' }
-      })
-
-      expect(wrapper.text()).not.toContain('Nothing here')
-    })
-
-    it('is rendered when rows are empty and not loading', () => {
-      const wrapper = mount(WTable, {
-        props: { rows: [], columns, loading: false },
-        slots: { 'no-data': 'Nothing here' }
-      })
-
-      expect(wrapper.text()).toContain('Nothing here')
-    })
-
-    it('is rendered when a filter matches nothing, even though rows were supplied', () => {
-      const wrapper = mount(WTable, {
-        props: { rows: [{ name: 'Alice' }], columns, filter: 'no-such-name' },
-        slots: { 'no-data': 'Nothing here' }
-      })
-
-      expect(wrapper.text()).toContain('Nothing here')
-    })
-
-    it('exposes the unfiltered row count and the active filter as slot props', () => {
-      const wrapper = mount(WTable, {
-        props: { rows: [{ name: 'Alice' }, { name: 'Bob' }], columns, filter: 'zzz' },
-        slots: {
-          'no-data': `<template #no-data="{ totalRows, filter }">{{ totalRows }}::{{ filter }}</template>`
-        }
-      })
-
-      expect(wrapper.text()).toContain('2::zzz')
-    })
-
-    it('lets a caller distinguish an empty source (totalRows 0) from a non-matching filter (totalRows > 0)', () => {
-      const emptySource = mount(WTable, {
-        props: { rows: [], columns, filter: '' },
-        slots: {
-          'no-data': `<template #no-data="{ totalRows }">{{ totalRows < 1 ? 'empty' : 'no-match' }}</template>`
-        }
-      })
-      expect(emptySource.text()).toContain('empty')
-      expect(emptySource.text()).not.toContain('no-match')
-
-      const noMatch = mount(WTable, {
-        props: { rows: [{ name: 'Alice' }], columns, filter: 'zzz' },
-        slots: {
-          'no-data': `<template #no-data="{ totalRows }">{{ totalRows < 1 ? 'empty' : 'no-match' }}</template>`
-        }
-      })
-      expect(noMatch.text()).toContain('no-match')
-    })
-  })
-
   it('renders each row under the w-table__row class and falls back to w-td for an unslotted column', () => {
     const columns = [
       { name: 'name', label: 'Name', field: 'name' },
@@ -198,5 +128,73 @@ describe('WTable', () => {
 
     expect(wrapper.findAll('tbody tr.w-table__row')).toHaveLength(1)
     expect(wrapper.findAll('td.w-td').length).toBeGreaterThan(0)
+  })
+})
+
+const NO_DATA_COLUMNS = [{ label: 'Name', field: 'name', name: 'name' }]
+
+describe('WTable #no-data slot', () => {
+  it('is not rendered when rows are present', () => {
+    const wrapper = mount(WTable, {
+      props: { rows: [{ name: 'Alice' }], columns: NO_DATA_COLUMNS },
+      slots: { 'no-data': 'Nothing here' }
+    })
+
+    expect(wrapper.find('.w-table__no-data').exists()).toBe(false)
+  })
+
+  it('is not rendered while loading, even with no rows', () => {
+    const wrapper = mount(WTable, {
+      props: { rows: [], columns: NO_DATA_COLUMNS, loading: true },
+      slots: { 'no-data': 'Nothing here' }
+    })
+
+    expect(wrapper.find('.w-table__no-data').exists()).toBe(false)
+  })
+
+  it('is not rendered at all when the caller supplies no #no-data slot', () => {
+    const wrapper = mount(WTable, {
+      props: { rows: [], columns: NO_DATA_COLUMNS }
+    })
+
+    expect(wrapper.find('.w-table__no-data').exists()).toBe(false)
+  })
+
+  it('renders when rows are empty and not loading', () => {
+    const wrapper = mount(WTable, {
+      props: { rows: [], columns: NO_DATA_COLUMNS },
+      slots: { 'no-data': 'Nothing here' }
+    })
+
+    expect(wrapper.find('.w-table__no-data').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Nothing here')
+  })
+
+  it('exposes rowsCount (the unfiltered row count) and filter as slot props', () => {
+    const wrapper = mount(WTable, {
+      props: {
+        rows: [{ name: 'Alice' }, { name: 'Bob' }],
+        columns: NO_DATA_COLUMNS,
+        filter: 'zzz'
+      },
+      slots: {
+        'no-data': `<template #no-data="{ rowsCount, filter }">{{ rowsCount }}|{{ filter }}</template>`
+      }
+    })
+
+    // -> Both rows are filtered out by 'zzz', so the slot renders -- and rowsCount reports the
+    //    unfiltered count (2), not the post-filter count (0), which is the whole point of exposing it.
+    expect(wrapper.find('.w-table__no-data').text()).toBe('2|zzz')
+  })
+
+  it('reports rowsCount 0 when the source itself is empty, distinguishing it from a non-matching filter', () => {
+    const wrapper = mount(WTable, {
+      props: { rows: [], columns: NO_DATA_COLUMNS, filter: '' },
+      slots: {
+        'no-data': `<template #no-data="{ rowsCount, filter }">count={{ rowsCount }} filter="{{ filter }}"</template>`
+      }
+    })
+
+    expect(wrapper.find('.w-table__no-data').text()).toBe('count=0 filter=""')
   })
 })

@@ -1,63 +1,87 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 
 import PasskeyCreateDialog from './PasskeyCreateDialog.vue'
 import { queue as notifyQueue } from '@/composables/notify'
 
-/**
- * OpenProject #2060: the submit handler used to validate by throwing inside `save()` and surfacing
- * the message as a toast. Moved onto the app's one validation convention (`:rules` + a `w-form` ref,
- * `validate()` called at the top of the submit handler), matching `FolderRenameDialog` /
- * `AssetRenameDialog`.
- */
+const messages = {
+  en: {
+    profile: {
+      passkeysAdd: 'Add Passkey',
+      passkeysName: 'Passkey Name',
+      passkeysNameHint: 'Enter a name for your passkey:',
+      passkeysInvalidName: 'Passkey name is missing or invalid.'
+    },
+    common: {
+      actions: {
+        cancel: 'Cancel',
+        save: 'Save'
+      }
+    }
+  }
+}
+
 async function mountDialog() {
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: { en: { profile: { passkeysInvalidName: 'Please enter a valid name.' } } }
-  })
+  const i18n = createI18n({ legacy: false, locale: 'en', messages })
   const wrapper = mount(PasskeyCreateDialog, {
-    props: {},
     global: { plugins: [i18n], stubs: { teleport: true } }
   })
+  // -> `useDialogComponent` flips `dialogVisible` (and mounts `WDialog`'s panel) a tick after mount
   await flushPromises()
   return wrapper
 }
 
-describe('PasskeyCreateDialog validation', () => {
-  beforeEach(() => {
+describe('PasskeyCreateDialog', () => {
+  /*
+    OpenProject #2060: the dialog used to validate by throwing inside `save()` and surfacing the
+    message as a toast -- the one dialog in the app not following the `:rules` + inline-error
+    convention. An invalid entry now fails `WForm#validate()`, which renders the message under the
+    field, and `save()` returns early without ever throwing or calling `notify()`.
+  */
+  it('shows an inline field error and does not notify or emit ok when the name is empty', async () => {
     notifyQueue.length = 0
-  })
-
-  it('shows an inline field error and makes no notify() call for an empty name', async () => {
     const wrapper = await mountDialog()
 
-    await wrapper.vm.save()
-    await wrapper.vm.$nextTick()
+    await wrapper
+      .findAll('button')
+      .find((btn) => btn.text() === 'Save')
+      .trigger('click')
+    await flushPromises()
 
-    expect(wrapper.text()).toContain('Please enter a valid name.')
+    expect(wrapper.text()).toContain('Passkey name is missing or invalid.')
     expect(notifyQueue).toHaveLength(0)
     expect(wrapper.emitted('ok')).toBeUndefined()
   })
 
-  it('rejects a name over 255 characters with the same inline error', async () => {
+  it('shows an inline field error for a name over 255 characters, without notifying', async () => {
+    notifyQueue.length = 0
     const wrapper = await mountDialog()
 
     await wrapper.find('input').setValue('a'.repeat(256))
-    await wrapper.vm.save()
-    await wrapper.vm.$nextTick()
+    await wrapper
+      .findAll('button')
+      .find((btn) => btn.text() === 'Save')
+      .trigger('click')
+    await flushPromises()
 
-    expect(wrapper.text()).toContain('Please enter a valid name.')
+    expect(wrapper.text()).toContain('Passkey name is missing or invalid.')
+    expect(notifyQueue).toHaveLength(0)
     expect(wrapper.emitted('ok')).toBeUndefined()
   })
 
-  it('emits ok with the entered name once it is valid', async () => {
+  it('emits ok with the trimmed-valid name once the field passes validation', async () => {
+    notifyQueue.length = 0
     const wrapper = await mountDialog()
 
-    await wrapper.find('input').setValue('My Security Key')
-    await wrapper.vm.save()
+    await wrapper.find('input').setValue('My Laptop')
+    await wrapper
+      .findAll('button')
+      .find((btn) => btn.text() === 'Save')
+      .trigger('click')
+    await flushPromises()
 
-    expect(wrapper.emitted('ok')).toEqual([[{ name: 'My Security Key' }]])
+    expect(wrapper.emitted('ok')).toEqual([[{ name: 'My Laptop' }]])
+    expect(notifyQueue).toHaveLength(0)
   })
 })

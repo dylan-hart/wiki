@@ -65,7 +65,6 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { filesize } from 'filesize'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
@@ -74,6 +73,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useAdminStore } from '@/stores/admin'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { DEFAULT_MAX_BLOCK_UPLOAD_SIZE, validateBlockFile } from '@/helpers/blockUpload'
+import { formatFileSize } from '@/helpers/fileSize'
 
 // EMITS
 
@@ -100,7 +100,7 @@ const state = reactive({
   isLoading: false
 })
 
-const humanMaxFileSize = computed(() => filesize(state.maxFileSize, { base: 2, standard: 'jedec' }))
+const humanMaxFileSize = computed(() => formatFileSize(state.maxFileSize))
 
 // REFS
 

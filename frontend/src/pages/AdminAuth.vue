@@ -516,7 +516,7 @@
           <w-space />
           <w-btn
             class="acrylic-btn"
-            icon="la:trash-alt"
+            icon="la:trash"
             flat
             color="negative"
             :disable="isBuiltInLocal"

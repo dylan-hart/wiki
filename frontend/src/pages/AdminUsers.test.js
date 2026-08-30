@@ -16,6 +16,11 @@ function usersResponse({ total = 45, users = USERS_PAGE_1.users } = {}) {
   return { json: () => Promise.resolve({ total, users }) }
 }
 
+const MESSAGES = {
+  'admin.users.emptyText': 'No users have been created yet.',
+  'admin.users.searchNoResults': 'No user matches your search.'
+}
+
 async function mountPage() {
   setActivePinia(createPinia())
   const userStore = useUserStore()
@@ -31,7 +36,7 @@ async function mountPage() {
   router.push('/_admin/users')
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
 
   const wrapper = mount(AdminUsers, {
     global: { plugins: [router, i18n] }
@@ -113,5 +118,36 @@ describe('AdminUsers search resets the pager (OpenProject #953)', () => {
 
     expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
     expect(wrapper.vm.state?.currentPage ?? 1).toBe(1)
+  })
+})
+
+/**
+ * OpenProject #2064: `AdminUsers` filters server-side, so a no-match search empties `state.users`
+ * entirely -- with `hide-header` set on `<w-table>`, that used to be a literally blank white card.
+ */
+describe('AdminUsers empty state (OpenProject #2064)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('shows the no-match message, not the empty-source message, for a search that returns no rows', async () => {
+    const { wrapper } = await mountPage()
+
+    API_CLIENT.get.mockImplementation((_url, opts) =>
+      opts?.searchParams?.filter ? usersResponse({ total: 0, users: [] }) : usersResponse()
+    )
+
+    const search = wrapper.find('input')
+    await search.setValue('nobody-matches-this')
+    await vi.advanceTimersByTimeAsync(400)
+    await vi.waitUntil(() => wrapper.vm.state?.users?.length === 0)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('No user matches your search.')
+    expect(wrapper.text()).not.toContain('No users have been created yet.')
   })
 })

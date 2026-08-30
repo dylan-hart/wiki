@@ -62,7 +62,7 @@
                   @click="startEdit(entry.comment)" />
                 <w-btn
                   class="page-comments-delete-toggle"
-                  icon="mdi:trash-can-outline"
+                  icon="la:trash"
                   flat
                   round
                   dense

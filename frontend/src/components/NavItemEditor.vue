@@ -128,7 +128,7 @@
                 @click="clearItems"
                 :disabled="!state.items.some((item) => !item.generated)">
                 <w-item-section side>
-                  <w-icon name="la:trash-alt" color="negative" />
+                  <w-icon name="la:trash" color="negative" />
                 </w-item-section>
                 <w-item-section>
                   <w-item-label>{{ t('navEdit.clearItems') }}</w-item-label>
@@ -236,7 +236,7 @@
           <w-btn
             class="acrylic-btn"
             flat
-            icon="la:trash-alt"
+            icon="la:trash"
             :label="t(`common.actions.delete`)"
             color="negative"
             padding="xs md"
@@ -433,7 +433,7 @@
           <w-btn
             class="acrylic-btn"
             flat
-            icon="la:trash-alt"
+            icon="la:trash"
             :label="t(`common.actions.delete`)"
             color="negative"
             padding="xs md"
@@ -491,7 +491,7 @@
           <w-btn
             class="acrylic-btn"
             flat
-            icon="la:trash-alt"
+            icon="la:trash"
             :label="t(`common.actions.delete`)"
             color="negative"
             padding="xs md"

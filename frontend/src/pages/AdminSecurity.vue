@@ -584,10 +584,9 @@ import { loading } from '@/composables/loading'
 
 import { useSiteStore } from '@/stores/site'
 
-import { filesize } from 'filesize'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate } from '@/helpers/datetime'
-import { parseFileSize } from '@/helpers/fileSize'
+import { formatFileSize, parseFileSize } from '@/helpers/fileSize'
 
 // STORES
 
@@ -698,10 +697,7 @@ async function load() {
     if (typeof state.config.trustProxy === 'string') {
       trustProxyAddressCache.value = state.config.trustProxy
     }
-    state.humanUploadMaxFileSize = filesize(state.config.uploadMaxFileSize ?? 0, {
-      base: 2,
-      standard: 'jedec'
-    })
+    state.humanUploadMaxFileSize = formatFileSize(state.config.uploadMaxFileSize)
   } catch (err) {
     notify({
       type: 'negative',

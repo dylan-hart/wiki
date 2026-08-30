@@ -66,9 +66,14 @@
           </w-item-section>
           <w-item-section>{{ t('fileman.title') }}</w-item-section>
         </w-item>
-        <w-item v-if="userStore.authenticated" clickable to="/_inbox" @click="close">
+        <!--
+          OpenProject #2024: kept in step with the wide-viewport button's own destination and glyph
+          (`HeaderNav.vue`) -- `/_inbox/watching`, `la:bell` -- rather than the old `/_inbox` redirect
+          into the now-deleted Messages stub and its unrelated `mdi:inbox-full` icon.
+        -->
+        <w-item v-if="userStore.authenticated" clickable to="/_inbox/watching" @click="close">
           <w-item-section avatar>
-            <w-icon name="mdi:inbox-full" class="text-amber" />
+            <w-icon name="la:bell" class="text-amber" />
           </w-item-section>
           <w-item-section>{{ t('inbox.title') }}</w-item-section>
         </w-item>

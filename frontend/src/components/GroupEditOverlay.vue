@@ -1093,6 +1093,7 @@ async function importRules() {
           { label: t('admin.groups.importModeAdd'), value: 'add' }
         ]
       },
+      cancel: true,
       persistent: true
     }).onOk((choice) => {
       if (choice === 'replace') {

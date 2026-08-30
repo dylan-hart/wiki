@@ -29,7 +29,7 @@ app.use(router)
 
 initializeHairlines()
 initializeAnalytics(store)
-initializeApi()
+initializeApi(router)
 initializeComponents(app)
 initializeEventBus()
 initializeIconify()

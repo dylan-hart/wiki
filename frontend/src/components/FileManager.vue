@@ -504,7 +504,7 @@
                         </template>
                         <w-item clickable @click="delItem(item)">
                           <w-item-section side>
-                            <w-icon name="la:trash-alt" color="negative" />
+                            <w-icon name="la:trash" color="negative" />
                           </w-item-section>
                           <w-item-section class="text-negative">{{
                             t(`common.actions.delete`)
@@ -552,7 +552,6 @@ import { useDark } from '@/composables/dark'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
-import { filesize } from 'filesize'
 import Fuse from 'fuse.js/basic'
 import NewMenu from './PageNewMenu.vue'
 import Tree from './TreeNav.vue'
@@ -560,6 +559,7 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { assetUrl } from '@/helpers/assets'
 import { humanizeDate } from '@/helpers/datetime'
 import fileTypes from '@/helpers/fileTypes'
+import { formatFileSize } from '@/helpers/fileSize'
 import { isHomePath, localizedPagePath } from '@/helpers/pagePaths'
 import FolderCreateDialog from '@/components/FolderCreateDialog.vue'
 import FolderDeleteDialog from '@/components/FolderDeleteDialog.vue'
@@ -773,7 +773,7 @@ const files = computed(() => {
         }
         case 'asset': {
           f.icon = fileTypes[f.fileExt]?.icon ?? ''
-          f.side = filesize(f.fileSize, { round: 0 })
+          f.side = formatFileSize(f.fileSize)
           if (fileTypes[f.fileExt]) {
             f.caption = t(`fileman.${f.fileExt}FileType`)
           } else {
@@ -834,7 +834,7 @@ const currentFileDetails = computed(() => {
       })
       items.push({
         label: t('fileman.detailsAssetSize'),
-        value: filesize(item.fileSize)
+        value: formatFileSize(item.fileSize)
       })
       break
     }
@@ -1647,14 +1647,14 @@ function delItem(item) {
 }
 
 /**
- * Ctrl+K reaches THIS search field while the overlay is up.
+ * Cmd+K (macOS/iOS) or Ctrl+K (everywhere else) reaches THIS search field while the overlay is up.
  *
  * HeaderSearch owns the same shortcut and steps aside for an overlay (see the note there), so the two
  * never both answer it. Bound and unbound with the component, which only exists while the overlay is
  * open -- the listener's lifetime is the window in which it should win.
  */
 function handleKeyPress(ev) {
-  if (ev.ctrlKey && ev.key === 'k') {
+  if ((ev.metaKey || ev.ctrlKey) && ev.key === 'k') {
     ev.preventDefault()
     searchField.value?.focus()
   }

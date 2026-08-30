@@ -90,6 +90,9 @@
               </div>
             </w-td>
           </template>
+          <template #no-data>
+            {{ t('admin.cluster.emptyText') }}
+          </template>
         </w-table>
       </w-card>
     </div>

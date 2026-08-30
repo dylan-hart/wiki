@@ -101,6 +101,7 @@ const props = defineProps({
   //    access token flow -- the two string sets say the same things ("Copy Access Token", ...) under
   //    different i18n namespaces, since a personal token isn't an admin's "API Key" to the reader
   //    holding it. `admin.api.mcpInstallCommand*` is genuinely global and is not routed through this.
+  //    Mirrors `ApiKeyRevokeDialog`'s own `labelPrefix` prop.
   labelPrefix: {
     type: String,
     default: 'admin.api'

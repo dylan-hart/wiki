@@ -145,7 +145,7 @@
                 <w-item-label>{{
                   t('admin.icons.diskCacheValue', {
                     count: state.cache.diskCount ?? 0,
-                    size: prettyBytes(state.cache.diskSize ?? 0)
+                    size: formatFileSize(state.cache.diskSize)
                   })
                 }}</w-item-label>
               </w-item-section>
@@ -257,6 +257,7 @@ import { confirm } from '@/composables/dialog'
 
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { formatFileSize } from '@/helpers/fileSize'
 
 // COMPOSABLES
 
@@ -306,16 +307,6 @@ const filteredAvailableSets = computed(() => {
 })
 
 // METHODS
-
-function prettyBytes(bytes) {
-  if (bytes < 1024) {
-    return `${bytes} B`
-  }
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} kB`
-  }
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
 
 /**
  * The Iconify page for the set, which lists every icon it holds with its name.

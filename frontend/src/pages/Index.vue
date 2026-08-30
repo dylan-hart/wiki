@@ -918,10 +918,25 @@ watch(
         if (newValue === '/') {
           if (!userStore.authenticated) {
             router.push('/login')
-          } else if (!userStore.can('write:pages')) {
-            router.replace('/_error/unauthorized')
           } else {
-            siteStore.overlay = 'Welcome'
+            /*
+              The one place the page permissions have to be asked for on their own -- same as the
+              non-root branch below, and for the same reason: `write:pages` is a page-rule
+              permission, so a cold load's empty `pagePermissions` can only ever answer this
+              truthfully for `manage:system`. Asked at `'home'`, not `pagePath` (which is just `/`
+              here): page rules are written against real page paths, and `'home'` is what the server
+              already treats the root as everywhere else (e.g. `backend/api/pages.ts`'s own
+              `path || 'home'`). OpenProject #2063.
+            */
+            await userStore.fetchPagePermissions('home', pageLocale)
+            if (userStore.can('write:pages')) {
+              siteStore.overlay = 'Welcome'
+            } else {
+              // -> Same missing-page placeholder the non-root branch below draws, not
+              //    `/_error/unauthorized`: a reader who may not write here is not wrong about the
+              //    page -- it genuinely doesn't exist -- so this is what tells them that, truthfully.
+              pageStore.pageNotFound({ path: 'home' })
+            }
           }
         } else {
           /*

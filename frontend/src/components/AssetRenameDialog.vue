@@ -100,7 +100,7 @@ const nameValidation = [
 // METHODS
 
 async function rename() {
-  const isFormValid = await renameAssetForm.value?.validate()
+  const isFormValid = await renameAssetForm.value.validate(true)
   if (!isFormValid) {
     return
   }

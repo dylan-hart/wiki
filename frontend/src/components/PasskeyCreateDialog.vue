@@ -5,7 +5,7 @@
         <w-icon name="img:/_assets/icons/fluent-add-key.svg" size="sm" class="mr-2" />
         <span>{{ t(`profile.passkeysAdd`) }}</span>
       </w-card-section>
-      <w-form ref="passkeyCreateForm" class="py-2">
+      <w-form ref="passkeyForm" class="py-2" @submit="save">
         <div class="text-body2 px-4 py-2">{{ t(`profile.passkeysNameHint`) }}</div>
         <w-item>
           <blueprint-icon icon="key" />
@@ -69,19 +69,18 @@ const state = reactive({
 
 // REFS
 
-const passkeyCreateForm = ref(null)
+const passkeyForm = ref(null)
 
 // VALIDATION RULES
 
 const nameValidation = [
-  (val) => (!!val && val.trim().length > 0 && val.length <= 255) || t('profile.passkeysInvalidName')
+  (val) => (val && val.trim().length > 0 && val.length <= 255) || t('profile.passkeysInvalidName')
 ]
 
 // METHODS
 
 async function save() {
-  const isFormValid = await passkeyCreateForm.value?.validate()
-  if (!isFormValid) {
+  if (!(await passkeyForm.value.validate(true))) {
     return
   }
   onDialogOK({

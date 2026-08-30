@@ -1709,6 +1709,10 @@ function flushEditorContent() {
  * sets `editorStore.saveConflict` again, which re-triggers the `watch` below and puts this same
  * dialog back up with the newer snapshot -- the editor's content itself is never touched by a
  * refusal, only ever replaced by an explicit "Discard" choice.
+ *
+ * A "Discard" choice is itself still recoverable (OpenProject #2073): the author's pending content is
+ * stashed in `editorStore.discardedContent` right before it is overwritten, and the toast that
+ * follows offers it straight back via `undoDiscard()` below.
  */
 function resolveSaveConflict(snapshot) {
   dialog({
@@ -1717,6 +1721,7 @@ function resolveSaveConflict(snapshot) {
   })
     .onOk(async (action) => {
       if (action === 'discard') {
+        editorStore.stashDiscardedContent(pageStore.content)
         pageStore.$patch({
           title: snapshot.title,
           content: snapshot.content,
@@ -1728,6 +1733,17 @@ function resolveSaveConflict(snapshot) {
         // -> Adopting the server's copy leaves nothing of this author's pending; see `hasPendingChanges`
         const now = Temporal.Now.instant()
         editorStore.$patch({ lastChangeTimestamp: now, lastSaveTimestamp: now })
+        notify({
+          type: 'warning',
+          message: t('editor.collab.saveConflict.discarded'),
+          // -> Longer than the 5s default: this toast is the only remaining route back to the
+          //    author's discarded text, so it should still be there a moment after a quick glance.
+          timeout: 10000,
+          action: {
+            label: t('editor.collab.saveConflict.undoDiscard'),
+            onClick: undoDiscard
+          }
+        })
       } else if (action === 'overwrite') {
         pageStore.updatedAt = snapshot.updatedAt
         try {
@@ -1748,6 +1764,25 @@ function resolveSaveConflict(snapshot) {
     .onDismiss(() => {
       editorStore.saveConflict = null
     })
+}
+
+/**
+ * Restores the author's own content after a save-conflict "Discard" replaced it with the server's
+ * snapshot -- the undo action offered on the toast `resolveSaveConflict` raises right after
+ * (OpenProject #2073). Puts the stashed copy back into `pageStore.content` and the live Monaco model
+ * the same way discard itself does (`editor.setValue`), then clears the stash so a stray second
+ * click -- the toast is already gone by then, but nothing stops calling this directly -- has nothing
+ * left to restore.
+ */
+function undoDiscard() {
+  const content = editorStore.discardedContent
+  if (content === null) {
+    return
+  }
+  pageStore.$patch({ content, contentLoaded: true })
+  editor.setValue(content)
+  processContent(content)
+  editorStore.clearDiscardedContent()
 }
 
 watch(
