@@ -3,7 +3,8 @@ import { startCase } from 'es-toolkit/string'
 import crypto from 'node:crypto'
 import mime from 'mime'
 import fs from 'node:fs'
-import type { FastifyReply } from 'fastify'
+import fsp from 'node:fs/promises'
+import type { FastifyReply, FastifyRequest } from 'fastify'
 
 export interface Deferred<T = void> {
   resolve: (value: T) => void
@@ -572,9 +573,33 @@ export function parseModuleProps(
   return result
 }
 
-export function replyWithFile(reply: FastifyReply, filePath: string): FastifyReply {
-  const stream = fs.createReadStream(filePath)
+/**
+ * A file's bytes only change when this codebase's own on-disk contents change (a redeploy — a new
+ * build, a new process), never in response to a request, so there is no per-instance revalidation
+ * problem to solve for it and a long `max-age` is safe: this is not hash-named content though, so it
+ * still needs a validator for the rare case a client does revalidate (a forced reload, or the
+ * `max-age` window elapsing) to pick up a redeploy's new bytes without a full re-download.
+ */
+const REPLY_WITH_FILE_CACHE = 'public, max-age=86400'
+
+export async function replyWithFile(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  filePath: string
+): Promise<FastifyReply> {
+  const stats = await fsp.stat(filePath)
+  // -> Weak because it's derived from size+mtime rather than the file's actual bytes — cheap to
+  //    compute (no read/hash of the file itself) and sufficient: the only thing that can change
+  //    these bytes is a redeploy, which always touches both.
+  const etag = `W/"${stats.size}-${stats.mtimeMs}"`
   reply.header('Content-Type', mime.getType(filePath))
+  reply.header('Cache-Control', REPLY_WITH_FILE_CACHE)
+  reply.header('ETag', etag)
+  reply.header('Last-Modified', stats.mtime.toUTCString())
+  if (req.headers['if-none-match'] === etag) {
+    return reply.code(304).send()
+  }
+  const stream = fs.createReadStream(filePath)
   return reply.send(stream)
 }
 
