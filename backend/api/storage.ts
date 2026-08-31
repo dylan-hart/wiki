@@ -48,7 +48,7 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
-      return WIKI.models.storage.getSiteTargets(req.params.siteId)
+      return WIKI.models.storage.getSiteTargets(req.params.siteId, { mask: true })
     }
   )
 

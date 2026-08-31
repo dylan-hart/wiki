@@ -672,6 +672,33 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
       assert.equal(custom.isSelected, false)
       assert.deepEqual(custom.config, { apiKey: 'still-here', mode: 'accurate' })
     })
+
+    test('a sensitive prop (apiKey) never leaves a masked read, and default (unmasked) stays real', async () => {
+      ;(globalThis as any).WIKI.sites['site-e'] = {
+        id: 'site-e',
+        config: {
+          search: {
+            engine: 'custom-engine',
+            engines: { 'custom-engine': { apiKey: 'super-secret-key', mode: 'accurate' } }
+          }
+        }
+      }
+
+      // -> Default: `selectEngine()`/`initActiveEngines()` never call this at all, but any future
+      //    caller besides the admin list route must still get the real value by default.
+      const unmasked = await search.getSiteEngines('site-e')
+      assert.equal(
+        unmasked.find((e) => e.key === 'custom-engine')!.config.apiKey,
+        'super-secret-key'
+      )
+
+      // -> `{ mask: true }`: what the admin GET routes (api/search.ts) actually return.
+      const masked = await search.getSiteEngines('site-e', { mask: true })
+      const custom = masked.find((e) => e.key === 'custom-engine')!
+      assert.equal(custom.config.apiKey, '********')
+      // -> A non-sensitive prop on the same engine is untouched by masking.
+      assert.equal(custom.config.mode, 'accurate')
+    })
   })
 
   describe('getEngineConfig()', () => {
@@ -713,6 +740,24 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
 
     test('returns an empty object for an unknown engine key', () => {
       assert.deepEqual(search.buildEngineConfig('nonexistent', { anything: 1 }), {})
+    })
+
+    test('drops a sensitive value that is just the mask echoed back, keeping the real existing one', () => {
+      const config = search.buildEngineConfig(
+        'custom-engine',
+        { apiKey: '********', mode: 'accurate' },
+        { apiKey: 'real-existing-secret', mode: 'fast' }
+      )
+      assert.deepEqual(config, { apiKey: 'real-existing-secret', mode: 'accurate' })
+    })
+
+    test('accepts a genuinely new sensitive value that happens not to be the mask', () => {
+      const config = search.buildEngineConfig(
+        'custom-engine',
+        { apiKey: 'brand-new-secret' },
+        { apiKey: 'old-secret' }
+      )
+      assert.deepEqual(config, { apiKey: 'brand-new-secret', mode: 'fast' })
     })
   })
 

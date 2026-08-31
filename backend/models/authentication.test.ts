@@ -1,7 +1,8 @@
-import { describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { authentication } from './authentication.ts'
+import { hasTestDatabase, setupTestDb, teardownTestDb } from '../test/db.ts'
 
 /**
  * `refreshStrategiesFromDisk()` reads real `definition.yml` files under `modules/authentication/` —
@@ -44,3 +45,63 @@ describe('authentication module definitions: refs guidance', () => {
     assert.ok(!mod!.refs, 'ldap should not declare a refs block')
   })
 })
+
+describe(
+  'authentication: sensitive config masking (DB-backed, real oauth2 definition read from disk)',
+  { skip: !hasTestDatabase() },
+  () => {
+    before(async () => {
+      // -> This suite needs nothing from the returned fixtures (no site/user/group involved) -- only
+      //    the DB connection and migrated schema `setupTestDb()` sets up as a side effect.
+      await setupTestDb()
+      // -> `updateStrategy`/`getActiveStrategies`'s sort calls `isBuiltInLocal`, which reads
+      //    `WIKI.data.systemIds.localAuthId` -- `setupTestDb()`'s own minimal WIKI has no
+      //    `systemIds` at all, since no other DB-backed suite needs one. A value that matches no
+      //    strategy this suite creates is all `isBuiltInLocal` needs to answer false for all of them.
+      ;(WIKI.data as any).systemIds = { localAuthId: 'unused-in-this-suite' }
+      await authentication.refreshStrategiesFromDisk()
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test('a sensitive prop (oauth2 clientSecret) never leaves a masked getActiveStrategies()/getStrategyById() read', async () => {
+      const id = await authentication.createStrategy({
+        module: 'oauth2',
+        config: { clientId: 'my-client-id', clientSecret: 'super-secret-value' }
+      })
+
+      // -> Default (unmasked): `updateStrategy()`'s own merge reads through this method, and needs
+      //    the real value to preserve an untouched secret correctly.
+      let strategy = await authentication.getStrategyById(id)
+      assert.equal(strategy?.config.clientSecret, 'super-secret-value')
+
+      // -> `{ mask: true }`: what the admin GET routes (api/authentication.ts) actually return.
+      strategy = await authentication.getStrategyById(id, { mask: true })
+      assert.equal(strategy?.config.clientSecret, '********')
+      // -> A non-sensitive prop on the same strategy is untouched by masking.
+      assert.equal(strategy?.config.clientId, 'my-client-id')
+
+      const maskedList = await authentication.getActiveStrategies({ mask: true })
+      assert.equal(maskedList.find((s) => s.id === id)!.config.clientSecret, '********')
+    })
+
+    test('a PUT that echoes the mask back leaves the real stored secret unchanged', async () => {
+      const id = await authentication.createStrategy({
+        module: 'oauth2',
+        config: { clientId: 'original-id', clientSecret: 'original-secret' }
+      })
+
+      // -> Simulates an admin form resubmitting the masked value it was shown, having only changed
+      //    an unrelated field (clientId) -- the clientSecret field itself was never touched.
+      await authentication.updateStrategy(id, {
+        config: { clientId: 'updated-id', clientSecret: '********' }
+      })
+
+      const strategy = await authentication.getStrategyById(id)
+      assert.equal(strategy?.config.clientSecret, 'original-secret')
+      assert.equal(strategy?.config.clientId, 'updated-id')
+    })
+  }
+)

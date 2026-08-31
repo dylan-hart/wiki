@@ -1371,7 +1371,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.authentication.getActiveStrategies()
+      return WIKI.models.authentication.getActiveStrategies({ mask: true })
     }
   )
 
@@ -1406,7 +1406,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const strategy = await WIKI.models.authentication.getStrategyById(req.params.strategyId)
+      const strategy = await WIKI.models.authentication.getStrategyById(req.params.strategyId, {
+        mask: true
+      })
       if (!strategy) {
         return reply.notFound('Authentication strategy does not exist.')
       }

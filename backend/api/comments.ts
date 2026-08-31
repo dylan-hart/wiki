@@ -272,7 +272,7 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
-      return WIKI.models.commentProviders.getSiteProviders(req.params.siteId)
+      return WIKI.models.commentProviders.getSiteProviders(req.params.siteId, { mask: true })
     }
   )
 
