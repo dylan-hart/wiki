@@ -687,6 +687,10 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized()
+      }
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
@@ -695,7 +699,11 @@ async function routes(app: FastifyInstance) {
       if (!submission) {
         return reply.notFound('This edit suggestion does not exist.')
       }
-      await WIKI.models.approvals.rejectSubmission(req.params.siteId, req.params.submissionId)
+      await WIKI.models.approvals.rejectSubmission(
+        req.params.siteId,
+        req.params.submissionId,
+        actor
+      )
       return {
         ok: true,
         message: 'Edit suggestion declined.'

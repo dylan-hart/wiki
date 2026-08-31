@@ -10,6 +10,7 @@ import {
   userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
+import { escapeHtml } from './mail.ts'
 
 /**
  * How a rule decides which pages it covers. The same set group page rules use, so an administrator
@@ -808,17 +809,14 @@ class Approvals {
   }
 
   /**
-   * The actual delivery, stubbed.
+   * Tell every resolved reviewer a suggestion is waiting on them, by mail.
    *
-   * Feature 375 ("Page watching: real notification delivery") is what is building the transport this
-   * belongs behind -- a mail send, or a queued job that records a pending notification the way its own
-   * `notifyPageWatchers` task does for watched pages -- and it had not landed a reusable send primitive
-   * as of this task. The call site and reviewer resolution above are already correct; only this
-   * function's body needs replacing once that primitive exists, which is why it is factored out on its
-   * own rather than inlined into `notifyReviewersOfSubmission`.
-   *
-   * TODO(#375): send the actual notification once Feature 375 exposes a delivery primitive
-   * (e.g. `WIKI.mail.send()` or an equivalent queued job) and call it here instead of logging.
+   * A plain send per reviewer with an email address, not routed through the `notifyPageWatchers` job:
+   * reviewing is not a preference a page-watch row could express (a reviewer's own review-queue
+   * membership comes from the approval rules, not from watching the page -- see `resolveReviewers`),
+   * so there is no watcher preference or in-app inbox entry to reuse here the way a submission
+   * author's own decision notice does. Each recipient's send is isolated in its own `try`/`catch`: one
+   * reviewer's bounce or missing email must not stop the rest of the queue from being told.
    */
   private async sendSubmissionNotification(
     siteId: string,
@@ -826,10 +824,32 @@ class Approvals {
     submissionId: string,
     reviewerIds: string[]
   ): Promise<void> {
-    WIKI.logger.debug(
-      `Would notify ${reviewerIds.length} reviewer(s) of submission ${submissionId} on ` +
-        `${page.path} (site ${siteId})`
+    const link = WIKI.models.mail.buildLink(
+      '/_admin/approvals',
+      WIKI.models.mail.resolveMailBaseURL(siteId)
     )
+    for (const reviewerId of reviewerIds) {
+      try {
+        const reviewer = await WIKI.models.users.getById(reviewerId)
+        if (!reviewer?.email) {
+          WIKI.logger.warn(
+            `Skipping submission notification for reviewer ${reviewerId}: no email address on file.`
+          )
+          continue
+        }
+        const safePath = escapeHtml(page.path)
+        await WIKI.models.mail.send({
+          to: reviewer.email,
+          subject: `New edit suggestion waiting for review: ${page.path}`,
+          text: `A new edit suggestion is waiting for your review on "${page.path}" — ${link}`,
+          html: `<p>A new edit suggestion is waiting for your review on <strong>${safePath}</strong> — <a href="${link}">${link}</a></p>`
+        })
+      } catch (err: any) {
+        WIKI.logger.warn(
+          `Failed to send submission notification to reviewer ${reviewerId} for submission ${submissionId}: ${err.message}`
+        )
+      }
+    }
   }
 
   /**
@@ -1027,7 +1047,10 @@ class Approvals {
       .select({
         id: submissionsTable.id,
         pageId: submissionsTable.pageId,
-        baseHash: submissionsTable.baseHash
+        baseHash: submissionsTable.baseHash,
+        authorId: submissionsTable.authorId,
+        guestName: submissionsTable.guestName,
+        guestEmail: submissionsTable.guestEmail
       })
       .from(submissionsTable)
       .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.siteId, siteId)))
@@ -1108,19 +1131,139 @@ class Approvals {
     //    with it rather than left to be swept separately
     await WIKI.db.delete(submissionsTable).where(eq(submissionsTable.id, submissionId))
     WIKI.logger.debug(`Approved edit suggestion ${submissionId} onto page ${page.id}`)
+
+    // -> `skipIfWatching: true` -- the `updatePage()` call above already queued its own generic
+    //    "page updated by <reviewer>" notice to every watcher, this author included if they watch the
+    //    page. Notifying them again here would be a double notice for the same event.
+    await this.notifySubmissionAuthor(
+      siteId,
+      { id: page.id, title: page.title, path: page.path, locale: page.locale },
+      'suggestApproved',
+      {
+        authorId: submission.authorId,
+        guestName: submission.guestName,
+        guestEmail: submission.guestEmail
+      },
+      actor.id,
+      { skipIfWatching: true }
+    )
+
     return { ok: true, finalized: true, approvalsCount, approvalsRequired }
   }
 
   /**
    * Decline a suggestion, which discards it. The page is untouched.
    *
+   * Unlike `approveSubmission`, nothing else tells the author anything -- there is no page write to
+   * trigger `updatePage()`'s own watcher notice -- so this always notifies them, logged in or guest,
+   * with no `skipIfWatching` to consider.
+   *
    * @returns False when there is no such submission
    */
-  async rejectSubmission(siteId: string, submissionId: string): Promise<boolean> {
-    const result = await WIKI.db
+  async rejectSubmission(
+    siteId: string,
+    submissionId: string,
+    actor: { id: string }
+  ): Promise<boolean> {
+    const rows = await WIKI.db
       .delete(submissionsTable)
       .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.siteId, siteId)))
-    return (result.rowCount ?? 0) > 0
+      .returning({
+        pageId: submissionsTable.pageId,
+        authorId: submissionsTable.authorId,
+        guestName: submissionsTable.guestName,
+        guestEmail: submissionsTable.guestEmail
+      })
+    const deleted = rows[0]
+    if (!deleted) {
+      return false
+    }
+
+    // -> The page cascade-deletes its submissions (`db/schema.ts#pageEditSubmissions`), so a row that
+    //    was just deleted here means the page was still there a moment ago; read fresh rather than
+    //    assumed, since a concurrent page delete landing in between is possible even if unlikely.
+    const page = await WIKI.models.pages.getPage({ siteId, id: deleted.pageId })
+    if (page) {
+      await this.notifySubmissionAuthor(
+        siteId,
+        { id: page.id, title: page.title, path: page.path, locale: page.locale },
+        'suggestDeclined',
+        {
+          authorId: deleted.authorId,
+          guestName: deleted.guestName,
+          guestEmail: deleted.guestEmail
+        },
+        actor.id
+      )
+    }
+    return true
+  }
+
+  /**
+   * Tell a submission's author their suggestion was approved or declined.
+   *
+   * A guest has no account to watch anything with, so their notification always goes straight through
+   * `models/mail.ts` to the `guestEmail` on record. A logged in author is told the same way any other
+   * page-watch change would reach them -- queued through the existing `notifyPageWatchers` job -- but
+   * addressed directly at just this one person rather than resolved via `pageWatching.listWatchers()`:
+   * being told the outcome of your own suggestion is not something the author's watch preference
+   * should be able to opt them out of the way an ordinary edit notification can be.
+   *
+   * @param skipIfWatching Approve-only: `updatePage()` already queues its own generic "page updated by
+   *   <reviewer>" notice to every watcher when the finalizing approve writes the page, the author
+   *   included if they watch it -- this is what stops that from becoming a second, more specific
+   *   notice on top. `rejectSubmission` never writes the page, so nothing else tells the author
+   *   anything, and always passes this as `false`.
+   *
+   * Never throws: a notification failure must not turn an already-successful approve/decline into a
+   * failed request, the same contract `notifyReviewersOfSubmission` keeps for the reviewer side.
+   */
+  private async notifySubmissionAuthor(
+    siteId: string,
+    page: { id: string; title: string; path: string; locale: string },
+    action: 'suggestApproved' | 'suggestDeclined',
+    author: { authorId: string | null; guestName: string | null; guestEmail: string | null },
+    actorId: string,
+    { skipIfWatching = false }: { skipIfWatching?: boolean } = {}
+  ): Promise<void> {
+    try {
+      if (!author.authorId) {
+        if (!author.guestEmail) {
+          return
+        }
+        const actorUser = await WIKI.models.users.getById(actorId)
+        await WIKI.models.mail.sendPageWatchNotification({
+          to: author.guestEmail,
+          siteId,
+          page: { title: page.title, path: page.path, locale: page.locale },
+          action,
+          changedFields: [],
+          actorName: actorUser?.name ?? 'Someone'
+        })
+        return
+      }
+
+      if (skipIfWatching && (await WIKI.models.pageWatching.isWatching(page.id, author.authorId))) {
+        return
+      }
+
+      await WIKI.scheduler.addJob({
+        task: 'notifyPageWatchers',
+        payload: {
+          siteId,
+          pageId: page.id,
+          pageTitle: page.title,
+          pagePath: page.path,
+          pageLocale: page.locale,
+          action,
+          changedFields: [],
+          actorId,
+          watchers: [{ userId: author.authorId, notifyMode: 'immediate' }]
+        }
+      })
+    } catch (err: any) {
+      WIKI.logger.warn(`Failed to notify submission author of page ${page.id}: ${err.message}`)
+    }
   }
 
   /**

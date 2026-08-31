@@ -528,6 +528,35 @@ describe('mail template senders', () => {
     assert.match(msg.text, /\(deleted\)/)
   })
 
+  test('sendPageWatchNotification for a suggestion decision tells the recipient why, without the "watching this page" line', async () => {
+    await mail.sendPageWatchNotification({
+      to: 'ada@example.com',
+      siteId: DEFAULT_SITE_ID,
+      page: { title: 'Getting Started', path: 'docs/getting-started', locale: 'en' },
+      action: 'suggestApproved',
+      changedFields: [],
+      actorName: 'Bob'
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.subject, /approved/)
+    assert.match(msg.text, /submitted this suggested edit/)
+    assert.doesNotMatch(msg.text, /watching this page/)
+  })
+
+  test('sendPageWatchNotification for a declined suggestion uses the declined label', async () => {
+    await mail.sendPageWatchNotification({
+      to: 'ada@example.com',
+      siteId: DEFAULT_SITE_ID,
+      page: { title: 'Getting Started', path: 'docs/getting-started', locale: 'en' },
+      action: 'suggestDeclined',
+      changedFields: [],
+      actorName: 'Bob'
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.subject, /declined/)
+    assert.match(msg.text, /submitted this suggested edit/)
+  })
+
   test('sendPageWatchNotification escapes an untrusted page title and actor name in the HTML body', async () => {
     await mail.sendPageWatchNotification({
       to: 'ada@example.com',

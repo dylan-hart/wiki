@@ -2451,6 +2451,8 @@
   "inbox.inboxInfo": "Nothing here yet.",
   "inbox.notificationActionDeleted": "{actor} deleted {title}",
   "inbox.notificationActionMoved": "{actor} moved {title}",
+  "inbox.notificationActionSuggestApproved": "{actor} approved your suggested edit for {title}",
+  "inbox.notificationActionSuggestDeclined": "{actor} declined your suggested edit for {title}",
   "inbox.notificationActionUpdated": "{actor} edited {title}",
   "inbox.notificationsInfo": "Changes to pages you watch, unread first.",
   "inbox.notificationsLoadFailed": "Failed to load your notifications.",

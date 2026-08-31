@@ -16,7 +16,19 @@ export interface MailMessage {
 const WATCH_ACTION_LABELS: Record<PageWatchNotifiableAction, string> = {
   updated: 'edited',
   moved: 'moved',
-  deleted: 'deleted'
+  deleted: 'deleted',
+  suggestApproved: 'approved',
+  suggestDeclined: 'declined'
+}
+
+/**
+ * Whether this action tells the recipient about the outcome of THEIR OWN edit suggestion, rather than
+ * about a page they are watching — see `models/approvals.ts#notifySubmissionAuthor`. The two kinds of
+ * mail need different footers: the ordinary "you are receiving this because you are watching this
+ * page" line would be false for a submission author who may never have watched the page at all.
+ */
+function isSuggestionDecision(action: PageWatchNotifiableAction): boolean {
+  return action === 'suggestApproved' || action === 'suggestDeclined'
 }
 
 /**
@@ -25,7 +37,7 @@ const WATCH_ACTION_LABELS: Record<PageWatchNotifiableAction, string> = {
  * constant this module wrote, so it is escaped the same way `models/search.ts`'s own `escapeHtml`
  * treats a search highlight.
  */
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
@@ -213,7 +225,7 @@ class MailModel {
    * override setting exists for scheme/port (v1 scope decision, OpenProject #1023) — `https://` is
    * assumed, matching how every other Wiki.js 3.x site link is built.
    */
-  private resolveMailBaseURL(siteId?: string): string {
+  resolveMailBaseURL(siteId?: string): string {
     const hostname = siteId ? WIKI.sites[siteId]?.hostname : null
     if (hostname && hostname !== '*') {
       return `https://${hostname}`
@@ -415,11 +427,14 @@ class MailModel {
       locales,
       baseURL
     )
+    const footer = isSuggestionDecision(action)
+      ? 'You are receiving this because you submitted this suggested edit.'
+      : "You are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox."
     await this.send({
       to,
       subject: `Page ${label}: ${page.title}`,
-      text: `${line.text}\n\nYou are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox.`,
-      html: `<p>${line.html}</p><p>You are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox.</p>`
+      text: `${line.text}\n\n${footer}`,
+      html: `<p>${line.html}</p><p>${footer}</p>`
     })
   }
 
