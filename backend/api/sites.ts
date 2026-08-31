@@ -139,6 +139,7 @@ export async function buildSitePayload(site: {
     hostname: site.hostname,
     isEnabled: site.isEnabled,
     pdfExportAvailable: await WIKI.models.rendering.isAvailable(),
+    docsBase: WIKI.config.docsBase,
     blocksConfig,
     blocksIndex
   }

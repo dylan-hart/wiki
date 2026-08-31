@@ -73,6 +73,9 @@ describe('pdfExportAvailable exposure (task 500)', () => {
         blocks: {
           getSiteBlocks: async () => []
         }
+      },
+      config: {
+        docsBase: 'https://test.docs.example/docs'
       }
     }
 
@@ -88,6 +91,16 @@ describe('pdfExportAvailable exposure (task 500)', () => {
   after(async () => {
     await app.close()
     delete (globalThis as any).WIKI
+  })
+
+  test('bootstrap surfaces docsBase from WIKI.config on site', async () => {
+    renderingAvailable = true
+    const res = await app.inject({
+      method: 'GET',
+      url: `/?hostname=${site.hostname}`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().site.docsBase, 'https://test.docs.example/docs')
   })
 
   test('bootstrap surfaces pdfExportAvailable: true on site when rendering is available', async () => {
@@ -161,6 +174,9 @@ describe('isEnabled guard (task 699)', () => {
         flags: { getFlags: () => ({ experimental: false }) },
         rendering: { isAvailable: async () => false },
         blocks: { getSiteBlocks: async () => [] }
+      },
+      config: {
+        docsBase: 'https://test.docs.example/docs'
       }
     }
 

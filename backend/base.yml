@@ -117,6 +117,10 @@ defaults:
     # System defaults
     channel: NEXT
     maintainerEmail: security@requarks.io
+    # Base URL for this fork's own documentation, prepended to every in-app "view docs" / help link
+    # (`siteStore.docsBase` on the frontend). Matches README.md's own Documentation link -- keep the
+    # two in sync if this ever changes.
+    docsBase: 'https://beta.js.wiki/docs'
 tsDictMappings:
   ar: arabic
   hy: armenian
