@@ -1,9 +1,20 @@
-import { sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
+import { pages as pagesTable, tree as treeTable } from '../db/schema.ts'
 import type { AccessActor } from './groups.ts'
+import type { SearchIndexablePage } from './search.ts'
 
 export interface Tag {
   tag: string
   usageCount: number
+}
+
+/** A candidate page for a tag rename/delete, before the caller has decided who may touch it. */
+export interface TagPageRef {
+  id: string
+  path: string
+  locale: string
+  tags: string[]
+  classification: string | null
 }
 
 /**
@@ -76,6 +87,114 @@ class Tags {
       .map(([tag, usageCount]) => ({ tag, usageCount }))
       .sort((a, b) => b.usageCount - a.usageCount || a.tag.localeCompare(b.tag))
       .slice(0, limit)
+  }
+
+  /**
+   * Every page of this site that currently carries `tag`, as candidates for a rename or delete.
+   *
+   * Deliberately returns every carrier regardless of who is asking — this is not the read-permission
+   * filtered view `getTags` builds. The caller (`api/tags.ts`) still has to decide, per page, whether
+   * THIS actor may act on it (`mayOnPage(req, 'manage:pages', ...)`) before doing anything with the
+   * result; this just narrows "every page in the site" down to the ones that would actually change.
+   */
+  async pagesWithTag(siteId: string, tag: string): Promise<TagPageRef[]> {
+    return WIKI.db
+      .select({
+        id: pagesTable.id,
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        tags: pagesTable.tags,
+        classification: pagesTable.classification
+      })
+      .from(pagesTable)
+      .where(and(eq(pagesTable.siteId, siteId), sql`${pagesTable.tags} @> ${sql.param([tag])}`))
+  }
+
+  /**
+   * Rename a tag across a specific, already permission-filtered set of pages.
+   *
+   * An array-element rewrite of `pages.tags` — `array_replace`, wrapped in a `DISTINCT`/`array_agg` so
+   * a page that already carries `newTag` ends up with one entry instead of two. This is also the whole
+   * of what merging two tags is: renaming one of them to the other's name collapses them together on
+   * every page that had both, the same as it does here for one.
+   *
+   * Does no access control of its own — `pageIds` is expected to already be the subset the caller
+   * checked `manage:pages` against, one page at a time (see `pagesWithTag`'s doc comment). `tree.tags`
+   * is kept in step alongside `pages.tags` since `models/tree.ts`'s tag-filtered browse reads from
+   * there, not from `pages` — the same pairing `models/pages.ts#updatePage` maintains for a single-page
+   * edit. Every page actually touched is handed to `WIKI.models.search.updated` off the same
+   * `.returning()`, so the rename is reflected in search results without a separate reindex pass.
+   *
+   * @returns The rows actually updated
+   */
+  async renameTag(
+    siteId: string,
+    oldTag: string,
+    newTag: string,
+    pageIds: string[]
+  ): Promise<SearchIndexablePage[]> {
+    if (pageIds.length < 1 || oldTag === newTag) {
+      return []
+    }
+    const rewrite = (column: typeof pagesTable.tags | typeof treeTable.tags) => sql`(
+      SELECT COALESCE(array_agg(DISTINCT t ORDER BY t), ARRAY[]::text[])
+      FROM unnest(array_replace(${column}, ${oldTag}, ${newTag})) AS t
+    )`
+    const updated = await WIKI.db
+      .update(pagesTable)
+      .set({ tags: rewrite(pagesTable.tags), updatedAt: sql`now()` })
+      .where(and(eq(pagesTable.siteId, siteId), inArray(pagesTable.id, pageIds)))
+      .returning()
+    if (updated.length > 0) {
+      await WIKI.db
+        .update(treeTable)
+        .set({ tags: rewrite(treeTable.tags), updatedAt: sql`now()` })
+        .where(
+          inArray(
+            treeTable.id,
+            updated.map((page) => page.id)
+          )
+        )
+      for (const page of updated) {
+        await WIKI.models.search.updated(page)
+      }
+    }
+    return updated
+  }
+
+  /**
+   * Delete a tag from a specific, already permission-filtered set of pages.
+   *
+   * `array_remove` needs no dedup step the way rename's `array_replace` does — removing an element
+   * never creates a collision. Otherwise the same contract as `renameTag`: no access control here,
+   * `tree.tags` kept in step, and every touched page reindexed off the `.returning()` rows.
+   *
+   * @returns The rows actually updated
+   */
+  async deleteTag(siteId: string, tag: string, pageIds: string[]): Promise<SearchIndexablePage[]> {
+    if (pageIds.length < 1) {
+      return []
+    }
+    const updated = await WIKI.db
+      .update(pagesTable)
+      .set({ tags: sql`array_remove(${pagesTable.tags}, ${tag})`, updatedAt: sql`now()` })
+      .where(and(eq(pagesTable.siteId, siteId), inArray(pagesTable.id, pageIds)))
+      .returning()
+    if (updated.length > 0) {
+      await WIKI.db
+        .update(treeTable)
+        .set({ tags: sql`array_remove(${treeTable.tags}, ${tag})`, updatedAt: sql`now()` })
+        .where(
+          inArray(
+            treeTable.id,
+            updated.map((page) => page.id)
+          )
+        )
+      for (const page of updated) {
+        await WIKI.models.search.updated(page)
+      }
+    }
+    return updated
   }
 }
 
