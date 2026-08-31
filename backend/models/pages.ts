@@ -1236,22 +1236,35 @@ class Pages {
   }
 
   /**
-   * The side effects one moved page fires once its transaction has committed -- history, watchers,
-   * search, hooks and storage dispatch, all keyed to what THIS page changed rather than the batch as
-   * a whole, so an `includeTranslations` cascade fires one full set per twin, exactly as if each had
-   * been moved on its own (spec item 2 of OpenProject #1026).
+   * The per-page side effects one moved page fires once its transaction has committed -- history,
+   * watchers, search, hooks and storage dispatch, keyed to what THIS page changed rather than the
+   * batch as a whole, so an `includeTranslations` cascade fires one full set per twin, exactly as if
+   * each had been moved on its own (spec item 2 of OpenProject #1026). Deliberately callable per page
+   * id + previous path/locale rather than a full previous `Page`, so a future bulk mover (e.g. every
+   * descendant of a renamed folder -- OpenProject #1683) can fire this per page without first
+   * assembling a `Page` snapshot of each one.
+   *
+   * Does NOT invalidate the glossary cache itself -- that is a per-SITE concern (OpenProject #870: a
+   * canonical page's path/locale change has to drop the cached term->page mapping), and calling it
+   * once per page in a large batch would be wasteful the same way `deleteOrphaned` calling it once per
+   * entry would be. Instead this reports whether THIS page's move requires it, via the returned
+   * `glossaryInvalidate` flag, and leaves the caller to OR that across the whole batch and call
+   * `WIKI.models.glossary.invalidateCache(siteId)` at most once -- `deleteOrphaned`'s
+   * one-call-covers-the-batch pattern is the reference.
    */
-  private async recordMoveSideEffects(
+  private async recordPageMoveSideEffects(
     siteId: string,
-    previous: Page,
+    pageId: string,
+    previousPath: string,
+    previousLocale: string,
     rawMoved: typeof pagesTable.$inferSelect,
     changedFields: string[],
     actor: PageActor
-  ): Promise<Page> {
-    const moved = (await this.getPage({ siteId, id: previous.id })) as Page
+  ): Promise<{ moved: Page; glossaryInvalidate: boolean }> {
+    const moved = (await this.getPage({ siteId, id: pageId })) as Page
     await WIKI.models.pageHistory.record({
       siteId,
-      pageId: previous.id,
+      pageId,
       action: 'moved',
       authorId: actor.id,
       via: actor.via,
@@ -1259,42 +1272,38 @@ class Pages {
     })
     await this.notifyWatchers(
       siteId,
-      previous.id,
+      pageId,
       'moved',
       actor.id,
       { title: moved.title, path: moved.path, locale: moved.locale },
       changedFields
     )
-    await WIKI.models.search.renamed(siteId, rawMoved, previous.path, previous.locale)
-    // -> A glossary term's cached canonical-page mapping (`models/glossary.ts`'s `getRawCachedTerms`)
-    //    caches the page's path/locale, so a canonical page's path or locale changing has to drop it
-    //    too, the same way a term CRUD does -- otherwise the cache would keep resolving a link to
-    //    where the page used to live (OpenProject #870).
-    if (moved.path !== previous.path || moved.locale !== previous.locale) {
-      WIKI.models.glossary.invalidateCache(siteId)
-    }
+    await WIKI.models.search.renamed(siteId, rawMoved, previousPath, previousLocale)
     // -> `previousLocale` alongside `previousPath` because a move can now change either: a consumer
     //    that has to find what the page used to be (the git target's own file for it, say) needs the
     //    whole of where it was, not half of it
     await WIKI.models.hooks.emit('page:rename', siteId, {
-      id: previous.id,
+      id: pageId,
       path: moved.path,
-      previousPath: previous.path,
+      previousPath,
       locale: moved.locale,
-      previousLocale: previous.locale,
+      previousLocale,
       siteId,
       authorId: actor.id
     })
     await WIKI.models.storage.dispatch('page:rename', {
-      id: previous.id,
+      id: pageId,
       path: moved.path,
-      previousPath: previous.path,
+      previousPath,
       locale: moved.locale,
-      previousLocale: previous.locale,
+      previousLocale,
       siteId,
       authorId: actor.id
     })
-    return moved
+    return {
+      moved,
+      glossaryInvalidate: moved.path !== previousPath || moved.locale !== previousLocale
+    }
   }
 
   /**
@@ -1460,17 +1469,26 @@ class Pages {
     }
 
     let primaryMoved: Page | undefined
+    // -> One `invalidateCache` call covers the whole batch (this move plus every `includeTranslations`
+    //    twin), same as `deleteOrphaned` -- rather than once per page, as a per-page call would be.
+    let glossaryInvalidate = false
     for (const result of results) {
-      const moved = await this.recordMoveSideEffects(
+      const { moved, glossaryInvalidate: needsInvalidate } = await this.recordPageMoveSideEffects(
         siteId,
-        result.previous,
+        result.previous.id,
+        result.previous.path,
+        result.previous.locale,
         result.rawMoved,
         result.changedFields,
         actor
       )
+      glossaryInvalidate ||= needsInvalidate
       if (result.previous.id === id) {
         primaryMoved = moved
       }
+    }
+    if (glossaryInvalidate) {
+      WIKI.models.glossary.invalidateCache(siteId)
     }
     return primaryMoved!
   }
