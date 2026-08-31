@@ -14,7 +14,7 @@ export function initializeApi() {
   const client = ky.create({
     prefix: '/_api',
     credentials: 'same-origin',
-    throwHttpErrors: (statusNumber) => statusNumber > 400 // Don't throw for 400
+    throwHttpErrors: true
   })
 
   if (import.meta.env.SSR) {

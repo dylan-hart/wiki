@@ -770,8 +770,7 @@ async function login() {
         strategyId: state.selectedStrategyId,
         username: state.username,
         password: state.password
-      },
-      throwHttpErrors: (statusNumber) => statusNumber > 400 // Don't throw for 400
+      }
     }).json()
     if (resp.ok) {
       state.password = ''
@@ -892,8 +891,7 @@ async function register() {
         name: state.newName,
         email: state.newEmail,
         password: state.newPassword
-      },
-      throwHttpErrors: (statusNumber) => statusNumber > 400 // Don't throw for 400
+      }
     }).json()
     if (resp.ok) {
       state.password = ''
@@ -931,8 +929,7 @@ async function changePwd() {
         strategyId: state.selectedStrategyId,
         continuationToken: state.continuationToken,
         newPassword: state.newPassword
-      },
-      throwHttpErrors: (statusNumber) => statusNumber > 400 // Don't throw for 400
+      }
     }).json()
     if (resp.ok) {
       state.password = ''
@@ -973,8 +970,7 @@ async function resetPassword() {
         strategyId: state.selectedStrategyId,
         token: state.resetToken,
         newPassword: state.newPassword
-      },
-      throwHttpErrors: (statusNumber) => statusNumber > 400 // Don't throw for 400
+      }
     }).json()
     if (resp.ok) {
       state.newPassword = ''
