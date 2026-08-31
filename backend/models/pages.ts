@@ -15,6 +15,7 @@ import type { RenderPermissions, TocNode } from './rendering.ts'
 import { pageIsVisible } from './tree.ts'
 import type { DeletedEntry } from './tree.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
+import type { AccessActor } from './groups.ts'
 import type { WikiDbOrTx, WikiTx } from '../core/db.ts'
 
 /**
@@ -729,6 +730,16 @@ class Pages {
    * `publishState` directly, so a caller holding one shared, `publicOnly: false` bundle (the graph
    * cache, OpenProject #2269) can still narrow it to published-only rows itself, per request, without
    * re-querying.
+   *
+   * Deliberately NOT narrowed by actor (OpenProject #1872 proposed pushing a `deriveReadScope`
+   * superset into this `WHERE`): the result of this call is the shared, per-site graph cache
+   * (`api/graph.ts#loadGraphData`, OpenProject #2269), rebuilt by whichever signed-in caller
+   * happens to hit a cold cache first -- any authenticated session may trigger a rebuild, with no
+   * permission floor. Narrowing the fetch to that one caller's own rule set would bake their
+   * read scope into the bundle every other caller reuses until the TTL expires, silently hiding
+   * pages from a more-privileged reader who never triggered the rebuild themselves. The exact,
+   * per-request permission filter still runs unchanged in `assembleGraph`'s `canRead` -- this
+   * function only ever needs to be a safe superset of what SOME caller could read, not this one.
    */
   async listAllForGraph(siteId: string, publicOnly = false): Promise<GraphPageRow[]> {
     return WIKI.db
