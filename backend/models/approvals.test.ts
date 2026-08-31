@@ -1,4 +1,4 @@
-import { after, before, describe, mock, test } from 'node:test'
+import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { userGroups as userGroupsTable, users as usersTable } from '../db/schema.ts'
@@ -1143,5 +1143,211 @@ describe('approvals.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, 
     } finally {
       approvalsModel.reloadCache = originalReloadCache
     }
+  })
+})
+
+/**
+ * OpenProject #1932: `saveSubmission`/`approveSubmission`/`rejectSubmission` each now fire an
+ * `approval:*` webhook event beside their primary write, the same convention `models/pages.ts` uses
+ * for `page:*`. `WIKI.models.hooks.emit` is replaced with a `mock.fn()` after `setupTestDb()` installs
+ * the real models, so every call this suite makes is captured directly rather than inferred from a
+ * queued job -- `Hooks.emit()`'s own SQL/queuing behaviour is already covered by `Hooks.emit (unit)`
+ * above and does not need re-proving here.
+ */
+describe('approvals webhook events (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let pagesModel: typeof import('./pages.ts').pages
+  let approvalsModel: typeof import('./approvals.ts').approvals
+  let actor: PageActor
+  let emit: ReturnType<typeof mock.fn>
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'covers everything',
+      isEnabled: true,
+      match: 'START',
+      path: '',
+      submitterGroups: [],
+      reviewerGroups: []
+    })
+  })
+
+  beforeEach(() => {
+    emit = mock.fn(async () => 0)
+    ;(WIKI.models as any).hooks = { ...WIKI.models.hooks, emit }
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  function pageRef(page: { id: string; path: string }): ApprovalPageRef {
+    return {
+      id: page.id,
+      path: page.path,
+      locale: 'en',
+      tags: [],
+      allowContributions: true,
+      classification: null
+    }
+  }
+
+  test('saveSubmission fires approval:submitted exactly once, with the page and actor', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'approvals/webhook-submit', title: 'x', editor: 'markdown', content: 'Original' },
+      actor
+    )
+
+    // -> Reset AFTER creating the page, not before: `createPage` fires its own real
+    //    `page:create` through this same mocked `emit`, and that call is not what this test
+    //    is about.
+    emit.mock.resetCalls()
+
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'Suggested',
+      authorId: fixtures.userId
+    })
+
+    assert.equal(emit.mock.calls.length, 1)
+    const [event, siteId, data] = emit.mock.calls[0]!.arguments
+    assert.equal(event, 'approval:submitted')
+    assert.equal(siteId, fixtures.siteId)
+    assert.deepEqual(data, {
+      id: submission.id,
+      pageId: page.id,
+      path: page.path,
+      siteId: fixtures.siteId,
+      authorId: fixtures.userId
+    })
+  })
+
+  test('saveSubmission does not re-fire on a resubmission that replaces the same open submission', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'approvals/webhook-resubmit', title: 'x', editor: 'markdown', content: 'Original' },
+      actor
+    )
+    await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'First suggestion',
+      authorId: fixtures.userId
+    })
+    emit.mock.resetCalls()
+
+    await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'Revised suggestion',
+      authorId: fixtures.userId
+    })
+
+    assert.equal(emit.mock.calls.length, 0)
+  })
+
+  test('approveSubmission fires approval:approved exactly once, with the page and actor', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'approvals/webhook-approve', title: 'x', editor: 'markdown', content: 'Original' },
+      actor
+    )
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'Suggested',
+      authorId: fixtures.userId
+    })
+    emit.mock.resetCalls()
+
+    const result = await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Suggested',
+      render: '<p>Suggested</p>',
+      actor
+    })
+    assert.equal(result.ok, true)
+
+    // -> Filtered to `approval:approved` specifically, not a raw call count: a finalizing approve
+    //    also writes the page through `pages.updatePage`, which fires its own real `page:edit`
+    //    through this same mocked `emit` -- exactly-once is about THIS event, not every hook call
+    //    the write path happens to make.
+    const approvedCalls = emit.mock.calls.filter((c) => c.arguments[0] === 'approval:approved')
+    assert.equal(approvedCalls.length, 1)
+    const [event, siteId, data] = approvedCalls[0]!.arguments
+    assert.equal(event, 'approval:approved')
+    assert.equal(siteId, fixtures.siteId)
+    assert.deepEqual(data, {
+      id: submission.id,
+      pageId: page.id,
+      path: page.path,
+      siteId: fixtures.siteId,
+      authorId: fixtures.userId
+    })
+  })
+
+  test('approveSubmission does not fire for a submission that does not exist', async () => {
+    const result = await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: '00000000-0000-0000-0000-000000000000',
+      content: 'x',
+      render: '<p>x</p>',
+      actor
+    })
+    assert.deepEqual(result, { ok: false, reason: 'not-found' })
+    assert.equal(emit.mock.calls.length, 0)
+  })
+
+  test('rejectSubmission fires approval:rejected exactly once, with the page and actor', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'approvals/webhook-reject', title: 'x', editor: 'markdown', content: 'Original' },
+      actor
+    )
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'Suggested',
+      authorId: fixtures.userId
+    })
+    emit.mock.resetCalls()
+
+    const declined = await approvalsModel.rejectSubmission(fixtures.siteId, submission.id, actor)
+    assert.equal(declined, true)
+
+    assert.equal(emit.mock.calls.length, 1)
+    const [event, siteId, data] = emit.mock.calls[0]!.arguments
+    assert.equal(event, 'approval:rejected')
+    assert.equal(siteId, fixtures.siteId)
+    assert.deepEqual(data, {
+      id: submission.id,
+      pageId: page.id,
+      path: page.path,
+      siteId: fixtures.siteId,
+      authorId: fixtures.userId
+    })
+  })
+
+  test('rejectSubmission does not fire for a submission that does not exist', async () => {
+    const declined = await approvalsModel.rejectSubmission(
+      fixtures.siteId,
+      '00000000-0000-0000-0000-000000000000',
+      actor
+    )
+    assert.equal(declined, false)
+    assert.equal(emit.mock.calls.length, 0)
   })
 })

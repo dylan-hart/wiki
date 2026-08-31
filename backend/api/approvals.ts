@@ -682,11 +682,20 @@ async function routes(app: FastifyInstance) {
               message: { type: 'string' }
             }
           },
+          401: { $ref: 'ApiError#' },
           404: { $ref: 'ApiError#' }
         }
       }
     },
     async (req, reply) => {
+      const actor = actorFrom(req)
+      // -> Defensive rather than reachable: `reviewerFor` (via `isReviewerSession`) already requires
+      //    an authenticated session before `getSubmissionForReview` can return anything below, so this
+      //    never actually fires -- kept explicit anyway, the same shape as the approve route above,
+      //    since `rejectSubmission` now records who declined the suggestion.
+      if (!actor) {
+        return reply.unauthorized()
+      }
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
@@ -695,7 +704,11 @@ async function routes(app: FastifyInstance) {
       if (!submission) {
         return reply.notFound('This edit suggestion does not exist.')
       }
-      await WIKI.models.approvals.rejectSubmission(req.params.siteId, req.params.submissionId)
+      await WIKI.models.approvals.rejectSubmission(
+        req.params.siteId,
+        req.params.submissionId,
+        actor
+      )
       return {
         ok: true,
         message: 'Edit suggestion declined.'

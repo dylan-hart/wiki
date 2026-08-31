@@ -7,6 +7,19 @@ import {
   jobHistory as jobHistoryTable,
   sites as sitesTable
 } from '../db/schema.ts'
+import { EMITTED_EVENTS, HOOK_EVENTS } from './hooks.ts'
+
+/**
+ * OpenProject #1932: `EMITTED_EVENTS`'s own doc comment says to add an entry here whenever an
+ * `emit()` call is wired for it, and today every entry in `HOOK_EVENTS` also has one -- so the two
+ * lists are meant to stay in lockstep. `api/hooks.test.ts` already pins the same fact indirectly (via
+ * the `GET /events` response's `isEmitted` flags); this is the direct, model-level version of that
+ * check, so a future `HOOK_EVENTS` addition with no matching `emit()` call fails right next to the
+ * list it forgot to update, not only in a route test three files away.
+ */
+test('HOOK_EVENTS and EMITTED_EVENTS stay in parity', () => {
+  assert.deepEqual(EMITTED_EVENTS as unknown as string[], HOOK_EVENTS as unknown as string[])
+})
 
 /**
  * Unit tests for `Hooks.emit()` (task 610's end-to-end verification): given a webhook subscribed to

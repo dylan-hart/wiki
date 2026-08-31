@@ -659,6 +659,16 @@ class Approvals {
 
     if (!hadOpenSubmission) {
       await this.notifyReviewersOfSubmission(siteId, page, stored.id)
+      // -> Only for a genuinely NEW submission, same gate `notifyReviewersOfSubmission` uses just
+      //    above: an author revising their own still-open suggestion (the `onConflictDoUpdate`
+      //    branch) is not a new thing for a subscriber to hear about.
+      await WIKI.models.hooks.emit('approval:submitted', siteId, {
+        id: stored.id,
+        pageId: page.id,
+        path: page.path,
+        siteId,
+        authorId
+      })
     }
 
     return {
@@ -1071,6 +1081,18 @@ class Approvals {
       eq(submissionApprovalsTable.submissionId, submissionId)
     )
 
+    // -> Fires once per call that gets this far (a real sign-off was recorded against a non-stale
+    //    submission), whether or not THIS call is the one that reaches the threshold below -- "a
+    //    reviewer approved" rather than "the page was finalized", so a subscriber watching every
+    //    approval on a multi-approver rule sees each one, not only the last.
+    await WIKI.models.hooks.emit('approval:approved', siteId, {
+      id: submissionId,
+      pageId: page.id,
+      path: page.path,
+      siteId,
+      authorId: actor.id
+    })
+
     if (approvalsCount < approvalsRequired) {
       WIKI.logger.debug(
         `Recorded approval ${approvalsCount}/${approvalsRequired} for edit suggestion ${submissionId} ` +
@@ -1116,11 +1138,37 @@ class Approvals {
    *
    * @returns False when there is no such submission
    */
-  async rejectSubmission(siteId: string, submissionId: string): Promise<boolean> {
+  async rejectSubmission(
+    siteId: string,
+    submissionId: string,
+    actor: { id: string }
+  ): Promise<boolean> {
+    // -> Read before the delete, not after: once the row is gone there is no join left to recover
+    //    the page's id/path from for the event payload below.
+    const rows = await WIKI.db
+      .select({ pageId: pagesTable.id, pagePath: pagesTable.path })
+      .from(submissionsTable)
+      .innerJoin(pagesTable, eq(pagesTable.id, submissionsTable.pageId))
+      .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.siteId, siteId)))
+      .limit(1)
+    const page = rows[0]
+
     const result = await WIKI.db
       .delete(submissionsTable)
       .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.siteId, siteId)))
-    return (result.rowCount ?? 0) > 0
+    const deleted = (result.rowCount ?? 0) > 0
+
+    if (deleted && page) {
+      await WIKI.models.hooks.emit('approval:rejected', siteId, {
+        id: submissionId,
+        pageId: page.pageId,
+        path: page.pagePath,
+        siteId,
+        authorId: actor.id
+      })
+    }
+
+    return deleted
   }
 
   /**
