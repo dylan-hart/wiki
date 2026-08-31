@@ -55,14 +55,18 @@ function toUserZone(date, timezone) {
 /**
  * Render the time part. `hourCycle` rather than `hour12: false`, which some locales render as 24:00
  * where they mean 00:00.
+ *
+ * @param extraOptions Merged in on top of the 12h/24h base -- `{ second: '2-digit' }`,
+ *                     `{ timeZoneName: 'short' }`, or both, for the variants beside `formatDateTime`
+ *                     that need more than hour:minute.
  */
-function formatTimePart(zoned, timeFormat) {
-  return zoned.toLocaleString(
-    undefined,
-    timeFormat === '24h'
+function formatTimePart(zoned, timeFormat, extraOptions = {}) {
+  return zoned.toLocaleString(undefined, {
+    ...(timeFormat === '24h'
       ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }
-      : { hour: 'numeric', minute: '2-digit', hour12: true }
-  )
+      : { hour: 'numeric', minute: '2-digit', hour12: true }),
+    ...extraOptions
+  })
 }
 
 export const useUserStore = defineStore('user', {
@@ -300,6 +304,36 @@ export const useUserStore = defineStore('user', {
         return ''
       }
       return formatDatePart(toUserZone(date, this.timezone), this.dateFormat)
+    },
+    /**
+     * Same as `formatDateTime`, but with the zone's short label (`GMT+9`, `JST`, ...) appended to the
+     * time -- for a screen displaying an account-scoped timestamp (a session, an API key, an audit
+     * entry) where the reader needs to know which zone they are looking at, not just what it reads.
+     */
+    formatDateTimeWithZone(t, date) {
+      if (!date) {
+        return ''
+      }
+      const zoned = toUserZone(date, this.timezone)
+      return t('common.datetime', {
+        date: formatDatePart(zoned, this.dateFormat),
+        time: formatTimePart(zoned, this.timeFormat, { timeZoneName: 'short' })
+      })
+    },
+    /**
+     * Same as `formatDateTime`, but at seconds precision with the zone's short label appended -- for
+     * a screen tracking events that can happen more than once a minute (a scheduled job run, a
+     * webhook delivery, a scan timestamp).
+     */
+    formatDateTimeSeconds(t, date) {
+      if (!date) {
+        return ''
+      }
+      const zoned = toUserZone(date, this.timezone)
+      return t('common.datetime', {
+        date: formatDatePart(zoned, this.dateFormat),
+        time: formatTimePart(zoned, this.timeFormat, { second: '2-digit', timeZoneName: 'short' })
+      })
     }
   }
 })

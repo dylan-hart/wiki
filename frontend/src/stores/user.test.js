@@ -314,3 +314,55 @@ describe('user store: formatDate()', () => {
     expect(store.formatDate(null)).toBe('')
   })
 })
+
+describe('user store: formatDateTimeWithZone() / formatDateTimeSeconds()', () => {
+  // -> Kiritimati (UTC+14) so the assertion holds regardless of the test runner's own zone: no real
+  //    CI/dev machine is configured to it, so "the stored zone" and "the browser default" can never
+  //    coincidentally match here the way e.g. UTC sometimes does.
+  const STORED_ZONE = 'Pacific/Kiritimati'
+  const INSTANT = '2026-03-04T12:00:00Z'
+  const t = (key, params) => `${params.date} at ${params.time}`
+
+  it('formatDateTimeWithZone renders the stored 24h wall-clock time and appends the zone label', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '24h'
+    store.timezone = STORED_ZONE
+
+    const result = store.formatDateTimeWithZone(t, INSTANT)
+    const browserDefault = Temporal.Instant.from(INSTANT)
+      .toZonedDateTimeISO(Temporal.Now.timeZoneId())
+      .toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+
+    // -> 12:00 UTC is 02:00 the next day in Kiritimati (UTC+14)
+    expect(result).toBe('2026-03-05 at 02:00 GMT+14')
+    expect(result).not.toContain(browserDefault)
+  })
+
+  it('formatDateTimeSeconds renders the stored 24h wall-clock time at seconds precision with the zone label', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '24h'
+    store.timezone = STORED_ZONE
+
+    const result = store.formatDateTimeSeconds(t, '2026-03-04T12:00:30Z')
+    const browserDefault = Temporal.Instant.from('2026-03-04T12:00:30Z')
+      .toZonedDateTimeISO(Temporal.Now.timeZoneId())
+      .toLocaleString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23'
+      })
+
+    expect(result).toBe('2026-03-05 at 02:00:30 GMT+14')
+    expect(result).not.toContain(browserDefault)
+  })
+
+  it('both return an empty string for a nullish date rather than throwing', () => {
+    const store = useUserStore()
+
+    expect(store.formatDateTimeWithZone(t, null)).toBe('')
+    expect(store.formatDateTimeSeconds(t, null)).toBe('')
+  })
+})
