@@ -21,12 +21,6 @@ const renderDiagramInputSchema = {
     .optional()
     .describe(
       'Mermaid only. One of `default`, `dark`, `neutral`, `forest`; anything else (including `auto`, which needs a reader to follow) falls back to `default`.'
-    ),
-  server: z
-    .string()
-    .optional()
-    .describe(
-      'PlantUML only. A PlantUML server to render against; the public plantuml.com server when omitted.'
     )
 }
 
@@ -35,7 +29,6 @@ export interface RenderDiagramArgs {
   source: string
   format?: 'svg' | 'png'
   theme?: string
-  server?: string
 }
 
 /**
@@ -80,8 +73,7 @@ export async function handleRenderDiagram(
       type: args.type,
       source: args.source,
       theme: args.theme,
-      format: args.format,
-      server: args.server
+      format: args.format
     })
   } catch (err: any) {
     throw new McpToolError(err.message)
