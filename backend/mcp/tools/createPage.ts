@@ -17,9 +17,7 @@ const createPageInputSchema = {
   content: z
     .string()
     .min(1)
-    .describe(
-      "The page source, in whatever format `editor` names (markdown by default). This is stored as-is — there is no HTML render pipeline reachable from here, so the page's rendered view is blank until it is opened and saved once in the editor."
-    ),
+    .describe('The page source, in whatever format `editor` names (markdown by default).'),
   siteId: z
     .string()
     .uuid()
@@ -62,9 +60,9 @@ function toResult(payload: unknown): CallToolResult {
  * `write:pages` on the path being created.
  *
  * `render` is never sent to `models/pages.ts#createPage()` — the frontend markdown pipeline that
- * produces it does not run here (see `models/rendering.ts`'s own doc comment), so a page saved through
- * this tool has no rendered HTML until an editor opens and re-saves it, or an administrator queues a
- * re-render (`POST …/pages/:pageId/render`). Documented on the tool description, not hidden.
+ * produces it does not run here (see `models/rendering.ts`'s own doc comment). `createPage()` itself
+ * covers that gap (OpenProject #1716): it confirms up front that this instance can actually render the
+ * page, then queues the same headless-browser render a stale stored page's re-render would get.
  */
 export async function handleCreatePage(
   ctx: McpAuthContext,

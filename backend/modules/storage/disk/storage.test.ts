@@ -297,14 +297,12 @@ function fakeImportDeps({
   getEntryAt = async () => null,
   getFolder = async ({ path: p }: { path: string }) => ({ id: `folder-${p}` }) as any,
   createPage = async () => ({ id: 'new-page-id' }) as any,
-  queueRerender = async () => true,
   upload = async () => ({}) as any
 }: {
   locales?: string[]
   getEntryAt?: (args: any) => Promise<any>
   getFolder?: (args: any) => Promise<any>
   createPage?: (siteId: string, input: any, actor: any) => Promise<any>
-  queueRerender?: (siteId: string, id: string, actor: any) => Promise<boolean>
   upload?: (args: any) => Promise<any>
 } = {}) {
   global.WIKI = {
@@ -312,8 +310,11 @@ function fakeImportDeps({
     data: { systemIds: { userAdminId: 'admin-user-id' } },
     logger: { info: () => {}, warn: () => {}, debug: () => {} },
     models: {
+      // -> No `queueRerender` stub: `importPage()` no longer calls it (OpenProject #1723) --
+      //    `createPage()` alone now owns queuing its own re-render, so a test whose scenario
+      //    somehow still reached it would fail loudly (`TypeError`) rather than silently pass.
       tree: { getEntryAt, getFolder },
-      pages: { createPage, queueRerender },
+      pages: { createPage },
       assets: { upload }
     }
   } as unknown as WikiGlobal
@@ -711,22 +712,52 @@ test("importAll resolves each locale's same-named folder separately, rather than
   }
 })
 
-test('importAll queues a re-render for an imported page, and does not fail the import when queueing fails', async () => {
+// -> OpenProject #1723: `importPage()` used to call `queueRerender()` itself after `createPage()`,
+//    best-effort (a queue failure only warned, the page still counted as imported). `createPage()`
+//    now does that queuing internally whenever `render` is omitted (OpenProject #1716), so this call
+//    site is a plain `createPage()` with nothing after it.
+test('importAll creates a page via a plain createPage() call, with no render field and no separate queueRerender call', async () => {
   const dir = await makeTempDir()
   await writeFile(dir, 'en', 'home.md').then((p) => fs.writeFile(p, '# Hello'))
 
-  let queueRerenderCalled = false
+  const createPageCalls: any[] = []
   fakeImportDeps({
-    queueRerender: async () => {
-      queueRerenderCalled = true
+    createPage: async (siteId, input, actor) => {
+      createPageCalls.push({ siteId, input, actor })
+      return { id: 'new-page-id' } as any
+    }
+  })
+
+  try {
+    const result = await importAll(makeImportTarget(dir))
+    assert.equal(result.pagesCreated, 1)
+    assert.equal(createPageCalls.length, 1)
+    assert.equal(createPageCalls[0].input.render, undefined)
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+// -> `createPage()` now consults `ensureCanRender()` *before* the write (OpenProject #1716), so a
+//    missing Puppeteer refuses the create outright rather than landing a page with no render queued.
+//    `importLocaleDir`'s own per-entry try/catch is what turns that into an `unrecognized` entry
+//    instead of aborting the whole import.
+test('importAll surfaces a createPage() failure (e.g. missing Puppeteer) as an unrecognized entry, not a silently blank page', async () => {
+  const dir = await makeTempDir()
+  await writeFile(dir, 'en', 'home.md').then((p) => fs.writeFile(p, '# Hello'))
+
+  fakeImportDeps({
+    createPage: async () => {
       throw new CustomError('renderPuppeteerMissing', 'Rendering needs Puppeteer.', 503)
     }
   })
 
   try {
     const result = await importAll(makeImportTarget(dir))
-    assert.equal(queueRerenderCalled, true)
-    assert.equal(result.pagesCreated, 1)
+    assert.equal(result.pagesCreated, 0)
+    assert.equal(result.unrecognized.length, 1)
+    assert.equal(result.unrecognized[0].path, 'en/home.md')
+    assert.match(result.unrecognized[0].reason, /Rendering needs Puppeteer\./)
   } finally {
     await fs.rm(dir, { recursive: true, force: true })
   }

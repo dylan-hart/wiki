@@ -258,10 +258,12 @@ function importActor(): { id: string; groupIds: string[]; permissions: string[] 
  * the way asset uploads do (see `importAsset`), so this is the conservative default this module picked
  * for them, documented here since there was nowhere else to put it.
  *
- * The render is left empty and queued for the same headless-browser re-render `queueRerender()` uses
- * for a stored page whose HTML has gone stale — imported content is exactly that case: real content,
- * no render yet. Queueing is best-effort: a wiki with no Puppeteer extension installed still gets the
- * page, just not a render of it yet (`WIKI.logger.warn`, not a failure of the import).
+ * No `render` is sent — `createPage()` itself now recognizes that shape (content with no render) and
+ * queues the same headless-browser re-render for it that a stored page's stale HTML gets, after
+ * confirming up front that something here could actually produce one (OpenProject #1716/#1723). A wiki
+ * with no Puppeteer extension installed therefore refuses the create rather than landing a page that
+ * never gets a render; that failure surfaces to `importLocaleDir`'s own per-entry try/catch (below) as
+ * an `unrecognized` entry, the same as any other import failure.
  */
 async function importPage(
   filePath: string,
@@ -284,7 +286,7 @@ async function importPage(
 
   const content = await fs.readFile(filePath, 'utf8')
   const actor = importActor()
-  const page = await WIKI.models.pages.createPage(
+  await WIKI.models.pages.createPage(
     siteId,
     {
       path: pagePath,
@@ -296,14 +298,6 @@ async function importPage(
     actor
   )
   result.pagesCreated++
-
-  try {
-    await WIKI.models.pages.queueRerender(siteId, page.id, actor)
-  } catch (err: any) {
-    WIKI.logger.warn(
-      `Imported page "${locale}/${pagePath}" but could not queue a render: ${err.message}`
-    )
-  }
 }
 
 /**
