@@ -263,19 +263,23 @@ class Extensions {
    *
    * The two installable extensions ask for different things, and the flags below serve both.
    *
-   * Sharp is a declared optional dependency, so an ordinary install already has it — reinstalling is
-   * the point as much as installing is. What goes wrong is its *native* binary: an image built on one
-   * platform and run on another, or an install that skipped optional dependencies, leaves the
-   * JavaScript package in place and the binary for this OS and architecture missing.
+   * Both are declared optional dependencies now (`backend/package.json`), so an ordinary
+   * `npm ci`/`npm install` already has them — reaching this method at all means either that install
+   * skipped optional dependencies (`--omit=optional`) or that what landed is unusable, and calling it
+   * here is a repair, not a first install.
    *
-   * Puppeteer is not declared anywhere in the manifest, so this is a genuine first install, and the
-   * bulk of it is the browser. Nothing has to be arranged for that: Puppeteer's own postinstall
-   * fetches one into its cache, which is the ordinary case and the one an install straight onto Linux
-   * takes. A server that already has a browser opts out with `PUPPETEER_SKIP_DOWNLOAD` and points at
-   * it with `PUPPETEER_EXECUTABLE_PATH` — what the Docker image does with the Chromium it takes from
-   * the distro. Neither is required, and neither is set here: npm inherits this process's environment,
-   * so an install from the admin area sees exactly what the operator set for the server and nothing
-   * else.
+   * Sharp's usual failure is its *native* binary: an image built on one platform and run on another, or
+   * an install that skipped optional dependencies, leaves the JavaScript package in place and the
+   * binary for this OS and architecture missing.
+   *
+   * Puppeteer's is the browser under it. Nothing has to be arranged for a fresh fetch: Puppeteer's own
+   * postinstall downloads one into its cache, which is the ordinary case and the one an install straight
+   * onto Linux takes. A server that already has a browser opts out with `PUPPETEER_SKIP_DOWNLOAD` and
+   * points at it with `PUPPETEER_EXECUTABLE_PATH` — what the Docker image does with the Chromium it
+   * takes from the distro, installed via the same `npm ci` as everything else now that Puppeteer is
+   * declared. Neither env var is required, and neither is set here: npm inherits this process's
+   * environment, so an install from the admin area sees exactly what the operator set for the server and
+   * nothing else.
    *
    * Hence the flags:
    *
