@@ -317,6 +317,20 @@ export default {
     }
   },
   /**
+   * Shut the database layer down: unsubscribe from LISTEN/NOTIFY, then end the pool.
+   *
+   * One awaitable call rather than two fire-and-forget ones (OpenProject #2023), for
+   * `backend/index.ts`'s `gracefulServer(...)` `closePromises` to hold. Order matters —
+   * `unsubscribeFromNotifications()`'s own `notifier.drained()` still needs a live pool/client to
+   * flush whatever it has queued, so the pool must not be ended until that has fully finished.
+   */
+  async shutdown(): Promise<void> {
+    await this.unsubscribeFromNotifications()
+    if (this.pool) {
+      await this.pool.end()
+    }
+  },
+  /**
    * Publish event via database NOTIFY
    *
    * Takes one `{ name, data }` object, which is what Emittery hands an `onAny` listener — not the

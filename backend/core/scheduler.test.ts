@@ -330,6 +330,119 @@ describe('expireCompletionPromises (fake WIKI)', () => {
 })
 
 /**
+ * OpenProject #2019/#2028: `stop()` must not abandon a `processJob()` batch already in flight when
+ * shutdown begins — it awaits whatever `inFlightBatches` holds (bounded, so a hung task cannot hold
+ * shutdown open forever) before destroying the worker pool. A fake `workerPool`/`listenerHandle`
+ * pair stands in for the real ones, since what's under test is the ordering and the bound, not
+ * poolifier or postgres.
+ */
+describe('stop() (fake WIKI)', () => {
+  let previousWiki: any
+  let destroyCalls: number
+  let destroyedAt: number | undefined
+  let closeCalls: number
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = {
+      logger: { info: () => {}, warn: () => {}, debug: () => {} }
+    }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  beforeEach(() => {
+    destroyCalls = 0
+    destroyedAt = undefined
+    closeCalls = 0
+    scheduler.scheduledRef = setInterval(() => {}, 1_000_000)
+    scheduler.pollingRef = setInterval(() => {}, 1_000_000)
+    scheduler.inFlightBatches = new Set()
+    scheduler.listenerHandle = null
+    scheduler.workerPool = {
+      destroy: async () => {
+        destroyCalls++
+        destroyedAt = Date.now()
+      }
+    }
+  })
+
+  afterEach(() => {
+    clearInterval(scheduler.scheduledRef!)
+    clearInterval(scheduler.pollingRef!)
+  })
+
+  test('does not destroy the worker pool until an in-flight batch settles', async () => {
+    let settleBatch: () => void
+    const batch = new Promise<void>((resolve) => {
+      settleBatch = resolve
+    })
+    scheduler.inFlightBatches.add(batch)
+
+    const stopPromise = scheduler.stop(1000)
+    // -> Give the synchronous portion of stop() (clearing both intervals, entering the drain wait) a
+    //    turn to run, well before the batch or the drain bound ever settles.
+    await Promise.resolve()
+    assert.equal(destroyCalls, 0, 'workerPool.destroy() must wait for the in-flight batch')
+
+    settleBatch!()
+    await stopPromise
+    assert.equal(destroyCalls, 1)
+  })
+
+  test('awaits an in-flight batch before destroying the worker pool', async () => {
+    let resolveBatch: () => void
+    let batchSettledAt: number | undefined
+    const batch = new Promise<void>((resolve) => {
+      resolveBatch = resolve
+    }).then(() => {
+      batchSettledAt = Date.now()
+    })
+    scheduler.inFlightBatches.add(batch)
+
+    const stopPromise = scheduler.stop(5000)
+    setTimeout(() => resolveBatch!(), 20)
+    await stopPromise
+
+    assert.equal(destroyCalls, 1)
+    assert.ok(batchSettledAt !== undefined, 'the batch must have settled')
+    assert.ok(
+      destroyedAt! >= batchSettledAt!,
+      'workerPool.destroy() must run only after the in-flight batch settles'
+    )
+  })
+
+  test('a never-settling in-flight batch does not prevent stop() from resolving within the bound', async () => {
+    const neverSettles = new Promise<void>(() => {})
+    scheduler.inFlightBatches.add(neverSettles)
+
+    const start = Date.now()
+    await scheduler.stop(50)
+    const elapsed = Date.now() - start
+
+    assert.equal(destroyCalls, 1, 'the worker pool is still destroyed once the bound is hit')
+    assert.ok(elapsed < 2000, `expected stop() to give up around the 50ms bound, took ${elapsed}ms`)
+  })
+
+  test('closes the listener once the in-flight batch has settled, after destroying the worker pool', async () => {
+    scheduler.listenerHandle = {
+      close: async () => {
+        closeCalls++
+      }
+    }
+    scheduler.inFlightBatches.add(Promise.resolve())
+
+    await scheduler.stop(1000)
+
+    assert.equal(destroyCalls, 1)
+    assert.equal(closeCalls, 1)
+    assert.equal(scheduler.listenerHandle, null)
+  })
+})
+
+/**
  * Task 704 (a): `executeOnWorker`'s two timeout ceilings, verified against a REAL poolifier worker
  * thread rather than a mock of one — see `test/fixtures/schedulerCrashWorker.ts` for why a worker
  * thread's own `process.exit()` is the faithful in-process equivalent of `kill -9`-ing it.

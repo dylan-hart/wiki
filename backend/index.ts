@@ -328,7 +328,24 @@ async function initHTTPServer() {
   WIKI.server = gracefulServer(app.server, {
     livenessEndpoint: '/_live',
     readinessEndpoint: '/_ready',
-    kubernetes: Boolean(process.env.KUBERNETES_SERVICE_HOST)
+    kubernetes: Boolean(process.env.KUBERNETES_SERVICE_HOST),
+    // -> Awaited via `Promise.allSettled` by the library once the pre-close delay below has
+    //    elapsed — each one is itself internally bounded (`scheduler.stop()`'s own drain timeout,
+    //    `collab.shutdown()`/`dbManager.shutdown()`'s bounded socket/pool teardown), so a hung
+    //    routine here cannot hold the process open indefinitely. Previously empty, so every deploy,
+    //    restart or pod eviction abandoned an in-flight job, a live collab socket and the pg pool's
+    //    LISTEN client rather than draining them (OpenProject #2018/#2028).
+    closePromises: [
+      () => WIKI.scheduler.stop(),
+      () => WIKI.collab.shutdown(),
+      () => WIKI.dbManager.shutdown()
+    ],
+    // -> Library default is 1000ms, spent entirely as a pre-close delay *before* `closePromises`
+    //    run (not a timeout wrapping them) — barely enough for a readiness probe to notice
+    //    `isReady()` has flipped and stop routing new traffic here. Raised well above that, while
+    //    staying comfortably under a typical 30s Kubernetes `terminationGracePeriodSeconds` once
+    //    added to `scheduler.stop()`'s own drain bound above.
+    timeout: 5000
   })
 
   app.register(fastifySensible)
@@ -349,11 +366,10 @@ async function initHTTPServer() {
   // ----------------------------------------
 
   WIKI.server.on(gracefulServer.SHUTTING_DOWN, () => {
+    // -> The actual teardown (scheduler drain, collab socket close, db unsubscribe + pool end) now
+    //    runs via `closePromises` above, awaited by the library before it closes the server — this
+    //    handler is logging only.
     WIKI.logger.info('Shutting down HTTP Server... [ STOPPING ]')
-    WIKI.dbManager.unsubscribeFromNotifications()
-    // -> Closes every editing socket with a going-away code, so the editors reconnect to whichever
-    //    instance takes over rather than sitting on a dead connection
-    WIKI.collab.shutdown()
   })
 
   WIKI.server.on(gracefulServer.SHUTDOWN, (err: Error) => {

@@ -55,6 +55,18 @@ const COMPLETION_PROMISE_TTL_MULTIPLIER = 2
 const TASK_TIMEOUT_GRACE = 5000
 
 /**
+ * Default bound, in milliseconds, on how long `stop()` waits for jobs already in flight to finish
+ * before giving up and destroying the worker pool out from under them anyway (OpenProject #2019).
+ *
+ * `stop()` clears `pollingRef` first, so no new job is claimed once shutdown begins — this bound only
+ * covers work already claimed. It exists so a single hung task cannot hold shutdown, and therefore the
+ * whole process's exit, open indefinitely. Kept well under a typical 30s Kubernetes
+ * `terminationGracePeriodSeconds` alongside `backend/index.ts`'s `gracefulServer(...)` `timeout`
+ * option, which adds its own pre-close delay on top of this.
+ */
+const DEFAULT_DRAIN_TIMEOUT_MS = 20_000
+
+/**
  * Sends the scheduler's cross-instance notifications, one at a time.
  *
  * Nothing here awaits a notification: a job being added or finishing should not wait on a round trip,
@@ -97,6 +109,11 @@ export default {
   scheduledRef: null as NodeJS.Timeout | null,
   tasks: null as Record<string, SimpleTask> | null,
   completionPromises: [] as CompletionPromise[],
+  /**
+   * One entry per in-flight `processJob()` batch, so `stop()` can await whatever is currently
+   * running instead of abandoning it to `workerPool.destroy()` (OpenProject #2019).
+   */
+  inFlightBatches: new Set<Promise<unknown>>(),
   async init() {
     this.maxWorkers =
       WIKI.config.scheduler.workers === 'auto'
@@ -424,12 +441,18 @@ export default {
     }
 
     this.activeWorkers += jobs.length
+    // -> `allSettled`, though `runJob` handles its own failures: one job that manages to throw
+    //    anyway must not abandon the bookkeeping of the others
+    const batch = Promise.allSettled(jobs.map((job) => this.runJob(job)))
+    // -> Held so `stop()` can await whatever this batch is still doing rather than abandon it.
+    //    Tracked as the raw batch promise (not individually per job) since that is already exactly
+    //    what's computed above; removed once settled either way, success or failure notwithstanding.
+    this.inFlightBatches.add(batch)
     try {
-      // -> `allSettled`, though `runJob` handles its own failures: one job that manages to throw
-      //    anyway must not abandon the bookkeeping of the others
-      await Promise.allSettled(jobs.map((job) => this.runJob(job)))
+      await batch
     } finally {
       this.activeWorkers -= jobs.length
+      this.inFlightBatches.delete(batch)
     }
   },
   /**
@@ -688,10 +711,40 @@ export default {
       WIKI.logger.warn(err)
     }
   },
-  async stop(): Promise<void> {
+  /**
+   * Stop the scheduler.
+   *
+   * Clears both intervals first, so no new job is claimed once shutdown begins, then waits for
+   * whatever `processJob()` batches are already in flight — bounded by `drainTimeoutMs`, so one hung
+   * task cannot hold this open indefinitely — before destroying the worker pool out from under
+   * whatever is still running. A batch still going at the bound is abandoned exactly as before this
+   * drain existed: `workerPool.destroy()` tears it down, and its `jobHistory` row is picked up by
+   * `reapStaleJobs()` once `staleJobTimeout` elapses.
+   *
+   * @param drainTimeoutMs How long to wait for in-flight jobs before giving up on them. Defaults to
+   *   `DEFAULT_DRAIN_TIMEOUT_MS`; a caller with tighter timing needs (tests included) may pass a
+   *   shorter bound.
+   */
+  async stop(drainTimeoutMs = DEFAULT_DRAIN_TIMEOUT_MS): Promise<void> {
     WIKI.logger.info('Stopping Scheduler...')
     clearInterval(this.scheduledRef!)
     clearInterval(this.pollingRef!)
+
+    if (this.inFlightBatches.size > 0) {
+      WIKI.logger.info(
+        `Waiting up to ${drainTimeoutMs}ms for ${this.inFlightBatches.size} in-flight job batch(es) to finish...`
+      )
+      let timer: NodeJS.Timeout
+      const bound = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, drainTimeoutMs)
+      })
+      try {
+        await Promise.race([Promise.allSettled(this.inFlightBatches), bound])
+      } finally {
+        clearTimeout(timer!)
+      }
+    }
+
     await this.workerPool!.destroy()
     if (this.listenerHandle) {
       await notifier.drained()

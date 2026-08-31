@@ -63,6 +63,8 @@ class FakeClient extends EventEmitter {
 class FakePool {
   private queue: FakeClient[] = []
   connectCalls = 0
+  endCalls = 0
+  endedAt: number | undefined
   queueClient(client: FakeClient): void {
     this.queue.push(client)
   }
@@ -73,6 +75,10 @@ class FakePool {
       throw new Error('FakePool.connect() called with nothing queued')
     }
     return next
+  }
+  async end(): Promise<void> {
+    this.endCalls++
+    this.endedAt = Date.now()
   }
 }
 
@@ -247,5 +253,47 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.equal(groupsReloadCacheMock.mock.calls.length, 1)
     assert.equal(sitesReloadCacheMock.mock.calls.length, 1)
     assert.equal(approvalsReloadCacheMock.mock.calls.length, 1)
+  })
+})
+
+/**
+ * OpenProject #2023/#2028: `shutdown()` gives `backend/index.ts`'s `gracefulServer(...)`
+ * `closePromises` one awaitable call for db teardown instead of two fire-and-forget ones
+ * (`unsubscribeFromNotifications()` and a bare `pool.end()`). Order matters:
+ * `unsubscribeFromNotifications()`'s own `notifier.drained()` still needs a live pool/client to
+ * flush whatever it has queued, so the pool must not be ended until that has fully finished.
+ */
+describe('shutdown()', () => {
+  test('unsubscribes before ending the pool, and resolves only once both have completed', async () => {
+    const pool = new FakePool()
+    const client = new FakeClient()
+    pool.queueClient(client)
+    dbManager.pool = pool as any
+
+    await dbManager.subscribeToNotifications()
+    assert.equal(dbManager.listenerHandle !== null, true)
+
+    await dbManager.shutdown()
+
+    assert.equal(dbManager.listenerHandle, null, 'unsubscribeFromNotifications() ran')
+    assert.equal(client.released, true, 'the listener client was released back to the pool')
+    assert.equal(pool.endCalls, 1, 'the pool was ended')
+  })
+
+  test('does not throw when the pool was never initialized', async () => {
+    dbManager.pool = null
+    dbManager.listenerHandle = null
+
+    await assert.doesNotReject(dbManager.shutdown())
+  })
+
+  test('ends the pool even with no active subscription to unsubscribe from', async () => {
+    const pool = new FakePool()
+    dbManager.pool = pool as any
+    dbManager.listenerHandle = null
+
+    await dbManager.shutdown()
+
+    assert.equal(pool.endCalls, 1)
   })
 })
