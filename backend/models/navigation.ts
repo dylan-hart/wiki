@@ -793,8 +793,20 @@ class Navigation {
 
     if (cascadeTo !== undefined) {
       // -> Everything below that still inherits, except what sits under a nearer override or hide,
-      //    which owns its own subtree
+      //    which owns its own subtree. The boundary paths (the ltree concat that decides what
+      //    counts as "under" a boundary) are collected once into a CTE rather than recomputed by a
+      //    correlated NOT EXISTS on every candidate row — same boundary set, same containment
+      //    predicate, evaluated per boundary instead of per row.
       await WIKI.db.execute(sql`
+        WITH boundaries AS (
+          SELECT (tc."folderPath" || tc."fileName") AS "boundaryPath"
+          FROM tree tc
+          WHERE tc."siteId" = ${siteId}
+            AND tc."locale" = ${entry.locale}
+            AND tc.tree IN ('page', 'folder')
+            AND tc."folderPath" <@ ${fullPath}::ltree
+            AND tc."navigationMode" IN ('override', 'hide')
+        )
         UPDATE tree tt
         SET "navigationId" = ${cascadeTo}
         WHERE tt."siteId" = ${siteId}
@@ -804,13 +816,8 @@ class Navigation {
           AND tt."navigationMode" = 'inherit'
           AND NOT EXISTS (
             SELECT 1
-            FROM tree tc
-            WHERE tc."siteId" = ${siteId}
-              AND tc."locale" = ${entry.locale}
-              AND tc.tree IN ('page', 'folder')
-              AND tc."folderPath" <@ ${fullPath}::ltree
-              AND (tc."folderPath" || tc."fileName") @> tt."folderPath"
-              AND tc."navigationMode" IN ('override', 'hide')
+            FROM boundaries b
+            WHERE b."boundaryPath" @> tt."folderPath"
           )
       `)
     }

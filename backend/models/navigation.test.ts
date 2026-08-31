@@ -1802,6 +1802,85 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.equal(assetRow!.navigationId, assetSentinel)
       assert.equal(assetRow!.navigationMode, 'inherit')
     })
+
+    /**
+     * The CTE anti-join (navigation.ts's `boundaries` CTE in `updateNavigation()`'s cascade UPDATE)
+     * collects every override/hide boundary path once, up front. This is the case that would break
+     * first if the de-correlation ever dropped a boundary row: a boundary directly nested under
+     * another boundary, rather than the outer boundary's own non-boundary descendant that every
+     * other case here exercises.
+     */
+    test('(f) a boundary directly nested under another boundary still shields its own subtree, and the outer boundary still shields the inner boundary itself', async () => {
+      const root = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-f-root',
+        type: 'folder'
+      })
+
+      const outerNavId = randomUUID()
+      const outerBoundary = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-f-root/outer',
+        type: 'folder',
+        navigationMode: 'override',
+        navigationId: outerNavId
+      })
+
+      // -> Nested directly under the outer boundary, itself a boundary (hide) rather than a plain
+      //    inheriting descendant.
+      const innerBoundary = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-f-root/outer/inner',
+        type: 'folder',
+        navigationMode: 'hide',
+        navigationId: null
+      })
+
+      const belowInnerSentinel = randomUUID()
+      const belowInner = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-f-root/outer/inner/leaf',
+        navigationId: belowInnerSentinel
+      })
+
+      const { navigationId } = await navigationModel.updateNavigation({
+        siteId: fixtures.siteId,
+        pageId: root.id,
+        mode: 'override'
+      })
+
+      // -> The outer boundary's own row is excluded by the `navigationMode = 'inherit'` filter, not
+      //    touched by root's cascade.
+      const [outerRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, outerBoundary.id))
+      assert.equal(outerRow!.navigationId, outerNavId)
+      assert.equal(outerRow!.navigationMode, 'override')
+
+      // -> The inner boundary sits under the outer boundary, so the outer boundary's own
+      //    "boundaryPath" shields it from root's cascade too -- it keeps its own mode/id rather
+      //    than picking up root's navigationId.
+      const [innerRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, innerBoundary.id))
+      assert.equal(innerRow!.navigationId, null)
+      assert.equal(innerRow!.navigationMode, 'hide')
+
+      // -> Everything beneath the inner boundary is shielded by the inner boundary's own
+      //    "boundaryPath" -- exactly the anti-join row the de-correlated CTE must still produce.
+      const [belowInnerRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, belowInner.id))
+      assert.equal(belowInnerRow!.navigationId, belowInnerSentinel)
+      assert.equal(belowInnerRow!.navigationMode, 'inherit')
+
+      // -> Sanity: root's cascade did reach *something* -- confirms this isn't a vacuous pass where
+      //    the whole subtree got excluded for an unrelated reason.
+      assert.notEqual(navigationId, null)
+    })
   })
 
   /**
