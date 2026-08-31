@@ -121,6 +121,27 @@
                 </w-menu>
               </w-btn>
             </div>
+            <!--
+              Only rendered once the status fetch (fired from `fetchAuthMethods()`) resolves --
+              absent while loading or on a failed fetch, since this is a nudge on top of an
+              auth-methods list that already rendered, not something worth its own error state.
+            -->
+            <div
+              v-if="auth.config.isTfaSetup && state.recoveryCodesStatus[auth.authId]"
+              class="text-caption mt-1"
+              :class="isRecoveryCodesLow(auth.authId) ? 'text-negative' : 'text-grey-7'">
+              <div>
+                {{
+                  t('profile.tfaRecoveryCodesRemaining', {
+                    remaining: state.recoveryCodesStatus[auth.authId].remaining,
+                    total: state.recoveryCodesStatus[auth.authId].total
+                  })
+                }}
+              </div>
+              <div v-if="isRecoveryCodesLow(auth.authId)">
+                {{ t('profile.tfaRecoveryCodesLow') }}
+              </div>
+            </div>
           </w-item-section>
         </w-item>
       </w-list>
@@ -198,6 +219,10 @@ useMeta(() => ({
 const state = reactive({
   authMethods: [],
   passkeys: [],
+  // -> Keyed by authId. Populated lazily after `fetchAuthMethods()`, one entry per local strategy
+  //    with 2FA active. Absent entry means either not applicable or the status fetch failed --
+  //    both render the same way (no remaining-count line), since this is a nudge, not a blocker.
+  recoveryCodesStatus: {},
   loading: 0
 })
 
@@ -224,6 +249,43 @@ async function fetchAuthMethods() {
     })
   }
   state.loading--
+
+  await fetchRecoveryCodesStatuses()
+}
+
+/**
+ * Fills in `state.recoveryCodesStatus` for every local auth method with 2FA active. Kept separate
+ * from `fetchAuthMethods()`'s own try/catch: a failure here is silent (no `notify()`) since the
+ * remaining-count line is a nudge on top of an auth-methods list that already rendered
+ * successfully, not something worth surfacing as its own error toast.
+ */
+async function fetchRecoveryCodesStatuses() {
+  const tfaMethods = state.authMethods.filter(
+    (auth) => auth.strategyKey === 'local' && auth.config?.isTfaSetup
+  )
+  await Promise.all(
+    tfaMethods.map(async (auth) => {
+      try {
+        const resp = await API_CLIENT.get('users/profile/tfa/recovery-codes', {
+          searchParams: { strategyId: auth.authId }
+        }).json()
+        if (resp?.ok) {
+          state.recoveryCodesStatus[auth.authId] = { total: resp.total, remaining: resp.remaining }
+        }
+      } catch {
+        // -> Silent by design, see function doc comment above.
+      }
+    })
+  )
+}
+
+/** Whether `authId`'s recovery codes are running low enough to nudge the user to regenerate. */
+function isRecoveryCodesLow(authId) {
+  const status = state.recoveryCodesStatus[authId]
+  if (!status || status.total <= 0) {
+    return false
+  }
+  return status.remaining / status.total <= 0.2
 }
 
 function changePassword(strategyId) {
