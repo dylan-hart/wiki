@@ -1659,7 +1659,14 @@ export const userKeys = pgTable(
       .notNull()
       .references(() => users.id)
   },
-  (table) => [index('userKeys_userId_idx').on(table.userId)]
+  (table) => [
+    index('userKeys_userId_idx').on(table.userId),
+    // -> Unique as documentation of intent: `countTfaFailure()`, `validateToken()` and
+    //    `destroyToken()` (models/users.ts) all look a row up by bare `token` equality and treat it
+    //    as an identity. Was previously unindexed, forcing a sequential scan on every 2FA attempt,
+    //    password reset and email verification.
+    uniqueIndex('userKeys_token_idx').on(table.token)
+  ]
 )
 
 // USERS -------------------------------

@@ -13,7 +13,19 @@ import {
   users as usersTable,
   userKeys
 } from '../db/schema.ts'
-import { and, count, desc, eq, ilike, inArray, isNotNull, notExists, or, sql } from 'drizzle-orm'
+import {
+  and,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNotNull,
+  lt,
+  notExists,
+  or,
+  sql
+} from 'drizzle-orm'
 import type { WikiDbOrTx } from '../core/db.ts'
 import { nanoid } from 'nanoid'
 import { flatten, uniq } from 'es-toolkit/array'
@@ -3159,6 +3171,18 @@ class Users {
 
   async destroyToken({ token }: { token: string }) {
     return WIKI.db.delete(userKeys).where(eq(userKeys.token, token))
+  }
+
+  /**
+   * Sweep `userKeys` rows past their `validUntil` -- a row otherwise only goes when consumed
+   * (`validateToken()` above, `register()`'s email-verification path), destroyed (`destroyToken()`
+   * above) or when its user is deleted, so a token generated and never presented (an abandoned
+   * password-reset link, an abandoned 2FA continuation) would otherwise accumulate forever. Mirrors
+   * `pageviews.ts#purgeExpired()`'s shape.
+   */
+  async purgeExpiredKeys(): Promise<number> {
+    const result = await WIKI.db.delete(userKeys).where(lt(userKeys.validUntil, sql`now()`))
+    return result.rowCount ?? 0
   }
 }
 

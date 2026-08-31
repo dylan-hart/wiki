@@ -66,6 +66,15 @@ test('JOB_SCHEDULE_SEED registers purgeContentSyncState on a valid daily cron, a
   )
 })
 
+test('JOB_SCHEDULE_SEED registers purgeUserKeys on a valid daily cron', () => {
+  const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeUserKeys')
+  assert.ok(entry, 'expected a purgeUserKeys entry in the schedule seed')
+  assert.equal(entry!.type, 'system')
+  // -> A standard 5-field cron expression, e.g. "45 0 * * *" (once a day)
+  assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
+})
+
+
 test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
   const tasks = JOB_SCHEDULE_SEED.map((e) => e.task)
   assert.deepEqual(
@@ -79,6 +88,7 @@ test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
       'purgeImports',
       'purgePageviews',
       'purgeRateLimits',
+      'purgeUserKeys',
       'sendWatchDigests',
       'storageDailyBackup',
       'storageSyncTick',

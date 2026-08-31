@@ -90,6 +90,14 @@ export const JOB_SCHEDULE_SEED = [
     cron: '40 0 * * *',
     type: 'system'
   },
+  // -> Sweeps `userKeys` rows past their `validUntil` (abandoned password-reset links, abandoned 2FA
+  //    continuations) -- see `tasks/simple/purge-user-keys.ts` / `models/users.ts#purgeExpiredKeys()`.
+  //    Offset alongside the other midnight housekeeping jobs above.
+  {
+    task: 'purgeUserKeys',
+    cron: '45 0 * * *',
+    type: 'system'
+  },
   // -> Checks every pull/two-way storage target's schedule and queues a sync for whichever is due —
   //    a short cron since the comparison against each target's own interval happens inside the task
   //    itself, not here. See `tasks/simple/storage-sync-tick.ts` / `Storage.tickScheduledSyncs()`.
