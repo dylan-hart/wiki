@@ -4,17 +4,7 @@
       <w-icon name="img:/_assets/icons/fluent-rfid-tag.svg" left size="md" />
       <span>{{ t('editor.blockPicker.title') }}</span>
       <w-space />
-      <w-btn
-        class="mr-2"
-        flat
-        rounded
-        color="white"
-        :aria-label="t(`common.actions.viewDocs`)"
-        icon="la:question-circle"
-        :href="siteStore.docsBase + `/guide/blocks`"
-        target="_blank"
-        type="a" />
-      <w-btn-group>
+      <w-btn-group push>
         <w-btn
           push
           color="white"

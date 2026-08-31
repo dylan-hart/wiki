@@ -24,17 +24,7 @@
       </div>
       <div class="flex-none">
         <w-btn
-          class="mr-2 ml-4 acrylic-btn"
-          icon="la:question-circle"
-          flat
-          color="grey"
-          :aria-label="t(`common.actions.viewDocs`)"
-          :href="siteStore.docsBase + `/admin/metrics`"
-          target="_blank">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
-        </w-btn>
-        <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn mr-2 ml-4"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -110,7 +100,6 @@ import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 
 import { useAdminStore } from '@/stores/admin'
-import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
 
 // COMPOSABLES
@@ -120,7 +109,6 @@ const dark = useDark()
 // STORES
 
 const adminStore = useAdminStore()
-const siteStore = useSiteStore()
 
 // I18N
 

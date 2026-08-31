@@ -15,16 +15,6 @@
       </div>
       <div class="flex flex-none">
         <w-btn
-          class="mr-2 acrylic-btn"
-          icon="la:question-circle"
-          flat
-          color="grey"
-          :aria-label="t(`common.actions.viewDocs`)"
-          :href="siteStore.docsBase + `/admin/approvals`"
-          target="_blank">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
-        </w-btn>
-        <w-btn
           class="acrylic-btn mr-2"
           icon="la:redo-alt"
           flat
@@ -141,7 +131,6 @@ import { confirm, dialog } from '@/composables/dialog'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 
 import { useAdminStore } from '@/stores/admin'
-import { useSiteStore } from '@/stores/site'
 
 import ApprovalRuleDialog from '@/components/ApprovalRuleDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
@@ -156,7 +145,6 @@ useSiteAdminAccess('site:approvals')
 // STORES
 
 const adminStore = useAdminStore()
-const siteStore = useSiteStore()
 
 // I18N
 

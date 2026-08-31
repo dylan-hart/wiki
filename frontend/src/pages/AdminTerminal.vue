@@ -46,17 +46,6 @@
           :label="t(`admin.terminal.clear`)"
           color="primary"
           @click="clearTerminal" />
-        <w-separator class="mr-4" vertical />
-        <w-btn
-          class="mr-2 acrylic-btn"
-          icon="la:question-circle"
-          flat
-          color="grey"
-          :aria-label="t(`common.actions.viewDocs`)"
-          :href="siteStore.docsBase + `/admin/terminal`"
-          target="_blank">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
-        </w-btn>
       </div>
     </div>
     <w-separator inset />
@@ -72,15 +61,9 @@ import { useI18n } from 'vue-i18n'
 
 import { useMeta } from '@/composables/meta'
 
-import { useSiteStore } from '@/stores/site'
-
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-
-// STORES
-
-const siteStore = useSiteStore()
 
 // I18N
 
