@@ -766,7 +766,14 @@ async function saveChangesCommit(closeAfter = false) {
 function resolveSaveConflict(snapshot) {
   dialog({
     component: defineAsyncComponent(() => import('./PageSaveConflictDialog.vue')),
-    componentProps: { authorName: snapshot.authorName }
+    componentProps: {
+      authorName: snapshot.authorName,
+      serverContent: snapshot.content,
+      // -> Already flushed onto the store by `pageSave()`'s `contentFlusher` await, before the 409
+      //    that set `snapshot` was ever thrown -- so this is still this author's pending edit, not
+      //    the server's content the store gets patched with only on a successful save.
+      pendingContent: pageStore.content
+    }
   })
     .onOk(async (action) => {
       if (action === 'discard') {
