@@ -2471,6 +2471,8 @@
   "editor.pageRel.target": "Target",
   "editor.pageRel.title": "Add Page Relation",
   "editor.pageRel.titleEdit": "Edit Page Relation",
+  "editor.pendingAssetsCancel": "Cancel Upload",
+  "editor.pendingAssetsCancelled": "Upload cancelled.",
   "editor.pendingAssetsUploading": "Uploading assets...",
   "editor.picker.title": "Choose an Editor",
   "editor.props.alias": "Alias",
