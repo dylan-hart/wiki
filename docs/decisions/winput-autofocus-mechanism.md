@@ -81,7 +81,7 @@ instead of the bare prop**, and this is not a leftover — it is load-bearing, f
   ordering is what makes it a deliberate override rather than a race — the dialog's own focus-trap
   entry always runs first and is always superseded by the explicit `autofocus` target when one is
   given (`WDialog.vue`'s own comment at the `moveFocusIntoPanel` definition spells this out).
-- A bare `WInput autofocus` prop *inside* a dialog would fire from the input's own `onMounted`
+- A bare `WInput autofocus` prop _inside_ a dialog would fire from the input's own `onMounted`
   instead, with no guaranteed ordering against `WDialog`'s synchronous panel-entry focus — exactly
   the kind of implicit race `maintainability.md`'s "not a race" framing (`UtilCodeEditor.vue:232-235`)
   was arguing against, just resolved by keeping the override explicit and by-reference at the dialog
