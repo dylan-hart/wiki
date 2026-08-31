@@ -1053,6 +1053,12 @@ export const pageHistory = pgTable(
  * author resumes from and what a review screen shows, and it cannot be reconstructed from the patch
  * alone once the page has moved on.
  */
+export const pageEditSubmissionStatusEnum = pgEnum('pageEditSubmissionStatus', [
+  'open',
+  'approved',
+  'declined'
+])
+
 export const pageEditSubmissions = pgTable(
   'pageEditSubmissions',
   {
@@ -1074,7 +1080,16 @@ export const pageEditSubmissions = pgTable(
     siteId: uuid()
       .notNull()
       .references(() => sites.id),
-    authorId: uuid().references(() => users.id)
+    authorId: uuid().references(() => users.id),
+    // -> Waiting for a review until a reviewer resolves it one way or the other. A row is retained
+    //    once resolved rather than deleted, so a declined suggestion can be shown back to its author
+    //    with the reason, and an approved one keeps a record of who accepted it.
+    status: pageEditSubmissionStatusEnum().notNull().default('open'),
+    /** Why a reviewer resolved this the way they did. Null while `status` is still `open`. */
+    resolvedReason: text(),
+    // -> Null once the account is gone, rather than holding the account hostage. Mirrors
+    //    `checklistExecutions.completedBy`.
+    resolvedBy: uuid().references(() => users.id, { onDelete: 'set null' })
   },
   (table) => [
     index('pageEditSubmissions_pageId_idx').on(table.pageId),

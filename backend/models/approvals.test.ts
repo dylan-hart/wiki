@@ -1,7 +1,12 @@
 import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { userGroups as userGroupsTable, users as usersTable } from '../db/schema.ts'
+import { eq } from 'drizzle-orm'
+import {
+  pageEditSubmissions as submissionsTable,
+  userGroups as userGroupsTable,
+  users as usersTable
+} from '../db/schema.ts'
 import type { PageActor } from './pages.ts'
 import type { ApprovalPageRef } from './approvals.ts'
 
@@ -998,6 +1003,75 @@ describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabas
     assert.deepEqual(forPage.map((s) => s.id).sort(), [first.id, second.id].sort())
   })
 })
+
+/**
+ * `status`/`resolvedReason`/`resolvedBy` (OpenProject #2125): a freshly-inserted submission is
+ * `open` with no resolution recorded yet, before any reviewer has acted on it. Approve/reject
+ * actually setting these on resolution is sibling work (#2129) -- this only locks down what the
+ * migrated schema itself hands back on insert.
+ */
+describe(
+  'approvals submission resolution columns (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let pagesModel: typeof import('./pages.ts').pages
+    let approvalsModel: typeof import('./approvals.ts').approvals
+    let actor: PageActor
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ pages: pagesModel } = await import('./pages.ts'))
+      ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+      actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test('a new submission defaults to status open with no resolvedReason or resolvedBy', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'approvals/resolution-columns',
+          title: 'Resolution Columns',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        actor
+      )
+
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: {
+          id: page.id,
+          path: page.path,
+          locale: 'en',
+          tags: [],
+          allowContributions: true,
+          classification: null
+        },
+        baseContent: 'Original',
+        content: 'Suggested edit',
+        authorId: fixtures.userId
+      })
+
+      const rows = await WIKI.db
+        .select({
+          status: submissionsTable.status,
+          resolvedReason: submissionsTable.resolvedReason,
+          resolvedBy: submissionsTable.resolvedBy
+        })
+        .from(submissionsTable)
+        .where(eq(submissionsTable.id, submission.id))
+      assert.equal(rows.length, 1)
+      assert.equal(rows[0]!.status, 'open')
+      assert.equal(rows[0]!.resolvedReason, null)
+      assert.equal(rows[0]!.resolvedBy, null)
+    })
+  }
+)
 
 describe('approvals pageViewerState siteId threading (task 678)', () => {
   /**
