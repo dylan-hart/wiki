@@ -100,3 +100,28 @@ describe('AdminApi key list site caption', () => {
     expect(wrapper.vm.siteName({ siteId: null })).toBe('All Sites')
   })
 })
+
+// -> OpenProject #1929: `/dev/api` names a concept this fork invented (there is no such upstream
+//    Wiki.js docs section), so no docs site can describe it -- the help button was deleted rather
+//    than left pointing at a page that does not exist. The Swagger UI button (`href="/_api"`) is
+//    unrelated -- a real backend-served link, not a `docsBase` deep path -- and stays.
+describe('AdminApi help link', () => {
+  it('has no help/docs button', async () => {
+    globalThis.API_CLIENT.get.mockImplementation((resource) => {
+      const payloads = {
+        'api-keys': [],
+        'system/api': { isEnabled: true },
+        groups: [],
+        sites: [],
+        'system/certificates': { generatedAt: null }
+      }
+      return { json: () => Promise.resolve(payloads[resource]) }
+    })
+
+    const wrapper = mountPage()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.html()).not.toContain('/dev/api')
+  })
+})

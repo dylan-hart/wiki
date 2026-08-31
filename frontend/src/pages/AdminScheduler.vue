@@ -31,16 +31,6 @@
         <w-separator class="mr-4" vertical />
         <w-btn
           class="mr-2 acrylic-btn"
-          icon="la:question-circle"
-          flat
-          color="grey"
-          :aria-label="t(`common.actions.viewDocs`)"
-          :href="siteStore.docsBase + `/admin/scheduler`"
-          target="_blank">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
-        </w-btn>
-        <w-btn
-          class="mr-2 acrylic-btn"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -412,15 +402,9 @@ import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDuration, relativeDate } from '@/helpers/datetime'
 
-import { useSiteStore } from '@/stores/site'
-
 // COMPOSABLES
 
 const dark = useDark()
-
-// STORES
-
-const siteStore = useSiteStore()
 
 // I18N
 

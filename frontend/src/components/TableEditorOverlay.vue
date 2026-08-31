@@ -4,16 +4,6 @@
       <w-icon name="img:/_assets/icons/color-data-grid.svg" left size="md" />
       <span>{{ t(`editor.tableEditor.title`) }}</span>
       <w-space />
-      <w-btn
-        class="mr-2"
-        flat
-        rounded
-        color="white"
-        :aria-label="t(`common.actions.viewDocs`)"
-        icon="la:question-circle"
-        :href="siteStore.docsBase + `/guide/table-editor`"
-        target="_blank"
-        type="a" />
       <w-btn-group push>
         <w-btn
           push

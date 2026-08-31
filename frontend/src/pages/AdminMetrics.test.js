@@ -81,4 +81,20 @@ describe('AdminMetrics auth documentation', () => {
 
     wrapper.unmount()
   })
+
+  // -> OpenProject #1929: `/admin/metrics` names a concept this fork invented (the Prometheus metrics
+  //    endpoint is not an upstream Wiki.js feature), so no docs site can describe it -- the help
+  //    button was deleted rather than left pointing at a page that does not exist.
+  it('has no help/docs button', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ isEnabled: true }) })
+
+    const wrapper = mountPage()
+    await wrapper.vm.$nextTick()
+    await Promise.resolve()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.html()).not.toContain('/admin/metrics')
+
+    wrapper.unmount()
+  })
 })

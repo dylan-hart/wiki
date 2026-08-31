@@ -13,16 +13,6 @@
       <div class="flex-none">
         <w-btn
           class="mr-2 acrylic-btn"
-          icon="la:question-circle"
-          flat
-          color="grey"
-          :aria-label="t(`common.actions.viewDocs`)"
-          :href="siteStore.docsBase + `/admin/sites`"
-          target="_blank">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
-        </w-btn>
-        <w-btn
-          class="mr-2 acrylic-btn"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -115,8 +105,6 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { dialog } from '@/composables/dialog'
 
-import { useSiteStore } from '@/stores/site'
-
 import { useAdminStore } from '../stores/admin'
 import SiteActivateDialog from '../components/SiteActivateDialog.vue'
 import SiteCreateDialog from '../components/SiteCreateDialog.vue'
@@ -129,7 +117,6 @@ const dark = useDark()
 // STORES
 
 const adminStore = useAdminStore()
-const siteStore = useSiteStore()
 
 // ROUTER
 

@@ -15,16 +15,6 @@
       <div class="flex-none flex">
         <w-btn
           class="mr-2 acrylic-btn"
-          icon="la:question-circle"
-          flat
-          color="grey"
-          :aria-label="t(`common.actions.viewDocs`)"
-          :href="siteStore.docsBase + `/admin/cluster`"
-          target="_blank">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
-        </w-btn>
-        <w-btn
-          class="mr-2 acrylic-btn"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -103,13 +93,7 @@ import { useI18n } from 'vue-i18n'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 
-import { useSiteStore } from '@/stores/site'
-
 import { relativeDate } from '@/helpers/datetime'
-
-// STORES
-
-const siteStore = useSiteStore()
 
 // I18N
 

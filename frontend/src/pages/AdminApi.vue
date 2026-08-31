@@ -25,21 +25,11 @@
         </div>
       </div>
       <div class="flex-none">
-        <w-btn
-          class="mr-2 ml-4 acrylic-btn"
-          icon="la:question-circle"
-          flat
-          color="grey"
-          :aria-label="t(`common.actions.viewDocs`)"
-          :href="siteStore.docsBase + `/dev/api`"
-          target="_blank">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
-        </w-btn>
         <!-- -> A real href, not a router link: the Swagger UI at `/_api` is served by the backend and is
              not part of this SPA. Labelled rather than tooltipped, so the visible text is already the
              accessible name and there is no `aria-label` -->
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn mr-2 ml-4"
           icon="la:book"
           flat
           color="grey"
@@ -205,7 +195,6 @@ import { loading } from '@/composables/loading'
 import { dialog } from '@/composables/dialog'
 
 import { useAdminStore } from '@/stores/admin'
-import { useSiteStore } from '@/stores/site'
 
 import ApiKeyCreateDialog from '../components/ApiKeyCreateDialog.vue'
 import ApiKeyRevokeDialog from '../components/ApiKeyRevokeDialog.vue'
@@ -218,7 +207,6 @@ const dark = useDark()
 // STORES
 
 const adminStore = useAdminStore()
-const siteStore = useSiteStore()
 
 // I18N
 
