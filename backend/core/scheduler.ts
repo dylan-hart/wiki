@@ -465,8 +465,12 @@ export default {
         })
       )
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to complete job ${job.id}: ${job.task} [ FAILED ]`)
-      WIKI.logger.warn(err)
+      // -> `jobId`/`task`/`attempt` (OpenProject #1937) so a failure is traceable to the job that
+      //    caused it without cross-referencing `jobHistory` by timestamp. `attempt` is the one about
+      //    to be recorded below (`job.retries + 1`), not `job.retries` itself.
+      const jobContext = { jobId: job.id, task: job.task, attempt: job.retries + 1 }
+      WIKI.logger.warn(`Failed to complete job ${job.id}: ${job.task} [ FAILED ]`, jobContext)
+      WIKI.logger.warn(err, jobContext)
       try {
         await WIKI.db
           .update(jobHistoryTable)
