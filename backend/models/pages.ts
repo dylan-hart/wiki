@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm'
 import { pages as pagesTable, tree as treeTable, users as usersTable } from '../db/schema.ts'
 import {
   CustomError,
@@ -7,12 +7,13 @@ import {
   normalizePagePath,
   timingSafeCompare
 } from '../helpers/common.ts'
-import { rulesAllow } from '../helpers/pageRules.ts'
+import { deriveReadScope, rulesAllow, type ReadScopeClause } from '../helpers/pageRules.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import type { PageHistoryVia } from './pageHistory.ts'
 import type { RenderPermissions, TocNode } from './rendering.ts'
 import type { DeletedEntry } from './tree.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
+import type { AccessActor } from './groups.ts'
 import type { WikiDbOrTx, WikiTx } from '../core/db.ts'
 
 /** What each editor produces, which is what the content column holds. */
@@ -334,6 +335,52 @@ function normalizeRedirectContent(content: string | undefined): string {
 }
 
 /**
+ * Escape the LIKE wildcards `%` and `_` (and the escape character itself) so that a rule's own path
+ * is matched literally before the wildcard `listAllForGraph`'s prefix/suffix clauses append is added
+ * on top. Mirrors the same-named helper in `models/groups.ts`/`models/users.ts` — this is about a
+ * `%`/`_` in a stored rule path silently matching more than the rule author wrote, not injection
+ * (the value is still parameterized by the driver either way).
+ */
+function escapeLikePattern(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
+}
+
+/**
+ * One `ReadScopeClause` (`helpers/pageRules.ts`) as a Drizzle condition — see `listAllForGraph`'s own
+ * doc comment for what this is a *superset* of, and why that is safe.
+ */
+function readScopeClauseToSql(clause: ReadScopeClause): SQL {
+  const localeCondition =
+    clause.locales.length > 0 ? inArray(pagesTable.locale, clause.locales) : null
+
+  let ownCondition: SQL | null
+  switch (clause.kind) {
+    case 'exact':
+      ownCondition = eq(pagesTable.path, clause.path)
+      break
+    case 'prefix':
+      ownCondition = sql`${pagesTable.path} LIKE ${`${escapeLikePattern(clause.path)}%`}`
+      break
+    case 'suffix':
+      ownCondition = sql`${pagesTable.path} LIKE ${`%${escapeLikePattern(clause.path)}`}`
+      break
+    case 'classification':
+      ownCondition = inArray(pagesTable.classification, clause.ids)
+      break
+    case 'localeOnly':
+      ownCondition = null
+      break
+  }
+
+  if (ownCondition && localeCondition) {
+    return and(ownCondition, localeCondition)!
+  }
+  // -> A 'localeOnly' clause is only ever built with a non-empty locale list (see
+  //    `deriveReadScope`'s doc comment) -- one of the two is always present.
+  return (ownCondition ?? localeCondition)!
+}
+
+/**
  * Pages model
  *
  * A page is a row here plus a row in the tree that gives it its place in the site. The markdown is
@@ -546,25 +593,63 @@ class Pages {
   }
 
   /**
-   * Every page on this site, with what the knowledge graph (OpenProject #872) needs to build
-   * nodes and edges from — no content, no render, just enough for `api/graph.ts#assembleGraph`
-   * to build and permission-filter the graph once.
+   * Every page on this site the given actor could possibly read, with what the knowledge graph
+   * (OpenProject #872) needs to build nodes and edges from — no content, no render, just enough
+   * for `api/graph.ts#assembleGraph` to build and permission-filter the graph once.
+   *
+   * "Could possibly" is deliberate (OpenProject #1872): the `WHERE` narrows to `deriveReadScope`'s
+   * safe superset of what the actor's pooled rules could grant, not the exact set — `assembleGraph`
+   * still runs `mayOnPage()`'s exact per-row resolution over whatever comes back, unchanged, so a
+   * row this over-fetches is never a correctness problem, only a missed optimization. Only two
+   * things short-circuit to something narrower than that superset, both because they are exact
+   * rather than approximate: `manage:system` bypasses every rule (`checkAccess()` does the same,
+   * before ever consulting a rule), so narrowing would only add a query for no benefit; and a
+   * scoped API key that never held `read:pages` in its own scope (`AccessActor.scope`) can never
+   * read a single page here regardless of what its groups' rules say, so there is nothing to fetch
+   * at all.
    */
-  async listAllForGraph(siteId: string): Promise<GraphPageRow[]> {
+  async listAllForGraph(siteId: string, actor: AccessActor): Promise<GraphPageRow[]> {
+    const selection = {
+      id: pagesTable.id,
+      path: pagesTable.path,
+      locale: pagesTable.locale,
+      title: pagesTable.title,
+      icon: pagesTable.icon,
+      tags: pagesTable.tags,
+      classification: pagesTable.classification,
+      relations: pagesTable.relations,
+      links: pagesTable.links
+    }
+
+    if (actor.permissions.includes('manage:system')) {
+      return WIKI.db
+        .select(selection)
+        .from(pagesTable)
+        .where(eq(pagesTable.siteId, siteId)) as Promise<GraphPageRow[]>
+    }
+    if (actor.scope && !actor.scope.includes('read:pages')) {
+      return []
+    }
+
+    const scope = deriveReadScope(
+      WIKI.models.groups.rulesForGroups(actor.groupIds),
+      siteId,
+      'read:pages'
+    )
+    if (scope.kind === 'none') {
+      return []
+    }
+
+    const conditions: SQL[] = [eq(pagesTable.siteId, siteId)]
+    if (scope.kind === 'clauses') {
+      conditions.push(or(...scope.clauses.map(readScopeClauseToSql))!)
+    }
+    // -> scope.kind === 'all': no extra condition, same unrestricted fetch as manage:system above.
+
     return WIKI.db
-      .select({
-        id: pagesTable.id,
-        path: pagesTable.path,
-        locale: pagesTable.locale,
-        title: pagesTable.title,
-        icon: pagesTable.icon,
-        tags: pagesTable.tags,
-        classification: pagesTable.classification,
-        relations: pagesTable.relations,
-        links: pagesTable.links
-      })
+      .select(selection)
       .from(pagesTable)
-      .where(eq(pagesTable.siteId, siteId)) as Promise<GraphPageRow[]>
+      .where(and(...conditions)) as Promise<GraphPageRow[]>
   }
 
   /**

@@ -10,6 +10,7 @@ import {
   type TestFixtures
 } from '../test/db.ts'
 import { generatePathHash } from '../helpers/common.ts'
+import { rulesAllow } from '../helpers/pageRules.ts'
 import { groups as groupsTable } from '../db/schema.ts'
 import {
   pages as pagesTable,
@@ -1038,6 +1039,106 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
 
       const listed = await pagesModel.listPagesForSitemap(fixtures.siteId)
       assert.ok(!listed.some((p) => p.path === 'sitemap/no-rules'))
+    })
+  })
+
+  /**
+   * OpenProject #1872: `listAllForGraph` used to fetch every page on the site regardless of who was
+   * asking, leaving `api/graph.ts#assembleGraph`'s `canRead` to discard what the caller may not
+   * read after the fact. This proves the DB layer itself now returns fewer rows for a narrowly
+   * scoped reader than for an unrestricted one -- not just that the post-filter still ends up
+   * correct, which `api/graph.test.ts`'s pure-unit `assembleGraph` tests already cover -- and that
+   * the exact per-row resolution (`rulesAllow`) lands on the identical set whether it runs over the
+   * narrowed rows or over every row on the site, proving the SQL narrowing really is a safe
+   * superset rather than merely "fewer rows, coincidentally the right ones".
+   */
+  describe('listAllForGraph (OpenProject #1872)', () => {
+    async function makeGroupWithRules(rules: unknown[]): Promise<string> {
+      const [group] = await fixtures.db
+        .insert(groupsTable)
+        .values({ name: 'Graph Scope Test Group', permissions: [], rules })
+        .returning({ id: groupsTable.id })
+      await WIKI.models.groups.reloadCache()
+      return group!.id
+    }
+
+    test('a path-restricted reader is fetched strictly fewer rows than an unrestricted one, exactly matching the full post-filter result', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'graphscope/docs/one', title: 'One' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'graphscope/docs/two', title: 'Two' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'graphscope/other/three', title: 'Three' }),
+        actor
+      )
+
+      const restrictedGroupId = await makeGroupWithRules([
+        {
+          id: 'allow-docs',
+          name: 'Allow docs subtree',
+          roles: ['read:pages'],
+          match: 'START',
+          mode: 'ALLOW',
+          path: 'graphscope/docs',
+          locales: [],
+          sites: []
+        }
+      ])
+      const restrictedActor = { permissions: [], groupIds: [restrictedGroupId] }
+      const unrestrictedActor = { permissions: ['manage:system'], groupIds: [] }
+
+      const restrictedRows = await pagesModel.listAllForGraph(fixtures.siteId, restrictedActor)
+      const unrestrictedRows = await pagesModel.listAllForGraph(fixtures.siteId, unrestrictedActor)
+
+      assert.deepEqual(restrictedRows.map((r) => r.path).sort(), [
+        'graphscope/docs/one',
+        'graphscope/docs/two'
+      ])
+      assert.ok(unrestrictedRows.some((r) => r.path === 'graphscope/other/three'))
+      assert.ok(
+        restrictedRows.length < unrestrictedRows.length,
+        "the restricted reader's query must return fewer rows than the unrestricted one"
+      )
+
+      const restrictedRules = WIKI.models.groups.rulesForGroups([restrictedGroupId])
+      const toRef = (row: (typeof unrestrictedRows)[number]) => ({
+        path: row.path,
+        locale: row.locale,
+        siteId: fixtures.siteId,
+        classification: row.classification,
+        tags: row.tags
+      })
+      const exactFromNarrowedFetch = restrictedRows
+        .filter((row) => rulesAllow(restrictedRules, 'read:pages', toRef(row)))
+        .map((r) => r.path)
+        .sort()
+      const exactFromFullFetch = unrestrictedRows
+        .filter((row) => rulesAllow(restrictedRules, 'read:pages', toRef(row)))
+        .map((r) => r.path)
+        .sort()
+      assert.deepEqual(exactFromNarrowedFetch, exactFromFullFetch)
+    })
+
+    test('a scoped API-key actor missing read:pages from its own scope fetches nothing at all', async () => {
+      const scopedActor = { permissions: [], groupIds: [fixtures.groupId], scope: ['write:pages'] }
+      const rows = await pagesModel.listAllForGraph(fixtures.siteId, scopedActor)
+      assert.deepEqual(rows, [])
+    })
+
+    test('an actor whose groups grant no read:pages rule at all fetches nothing', async () => {
+      const emptyGroupId = await makeGroupWithRules([])
+      const rows = await pagesModel.listAllForGraph(fixtures.siteId, {
+        permissions: [],
+        groupIds: [emptyGroupId]
+      })
+      assert.deepEqual(rows, [])
     })
   })
 

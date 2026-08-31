@@ -259,3 +259,118 @@ export function rulesAllow(rules: GroupRule[], permission: string, page: RulePag
   const rule = resolvePageRule(rules, permission, page)
   return rule ? rule.mode !== 'DENY' : false
 }
+
+/**
+ * ---------------------------------------------------------------------------------------------
+ * SQL-NARROWING (OpenProject #1872)
+ * ---------------------------------------------------------------------------------------------
+ *
+ * `listAllForGraph` (`models/pages.ts`) used to fetch every page on a site and let
+ * `assembleGraph`'s `canRead` predicate (`rulesAllow`/`mayOnPage`, exact and unchanged) discard
+ * what the caller may not read -- so a low-privilege reader on a large site paid exactly what an
+ * admin does. `deriveReadScope` computes a cheap, SQL-pushable *necessary* condition for
+ * `canRead(page)` to hold: "does some non-DENY rule for this permission even address this page at
+ * all". A page failing this can never be granted (there is nothing left for `resolvePageRule` to
+ * pick as a winner), so excluding it from the fetch is always safe. A page passing it might still
+ * be denied by a more specific rule once `resolvePageRule` actually runs -- this is a superset,
+ * not the answer -- which is why the exact JS resolution still runs, unchanged, over whatever rows
+ * come back.
+ *
+ * DENY rules contribute nothing here: they only ever remove a page from what a more specific ALLOW
+ * already granted, never add one, so a page matched by nothing but DENY rules was already going to
+ * read false and needs no clause of its own.
+ *
+ * Not every rule can be pushed into SQL without risk. TAG/TAGALL matching lower-cases both sides
+ * before comparing (see `ruleTags`/`ruleMatchesPage` above); reproducing that fold as SQL would
+ * mean maintaining two descriptions of the same case-insensitive comparison that could quietly
+ * drift apart, so both fall back to "matches anything" instead. REGEX is worse: Postgres's `~`
+ * operator is POSIX, not the `RegExp` this file actually evaluates against, so a pattern that
+ * compiles under both can still match different strings. Both cases -- and a START/END rule whose
+ * path is empty, which already matches every path in JS (`''.startsWith`/`endsWith` are always
+ * true) -- collapse the WHOLE scope to `'all'` rather than just skipping their own clause: once one
+ * rule can match anywhere, no `WHERE` can safely exclude any row, so there is nothing left to gain
+ * by describing the other rules at all.
+ */
+
+/** One necessary condition for `canRead` — every page passing this clause is a *candidate*; pages
+ *  failing every clause across every rule can be excluded before the fetch. `locales` mirrors the
+ *  rule's own scoping (empty = every locale). */
+export type ReadScopeClause =
+  | { kind: 'exact'; path: string; locales: string[] }
+  | { kind: 'prefix'; path: string; locales: string[] }
+  | { kind: 'suffix'; path: string; locales: string[] }
+  | { kind: 'classification'; ids: string[]; locales: string[] }
+  /** A rule that cannot be reduced to anything narrower than its own locale scope (REGEX,
+   *  TAG/TAGALL) — see the module doc comment above for why. */
+  | { kind: 'localeOnly'; locales: string[] }
+
+export type ReadScope =
+  /** No non-DENY rule addresses this permission at all — nothing on the site can ever be granted. */
+  | { kind: 'none' }
+  /** At least one rule could match anywhere — no `WHERE` can safely narrow this; fetch everything,
+   *  exactly as before this optimization existed. */
+  | { kind: 'all' }
+  /** The OR of every clause below is a safe superset of what `canRead` would actually grant. */
+  | { kind: 'clauses'; clauses: ReadScopeClause[] }
+
+/**
+ * Reduce an actor's pooled rules to a `ReadScope` for one permission on one site — see the module
+ * doc comment above for the safety argument and what does/doesn't get pushed into SQL.
+ */
+export function deriveReadScope(rules: GroupRule[], siteId: string, permission: string): ReadScope {
+  const clauses: ReadScopeClause[] = []
+
+  for (const rule of rules) {
+    if (rule.mode === 'DENY' || !rule.roles?.includes(permission)) {
+      continue
+    }
+    // -> A rule scoped to other sites can never match a row from THIS site's query at all --
+    //    `listAllForGraph` already filters by siteId, so this rule contributes nothing here.
+    if (rule.sites?.length > 0 && !rule.sites.includes(siteId)) {
+      continue
+    }
+
+    const locales = rule.locales ?? []
+
+    switch (rule.match) {
+      case 'EXACT':
+        clauses.push({ kind: 'exact', path: normalizePath(rule.path), locales })
+        break
+      case 'START':
+      case 'END': {
+        const path = normalizePath(rule.path)
+        if (path === '') {
+          // -> An empty START/END path matches every page in JS -- see the module doc comment.
+          if (locales.length === 0) {
+            return { kind: 'all' }
+          }
+          clauses.push({ kind: 'localeOnly', locales })
+        } else {
+          clauses.push({ kind: rule.match === 'START' ? 'prefix' : 'suffix', path, locales })
+        }
+        break
+      }
+      case 'CLASSIFICATION': {
+        const ids = rule.classifications ?? []
+        if (ids.length === 0) {
+          // -> Matches no page at all (same as `ruleMatchesPage`'s own empty-list case) -- no
+          //    clause needed.
+          continue
+        }
+        clauses.push({ kind: 'classification', ids, locales })
+        break
+      }
+      // -> TAG/TAGALL and REGEX: not safely reducible -- see the module doc comment.
+      default:
+        if (locales.length === 0) {
+          return { kind: 'all' }
+        }
+        clauses.push({ kind: 'localeOnly', locales })
+    }
+  }
+
+  if (clauses.length === 0) {
+    return { kind: 'none' }
+  }
+  return { kind: 'clauses', clauses }
+}

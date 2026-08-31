@@ -1,6 +1,14 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ruleMatchesPage, resolvePageRule, rulesAllow, type RulePageRef } from './pageRules.ts'
+import {
+  deriveReadScope,
+  ruleMatchesPage,
+  resolvePageRule,
+  rulesAllow,
+  type ReadScope,
+  type ReadScopeClause,
+  type RulePageRef
+} from './pageRules.ts'
 import type { GroupRule, GroupRuleMatch } from '../models/groups.ts'
 import { GUEST_SCENARIO_RULES, GUEST_SCENARIO_CASES } from '../test/permissionScenario.ts'
 
@@ -523,5 +531,284 @@ describe('resolvePageRule / rulesAllow', () => {
       const winner = resolvePageRule([allow, deny], 'read:pages', target)
       assert.equal(winner?.id, 'c-deny')
     })
+  })
+})
+
+/**
+ * A pure JS mirror of what `models/pages.ts#readScopeClauseToSql` pushes into the `WHERE` --
+ * case-sensitive path matching, locale `IN`, classification `IN` -- so the SQL-narrowing's safety
+ * property (superset of `rulesAllow`) can be checked here with no database at all.
+ */
+function matchesClause(clause: ReadScopeClause, target: RulePageRef): boolean {
+  if (clause.locales.length > 0 && (!target.locale || !clause.locales.includes(target.locale))) {
+    return false
+  }
+  switch (clause.kind) {
+    case 'exact':
+      return target.path.replace(/^\/+/, '') === clause.path
+    case 'prefix':
+      return target.path.replace(/^\/+/, '').startsWith(clause.path)
+    case 'suffix':
+      return target.path.replace(/^\/+/, '').endsWith(clause.path)
+    case 'classification':
+      return Boolean(target.classification) && clause.ids.includes(target.classification!)
+    case 'localeOnly':
+      return true
+  }
+}
+
+function matchesScope(scope: ReadScope, target: RulePageRef): boolean {
+  if (scope.kind === 'none') {
+    return false
+  }
+  if (scope.kind === 'all') {
+    return true
+  }
+  return scope.clauses.some((clause) => matchesClause(clause, target))
+}
+
+describe('deriveReadScope (OpenProject #1872)', () => {
+  const permission = 'read:pages'
+  const siteId = 'site-a'
+
+  test('no rules at all -> none', () => {
+    assert.deepEqual(deriveReadScope([], siteId, permission), { kind: 'none' })
+  })
+
+  test('only DENY rules -> none (a DENY can never be the reason a page is granted)', () => {
+    const rules = [makeRule({ match: 'START', path: '', mode: 'DENY' })]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), { kind: 'none' })
+  })
+
+  test('a rule for a different permission is ignored', () => {
+    const rules = [makeRule({ roles: ['write:pages'], match: 'START', path: '' })]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), { kind: 'none' })
+  })
+
+  test('an ALLOW EXACT rule narrows to that one path', () => {
+    const rules = [makeRule({ match: 'EXACT', path: '/docs/intro', mode: 'ALLOW' })]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), {
+      kind: 'clauses',
+      clauses: [{ kind: 'exact', path: 'docs/intro', locales: [] }]
+    })
+  })
+
+  test('a FORCEALLOW START rule narrows to that path prefix, same as ALLOW', () => {
+    const rules = [makeRule({ match: 'START', path: 'docs', mode: 'FORCEALLOW' })]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), {
+      kind: 'clauses',
+      clauses: [{ kind: 'prefix', path: 'docs', locales: [] }]
+    })
+  })
+
+  test('an END rule narrows to that path suffix', () => {
+    const rules = [makeRule({ match: 'END', path: 'faq', mode: 'ALLOW' })]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), {
+      kind: 'clauses',
+      clauses: [{ kind: 'suffix', path: 'faq', locales: [] }]
+    })
+  })
+
+  test('an ALLOW with an empty START path (whole-site) -> all', () => {
+    const rules = [makeRule({ match: 'START', path: '', mode: 'ALLOW' })]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), { kind: 'all' })
+  })
+
+  test('an empty END path also matches everything in JS, so it too collapses to all', () => {
+    const rules = [makeRule({ match: 'END', path: '', mode: 'ALLOW' })]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), { kind: 'all' })
+  })
+
+  test('an empty-path rule scoped to a locale narrows by locale only, not to all', () => {
+    const rules = [makeRule({ match: 'START', path: '', mode: 'ALLOW', locales: ['fr'] })]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), {
+      kind: 'clauses',
+      clauses: [{ kind: 'localeOnly', locales: ['fr'] }]
+    })
+  })
+
+  test('a REGEX rule with no locale scope -> all (not safely reducible)', () => {
+    const rules = [makeRule({ match: 'REGEX', path: '^docs/.*$', mode: 'ALLOW' })]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), { kind: 'all' })
+  })
+
+  test('a REGEX rule scoped to a locale narrows by locale only', () => {
+    const rules = [makeRule({ match: 'REGEX', path: '^docs/.*$', mode: 'ALLOW', locales: ['en'] })]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), {
+      kind: 'clauses',
+      clauses: [{ kind: 'localeOnly', locales: ['en'] }]
+    })
+  })
+
+  test('a TAG rule with no locale scope -> all (case-folding not safely reducible)', () => {
+    const rules = [makeRule({ match: 'TAG', path: 'featured', mode: 'ALLOW' })]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), { kind: 'all' })
+  })
+
+  test('a TAGALL rule scoped to a locale narrows by locale only', () => {
+    const rules = [
+      makeRule({ match: 'TAGALL', path: 'featured,reviewed', mode: 'ALLOW', locales: ['en'] })
+    ]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), {
+      kind: 'clauses',
+      clauses: [{ kind: 'localeOnly', locales: ['en'] }]
+    })
+  })
+
+  test('a CLASSIFICATION rule narrows to those level ids', () => {
+    const rules = [
+      makeRule({ match: 'CLASSIFICATION', mode: 'ALLOW', classifications: ['internal', 'public'] })
+    ]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), {
+      kind: 'clauses',
+      clauses: [{ kind: 'classification', ids: ['internal', 'public'], locales: [] }]
+    })
+  })
+
+  test('a CLASSIFICATION rule with no classifications listed matches nothing -> no clause', () => {
+    const rules = [makeRule({ match: 'CLASSIFICATION', mode: 'ALLOW', classifications: [] })]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), { kind: 'none' })
+  })
+
+  test("a rule scoped to a different site is skipped -- this query never sees that site's rows", () => {
+    const rules = [
+      makeRule({ match: 'START', path: 'docs', mode: 'ALLOW', sites: ['some-other-site'] })
+    ]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), { kind: 'none' })
+  })
+
+  test('a rule scoped to include this site contributes its clause as normal', () => {
+    const rules = [makeRule({ match: 'START', path: 'docs', mode: 'ALLOW', sites: [siteId] })]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), {
+      kind: 'clauses',
+      clauses: [{ kind: 'prefix', path: 'docs', locales: [] }]
+    })
+  })
+
+  test('several ALLOW/FORCEALLOW rules OR together; a DENY among them contributes nothing', () => {
+    const rules = [
+      makeRule({ id: 'a', match: 'START', path: 'docs', mode: 'ALLOW' }),
+      makeRule({ id: 'b', match: 'EXACT', path: 'about', mode: 'FORCEALLOW' }),
+      makeRule({ id: 'c', match: 'START', path: 'internal', mode: 'DENY' })
+    ]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), {
+      kind: 'clauses',
+      clauses: [
+        { kind: 'prefix', path: 'docs', locales: [] },
+        { kind: 'exact', path: 'about', locales: [] }
+      ]
+    })
+  })
+
+  test('one unbounded ALLOW rule among several others collapses the whole scope to all', () => {
+    const rules = [
+      makeRule({ id: 'a', match: 'START', path: 'docs', mode: 'ALLOW' }),
+      makeRule({ id: 'b', match: 'REGEX', path: '.*', mode: 'ALLOW' })
+    ]
+    assert.deepEqual(deriveReadScope(rules, siteId, permission), { kind: 'all' })
+  })
+
+  describe('safety property: matchesScope never excludes a page rulesAllow would grant', () => {
+    const pages: RulePageRef[] = [
+      page({ path: 'docs/intro', locale: 'en' }),
+      page({ path: 'docs/advanced/setup', locale: 'fr' }),
+      page({ path: 'about', locale: 'en' }),
+      page({ path: 'internal/onboarding', locale: 'en' }),
+      page({ path: 'internal/secrets', locale: 'en' }),
+      page({ path: '', locale: 'en' }),
+      page({ path: 'random/page', locale: 'de', tags: ['featured'] }),
+      page({ path: 'classified/one', locale: 'en', classification: 'restricted' }),
+      page({ path: 'classified/two', locale: 'en', classification: 'public' })
+    ]
+
+    const scenarios: Array<{ name: string; rules: GroupRule[] }> = [
+      {
+        name: 'guest scenario (ALLOW whole site, DENY subtree, FORCEALLOW one page)',
+        rules: GUEST_SCENARIO_RULES
+      },
+      {
+        name: 'narrow single-prefix reader',
+        rules: [makeRule({ match: 'START', path: 'docs', mode: 'ALLOW' })]
+      },
+      {
+        name: 'locale-scoped reader',
+        rules: [makeRule({ match: 'START', path: '', mode: 'ALLOW', locales: ['fr'] })]
+      },
+      {
+        name: 'tag-based reader (unbounded)',
+        rules: [makeRule({ match: 'TAG', path: 'featured', mode: 'ALLOW' })]
+      },
+      {
+        name: 'classification-based reader',
+        rules: [makeRule({ match: 'CLASSIFICATION', mode: 'ALLOW', classifications: ['public'] })]
+      },
+      {
+        name: 'mixed ALLOW/DENY/FORCEALLOW across path and classification',
+        rules: [
+          makeRule({ id: 'allow-docs', match: 'START', path: 'docs', mode: 'ALLOW' }),
+          makeRule({ id: 'deny-internal', match: 'START', path: 'internal', mode: 'DENY' }),
+          makeRule({
+            id: 'force-classified',
+            match: 'CLASSIFICATION',
+            mode: 'FORCEALLOW',
+            classifications: ['public']
+          })
+        ]
+      },
+      { name: 'no rules at all', rules: [] }
+    ]
+
+    for (const { name, rules } of scenarios) {
+      test(name, () => {
+        const scope = deriveReadScope(rules, siteId, 'read:pages')
+        for (const target of pages) {
+          if (rulesAllow(rules, 'read:pages', target)) {
+            assert.equal(
+              matchesScope(scope, target),
+              true,
+              `${JSON.stringify(target)} is readable but excluded by the derived scope`
+            )
+          }
+        }
+      })
+    }
+  })
+
+  test('byte-identical result: pre-filtering by scope then resolving exactly matches resolving over every row unfiltered', () => {
+    const rules = [
+      makeRule({ id: 'allow-docs', match: 'START', path: 'docs', mode: 'ALLOW' }),
+      makeRule({ id: 'deny-docs-drafts', match: 'START', path: 'docs/drafts', mode: 'DENY' }),
+      makeRule({
+        id: 'force-draft-preview',
+        match: 'EXACT',
+        path: 'docs/drafts/preview',
+        mode: 'FORCEALLOW'
+      }),
+      makeRule({
+        id: 'allow-fr-about',
+        match: 'EXACT',
+        path: 'about',
+        mode: 'ALLOW',
+        locales: ['fr']
+      })
+    ]
+    const pages: RulePageRef[] = [
+      page({ path: 'docs/intro', locale: 'en' }),
+      page({ path: 'docs/drafts/wip', locale: 'en' }),
+      page({ path: 'docs/drafts/preview', locale: 'en' }),
+      page({ path: 'about', locale: 'en' }),
+      page({ path: 'about', locale: 'fr' }),
+      page({ path: 'random', locale: 'en' })
+    ]
+
+    const scope = deriveReadScope(rules, siteId, 'read:pages')
+    const narrowedThenResolved = pages
+      .filter((target) => matchesScope(scope, target))
+      .filter((target) => rulesAllow(rules, 'read:pages', target))
+    const resolvedDirectly = pages.filter((target) => rulesAllow(rules, 'read:pages', target))
+
+    assert.deepEqual(narrowedThenResolved, resolvedDirectly)
+    // -> Not vacuous: this scenario really does grant some and deny others.
+    assert.equal(resolvedDirectly.length > 0 && resolvedDirectly.length < pages.length, true)
   })
 })
