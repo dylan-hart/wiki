@@ -910,13 +910,22 @@ Decided, not left ambiguous: the admin area's own chrome (`AdminLayout.vue` and 
 `/_admin`) inherits `dir="rtl"` along with the rest of the document rather than being forced to stay
 LTR. Reasoning:
 
-- The app has exactly one document-wide direction control point (`App.vue#applyLocale`,
-  `composables/direction.js`) and one `commonStore.locale` — there is no separate "admin UI language"
-  concept to hang a different direction off of.
+- **Updated 2026-08-31 (task #1656):** this was originally justified by "the app has exactly one
+  document-wide direction control point and one `commonStore.locale`" — that premise turned out to
+  be wrong (`docs/decisions/lang-dir-contract.md`): the server has stamped `<html lang>`/`dir` from
+  the *content* locale since before this note was written (`backend/helpers/appShell.ts`), and the
+  client now matches it (#1660) rather than overwriting it from the interface locale. The
+  conclusion is unchanged — admin chrome still inherits `dir` off `<html>` like everything else
+  that isn't `.page-contents`-scoped — but the reasoning is: the document's direction is the
+  *content* locale's direction, and there is no separate "admin chrome direction" to hang off a
+  concept (a single UI-locale-driven axis) that no longer describes how `dir` is actually resolved.
 - `AdminLayout.vue`'s own header carries a locale switcher (`commonStore.setLocale(lang.code)`) that
   lets an operator pick *any* installed locale, RTL ones included, directly from within the admin
   area — the admin UI is evidently meant to render in whatever locale is active, not assumed
-  English/LTR-only.
+  English/LTR-only. (This switcher still drives `commonStore.locale` — the *interface* locale — and
+  does not, by itself, change `<html dir>`; see `lang-dir-contract.md` §5 for the mechanism that
+  keeps admin chrome's direction meaningful for readers whose interface locale differs from a
+  page's content locale.)
 - Forcing LTR chrome around genuinely RTL-translated `admin.*` label text (which does render in
   Arabic once `ar` is the active locale, per the same `t()` mechanism as everywhere else) would
   produce mismatched, not merely conservative, layout — worse than mirroring, not safer.

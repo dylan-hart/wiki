@@ -10,6 +10,17 @@ import { computed, reactive, ref } from 'vue'
  * for the same reason `composables/dark.js` mirrors `body--dark`: setting an attribute on an element
  * outside the app is not itself reactive, and every caller has to see the same value.
  *
+ * The `rtl` `applyLocale()` passes to `.set()` is decided to track the **content** locale
+ * (`pageStore.locale`, falling back to `siteStore.locales.primary` on `/_`-prefixed routes with no
+ * page), not the reader's interface locale (`commonStore.locale` / vue-i18n) -- a deliberate,
+ * recorded split (`docs/decisions/lang-dir-contract.md`, implemented in `applyLocale` per task
+ * #1660), matching the resolution `backend/helpers/appShell.ts#resolveAppShellLocale` already
+ * performs server-side so the pre-hydration shell and the post-hydration document agree.
+ * `i18n.locale.value` is the separate axis that keeps following `commonStore.locale`;
+ * `LocaleSelectorMenu.vue`'s header comment documents that same split from the content-switcher's
+ * side. This composable itself is agnostic to which locale feeds it -- it just mirrors whatever
+ * `dir` `applyLocale()` last set.
+ *
  * Most of what "goes RTL" is plain CSS -- logical properties resolve against `dir` on their own, no
  * Vue involved. This exists for the minority that is NOT CSS: a `WMenu`/`WTooltip` `anchor`/`self`
  * pair, computed in JS (`helpers/directionalAnchor.js`), needs to know the direction to mirror
