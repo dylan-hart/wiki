@@ -111,6 +111,18 @@ describe('TLS/SSL story (task #701)', () => {
     )
   })
 
+  test('does not instruct setting trustProxy in config.yml, since the DB-seeded security row overwrites it on every boot (#1976)', async () => {
+    const doc = await readFile(DOC_PATH, 'utf8')
+    assert.ok(
+      !/set\s+`?security\.trustProxy[^`]*`?\s+in\s+Wiki\.js's own config/i.test(doc),
+      'docs/tls-termination.md still tells the operator to set trustProxy in config.yml, which the DB-seeded security row overwrites on every boot'
+    )
+    assert.ok(
+      /admin (security page|Security page)/i.test(doc),
+      'expected docs/tls-termination.md to name the admin Security page as the way to set trustProxy'
+    )
+  })
+
   test('db.ssl / db.sslOptions in config.sample.yml are distinguished from app-level TLS', async () => {
     const sample = await readFile(path.join(REPO_ROOT, 'config.sample.yml'), 'utf8')
     const sslLineIndex = sample.split('\n').findIndex((line) => line.trim() === 'ssl: false')

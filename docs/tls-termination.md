@@ -54,18 +54,25 @@ $proxy_add_x_forwarded_for;` idiom **appends** the proxy's own view of the conne
    direct client controls when the header is merely appended to. Use `proxy_set_header X-Forwarded-For
 $remote_addr;` instead (the nginx example below does this): that overwrites the header with only
    what nginx itself observed as the connecting address, discarding anything the client sent.
-3. Set `security.trustProxy` to the reverse proxy's own address or CIDR range in Wiki.js's config (or
-   via the admin Security page) — e.g. `10.0.0.5` for a proxy on a fixed internal address, or
-   `10.0.0.0/8` for a range, comma-separated for more than one. This is what makes Wiki.js trust the
-   `X-Forwarded-*` headers **only when they arrive from that address** — not `security.trustProxy:
-true`, which trusts them unconditionally from anywhere, including a client connecting directly.
-   With `true`, `X-Forwarded-For` becomes a header any client can set on its own request, so `req.ip`
-   (and therefore the login/2FA/password-reset rate limiter, which counts attempts per `req.ip`) is
+3. Set `security.trustProxy` to the reverse proxy's own address or CIDR range via the admin Security
+   page — e.g. `10.0.0.5` for a proxy on a fixed internal address, or `10.0.0.0/8` for a range,
+   comma-separated for more than one. This is what makes Wiki.js trust the `X-Forwarded-*` headers
+   **only when they arrive from that address** — not `security.trustProxy: true`, which trusts them
+   unconditionally from anywhere, including a client connecting directly. With `true`,
+   `X-Forwarded-For` becomes a header any client can set on its own request, so `req.ip` (and
+   therefore the login/2FA/password-reset rate limiter, which counts attempts per `req.ip`) is
    client-chosen — an unlimited-attempts bypass, one spoofed header at a time. Left unset (`false`,
    the default) instead, every request behind the proxy appears to arrive from the proxy's own
    address over plain HTTP, which breaks IP-based rate limiting the opposite way — everyone behind
    the proxy shares one bucket — and any HTTPS-only logic. The address/CIDR form is what avoids both
    failure modes.
+
+   The admin Security page is the only way to set `trustProxy` that sticks: `security` (including
+   `trustProxy`) is a DB-owned settings group (`models/settings.ts:139-157`), seeded into the
+   `settings` table on first boot and loaded _after_ `config.yml` (`core/config.ts:111`) — so a
+   `security.trustProxy` value written into `config.yml` is silently overwritten by the DB row on
+   every subsequent boot.
+
 4. Each site's hostname (as configured in the Sites admin area) must match the `Host` header the
    proxy forwards, since that's what `WIKI.sitesMappings[req.hostname]` matches against to resolve
    which site a request belongs to. **This is security-relevant, not just routing plumbing**: with
