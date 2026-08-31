@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
+import { TimeoutError } from 'ky'
 
 import { confirm } from '@/composables/dialog'
+import { queue as notifyQueue } from '@/composables/notify'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -42,6 +44,7 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  notifyQueue.splice(0, notifyQueue.length)
 })
 
 function mountDialog(siteId = 'site-1') {
@@ -146,7 +149,8 @@ describe('GlossaryImportDialog: submit()', () => {
     expect(confirm).toHaveBeenCalled()
     expect(API_CLIENT.post).toHaveBeenCalledWith(
       'sites/site-1/glossary/import',
-      expect.objectContaining({ json: payload })
+      // -> A named, work-sized timeout rather than ky's 10s default (OpenProject #1718)
+      expect.objectContaining({ json: payload, timeout: expect.any(Number) })
     )
     expect(wrapper.emitted().ok).toBeTruthy()
   })
@@ -161,5 +165,23 @@ describe('GlossaryImportDialog: submit()', () => {
 
     expect(wrapper.emitted().ok).toBeFalsy()
     expect(wrapper.vm.state.importing).toBe(false)
+  })
+
+  it('shows a distinct timed-out toast for a client-side TimeoutError, telling the reader not to blindly retry', async () => {
+    const wrapper = mountDialog()
+    fakeEditor.getValue.mockReturnValue(JSON.stringify({ terms: [] }))
+    API_CLIENT.post.mockImplementationOnce(() => {
+      throw new TimeoutError({ method: 'POST', url: '/_api/sites/site-1/glossary/import' })
+    })
+
+    wrapper.vm.submit()
+    await flushPromises()
+
+    expect(wrapper.emitted().ok).toBeFalsy()
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'admin.glossary.importTimedOut',
+      caption: 'admin.glossary.importTimedOutHint'
+    })
   })
 })
