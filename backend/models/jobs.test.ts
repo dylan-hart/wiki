@@ -39,6 +39,14 @@ test('JOB_SCHEDULE_SEED registers purgePageviews on a valid daily cron', () => {
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 })
 
+test('JOB_SCHEDULE_SEED registers purgeGuestPii on a valid daily cron', () => {
+  const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeGuestPii')
+  assert.ok(entry, 'expected a purgeGuestPii entry in the schedule seed')
+  assert.equal(entry!.type, 'system')
+  // -> A standard 5-field cron expression, e.g. "40 0 * * *" (once a day)
+  assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
+})
+
 test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
   const tasks = JOB_SCHEDULE_SEED.map((e) => e.task)
   assert.deepEqual(
@@ -48,6 +56,7 @@ test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
       'cleanAuditLog',
       'cleanJobHistory',
       'purgeExports',
+      'purgeGuestPii',
       'purgeImports',
       'purgePageviews',
       'purgeRateLimits',

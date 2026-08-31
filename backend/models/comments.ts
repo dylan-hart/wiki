@@ -1,4 +1,18 @@
-import { and, asc, desc, eq, gte, ilike, inArray, lte, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql
+} from 'drizzle-orm'
 import {
   comments as commentsTable,
   pages as pagesTable,
@@ -104,6 +118,11 @@ export interface ListForAdminOptions {
 const MIN_CONTENT_LENGTH = 2
 
 const DEFAULT_LIMIT = 25
+
+/** Guest identity columns (`guestName`/`guestEmail`/`guestIp`) are retained no longer than this by
+ *  default -- admin-configurable via `WIKI.config.comments?.guestPiiRetentionDays`. See
+ *  `purgeGuestPii()`. Mirrors `auditLog`'s `DEFAULT_AUDIT_LOG_RETENTION_DAYS` shape. */
+const DEFAULT_GUEST_PII_RETENTION_DAYS = 90
 
 /**
  * Comments model
@@ -217,6 +236,50 @@ class Comments {
   /** Delete a comment. Cascades to its replies via the `replyTo` foreign key. */
   async delete(id: string): Promise<void> {
     await WIKI.db.delete(commentsTable).where(eq(commentsTable.id, id))
+  }
+
+  /**
+   * Sweeps guest identity columns off comments older than the retention window
+   * (`tasks/simple/purge-guest-pii.ts`), nulling `guestName`/`guestEmail`/`guestIp` in place rather
+   * than deleting the comment itself -- its content and position in the thread are not PII, only who
+   * the guest was is. Restricted to `authorId IS NULL` (a logged-in author's row never has these
+   * columns populated in the first place, but the guard is cheap defense in depth) and to rows that
+   * still have at least one guest column set, so a comment already swept is not rewritten on every
+   * run once a table is fully purged. Mirrors `auditLog.purge()`'s shape: one statement, no batching.
+   *
+   * @param retentionDays How many days of guest identity to keep
+   * @returns How many comments had their guest columns cleared
+   */
+  async purgeGuestPii(retentionDays: number): Promise<number> {
+    const cutoff = new Date(
+      Temporal.Now.instant().subtract({ hours: retentionDays * 24 }).epochMilliseconds
+    )
+    const result = await WIKI.db
+      .update(commentsTable)
+      .set({ guestName: null, guestEmail: null, guestIp: null })
+      .where(
+        and(
+          isNull(commentsTable.authorId),
+          lt(commentsTable.createdAt, cutoff),
+          or(
+            isNotNull(commentsTable.guestName),
+            isNotNull(commentsTable.guestEmail),
+            isNotNull(commentsTable.guestIp)
+          )
+        )
+      )
+    const purged = result.rowCount ?? 0
+    if (purged > 0) {
+      WIKI.logger.info(
+        `Purged guest PII from ${purged} comment(s) older than ${retentionDays} day(s) [ OK ]`
+      )
+    }
+    return purged
+  }
+
+  /** The configured guest-PII retention window, in days. */
+  getGuestPiiRetentionDays(): number {
+    return WIKI.config.comments?.guestPiiRetentionDays ?? DEFAULT_GUEST_PII_RETENTION_DAYS
   }
 
   /**
