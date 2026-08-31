@@ -94,8 +94,13 @@ const API_DEFAULTS: RateLimitPolicy = {
  * a secret, and no deployment has a reason to raise it. How many browsers run at once is settled by
  * the render queue rather than here — this only keeps one client from filling that queue faster than
  * anything could drain it. Ten in five minutes is far more than re-rendering a stale page takes.
+ *
+ * Exported so `mcp/tools/renderDiagram.ts` can consume it directly against
+ * `WIKI.models.rateLimits` — an MCP tool call has no Fastify `req`/`reply` to hang the
+ * {@link limitRenders} `preHandler` off of, but it is the same expensive, Puppeteer-backed operation
+ * this policy exists to bound, so it shares the exact same numbers rather than inventing its own.
  */
-const RENDER_LIMIT: RateLimitPolicy = {
+export const RENDER_LIMIT: RateLimitPolicy = {
   max: 10,
   windowSeconds: 300,
   banSeconds: 300
