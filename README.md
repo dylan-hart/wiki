@@ -134,22 +134,11 @@ Add a new server under **Servers** with the following settings:
 ### Usage
 
 1. Clone the project
-1. Make a copy of `config.sample.yml` and rename it to `config.yml`
+1. Run `./dev/setup.sh` from the repo root. It installs dependencies for all four workspaces
+   (`backend`, `frontend`, `blocks`, `e2e`), creates `config.yml` from `config.sample.yml` if one
+   doesn't already exist, and builds `frontend` and `blocks`. It's safe to re-run at any time —
+   it won't overwrite an existing `config.yml`.
 1. Edit `config.yml` and fill in the database details. **You need an empty PostgreSQL database.**
-1. Install dependencies and build the client assets. `backend`, `frontend` and `blocks` are
-   independently-installed workspaces (each has its own `package.json`), and **both `frontend` and
-   `blocks` must be built** before the backend has anything to serve:
-   ```sh
-   cd backend
-   npm install
-   cd ../frontend
-   npm install
-   npm run build
-   cd ../blocks
-   npm install
-   npm run build
-   cd ..
-   ```
 1. Run this command, **from the repository root** (not from inside `backend/`), to start the server:
    ```sh
    node backend
