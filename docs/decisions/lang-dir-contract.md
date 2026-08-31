@@ -33,7 +33,7 @@ matches it instead of a third, hybrid option being invented.
 the app has "exactly one document-wide direction control point (`App.vue#applyLocale`,
 `composables/direction.js`) and one `commonStore.locale`" — true of the client in isolation at
 the time, but never true of the whole system: `backend/helpers/appShell.ts:44` had already stamped
-the pre-hydration shell from the *content* locale before that note was written, and
+the pre-hydration shell from the _content_ locale before that note was written, and
 `resolveAppShellLocale` (`appShell.ts:63-64`) explicitly resolves from the URL path, not from any
 UI-language setting. The variance recorded a real decision about admin-chrome direction (whether
 the admin area should mirror the active locale rather than force LTR — see §3) using a premise
@@ -55,7 +55,7 @@ after hydration — Arabic prose renders LTR permanently, and every logical prop
   `components/LocaleSelectorMenu.vue:73-76`'s own header comment states the locale switcher
   "Switches the CONTENT locale being read -- the interface language (`commonStore.locale` /
   vue-i18n) is a separate concern this menu does not touch." `<html lang>`/`dir` describing the
-  *document* — i.e. the content — is the same axis that comment is already drawing a line around.
+  _document_ — i.e. the content — is the same axis that comment is already drawing a line around.
 - **`lang` is not just a direction switch.** Even on an LTR-to-LTR translation (French content
   under an English UI), announcing the document as `lang="en"` is wrong for a screen reader's
   pronunciation regardless of `dir`. Contract (a) fixes this case too; (b) would need a second,
@@ -73,15 +73,15 @@ after hydration — Arabic prose renders LTR permanently, and every logical prop
 
 - **Would require a second control point**, not a reuse of the existing one:
   `pages/Index.vue:152`'s `.page-contents` container currently carries neither attribute, so this
-  adds a *second* place direction has to be computed and kept in sync with page navigation,
+  adds a _second_ place direction has to be computed and kept in sync with page navigation,
   alongside whatever (if anything) still reads `<html dir>` for chrome-level RTL mirroring — the
   admin sidebar, toolbars, and every `WMenu`/`WTooltip` anchor pair in `helpers/directionalAnchor.js`
-  that reads `document.documentElement.dir` today would need to keep doing so for *chrome* while a
-  *second* signal drives content, doubling the surface `docs/decisions/locale-architecture.md`
+  that reads `document.documentElement.dir` today would need to keep doing so for _chrome_ while a
+  _second_ signal drives content, doubling the surface `docs/decisions/locale-architecture.md`
   already flags as leaking (§3.A item 5).
 - **`_page-contents.scss`'s logical properties already resolve off the nearest `dir`** — which
   today is `<html>`'s, since nothing closer sets one. Under (b) they'd resolve correctly for
-  content but the *document* itself (`<html>`) would still misdescribe an RTL page as `dir="ltr"`
+  content but the _document_ itself (`<html>`) would still misdescribe an RTL page as `dir="ltr"`
   to anything above `.page-contents` that isn't scoped to it: browser chrome, the page's own
   `<title>`/reading-order defaults for assistive tech that inspects the document root rather than
   the specific container, `window.print()` layout, and any future component that isn't
@@ -95,7 +95,7 @@ after hydration — Arabic prose renders LTR permanently, and every logical prop
   chrome variance (§3) already decided the opposite for the one surface where the question came
   up.
 
-## 3. What this does *not* reopen
+## 3. What this does _not_ reopen
 
 The Feature 413 "Admin chrome direction: mirrors with the rest of the app" decision in
 `docs/variances.md` stands — admin chrome should still mirror the active document direction rather
