@@ -204,7 +204,8 @@ describe('Search.vue results list keying (WP #1728)', () => {
  * `backend/modules/search/db/search.test.ts` for the backend half (the flag itself) and this file
  * for the frontend half (labeling it). Real i18n messages, not the empty stub `TagsBrowse.test.js`
  * uses, since what is under test here IS the wording the two keys (`search.totalResults` /
- * `search.totalResultsApprox`) produce.
+ * `search.totalResultsApprox`) produce. Also carries `search.loadMore`, shared with the offset-paging
+ * tests below (OpenProject #2001) since both groups mount the real `Search` component.
  */
 function createTestI18n() {
   return createI18n({
@@ -217,7 +218,8 @@ function createTestI18n() {
           results: 'Search Results',
           emptyQuery: 'Enter a query in the search field above and press Enter.',
           totalResults: 'No result | {0} result | {0} results',
-          totalResultsApprox: 'No result | At least {0} result | At least {0} results'
+          totalResultsApprox: 'No result | At least {0} result | At least {0} results',
+          loadMore: 'Load More'
         }
       }
     }
@@ -236,6 +238,22 @@ const FIXTURE_PAGE = {
   relevancy: 1,
   highlight: null
 }
+
+const FIXTURE_PAGE_A = {
+  id: 'p1',
+  path: 'page-a',
+  locale: 'en',
+  title: 'Page A',
+  description: null,
+  icon: null,
+  tags: [],
+  updatedAt: '2026-08-01T00:00:00.000Z',
+  relevancy: 1,
+  highlight: null
+}
+
+const FIXTURE_PAGE_B = { ...FIXTURE_PAGE_A, id: 'p2', path: 'page-b', title: 'Page B' }
+const FIXTURE_PAGE_C = { ...FIXTURE_PAGE_A, id: 'p3', path: 'page-c', title: 'Page C' }
 
 async function createTestRouter(initialPath) {
   const router = createRouter({
@@ -269,6 +287,40 @@ async function mountSearchWithResponse(searchResponse) {
   activeWrapper = wrapper
   await flushPromises()
   return { wrapper, siteStore }
+}
+
+/**
+ * Mounts against `initialPath`, queuing `firstResponse` ahead of the immediate `route.query`
+ * watcher's own search request -- the same mount-time ordering `TagsBrowse.test.js` documents for
+ * its own route-driven watcher.
+ */
+async function mountSearchWithOffset(initialPath = '/_search?q=test', firstResponse) {
+  setActivePinia(createPinia())
+  const siteStore = useSiteStore()
+  siteStore.id = 'site-1'
+
+  if (firstResponse) {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(firstResponse) })
+  }
+
+  const router = await createTestRouter(initialPath)
+  const wrapper = mount(Search, {
+    global: {
+      plugins: [router, createTestI18n()],
+      // -> Layout chrome, irrelevant to offset paging. HeaderNav in particular pulls in
+      //    HeaderSearch, whose onMounted() unconditionally focuses its search field whenever the
+      //    route starts with `/_search` -- exactly this page's own route -- which throws under
+      //    happy-dom with nothing real to focus.
+      stubs: { HeaderNav: true, FooterNav: true, MainOverlayDialog: true }
+    }
+  })
+  activeWrapper = wrapper
+  await flushPromises()
+  return { wrapper, router, siteStore }
+}
+
+function findLoadMoreButton(wrapper) {
+  return wrapper.findAll('button').find((b) => b.text() === 'Load More')
 }
 
 describe('Search.vue totalHitsApproximate labeling (OpenProject #2006)', () => {
@@ -321,5 +373,103 @@ describe('Search.vue totalHitsApproximate labeling (OpenProject #2006)', () => {
 
     expect(wrapper.vm.state.totalApproximate).toBe(false)
     expect(wrapper.text()).not.toContain('At least')
+  })
+})
+
+describe('Search.vue offset paging (OpenProject #2001)', () => {
+  it('sends offset 0 on the first page of a fresh search', async () => {
+    const { wrapper } = await mountSearchWithOffset('/_search?q=test', {
+      results: [FIXTURE_PAGE_A, FIXTURE_PAGE_B],
+      totalHits: 3,
+      suggestion: null
+    })
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith(
+      'sites/site-1/pages/search',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ offset: 0 })
+      })
+    )
+    expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p1', 'p2'])
+    expect(wrapper.vm.state.offset).toBe(2)
+  })
+
+  it('loadMore requests the next page at the current offset and appends rather than replaces', async () => {
+    const { wrapper } = await mountSearchWithOffset('/_search?q=test', {
+      results: [FIXTURE_PAGE_A, FIXTURE_PAGE_B],
+      totalHits: 3,
+      suggestion: null
+    })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE_C], totalHits: 3, suggestion: null })
+    })
+
+    await wrapper.vm.loadMore()
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ offset: 2 })
+      })
+    )
+    expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p1', 'p2', 'p3'])
+    expect(wrapper.vm.state.offset).toBe(3)
+  })
+
+  it('shows the load-more control while more results remain, and hides it once exhausted', async () => {
+    const { wrapper } = await mountSearchWithOffset('/_search?q=test', {
+      results: [FIXTURE_PAGE_A, FIXTURE_PAGE_B],
+      totalHits: 3,
+      suggestion: null
+    })
+    expect(findLoadMoreButton(wrapper)).toBeTruthy()
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE_C], totalHits: 3, suggestion: null })
+    })
+    await wrapper.vm.loadMore()
+    await flushPromises()
+
+    expect(findLoadMoreButton(wrapper)).toBeFalsy()
+  })
+
+  it('never shows the load-more control when a single page already covers the total', async () => {
+    const { wrapper } = await mountSearchWithOffset('/_search?q=test', {
+      results: [FIXTURE_PAGE_A, FIXTURE_PAGE_B],
+      totalHits: 2,
+      suggestion: null
+    })
+
+    expect(findLoadMoreButton(wrapper)).toBeFalsy()
+  })
+
+  it('a fresh search resets the offset instead of continuing to append onto the prior one', async () => {
+    const { wrapper } = await mountSearchWithOffset('/_search?q=test', {
+      results: [FIXTURE_PAGE_A, FIXTURE_PAGE_B],
+      totalHits: 5,
+      suggestion: null
+    })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE_C], totalHits: 5, suggestion: null })
+    })
+    await wrapper.vm.loadMore()
+    await flushPromises()
+    expect(wrapper.vm.state.offset).toBe(3)
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE_A], totalHits: 5, suggestion: null })
+    })
+    await wrapper.vm.performSearch()
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ offset: 0 })
+      })
+    )
+    expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p1'])
+    expect(wrapper.vm.state.offset).toBe(1)
   })
 })

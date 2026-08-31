@@ -3276,6 +3276,7 @@
   "search.filterPublishState": "Publish State",
   "search.filterTags": "Tags",
   "search.filters": "Filters",
+  "search.loadMore": "Load More",
   "search.noResults": "No results found for {0} with the current filters.",
   "search.publishStateAny": "Any publish state",
   "search.publishStateDraft": "Draft",
