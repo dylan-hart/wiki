@@ -901,6 +901,82 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     }
   })
 
+  /**
+   * OpenProject #1688: `recordPageMoveSideEffects` was extracted out of `recordMoveSideEffects` as a
+   * per-page helper (for a future bulk mover -- OpenProject #1683 -- to call once per page while still
+   * batching the glossary invalidation). This is the regression case the extraction's own "Done when"
+   * calls for: the full side-effect set a single-page `movePage` fires -- history, search, hooks,
+   * storage, glossary -- must still fire exactly as before. Search/storage/hooks/glossary are stubbed
+   * with `mock.fn()` (`backend/test/mocks.ts`'s convention) so each call's exact arguments can be
+   * asserted directly, the same way `WIKI.cache`/`WIKI.events`'s stubs let a test read `.mock.calls`.
+   */
+  test('movePage fires the full side-effect set for a single-page move', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/side-effects-before' }),
+      actor
+    )
+
+    const searchModel = (globalThis as any).WIKI.models.search
+    const hooksModel = (globalThis as any).WIKI.models.hooks
+    const storageModel = (globalThis as any).WIKI.models.storage
+    const glossaryModel = (globalThis as any).WIKI.models.glossary
+    searchModel.renamed = mock.fn(async () => {})
+    hooksModel.emit = mock.fn(async () => {})
+    storageModel.dispatch = mock.fn(async () => {})
+    glossaryModel.invalidateCache = mock.fn(() => {})
+
+    try {
+      const moved = await pagesModel.movePage(
+        fixtures.siteId,
+        page.id,
+        { path: 'docs/side-effects-after' },
+        actor
+      )
+      assert.equal(moved!.path, 'docs/side-effects-after')
+
+      // -> History: a "moved" entry was recorded for this page
+      const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
+      const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+      assert.equal(entries[0]!.action, 'moved')
+
+      // -> Search
+      assert.equal(searchModel.renamed.mock.calls.length, 1)
+      const [searchSiteId, searchRawMoved, searchPreviousPath, searchPreviousLocale] =
+        searchModel.renamed.mock.calls[0]!.arguments
+      assert.equal(searchSiteId, fixtures.siteId)
+      assert.equal(searchRawMoved.id, page.id)
+      assert.equal(searchPreviousPath, 'docs/side-effects-before')
+      assert.equal(searchPreviousLocale, 'en')
+
+      // -> Hooks
+      assert.equal(hooksModel.emit.mock.calls.length, 1)
+      const [hookEvent, hookSiteId, hookPayload] = hooksModel.emit.mock.calls[0]!.arguments
+      assert.equal(hookEvent, 'page:rename')
+      assert.equal(hookSiteId, fixtures.siteId)
+      assert.equal(hookPayload.id, page.id)
+      assert.equal(hookPayload.path, 'docs/side-effects-after')
+      assert.equal(hookPayload.previousPath, 'docs/side-effects-before')
+
+      // -> Storage
+      assert.equal(storageModel.dispatch.mock.calls.length, 1)
+      const [storageEvent, storagePayload] = storageModel.dispatch.mock.calls[0]!.arguments
+      assert.equal(storageEvent, 'page:rename')
+      assert.equal(storagePayload.id, page.id)
+      assert.equal(storagePayload.path, 'docs/side-effects-after')
+      assert.equal(storagePayload.previousPath, 'docs/side-effects-before')
+
+      // -> Glossary: invalidated exactly once for this single-page move
+      assert.equal(glossaryModel.invalidateCache.mock.calls.length, 1)
+      assert.equal(glossaryModel.invalidateCache.mock.calls[0]!.arguments[0], fixtures.siteId)
+    } finally {
+      delete searchModel.renamed
+      delete hooksModel.emit
+      delete storageModel.dispatch
+      delete glossaryModel.invalidateCache
+    }
+  })
+
   test('deletePage removes the page and frees its path for reuse', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
