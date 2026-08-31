@@ -638,7 +638,7 @@ class Pages {
    * The immediate-parent classification floor for a set of `(locale, path)` pairs, in one query over
    * their distinct parent paths — the batched form of `parentClassification`, for a caller checking
    * the floor invariant against many targets at once (the classification-conflicts resolve route,
-   * OpenProject #1902).
+   * OpenProject #1897/#1902).
    *
    * @returns A Map keyed by `${locale}\0${path}` (the ORIGINAL pair passed in, not the derived parent
    *          path) so a caller looks up each of its own targets directly without re-deriving the

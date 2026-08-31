@@ -2131,9 +2131,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * OpenProject #1902: the batched reads the classification-conflicts resolve route uses instead of
-   * a per-id `getPage`/`parentClassification` loop -- `api/pages.classification.test.ts` stubs the
-   * model entirely, so this is what proves each one actually resolves the right rows.
+   * OpenProject #1897/#1902: the batched reads the classification-conflicts resolve route uses
+   * instead of a per-id `getPage`/`parentClassification` loop -- `api/pages.classification.test.ts`
+   * stubs the model entirely, so this is what proves each one actually resolves the right rows.
    */
   describe('getPagesByIds / parentClassifications (OpenProject #1902)', () => {
     let internalId: string
@@ -2235,6 +2235,57 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       assert.equal(expectedChild, restrictedId)
       assert.equal(expectedRoot, null)
       assert.equal(expectedEmptyFolder, null)
+    })
+
+    test('the query is scoped per locale, not just per path -- a same-named parent path in another locale never leaks in', async () => {
+      // -> Same parent path in two locales with two DIFFERENT classifications, so a query that
+      //    matched `locale IN (...)` and `path IN (...)` independently (rather than as a real pair)
+      //    would risk picking up the wrong locale's row.
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch-locale/parent', locale: 'en', classification: restrictedId }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch-locale/parent', locale: 'fr', classification: internalId }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch-locale/parent/child', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch-locale/parent/child', locale: 'fr' }),
+        actor
+      )
+
+      // -> Each locale queried on its own, against the single-page method, so a distinct map key
+      //    per locale never masks a cross-locale mismatch the way batching both together under one
+      //    path-only key could.
+      const enBatched = await pagesModel.parentClassifications(fixtures.siteId, [
+        { locale: 'en', path: 'batch-locale/parent/child' }
+      ])
+      const enSingle = await pagesModel.parentClassification(
+        fixtures.siteId,
+        'en',
+        'batch-locale/parent/child'
+      )
+      assert.equal(enBatched.get('en\0batch-locale/parent/child'), restrictedId)
+      assert.equal(enBatched.get('en\0batch-locale/parent/child'), enSingle)
+
+      const frBatched = await pagesModel.parentClassifications(fixtures.siteId, [
+        { locale: 'fr', path: 'batch-locale/parent/child' }
+      ])
+      const frSingle = await pagesModel.parentClassification(
+        fixtures.siteId,
+        'fr',
+        'batch-locale/parent/child'
+      )
+      assert.equal(frBatched.get('fr\0batch-locale/parent/child'), internalId)
+      assert.equal(frBatched.get('fr\0batch-locale/parent/child'), frSingle)
     })
   })
 
