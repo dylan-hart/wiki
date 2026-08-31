@@ -43,7 +43,28 @@ export const AUDIT_EVENTS = [
   //   /`updatePage.ts` for the latter -- the write tools are the same handlers regardless of which
   //   transport called them, so this fires for both.
   'mcp.sessionOpened',
-  'mcp.writeToolCalled'
+  'mcp.writeToolCalled',
+  // -> OpenProject #2228/#2229: instance-wide system, security and flag changes, plus the audit log's
+  //   own retention setting -- previously nothing recorded any of these at all. `system.*` covers the
+  //   admin-facing settings groups that aren't already a `site.*`/`storage.*` write (security options,
+  //   feature flags, the public API toggle, metrics exporter, TLS certificate regeneration, a forced
+  //   session invalidation, a manual history purge, and content export/import/extension-install
+  //   actions); `auth.strategyUpdated` is an authentication module's config changing; the
+  //   `auditLog.*` pair audits the audit log itself -- its retention window changing, and each time
+  //   the retention job actually purges rows.
+  'system.securityUpdated',
+  'system.flagsUpdated',
+  'system.apiUpdated',
+  'system.metricsUpdated',
+  'system.certificatesRegenerated',
+  'system.sessionsInvalidated',
+  'system.historyPurged',
+  'system.contentExported',
+  'system.contentImported',
+  'system.extensionInstalled',
+  'auth.strategyUpdated',
+  'auditLog.retentionChanged',
+  'auditLog.purged'
 ] as const
 
 export type AuditEvent = (typeof AUDIT_EVENTS)[number]
@@ -59,7 +80,10 @@ export const AUDIT_TARGET_TYPES = [
   //   (that's `mcp.sessionOpened`'s `apiKey` target) -- naming the page is what makes the log entry
   //   answer "what did the agent write", not just "an agent wrote something".
   'page',
-  'glossaryTerm'
+  'glossaryTerm',
+  // -> #2229: the target of a `system.*`/`auth.*`/`auditLog.*` event -- there is no row to point at,
+  //   so `targetId` for these stays '' and `targetLabel` names the setting/module changed instead.
+  'system'
 ] as const
 
 export type AuditTargetType = (typeof AUDIT_TARGET_TYPES)[number]

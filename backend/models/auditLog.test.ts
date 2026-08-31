@@ -1,8 +1,58 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { actorFromRequest } from './auditLog.ts'
+import { actorFromRequest, AUDIT_EVENTS, AUDIT_TARGET_TYPES } from './auditLog.ts'
+import type { AuditEvent, AuditTargetType } from './auditLog.ts'
 import type { FastifyRequest } from 'fastify'
+
+/**
+ * OpenProject #2229: the system/security/flags/auth/auditLog event vocabulary added to close the
+ * gap that made `system.*`, `auth.*` and `auditLog.*` writes uncompilable. Listed here once so the
+ * DB-backed round trip below and the pure vocabulary check share a single source instead of two
+ * copies drifting apart.
+ */
+const NEW_EVENTS = [
+  'system.securityUpdated',
+  'system.flagsUpdated',
+  'system.apiUpdated',
+  'system.metricsUpdated',
+  'system.certificatesRegenerated',
+  'system.sessionsInvalidated',
+  'system.historyPurged',
+  'system.contentExported',
+  'system.contentImported',
+  'system.extensionInstalled',
+  'auth.strategyUpdated',
+  'auditLog.retentionChanged',
+  'auditLog.purged'
+] as const satisfies readonly AuditEvent[]
+
+describe('AUDIT_EVENTS / AUDIT_TARGET_TYPES vocabulary (pure)', () => {
+  test('AUDIT_EVENTS includes every new system/security/flags/auth/auditLog event', () => {
+    for (const event of NEW_EVENTS) {
+      assert.ok(
+        (AUDIT_EVENTS as readonly string[]).includes(event),
+        `AUDIT_EVENTS is missing ${event}`
+      )
+    }
+  })
+
+  test('AUDIT_TARGET_TYPES includes system', () => {
+    assert.ok((AUDIT_TARGET_TYPES as readonly string[]).includes('system'))
+  })
+
+  test('AuditEvent rejects a misspelled event name at compile time', () => {
+    // @ts-expect-error -- 'system.securityUpdate' (missing the trailing 'd') is not a member of AUDIT_EVENTS
+    const invalid: AuditEvent = 'system.securityUpdate'
+    assert.ok(invalid)
+  })
+
+  test('AuditTargetType rejects a misspelled target type at compile time', () => {
+    // @ts-expect-error -- 'systm' is not a member of AUDIT_TARGET_TYPES
+    const invalid: AuditTargetType = 'systm'
+    assert.ok(invalid)
+  })
+})
 
 describe('actorFromRequest (pure)', () => {
   test('resolves a session user', () => {
@@ -115,6 +165,23 @@ describe('auditLog record/list/listActors/purge (DB-backed)', { skip: !hasTestDa
   test('listActors() lists distinct actors resolved against the live users table', async () => {
     const actors = await auditLogModel.listActors()
     assert.ok(actors.some((a) => a.id === fixtures.userId && a.name === 'Fixture User'))
+  })
+
+  test('record() accepts each new system/security/flags/auth/auditLog event name', async () => {
+    for (const event of NEW_EVENTS) {
+      await auditLogModel.record({
+        event,
+        actor: { id: fixtures.userId, name: 'Fixture User' },
+        targetType: 'system',
+        targetLabel: event
+      })
+
+      const { entries } = await auditLogModel.list({ event })
+      assert.ok(
+        entries.some((e) => e.event === event),
+        `record()/list() round trip failed for ${event}`
+      )
+    }
   })
 
   test('purge() drops nothing when every entry is inside the retention window', async () => {
