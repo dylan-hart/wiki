@@ -5,6 +5,39 @@
 # https://next.js.wiki/docs/install
 
 # ---------------------------------------------------------------------
+# Environment variable substitution
+# ---------------------------------------------------------------------
+# Any string value in this file may reference an environment variable with
+# $(ENV_VAR_NAME) or, with a fallback if that variable is unset,
+# $(ENV_VAR_NAME:default). This is applied to the raw text of this file
+# before it is parsed as YAML, so it works anywhere a string is expected
+# (not just at the top level).
+#
+# Worked example — read the DB password from an env var, falling back to
+# a value if it isn't set:
+#   pass: $(WIKI_DB_PASS:postgres)
+
+# ---------------------------------------------------------------------
+# How configuration is assembled (three sources, in order)
+# ---------------------------------------------------------------------
+# 1. backend/base.yml    - system-wide file defaults. Not user-editable.
+# 2. config.yml (this file, or $CONFIG_FILE) - your overrides of the above.
+# 3. The `settings` database table - written by the admin area, and loaded
+#    LAST at boot, so it wins over both files above for every key it owns.
+#
+# The DB owns entire top-level key groups outright (initially seeded from
+# the "DB defaults" section of base.yml, then only ever updated through the
+# admin area from that point on): `api`, `auditLog`, `auth`, `flags`,
+# `icons`, `mail`, `metrics`, `pageviews`, `search`, `security`, `update`,
+# `userDefaults`. Setting one of these keys in this file has no lasting
+# effect once the instance has booted once — e.g. `security.trustProxy` is
+# set on the admin Security page, never here.
+#
+# Everything else below (`port`, `db`, `bindIP`, `logLevel`, `pool`,
+# `files`, `scheduler`, `offline`, `dataPath`, ...) is file-owned: this file
+# overrides base.yml's default, and there is no DB row to override it back.
+
+# ---------------------------------------------------------------------
 # Port the server should listen to
 # ---------------------------------------------------------------------
 
@@ -39,6 +72,19 @@ db:
     # key: path/to/key.pem
     # pfx: path/to/cert.pfx
     # passphrase: xyz123
+
+# ---------------------------------------------------------------------
+# Postgres connection pool
+# ---------------------------------------------------------------------
+# Passed straight through to `pg`'s own Pool constructor.
+# -> min: minimum connections kept open. Default (base.yml): 1.
+# -> max: maximum connections this instance may open. Not set anywhere in
+#    base.yml or this file, so `pg`'s own default of 10 applies.
+# Uncomment and adjust if this instance needs a different ceiling, e.g. a
+# busy multi-worker deployment sharing a Postgres connection limit.
+# pool:
+#   min: 1
+#   max: 10
 
 #######################################################################
 # ADVANCED OPTIONS                                                    #
@@ -88,6 +134,16 @@ offline: false
 # ---------------------------------------------------------------------
 # Writeable data path used for cache, exports, and other on-disk working storage.
 dataPath: ./data
+
+# ---------------------------------------------------------------------
+# File cache
+# ---------------------------------------------------------------------
+# How much of <dataPath>/cache/files served copies of uploaded files may
+# take up, in bytes. Trimmed back oldest-first once exceeded. Set to 0 to
+# serve every request from the database instead. Default (base.yml):
+# 536870912 (512 MiB).
+# files:
+#   cacheMaxSize: 536870912
 
 # ---------------------------------------------------------------------
 # Icons

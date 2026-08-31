@@ -42,9 +42,13 @@ Put nginx, Traefik, Caddy, or equivalent in front of the Wiki.js process:
 2. It forwards the request to Wiki.js over plain HTTP on `port` (`config.sample.yml`, default
    `3000`), setting the standard `X-Forwarded-For` / `X-Forwarded-Proto` / `X-Forwarded-Host`
    headers.
-3. Set `security.trustProxy: true` in Wiki.js's own config (or via the admin Security page) so those
-   headers are trusted rather than ignored — otherwise every request appears to arrive from the
-   proxy's own address over plain HTTP, which breaks IP-based rate limiting and any HTTPS-only logic.
+3. Enable **Trust Proxy** on the admin Security page so those headers are trusted rather than
+   ignored — otherwise every request appears to arrive from the proxy's own address over plain
+   HTTP, which breaks IP-based rate limiting and any HTTPS-only logic. This is the only way to set
+   it that sticks: `security` (including `trustProxy`) is a DB-owned settings group
+   (`models/settings.ts:139-157`), seeded into the `settings` table on first boot and loaded _after_
+   `config.yml` (`core/config.ts:111`) — so a `security.trustProxy: true` written into `config.yml`
+   is silently overwritten by the DB row on every subsequent boot.
 4. Each site's hostname (as configured in the Sites admin area) must match the `Host` header the
    proxy forwards, since that's what `WIKI.sitesMappings[req.hostname]` matches against to resolve
    which site a request belongs to.
