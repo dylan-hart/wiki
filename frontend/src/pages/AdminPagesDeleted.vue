@@ -79,7 +79,7 @@
                 icon="la:undo"
                 :color="dark.isActive ? `indigo-4` : `indigo`"
                 :label="t(`history.recovery.recover`)"
-                :disable="state.loading > 0"
+                :disabled="state.loading > 0"
                 @click="confirmRecover(props.row)" />
             </w-td>
           </template>

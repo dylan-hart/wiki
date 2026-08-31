@@ -131,7 +131,7 @@
             </w-item-section>
             <w-item-section avatar>
               <w-toggle
-                :disable="lc.code === state.primary"
+                :disabled="lc.code === state.primary"
                 v-model="state.active"
                 :val="lc.code"
                 :aria-label="lc.name" />

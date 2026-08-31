@@ -151,7 +151,7 @@
           unelevated
           color="primary"
           padding="xs md"
-          :disable="pathHasSlash"
+          :disabled="pathHasSlash"
           @click="save" />
       </w-card-actions>
     </w-card>
@@ -300,7 +300,7 @@ const currentFolderPath = computed(() => {
 
 const pathHasSlash = computed(() => state.path.includes('/'))
 
-// -> The Save button's `:disable="pathHasSlash"` only blocks a click -- the Path Name field's own
+// -> The Save button's `:disabled="pathHasSlash"` only blocks a click -- the Path Name field's own
 //    `@keyup:enter` used to call `save()` directly regardless, so pressing Enter with a slash still
 //    present silently bypassed the block this same commit added (OpenProject #1025). Route Enter
 //    through the same guard rather than letting it call `save()` unconditionally.

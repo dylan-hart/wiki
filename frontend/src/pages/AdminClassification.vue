@@ -60,7 +60,7 @@
                     round
                     size="sm"
                     icon="la:arrow-up"
-                    :disable="idx === 0"
+                    :disabled="idx === 0"
                     :aria-label="t(`admin.classification.moveUp`)"
                     @click="move(idx, -1)" />
                   <w-btn
@@ -69,7 +69,7 @@
                     round
                     size="sm"
                     icon="la:arrow-down"
-                    :disable="idx === state.levels.length - 1"
+                    :disabled="idx === state.levels.length - 1"
                     :aria-label="t(`admin.classification.moveDown`)"
                     @click="move(idx, 1)" />
                 </div>
@@ -108,7 +108,7 @@
                   color="red"
                   icon="la:trash"
                   flat
-                  :disable="state.levels.length <= 1"
+                  :disabled="state.levels.length <= 1"
                   :aria-label="t(`common.actions.delete`)"
                   @click="deleteLevel(level)" />
               </w-item-section>

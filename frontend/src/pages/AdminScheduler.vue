@@ -19,7 +19,7 @@
           v-model="state.displayMode"
           push
           no-caps
-          :disable="state.loading > 0"
+          :disabled="state.loading > 0"
           :toggle-color="dark.isActive ? `white` : `black`"
           :toggle-text-color="dark.isActive ? `black` : `white`"
           :text-color="dark.isActive ? `white` : `black`"
@@ -387,7 +387,7 @@
                   color="orange"
                   :aria-label="t(`admin.scheduler.retryJob`)"
                   @click="retryJob(props.row.id)"
-                  :disable="
+                  :disabled="
                     (props.row.state === `failed` || props.row.state === `interrupted`) &&
                     props.row.attempt <= props.row.maxRetries
                   ">

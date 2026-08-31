@@ -83,7 +83,7 @@
                       :rules="groupNameValidation"
                       hide-bottom-space
                       :aria-label="t(`admin.groups.name`)"
-                      :disable="isGuestGroup" />
+                      :disabled="isGuestGroup" />
                   </w-item-section>
                 </w-item>
               </w-card>
@@ -474,7 +474,7 @@
                       <w-toggle
                         v-model="state.group.permissions"
                         :val="perm.permission"
-                        :disable="isSystemPermissionLocked(perm.permission)"
+                        :disabled="isSystemPermissionLocked(perm.permission)"
                         :aria-label="t(`admin.general.allowComments`)" />
                     </w-item-section>
                   </w-item>

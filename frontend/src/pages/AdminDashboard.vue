@@ -53,7 +53,7 @@
               :color="actionColor"
               icon="la:plus-circle"
               :label="t(`common.actions.new`)"
-              :disable="!userStore.can(`manage:sites`)"
+              :disabled="!userStore.can(`manage:sites`)"
               @click="newSite" />
             <w-separator vertical />
             <w-btn
@@ -61,7 +61,7 @@
               :color="actionColor"
               icon="la:sitemap"
               :label="t(`common.actions.manage`)"
-              :disable="!userStore.can(`manage:sites`)"
+              :disabled="!userStore.can(`manage:sites`)"
               to="/_admin/sites" />
           </w-card-actions>
         </w-card>
@@ -82,7 +82,7 @@
               :color="actionColor"
               icon="la:plus-circle"
               :label="t(`common.actions.new`)"
-              :disable="!userStore.can(`manage:groups`)"
+              :disabled="!userStore.can(`manage:groups`)"
               @click="newGroup" />
             <w-separator vertical />
             <w-btn
@@ -90,7 +90,7 @@
               :color="actionColor"
               icon="la:users"
               :label="t(`common.actions.manage`)"
-              :disable="!groupsAreVisible"
+              :disabled="!groupsAreVisible"
               to="/_admin/groups" />
           </w-card-actions>
         </w-card>
@@ -111,7 +111,7 @@
               :color="actionColor"
               icon="la:user-plus"
               :label="t(`common.actions.new`)"
-              :disable="!userStore.can(`manage:users`)"
+              :disabled="!userStore.can(`manage:users`)"
               @click="newUser" />
             <w-separator vertical />
             <w-btn
@@ -119,7 +119,7 @@
               :color="actionColor"
               icon="la:user-friends"
               :label="t(`common.actions.manage`)"
-              :disable="!usersAreVisible"
+              :disabled="!usersAreVisible"
               to="/_admin/users" />
           </w-card-actions>
         </w-card>
@@ -192,7 +192,7 @@
               :color="actionColor"
               icon="la:sync-alt"
               :label="t(`admin.system.checkForUpdates`)"
-              :disable="!userStore.can(`manage:system`)"
+              :disabled="!userStore.can(`manage:system`)"
               @click="checkForUpdates" />
             <w-separator vertical />
             <w-btn
@@ -200,7 +200,7 @@
               :color="actionColor"
               icon="la:info-circle"
               :label="t(`admin.system.title`)"
-              :disable="!userStore.can(`manage:system`)"
+              :disabled="!userStore.can(`manage:system`)"
               to="/_admin/system" />
           </w-card-actions>
         </w-card>
@@ -221,7 +221,7 @@
               :color="actionColor"
               icon="la:tasks"
               :label="t(`admin.scheduler.title`)"
-              :disable="!userStore.can(`manage:system`)"
+              :disabled="!userStore.can(`manage:system`)"
               to="/_admin/scheduler" />
           </w-card-actions>
         </w-card>
@@ -242,7 +242,7 @@
               :color="actionColor"
               icon="la:server"
               :label="t(`common.actions.view`)"
-              :disable="!userStore.can(`manage:system`)"
+              :disabled="!userStore.can(`manage:system`)"
               to="/_admin/cluster" />
           </w-card-actions>
         </w-card>
@@ -263,7 +263,7 @@
               :color="actionColor"
               icon="la:bolt"
               :label="t(`common.actions.manage`)"
-              :disable="!userStore.can(`manage:system`)"
+              :disabled="!userStore.can(`manage:system`)"
               to="/_admin/webhooks" />
           </w-card-actions>
         </w-card>

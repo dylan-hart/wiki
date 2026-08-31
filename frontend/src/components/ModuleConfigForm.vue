@@ -9,7 +9,7 @@
           <w-item-label caption>{{ cfg.hint }}</w-item-label>
         </w-item-section>
         <w-item-section avatar>
-          <w-toggle v-model="cfg.value" :aria-label="cfg.title" :disable="cfg.readOnly" />
+          <w-toggle v-model="cfg.value" :aria-label="cfg.title" :disabled="cfg.readOnly" />
         </w-item-section>
       </w-item>
       <w-item v-else>
@@ -30,7 +30,7 @@
             toggle-color="primary"
             :aria-label="cfg.title"
             :options="cfg.enum"
-            :disable="cfg.readOnly" />
+            :disabled="cfg.readOnly" />
           <w-select
             v-else-if="cfg.enum"
             outlined
@@ -41,7 +41,7 @@
             dense
             options-dense
             :aria-label="cfg.title"
-            :disable="cfg.readOnly" />
+            :disabled="cfg.readOnly" />
           <w-input
             v-else
             outlined
@@ -50,7 +50,7 @@
             :type="inputTypeFor(cfg)"
             :autocomplete="cfg.sensitive ? 'new-password' : null"
             :aria-label="cfg.title"
-            :disable="cfg.readOnly" />
+            :disabled="cfg.readOnly" />
         </w-item-section>
       </w-item>
     </template>

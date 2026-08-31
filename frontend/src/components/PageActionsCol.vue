@@ -23,7 +23,7 @@
         flat
         icon="la:pen-nib"
         :color="editorStore.isActive ? `white` : `deep-orange-9`"
-        :disable="isRedirect"
+        :disabled="isRedirect"
         :aria-label="t('pageActions.pageProperties')"
         @click="togglePageProperties">
         <w-tooltip anchor="center left" self="center right">{{
@@ -38,7 +38,7 @@
         :color="editorStore.isActive ? `white` : `deep-orange-9`"
         :aria-label="t('pageActions.pageData')"
         @click="togglePageData"
-        disable>
+        disabled>
         <w-tooltip anchor="center left" self="center right">{{ t('common.page.data') }}</w-tooltip>
       </w-btn>
       <!-- -> Nothing can be pasted or dropped onto a redirection: it is a form, not a document -->

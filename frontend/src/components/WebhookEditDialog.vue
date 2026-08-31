@@ -196,7 +196,7 @@
           :label="t(`admin.webhooks.testSend`)"
           color="grey"
           padding="xs md"
-          :disable="!urlIsValid"
+          :disabled="!urlIsValid"
           :loading="state.isTesting"
           @click="sendTestEvent" />
         <w-space />

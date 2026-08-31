@@ -92,10 +92,6 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  disable: {
-    type: Boolean,
-    default: false
-  },
   disabled: {
     type: Boolean,
     default: false
@@ -125,7 +121,7 @@ const isOn = computed(() =>
   isArrayModel.value ? props.modelValue.includes(props.val) : props.modelValue === true
 )
 
-const isDisabled = computed(() => props.disable || props.disabled || props.loading)
+const isDisabled = computed(() => props.disabled || props.loading)
 
 /** Shared by the knob and the glow behind it, so the two cannot drift apart. */
 const knobOffset = computed(() => {

@@ -124,11 +124,6 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  disable: {
-    type: Boolean,
-    default: false
-  },
-  /** Accepted as an alias of `disable`; both spellings appear in the codebase. */
   disabled: {
     type: Boolean,
     default: false
@@ -170,7 +165,7 @@ const SIZES = {
 
 // COMPUTED
 
-const isDisabled = computed(() => props.disable || props.disabled || props.loading)
+const isDisabled = computed(() => props.disabled || props.loading)
 
 const isLink = computed(() => Boolean(props.to || props.href))
 

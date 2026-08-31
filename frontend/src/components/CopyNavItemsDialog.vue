@@ -50,7 +50,7 @@
             dense
             hide-bottom-space
             :loading="state.isFetching"
-            :disable="localeOptions.length < 1"
+            :disabled="localeOptions.length < 1"
             v-model="state.sourceLocale"
             :options="localeOptions"
             option-value="locale"

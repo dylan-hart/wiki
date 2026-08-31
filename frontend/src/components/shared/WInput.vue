@@ -87,7 +87,7 @@
         :value="modelValue"
         :placeholder="placeholder"
         :readonly="readonly"
-        :disabled="disable || disabled"
+        :disabled="disabled"
         :autocomplete="autocomplete"
         :rows="type === 'textarea' ? rows : undefined"
         :min="min"
@@ -260,10 +260,6 @@ const props = defineProps({
     default: false
   },
   readonly: {
-    type: Boolean,
-    default: false
-  },
-  disable: {
     type: Boolean,
     default: false
   },
@@ -492,7 +488,7 @@ const controlClasses = computed(() => [
     : props.outlined
       ? 'bg-white dark:bg-black/20'
       : 'rounded-b-none bg-black/4 dark:bg-white/6',
-  props.disable || props.disabled ? 'pointer-events-none opacity-60' : '',
+  props.disabled ? 'pointer-events-none opacity-60' : '',
   /*
     `relative` for the outline and the label. The margin is the room the floated label needs above the
     control, and it is matched below so the field's box stays symmetric about the control -- otherwise
@@ -522,7 +518,7 @@ const frameColor = computed(() =>
     ? 'var(--color-negative)'
     : hasFocus.value
       ? 'var(--color-primary)'
-      : isHovered.value && !props.disable && !props.disabled && !props.readonly
+      : isHovered.value && !props.disabled && !props.readonly
         ? 'var(--w-input-ring-hover)'
         : 'var(--w-input-ring)'
 )

@@ -86,7 +86,7 @@
             padding="xs md"
             :label="t(`pages.importBatch.convert`)"
             :loading="state.converting"
-            :disable="!canConvert"
+            :disabled="!canConvert"
             @click="convert" />
         </w-card-actions>
       </template>
@@ -111,7 +111,7 @@
             option-label="label"
             options-dense
             hide-bottom-space
-            :disable="state.saving"
+            :disabled="state.saving"
             :label="t(`pages.importBatch.conflictBehavior`)" />
 
           <div
@@ -135,7 +135,7 @@
                   dense
                   class="flex-1"
                   hide-bottom-space
-                  :disable="row.saveStatus === `saving` || row.saveStatus === `saved`"
+                  :disabled="row.saveStatus === `saving` || row.saveStatus === `saved`"
                   :label="t(`pages.importBatch.pageTitle`)" />
                 <w-input
                   v-model="row.path"
@@ -143,7 +143,7 @@
                   dense
                   class="flex-1"
                   hide-bottom-space
-                  :disable="row.saveStatus === `saving` || row.saveStatus === `saved`"
+                  :disabled="row.saveStatus === `saving` || row.saveStatus === `saved`"
                   :label="t(`pages.importBatch.destinationPath`)" />
               </div>
               <p v-if="row.saveMessage" class="text-caption text-negative mt-1">
@@ -160,7 +160,7 @@
             icon="la:arrow-left"
             color="grey-5"
             padding="xs md"
-            :disable="state.saving"
+            :disabled="state.saving"
             :label="t(`pages.import.back`)"
             @click="backToSelect" />
           <w-space />
@@ -178,7 +178,7 @@
             padding="xs md"
             :label="t(`pages.importBatch.saveAll`)"
             :loading="state.saving"
-            :disable="!canSaveAll"
+            :disabled="!canSaveAll"
             @click="saveAll" />
         </w-card-actions>
       </template>

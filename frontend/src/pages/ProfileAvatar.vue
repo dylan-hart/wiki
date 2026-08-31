@@ -43,7 +43,7 @@
             outline
             :label="t(`common.actions.clear`)"
             color="primary"
-            :disable="!userStore.hasAvatar"
+            :disabled="!userStore.hasAvatar"
             @click="clearImage" />
         </div>
       </div>

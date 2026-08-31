@@ -55,16 +55,12 @@ describe('WCheckbox', () => {
     expect(wrapper.emitted('update:modelValue')).toEqual([[true]])
   })
 
-  it('marks the button element disabled, via either the disable or disabled prop', () => {
-    const viaDisable = mount(WCheckbox, {
-      props: { modelValue: false, ariaLabel: 'Enabled', disable: true }
-    })
-    const viaDisabled = mount(WCheckbox, {
+  it('marks the button element disabled via the disabled prop', () => {
+    const wrapper = mount(WCheckbox, {
       props: { modelValue: false, ariaLabel: 'Enabled', disabled: true }
     })
 
-    expect(viaDisable.attributes('disabled')).toBeDefined()
-    expect(viaDisabled.attributes('disabled')).toBeDefined()
-    expect(viaDisable.classes()).toContain('w-checkbox--disabled')
+    expect(wrapper.attributes('disabled')).toBeDefined()
+    expect(wrapper.classes()).toContain('w-checkbox--disabled')
   })
 })

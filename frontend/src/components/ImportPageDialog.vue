@@ -60,7 +60,7 @@
             padding="xs md"
             :label="t(`pages.import.convert`)"
             :loading="state.converting"
-            :disable="!canConvert"
+            :disabled="!canConvert"
             @click="convert" />
         </w-card-actions>
       </template>

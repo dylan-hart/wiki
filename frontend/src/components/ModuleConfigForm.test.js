@@ -73,7 +73,7 @@ describe('ModuleConfigForm', () => {
       {}
     )
     const wrapper = mountForm(config)
-    expect(wrapper.findComponent(WInput).props('disable')).toBe(true)
+    expect(wrapper.findComponent(WInput).props('disabled')).toBe(true)
   })
 
   it('hides a field whose `if` condition on a sibling value is not met', () => {

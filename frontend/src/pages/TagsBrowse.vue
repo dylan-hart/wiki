@@ -99,7 +99,7 @@
             clearable
             v-model="state.filterQuery"
             :placeholder="t(`tags.searchWithinResultsPlaceholder`)"
-            :disable="state.selectedTags.length < 1">
+            :disabled="state.selectedTags.length < 1">
             <template #prepend><w-icon name="la:search" size="xs" /></template>
           </w-input>
         </div>

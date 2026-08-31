@@ -37,7 +37,7 @@
           :label="t(`common.actions.delete`)"
           color="negative"
           padding="xs md"
-          :disable="!isConfirmed"
+          :disabled="!isConfirmed"
           :loading="state.isLoading"
           @click="confirm" />
       </w-card-actions>

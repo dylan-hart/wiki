@@ -346,7 +346,7 @@
                       outline
                       icon="la:times"
                       color="primary"
-                      :disable="!state.hasLogo"
+                      :disabled="!state.hasLogo"
                       @click="clearLogo" />
                   </div>
                 </w-item-section>
@@ -420,7 +420,7 @@
                       outline
                       icon="la:times"
                       color="primary"
-                      :disable="!state.hasFavicon"
+                      :disabled="!state.hasFavicon"
                       @click="clearFavicon" />
                   </div>
                 </w-item-section>

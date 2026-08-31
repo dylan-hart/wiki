@@ -96,10 +96,6 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  disable: {
-    type: Boolean,
-    default: false
-  },
   disabled: {
     type: Boolean,
     default: false
@@ -112,7 +108,7 @@ const props = defineProps({
 
 defineEmits(['update:modelValue'])
 
-const isDisabled = computed(() => props.disable || props.disabled)
+const isDisabled = computed(() => props.disabled)
 
 /**
  * Raised-segment classes.
