@@ -1623,6 +1623,16 @@ export const tree = pgTable(
   (table) => [
     index('tree_folderpath_idx').on(table.folderPath),
     index('tree_folderpath_gist_idx').using('gist', table.folderPath),
+    // -> `models/navigation.ts#ancestorNavId` filters on `("folderPath" || "fileName") @>
+    //    <path>::ltree` — the concatenation, not the bare column, so the two indexes above never
+    //    match it. EXPLAIN (ANALYZE, BUFFERS) against a 280k-row tree with ~1,700
+    //    override/hide entries measured a ~10x execution-time drop (1.71ms -> 0.18ms) and a
+    //    ~230x buffer-read drop (1602 -> 7): without this index, postgres index-scans
+    //    `tree_navigationMode_idx` and evaluates the ltree containment test as a row-by-row
+    //    filter over every override/hide candidate; with it, a Bitmap AND against this index
+    //    and `tree_navigationMode_idx` finds the match directly. See work package #1823 for the
+    //    full before/after EXPLAIN output.
+    index('tree_folderpath_filename_gist_idx').using('gist', sql`("folderPath" || "fileName")`),
     index('tree_fileName_idx').on(table.fileName),
     index('tree_type_idx').on(table.type),
     // -> A plain btree: the locale is a string compared for equality, and GiST — which is what an
