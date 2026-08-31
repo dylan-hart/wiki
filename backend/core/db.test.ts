@@ -1,14 +1,20 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
+import path from 'node:path'
+import { randomBytes } from 'node:crypto'
 import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import Emittery from 'emittery'
+import { Pool } from 'pg'
+import { drizzle } from 'drizzle-orm/node-postgres'
 
-import dbManager from './db.ts'
+import dbManager, { type WikiDb } from './db.ts'
 import configSvc from './config.ts'
 import maintenance from './maintenance.ts'
 import { groups } from '../models/groups.ts'
 import { sites } from '../models/sites.ts'
 import { approvals } from '../models/approvals.ts'
+import { relations } from '../db/relations.ts'
+import { hasTestDatabase, setupTestDb, teardownTestDb } from '../test/db.ts'
 
 /**
  * Task 708 (feature 411): confirms what `core/db.ts`'s `subscribeToNotifications()` /
@@ -248,4 +254,105 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.equal(sitesReloadCacheMock.mock.calls.length, 1)
     assert.equal(approvalsReloadCacheMock.mock.calls.length, 1)
   })
+})
+
+/**
+ * Task 2041 (epic 2037): `syncSchemas()` now holds a session-scoped advisory lock across its
+ * `CREATE SCHEMA` / `CREATE EXTENSION` / `migrate()`, so two instances racing to migrate a fresh
+ * database no longer both compute the same non-empty migration set and collide on `relation already
+ * exists` — the loser blocks on the lock instead, then re-reads an already-migrated state.
+ *
+ * DB-backed (real Postgres, real migrations) rather than mocked: the thing under test is genuine
+ * cross-connection serialization, which a fake `Pool` would only re-describe, not verify — same
+ * reasoning as `helpers/advisoryLock.test.ts`. Gated on `hasTestDatabase()` per CLAUDE.md.
+ *
+ * This describe nests its own `beforeEach`/`afterEach` rather than relying on a one-time `before()`:
+ * the file-level `beforeEach`/`afterEach` above (for the mock-`Pool` NOTIFY tests) unconditionally
+ * reset `dbManager.pool` to `null` and stub `globalThis.WIKI` before/after *every* test in this file,
+ * including these — nested hooks run after the outer `beforeEach` and before the outer `afterEach`,
+ * so they are what re-establish real DB state for the duration of each test here.
+ */
+describe('syncSchemas() — advisory lock across DDL and migrate() (task 2041)', () => {
+  const skip = hasTestDatabase() ? false : 'requires DATABASE_URL'
+  let pool: Pool
+  let schema: string
+  let outerWiki: any
+
+  before(async () => {
+    if (!hasTestDatabase()) {
+      return
+    }
+    // -> Guarantees `ltree`/`pg_trgm` already exist somewhere in this database before the race test
+    //    below runs its own `CREATE EXTENSION IF NOT EXISTS` calls: that statement is not atomic
+    //    against another session doing the same thing for the first time concurrently (see
+    //    `test/db.ts`'s `createExtensionsSerialized`), and `node --test` runs other DB-backed suites'
+    //    files in parallel against the same `DATABASE_URL`. `setupTestDb()` creates the extensions
+    //    serialized against every other suite doing the same; its own throwaway schema is dropped
+    //    again immediately.
+    await setupTestDb()
+    await teardownTestDb()
+  })
+
+  beforeEach(() => {
+    const DATABASE_URL = process.env.DATABASE_URL
+    if (!DATABASE_URL) {
+      return
+    }
+    outerWiki = (globalThis as any).WIKI
+    schema = `test_syncschemas_${randomBytes(6).toString('hex')}`
+    // -> `public` stays on the search path behind the fresh schema, matching both production
+    //    (`core/db.ts#init`'s own Pool `options`) and `test/db.ts`'s `setupTestDb()`: an unqualified
+    //    `CREATE TYPE`/`CREATE TABLE` inside a migration file targets whichever schema is first on
+    //    the connection's search_path, not `WIKI.config.db.schema` by name — without this, this
+    //    suite's own migration lands in `public` instead of the fresh schema it thinks it owns, and
+    //    can collide with a same-named type/table another suite (or a leftover prior run) already
+    //    left there.
+    pool = new Pool({ connectionString: DATABASE_URL, options: `-c search_path=${schema},public` })
+    dbManager.pool = pool
+    ;(globalThis as any).WIKI = {
+      config: { db: { schema } },
+      SERVERPATH: path.join(import.meta.dirname, '..'),
+      logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }
+    }
+  })
+
+  afterEach(async () => {
+    if (!hasTestDatabase()) {
+      return
+    }
+    await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
+    await pool.end()
+    dbManager.pool = null
+    ;(globalThis as any).WIKI = outerWiki
+  })
+
+  test(
+    'two concurrent syncSchemas() calls against a fresh schema both resolve, and the migration runs exactly once',
+    { skip },
+    async () => {
+      const db = drizzle({ client: pool, relations }) as WikiDb
+
+      const results = await Promise.allSettled([
+        dbManager.syncSchemas(db).then((lock) => lock.release()),
+        dbManager.syncSchemas(db).then((lock) => lock.release())
+      ])
+
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          assert.fail(`syncSchemas() rejected: ${result.reason}`)
+        }
+      }
+
+      // -> Confirms a migration genuinely ran (not just that neither call threw) and that the
+      //    concurrent second call did not re-run it: drizzle's migrator inserts one `migrations` row
+      //    per migration file, applied exactly once regardless of how many callers raced for the lock.
+      const migrationsCount = await pool.query(
+        `SELECT count(*)::int AS count FROM "${schema}".migrations`
+      )
+      assert.ok(
+        migrationsCount.rows[0].count > 0,
+        'expected at least one migration to have been applied'
+      )
+    }
+  )
 })

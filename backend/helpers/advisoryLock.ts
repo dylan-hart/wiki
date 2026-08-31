@@ -1,6 +1,47 @@
 import type { Pool } from 'pg'
 
 /**
+ * A held advisory lock, returned by `acquireAdvisoryLock` for a caller that needs to keep it across
+ * more than one function call rather than release it the moment one particular block finishes —
+ * `core/db.ts#syncSchemas` is the first such caller, taking the lock itself but handing the handle
+ * back up so a wider boot sequence can go on holding it past `syncSchemas()` before finally calling
+ * `release()`.
+ */
+export interface AdvisoryLockHandle {
+  /** Unlock and return the underlying client to `pool`. Idempotent to call more than once is NOT
+   *  guaranteed — call exactly once, from whichever scope ends up owning the handle last. */
+  release(): Promise<void>
+}
+
+/**
+ * Check a client out of `pool` and take a session-scoped Postgres advisory lock keyed by `key` on it,
+ * blocking until any other holder of the same key — in this process or another — releases it first.
+ * Returns a handle whose `release()` unlocks and returns the client to `pool`.
+ *
+ * Unlike `withAdvisoryLock` below, this does not scope the lock to one callback: the caller decides
+ * when to let go, which is what lets a lock taken around one step of a sequence (e.g. `syncSchemas()`'s
+ * DDL and `migrate()`) be handed off and kept held across later steps a wider caller controls.
+ *
+ * The lock and its release must run on the exact same physical connection — a `Pool` query checks a
+ * connection out and back in per call, so a lock taken through `pool.query()` could be released from a
+ * different one and never actually let go. This checks a client out of the pool for the lock's whole
+ * lifetime, the same constraint `test/db.ts`'s `createExtensionsSerialized` documents and follows.
+ */
+export async function acquireAdvisoryLock(pool: Pool, key: string): Promise<AdvisoryLockHandle> {
+  const client = await pool.connect()
+  await client.query('SELECT pg_advisory_lock(hashtext($1))', [key])
+  return {
+    async release() {
+      try {
+        await client.query('SELECT pg_advisory_unlock(hashtext($1))', [key])
+      } finally {
+        client.release()
+      }
+    }
+  }
+}
+
+/**
  * Run `fn` while holding a session-scoped Postgres advisory lock keyed by `key`, blocking until any
  * other holder of the same key — in this process or another — releases it first.
  *
@@ -33,16 +74,10 @@ import type { Pool } from 'pg'
  * avoid.
  */
 export async function withAdvisoryLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const pool = WIKI.db.$client as Pool
-  const client = await pool.connect()
+  const lock = await acquireAdvisoryLock(WIKI.db.$client as Pool, key)
   try {
-    await client.query('SELECT pg_advisory_lock(hashtext($1))', [key])
-    try {
-      return await fn()
-    } finally {
-      await client.query('SELECT pg_advisory_unlock(hashtext($1))', [key])
-    }
+    return await fn()
   } finally {
-    client.release()
+    await lock.release()
   }
 }
