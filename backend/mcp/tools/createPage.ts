@@ -10,6 +10,7 @@ import {
   type McpAuthContextGetter
 } from '../auth.ts'
 import { defaultLocale, resolveRequestedSite } from '../site.ts'
+import { renderRefusalGuidance } from '../renderRefusal.ts'
 
 const createPageInputSchema = {
   path: z.string().min(1).describe('Where to create the page, as a slash-separated path.'),
@@ -112,7 +113,7 @@ export async function handleCreatePage(
       actor
     )
   } catch (err: any) {
-    throw new McpToolError(err.message)
+    throw new McpToolError(renderRefusalGuidance(err) ?? err.message)
   }
 
   // -> #1118: instance-wide visibility that an agent wrote this, separate from the page's own

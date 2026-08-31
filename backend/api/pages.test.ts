@@ -307,6 +307,191 @@ describe('pages API — apiKeySitePinHook site-scoping', () => {
   })
 })
 
+/**
+ * OpenProject #1720: once `models/pages.ts#createPage()`/`updatePage()` refuse a render-less write up
+ * front via `ensureCanRender()` (#1716), the two named errors it throws --
+ * `renderUnsupportedEditor`/`renderPuppeteerMissing` -- must reach a REST caller as an actionable
+ * `@fastify/sensible` error (400/503 with a message naming the cause), not an opaque 500. `WIKI.models
+ * .pages.createPage`/`updatePage` are stubbed to throw directly, standing in for a render-less write
+ * against a lean/non-markdown-unsupported instance without needing a real Puppeteer-less environment.
+ */
+describe('pages API — renderPuppeteerMissing / renderUnsupportedEditor mapped to actionable errors', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+  const PAGE_ID = '22222222-2222-4222-8222-222222222222'
+
+  let app: FastifyInstance
+  let createPageCalls: any[]
+  let updatePageCalls: any[]
+  let createPageImpl: (...args: any[]) => Promise<any>
+  let updatePageImpl: (...args: any[]) => Promise<any>
+
+  function currentPage() {
+    return {
+      id: PAGE_ID,
+      path: 'some-page',
+      locale: 'en',
+      tags: [],
+      classification: null,
+      editor: 'markdown'
+    }
+  }
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      models: {
+        pages: {
+          getPage: async () => currentPage(),
+          createPage: async (...args: any[]) => {
+            createPageCalls.push(args)
+            return createPageImpl(...args)
+          },
+          updatePage: async (...args: any[]) => {
+            updatePageCalls.push(args)
+            return updatePageImpl(...args)
+          }
+        },
+        groups: {
+          actorForRequest: () => ({ permissions: [] }),
+          checkAccess: () => true,
+          groupIdsForRequest: () => []
+        }
+      },
+      sites: {}
+    }
+
+    app = Fastify()
+    await app.register(fastifySensible)
+    // -> Mirrors `index.ts`'s real `setErrorHandler` -- see the identical comment on the
+    //    `enforceApiKeySite` describe block above for why this is inlined rather than imported.
+    app.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    app.addHook('onRequest', async (req) => {
+      ;(req as any).session = {
+        authenticated: true,
+        user: { id: 'user-1' },
+        permissions: []
+      }
+    })
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerErrorSchema(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    createPageCalls = []
+    updatePageCalls = []
+  })
+
+  test('CREATE page: renderPuppeteerMissing maps to 503 naming the missing extension, and no page is returned', async () => {
+    createPageImpl = async () => {
+      throw new CustomError(
+        'renderPuppeteerMissing',
+        'Rendering a page on the server needs the Puppeteer extension, which is not installed.',
+        503
+      )
+    }
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages`,
+      payload: { path: 'test-page', title: 'Test', editor: 'markdown', content: 'hello' }
+    })
+    assert.equal(res.statusCode, 503)
+    const body = res.json()
+    assert.equal(body.ok, false)
+    assert.match(body.message, /Puppeteer extension/)
+    assert.equal(body.page, undefined)
+    assert.equal(createPageCalls.length, 1)
+  })
+
+  test('CREATE page: renderUnsupportedEditor maps to 400 naming the editor', async () => {
+    createPageImpl = async () => {
+      throw new CustomError(
+        'renderUnsupportedEditor',
+        'Server-side rendering is not implemented for the ckeditor editor.'
+      )
+    }
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages`,
+      payload: { path: 'test-page', title: 'Test', editor: 'ckeditor', content: 'hello' }
+    })
+    assert.equal(res.statusCode, 400)
+    const body = res.json()
+    assert.equal(body.ok, false)
+    assert.match(body.message, /ckeditor/)
+    assert.equal(body.page, undefined)
+    assert.equal(createPageCalls.length, 1)
+  })
+
+  test('CREATE page: an unrelated model error still falls through to the generic 500, not swallowed as a render refusal', async () => {
+    createPageImpl = async () => {
+      throw new Error('Something else entirely broke.')
+    }
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages`,
+      payload: { path: 'test-page', title: 'Test', editor: 'markdown', content: 'hello' }
+    })
+    assert.equal(res.statusCode, 500)
+    assert.equal(createPageCalls.length, 1)
+  })
+
+  test('UPDATE page: renderPuppeteerMissing maps to 503 naming the missing extension, and the page is left unmodified', async () => {
+    updatePageImpl = async () => {
+      throw new CustomError(
+        'renderPuppeteerMissing',
+        'Rendering a page on the server needs the Puppeteer extension, which is not installed.',
+        503
+      )
+    }
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
+      payload: { content: 'new content, no render' }
+    })
+    assert.equal(res.statusCode, 503)
+    const body = res.json()
+    assert.equal(body.ok, false)
+    assert.match(body.message, /Puppeteer extension/)
+    assert.equal(body.page, undefined)
+    assert.equal(updatePageCalls.length, 1)
+  })
+
+  test('UPDATE page: renderUnsupportedEditor maps to 400 naming the editor', async () => {
+    updatePageImpl = async () => {
+      throw new CustomError(
+        'renderUnsupportedEditor',
+        'Server-side rendering is not implemented for the ckeditor editor.'
+      )
+    }
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
+      payload: { content: 'new content, no render' }
+    })
+    assert.equal(res.statusCode, 400)
+    const body = res.json()
+    assert.equal(body.ok, false)
+    assert.match(body.message, /ckeditor/)
+    assert.equal(body.page, undefined)
+    assert.equal(updatePageCalls.length, 1)
+  })
+})
+
 describe('pages API — concurrent-edit safety and search rule-permission audit', () => {
   /**
    * Regression test for the optimistic-concurrency check on `PATCH /sites/:siteId/pages/:pageId`

@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import fastifyMultipart from '@fastify/multipart'
 import type { PageActor, PageInput } from '../models/pages.ts'
 import {
@@ -10,6 +10,7 @@ import {
 } from '../models/import.ts'
 import { SEARCH_ORDER_BY, type SearchOrderBy } from '../models/search.ts'
 import {
+  CustomError,
   defaultLocale,
   generatePathHash,
   isValidUuid,
@@ -31,6 +32,29 @@ import { actorFromRequest } from '../models/auditLog.ts'
 function exportFilenameStem(path: string): string {
   const segment = path.split('/').filter(Boolean).pop() || 'home'
   return segment.replaceAll(/[^a-z0-9-]+/gi, '-')
+}
+
+/**
+ * `ensureCanRender()` (`models/rendering.ts`) throws these two named errors -- via `createPage()`/
+ * `updatePage()` (OpenProject #1716) -- when a render-less write can't be safely accepted: an editor
+ * this server has no renderer for, or a markdown page with no Puppeteer extension to render it. Maps
+ * each to a `@fastify/sensible` error carrying `ensureCanRender()`'s own message (which names the
+ * editor or the missing extension), reusing the exact wording the existing recovery route
+ * (`POST …/pages/:pageId/render`, below) already 503s with rather than inventing a second one
+ * (OpenProject #1720). Returns the sent reply once handled, or `null` for any other error so the
+ * caller rethrows it for the generic `setErrorHandler` in `index.ts` to shape.
+ */
+function replyForRenderRefusal(err: any, reply: FastifyReply): FastifyReply | null {
+  if (!(err instanceof CustomError)) {
+    return null
+  }
+  if (err.name === 'renderPuppeteerMissing') {
+    return reply.serviceUnavailable(err.message)
+  }
+  if (err.name === 'renderUnsupportedEditor') {
+    return reply.badRequest(err.message)
+  }
+  return null
 }
 
 /** Comma-separated query lists, which is how the browser sends a multi-valued filter here. */
@@ -859,8 +883,18 @@ async function routes(app: FastifyInstance) {
               page: { $ref: 'Page#' }
             }
           },
+          400: {
+            $ref: 'ApiError#',
+            description:
+              'The declared editor has no server-side renderer, and this write carried content with no explicit render for it to fall back on.'
+          },
           401: { $ref: 'ApiError#' },
-          403: { $ref: 'ApiError#' }
+          403: { $ref: 'ApiError#' },
+          503: {
+            $ref: 'ApiError#',
+            description:
+              'This write carried content with no explicit render, and the instance has no Puppeteer extension installed to produce one server-side.'
+          }
         }
       }
     },
@@ -884,7 +918,16 @@ async function routes(app: FastifyInstance) {
       ) {
         return reply.forbidden('You are not allowed to create a page here.')
       }
-      const page = await WIKI.models.pages.createPage(req.params.siteId, req.body, actor)
+      let page
+      try {
+        page = await WIKI.models.pages.createPage(req.params.siteId, req.body, actor)
+      } catch (err: any) {
+        const refusal = replyForRenderRefusal(err, reply)
+        if (refusal) {
+          return refusal
+        }
+        throw err
+      }
       return {
         ok: true,
         message: 'Page created successfully.',
@@ -1221,6 +1264,11 @@ async function routes(app: FastifyInstance) {
               }
             }
           },
+          400: {
+            $ref: 'ApiError#',
+            description:
+              'The page has no server-side renderer for its editor, and this write carried content with no explicit render for it to fall back on.'
+          },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
           404: { $ref: 'ApiError#' },
@@ -1243,6 +1291,11 @@ async function routes(app: FastifyInstance) {
                 }
               }
             }
+          },
+          503: {
+            $ref: 'ApiError#',
+            description:
+              'This write carried content with no explicit render, and the instance has no Puppeteer extension installed to produce one server-side.'
           }
         }
       }
@@ -1321,12 +1374,21 @@ async function routes(app: FastifyInstance) {
           }
         })
       }
-      const page = await WIKI.models.pages.updatePage(
-        req.params.siteId,
-        req.params.pageId,
-        req.body,
-        actor
-      )
+      let page
+      try {
+        page = await WIKI.models.pages.updatePage(
+          req.params.siteId,
+          req.params.pageId,
+          req.body,
+          actor
+        )
+      } catch (err: any) {
+        const refusal = replyForRenderRefusal(err, reply)
+        if (refusal) {
+          return refusal
+        }
+        throw err
+      }
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
