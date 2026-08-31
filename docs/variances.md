@@ -110,6 +110,26 @@ definition-loading test suite (retargeted at `commentProviders.test.ts`, run aga
 `modules/comments/` tree). #396's own `models/comments.ts`/`models/comments.test.ts` additions were
 discarded as dead weight once ported.
 
+**Addendum, 2026-08-31 (OpenProject #1953):** The `codeTemplate`/`isSelectable()` porting above is
+reversed. `docs/audit-2026-08-24/product-value.md` §14 (OpenProject #1950) flagged that nothing ever
+consumes the stored choice for a `codeTemplate`-only provider — the picker offers Disqus, Commento
+and Artalk, `PUT /sites/:siteId/comments/providers` stores any of the three, and no render path swaps
+in the vendor embed, so `AdminComments.vue`'s warning banner is the entire feature. Rebuilding the
+missing half (a `codeTemplate` embed-render path in `frontend/src/pages/Index.vue`, swapping
+`PageComments.vue` for third-party vendor JS on every page view) was considered and rejected: it opens
+a standing script-injection/CSP trust boundary for three vendors this fork has never actually
+integrated, in exchange for restoring a picker option nobody depends on today. Decision: keep the one
+real, DB-wired provider (`default`) as the sole selectable choice and let the picker reflect that
+honestly rather than advertise three non-functional ones. The `codeTemplate` "would have left
+Disqus/Commento/Artalk permanently unselectable" precondition that motivated the original port no
+longer holds as a reason to keep it — permanently unselectable is now the intended state for a
+provider with no implementation. Carried out in #1958: `isAvailable: false` on the three
+`backend/modules/comments/{disqus,commento,artalk}/definition.yml` files, `codeTemplate` dropped from
+`isSelectable()` in `backend/models/commentProviders.ts`. The dead-end case (a site whose already-
+stored `activeProvider` is one of the three) is #1962's, not this addendum's — it must keep resolving
+to *something* rather than silently breaking, per `backend/api/comments.ts:290`'s "no provider active
+is not a supported state."
+
 ## Storage targets: Box, Dropbox, Google Drive, OneDrive omitted (no 3.x storage module)
 
 **Date:** 2026-08-17
