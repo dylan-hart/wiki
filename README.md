@@ -37,6 +37,7 @@ The current stable release (2.x) is available at https://js.wiki
 - [Generic Setup](#generic-setup)
   - [Requirements](#requirements-1)
   - [Usage](#usage-1)
+- [Repository Documentation](#repository-documentation)
 
 ## Using VS Code Dev Environment
 
@@ -154,5 +155,14 @@ There is also an `e2e/` workspace holding the Playwright end-to-end suite, which
 of the stack and requires its own `DATABASE_URL` — see [`CLAUDE.md`](CLAUDE.md#testing-e2e) for how
 to point it at a database.
 
-See [`CLAUDE.md`](CLAUDE.md) for the full workspace layout, conventions and commands, and
-[`docs/`](docs/) for deeper reference material (release process, migration, security).
+## Repository Documentation
+
+Beyond this file, the repo-checked-in documentation lives in two places:
+
+- **[`CLAUDE.md`](CLAUDE.md)** — the repo's own layout, conventions and workspace-by-workspace
+  developer guide (routing, permissions model, testing setup per workspace, TypeScript rules, etc.).
+- **[`docs/`](docs)** — deeper reference material, including
+  **[`docs/operations.md`](docs/operations.md)** (backup scope, restore order, upgrading a running
+  instance, and troubleshooting), **[`docs/offline-deployment.md`](docs/offline-deployment.md)**
+  (air-gapped setup), and **[`docs/migration/migration-runbook.md`](docs/migration/migration-runbook.md)**
+  (the one-time 2.5.x → 3.0 cutover).
