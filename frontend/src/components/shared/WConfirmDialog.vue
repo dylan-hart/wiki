@@ -1,5 +1,5 @@
 <template>
-  <w-dialog v-model="dialogVisible" :persistent="persistent" @hide="onDialogHide">
+  <w-dialog v-model="dialogVisible" :persistent="effectivePersistent" @hide="onDialogHide">
     <w-card style="min-width: 380px; max-width: 480px">
       <w-card-section class="card-header">
         <span>{{ title }}</span>
@@ -37,7 +37,7 @@
       <w-card-actions class="card-actions">
         <w-space />
         <w-btn
-          v-if="cancel"
+          v-if="effectiveCancel"
           class="acrylic-btn"
           flat
           :label="cancelLabel ?? t('common.actions.cancel')"
@@ -46,8 +46,8 @@
           @click="onDialogCancel" />
         <w-btn
           unelevated
-          :label="okLabel ?? t('common.actions.ok')"
-          :color="color"
+          :label="effectiveOkLabel ?? t('common.actions.ok')"
+          :color="effectiveColor"
           padding="xs md"
           @click="onDialogOK(options ? choice : true)" />
       </w-card-actions>
@@ -88,10 +88,14 @@ const props = defineProps({
     type: String,
     default: ''
   },
-  /** Show a cancel button. Without it the dialog is an acknowledgement, not a choice. */
+  /**
+   * Show a cancel button. Without it the dialog is an acknowledgement, not a choice. Defaults to
+   * `true` -- acknowledgement-only is the rarer of the two shapes across the app's `confirm({…})`
+   * call sites, so opting out (not in) is what most of them should have to spell.
+   */
   cancel: {
     type: Boolean,
-    default: false
+    default: true
   },
   okLabel: {
     type: String,
@@ -106,7 +110,12 @@ const props = defineProps({
     type: String,
     default: 'primary'
   },
-  /** Do not close on a backdrop click or Escape. */
+  /**
+   * Do not close on a backdrop click or Escape. Only takes effect while a cancel button is also
+   * shown (see `effectivePersistent`) -- a persistent dialog with no cancel button and no backdrop
+   * escape would leave clicking OK as the only way out, silently committing whatever the dialog was
+   * confirming.
+   */
   persistent: {
     type: Boolean,
     default: false
@@ -115,6 +124,15 @@ const props = defineProps({
   options: {
     type: Object,
     default: null
+  },
+  /**
+   * Shorthand for a destructive confirmation: negative-coloured OK, the delete label, and a cancel
+   * button, all at once -- the combination every "delete this" dialog in the app otherwise has to
+   * spell out as three separate props. Explicit `color`/`okLabel` still win when given.
+   */
+  destructive: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -127,6 +145,34 @@ const { t } = useI18n()
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
 
 const paragraphs = computed(() => (Array.isArray(props.message) ? props.message : [props.message]))
+
+/**
+ * `destructive` forces a cancel button regardless of what `cancel` was given -- a destructive
+ * confirmation must always offer a non-committal way out, never just the one button that commits it.
+ */
+const effectiveCancel = computed(() => props.cancel || props.destructive)
+
+/**
+ * `destructive` wins over the plain `primary` default, but an explicit non-default `color` (someone
+ * deliberately picking a different theme colour) is left alone.
+ */
+const effectiveColor = computed(() =>
+  props.destructive && props.color === 'primary' ? 'negative' : props.color
+)
+
+const effectiveOkLabel = computed(
+  () => props.okLabel ?? (props.destructive ? t('common.actions.delete') : null)
+)
+
+/**
+ * `persistent` only takes effect while a cancel button is actually shown. Without this, `persistent:
+ * true` plus `cancel: false` (or omitted, pre-3.x-era default) left a dialog with no backdrop
+ * escape, no Escape key, and no cancel button -- the only way out was clicking OK, silently
+ * committing whatever the dialog was confirming. Rather than accept that combination as a valid,
+ * reachable configuration, persistence is simply a no-op without a cancel button to serve as the
+ * alternate way out: the dialog falls back to being dismissible via backdrop/Escape instead.
+ */
+const effectivePersistent = computed(() => props.persistent && effectiveCancel.value)
 
 /**
  * A paragraph split into plain and bold runs.
