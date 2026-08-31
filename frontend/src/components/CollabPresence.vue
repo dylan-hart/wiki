@@ -44,7 +44,13 @@
             fails to load should fall back to the coloured circle rather than to the person's name in
             plain text across the header.
           -->
-          <img v-if="person.hasAvatar" :src="`/_user/${person.id}/avatar`" alt="" />
+          <img
+            v-if="person.hasAvatar"
+            :src="`/_user/${person.id}/avatar`"
+            alt=""
+            loading="lazy"
+            width="30"
+            height="30" />
           <span v-else>{{ initials(person.name) }}</span>
         </div>
         <w-tooltip>

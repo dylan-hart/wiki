@@ -41,7 +41,7 @@
             </w-item-section>
             <w-item-section avatar>
               <w-avatar v-if="usr.hasAvatar" size="md">
-                <img :src="`/_user/` + usr.id + `/avatar`" />
+                <img :src="`/_user/` + usr.id + `/avatar`" loading="lazy" width="32" height="32" />
               </w-avatar>
               <w-avatar v-else size="md" color="primary" text-color="white" icon="la:user" />
             </w-item-section>
