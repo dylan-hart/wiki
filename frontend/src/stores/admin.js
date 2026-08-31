@@ -4,6 +4,8 @@ import { sortBy } from 'es-toolkit/array'
 import { cloneDeep } from 'es-toolkit/object'
 import semverGte from 'semver/functions/gte'
 
+import { notify } from '@/composables/notify'
+
 export const useAdminStore = defineStore('admin', {
   state: () => ({
     currentSiteId: null,
@@ -70,35 +72,51 @@ export const useAdminStore = defineStore('admin', {
       if (this.localesLoaded) {
         return
       }
-      const resp = await API_CLIENT.get('locales').json()
-      this.locales = sortBy(cloneDeep(resp ?? []), ['nativeName', 'name'])
-      this.localesLoaded = true
+      try {
+        const resp = await API_CLIENT.get('locales').json()
+        this.locales = sortBy(cloneDeep(resp ?? []), ['nativeName', 'name'])
+        this.localesLoaded = true
+      } catch (err) {
+        notify.negative('Failed to load locales.', err.message)
+      }
     },
     async fetchInfo() {
-      const resp = await API_CLIENT.get('system/info').json()
-      this.info.activeWorkers = resp?.activeWorkers ?? 0
-      this.info.clusterTotal = resp?.clusterTotal ?? 0
-      this.info.groupsTotal = resp?.groupsTotal ?? 0
-      this.info.pagesTotal = resp?.pagesTotal ?? 0
-      this.info.usersTotal = resp?.usersTotal ?? 0
-      this.info.webhooksTotal = resp?.webhooksTotal ?? 0
-      this.info.loginsPastDay = resp?.loginsPastDay ?? 0
-      this.info.currentVersion = resp?.currentVersion ?? 'n/a'
-      this.info.latestVersion = resp?.latestVersion ?? 'n/a'
-      this.info.isApiEnabled = resp?.isApiEnabled ?? false
-      this.info.isMetricsEnabled = resp?.isMetricsEnabled ?? false
-      this.info.isPageviewsEnabled = resp?.isPageviewsEnabled ?? false
-      this.info.isMailConfigured = resp?.isMailConfigured ?? false
-      this.info.isSchedulerHealthy = resp?.isSchedulerHealthy ?? false
+      try {
+        const resp = await API_CLIENT.get('system/info').json()
+        this.info.activeWorkers = resp?.activeWorkers ?? 0
+        this.info.clusterTotal = resp?.clusterTotal ?? 0
+        this.info.groupsTotal = resp?.groupsTotal ?? 0
+        this.info.pagesTotal = resp?.pagesTotal ?? 0
+        this.info.usersTotal = resp?.usersTotal ?? 0
+        this.info.webhooksTotal = resp?.webhooksTotal ?? 0
+        this.info.loginsPastDay = resp?.loginsPastDay ?? 0
+        this.info.currentVersion = resp?.currentVersion ?? 'n/a'
+        this.info.latestVersion = resp?.latestVersion ?? 'n/a'
+        this.info.isApiEnabled = resp?.isApiEnabled ?? false
+        this.info.isMetricsEnabled = resp?.isMetricsEnabled ?? false
+        this.info.isPageviewsEnabled = resp?.isPageviewsEnabled ?? false
+        this.info.isMailConfigured = resp?.isMailConfigured ?? false
+        this.info.isSchedulerHealthy = resp?.isSchedulerHealthy ?? false
+      } catch (err) {
+        notify.negative('Failed to load system info.', err.message)
+      }
     },
     async fetchSites() {
-      this.sites = (await API_CLIENT.get('sites').json()) ?? []
-      if (!this.currentSiteId && this.sites.length > 0) {
-        this.currentSiteId = this.sites[0].id
+      try {
+        this.sites = (await API_CLIENT.get('sites').json()) ?? []
+        if (!this.currentSiteId && this.sites.length > 0) {
+          this.currentSiteId = this.sites[0].id
+        }
+      } catch (err) {
+        notify.negative('Failed to load sites.', err.message)
       }
     },
     async fetchClassificationLevels() {
-      this.classificationLevels = (await API_CLIENT.get('classification-levels').json()) ?? []
+      try {
+        this.classificationLevels = (await API_CLIENT.get('classification-levels').json()) ?? []
+      } catch (err) {
+        notify.negative('Failed to load classification levels.', err.message)
+      }
     }
   }
 })
