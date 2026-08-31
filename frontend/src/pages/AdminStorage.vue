@@ -708,6 +708,14 @@ import { isQueuedAction, syncPayloadFor, syncStatusKind } from '@/helpers/storag
 
 const dark = useDark()
 
+// COMPONENTS
+//
+// Task #1888: this is the sole consumer of v-network-graph, so it's registered locally off the
+// namespace import above rather than globally in boot/components.js. `<script setup>` auto-exposes
+// this top-level binding to the template, resolving the `<v-network-graph>` tag -- a property access
+// on `VNG` directly in the template would not resolve the same way.
+const VNetworkGraph = VNG.VNetworkGraph
+
 // STORES
 
 const adminStore = useAdminStore()
@@ -1349,4 +1357,15 @@ onMounted(() => {
 .admin-storage-logo {
   border-radius: 5px;
 }
+</style>
+
+<style>
+/*
+  Task #1888: kept in its own unscoped block, not folded into the `scoped` block above -- Vue's
+  scoped-CSS rewriting only reaches this component's own template output and each child component's
+  root element, not the deeply-nested `.v-ng-*` elements v-network-graph renders inside its own
+  render tree. A scoped `@import` here would compile to attribute selectors those elements never
+  carry, silently breaking the diagram's styling.
+*/
+@import 'v-network-graph/lib/style.css';
 </style>

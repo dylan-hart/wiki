@@ -2,6 +2,14 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { createI18n } from 'vue-i18n'
+import { createMemoryHistory, createRouter } from 'vue-router'
+
+import AdminStorage from './AdminStorage.vue'
+import { useAdminStore } from '@/stores/admin'
+import { useUserStore } from '@/stores/user'
 
 /**
  * Regression coverage for the orphaned GitHub App setup flow that used to live in this page
@@ -15,10 +23,12 @@ import { describe, expect, it } from 'vitest'
  * something to half-build inside this git-parity task.
  *
  * These assertions read the page's source text directly rather than mounting it: `AdminStorage.vue`
- * pulls in a v-network-graph delivery-path diagram, the admin/site stores and live storage-target
- * API calls that no other Admin* page currently has Vitest coverage driving through, so a full mount
- * here would be a disproportionate lift for what is fundamentally a "this dead code must not silently
- * reappear" check.
+ * pulls in the admin/site stores and live storage-target API calls that no other Admin* page
+ * currently has Vitest coverage driving through, so a full mount here would be a disproportionate
+ * lift for what is fundamentally a "this dead code must not silently reappear" check. The
+ * v-network-graph delivery-path diagram (task #1888) has its own, separate mount-based coverage below
+ * instead, since that one specifically needs to prove the diagram still renders once the library is
+ * registered locally rather than globally.
  */
 
 const pagePath = join(import.meta.dirname, 'AdminStorage.vue')
@@ -56,5 +66,60 @@ describe('AdminStorage.vue - GitHub App setup flow removal', () => {
 
     const missing = [...used].filter((key) => !(key in locale))
     expect(missing).toEqual([])
+  })
+})
+
+/**
+ * Task #1888: v-network-graph used to be registered globally in `boot/components.js` (and its
+ * stylesheet globally in `css/app.scss`), even though this page is its sole consumer. Both are now
+ * registered locally here instead -- this is the regression coverage proving the delivery-path
+ * diagram still renders with no global registration in the picture.
+ */
+async function mountPage() {
+  setActivePinia(createPinia())
+
+  const adminStore = useAdminStore()
+  adminStore.currentSiteId = 'site-1'
+
+  const userStore = useUserStore()
+  userStore.permissions = ['manage:system']
+
+  globalThis.API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve([]) })
+
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
+  })
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+  const wrapper = mount(AdminStorage, { global: { plugins: [router, i18n] } })
+  await flushPromises()
+
+  return wrapper
+}
+
+describe('AdminStorage.vue - v-network-graph local registration', () => {
+  it('renders the delivery-path diagram once switched to that display mode', async () => {
+    const wrapper = await mountPage()
+
+    // -> Not rendered yet: default displayMode is `targets`, the diagram is behind a v-if
+    expect(wrapper.find('.v-network-graph').exists()).toBe(false)
+
+    const deliveryToggle = wrapper
+      .findAll('button')
+      .find((b) => b.text() === 'admin.storage.deliveryPaths')
+    expect(deliveryToggle).toBeDefined()
+
+    await deliveryToggle.trigger('click')
+    await flushPromises()
+
+    const graph = wrapper.find('.v-network-graph')
+    expect(graph.exists()).toBe(true)
+    // -> The library's own root class from its stylesheet -- proves the locally-registered
+    //    component actually mounted and rendered its DOM, not just that the wrapper element exists.
+    expect(graph.classes()).toContain('v-network-graph')
+    // -> generateGraph() always seeds at least the `user`/`pages`/`pages_wiki` nodes plus one node
+    //    per content type -- confirms the component received real node data, not an empty graph.
+    expect(graph.findAll('.v-ng-node').length).toBeGreaterThan(0)
   })
 })
