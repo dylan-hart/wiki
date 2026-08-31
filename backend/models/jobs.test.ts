@@ -74,7 +74,6 @@ test('JOB_SCHEDULE_SEED registers purgeUserKeys on a valid daily cron', () => {
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 })
 
-
 test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
   const tasks = JOB_SCHEDULE_SEED.map((e) => e.task)
   assert.deepEqual(
