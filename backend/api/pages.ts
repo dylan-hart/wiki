@@ -2138,7 +2138,7 @@ async function routes(app: FastifyInstance) {
   /**
    * DELETED PAGES (RECOVERABLE)
    */
-  app.get<{ Params: { siteId: string } }>(
+  app.get<{ Params: { siteId: string }; Querystring: { limit?: number; cursor?: string } }>(
     '/sites/:siteId/pages/deleted',
     {
       /*
@@ -2150,23 +2150,44 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'List recoverable deletions',
         description:
-          'One row per deleted path still recoverable: the most recent `deleted` version at a path with no live page there now. A path that was recovered, or reused by an unrelated new page, drops off this list on its own — there is no flag to set or clear.\n\nEach row needs `read:history` at the path and locale it was deleted from, granted by a group rule.',
+          'One row per deleted path still recoverable: the most recent `deleted` version at a path with no live page there now. A path that was recovered, or reused by an unrelated new page, drops off this list on its own — there is no flag to set or clear.\n\nEach row needs `read:history` at the path and locale it was deleted from, granted by a group rule — rows the caller may not read are dropped from `items` after the page is fetched, which can make `items` shorter than `limit` even mid-list. Only `nextCursor` says whether more remain: keep paging while it is non-null, regardless of how many rows came back on any one page.',
         tags: ['Pages'],
         params: siteIdParam,
-        response: {
-          200: {
-            description: 'Recoverable deletions, one row per path',
-            type: 'array',
-            items: { $ref: 'PageHistoryEntry#' }
+        querystring: {
+          type: 'object',
+          properties: {
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 200,
+              default: 50,
+              description: 'Rows to scan per page, before the per-row permission filter is applied.'
+            },
+            cursor: {
+              type: 'string',
+              description: 'Opaque `nextCursor` from a previous page. Omit for the first page.'
+            }
           }
+        },
+        response: {
+          200: { $ref: 'PageHistoryRecoverablePage#' }
         }
       }
     },
     async (req) => {
-      const rows = await WIKI.models.pageHistory.listRecoverable(req.params.siteId)
-      return rows.filter((row) =>
-        mayOnPage(req, 'read:history', req.params.siteId, { path: row.path, locale: row.locale })
+      const { items, nextCursor } = await WIKI.models.pageHistory.listRecoverable(
+        req.params.siteId,
+        {
+          limit: req.query.limit,
+          cursor: req.query.cursor
+        }
       )
+      return {
+        items: items.filter((row) =>
+          mayOnPage(req, 'read:history', req.params.siteId, { path: row.path, locale: row.locale })
+        ),
+        nextCursor
+      }
     }
   )
 

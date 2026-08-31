@@ -1,5 +1,5 @@
 import { isEqual } from 'es-toolkit/predicate'
-import { and, desc, eq, isNotNull, lt, notExists, sql } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, lt, notExists, or, sql } from 'drizzle-orm'
 import {
   pageHistory as pageHistoryTable,
   pages as pagesTable,
@@ -129,6 +129,56 @@ export type PageHistoryEntry = {
 export type PageHistoryVersion = PageHistoryEntry & {
   content: string
   meta: Record<string, any>
+}
+
+/**
+ * A page of {@link listRecoverable} results.
+ *
+ * `nextCursor` is derived strictly from where the underlying `versionDate`/`id` keyset scan actually
+ * stopped, BEFORE the route's per-row `read:history` filter runs -- so `items` can come back shorter
+ * than the requested `limit` (some rows filtered out) while `nextCursor` still correctly says there is
+ * more to page through. A caller decides whether it has reached the end by `nextCursor === null`, never
+ * by `items.length < limit`.
+ */
+export type PageHistoryRecoverablePage = {
+  items: PageHistoryEntry[]
+  nextCursor: string | null
+}
+
+const RECOVERABLE_DEFAULT_LIMIT = 50
+const RECOVERABLE_MAX_LIMIT = 200
+
+/** What a `listRecoverable` cursor encodes: the last row of the previous page, in scan order. */
+type RecoverableCursor = {
+  versionDate: Date
+  id: string
+}
+
+/**
+ * Opaque, unsigned pagination token for {@link PageHistory.listRecoverable}.
+ *
+ * Base64url of a small JSON payload -- not a secret, just a stable handle a caller round-trips without
+ * being expected to construct or interpret it. There is nothing here worth signing: the worst a forged
+ * cursor can do is scan from a `versionDate`/`id` pair the requester was free to guess anyway (the same
+ * exposure `listRecoverable`'s own rows already carry).
+ */
+function encodeRecoverableCursor(cursor: RecoverableCursor): string {
+  return Buffer.from(
+    JSON.stringify({ versionDate: cursor.versionDate.toISOString(), id: cursor.id })
+  ).toString('base64url')
+}
+
+function decodeRecoverableCursor(cursor: string): RecoverableCursor {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
+    const versionDate = new Date(parsed.versionDate)
+    if (typeof parsed.id !== 'string' || !parsed.id || Number.isNaN(versionDate.getTime())) {
+      throw new Error('malformed cursor payload')
+    }
+    return { versionDate, id: parsed.id }
+  } catch {
+    throw new CustomError('Bad Request', 'Invalid pagination cursor.')
+  }
 }
 
 /**
@@ -454,17 +504,39 @@ class PageHistory {
   }
 
   /**
-   * Every deletion a site could still recover from — one row per path.
+   * Every deletion a site could still recover from — one row per path, newest first, paginated.
    *
    * A path can be deleted more than once (deleted, recreated, deleted again), so this is not simply
-   * "every `deleted` row": it is `DISTINCT ON (locale, path)`, newest `versionDate` first, which
-   * collapses that history down to the most recent deletion. And a path that was recovered, or reused
-   * by an unrelated new page, is not something to offer recovery into — a live `pages` row at the
-   * same `(siteId, locale, path)` excludes it via `NOT EXISTS`. Between the two, a path drops off this
-   * list the moment it stops being an actual gap, with no flag to set or clear anywhere.
+   * "every `deleted` row": the inner query is `DISTINCT ON (locale, path)`, newest `versionDate`
+   * first, which collapses that history down to the most recent deletion. And a path that was
+   * recovered, or reused by an unrelated new page, is not something to offer recovery into — a live
+   * `pages` row at the same `(siteId, locale, path)` excludes it via `NOT EXISTS`. Between the two, a
+   * path drops off this list the moment it stops being an actual gap, with no flag to set or clear
+   * anywhere.
+   *
+   * Postgres requires a `DISTINCT ON`'s columns to lead its own `ORDER BY`, which rules out ordering
+   * that inner collapse itself by `versionDate` — the one thing a keyset cursor needs to page against.
+   * So the collapse happens in a derived subquery (still ordered `locale, path, versionDate desc`, to
+   * keep the newest version per path), and this method's own `versionDate`/`id` keyset ordering and
+   * pagination run in the outer query over that subquery's already-collapsed rows — the same
+   * `versionDate` keyset shape `list()`'s own pagination uses (OpenProject #1859), just one query
+   * deeper.
+   *
+   * The `read:history` permission filter runs afterwards, in JS, at the route
+   * (`GET .../pages/deleted`) — it cannot be pushed into this SQL because it is checked per row
+   * against a page-rule tree, not a column value. `nextCursor` is computed from where this method's
+   * own scan stopped, before that filter runs, so a caller paging via `nextCursor` never mistakes a
+   * page shortened by the permission filter for the actual end of the list — see
+   * {@link PageHistoryRecoverablePage}'s own doc comment.
    */
-  async listRecoverable(siteId: string): Promise<PageHistoryEntry[]> {
-    const rows = await WIKI.db
+  async listRecoverable(
+    siteId: string,
+    { limit = RECOVERABLE_DEFAULT_LIMIT, cursor }: { limit?: number; cursor?: string } = {}
+  ): Promise<PageHistoryRecoverablePage> {
+    const boundedLimit = Math.min(Math.max(1, limit), RECOVERABLE_MAX_LIMIT)
+    const after = cursor ? decodeRecoverableCursor(cursor) : null
+
+    const recoverable = WIKI.db
       .selectDistinctOn([pageHistoryTable.locale, pageHistoryTable.path], {
         id: pageHistoryTable.id,
         action: pageHistoryTable.action,
@@ -475,12 +547,9 @@ class PageHistory {
         locale: pageHistoryTable.locale,
         path: pageHistoryTable.path,
         title: pageHistoryTable.title,
-        authorId: usersTable.id,
-        authorName: usersTable.name,
-        authorEmail: usersTable.email
+        authorId: pageHistoryTable.authorId
       })
       .from(pageHistoryTable)
-      .leftJoin(usersTable, eq(usersTable.id, pageHistoryTable.authorId))
       .where(
         and(
           eq(pageHistoryTable.siteId, siteId),
@@ -500,23 +569,63 @@ class PageHistory {
         )
       )
       .orderBy(pageHistoryTable.locale, pageHistoryTable.path, desc(pageHistoryTable.versionDate))
+      .as('recoverable')
 
-    return rows.map((row: any) => ({
-      id: row.id,
-      action: row.action,
-      via: row.via,
-      changedFields: row.changedFields ?? [],
-      reason: row.reason ?? '',
-      versionDate: row.versionDate,
-      locale: row.locale,
-      path: row.path,
-      title: row.title,
-      author: {
-        id: row.authorId ?? null,
-        name: row.authorName ?? '',
-        email: row.authorEmail ?? ''
-      }
-    }))
+    const rows = await WIKI.db
+      .select({
+        id: recoverable.id,
+        action: recoverable.action,
+        via: recoverable.via,
+        changedFields: recoverable.changedFields,
+        reason: recoverable.reason,
+        versionDate: recoverable.versionDate,
+        locale: recoverable.locale,
+        path: recoverable.path,
+        title: recoverable.title,
+        authorId: usersTable.id,
+        authorName: usersTable.name,
+        authorEmail: usersTable.email
+      })
+      .from(recoverable)
+      .leftJoin(usersTable, eq(usersTable.id, recoverable.authorId))
+      .where(
+        after
+          ? or(
+              lt(recoverable.versionDate, after.versionDate),
+              and(eq(recoverable.versionDate, after.versionDate), lt(recoverable.id, after.id))
+            )
+          : undefined
+      )
+      .orderBy(desc(recoverable.versionDate), desc(recoverable.id))
+      // -> One extra row, never returned, just to tell whether a further page exists
+      .limit(boundedLimit + 1)
+
+    const hasMore = rows.length > boundedLimit
+    const page = hasMore ? rows.slice(0, boundedLimit) : rows
+    const last = page.at(-1)
+
+    return {
+      items: page.map((row: any) => ({
+        id: row.id,
+        action: row.action,
+        via: row.via,
+        changedFields: row.changedFields ?? [],
+        reason: row.reason ?? '',
+        versionDate: row.versionDate,
+        locale: row.locale,
+        path: row.path,
+        title: row.title,
+        author: {
+          id: row.authorId ?? null,
+          name: row.authorName ?? '',
+          email: row.authorEmail ?? ''
+        }
+      })),
+      nextCursor:
+        hasMore && last
+          ? encodeRecoverableCursor({ versionDate: last.versionDate, id: last.id })
+          : null
+    }
   }
 
   /**

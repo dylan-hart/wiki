@@ -549,6 +549,26 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
+   * PAGE HISTORY RECOVERABLE PAGE - One keyset page of `listRecoverable` results
+   */
+  app.addSchema({
+    $id: 'PageHistoryRecoverablePage',
+    type: 'object',
+    properties: {
+      items: {
+        type: 'array',
+        description:
+          'Recoverable deletions from this page of the scan, already filtered to rows the caller may read the history of — can be shorter than the requested `limit` even mid-list.',
+        items: { $ref: 'PageHistoryEntry#' }
+      },
+      nextCursor: {
+        type: ['string', 'null'],
+        description: 'Pass back as `cursor` to fetch the next page. Null once there is no more.'
+      }
+    }
+  })
+
+  /**
    * PAGE HISTORY RECOVER RESPONSE - A deleted page, recreated from one of its versions
    */
   app.addSchema({

@@ -2058,7 +2058,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   const VERSION_ID = '22222222-2222-2222-2222-222222222222'
 
   let app: FastifyInstance
-  let listRecoverableResult: any[]
+  let listRecoverableResult: { items: any[]; nextCursor: string | null }
   let getDeletedVersionResult: any
   let recoverDeletedPageImpl: (...args: any[]) => Promise<any>
   let checkAccessImpl: (actor: any, permission: string, page: any) => boolean
@@ -2081,7 +2081,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
           groupIdsForRequest: () => []
         },
         pageHistory: {
-          listRecoverable: async (_siteId: string) => listRecoverableResult,
+          listRecoverable: async (_siteId: string, _opts?: any) => listRecoverableResult,
           getDeletedVersion: async (_siteId: string, _versionId: string) => getDeletedVersionResult,
           recoverDeletedPage: async (...args: any[]) => recoverDeletedPageImpl(...args)
         }
@@ -2124,7 +2124,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   beforeEach(() => {
-    listRecoverableResult = []
+    listRecoverableResult = { items: [], nextCursor: null }
     getDeletedVersionResult = null
     checkAccessImpl = () => false
     recoverDeletedPageImpl = async () => {
@@ -2133,10 +2133,13 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   test('GET /sites/:siteId/pages/deleted only includes rows the actor may read the history of', async () => {
-    listRecoverableResult = [
-      { id: 'v1', path: 'visible', locale: 'en', title: 'Visible', action: 'deleted' },
-      { id: 'v2', path: 'hidden', locale: 'en', title: 'Hidden', action: 'deleted' }
-    ]
+    listRecoverableResult = {
+      items: [
+        { id: 'v1', path: 'visible', locale: 'en', title: 'Visible', action: 'deleted' },
+        { id: 'v2', path: 'hidden', locale: 'en', title: 'Hidden', action: 'deleted' }
+      ],
+      nextCursor: null
+    }
     checkAccessImpl = (_actor, permission, page) =>
       permission === 'read:history' && page.path === 'visible'
 
@@ -2147,8 +2150,55 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
 
     assert.equal(res.statusCode, 200)
     const body = res.json()
-    assert.equal(body.length, 1)
-    assert.equal(body[0].path, 'visible')
+    assert.equal(body.items.length, 1)
+    assert.equal(body.items[0].path, 'visible')
+    assert.equal(body.nextCursor, null)
+  })
+
+  test('GET /sites/:siteId/pages/deleted forwards nextCursor unchanged even when the permission filter shortens items', async () => {
+    // -> The model's own page boundary says there is more (`nextCursor` set) even though every row on
+    //    THIS page gets filtered out by the actor's permissions -- the route must not let a
+    //    permission-shortened (here, emptied) page read as "end of list".
+    listRecoverableResult = {
+      items: [{ id: 'v1', path: 'hidden', locale: 'en', title: 'Hidden', action: 'deleted' }],
+      nextCursor: 'opaque-cursor-token'
+    }
+    checkAccessImpl = () => false
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/deleted`
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.deepEqual(body.items, [])
+    assert.equal(body.nextCursor, 'opaque-cursor-token')
+  })
+
+  test('GET /sites/:siteId/pages/deleted forwards limit and cursor query params to the model', async () => {
+    const original = (globalThis as any).WIKI.models.pageHistory.listRecoverable
+    let seenOpts: any
+    try {
+      ;(globalThis as any).WIKI.models.pageHistory.listRecoverable = async (
+        _siteId: string,
+        opts: any
+      ) => {
+        seenOpts = opts
+        return { items: [], nextCursor: null }
+      }
+      checkAccessImpl = () => true
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/sites/${SITE_ID}/pages/deleted?limit=10&cursor=abc123`
+      })
+
+      assert.equal(res.statusCode, 200)
+      assert.deepEqual(seenOpts, { limit: 10, cursor: 'abc123' })
+    } finally {
+      ;(globalThis as any).WIKI.models.pageHistory.listRecoverable = original
+    }
   })
 
   test('POST recover requires a logged in user', async () => {

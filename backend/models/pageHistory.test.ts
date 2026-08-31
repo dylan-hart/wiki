@@ -1,8 +1,8 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { users as usersTable } from '../db/schema.ts'
+import { pageHistory as pageHistoryTable, users as usersTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
@@ -73,12 +73,14 @@ describe(
       await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Second Title' }, actor)
       await pagesModel.deletePage(fixtures.siteId, page.id, actor)
 
-      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
-      const entry = recoverable.find((row) => row.path === 'docs/recoverable-one')
+      const { items, nextCursor } = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = items.find((row) => row.path === 'docs/recoverable-one')
       assert.ok(entry, 'the deleted page should be listed as recoverable')
       assert.equal(entry!.action, 'deleted')
       assert.equal(entry!.title, 'Second Title')
       assert.equal(entry!.locale, 'en')
+      // -> Well under the default limit, so there is nothing left to page to
+      assert.equal(nextCursor, null)
     })
 
     test('listRecoverable omits a path that was deleted and then reused', async () => {
@@ -94,9 +96,9 @@ describe(
         actor
       )
 
-      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const { items } = await pageHistoryModel.listRecoverable(fixtures.siteId)
       assert.equal(
-        recoverable.some((row) => row.path === 'docs/reused-path'),
+        items.some((row) => row.path === 'docs/reused-path'),
         false
       )
     })
@@ -104,11 +106,95 @@ describe(
     test('listRecoverable omits a path with no deletions at all', async () => {
       await pagesModel.createPage(fixtures.siteId, pageInput({ path: 'docs/never-deleted' }), actor)
 
-      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const { items } = await pageHistoryModel.listRecoverable(fixtures.siteId)
       assert.equal(
-        recoverable.some((row) => row.path === 'docs/never-deleted'),
+        items.some((row) => row.path === 'docs/never-deleted'),
         false
       )
+    })
+
+    /**
+     * Deletes a page, then backdates its `deleted` history row to a fixed `versionDate` -- so a
+     * pagination test can control ordering (and force ties) instead of depending on real wall-clock
+     * gaps between calls in the same test run.
+     */
+    async function deletePageAt(pageId: string, versionDate: Date) {
+      await pagesModel.deletePage(fixtures.siteId, pageId, actor)
+      await fixtures.db
+        .update(pageHistoryTable)
+        .set({ versionDate })
+        .where(and(eq(pageHistoryTable.pageId, pageId), eq(pageHistoryTable.action, 'deleted')))
+    }
+
+    test('listRecoverable pages through more deletions than the limit with no gaps or repeats', async () => {
+      const base = new Date('2026-01-01T00:00:00.000Z')
+      const paths = Array.from({ length: 6 }, (_, i) => `docs/paginate-${i}`)
+      for (const [i, path] of paths.entries()) {
+        const page = await pagesModel.createPage(fixtures.siteId, pageInput({ path }), actor)
+        // -> Newest (index 0) gets the latest versionDate, so descending order is `paginate-0` first
+        await deletePageAt(page.id, new Date(base.getTime() + (paths.length - i) * 60_000))
+      }
+
+      const seen: string[] = []
+      let cursor: string | undefined
+      let pageCount = 0
+      for (;;) {
+        const { items, nextCursor } = await pageHistoryModel.listRecoverable(fixtures.siteId, {
+          limit: 2,
+          cursor
+        })
+        pageCount++
+        assert.ok(items.length <= 2, 'never returns more than the requested limit')
+        seen.push(...items.filter((row) => paths.includes(row.path)).map((row) => row.path))
+        if (!nextCursor) {
+          break
+        }
+        cursor = nextCursor
+        // -> Generous bound, not a tight one: earlier tests in this suite leave their own recoverable
+        //    rows in the same site, so this loop also has to page past those. The point of the bound
+        //    is only to fail loudly if a cursor never nulls out, rather than hang forever.
+        assert.ok(
+          pageCount <= paths.length + 20,
+          'a cursor that never nulls out would loop forever'
+        )
+      }
+
+      // -> Every seeded path appeared, in strictly descending versionDate order, none twice
+      assert.deepEqual(seen, paths)
+    })
+
+    test('listRecoverable keeps a stable order across a versionDate tie via the id tiebreak', async () => {
+      // -> Far in the future, deliberately: guarantees these two rows sort ahead of every other
+      //    row this suite creates (real `now()` timestamps included), so `limit: 1` below is certain
+      //    to land on one of the tied pair rather than something else deleted since.
+      const tiedAt = new Date('2099-01-01T00:00:00.000Z')
+      const pageA = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/tie-a' }),
+        actor
+      )
+      const pageB = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/tie-b' }),
+        actor
+      )
+      await deletePageAt(pageA.id, tiedAt)
+      await deletePageAt(pageB.id, tiedAt)
+
+      const first = await pageHistoryModel.listRecoverable(fixtures.siteId, { limit: 1 })
+      const tiedPaths = ['docs/tie-a', 'docs/tie-b']
+      assert.equal(first.items.length, 1)
+      assert.ok(tiedPaths.includes(first.items[0]!.path))
+      assert.ok(first.nextCursor, 'one of the tied pair remains for a second page')
+
+      const second = await pageHistoryModel.listRecoverable(fixtures.siteId, {
+        limit: 1,
+        cursor: first.nextCursor!
+      })
+      assert.equal(second.items.length, 1)
+      // -> The id tiebreak means the second page names the OTHER tied row, not the same one again
+      assert.notEqual(second.items[0]!.path, first.items[0]!.path)
+      assert.ok(tiedPaths.includes(second.items[0]!.path))
     })
 
     test('recoverDeletedPage recreates the page from its deleted version', async () => {
@@ -124,8 +210,8 @@ describe(
       )
       await pagesModel.deletePage(fixtures.siteId, page.id, actor)
 
-      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
-      const entry = recoverable.find((row) => row.path === 'docs/recover-me')
+      const { items } = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = items.find((row) => row.path === 'docs/recover-me')
       assert.ok(entry)
 
       const recovered = await pageHistoryModel.recoverDeletedPage(fixtures.siteId, entry!.id, actor)
@@ -148,7 +234,7 @@ describe(
       // -> Recovered, so it is no longer a candidate for recovery again
       const stillRecoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
       assert.equal(
-        stillRecoverable.some((row) => row.path === 'docs/recover-me'),
+        stillRecoverable.items.some((row) => row.path === 'docs/recover-me'),
         false
       )
     })
@@ -161,8 +247,8 @@ describe(
       )
       await pagesModel.deletePage(fixtures.siteId, page.id, actor)
 
-      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
-      const entry = recoverable.find((row) => row.path === 'docs/recover-with-override')
+      const { items } = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = items.find((row) => row.path === 'docs/recover-with-override')
       assert.ok(entry)
 
       const recovered = await pageHistoryModel.recoverDeletedPage(
