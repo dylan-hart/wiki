@@ -702,6 +702,16 @@ class Approvals {
 
     if (!hadOpenSubmission) {
       await this.notifyReviewersOfSubmission(siteId, page, stored.id)
+      // -> Only for a genuinely NEW submission, same gate `notifyReviewersOfSubmission` uses just
+      //    above: an author revising their own still-open suggestion (the `onConflictDoUpdate`
+      //    branch) is not a new thing for a subscriber to hear about.
+      await WIKI.models.hooks.emit('approval:submitted', siteId, {
+        id: stored.id,
+        pageId: page.id,
+        path: page.path,
+        siteId,
+        authorId
+      })
     }
 
     return {
@@ -1249,6 +1259,21 @@ class Approvals {
     if (!decision.ok) {
       return decision
     }
+
+    // -> Fires once per call that gets this far (a real sign-off was recorded against a non-stale
+    //    submission), whether or not THIS call is the one that reaches the threshold below -- "a
+    //    reviewer approved" rather than "the page was finalized", so a subscriber watching every
+    //    approval on a multi-approver rule sees each one, not only the last. Emitted outside the
+    //    transaction above, same as `updatePage` below it: hook/webhook I/O must not run while
+    //    holding the row lock.
+    await WIKI.models.hooks.emit('approval:approved', siteId, {
+      id: submissionId,
+      pageId: page.id,
+      path: page.path,
+      siteId,
+      authorId: actor.id
+    })
+
     if (!decision.finalized) {
       WIKI.logger.debug(
         `Recorded approval ${decision.approvalsCount}/${decision.approvalsRequired} for edit ` +
@@ -1356,6 +1381,17 @@ class Approvals {
     reason: string | null,
     resolvedBy: string
   ): Promise<boolean> {
+    // -> Read before the update, not after: `pagesTable` is only reachable from the submission row
+    //    through this join, so the event payload below has to be captured while it's still there,
+    //    same as it would have to be if this update were a delete.
+    const rows = await WIKI.db
+      .select({ pageId: pagesTable.id, pagePath: pagesTable.path })
+      .from(submissionsTable)
+      .innerJoin(pagesTable, eq(pagesTable.id, submissionsTable.pageId))
+      .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.siteId, siteId)))
+      .limit(1)
+    const page = rows[0]
+
     const result = await WIKI.db
       .update(submissionsTable)
       .set({
@@ -1374,7 +1410,19 @@ class Approvals {
           eq(submissionsTable.status, 'open')
         )
       )
-    return (result.rowCount ?? 0) > 0
+    const declined = (result.rowCount ?? 0) > 0
+
+    if (declined && page) {
+      await WIKI.models.hooks.emit('approval:rejected', siteId, {
+        id: submissionId,
+        pageId: page.pageId,
+        path: page.pagePath,
+        siteId,
+        authorId: resolvedBy
+      })
+    }
+
+    return declined
   }
 
   /**
