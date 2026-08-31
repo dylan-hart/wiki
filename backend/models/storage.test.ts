@@ -733,6 +733,25 @@ describe('storage / validateConfig, validateTarget (pure, real s3 definition rea
     )
   })
 
+  test('buildConfig drops a sensitive value that is just the mask echoed back, keeping the real existing one', () => {
+    const config = storage.buildConfig(
+      's3',
+      { secretAccessKey: '********', bucket: 'new-bucket' },
+      { secretAccessKey: 'real-existing-secret', bucket: 'old-bucket' }
+    )
+    assert.equal(config.secretAccessKey, 'real-existing-secret')
+    assert.equal(config.bucket, 'new-bucket')
+  })
+
+  test('buildConfig accepts a genuinely new sensitive value that happens not to be the mask', () => {
+    const config = storage.buildConfig(
+      's3',
+      { secretAccessKey: 'brand-new-secret' },
+      { secretAccessKey: 'old-secret' }
+    )
+    assert.equal(config.secretAccessKey, 'brand-new-secret')
+  })
+
   test('validateTarget rejects an unknown content type', async () => {
     const definition = storage.getDefinition('s3')!
     const target = {
@@ -863,6 +882,61 @@ describe(
         () => storage.executeAction(s3Target, 'exportAll'),
         /does not implement "exportAll"/
       )
+    })
+
+    test('a sensitive prop (sftp password) never leaves a masked getSiteTargets() read', async () => {
+      let targets = await storage.getSiteTargets(fixtures.siteId)
+      const sftpTarget = targets.find((t) => t.module === 'sftp')!
+      const invalid = await storage.validateTarget(sftpTarget, {
+        id: sftpTarget.id,
+        config: { authMode: 'password', password: 'super-secret-password' }
+      })
+      assert.equal(invalid, null)
+      assert.equal(
+        await storage.updateTarget(fixtures.siteId, sftpTarget, {
+          id: sftpTarget.id,
+          config: { authMode: 'password', password: 'super-secret-password' }
+        }),
+        true
+      )
+
+      // -> Default (unmasked): every internal caller (dispatch/executeAction/backups/setup) needs
+      //    the real value, so it must still be there.
+      targets = await storage.getSiteTargets(fixtures.siteId)
+      assert.equal(
+        targets.find((t) => t.module === 'sftp')!.config.password,
+        'super-secret-password'
+      )
+
+      // -> `{ mask: true }`: what the admin GET route actually returns to the client.
+      const maskedTargets = await storage.getSiteTargets(fixtures.siteId, { mask: true })
+      const maskedSftp = maskedTargets.find((t) => t.module === 'sftp')!
+      assert.equal(maskedSftp.config.password, '********')
+      // -> A non-sensitive prop on the same target is untouched by masking.
+      assert.equal(maskedSftp.config.authMode, 'password')
+    })
+
+    test('a PUT that echoes the mask back leaves the real stored secret unchanged', async () => {
+      let targets = await storage.getSiteTargets(fixtures.siteId)
+      const sftpTarget = targets.find((t) => t.module === 'sftp')!
+      await storage.updateTarget(fixtures.siteId, sftpTarget, {
+        id: sftpTarget.id,
+        config: { authMode: 'password', password: 'original-secret' }
+      })
+
+      // -> Simulates an admin form resubmitting the masked value it was shown, having only changed
+      //    an unrelated field (basePath) -- the password field itself was never touched.
+      targets = await storage.getSiteTargets(fixtures.siteId)
+      const current = targets.find((t) => t.module === 'sftp')!
+      await storage.updateTarget(fixtures.siteId, current, {
+        id: current.id,
+        config: { authMode: 'password', password: '********', basePath: '/data/wiki' }
+      })
+
+      targets = await storage.getSiteTargets(fixtures.siteId)
+      const updated = targets.find((t) => t.module === 'sftp')!
+      assert.equal(updated.config.password, 'original-secret')
+      assert.equal(updated.config.basePath, '/data/wiki')
     })
   }
 )

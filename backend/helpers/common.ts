@@ -701,6 +701,58 @@ export function parseModuleProps(
 }
 
 /**
+ * Placeholder returned in place of a module-config prop declared `sensitive: true`, once it holds a
+ * real value -- mirrors `PASSWORD_MASK` in `api/mail.ts`, which predates `ModuleProp` and stores the
+ * SMTP password as a single flat config rather than a per-module prop list.
+ */
+export const SENSITIVE_CONFIG_MASK = '********'
+
+/**
+ * Replace every `sensitive` prop's stored value with `SENSITIVE_CONFIG_MASK`, for a config about to
+ * leave the server -- an admin API response, a log line, anything a caller might see. A prop with
+ * nothing stored (`''`, `null`, `undefined`) is left alone: there is no secret to hide, and masking
+ * it would make the admin form show a password field as "already set" when it isn't.
+ *
+ * Deliberately not applied inside a model's own merge (`buildConfig`/`buildEngineConfig`), nor to a
+ * config handed to a module's own implementation to actually connect with -- storage's
+ * `dispatch()`/`executeAction()`/`runDailyBackups()` and search's `selectEngine()`/
+ * `initActiveEngines()` all need the real value to function. Call sites choose this explicitly (an
+ * admin list/detail route serializing straight to JSON), never as a read method's default.
+ */
+export function maskSensitiveConfig(
+  props: Record<string, ModuleProp>,
+  config: Record<string, any>
+): Record<string, any> {
+  const masked: Record<string, any> = { ...config }
+  for (const [key, prop] of Object.entries(props)) {
+    if (prop.sensitive && typeof masked[key] === 'string' && masked[key].length > 0) {
+      masked[key] = SENSITIVE_CONFIG_MASK
+    }
+  }
+  return masked
+}
+
+/**
+ * Drop a `sensitive` prop's value from `incoming` when it is exactly `SENSITIVE_CONFIG_MASK` -- an
+ * admin form redisplaying a masked value it was never asked to change echoes it straight back on the
+ * next save. Called on the way in, before a merge such as `buildConfig`'s own `incoming[key] ===
+ * undefined ? current : incoming[key]` falls back to whatever is already stored, so a save that
+ * leaves a password field untouched can never overwrite the real secret with the mask string itself.
+ */
+export function unmaskSensitiveConfig(
+  props: Record<string, ModuleProp>,
+  incoming: Record<string, any>
+): Record<string, any> {
+  const unmasked: Record<string, any> = { ...incoming }
+  for (const [key, prop] of Object.entries(props)) {
+    if (prop.sensitive && unmasked[key] === SENSITIVE_CONFIG_MASK) {
+      delete unmasked[key]
+    }
+  }
+  return unmasked
+}
+
+/**
  * A file's bytes only change when this codebase's own on-disk contents change (a redeploy — a new
  * build, a new process), never in response to a request, so there is no per-instance revalidation
  * problem to solve for it and a long `max-age` is safe: this is not hash-named content though, so it

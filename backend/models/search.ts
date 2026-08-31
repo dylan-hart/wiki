@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { load } from 'js-yaml'
-import { parseModuleProps } from '../helpers/common.ts'
+import { maskSensitiveConfig, parseModuleProps, unmaskSensitiveConfig } from '../helpers/common.ts'
 import type { AccessActor } from './groups.ts'
 import type { ModuleProp } from '../helpers/common.ts'
 import type { pages as pagesTable } from '../db/schema.ts'
@@ -386,11 +386,21 @@ class Search {
    * Driven by `this.definitions` rather than by anything stored, the same way
    * `Storage.getSiteTargets()` is driven by its own definitions: an engine dropped from disk without a
    * restart is simply absent, rather than half-present with no metadata behind it.
+   *
+   * @param opts.mask When true, a `sensitive` prop's stored value (Algolia's `apiKey`, ...) is
+   *   replaced with a mask before being returned -- see `helpers/common.ts#maskSensitiveConfig`.
+   *   Defaults to false; `selectEngine()`/`initActiveEngines()` never call this at all (they read
+   *   `getEngineConfig()` directly), but the default stays false here too so a caller other than the
+   *   admin list route never gets a masked value it did not ask for.
    */
-  async getSiteEngines(siteId: string): Promise<SearchEngine[]> {
+  async getSiteEngines(
+    siteId: string,
+    { mask = false }: { mask?: boolean } = {}
+  ): Promise<SearchEngine[]> {
     const selected = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
     const engines: SearchEngine[] = []
     for (const definition of this.definitions) {
+      const config = this.getEngineConfig(siteId, definition.key)
       engines.push({
         key: definition.key,
         title: definition.title,
@@ -402,7 +412,7 @@ class Search {
         props: definition.props,
         hasImplementation: await this.hasImplementation(definition.key),
         isSelected: definition.key === selected,
-        config: this.getEngineConfig(siteId, definition.key)
+        config: mask ? maskSensitiveConfig(definition.props, config) : config
       })
     }
     return engines
@@ -438,11 +448,15 @@ class Search {
     existing: Record<string, any> = {}
   ): Record<string, any> {
     const props = this.getDefinition(key)?.props ?? {}
+    // -> Drops a `sensitive` value that is just the mask being echoed back unchanged, so it falls
+    //    through to `current` below instead of overwriting the real stored secret with the mask
+    //    string itself. See `helpers/common.ts#unmaskSensitiveConfig`.
+    const cleanedIncoming = unmaskSensitiveConfig(props, incoming)
     const config: Record<string, any> = {}
     for (const [propKey, prop] of Object.entries(props)) {
       const current = existing[propKey] !== undefined ? existing[propKey] : prop.default
       config[propKey] =
-        prop.readOnly || incoming[propKey] === undefined ? current : incoming[propKey]
+        prop.readOnly || cleanedIncoming[propKey] === undefined ? current : cleanedIncoming[propKey]
     }
     return config
   }

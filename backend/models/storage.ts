@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { load } from 'js-yaml'
 import { and, eq, inArray } from 'drizzle-orm'
-import { parseModuleProps } from '../helpers/common.ts'
+import { maskSensitiveConfig, parseModuleProps, unmaskSensitiveConfig } from '../helpers/common.ts'
 import { parseLargeThreshold } from '../helpers/blobTarget.ts'
 import { sites as sitesTable, storage as storageTable } from '../db/schema.ts'
 import type { ModuleProp } from '../helpers/common.ts'
@@ -516,8 +516,19 @@ class Storage {
    *
    * Config values are completed from the module's declared defaults, so a prop added to a module
    * after a target was configured is returned with its default rather than as a missing key.
+   *
+   * @param opts.mask When true, a `sensitive` prop's stored value (an S3 secret key, an sftp
+   *   password, ...) is replaced with a mask before being returned -- see
+   *   `helpers/common.ts#maskSensitiveConfig`. Defaults to false: this is the *only* place a
+   *   target's config is assembled, so `dispatch()`, `executeAction()`, `runDailyBackups()` and the
+   *   setup handlers all call this with the default and need the real values to actually connect.
+   *   Only an admin-facing read that serializes `config` straight into an HTTP response should ever
+   *   pass `{ mask: true }`.
    */
-  async getSiteTargets(siteId: string): Promise<StorageTarget[]> {
+  async getSiteTargets(
+    siteId: string,
+    { mask = false }: { mask?: boolean } = {}
+  ): Promise<StorageTarget[]> {
     const rows = await this.getTargets({ siteId })
     const targets: StorageTarget[] = []
     // -> Driven by the definitions rather than by the rows, so that the list is ordered the same way
@@ -530,6 +541,7 @@ class Storage {
       const contentTypes = (row.contentTypes ?? {}) as Record<string, any>
       const assetDelivery = (row.assetDelivery ?? {}) as Record<string, any>
       const versioning = (row.versioning ?? {}) as Record<string, any>
+      const config = this.buildConfig(definition.key, {}, row.config as Record<string, any>)
       targets.push({
         id: row.id,
         siteId: row.siteId,
@@ -573,7 +585,7 @@ class Storage {
             }
           }),
         props: definition.props,
-        config: this.buildConfig(definition.key, {}, row.config as Record<string, any>),
+        config: mask ? maskSensitiveConfig(definition.props, config) : config,
         // -> Same reasoning as setup: an action with nothing behind it cannot be run
         actions: definition.hasImplementation ? definition.actions : []
       })
@@ -584,8 +596,12 @@ class Storage {
   /**
    * A single target of a site, or null if there is no such target
    */
-  async getSiteTargetById(siteId: string, id: string): Promise<StorageTarget | null> {
-    return (await this.getSiteTargets(siteId)).find((t) => t.id === id) ?? null
+  async getSiteTargetById(
+    siteId: string,
+    id: string,
+    opts?: { mask?: boolean }
+  ): Promise<StorageTarget | null> {
+    return (await this.getSiteTargets(siteId, opts)).find((t) => t.id === id) ?? null
   }
 
   /**
@@ -614,10 +630,15 @@ class Storage {
     existing: Record<string, any> = {}
   ): Record<string, any> {
     const props = this.getDefinition(moduleKey)?.props ?? {}
+    // -> Drops a `sensitive` value that is just the mask being echoed back unchanged, so it falls
+    //    through to `current` below instead of overwriting the real stored secret with the mask
+    //    string itself. See `helpers/common.ts#unmaskSensitiveConfig`.
+    const cleanedIncoming = unmaskSensitiveConfig(props, incoming)
     const config: Record<string, any> = {}
     for (const [key, prop] of Object.entries(props)) {
       const current = existing[key] !== undefined ? existing[key] : prop.default
-      config[key] = prop.readOnly || incoming[key] === undefined ? current : incoming[key]
+      config[key] =
+        prop.readOnly || cleanedIncoming[key] === undefined ? current : cleanedIncoming[key]
     }
     return config
   }

@@ -44,7 +44,12 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
         '  apiKey:',
         '    type: String',
         "    default: ''",
-        '    title: API Key'
+        '    title: API Key',
+        '  secret:',
+        '    type: String',
+        "    default: ''",
+        '    title: Secret Key',
+        '    sensitive: true'
       ].join('\n')
     )
     await fs.mkdir(path.join(modulesDir, 'beta'), { recursive: true })
@@ -126,7 +131,7 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
         { module: 'gamma', isEnabled: false }
       ]
     )
-    assert.deepEqual(providers[0]!.config, { apiKey: '' })
+    assert.deepEqual(providers[0]!.config, { apiKey: '', secret: '' })
   })
 
   test('setActiveProvider enables exactly one provider, disabling every other one for that site', async () => {
@@ -230,6 +235,46 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const active = await commentProvidersModel.getActiveProvider(fixtures.siteId)
     assert.equal(active?.module, 'default')
+  })
+
+  test('a sensitive prop (secret) never leaves a config read, masked or via the PUT response', async () => {
+    await commentProvidersModel.syncSite(fixtures.siteId)
+    // -> `setActiveProvider`'s own return value is what `PUT .../comments/providers` sends straight
+    //    back to the client, so it must come back masked without a caller having to ask for it.
+    const activated = await commentProvidersModel.setActiveProvider(fixtures.siteId, 'alpha', {
+      apiKey: 'not-sensitive',
+      secret: 'akismet-key-value'
+    })
+    assert.equal(activated?.config.secret, '********')
+    // -> A non-sensitive prop on the same provider is untouched.
+    assert.equal(activated?.config.apiKey, 'not-sensitive')
+
+    // -> Default (unmasked): `setActiveProvider`'s own internal merge reads through this method, and
+    //    needs the real value to preserve an untouched secret correctly.
+    const unmasked = await commentProvidersModel.getSiteProviderByModule(fixtures.siteId, 'alpha')
+    assert.equal(unmasked?.config.secret, 'akismet-key-value')
+
+    // -> `{ mask: true }`: what the admin GET route (api/comments.ts) actually returns.
+    const maskedList = await commentProvidersModel.getSiteProviders(fixtures.siteId, { mask: true })
+    assert.equal(maskedList.find((p) => p.module === 'alpha')!.config.secret, '********')
+  })
+
+  test('a PUT that echoes the mask back leaves the real stored secret unchanged', async () => {
+    await commentProvidersModel.syncSite(fixtures.siteId)
+    await commentProvidersModel.setActiveProvider(fixtures.siteId, 'alpha', {
+      secret: 'original-akismet-key'
+    })
+
+    // -> Simulates an admin form resubmitting the masked value it was shown, having only changed an
+    //    unrelated field (apiKey) -- the secret field itself was never touched.
+    await commentProvidersModel.setActiveProvider(fixtures.siteId, 'alpha', {
+      apiKey: 'changed-value',
+      secret: '********'
+    })
+
+    const current = await commentProvidersModel.getSiteProviderByModule(fixtures.siteId, 'alpha')
+    assert.equal(current?.config.secret, 'original-akismet-key')
+    assert.equal(current?.config.apiKey, 'changed-value')
   })
 })
 
