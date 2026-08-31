@@ -102,7 +102,7 @@ export async function setupTestDb(): Promise<TestFixtures> {
   const db = drizzle({ client: pool, relations }) as WikiDb
 
   await db.execute(sql.raw(`CREATE SCHEMA "${schema}"`))
-  await ensureRequiredExtensions(pool)
+  await createExtensionsSerialized(pool)
   await migrate(db, {
     migrationsFolder: path.join(import.meta.dirname, '../db/migrations'),
     migrationsSchema: schema,
@@ -182,13 +182,15 @@ export async function setupTestDb(): Promise<TestFixtures> {
  * through `db.execute()` could be released from a different one — hence the dedicated client here
  * rather than reusing the pool passed to `drizzle()`.
  *
- * Exported so a suite that cannot use `setupTestDb()` wholesale — one that needs to migrate in two
- * stages, e.g. to seed a row shaped like it predates a specific migration — can still get the same
- * race-free extension setup before running `migrate()` itself. `setupTestDb()` below is just this
- * function's first caller.
+ * Exported (not just used by `setupTestDb()`) so a suite that cannot use `setupTestDb()` wholesale —
+ * one that needs its own hand-rolled minimal fixture with no pre-seeded rows, or that needs to migrate
+ * in two stages, e.g. to seed a row shaped like it predates a specific migration — can still get the
+ * same race-free extension setup, against the caller's own `Pool`, rather than duplicating this lock
+ * dance. `hashBackfillMigration.test.ts` and `core/config.test.ts`'s `ensureSeeded()` suite are both
+ * such cases.
  */
-export async function ensureRequiredExtensions(targetPool: Pool): Promise<void> {
-  const client = await targetPool.connect()
+export async function createExtensionsSerialized(pool: Pool): Promise<void> {
+  const client = await pool.connect()
   try {
     await client.query(`SELECT pg_advisory_lock(hashtext('wiki_test_extensions'))`)
     try {

@@ -6,6 +6,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { load } from 'js-yaml'
 import crypto from 'node:crypto'
+import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
 
 /**
  * Config is assembled at runtime from config.yml + base.yml + the `settings` DB table, so its shape
@@ -201,6 +202,45 @@ export default {
     await WIKI.models.users.init(ids)
     await WIKI.models.jobs.init()
     await WIKI.models.icons.init()
+  },
+  /**
+   * Ensure the DB carries default values, treating the is-empty check and the seed itself as one
+   * atomic boot decision rather than two.
+   *
+   * `loadFromDb()` returns `true` on the mere *presence* of any `settings` row, and `initDbValues()`
+   * writes several tables (`settings` first, then `sites`/`groups`/`classificationLevels`/
+   * `authentication`/`users`/`jobs`/`icons`) across several separate `await`s — so, unlocked, a second
+   * concurrently-booting instance can call `loadFromDb()` in the window after the first has committed
+   * `settings.init()` but before it has finished the rest, see that presence check pass, and proceed
+   * straight to `postBoot()` reloading caches from a half-seeded database (zero sites, no groups) with
+   * no crash to signal it.
+   *
+   * Holding a session-scoped advisory lock (`helpers/advisoryLock.ts`) across the whole check-then-seed
+   * sequence closes that window: the loser blocks until the winner has fully released the lock, then
+   * re-runs its own `loadFromDb()` *inside* the lock and observes a fully-seeded database, correctly
+   * skipping `initDbValues()` rather than racing it. The lock key (`wiki:migrate`) is the same one the
+   * migration lock around `db.ts#syncSchemas` uses (or will use), so the two compose into sequential
+   * sections under one key rather than fighting over separate ones.
+   *
+   * @returns Whether this call performed the seed (`false` means another holder already had, or the
+   *   database was already seeded from a previous boot).
+   */
+  async ensureSeeded(): Promise<boolean> {
+    return withAdvisoryLock('wiki:migrate', async () => {
+      if (await this.loadFromDb()) {
+        WIKI.logger.info('Settings merged with DB successfully [ OK ]')
+        return false
+      }
+
+      WIKI.logger.warn('No settings found in DB. Initializing with defaults...')
+      await this.initDbValues()
+
+      if (!(await this.loadFromDb())) {
+        throw new Error('Settings table is empty! Could not initialize [ ERROR ]')
+      }
+
+      return true
+    })
   },
   /**
    * Subscribe to HA propagation events

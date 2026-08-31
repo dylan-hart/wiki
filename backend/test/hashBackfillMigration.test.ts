@@ -28,7 +28,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { eq, sql } from 'drizzle-orm'
 import { relations } from '../db/relations.ts'
 import { siteAssets as siteAssetsTable, sites as sitesTable, userAvatars } from '../db/schema.ts'
-import { ensureRequiredExtensions, hasTestDatabase } from './db.ts'
+import { createExtensionsSerialized, hasTestDatabase } from './db.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const MIGRATIONS_DIR = path.join(HERE, '../db/migrations')
@@ -51,7 +51,7 @@ describe('hash column backfill migration', { skip: !hasTestDatabase() }, () => {
     db = drizzle({ client: pool, relations })
 
     await db.execute(sql.raw(`CREATE SCHEMA "${schema}"`))
-    await ensureRequiredExtensions(pool)
+    await createExtensionsSerialized(pool)
 
     // A scratch copy of every migration folder except the one under test, so `migrate()` can bring
     // this schema up to "the moment before `hash` existed" -- `migrate()` reads `migration.sql` out

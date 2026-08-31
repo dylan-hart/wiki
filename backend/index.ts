@@ -62,7 +62,6 @@ import {
   sessionCookieName,
   shouldBlockCrossOriginApiRequest
 } from './helpers/security.ts'
-import { withAdvisoryLock } from './helpers/advisoryLock.ts'
 
 // `Temporal` has been a real native global since Node 26.0.0 (unflagged, per Node's own release notes)
 // — the `engines` floor this repo requires — so the real boot path needs no polyfill install here.
@@ -219,29 +218,9 @@ async function preBoot() {
     WIKI.db = await dbManager.init()
     WIKI.models = (await import('./models/index.ts')).default
 
-    // -> The is-empty check and the first-run seed it can trigger are held under the same advisory
-    //    lock `dbManager.syncSchemas()` already takes around the migration itself ('wiki:migrate'),
-    //    as one atomic decision. Without this, two instances booting together against a fresh
-    //    database can interleave: `settings.init()` (the first thing `initDbValues()` does) is a
-    //    single-row PRIMARY KEY insert, so a genuinely concurrent seed collides there and the loser
-    //    exits below like today -- but a *second* instance's own `loadFromDb()` can land in the
-    //    window after the first has committed `settings.init()` but before it has finished
-    //    `sites`/`groups`/`users`/`jobs`/`icons` init, sees a settings row, and proceeds straight to
-    //    `postBoot()` reloading caches from a half-seeded database (zero sites, no groups) with no
-    //    error at all. Serializing the whole decision closes that: a second instance's check now
-    //    waits for the first's seed to fully finish (or fail) before running its own.
-    await withAdvisoryLock('wiki:migrate', async () => {
-      if (await WIKI.configSvc.loadFromDb()) {
-        WIKI.logger.info('Settings merged with DB successfully [ OK ]')
-      } else {
-        WIKI.logger.warn('No settings found in DB. Initializing with defaults...')
-        await WIKI.configSvc.initDbValues()
-
-        if (!(await WIKI.configSvc.loadFromDb())) {
-          throw new Error('Settings table is empty! Could not initialize [ ERROR ]')
-        }
-      }
-    })
+    // -> The is-empty check and the seed itself are held under one advisory lock so a concurrently
+    //    booting instance can never observe a half-seeded database — see `configSvc.ensureSeeded()`.
+    await WIKI.configSvc.ensureSeeded()
   } catch (err: any) {
     WIKI.logger.error('Database Initialization Error: ' + err.message)
     if (WIKI.IS_DEBUG) {
