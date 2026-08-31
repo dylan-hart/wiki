@@ -17,7 +17,8 @@
     "install-browsers": "playwright install --with-deps chromium",
     "emoji": "node scripts/generate-emoji.mjs",
     "emoji:check": "node scripts/generate-emoji.mjs --check",
-    "locales:check": "node scripts/check-locales.mjs"
+    "locales:check": "node scripts/check-locales.mjs",
+    "notify-check": "node scripts/check-notify-err-message.mjs"
   },
   "dependencies": {
     "@simplewebauthn/browser": "13.3.0",

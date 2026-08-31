@@ -220,6 +220,17 @@ jobs:
         working-directory: frontend
         run: npm run locales:check
 
+      # Fails when a bare `err.message` reaches a `notify()` call in `frontend/src/**/*.vue` --
+      # `helpers/apiError.js`'s `apiErrorMessage(err, fallback)` exists specifically to read the
+      # server's `{ ok, error, statusCode, message }` body off `err.data` instead, since a bare
+      # `err.message` yields only ky's generic "Request failed with status code N". A repo grep, not
+      # a runtime check: reads the `.vue` sources directly, same "no network, safe on a cold runner"
+      # shape as the icon/emoji checks above. See `frontend/scripts/check-notify-err-message.mjs` for
+      # the two allowlisted non-HTTP shapes (clipboard failures, `console.warn` template strings).
+      - name: Frontend Notify err.message Check
+        working-directory: frontend
+        run: npm run notify-check
+
       - name: Frontend Lint
         working-directory: frontend
         run: npx oxlint --deny-warnings
