@@ -15,7 +15,7 @@
       <template v-if="sizeBy === 'edits' && !hoveredNode.synthetic">
         ·
         {{
-          t('graph.tooltip.contributors', contributorCountFor(hoveredNode), {
+          t(tooltipKeyFor(), contributorCountFor(hoveredNode), {
             count: contributorCountFor(hoveredNode)
           })
         }}
@@ -23,7 +23,7 @@
       <template v-if="sizeBy === 'visits' && !hoveredNode.synthetic">
         ·
         {{
-          t('graph.tooltip.visits', pageviewCountFor(hoveredNode), {
+          t(tooltipKeyFor(), pageviewCountFor(hoveredNode), {
             count: pageviewCountFor(hoveredNode)
           })
         }}
@@ -101,7 +101,7 @@
         dense
         :label="t('graph.filters.folderDepth')" />
       <w-select
-        v-if="siteStore.locales.showMenu"
+        v-if="showLocaleFilter"
         v-model="activeFilters.locale"
         outlined
         dense
@@ -309,6 +309,17 @@ const filterOptions = computed(() => deriveFilterOptions(allNodes.value))
 const tagOptions = computed(() => filterOptions.value.tags)
 const localeOptions = computed(() => filterOptions.value.locales)
 
+/** Whether the locale filter control is worth showing at all (OpenProject #2294): gated on both the
+ *  reader-facing locale-switcher setting AND there being more than one locale actually represented
+ *  among the loaded nodes -- `showMenu` alone says nothing about how many locales the site has, so a
+ *  single-locale site with the menu enabled would otherwise render a `w-select` whose one option is
+ *  always a no-op, the same class of dead control `groupBy` already avoids for site grouping (see
+ *  that const's own doc comment above). Derived from `localeOptions`, not site config, so the
+ *  control also disappears once the current filter set leaves only one locale represented. */
+const showLocaleFilter = computed(
+  () => siteStore.locales.showMenu && localeOptions.value.length > 1
+)
+
 function groupKeyFor(node) {
   if (groupBy.value === 'tag') {
     return node.tags?.[0] ?? '(untagged)'
@@ -485,6 +496,20 @@ function pageviewCountFor(node) {
   return pageviewClientTypes.value.reduce((sum, type) => sum + (counts[type] ?? 0), 0)
 }
 
+/** The hover tooltip's i18n message key for `count`, per the active `sizeBy`/`sizeCountMode`
+ *  combination (OpenProject #2293). The noun must follow `sizeCountMode` as well as `sizeBy`:
+ *  'total' reads the raw, non-distinct row counts (an edit or visit tally), while 'unique' reads
+ *  the distinct-identity figures (a contributor or visitor tally) -- so "Edits + Total" and
+ *  "Visits + Unique" need a different noun than "Edits + Unique" and "Visits + Total" use, even
+ *  though all four share the same `sizeBy` pair. Each key carries its own singular/plural form
+ *  (`backend/locales/en.json`), so `count` itself is only threaded through by the caller. */
+function tooltipKeyFor() {
+  if (sizeBy.value === 'edits') {
+    return sizeCountMode.value === 'total' ? 'graph.tooltip.edits' : 'graph.tooltip.contributors'
+  }
+  return sizeCountMode.value === 'total' ? 'graph.tooltip.visits' : 'graph.tooltip.uniqueVisitors'
+}
+
 /** A node's drawn radius: synthetic nodes are always the fixed `3`; a real node scales with
  *  `contributorCountFor()` when `sizeBy` is 'edits', or `pageviewCountFor()` when it's 'visits' --
  *  the only two values `sizeBy` can hold now that 'uniform' is gone (OpenProject #1270). */
@@ -565,18 +590,24 @@ function drawNodes() {
 }
 
 /** Below this zoom level a label is unreadably small anyway; skipping the fillText calls entirely
- *  is also what keeps a dense graph's label layer from becoming visual noise. Lowered from the
- *  earlier `1.5` (OpenProject #1287/#1288) so labels persist roughly 4px of effective on-screen
- *  size longer before hiding: at the `10px` base font, `1.5` hid labels at 15px effective, `1.1`
- *  now hides them at 11px. */
+ *  is also what keeps a dense graph's label layer from becoming visual noise. Lowered from `1.1`
+ *  to `0.75` (OpenProject #2292, a follow-up to #1287/#1288) so labels persist further into a
+ *  zoomed-out view: at the `10px` base font, `1.1` hid labels at 11px effective -- still
+ *  comfortably readable -- while `0.75` now hides them at 7.5px effective. */
 const LABEL_BASE_FONT_PX = 10
-const LABEL_VISIBILITY_ZOOM_THRESHOLD = 1.1
+const LABEL_VISIBILITY_ZOOM_THRESHOLD = 0.75
 
 /** Caps how large a label ever draws on screen, regardless of zoom -- without this, the base font is
  *  drawn inside the canvas's `ctx.scale(k, k)` transform, so effective on-screen size is
  *  `LABEL_BASE_FONT_PX * k` uncapped, reaching 80px at the max zoom (`k = 8`, see `attachZoom()`'s
  *  `scaleExtent`). `24` reads as roughly what a label already looks like comfortably zoomed in. */
 const LABEL_MAX_EFFECTIVE_FONT_PX = 24
+
+/** Breathing room between a node's edge and the start of its label, on top of the node's own
+ *  drawn radius (`radiusFor()`) -- matches the gap the old fixed `8` offset left beyond the
+ *  smallest node (`MIN_CONTRIBUTOR_RADIUS`/`MIN_PAGEVIEW_RADIUS`, both `5`), but now scales with
+ *  the node so a label never overlaps a larger node's fill (OpenProject #2297). */
+const LABEL_GAP = 3
 
 function drawLabels() {
   const scale = zoomTransform.value?.k ?? 1
@@ -590,7 +621,7 @@ function drawLabels() {
     if (node.x === undefined) {
       continue
     }
-    ctx.fillText(node.title ?? node.path, node.x + 8, node.y + 3)
+    ctx.fillText(node.title ?? node.path, node.x + radiusFor(node) + LABEL_GAP, node.y + 3)
   }
 }
 
@@ -727,26 +758,38 @@ function startSimulation() {
 
 /*
   `16`px is a starting point sized against the `5`px node-dot radius in `drawNodes()` -- tune
-  visually so the hull clearly contains the dots without ballooning past neighboring clusters.
+  visually so the hull clearly contains the dots without ballooning past neighboring clusters. It's
+  a floor added on top of each node's own `radiusFor()` (OpenProject #2296), not the whole gap any
+  more -- see `padHull()` and `computeClusters()`'s circle case below, both of which used to pad by
+  this constant alone and let a large node (up to `MAX_CONTRIBUTOR_RADIUS`/`MAX_PAGEVIEW_RADIUS`,
+  22) poke through its own group tint.
 */
 const HULL_PADDING = 16
 
 /** Pads a hull outward from its own centroid so the fill visually contains the node dots rather
- *  than passing through their centers, per the spec's "Obsidian-style" sector requirement. */
+ *  than passing through their centers, per the spec's "Obsidian-style" sector requirement. Each
+ *  `point` is a `[x, y, node]` triple (see `computeClusters()`) so the offset can grow by that
+ *  vertex's own `radiusFor(node)` on top of the flat `padding` (OpenProject #2296) -- a large node
+ *  sitting on the hull boundary would otherwise poke through the tint by the difference between its
+ *  drawn radius and the flat padding. `polygonHull` (`d3-polygon`) returns references to the exact
+ *  input elements it hulled, so the third element survives intact into `points` here. */
 function padHull(points, padding) {
   const cx = points.reduce((sum, p) => sum + p[0], 0) / points.length
   const cy = points.reduce((sum, p) => sum + p[1], 0) / points.length
-  return points.map(([x, y]) => {
+  return points.map(([x, y, node]) => {
     const dx = x - cx
     const dy = y - cy
     const len = Math.hypot(dx, dy) || 1
-    return [x + (dx / len) * padding, y + (dy / len) * padding]
+    const vertexPadding = padding + (node ? radiusFor(node) : 0)
+    return [x + (dx / len) * vertexPadding, y + (dy / len) * vertexPadding]
   })
 }
 
 /** Populates `clusters.value` -- one entry per visible group with `hullPoints` (>=3 nodes) or a
  *  fallback `circle` (1-2 nodes, or a degenerate >=3-node group `polygonHull` can't hull, e.g.
- *  every point collinear). */
+ *  every point collinear). Both shapes are sized off each node's edge (its centre plus its own
+ *  `radiusFor()`), not just its centre (OpenProject #2296) -- `collideRadiusFor()` above already
+ *  adds `radiusFor(node)` to a constant the same way, and is the pattern this mirrors. */
 function computeClusters() {
   const byGroup = new Map()
   for (const node of nodes.value) {
@@ -763,7 +806,7 @@ function computeClusters() {
   for (const [key, groupNodes] of byGroup) {
     const color = colorForGroup(key)
     if (groupNodes.length >= 3) {
-      const hull = polygonHull(groupNodes.map((n) => [n.x, n.y]))
+      const hull = polygonHull(groupNodes.map((n) => [n.x, n.y, n]))
       if (hull) {
         result.push({ key, color, hullPoints: padHull(hull, HULL_PADDING) })
         continue
@@ -775,8 +818,13 @@ function computeClusters() {
     const cy = groupNodes.reduce((s, n) => s + n.y, 0) / groupNodes.length
     // -> A `reduce`, not `Math.max(...groupNodes.map(...))` -- the spread form blows V8's ~100-125k
     //    argument limit at large group sizes (OpenProject #1837, a latent hazard only; no group has
-    //    come close to that in practice).
-    const maxDist = groupNodes.reduce((max, n) => Math.max(max, Math.hypot(n.x - cx, n.y - cy)), 0)
+    //    come close to that in practice). Sized off each node's edge (its centre plus its own
+    //    `radiusFor()`), not just its centre (OpenProject #2296) -- see the `computeClusters()` doc
+    //    comment above.
+    const maxDist = groupNodes.reduce(
+      (max, n) => Math.max(max, Math.hypot(n.x - cx, n.y - cy) + radiusFor(n)),
+      0
+    )
     result.push({ key, color, circle: { x: cx, y: cy, r: maxDist + HULL_PADDING } })
   }
   clusters.value = result
@@ -891,6 +939,16 @@ watch([sizeBy, sizeCountMode, contributorTypes, pageviewsWindow, pageviewClientT
 watch(pageviewsTrackingEnabled, (enabled) => {
   if (!enabled && sizeBy.value === 'visits') {
     sizeBy.value = 'edits'
+  }
+})
+
+/** OpenProject #2294: once the locale filter control disappears (single locale left, either from the
+ *  outset or after tags/folder-depth narrow the visible set down to one), clear any value chosen on
+ *  it -- otherwise a locale picked before the narrowing keeps filtering the graph with no visible
+ *  control left to clear it from. */
+watch(showLocaleFilter, (visible) => {
+  if (!visible && activeFilters.locale !== null) {
+    activeFilters.locale = null
   }
 })
 

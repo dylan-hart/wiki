@@ -46,6 +46,8 @@ const GRAPH_MESSAGES = {
   'graph.controls.visitsByApi': 'API',
   'graph.controls.visitsByMcp': 'MCP',
   'graph.tooltip.contributors': '{count} contributor | {count} contributors',
+  'graph.tooltip.edits': '{count} edit | {count} edits',
+  'graph.tooltip.uniqueVisitors': '{count} unique visitor | {count} unique visitors',
   'graph.tooltip.visits': '{count} visit | {count} visits'
 }
 
@@ -128,9 +130,10 @@ const FIXTURE_GRAPH = {
 
 /** Options for `API_CLIENT.get('system/pageviews')` -- defaults to tracking enabled so the
  *  'visits' sizing option is available in the default `mountGraph()` fixture; a test asserting the
- *  disabled case passes `{ pageviewsEnabled: false }`. `graph` defaults to `FIXTURE_GRAPH`; a test
- *  exercising a different node/edge shape (OpenProject #1629's locale-duplicate case) passes its
- *  own. `messageOverrides` is forwarded to `createTestI18n()` for a test asserting one specific
+ *  disabled case passes `{ pageviewsEnabled: false }`. `graph` defaults to `FIXTURE_GRAPH` (a
+ *  single-locale graph); a test exercising a different node/edge shape -- the locale-duplicate case
+ *  (OpenProject #1629) or the locale-filter tests' multi-locale graph (OpenProject #2294) -- passes
+ *  its own. `messageOverrides` is forwarded to `createTestI18n()` for a test asserting one specific
  *  resolved string. */
 async function mountGraph({
   pageviewsEnabled = true,
@@ -335,6 +338,73 @@ describe('Graph.vue (OpenProject #891)', () => {
     expect(wrapper.vm.contributorCountFor(nodeA)).toBe(0)
   })
 
+  // -> OpenProject #2293: the tooltip noun must follow `sizeCountMode` as well as `sizeBy` --
+  //    'total' reads raw, non-distinct row counts (an edit/visit tally) while 'unique' reads
+  //    distinct-identity counts (a contributor/visitor tally), so two of the four combinations
+  //    need a noun that differs from the other two sharing the same `sizeBy`.
+  describe('hover tooltip noun (OpenProject #2293)', () => {
+    it('names edits + unique sizing "contributor(s)"', async () => {
+      const wrapper = await mountGraph()
+      const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+      wrapper.vm.sizeBy = 'edits'
+      wrapper.vm.sizeCountMode = 'unique'
+      wrapper.vm.hoveredNode = nodeA
+      await flushPromises()
+
+      expect(wrapper.find('.graph-view-tooltip').text()).toContain('4 contributors')
+    })
+
+    it('names edits + total sizing "edit(s)", not "contributor(s)"', async () => {
+      const wrapper = await mountGraph()
+      const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+      wrapper.vm.sizeBy = 'edits'
+      wrapper.vm.sizeCountMode = 'total'
+      wrapper.vm.hoveredNode = nodeA
+      await flushPromises()
+
+      const tooltipText = wrapper.find('.graph-view-tooltip').text()
+      expect(tooltipText).toContain('9 edits')
+      expect(tooltipText).not.toContain('contributor')
+    })
+
+    it('names visits + unique sizing "unique visitor(s)", not "visit(s)"', async () => {
+      const wrapper = await mountGraph()
+      const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+      wrapper.vm.sizeBy = 'visits'
+      wrapper.vm.sizeCountMode = 'unique'
+      wrapper.vm.hoveredNode = nodeA
+      await flushPromises()
+
+      const tooltipText = wrapper.find('.graph-view-tooltip').text()
+      expect(tooltipText).toContain('12 unique visitors')
+      expect(tooltipText).not.toMatch(/\b12 visits\b/)
+    })
+
+    it('names visits + total sizing "visit(s)"', async () => {
+      const wrapper = await mountGraph()
+      const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+      wrapper.vm.sizeBy = 'visits'
+      wrapper.vm.sizeCountMode = 'total'
+      wrapper.vm.hoveredNode = nodeA
+      await flushPromises()
+
+      expect(wrapper.find('.graph-view-tooltip').text()).toContain('30 visits')
+    })
+
+    it('singularizes the noun for a count of exactly one', async () => {
+      const wrapper = await mountGraph()
+      const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+      wrapper.vm.sizeBy = 'edits'
+      wrapper.vm.sizeCountMode = 'unique'
+      wrapper.vm.contributorTypes = ['mcp']
+      wrapper.vm.hoveredNode = nodeA
+      await flushPromises()
+
+      expect(wrapper.find('.graph-view-tooltip').text()).toContain('1 contributor')
+      expect(wrapper.find('.graph-view-tooltip').text()).not.toContain('1 contributors')
+    })
+  })
+
   it('shows a client-type filter in edits mode (the default) -- and still one in visits mode', async () => {
     const wrapper = await mountGraph()
 
@@ -464,17 +534,20 @@ describe('Graph.vue (OpenProject #891)', () => {
     expect(totalRadius).toBeGreaterThan(uniqueRadius)
   })
 
-  it('drawLabels hides labels below the visibility threshold, shows them at/above it (OpenProject #1287/#1288)', async () => {
+  it('drawLabels hides labels below the visibility threshold, shows them at/above it (OpenProject #2292, #1287/#1288)', async () => {
     const wrapper = await mountGraph()
 
-    // -> `1.2` sits between the old `1.5` threshold and the new, lower one -- proving labels now
-    //    persist at a zoom level that used to hide them.
-    wrapper.vm.zoomTransform = { k: 1.05, x: 0, y: 0 }
+    // -> `0.8` sits between the old `1.1` threshold and the new, lower one -- proving labels now
+    //    persist at a zoom level that used to hide them. Mount's own initial draw (at the default
+    //    `k = 1` zoom, itself above the new threshold) already logged fillText calls, so clear
+    //    those before asserting on the below-threshold case.
+    wrapper.vm.ctx.fillText.mockClear()
+    wrapper.vm.zoomTransform = { k: 0.7, x: 0, y: 0 }
     wrapper.vm.drawLabels()
     expect(wrapper.vm.ctx.fillText).not.toHaveBeenCalled()
 
     wrapper.vm.ctx.fillText.mockClear()
-    wrapper.vm.zoomTransform = { k: 1.2, x: 0, y: 0 }
+    wrapper.vm.zoomTransform = { k: 0.8, x: 0, y: 0 }
     wrapper.vm.drawLabels()
     expect(wrapper.vm.ctx.fillText).toHaveBeenCalled()
   })
@@ -621,7 +694,10 @@ describe('Graph.vue (OpenProject #891)', () => {
   it("renders the hover tooltip's visit count through a real plural message when sizing by visits (OpenProject #1690)", async () => {
     const wrapper = await mountGraph({
       messageOverrides: {
-        'graph.tooltip.visits': '{count} xx-one-visit | {count} xx-many-visits'
+        // -> `sizeCountMode` defaults to 'unique' (OpenProject #2293), so the default visits
+        //    tooltip resolves through `graph.tooltip.uniqueVisitors`, not `graph.tooltip.visits`
+        //    (that key backs the 'total' count mode instead -- see the sibling 'total' test below).
+        'graph.tooltip.uniqueVisitors': '{count} xx-one-visit | {count} xx-many-visits'
       }
     })
     wrapper.vm.sizeBy = 'visits'
@@ -633,6 +709,23 @@ describe('Graph.vue (OpenProject #891)', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('12 xx-many-visits')
     expect(wrapper.text()).not.toContain('12 visits')
+  })
+
+  it("renders the hover tooltip's visit count through the 'total' plural message when sizeCountMode is 'total' (OpenProject #2293)", async () => {
+    const wrapper = await mountGraph({
+      messageOverrides: {
+        'graph.tooltip.visits': '{count} xx-one-total-visit | {count} xx-many-total-visits'
+      }
+    })
+    wrapper.vm.sizeBy = 'visits'
+    wrapper.vm.sizeCountMode = 'total'
+    await flushPromises()
+    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+
+    // -> nodeA's last30d total (non-distinct) visit count is 30 -> plural form.
+    wrapper.vm.hoveredNode = nodeA
+    await flushPromises()
+    expect(wrapper.text()).toContain('30 xx-many-total-visits')
   })
 
   it('gives the canvas role="img" and a computed accessible name reflecting node/link counts and grouping (OpenProject #1681)', async () => {
@@ -715,6 +808,102 @@ describe('Graph.vue (OpenProject #891)', () => {
     expect(wrapper.vm.clusters).not.toBe(clustersBeforeZoom)
   })
 
+  it("sizes the fallback circle off the largest member node's edge, not just its centre (OpenProject #2296)", async () => {
+    const wrapper = await mountGraph()
+
+    // -> Distinct `folder` values put A and B in separate groups, each a single-node fallback-
+    //    circle case (`maxDist` from centroid is 0) -- including a group of exactly one node at
+    //    maximum radius, per the Done-when.
+    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
+    nodeA.folder = 'group-a'
+    nodeB.folder = 'group-b'
+    nodeA.x = 100
+    nodeA.y = 100
+    nodeB.x = 300
+    nodeB.y = 300
+    nodeA.contributors = {
+      editor: 1000,
+      mcp: 0,
+      all: 1000,
+      total: { editor: 1000, mcp: 0, all: 1000 }
+    }
+
+    wrapper.vm.computeClusters()
+
+    expect(wrapper.vm.radiusFor(nodeA)).toBe(22) // -> pinned at MAX_CONTRIBUTOR_RADIUS
+    const clusterA = wrapper.vm.clusters.find((c) => c.key === 'group-a')
+    expect(clusterA.circle).toBeDefined()
+    expect(clusterA.circle.r).toBeGreaterThan(wrapper.vm.radiusFor(nodeA))
+  })
+
+  it("grows hull padding by each vertex's own node radius, not a flat constant (OpenProject #2296)", async () => {
+    const wrapper = await mountGraph()
+
+    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
+    // -> A third node so this group has >=3 members and takes the `polygonHull` path rather than
+    //    falling back to the circle case covered above.
+    const nodeC = { ...nodeB, path: 'c' }
+    wrapper.vm.nodes.push(nodeC)
+
+    for (const node of [nodeA, nodeB, nodeC]) {
+      node.folder = 'group-c'
+    }
+    nodeA.x = 0
+    nodeA.y = 200
+    nodeB.x = 100
+    nodeB.y = 0
+    nodeC.x = 200
+    nodeC.y = 0
+    nodeA.contributors = {
+      editor: 1000,
+      mcp: 0,
+      all: 1000,
+      total: { editor: 1000, mcp: 0, all: 1000 }
+    }
+
+    wrapper.vm.computeClusters()
+
+    const clusterC = wrapper.vm.clusters.find((c) => c.key === 'group-c')
+    expect(clusterC.hullPoints).toBeDefined()
+    const cx = (nodeA.x + nodeB.x + nodeC.x) / 3
+    const cy = (nodeA.y + nodeB.y + nodeC.y) / 3
+    const distToNodeA = Math.hypot(nodeA.x - cx, nodeA.y - cy)
+    const maxHullDist = Math.max(...clusterC.hullPoints.map(([x, y]) => Math.hypot(x - cx, y - cy)))
+    // -> A flat 16px padding would fall short here since nodeA's radius (22) exceeds it -- this
+    //    only passes once the hull vertex at A is pushed out by A's own radius too.
+    expect(maxHullDist).toBeGreaterThan(distToNodeA + wrapper.vm.radiusFor(nodeA))
+  })
+
+  it("drawLabels offsets each label by that node's own drawn radius, not a fixed constant (OpenProject #2297)", async () => {
+    const wrapper = await mountGraph()
+    wrapper.vm.zoomTransform = { k: 1.2, x: 0, y: 0 }
+
+    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
+    nodeA.x = 100
+    nodeA.y = 100
+    nodeB.x = 200
+    nodeB.y = 200
+
+    const radiusA = wrapper.vm.radiusFor(nodeA)
+    const radiusB = wrapper.vm.radiusFor(nodeB)
+    // -> The fixture's two nodes have different contributor counts, so their radii differ --
+    //    otherwise this test couldn't distinguish "offset tracks radius" from "offset is still
+    //    a constant that happens to equal both radii plus the gap".
+    expect(radiusA).not.toBe(radiusB)
+
+    wrapper.vm.ctx.fillText.mockClear()
+    wrapper.vm.drawLabels()
+
+    const callA = wrapper.vm.ctx.fillText.mock.calls.find(([text]) => text === nodeA.title)
+    const callB = wrapper.vm.ctx.fillText.mock.calls.find(([text]) => text === nodeB.title)
+
+    expect(callA[1]).toBe(nodeA.x + radiusA + wrapper.vm.LABEL_GAP)
+    expect(callB[1]).toBe(nodeB.x + radiusB + wrapper.vm.LABEL_GAP)
+  })
+
   it('recovers from a fetch failure without throwing', async () => {
     setActivePinia(createPinia())
     const siteStore = useSiteStore()
@@ -733,5 +922,44 @@ describe('Graph.vue (OpenProject #891)', () => {
     await flushPromises()
 
     expect(wrapper.find('canvas').exists()).toBe(true)
+  })
+
+  it('hides the locale filter on a single-locale site (OpenProject #2294)', async () => {
+    // -> FIXTURE_GRAPH's two nodes both carry locale 'en' -- the common single-locale install this
+    //    work package targets. Only `.graph-view-filters`'s own `w-select` is counted: `folderDepth`
+    //    is a `w-input`, not a `w-select`, so the tags filter is the only one left once locale hides.
+    const wrapper = await mountGraph()
+
+    expect(wrapper.vm.localeOptions).toEqual(['en'])
+    expect(wrapper.vm.showLocaleFilter).toBe(false)
+    expect(wrapper.find('.graph-view-filters').findAll('.w-select')).toHaveLength(1)
+  })
+
+  it('shows the locale filter on a multi-locale site, and clears a stale value once it hides (OpenProject #2294)', async () => {
+    const multiLocaleGraph = {
+      nodes: [
+        { ...FIXTURE_GRAPH.nodes[0], locale: 'en' },
+        { ...FIXTURE_GRAPH.nodes[1], locale: 'fr' }
+      ],
+      edges: FIXTURE_GRAPH.edges
+    }
+    const wrapper = await mountGraph({ graph: multiLocaleGraph })
+
+    expect(wrapper.vm.localeOptions).toEqual(['en', 'fr'])
+    expect(wrapper.vm.showLocaleFilter).toBe(true)
+    expect(wrapper.find('.graph-view-filters').findAll('.w-select')).toHaveLength(2)
+
+    // -> Picking a locale, then having the control disappear (simulated directly here, since this
+    //    fixture's own node set never actually narrows to one locale) must not leave a stale filter
+    //    value with no visible control left to clear it from.
+    wrapper.vm.activeFilters.locale = 'fr'
+    await flushPromises()
+    expect(wrapper.vm.activeFilters.locale).toBe('fr')
+
+    wrapper.vm.allNodes = [wrapper.vm.allNodes[0]]
+    await flushPromises()
+
+    expect(wrapper.vm.showLocaleFilter).toBe(false)
+    expect(wrapper.vm.activeFilters.locale).toBe(null)
   })
 })

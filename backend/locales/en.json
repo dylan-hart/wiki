@@ -2778,6 +2778,8 @@
   "graph.filters.locale": "Locale",
   "graph.filters.tags": "Tags",
   "graph.tooltip.contributors": "{count} contributor | {count} contributors",
+  "graph.tooltip.edits": "{count} edit | {count} edits",
+  "graph.tooltip.uniqueVisitors": "{count} unique visitor | {count} unique visitors",
   "graph.tooltip.visits": "{count} visit | {count} visits",
   "history.action.created": "Created",
   "history.action.deleted": "Deleted",
