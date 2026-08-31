@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, exists, inArray, ne, or, sql, type SQL } from 'drizzle-orm'
 import { alias, type PgColumn } from 'drizzle-orm/pg-core'
+import { chunk } from 'es-toolkit/array'
 import type { WikiDbOrTx } from '../core/db.ts'
 import { pages as pagesTable, tree as treeTable } from '../db/schema.ts'
 import {
@@ -10,6 +11,13 @@ import {
   generatePathHash,
   normalizePagePath
 } from '../helpers/common.ts'
+
+/**
+ * How many descendant rows `refreshDescendantPaths` writes back per `UPDATE ... FROM (VALUES ...)`
+ * statement (OpenProject #1865). Exported so its test can size a fixture off the real production
+ * value instead of a magic number duplicated between the two files.
+ */
+export const TREE_UPDATE_CHUNK_SIZE = 200
 
 /** What a tree entry can be. Mirrors the `treeType` enum in the schema. */
 export type TreeItemType = 'folder' | 'page' | 'asset'
@@ -1069,9 +1077,16 @@ class Tree {
    * An asset has no path of its own: its tree row is the only thing that places it, and moving that
    * row is the whole job.
    *
-   * The two hashes are not the same function and neither exists in postgres, so each row is rewritten
-   * from here. What is deliberately not touched is `updatedAt`: the folder moved, the pages under it
-   * did not change, and marking a few hundred of them as freshly edited would say otherwise.
+   * The two hashes are not the same function and neither exists in postgres, so each row's new hash
+   * (and, for a page, its new path) is computed here in JS. What is deliberately not touched is
+   * `updatedAt`: the folder moved, the pages under it did not change, and marking a few hundred of
+   * them as freshly edited would say otherwise.
+   *
+   * The computation is genuinely row-by-row (see above), but the write-back is not: every row's new
+   * `tree.hash`, and every page-row's new `pages.path`/`hash`, is batched into chunks of
+   * `TREE_UPDATE_CHUNK_SIZE` and written with one `UPDATE ... FROM (VALUES ...)` per chunk rather than
+   * one `UPDATE` per row (OpenProject #1865) — a folder with a couple thousand descendants used to be
+   * that many sequential round trips with row locks held on `tree` and `pages` throughout.
    */
   private async refreshDescendantPaths(
     siteId: string,
@@ -1095,25 +1110,43 @@ class Tree {
         )
       )
 
-    let pageCount = 0
+    const treeUpdates: { id: string; hash: string }[] = []
+    const pageUpdates: { id: string; path: string; hash: string }[] = []
     for (const row of rows) {
       const folderPath = decodeTreePath(row.folderPath ?? '')
       const fullPath = folderPath ? `${folderPath}/${row.fileName}` : row.fileName
-      await db
-        .update(treeTable)
-        .set({ hash: generateHash(fullPath) })
-        .where(eq(treeTable.id, row.id))
+      treeUpdates.push({ id: row.id, hash: generateHash(fullPath) })
       if (row.type === 'page') {
-        await db
-          .update(pagesTable)
-          .set({ path: fullPath, hash: generatePathHash(fullPath) })
-          .where(eq(pagesTable.id, row.id))
-        pageCount++
+        pageUpdates.push({ id: row.id, path: fullPath, hash: generatePathHash(fullPath) })
       }
     }
+
+    for (const batch of chunk(treeUpdates, TREE_UPDATE_CHUNK_SIZE)) {
+      await db.execute(sql`
+        UPDATE tree AS t
+        SET hash = v.hash
+        FROM (VALUES ${sql.join(
+          batch.map((u) => sql`(${u.id}::uuid, ${u.hash})`),
+          sql`, `
+        )}) AS v(id, hash)
+        WHERE t.id = v.id
+      `)
+    }
+    for (const batch of chunk(pageUpdates, TREE_UPDATE_CHUNK_SIZE)) {
+      await db.execute(sql`
+        UPDATE pages AS p
+        SET path = v.path, hash = v.hash
+        FROM (VALUES ${sql.join(
+          batch.map((u) => sql`(${u.id}::uuid, ${u.path}, ${u.hash})`),
+          sql`, `
+        )}) AS v(id, path, hash)
+        WHERE p.id = v.id
+      `)
+    }
+
     if (rows.length > 0) {
       WIKI.logger.debug(
-        `Refreshed the path of ${rows.length} moved entrie(s), ${pageCount} of them page(s).`
+        `Refreshed the path of ${rows.length} moved entrie(s), ${pageUpdates.length} of them page(s).`
       )
     }
   }
