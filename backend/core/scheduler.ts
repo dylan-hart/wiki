@@ -845,6 +845,19 @@ export default {
       WIKI.logger.warn(err)
     }
   },
+  /**
+   * Stop the scheduler.
+   *
+   * Clears both intervals first, so no new job is claimed once shutdown begins, then waits for
+   * whatever `processJob()` batches are already in flight (bounded, so one hung task cannot hold this
+   * open indefinitely — see `drainInFlightJobs()`) before destroying the worker pool out from under
+   * whatever is still running. A batch still going at the bound is abandoned exactly as before this
+   * drain existed: `workerPool.destroy()` tears it down, and its `jobHistory` row is picked up by
+   * `reapStaleJobs()` once `staleJobTimeout` elapses.
+   *
+   * Returns the same awaitable promise `backend/index.ts`'s `gracefulServer(...)` `closePromises`
+   * holds (OpenProject #2028) — nothing further to wire up here, `stop()` was already awaitable.
+   */
   async stop(): Promise<void> {
     WIKI.logger.info('Stopping Scheduler...')
     clearInterval(this.scheduledRef!)

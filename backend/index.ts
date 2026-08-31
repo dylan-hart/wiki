@@ -408,28 +408,26 @@ async function initHTTPServer() {
     livenessEndpoint: '/_live',
     readinessEndpoint: '/_ready',
     kubernetes: Boolean(process.env.KUBERNETES_SERVICE_HOST),
-    // -> The real shutdown routines, awaited (`Promise.allSettled`) before the server closes and the
-    //    process exits -- replacing the previous `SHUTTING_DOWN` handler below, which called two of
-    //    these directly and awaited neither, so the library's own 1000ms default `timeout` (below)
-    //    elapsed and forced the exit regardless of whether they had actually finished.
-    //    `scheduler.stop()` first clears `pollingRef`/`scheduledRef` so no new job is claimed once
-    //    shutdown begins, then drains and closes its own LISTEN client; `collab.shutdown()` closes
-    //    every editing socket with a going-away code so editors reconnect to whichever instance takes
-    //    over rather than sitting on a dead connection; `dbManager.unsubscribeFromNotifications()`
-    //    drains and closes the event bus's LISTEN client; the pool itself closes last, once nothing
-    //    above is still checking a connection out of it.
+    // -> Awaited via `Promise.allSettled` by the library once the pre-close delay below has
+    //    elapsed — each one is itself internally bounded (`scheduler.stop()`'s own drain timeout,
+    //    `collab.shutdown()`/`dbManager.shutdown()`'s bounded socket/pool teardown), so a hung
+    //    routine here cannot hold the process open indefinitely. Previously empty, so every deploy,
+    //    restart or pod eviction abandoned an in-flight job, a live collab socket and the pg pool's
+    //    LISTEN client rather than draining them (OpenProject #2018/#2028). `dbManager.shutdown()`
+    //    is one call rather than its two steps listed separately here, because those two steps have
+    //    an order dependency (`unsubscribeFromNotifications()`'s own drain needs a live pool) that
+    //    `Promise.allSettled` running sibling entries concurrently would not preserve.
     closePromises: [
       () => WIKI.scheduler.stop(),
       () => WIKI.collab.shutdown(),
-      () => WIKI.dbManager.unsubscribeFromNotifications(),
-      () => WIKI.dbManager.pool?.end() ?? Promise.resolve()
+      () => WIKI.dbManager.shutdown()
     ],
-    // -> Above the library's 1000ms default, which gave an in-flight job, render, export or webhook
-    //    delivery essentially no drain window before being killed mid-work on every ordinary deploy,
-    //    restart or pod eviction (the cost `core/scheduler.ts#processJob`'s own doc comment describes
-    //    `reapStaleJobs` existing to clean up after). Comfortably inside a typical orchestrator's own
-    //    termination grace period (Kubernetes defaults to 30s) while still bounded.
-    timeout: 10000
+    // -> Library default is 1000ms, spent entirely as a pre-close delay *before* `closePromises`
+    //    run (not a timeout wrapping them) — barely enough for a readiness probe to notice
+    //    `isReady()` has flipped and stop routing new traffic here. Raised well above that, while
+    //    staying comfortably under a typical 30s Kubernetes `terminationGracePeriodSeconds` once
+    //    added to `scheduler.stop()`'s own drain bound above.
+    timeout: 5000
   })
 
   app.register(fastifySensible)
@@ -476,6 +474,9 @@ async function initHTTPServer() {
   // ----------------------------------------
 
   WIKI.server.on(gracefulServer.SHUTTING_DOWN, () => {
+    // -> The actual teardown (scheduler drain, collab socket close, db unsubscribe + pool end) now
+    //    runs via `closePromises` above, awaited by the library before it closes the server — this
+    //    handler is logging only.
     WIKI.logger.info('Shutting down HTTP Server... [ STOPPING ]')
     // -> The actual shutdown work happens in `closePromises` above, which the library awaits before
     //    closing the server -- this handler is log-only now.
