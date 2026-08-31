@@ -183,6 +183,47 @@ test('GET /:code/strings serializes an empty array for an unknown locale', async
 })
 
 /**
+ * `GET /:code/strings` ETag (OpenProject #1839): derived from the matching locale row's `updatedAt`
+ * (`sampleLocale.updatedAt` -> `2026-01-02T00:00:00.000Z`), the same `"<key>-<epochMs>"` shape
+ * `controllers/files.ts`'s existing asset ETag already uses.
+ */
+const sampleLocaleEtag = `"en-${sampleLocale.updatedAt.getTime()}"`
+
+test('GET /:code/strings sets an ETag derived from the locale row updatedAt', async () => {
+  const res = await app.inject({ method: 'GET', url: '/en/strings' })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.headers.etag, sampleLocaleEtag)
+  assert.deepEqual(res.json(), sampleStrings)
+})
+
+test('GET /:code/strings returns 304 with no body for a matching If-None-Match', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/en/strings',
+    headers: { 'if-none-match': sampleLocaleEtag }
+  })
+  assert.equal(res.statusCode, 304)
+  assert.equal(res.body, '')
+})
+
+test('GET /:code/strings returns the full payload for a stale If-None-Match', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/en/strings',
+    headers: { 'if-none-match': '"en-0"' }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.headers.etag, sampleLocaleEtag)
+  assert.deepEqual(res.json(), sampleStrings)
+})
+
+test('GET /:code/strings sets no ETag for an unknown locale', async () => {
+  const res = await app.inject({ method: 'GET', url: '/xx/strings' })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.headers.etag, undefined)
+})
+
+/**
  * `POST /sideload` (OpenProject #820): a `manage:system`-only trigger for
  * `WIKI.models.locales.sideloadFromDataPath`, letting an admin rescan `<dataPath>/locales/` for a
  * dropped-in locale pack against a running instance without a restart.
