@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNotNull, isNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import {
   assets as assetsTable,
   contentSyncState as contentSyncStateTable,
@@ -270,6 +270,43 @@ class ContentSync {
         ],
         set: { lastError: error, updatedAt: sql`now()` }
       })
+  }
+
+  /**
+   * Drop every sync-state row for one content item, across every target. Call this when the page or
+   * asset itself is deleted -- `contentId` is deliberately not a foreign key (see the schema comment
+   * on `contentSyncState`, since it points at either `pages.id` or `assets.id`), so nothing at the db
+   * level cleans this up on its own; this is the compensating delete that design assumed.
+   *
+   * Covered cheaply by the existing `contentSyncState_content_idx` (`(contentType, contentId)`).
+   */
+  async forgetContent(contentType: SyncContentType, contentId: string): Promise<void> {
+    await WIKI.db
+      .delete(contentSyncStateTable)
+      .where(
+        and(
+          eq(contentSyncStateTable.contentType, contentType),
+          eq(contentSyncStateTable.contentId, contentId)
+        )
+      )
+  }
+
+  /**
+   * Same as `forgetContent`, but for a batch of content items of the same type in one call -- what a
+   * folder deletion's bulk `deleteOrphaned` path needs, rather than one query per item.
+   */
+  async forgetContentBatch(contentType: SyncContentType, contentIds: string[]): Promise<void> {
+    if (contentIds.length < 1) {
+      return
+    }
+    await WIKI.db
+      .delete(contentSyncStateTable)
+      .where(
+        and(
+          eq(contentSyncStateTable.contentType, contentType),
+          inArray(contentSyncStateTable.contentId, contentIds)
+        )
+      )
   }
 
   /**

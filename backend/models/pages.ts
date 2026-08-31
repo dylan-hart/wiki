@@ -1818,6 +1818,10 @@ class Pages {
     // -> Nor in the cached graph bundle, as a node or as an edge target.
     invalidateGraphCache(siteId)
 
+    // -> `contentSyncState.contentId` isn't a real FK (it can point at a page or an asset), so nothing
+    //    at the db level drops the sync-state rows for this page on its own.
+    await WIKI.models.contentSync.forgetContent('page', id)
+
     await WIKI.models.search.deleted(siteId, id)
     await WIKI.models.hooks.emit('page:delete', siteId, {
       id,
@@ -1910,6 +1914,12 @@ class Pages {
     this.invalidateSitemapCache(siteId)
     // -> ...and in the cached graph bundle.
     invalidateGraphCache(siteId)
+
+    // -> Same reasoning as `deletePage`: one batched call rather than one per page.
+    await WIKI.models.contentSync.forgetContentBatch(
+      'page',
+      entries.map((entry) => entry.id)
+    )
 
     // -> One per page, as deleting them one at a time would have sent: a subscriber mirroring the
     //    wiki has to hear about each page, not about the folder it happened to sit in
