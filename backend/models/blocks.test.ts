@@ -2,7 +2,12 @@ import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { and, eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { blockCode as blockCodeTable, blocks as blocksTable } from '../db/schema.ts'
+import {
+  blockCode as blockCodeTable,
+  blocks as blocksTable,
+  pageRenderQueue as pageRenderQueueTable,
+  pages as pagesTable
+} from '../db/schema.ts'
 import type { BlockDefinition } from './blocks.ts'
 
 /**
@@ -582,6 +587,76 @@ describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () =
     )
     assert.equal(siteBlock!.isEnabled, true)
     assert.deepEqual(siteBlock!.config, { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' })
+  })
+
+  /**
+   * OpenProject #1738: `setBlocksState` deliberately does not queue a re-render of pages that already
+   * embed a block moved to disabled here — see the doc comments on this method and on
+   * `models/rendering.ts#blockAllowances` for why. Locks in the actual behavior (no `pageRenderQueue`
+   * row, stored `render` left as-is) so neither doc comment can silently drift out of sync with the
+   * code again.
+   */
+  test('disabling a block leaves pages that embed it unqueued and their stored render untouched', async () => {
+    blocksModel.definitions = [
+      {
+        block: 'toggle-propagation-probe',
+        name: 'Toggle Propagation Probe',
+        description: 'A block used only by this regression test.',
+        icon: 'geography'
+      }
+    ]
+
+    const [block] = await fixtures.db
+      .insert(blocksTable)
+      .values({
+        siteId: fixtures.siteId,
+        block: 'toggle-propagation-probe',
+        name: 'Toggle Propagation Probe',
+        description: 'A block used only by this regression test.',
+        icon: 'geography',
+        isEnabled: true,
+        isCustom: false,
+        config: {}
+      })
+      .returning({ id: blocksTable.id })
+
+    const storedRender =
+      '<p>Before</p><block-toggle-propagation-probe lat="1"></block-toggle-propagation-probe><p>After</p>'
+    const [page] = await fixtures.db
+      .insert(pagesTable)
+      .values({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'toggle-propagation-probe',
+        hash: 'toggle-propagation-probe-hash',
+        title: 'Toggle Propagation Probe',
+        editor: 'markdown',
+        contentType: 'markdown',
+        content: '::block-toggle-propagation-probe\nlat: 1\n::',
+        render: storedRender,
+        authorId: fixtures.userId,
+        creatorId: fixtures.userId,
+        ownerId: fixtures.userId,
+        classification: fixtures.classificationId
+      })
+      .returning({ id: pagesTable.id })
+
+    const updated = await blocksModel.setBlocksState(fixtures.siteId, [
+      { id: block!.id, isEnabled: false }
+    ])
+    assert.equal(updated, 1)
+
+    const queueRows = await fixtures.db
+      .select({ id: pageRenderQueueTable.id })
+      .from(pageRenderQueueTable)
+      .where(eq(pageRenderQueueTable.pageId, page!.id))
+    assert.deepEqual(queueRows, [])
+
+    const [pageRow] = await fixtures.db
+      .select({ render: pagesTable.render })
+      .from(pagesTable)
+      .where(eq(pagesTable.id, page!.id))
+    assert.equal(pageRow!.render, storedRender)
   })
 })
 

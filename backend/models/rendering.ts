@@ -563,9 +563,24 @@ class Rendering {
    * Installed is not sufficient: the block also has to be switched on for this site. Leaving the
    * picker to decide that would only cover the authors who use it — the content is markdown, so
    * `::block-diagram` is a thing anybody can type, and a block an administrator turned off would
-   * otherwise render for every reader of that page. Being stripped on the way in is also what makes
-   * turning a block off take effect on the pages that already embed it, since each is re-rendered
-   * through here.
+   * otherwise render for every reader of that page.
+   *
+   * Turning a block off does NOT retroactively rewrite pages that already embed it, though (OpenProject
+   * #1738, correcting an earlier version of this comment that claimed otherwise).
+   * `models/blocks.ts#setBlocksState` only flips the block's own `isEnabled`/`config` row; nothing
+   * queues a re-render of pages carrying the tag. A page saved before the toggle keeps `<block-x>` in
+   * its stored `render` column until that page is next saved, or explicitly re-rendered
+   * (`models/pages.ts#queueRerender`) — this function is what strips it on that next pass, not before.
+   * A reader is still protected in the meantime: the reader view resolves each `block-*` tag against
+   * `siteStore.blocksIndex`, which `api/sites.ts#siteBlocksInfoFor` populates for enabled blocks only,
+   * and skips anything absent from it rather than falling back to a bare tag (`Index.vue`'s block
+   * scan, OpenProject #1729) — so disabling a block is effective for every reader immediately. Only the
+   * page's own stored HTML (visible to an editor re-opening it, or to anyone with `read:source`) lags
+   * behind until it is next rendered. Queuing a bulk re-render of every affected page from
+   * `setBlocksState` was considered and deliberately left undone: doing it at bounded cost needs a way
+   * to find "pages whose stored render embeds this tag" that does not exist today, plus a `PageActor`
+   * for per-page permissions `setBlocksState` has no access to — a distinct, separately-scoped feature
+   * if it's ever actually wanted, not a fix folded into a bulk block-state toggle.
    *
    * Child blocks are exempt, having no switch of their own: a tab is part of the tabs it sits in,
    * and is gated by `unwrapOrphanedChildBlocks` once the parent's fate is known.
