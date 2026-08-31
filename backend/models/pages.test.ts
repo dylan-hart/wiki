@@ -1193,6 +1193,57 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       assert.equal(moved!.classification, restrictedId)
     })
 
+    /**
+     * OpenProject #1935: `page:classification-changed` must fire on a real level change and stay
+     * silent on a patch that merely restates the current level -- the editor sends every field on
+     * every save, so `patch.classification !== undefined` alone is not the right guard. Spies on
+     * `WIKI.models.hooks.emit` the same way this file already spies on `WIKI.models.search` above
+     * (own-property shadow, restored via `delete` in `finally`).
+     */
+    test('updatePage emits page:classification-changed only when the level actually changes', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/hook-classification', classification: internalId }),
+        actor
+      )
+
+      const hooksModel = (globalThis as any).WIKI.models.hooks
+      const emitted: { event: string; siteId: string | null; data: any }[] = []
+      hooksModel.emit = async (event: string, siteId: string | null, data: any) => {
+        emitted.push({ event, siteId, data })
+        return 0
+      }
+
+      try {
+        // -> Restates the current level: must fire nothing
+        await pagesModel.updatePage(fixtures.siteId, page.id, { classification: internalId }, actor)
+        assert.equal(
+          emitted.filter((e) => e.event === 'page:classification-changed').length,
+          0,
+          'a no-op classification restate must not emit page:classification-changed'
+        )
+
+        // -> An actual change: must fire exactly once, carrying the old and new level
+        await pagesModel.updatePage(
+          fixtures.siteId,
+          page.id,
+          { classification: restrictedId },
+          actor
+        )
+        const changeEvents = emitted.filter((e) => e.event === 'page:classification-changed')
+        assert.equal(changeEvents.length, 1, 'a real classification change must emit exactly once')
+        const [{ siteId, data }] = changeEvents
+        assert.equal(siteId, fixtures.siteId)
+        assert.equal(data.id, page.id)
+        assert.equal(data.path, page.path)
+        assert.equal(data.siteId, fixtures.siteId)
+        assert.equal(data.previousClassification, internalId)
+        assert.equal(data.classification, restrictedId)
+      } finally {
+        delete hooksModel.emit
+      }
+    })
+
     test('movePage never lowers a page already at or above the new floor', async () => {
       const openParent = await pagesModel.createPage(
         fixtures.siteId,

@@ -1020,6 +1020,13 @@ class Pages {
     //    permission follows (see CLAUDE.md's Permissions section). This is the structural check: a
     //    page's classification, whichever direction it moves, may never end up below its immediate
     //    parent's floor.
+    // -> Compared against the row as it stands, not merely `!== undefined`: the editor can send a
+    //    patch that restates the current level (same as `changedFields` below does for every other
+    //    field), and `page:classification-changed` (OpenProject #1935) must never fire for that --
+    //    a webhook firing on a no-op change is worse than no webhook for the compliance integrations
+    //    this event exists for.
+    const classificationChanged =
+      patch.classification !== undefined && patch.classification !== existing.classification
     if (patch.classification !== undefined) {
       if (!WIKI.models.classificationLevels.byId(patch.classification)) {
         throw new CustomError(
@@ -1138,6 +1145,17 @@ class Pages {
       authorId: actor.id,
       metadata: { title: updated.title, description: updated.description }
     })
+    if (classificationChanged) {
+      await WIKI.models.hooks.emit('page:classification-changed', siteId, {
+        id,
+        path: updated.path,
+        locale: updated.locale,
+        siteId,
+        authorId: actor.id,
+        previousClassification: existing.classification,
+        classification: updated.classification
+      })
+    }
     await WIKI.models.storage.dispatch('page:edit', {
       id,
       path: updated.path,

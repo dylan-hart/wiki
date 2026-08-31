@@ -596,3 +596,25 @@ describe('hooks emit site scoping (DB-backed)', { skip: !hasTestDatabase() }, ()
     assert.ok(!queued.includes(scoped), 'a site-scoped hook must not fire on a site-less event')
   })
 })
+
+/**
+ * Declared/emitted parity for `page:classification-changed` (OpenProject #1935): a pure check of the
+ * two plain array exports, no `WIKI` or database needed. `api/hooks.test.ts` already asserts the same
+ * kind of parity generically (every `HOOK_EVENTS` entry's `isEmitted` flag against `EMITTED_EVENTS`)
+ * for the `GET /hooks/events` response; this pins the specific new entry at the source-of-truth level
+ * so a future edit that declares the event without wiring its `emit()` call (or vice versa) fails here
+ * too, not only at the API layer.
+ */
+describe('HOOK_EVENTS / EMITTED_EVENTS declared/emitted parity', () => {
+  test('page:classification-changed is both declared and emitted', async () => {
+    const { HOOK_EVENTS, EMITTED_EVENTS } = await import('./hooks.ts')
+    assert.ok(
+      (HOOK_EVENTS as readonly string[]).includes('page:classification-changed'),
+      'page:classification-changed should be declared in HOOK_EVENTS'
+    )
+    assert.ok(
+      (EMITTED_EVENTS as string[]).includes('page:classification-changed'),
+      'page:classification-changed should be listed in EMITTED_EVENTS'
+    )
+  })
+})
