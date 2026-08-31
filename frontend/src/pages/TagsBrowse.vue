@@ -239,6 +239,7 @@ import { localizedPagePath } from '@/helpers/pagePaths'
 
 import { DEFAULT_PAGE_ICON } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 /** How many results one browse returns. The API caps this at 100, and there is no pager yet. */
 const RESULTS_LIMIT = 100
@@ -251,6 +252,7 @@ const router = useRouter()
 // STORES
 
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
