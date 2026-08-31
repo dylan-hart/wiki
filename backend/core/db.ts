@@ -18,6 +18,7 @@ import {
   createNotifier,
   type ListenerHandle
 } from '../helpers/pubsub.ts'
+import { acquireAdvisoryLock, type AdvisoryLockHandle } from '../helpers/advisoryLock.ts'
 import maintenance from './maintenance.ts'
 // import migrationSource from '../db/migrator-source.js'
 
@@ -51,6 +52,17 @@ const notifier = createNotifier(() => WIKI.dbManager?.pubsubClient ?? null, 'eve
  * explained below: a migration file cannot express it durably.
  */
 const REQUIRED_EXTENSIONS = ['ltree', 'pg_trgm', 'pgcrypto']
+
+/**
+ * Advisory lock key `syncSchemas()` serializes its DDL and `migrate()` under.
+ *
+ * Two instances starting cold at once both read the same not-yet-applied migration set and both try
+ * to run it — drizzle computes `migrationsToRun` outside any lock of its own, so the loser's own
+ * transaction fails on `relation already exists` (task 2041/epic 2037). Holding this for the whole
+ * of `syncSchemas()` makes the loser block on `pg_advisory_lock` until the winner's migration has
+ * fully committed, then re-read an already-migrated state and find nothing left to run.
+ */
+const MIGRATION_LOCK_KEY = 'wiki:migrate'
 
 /**
  * Tables whose presence means the database belongs to a Wiki.js 2.x installation.
@@ -334,7 +346,11 @@ export default {
 
     // Run Migrations
     if (!workerMode) {
-      await this.syncSchemas(db)
+      // -> `syncSchemas()` hands back the still-held advisory lock rather than releasing it itself
+      //    (see its own doc comment) so a wider boot sequence could keep holding it past this point —
+      //    not done yet (task 2044), so it is released immediately here.
+      const migrationLock = await this.syncSchemas(db)
+      await migrationLock.release()
     }
 
     return db
@@ -567,56 +583,52 @@ export default {
   /**
    * Migrate DB Schemas
    *
-   * The schema/extension setup and the migration run are held under one session-scoped Postgres
-   * advisory lock ('wiki:migrate'), taken on a dedicated client checked out of `this.pool` rather than
-   * through drizzle's own query interface — the lock and its release must run on the exact same
-   * physical connection, the same constraint `helpers/advisoryLock.ts` documents and `test/db.ts`'s
-   * `createExtensionsSerialized` already follows. Drizzle's `migrate()` itself takes no lock (verified
-   * in the vendored source): two instances starting together against a fresh database both compute the
-   * same non-empty migration list and both try to apply it, and the loser's transaction fails on
-   * `relation already exists`. Serializing here closes that race; `index.ts#preBoot()` takes the same
-   * key around the is-empty check and first-run seed that follows this, as one atomic boot-time
-   * decision (they cannot share a single lock *acquisition*, since `WIKI.db` — what
-   * `helpers/advisoryLock.ts`'s shared `withAdvisoryLock` reads its connection from — does not exist
-   * yet at this point in boot).
+   * Holds a session-scoped advisory lock (`MIGRATION_LOCK_KEY`) across the legacy-install check,
+   * `CREATE SCHEMA`, `CREATE EXTENSION` and `migrate()` below — see `MIGRATION_LOCK_KEY`'s own doc
+   * comment for why. Taken off `this.pool` rather than `WIKI.db.$client`/`withAdvisoryLock`: `WIKI.db`
+   * is only assigned from this method's caller's return value (`index.ts` does `WIKI.db =
+   * await dbManager.init()`), so it does not exist yet at this point in boot.
+   *
+   * Returns the still-held lock handle rather than releasing it itself, so a wider caller can go on
+   * holding it past this method returning — `init()` releases it immediately for now, but a boot
+   * sequence that also needs to serialize first-run seeding against this same lock (task 2044) can
+   * hold it further before calling `release()`.
    */
-  async syncSchemas(db: WikiDb) {
-    await this.checkForLegacyInstall(db)
-
-    const lockClient = await this.pool!.connect()
+  async syncSchemas(db: WikiDb): Promise<AdvisoryLockHandle> {
+    const lock = await acquireAdvisoryLock(this.pool as Pool, MIGRATION_LOCK_KEY)
     try {
-      await lockClient.query(`SELECT pg_advisory_lock(hashtext('wiki:migrate'))`)
-      try {
-        WIKI.logger.info('Ensuring DB schema exists...')
-        await db.execute(`CREATE SCHEMA IF NOT EXISTS ${WIKI.config.db.schema}`)
+      await this.checkForLegacyInstall(db)
 
-        /*
-          Here rather than at the top of the first migration, for the same reason the schema itself is:
-          the migrations need these to exist and cannot express them.
+      WIKI.logger.info('Ensuring DB schema exists...')
+      await db.execute(`CREATE SCHEMA IF NOT EXISTS ${WIKI.config.db.schema}`)
 
-          `drizzle-kit generate` builds a migration by diffing the schema definition against the previous
-          snapshot, and an extension is part of neither — so a hand-written `CREATE EXTENSION` preamble
-          survives only until somebody regenerates, at which point the very first migration fails on the
-          `ltree` column it can no longer create. Stated here, that cannot happen.
+      /*
+        Here rather than at the top of the first migration, for the same reason the schema itself is:
+        the migrations need these to exist and cannot express them.
 
-          Idempotent, so a database whose extensions an administrator installed by hand is untouched.
-        */
-        WIKI.logger.info('Ensuring required DB extensions are installed...')
-        for (const extension of REQUIRED_EXTENSIONS) {
-          await db.execute(`CREATE EXTENSION IF NOT EXISTS ${extension}`)
-        }
+        `drizzle-kit generate` builds a migration by diffing the schema definition against the previous
+        snapshot, and an extension is part of neither — so a hand-written `CREATE EXTENSION` preamble
+        survives only until somebody regenerates, at which point the very first migration fails on the
+        `ltree` column it can no longer create. Stated here, that cannot happen.
 
-        WIKI.logger.info('Ensuring DB migrations have been applied...')
-        return await migrate(db, {
-          migrationsFolder: path.join(WIKI.SERVERPATH, 'db/migrations'),
-          migrationsSchema: WIKI.config.db.schema,
-          migrationsTable: 'migrations'
-        })
-      } finally {
-        await lockClient.query(`SELECT pg_advisory_unlock(hashtext('wiki:migrate'))`)
+        Idempotent, so a database whose extensions an administrator installed by hand is untouched.
+      */
+      WIKI.logger.info('Ensuring required DB extensions are installed...')
+      for (const extension of REQUIRED_EXTENSIONS) {
+        await db.execute(`CREATE EXTENSION IF NOT EXISTS ${extension}`)
       }
-    } finally {
-      lockClient.release()
+
+      WIKI.logger.info('Ensuring DB migrations have been applied...')
+      await migrate(db, {
+        migrationsFolder: path.join(WIKI.SERVERPATH, 'db/migrations'),
+        migrationsSchema: WIKI.config.db.schema,
+        migrationsTable: 'migrations'
+      })
+
+      return lock
+    } catch (err) {
+      await lock.release()
+      throw err
     }
   }
 }
