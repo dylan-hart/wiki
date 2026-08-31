@@ -116,6 +116,7 @@ beforeEach(() => {
   }
 
   dbManager.pool = null
+  dbManager.listenerPool = null
   dbManager.pubsubClient = null
   dbManager.listenerHandle = null
 })
@@ -133,7 +134,7 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     const pool = new FakePool()
     const initialClient = new FakeClient()
     pool.queueClient(initialClient)
-    dbManager.pool = pool as any
+    dbManager.listenerPool = pool as any
 
     await dbManager.subscribeToNotifications()
     assert.equal(dbManager.pubsubClient, initialClient)
@@ -172,7 +173,7 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     const pool = new FakePool()
     const client = new FakeClient()
     pool.queueClient(client)
-    dbManager.pool = pool as any
+    dbManager.listenerPool = pool as any
 
     await dbManager.subscribeToNotifications()
 
@@ -208,7 +209,7 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     const pool = new FakePool()
     const client = new FakeClient()
     pool.queueClient(client)
-    dbManager.pool = pool as any
+    dbManager.listenerPool = pool as any
 
     await dbManager.subscribeToNotifications()
 
@@ -247,5 +248,31 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.equal(groupsReloadCacheMock.mock.calls.length, 1)
     assert.equal(sitesReloadCacheMock.mock.calls.length, 1)
     assert.equal(approvalsReloadCacheMock.mock.calls.length, 1)
+  })
+})
+
+/**
+ * Task 1887 (epic 1878): `subscribeToNotifications()` used to check its client out of `dbManager.pool`
+ * -- the same pool application queries run against -- so holding it for the process lifetime silently
+ * cost the configured `max` one connection. It must check out of the dedicated `dbManager.listenerPool`
+ * instead, and never touch the query pool at all.
+ */
+describe('subscribeToNotifications() checks out from the dedicated listener pool, not the query pool', () => {
+  test('connects via dbManager.listenerPool and never calls dbManager.pool.connect()', async () => {
+    const listenerPool = new FakePool()
+    const client = new FakeClient()
+    listenerPool.queueClient(client)
+    dbManager.listenerPool = listenerPool as any
+
+    // -> Stands in for the main query pool -- application queries would run against this, and
+    //    `subscribeToNotifications()` must never check a client out of it.
+    const queryPool = new FakePool()
+    dbManager.pool = queryPool as any
+
+    await dbManager.subscribeToNotifications()
+
+    assert.equal(dbManager.pubsubClient, client)
+    assert.equal(listenerPool.connectCalls, 1)
+    assert.equal(queryPool.connectCalls, 0)
   })
 })
