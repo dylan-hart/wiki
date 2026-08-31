@@ -230,7 +230,7 @@
                   icon="la:check"
                   >{{ t('admin.icons.added') }}</w-chip
                 >
-                <w-icon v-else name="la:plus-circle" color="primary" size="sm" />
+                <w-icon v-else name="la:plus" color="primary" size="sm" />
               </w-item-section>
             </w-item>
           </w-list>

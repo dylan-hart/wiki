@@ -50,7 +50,7 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:plus-circle"
+              icon="la:plus"
               :label="t(`common.actions.new`)"
               :disable="!userStore.can(`manage:sites`)"
               @click="newSite" />
@@ -79,7 +79,7 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:plus-circle"
+              icon="la:plus"
               :label="t(`common.actions.new`)"
               :disable="!userStore.can(`manage:groups`)"
               @click="newGroup" />

@@ -180,7 +180,7 @@
                 @click="insertItem()"
                 :label="t(`common.actions.insert`)"
                 color="primary"
-                icon="la:plus-circle"
+                icon="la:plus"
                 push
                 padding="sm" />
             </template>
@@ -342,7 +342,7 @@
               color="blue"
               :label="t(`common.actions.new`)"
               :aria-label="t(`common.actions.new`)"
-              icon="la:plus-circle">
+              icon="la:plus">
               <new-menu
                 :hide-asset-btn="true"
                 :show-new-folder="true"
@@ -374,7 +374,7 @@
               color="primary"
               :label="t(`common.actions.insert`)"
               :aria-label="t(`common.actions.insert`)"
-              icon="la:plus-circle"
+              icon="la:plus"
               @click="insertItem()" />
           </template>
         </w-toolbar>
@@ -446,7 +446,7 @@
                           v-if="insertMode && item.type !== `folder`"
                           @click="insertItem(item)">
                           <w-item-section side>
-                            <w-icon name="la:plus-circle" color="primary" />
+                            <w-icon name="la:plus" color="primary" />
                           </w-item-section>
                           <w-item-section>{{ t(`common.actions.insert`) }}</w-item-section>
                         </w-item>

@@ -5,7 +5,7 @@
   never waits on (or depends on) the icon service. Regenerate with `npm run icons` after adding or
   removing an icon; `npm run icons:check` fails the build if this drifts.
 
-  273 icons.
+  272 icons.
 */
 export const BUNDLED_ICONS = {
   "la:angle-right": {"body":"<path fill=\"currentColor\" d=\"M12.969 4.281L11.53 5.72L21.812 16l-10.28 10.281l1.437 1.438l11-11l.687-.719l-.687-.719z\"/>","width":32,"height":32},
@@ -105,7 +105,6 @@ export const BUNDLED_ICONS = {
   "la:play": {"body":"<path fill=\"currentColor\" d=\"M9 5.156v21.688l1.531-1L25.844 16L10.53 6.156zm2 3.657L22.156 16L11 23.188z\"/>","width":32,"height":32},
   "la:plug": {"body":"<path fill=\"currentColor\" d=\"m22 3.594l-4 3.969l-2.281-2.282L14.28 6.72l.75.75l-5.125 5.125a3.126 3.126 0 0 0 0 4.406l1.844 1.844l-7.469 7.437l1.44 1.438l7.437-7.469L15 22.094a3.126 3.126 0 0 0 4.406 0l5.125-5.125l.75.75l1.438-1.438L24.437 14l3.97-4L27 8.594l-4 3.969L19.437 9l3.97-4zm-5.563 5.281l6.688 6.688L18 20.686c-.387.387-1.207.387-1.594 0l-5.093-5.093c-.387-.387-.387-1.207 0-1.594z\"/>","width":32,"height":32},
   "la:plus": {"body":"<path fill=\"currentColor\" d=\"M15 5v10H5v2h10v10h2V17h10v-2H17V5z\"/>","width":32,"height":32},
-  "la:plus-circle": {"body":"<path fill=\"currentColor\" d=\"M16 3C8.832 3 3 8.832 3 16s5.832 13 13 13s13-5.832 13-13S23.168 3 16 3m0 2c6.086 0 11 4.914 11 11s-4.914 11-11 11S5 22.086 5 16S9.914 5 16 5m-1 5v5h-5v2h5v5h2v-5h5v-2h-5v-5z\"/>","width":32,"height":32},
   "la:power-off": {"body":"<path fill=\"currentColor\" d=\"M15 4v12h2V4zm-3 .688C7.348 6.34 4 10.785 4 16c0 6.617 5.383 12 12 12s12-5.383 12-12c0-5.215-3.348-9.66-8-11.313v2.157C23.527 8.39 26 11.91 26 16c0 5.516-4.484 10-10 10S6 21.516 6 16c0-4.09 2.473-7.61 6-9.156z\"/>","width":32,"height":32},
   "la:print": {"body":"<path fill=\"currentColor\" d=\"M9 4v7H7c-1.645 0-3 1.355-3 3v10h5v4h14v-4h5V14c0-1.645-1.355-3-3-3h-2V4zm2 2h10v5H11zm-4 7h18c.566 0 1 .434 1 1v8h-3v-4H9v4H6v-8c0-.566.434-1 1-1m1 1c-.55 0-1 .45-1 1s.45 1 1 1s1-.45 1-1s-.45-1-1-1m3 6h10v6H11z\"/>","width":32,"height":32},
   "la:project-diagram": {"body":"<path fill=\"currentColor\" d=\"M3 6v8h5.635L12 19.908V27h8v-8h-6.217l-2.845-5H11v-3h10v3h8V6h-8v3H11V6zm2 2h4v4H5zm18 0h4v4h-4zm-8.582 13H18v4h-4v-3.762z\"/>","width":32,"height":32},

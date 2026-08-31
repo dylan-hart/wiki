@@ -73,3 +73,22 @@ describe('HeaderNav "Browse by tags" entry point (OpenProject #1218)', () => {
     expect(tagsLink).toBeFalsy()
   })
 })
+
+/**
+ * OpenProject #2074: "Create New Page" used to draw `la:plus-circle` while every equivalent
+ * create-affordance elsewhere (Index.vue, WelcomeOverlay.vue, AdminSites.vue, ...) draws `la:plus`
+ * for the same kind of action -- settled on `la:plus` everywhere, so this button must not regress
+ * back to the other glyph.
+ */
+describe('HeaderNav "Create New Page" icon (OpenProject #2074)', () => {
+  it('uses the settled la:plus add glyph, not la:plus-circle', async () => {
+    const { wrapper, userStore } = await mountHeaderNav()
+    userStore.permissions = ['write:pages']
+    await wrapper.vm.$nextTick()
+
+    const createButton = wrapper.find('[aria-label="Create New Page"]')
+    expect(createButton.exists()).toBe(true)
+    expect(createButton.find('[data-icon="la:plus"]').exists()).toBe(true)
+    expect(wrapper.find('[data-icon="la:plus-circle"]').exists()).toBe(false)
+  })
+})
