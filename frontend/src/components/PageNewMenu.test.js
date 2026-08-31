@@ -106,3 +106,42 @@ describe('PageNewMenu: import menu item', () => {
     expect(wrapper.text()).toContain('pages.importBatch.menuLabel')
   })
 })
+
+describe('PageNewMenu: import dialogs load asynchronously', () => {
+  /*
+    OpenProject #1884: `ImportPageDialog.vue` and `ImportBatchPageDialog.vue` used to be static
+    top-of-file imports. The latter statically imports `@/renderers/markdown` (markdown-it + 12
+    plugins, `@twemoji/api`, katex, highlight.js), which put that whole pipeline in every reader's
+    static bundle for a menu item almost nobody clicks. Both must now be `defineAsyncComponent`
+    wrappers -- resolved lazily, only once a menu item is actually clicked -- rather than eagerly
+    imported definitions.
+  */
+  it('passes an async component wrapper, not an eagerly-imported definition, to dialog() for both import items', async () => {
+    const { wrapper } = mountMenu()
+    await flushPromises()
+
+    const importItem = wrapper
+      .findAll('.w-item')
+      .find((i) => i.text().includes('pages.import.menuLabel'))
+    const importBatchItem = wrapper
+      .findAll('.w-item')
+      .find((i) => i.text().includes('pages.importBatch.menuLabel'))
+    expect(importItem).toBeTruthy()
+    expect(importBatchItem).toBeTruthy()
+
+    const { openDialogs } = await import('@/composables/dialog')
+
+    await importItem.trigger('click')
+    expect(openDialogs).toHaveLength(1)
+    // -> A `defineAsyncComponent()` return value is an internal Vue component descriptor, not the
+    //    plain SFC export a static `import ImportPageDialog from '...'` would have produced -- it
+    //    carries `__asyncLoader` and has no `__file`/`name` of its own until resolved.
+    expect(openDialogs[0].component.__asyncLoader).toBeInstanceOf(Function)
+
+    await importBatchItem.trigger('click')
+    expect(openDialogs).toHaveLength(2)
+    expect(openDialogs[1].component.__asyncLoader).toBeInstanceOf(Function)
+
+    wrapper.unmount()
+  })
+})
