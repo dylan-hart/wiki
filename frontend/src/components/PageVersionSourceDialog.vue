@@ -41,6 +41,7 @@
 import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { copyToClipboard } from '@/helpers/clipboard'
 import { notify } from '@/composables/notify'
 
@@ -85,7 +86,7 @@ async function copy() {
     await copyToClipboard(props.content)
     notify({ type: 'positive', message: t('history.sourceCopied') })
   } catch (err) {
-    notify({ type: 'negative', message: err.message })
+    notify({ type: 'negative', message: apiErrorMessage(err) })
   }
 }
 </script>

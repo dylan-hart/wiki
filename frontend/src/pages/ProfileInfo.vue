@@ -302,7 +302,7 @@ async function fetchProfile() {
     notify({
       type: 'negative',
       message: t('profile.infoLoadingFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

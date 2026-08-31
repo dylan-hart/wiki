@@ -363,6 +363,7 @@ import { useMinWidth } from '@/composables/screen'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { scrollToAnchor, scrollToAnchorWhenReady } from '@/helpers/anchors'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { pickEditor } from '@/helpers/editorPicker'
 import { parseLocalePrefix } from '@/helpers/pagePaths'
 import { enhanceRenderedContent, routableHref, sameDocumentHash } from '@/helpers/renderedContent'
@@ -711,7 +712,7 @@ watch(
       try {
         await pageStore.pageCreate(pageCreateArgs)
       } catch (err) {
-        notify({ type: 'negative', message: err.message })
+        notify({ type: 'negative', message: apiErrorMessage(err) })
         router.replace('/')
       } finally {
         loading.hide()
@@ -742,7 +743,9 @@ watch(
           notify({
             type: 'negative',
             message:
-              err.message === 'ERR_PAGE_NOT_FOUND' ? 'This page does not exist.' : err.message
+              err.message === 'ERR_PAGE_NOT_FOUND'
+                ? 'This page does not exist.'
+                : apiErrorMessage(err)
           })
           router.replace('/')
         }
@@ -933,7 +936,7 @@ watch(
       } else {
         notify({
           type: 'negative',
-          message: err.message
+          message: apiErrorMessage(err)
         })
       }
     }
@@ -1090,7 +1093,7 @@ async function createPage() {
   try {
     await pageStore.pageCreate({ editor, path: pageStore.path, locale: pageStore.locale })
   } catch (err) {
-    notify({ type: 'negative', message: err.message })
+    notify({ type: 'negative', message: apiErrorMessage(err) })
   } finally {
     loading.hide()
   }

@@ -341,7 +341,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.login.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()
@@ -432,7 +432,7 @@ async function uploadBg() {
     notify({
       type: 'negative',
       message: t('admin.login.bgUploadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--
@@ -452,7 +452,7 @@ async function clearBg() {
     notify({
       type: 'negative',
       message: t('admin.login.bgClearFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

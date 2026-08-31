@@ -571,9 +571,9 @@ import {
   pickSiteImage,
   uploadSiteImage
 } from '@/helpers/siteImages'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { isValidHostname } from '@/helpers/siteValidation'
 import { hostnameRenamedAway } from '@/helpers/siteRename'
-import { apiErrorMessage } from '@/helpers/apiError'
 
 import { toMerged } from 'es-toolkit/object'
 
@@ -716,7 +716,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.general.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()
@@ -857,7 +857,7 @@ async function uploadLogo() {
     notify({
       type: 'negative',
       message: t('admin.general.logoUploadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--
@@ -877,7 +877,7 @@ async function clearLogo() {
     notify({
       type: 'negative',
       message: t('admin.general.logoClearFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--
@@ -909,7 +909,7 @@ async function uploadFavicon() {
     notify({
       type: 'negative',
       message: t('admin.general.faviconUploadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--
@@ -929,7 +929,7 @@ async function clearFavicon() {
     notify({
       type: 'negative',
       message: t('admin.general.faviconClearFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

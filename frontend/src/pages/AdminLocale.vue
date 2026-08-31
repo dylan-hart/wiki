@@ -281,7 +281,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.locale.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()

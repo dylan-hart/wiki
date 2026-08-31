@@ -96,6 +96,7 @@ import { useI18n } from 'vue-i18n'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 
+import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate, relativeDate } from '@/helpers/datetime'
 
 // I18N
@@ -172,7 +173,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.cluster.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

@@ -173,6 +173,7 @@ import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
+import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate, relativeDate } from '@/helpers/datetime'
 
 import { debounce } from 'es-toolkit/function'
@@ -324,7 +325,7 @@ async function load({ page } = {}) {
     notify({
       type: 'negative',
       message: t('admin.users.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()

@@ -321,6 +321,7 @@ import { useMeta } from '@/composables/meta'
 import { dialog } from '@/composables/dialog'
 import { useDark } from '@/composables/dark'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { relativeDate } from '@/helpers/datetime'
 
 import { useSiteStore } from '@/stores/site'
@@ -429,7 +430,7 @@ async function loadLastLogins() {
     notify({
       type: 'negative',
       message: t(`admin.dashboard.lastLoginsLoadFailed`),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
 }
@@ -442,7 +443,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t(`admin.dashboard.refreshFailed`),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

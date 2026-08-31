@@ -168,7 +168,7 @@ onMounted(async () => {
     notify({
       type: 'negative',
       message: t('admin.users.defaultsLoadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

@@ -785,7 +785,7 @@ async function insertTabset() {
     notify({
       type: 'negative',
       message: t('editor.blockPicker.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
 }
@@ -1502,7 +1502,7 @@ function processContent(newContent) {
     notify({
       type: 'negative',
       message: t('editor.renderFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
     return
   }

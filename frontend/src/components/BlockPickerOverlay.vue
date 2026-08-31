@@ -104,6 +104,7 @@ import { useI18n } from 'vue-i18n'
 
 import { notify } from '@/composables/notify'
 import { useBlockLocale } from '@/composables/blockLocale'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { blockMarkdown, blockPropsFilled, propDefault } from '@/helpers/blocks'
 
 import BlockPropsForm from '@/components/BlockPropsForm.vue'
@@ -183,7 +184,7 @@ onMounted(async () => {
     notify({
       type: 'negative',
       message: t('editor.blockPicker.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.isLoading = false

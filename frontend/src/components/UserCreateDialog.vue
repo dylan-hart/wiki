@@ -294,7 +294,7 @@ async function loadGroups() {
     notify({
       type: 'negative',
       message: t('admin.users.groupsLoadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loadingGroups = false
