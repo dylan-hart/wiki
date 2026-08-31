@@ -6,10 +6,13 @@ import type { FastifyInstance } from 'fastify'
 /**
  * /metrics — Prometheus scrape endpoint
  *
- * SCOPE DECISION (task 594): implemented for real, not descoped. The metric set is six gauges
- * already computed elsewhere (`GET /_api/system/info`, `WIKI.models.jobs`), so the exposition
- * writer is hand-rolled in `helpers/metrics.ts` rather than pulling in `prom-client` — there are no
- * counters, histograms or multi-metric registries here to justify a client library's bookkeeping.
+ * SCOPE DECISION (task 594, revisited at task 1939): implemented for real, not descoped. The metric
+ * set is ten gauges already computed elsewhere (`GET /_api/system/info`, `WIKI.models.jobs`,
+ * `WIKI.dbManager.pool`), so the exposition writer is hand-rolled in `helpers/metrics.ts` rather
+ * than pulling in `prom-client` — there are no counters, histograms or multi-metric registries here
+ * to justify a client library's bookkeeping. Task 1939 added the failed-job and db-pool gauges but
+ * reaffirmed this call: every new series is still a plain gauge (including `wikijs_jobs_failed_total`,
+ * despite the `_total` suffix — see its help text), so the original rationale still holds.
  *
  * Deliberately not under `/_api`: Prometheus scrapes a fixed path with no session, and its own
  * convention is an unprefixed `/metrics`. This is the one route in the server that breaks the
@@ -62,13 +65,21 @@ async function routes(app: FastifyInstance) {
       return reply.forbidden()
     }
 
+    // -> `pool` is typed `Pool | null` (it is only ever null before `dbManager.init()` completes at
+    //    boot, long before this route can be serving requests) — defaulted to 0s rather than asserted
+    //    non-null, so a scrape never 500s over it.
+    const pool = WIKI.dbManager.pool
     const snapshot: MetricsSnapshot = {
       activeWorkers: await WIKI.models.jobs.countActive(),
       pagesTotal: await WIKI.db.$count(pagesTable),
       usersTotal: await WIKI.db.$count(usersTable),
       groupsTotal: await WIKI.db.$count(groupsTable),
       instancesTotal: (await getClusterNodes()).length,
-      jobsQueued: await WIKI.models.jobs.countPending()
+      jobsQueued: await WIKI.models.jobs.countPending(),
+      jobsFailed: await WIKI.models.jobs.countFailed(),
+      dbPoolTotal: pool?.totalCount ?? 0,
+      dbPoolIdle: pool?.idleCount ?? 0,
+      dbPoolWaiting: pool?.waitingCount ?? 0
     }
 
     return reply

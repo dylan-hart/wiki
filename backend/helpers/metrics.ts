@@ -1,7 +1,7 @@
 /**
  * The gauge values `/metrics` reports, sourced from data already computed for `GET
- * /_api/system/info` and `WIKI.models.jobs` — this module invents no new data path, only a text
- * rendering of numbers those already compute.
+ * /_api/system/info`, `WIKI.models.jobs`, and (for the pool fields) `WIKI.dbManager.pool` — this
+ * module invents no new data path, only a text rendering of numbers those already compute.
  */
 export interface MetricsSnapshot {
   activeWorkers: number
@@ -10,6 +10,14 @@ export interface MetricsSnapshot {
   groupsTotal: number
   instancesTotal: number
   jobsQueued: number
+  /** Failed jobs currently retained in job history — not a lifetime total, see `METRIC_DEFS` help text. */
+  jobsFailed: number
+  /** Total clients (idle + in use) in the database connection pool. */
+  dbPoolTotal: number
+  /** Idle clients in the database connection pool, available to be checked out. */
+  dbPoolIdle: number
+  /** Queries currently waiting for a client to become available. */
+  dbPoolWaiting: number
 }
 
 /** One gauge's Prometheus name and help text, in the order they are written to the response. */
@@ -43,15 +51,38 @@ const METRIC_DEFS: { key: keyof MetricsSnapshot; name: string; help: string }[] 
     key: 'jobsQueued',
     name: 'wikijs_jobs_queued',
     help: 'Jobs waiting in the queue, not yet claimed by a worker.'
+  },
+  {
+    key: 'jobsFailed',
+    name: 'wikijs_jobs_failed_total',
+    help:
+      'Failed jobs currently retained in job history. Not a lifetime total: rows age out under the ' +
+      'configured job history retention window, so this can decrease as well as increase between scrapes.'
+  },
+  {
+    key: 'dbPoolTotal',
+    name: 'wikijs_db_pool_total',
+    help: 'Total clients (idle + in use) in the database connection pool.'
+  },
+  {
+    key: 'dbPoolIdle',
+    name: 'wikijs_db_pool_idle',
+    help: 'Idle clients in the database connection pool, available to be checked out.'
+  },
+  {
+    key: 'dbPoolWaiting',
+    name: 'wikijs_db_pool_waiting',
+    help: 'Queries currently waiting for a client to become available in the database connection pool.'
   }
 ]
 
 /**
  * Render a metrics snapshot as Prometheus text exposition format (version 0.0.4).
  *
- * Hand-rolled rather than pulled in via `prom-client`: the metric set is six gauges computed
+ * Hand-rolled rather than pulled in via `prom-client`: the metric set is ten gauges computed
  * elsewhere, with no counters, histograms or per-request registry to justify a client library's
- * bookkeeping — see the `/metrics` scope decision in `controllers/metrics.ts` for the full call.
+ * bookkeeping — see the `/metrics` scope decision in `controllers/metrics.ts` for the full call
+ * (task 594, revisited and reaffirmed at task 1939).
  */
 export function formatPrometheusMetrics(snapshot: MetricsSnapshot): string {
   const lines: string[] = []

@@ -1,6 +1,8 @@
-import { test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { JOB_SCHEDULE_SEED } from './jobs.ts'
+import { jobHistory as jobHistoryTable } from '../db/schema.ts'
+import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { JOB_SCHEDULE_SEED, jobs } from './jobs.ts'
 
 /**
  * `JOB_SCHEDULE_SEED` is what `init()` inserts into `jobSchedule` on first boot -- asserted on
@@ -57,4 +59,28 @@ test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
       'updateLocales'
     ].sort()
   )
+})
+
+describe('countFailed (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+
+  before(async () => {
+    fixtures = await setupTestDb()
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('counts only jobHistory rows in the failed state', async () => {
+    await fixtures.db.insert(jobHistoryTable).values([
+      { task: 'testTask', state: 'failed', createdAt: new Date() },
+      { task: 'testTask', state: 'failed', createdAt: new Date() },
+      { task: 'testTask', state: 'completed', createdAt: new Date() },
+      { task: 'testTask', state: 'active', createdAt: new Date() },
+      { task: 'testTask', state: 'interrupted', createdAt: new Date() }
+    ])
+
+    assert.equal(await jobs.countFailed(), 2)
+  })
 })
