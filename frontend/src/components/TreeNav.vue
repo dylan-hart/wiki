@@ -52,7 +52,7 @@ const { t } = useI18n()
 
 const contextActions = {
   newFolder: {
-    icon: 'la:plus-circle',
+    icon: 'la:plus',
     iconColor: 'blue',
     label: t('common.actions.newFolder')
   },

@@ -878,6 +878,17 @@ store; no SVG is ever written into content.
     produced or plans to carry forward that format into a `w-icon` name. Do not write new ones.
 - Picking an icon calls `POST /_api/icons/materialize`, which is what guarantees the wiki can serve it
   afterwards without the Iconify API.
+- **Per-action glyphs are settled, not a majority to re-derive.** An add/create action (a button, menu
+  item or item-row indicator whose click creates or inserts something) always uses `la:plus` — never
+  `la:plus-circle`, which read as a second, semantically-identical glyph purely from organic drift
+  (`AdminDashboard.vue`'s "New Site"/"New Group" cards once called the same `newSite()`/`newGroup()`
+  as `AdminSites.vue`/`AdminGroups.vue`'s `la:plus` buttons, just drawn differently). A delete action
+  always uses `la:trash`, never `la:trash-alt` or `mdi:trash-can-outline`. A settings-page "commit
+  these settings" action (the `Admin*.vue` pattern: `icon="mdi:check"` + `t('common.actions.apply')`)
+  always uses `mdi:check`, not `la:check` — `la:check` remains correct for the many *other* things it
+  already draws (a generic dialog/overlay confirm button, a "done"/"added" state), just not this one.
+  Introducing a new call site for any of these three actions means matching the settled glyph, not
+  picking whichever one a nearby file happens to use.
 
 ### GraphQL was removed
 

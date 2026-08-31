@@ -440,3 +440,18 @@ describe('NavItemEditor', () => {
     })
   })
 })
+
+/**
+ * OpenProject #2074: the "Add" button used to draw `la:plus-circle` while every other create/add
+ * affordance in the app draws `la:plus` for the same kind of action -- settled on `la:plus`
+ * everywhere, so this button must not regress back to the other glyph.
+ */
+describe('NavItemEditor "Add" icon (OpenProject #2074)', () => {
+  it('uses the settled la:plus add glyph, not la:plus-circle', async () => {
+    const wrapper = mountEditor()
+    await flushPromises()
+
+    expect(wrapper.find('[data-icon="la:plus"]').exists()).toBe(true)
+    expect(wrapper.find('[data-icon="la:plus-circle"]').exists()).toBe(false)
+  })
+})

@@ -90,7 +90,7 @@
           color="positive"
           :label="t(`common.actions.add`)"
           :aria-label="t(`common.actions.add`)"
-          icon="la:plus-circle">
+          icon="la:plus">
           <w-menu fit :offset="[0, 10]" auto-close>
             <w-list separator>
               <w-item clickable @click="addItem(`header`)">

@@ -202,7 +202,7 @@
     </w-item>
     <div v-if="canEdit" class="actions-bar mt-6">
       <w-btn
-        icon="la:check"
+        icon="mdi:check"
         unelevated
         :label="t(`common.actions.saveChanges`)"
         color="secondary"

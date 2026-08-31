@@ -46,7 +46,7 @@
         -->
         <w-item v-if="userStore.can(`write:pages`)" clickable>
           <w-item-section avatar>
-            <w-icon name="la:plus-circle" class="text-blue-4" />
+            <w-icon name="la:plus" class="text-blue-4" />
           </w-item-section>
           <w-item-section>{{ t('common.header.createNewPage') }}</w-item-section>
           <w-item-section side>
