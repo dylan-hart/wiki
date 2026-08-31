@@ -145,6 +145,7 @@ describe('PdfExport.exportPdf', () => {
   before(async () => {
     ;(globalThis as any).WIKI = {
       logger: { debug: () => {} },
+      config: { security: {} },
       models: {
         extensions: {
           getDefinition: mock.fn((key: string) =>

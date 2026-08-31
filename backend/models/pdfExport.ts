@@ -1,6 +1,6 @@
 import { CustomError } from '../helpers/common.ts'
 import { launchPuppeteerBrowser } from '../helpers/puppeteer.ts'
-import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
+import { sessionCookieName } from '../helpers/security.ts'
 
 /** How long the live page view gets to finish loading before giving up, in milliseconds. */
 const EXPORT_NAVIGATION_TIMEOUT = 30000
@@ -207,7 +207,7 @@ class PdfExport {
         //    `127.0.0.1` is a loopback address, which every major browser (Chromium included) treats
         //    as a potentially-trustworthy origin for `Secure` cookies regardless of scheme.
         await page.setCookie({
-          name: SESSION_COOKIE_NAME,
+          name: sessionCookieName(),
           value: request.sessionCookie,
           url: `http://127.0.0.1:${request.port}`,
           httpOnly: true,

@@ -106,6 +106,19 @@ defaults:
       corsConfig: ''
       enforceCsp: false
       trustProxy: false
+      # -> Task 2109 / WP 2105 §2 pinned the session cookie `Secure` (and its `__Host-` prefix, which
+      #    requires `Secure`) unconditionally, on the assumption that a plain-`http://localhost` dev
+      #    instance would still work because browsers treat loopback as a trustworthy origin. That
+      #    assumption was wrong: `@fastify/session`'s own `onSend` hook refuses to ever emit a
+      #    `Secure`-flagged cookie unless the actual connection it saw was TLS (`request.protocol ===
+      #    'https'`) -- which a bare `node backend` over plain HTTP never is, loopback or not -- so
+      #    login silently never sets a cookie at all on that setup (OpenProject bug report, 2026-08-31).
+      #    Set this to `false` for a local dev instance reached over plain HTTP with no TLS anywhere in
+      #    the chain: it drops both `Secure` and the `__Host-` prefix from the session cookie name
+      #    (`helpers/security.ts#sessionCookieName()`) so the plugin actually issues it. Leave it `true`
+      #    (the default) for any real deployment -- this does NOT auto-detect loopback, so flipping it
+      #    on a network-reachable instance really does remove the hardening task 2109 added.
+      cookieSecure: true
       enforceHsts: false
       hstsDuration: 0
       # -> A known-good starting point for `enforceCsp`, not enabled by default (WP #2158/#2154): the

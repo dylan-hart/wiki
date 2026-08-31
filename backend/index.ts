@@ -57,7 +57,7 @@ import {
 import {
   corsOptions,
   parseCspDirectives,
-  SESSION_COOKIE_NAME,
+  sessionCookieName,
   shouldBlockCrossOriginApiRequest
 } from './helpers/security.ts'
 import { withAdvisoryLock } from './helpers/advisoryLock.ts'
@@ -551,30 +551,38 @@ async function initHTTPServer() {
   app.register(fastifySession, {
     secret: authSecretSigner,
     // -> task 2109: `__Host-`-prefixed and pinned explicit, not `secure: 'auto'` -- see
-    //    `SESSION_COOKIE_NAME`'s doc comment for why `cookiePrefix` (what the task's own text
+    //    `sessionCookieName()`'s doc comment for why `cookiePrefix` (what the task's own text
     //    suggested) cannot get there, and the two notes below for what pinning these two costs.
-    cookieName: SESSION_COOKIE_NAME,
+    //    `security.cookieSecure` (default `true`) is the escape hatch for a plain-HTTP dev instance --
+    //    see its doc comment in `base.yml`.
+    cookieName: sessionCookieName(),
     cookie: {
       httpOnly: true,
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
       /*
-        Unconditionally true, not 'auto' (task 2109 / WP 2105 §2): the `__Host-` name above is only
-        honoured by a browser when the `Set-Cookie` response itself carries `Secure` -- @fastify/
-        session's 'auto' resolves that to `false` on any request THIS instance sees as plain http
+        Unconditionally true when `security.cookieSecure` isn't explicitly `false`, not `secure:
+        'auto'` (task 2109 / WP 2105 §2): the `__Host-` name above is only honoured by a browser when
+        the `Set-Cookie` response itself carries `Secure` -- @fastify/session's 'auto' resolves that to
+        `false` on any request THIS instance sees as plain http
         (`node_modules/@fastify/session/lib/cookie.js`), which includes both the dev server
         (`npm run dev` serves :3000 over http, matching config.sample.yml's default) and a
         genuinely-HTTPS deployment sitting behind a reverse proxy that isn't declared via
         `trustProxy` -- see `models/security.ts#observeRequest`, which exists to catch exactly that
         misconfiguration. In the trustProxy-off-but-really-HTTPS case, 'auto' would silently drop the
         whole `__Host-` cookie rather than merely downgrade it, since a missing `Secure` fails the
-        prefix outright; forcing it `true` fixes that case unconditionally instead (the browser
-        judges Secure-cookie eligibility by what scheme IT used, not this instance's belief about
-        its own scheme), and still works in dev because Chromium/Firefox both treat `localhost` /
-        `127.0.0.1` as a trustworthy origin for the Secure attribute even over plain http. The one
-        real cost is a deployment with no TLS anywhere in the chain (not even a proxy) now fails
-        closed -- no session cookie at all, rather than an insecure one -- which is the point.
+        prefix outright; forcing it `true` fixes that case unconditionally instead.
+
+        This does NOT, on its own, make a plain-HTTP dev instance work: @fastify/session's own `onSend`
+        hook refuses to ever emit a `Secure`-flagged cookie unless it saw the connection itself as TLS
+        (`request.protocol === 'https'`), which a bare `node backend` over plain HTTP never is --
+        loopback or not, contrary to what an earlier version of this comment assumed (OpenProject bug
+        report, 2026-08-31: verified against a real `@fastify/session` request, not merely inferred).
+        `security.cookieSecure: false` is the documented way out of that for a dev instance -- see
+        `base.yml`. Left at its default `true`, this is unchanged: a deployment with no TLS anywhere in
+        the chain (not even a proxy) fails closed -- no session cookie at all, rather than an insecure
+        one -- which is the point.
       */
-      secure: true,
+      secure: WIKI.config.security?.cookieSecure !== false,
       // -> Explicit, not left to 'auto' forcing it only on the non-https branch (task 2109 / WP
       //    2105 §2): a correctly-deployed HTTPS instance was emitting `Secure` with NO `SameSite`
       //    at all, which is exactly backwards for CSRF exposure. 'lax', never 'strict' -- the
@@ -777,7 +785,7 @@ async function initHTTPServer() {
     rate limiter, though the ordering between the two doesn't matter functionally.
   */
   app.addHook('onRequest', (req, reply, done) => {
-    if (shouldBlockCrossOriginApiRequest(req)) {
+    if (shouldBlockCrossOriginApiRequest(req, sessionCookieName())) {
       // -> Fails closed: a missing/foreign `Origin` (and no `Sec-Fetch-Site: same-origin`) is not
       //    what a real browser sends on a state-changing cross-document request, so there is
       //    nothing here to positively trust.

@@ -17,7 +17,7 @@ import {
 } from '../helpers/common.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
 import { PAGE_PERMISSIONS } from '../helpers/permissions.ts'
-import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
+import { sessionCookieName } from '../helpers/security.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 
 /**
@@ -1960,7 +1960,7 @@ async function routes(app: FastifyInstance) {
         path: page.path,
         // -> The raw, still-signed cookie value exactly as the browser sent it — see the AUTH comment
         //    on `PdfExport.exportPdf` for why forwarding it is safe and sufficient
-        sessionCookie: req.cookies?.[SESSION_COOKIE_NAME] ?? null
+        sessionCookie: req.cookies?.[sessionCookieName()] ?? null
       })
 
       reply.header(

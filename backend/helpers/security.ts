@@ -16,14 +16,38 @@ export type CorsMode = (typeof CORS_MODES)[number]
  * whole point. `@fastify/session`'s `cookiePrefix` option does not get this for free either, despite
  * the name — it only prefixes the session id *value* round-tripped through the store (an
  * express-session compatibility shim), never the `Set-Cookie` name itself; naming it via
- * `cookieName` is what actually produces a `__Host-` cookie. Every place that names the cookie
- * literally — the `fastifySession` registration, the `clearCookie` call in `api/authentication.ts`'s
- * logout, the same-origin `/_api/` guard below, and the two places (`models/pdfExport.ts`,
- * `api/pages.ts`) that read the raw cookie value back off the request to forward it to the PDF
- * export's headless browser — imports this constant instead, so the name can only ever drift in one
- * place.
+ * `cookieName` is what actually produces a `__Host-` cookie. This is the name in effect when
+ * `security.cookieSecure` is `true` (the default) — see `sessionCookieName()` below for the name a
+ * live request actually uses, which is what every real consumer (the `fastifySession` registration,
+ * logout's `clearCookie`, the same-origin `/_api/` guard, and the two places that forward the raw
+ * cookie value to the PDF export's headless browser) calls instead of this constant directly.
  */
 export const SESSION_COOKIE_NAME = '__Host-wikiSession'
+
+/**
+ * The name used instead of `SESSION_COOKIE_NAME` when `security.cookieSecure` is `false` — no
+ * `__Host-` prefix, since that prefix requires the `Secure` attribute this mode deliberately drops
+ * (a browser silently refuses to store a `__Host-`-named cookie missing it). See `sessionCookieName()`
+ * below.
+ */
+export const SESSION_COOKIE_NAME_INSECURE = 'wikiSession'
+
+/**
+ * The session cookie name actually in effect, given `security.cookieSecure` (`base.yml`'s doc comment
+ * on that key has the full story: task 2109 pinned `Secure`/`__Host-` unconditionally, wrongly
+ * assuming a plain `http://localhost` dev instance still worked — `@fastify/session` refuses to ever
+ * emit a `Secure`-flagged cookie over a connection it didn't itself see as TLS, loopback or not).
+ * Every place that names the cookie on a *live request* — `index.ts`'s `fastifySession` registration,
+ * logout's `clearCookie`, and the two places that forward the raw cookie value to the PDF export's
+ * headless browser — calls this instead of the bare constant, so the choice can only ever drift in
+ * one place. `shouldBlockCrossOriginApiRequest` below takes it as a parameter instead of calling this
+ * directly, to stay a pure function with no `WIKI` dependency.
+ */
+export function sessionCookieName(): string {
+  return WIKI.config.security?.cookieSecure === false
+    ? SESSION_COOKIE_NAME_INSECURE
+    : SESSION_COOKIE_NAME
+}
 
 /**
  * Whether an `Origin` header names the same host a request was addressed to. Used by the
@@ -88,13 +112,16 @@ export interface SameOriginApiCheckRequest {
  * `Origin`, since it survives an `Origin`-suppressing redirect chain) or `Origin` agrees with the
  * request's own host.
  */
-export function shouldBlockCrossOriginApiRequest(req: SameOriginApiCheckRequest): boolean {
+export function shouldBlockCrossOriginApiRequest(
+  req: SameOriginApiCheckRequest,
+  cookieName: string = SESSION_COOKIE_NAME
+): boolean {
   if (
     !req.url.startsWith('/_api/') ||
     req.method === 'GET' ||
     req.method === 'HEAD' ||
     req.apiKey ||
-    !req.cookies?.[SESSION_COOKIE_NAME]
+    !req.cookies?.[cookieName]
   ) {
     return false
   }
