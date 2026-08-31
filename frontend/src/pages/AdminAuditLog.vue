@@ -156,6 +156,12 @@
 
       <w-separator class="my-4" inset />
 
+      <!--
+        Card-local save, not a page-header Apply, by decision (OpenProject #2089): this page is a
+        viewer (audit entries + filters) with settings embedded in it, not itself a settings form,
+        and its filter card above already commits locally the same way -- see
+        `docs/decisions/embedded-setting-save-affordance.md`.
+      -->
       <w-card class="rounded" flat :class="dark.isActive ? `bg-dark-5` : `bg-grey-2`">
         <w-card-section>
           <div class="text-subtitle1">{{ t('admin.audit.retentionTitle') }}</div>
@@ -172,7 +178,7 @@
                 :suffix="t('admin.audit.retentionDaysSuffix')" />
             </div>
             <w-btn
-              class="acrylic-btn"
+              class="acrylic-btn retention-save-btn"
               flat
               color="primary"
               :label="t('common.actions.save')"
