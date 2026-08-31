@@ -3,7 +3,6 @@ import type { GraphPageRow } from '../models/pages.ts'
 import type { PageHistoryContributorCounts } from '../models/pageHistory.ts'
 import type { PageviewCountsForGraph } from '../models/pageviews.ts'
 import { zeroPageviewCountsForGraph } from '../models/pageviews.ts'
-import { mayOnPage } from './pages.ts'
 import { guardSiteEnabled } from '../helpers/common.ts'
 
 // -> Re-exported so `graph.test.ts` (OpenProject #884) can import the fixture row shape from the
@@ -165,9 +164,18 @@ async function routes(app: FastifyInstance) {
         WIKI.models.pageHistory.contributorCountsForGraph(req.params.siteId),
         WIKI.models.pageviews.countsForGraph(req.params.siteId)
       ])
+      // -> Built once per request rather than once per row -- `mayOnPage()` rebuilds it internally
+      //    on every call, and the graph's input is unbounded (`listAllForGraph()` selects every page
+      //    row for the site with no limit). See `tree.ts`'s `visibleTreeItems()` for the same shape.
+      const actor = WIKI.models.groups.actorForRequest(req)
       return assembleGraph(
         rows,
-        (row) => mayOnPage(req, 'read:pages', req.params.siteId, row),
+        (row) =>
+          WIKI.models.groups.checkAccess(actor, 'read:pages', {
+            ...row,
+            classification: row.classification ?? null,
+            siteId: req.params.siteId
+          }),
         (id) => WIKI.models.classificationLevels.byId(id)?.name ?? null,
         (pageId) =>
           contributorCounts.get(pageId) ?? {

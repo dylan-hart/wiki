@@ -2164,8 +2164,17 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       const rows = await WIKI.models.pageHistory.listRecoverable(req.params.siteId)
+      // -> Built once per request rather than once per row -- `mayOnPage()` rebuilds it internally
+      //    on every call. See `graph.ts`'s graph route and `tree.ts`'s `visibleTreeItems()` for the
+      //    same shape.
+      const actor = WIKI.models.groups.actorForRequest(req)
       return rows.filter((row) =>
-        mayOnPage(req, 'read:history', req.params.siteId, { path: row.path, locale: row.locale })
+        WIKI.models.groups.checkAccess(actor, 'read:history', {
+          path: row.path,
+          locale: row.locale,
+          classification: null,
+          siteId: req.params.siteId
+        })
       )
     }
   )
