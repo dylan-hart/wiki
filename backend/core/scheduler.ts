@@ -343,6 +343,36 @@ export default {
   },
 
   /**
+   * Run an in-process task, and stop waiting for it if it does not come back.
+   *
+   * Unlike `executeOnWorker`, there is no separate process or thread to abort here — an in-process
+   * task that hangs simply keeps running after this gives up on it. The point of the ceiling is not
+   * to stop the work but to make the scheduler's own bookkeeping finite: without it, a task promise
+   * that never settles means `runJob()` never settles either, so `processJob()`'s `finally` (which
+   * returns this job's slot to `activeWorkers`) never runs. Once enough slots leak that way,
+   * `processJob()`'s guard refuses to claim any further job, silently, forever. Racing the call
+   * against a timer means `runJob()` always settles within a bounded time, so `processJob()` always
+   * gets its slot back — the wedged task itself is simply abandoned, not stopped, and ends up
+   * recorded failed and retried exactly like a task that threw.
+   */
+  async runInProcess(job: { task: string; payload?: any; id: string }): Promise<void> {
+    const timeoutMs = (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000
+    let timer: NodeJS.Timeout | undefined
+    try {
+      await Promise.race([
+        Promise.resolve(this.tasks![job.task](job.payload, job.id)),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(`Task ${job.task} did not complete within ${timeoutMs / 1000}s.`))
+          }, timeoutMs)
+        })
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
+  },
+
+  /**
    * Take a batch of due jobs and run them.
    *
    * Two steps, deliberately not one transaction. Claiming a job has to be atomic — the `DELETE` with
@@ -445,7 +475,7 @@ export default {
       if (job.useWorker) {
         await this.executeOnWorker(job)
       } else {
-        await this.tasks![job.task](job.payload, job.id)
+        await this.runInProcess(job)
       }
       await WIKI.db
         .update(jobHistoryTable)

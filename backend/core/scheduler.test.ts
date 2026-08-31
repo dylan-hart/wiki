@@ -420,7 +420,12 @@ describe(
       scheduler.tasks = {}
       scheduler.maxWorkers = 1
       scheduler.activeWorkers = 0
-      WIKI.config = { scheduler: { retryBackoff: 0, staleJobTimeout: 1, maxRetries: 2 } }
+      // -> `taskTimeout: 1`: short enough to keep the new "in-process task that never settles" test
+      //    below fast, and otherwise unused by every other test in this block (none of them exercise
+      //    `runInProcess()`'s ceiling, only `staleJobTimeout`/`retryBackoff`/`maxRetries`).
+      WIKI.config = {
+        scheduler: { retryBackoff: 0, staleJobTimeout: 1, maxRetries: 2, taskTimeout: 1 }
+      }
     })
 
     after(async () => {
@@ -612,6 +617,49 @@ describe(
         .from(jobHistoryTable)
         .where(eq(jobHistoryTable.id, row.id))
       assert.equal(after1.state, 'interrupted')
+    })
+
+    /**
+     * OpenProject #1996: `runJob()`'s in-process branch used to `await` the task call directly, with
+     * no ceiling -- unlike `executeOnWorker()`, which already races against `taskTimeout`. A task
+     * whose promise never settles left `runJob()` (and therefore `processJob()`'s
+     * `Promise.allSettled`) pending forever, so `activeWorkers` was never returned and, after enough
+     * wedged jobs, the instance stopped claiming any further job at all. `runInProcess()` gives the
+     * in-process branch the same race-against-a-timer shape, so `runJob()` always settles and this
+     * bookkeeping always completes.
+     */
+    test('an in-process task whose promise never settles is recorded failed and returns activeWorkers to 0', async () => {
+      scheduler.tasks = { neverSettles: () => new Promise(() => {}) }
+      try {
+        const [job] = await fixtures.db
+          .insert(jobsTable)
+          .values({
+            task: 'neverSettles',
+            useWorker: false,
+            retries: 0,
+            maxRetries: 0,
+            payload: {},
+            createdBy: 'test'
+          })
+          .returning()
+        historyIds.push(job!.id)
+
+        await scheduler.processJob()
+
+        assert.equal(
+          scheduler.activeWorkers,
+          0,
+          'the slot must be returned once runJob settles, even though the task itself never did'
+        )
+
+        const [history] = await fixtures.db
+          .select()
+          .from(jobHistoryTable)
+          .where(eq(jobHistoryTable.id, job!.id))
+        assert.equal(history.state, 'failed')
+      } finally {
+        scheduler.tasks = {}
+      }
     })
 
     /**
