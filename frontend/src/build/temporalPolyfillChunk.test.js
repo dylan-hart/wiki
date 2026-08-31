@@ -137,7 +137,25 @@ describe('temporalPolyfillChunkPlugin', () => {
   test('propagates the loud failure when the bundle has no polyfill chunk', () => {
     const plugin = temporalPolyfillChunkPlugin()
     plugin.configResolved({ base: '/' })
+    // -> Capturing the bundle never throws by itself -- a build with no `index.html` in its output
+    //    (and therefore no placeholder to substitute) legitimately has nothing to resolve. The throw
+    //    only fires once `transformIndexHtml` actually needs the chunk URL.
+    plugin.generateBundle({}, {})
 
-    expect(() => plugin.generateBundle({}, {})).toThrow()
+    const html = `<head>${TEMPORAL_POLYFILL_PLACEHOLDER}</head>`
+    expect(() => plugin.transformIndexHtml(html)).toThrow(
+      /no output chunk carries temporal-polyfill's global\.esm module/
+    )
+  })
+
+  test('does not resolve the chunk at all when the output has no placeholder to fill in', () => {
+    const plugin = temporalPolyfillChunkPlugin()
+    plugin.configResolved({ base: '/' })
+    // -> An empty bundle would make `findTemporalPolyfillChunkFileName` throw if it ran -- proving
+    //    `transformIndexHtml` never calls it for HTML with no placeholder.
+    plugin.generateBundle({}, {})
+
+    const html = '<head><title>Some other page</title></head>'
+    expect(plugin.transformIndexHtml(html)).toBe(html)
   })
 })

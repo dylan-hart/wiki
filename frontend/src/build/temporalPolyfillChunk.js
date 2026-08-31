@@ -49,23 +49,30 @@ export function findTemporalPolyfillChunkFileName(bundle) {
  */
 export function temporalPolyfillChunkPlugin() {
   let base = '/'
-  let chunkUrl = null
+  let bundle = null
 
   return {
     name: 'wiki-temporal-polyfill-chunk',
     configResolved(config) {
       base = config.base
     },
-    // -> Never runs for the dev server (only a real build produces an output bundle), so `chunkUrl`
+    // -> Never runs for the dev server (only a real build produces an output bundle), so `bundle`
     //    stays null there and the placeholder is left untouched -- `boot/temporal.js` already
-    //    dynamically imports the polyfill directly in dev, with no chunk URL to preload.
-    generateBundle(_options, bundle) {
-      chunkUrl = base + findTemporalPolyfillChunkFileName(bundle)
+    //    dynamically imports the polyfill directly in dev, with no chunk URL to preload. Only
+    //    captures the bundle here rather than resolving the chunk eagerly -- this plugin comes along
+    //    with every build that shares this file's `vite.config.js`, including ones with no
+    //    `index.html` in their output at all (e.g. `test/realGridLayout.js`'s CSS-only build), which
+    //    legitimately carry no `boot/temporal.js` chunk to find. Resolving lazily in
+    //    `transformIndexHtml` means the search -- and its throw on a genuine mismatch -- only runs
+    //    for a build that actually has an `index.html` to substitute the placeholder into.
+    generateBundle(_options, outputBundle) {
+      bundle = outputBundle
     },
     transformIndexHtml(html) {
-      if (chunkUrl === null) {
+      if (bundle === null || !html.includes(TEMPORAL_POLYFILL_PLACEHOLDER)) {
         return html
       }
+      const chunkUrl = base + findTemporalPolyfillChunkFileName(bundle)
       return html.replace(
         TEMPORAL_POLYFILL_PLACEHOLDER,
         `<script>window.__wikiTemporalPolyfillUrl = ${JSON.stringify(chunkUrl)}</script>`

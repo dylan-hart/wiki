@@ -138,7 +138,8 @@ Add a new server under **Servers** with the following settings:
 1. Run `./dev/setup.sh` from the repo root. It installs dependencies for all four workspaces
    (`backend`, `frontend`, `blocks`, `e2e`), creates `config.yml` from `config.sample.yml` if one
    doesn't already exist, and builds `frontend` and `blocks`. It's safe to re-run at any time —
-   it won't overwrite an existing `config.yml`.
+   it won't overwrite an existing `config.yml`. Equivalently, by hand: `cd backend && npm install`,
+   `cd frontend && npm install && npm run build`, `cd blocks && npm install && npm run build`.
 1. Edit `config.yml` and fill in the database details. **You need an empty PostgreSQL database.**
 1. Run this command, **from the repository root** (not from inside `backend/`), to start the server:
    ```sh

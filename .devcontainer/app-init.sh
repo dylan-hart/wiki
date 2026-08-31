@@ -14,26 +14,10 @@ echo "Installing dependencies..."
 cd backend
 npm install
 
-# The Puppeteer extension, which server-side page rendering needs. Installed here rather than in the
-# Dockerfile because node_modules lives in the bind-mounted workspace, and anything the image put there
-# would disappear under the mount. Kept out of package.json on purpose: it is an optional extension,
-# and a plain source checkout should not have to fetch it to install the backend.
-#
-# The version is read from the extension definition, the same way `dev/build/Dockerfile` derives it --
-# one place to bump, and a devcontainer that cannot drift from what the production image installs. An
-# empty read fails the step rather than quietly installing whatever is newest.
-#
-# `--no-save` leaves package.json alone, which also means a later reinstall can prune it and turn
-# server-side rendering back off -- run this line again if the admin area says it is missing. The
-# browser itself is in the image, so this fetches no Chromium (see PUPPETEER_* in the Dockerfile).
-echo "Installing the Puppeteer extension..."
-PUPPETEER_VERSION="$(sed -n 's/^installVersion: *//p' modules/extensions/puppeteer/definition.yml)"
-if [ -z "$PUPPETEER_VERSION" ]; then
-  echo "Could not read installVersion from modules/extensions/puppeteer/definition.yml" >&2
-  exit 1
-fi
-npm install --no-save "puppeteer@${PUPPETEER_VERSION}"
-
+# Puppeteer, which server-side page rendering needs, is a declared `optionalDependencies` entry in
+# backend/package.json (OpenProject #2289) -- the `npm install` above already fetches it, the same way
+# it fetches sharp. No separate install step, and no version to derive from definition.yml, remains
+# here: `--omit=optional` is the one escape hatch for a source checkout that wants to skip it.
 cd ../frontend
 npm install
 cd ../blocks
