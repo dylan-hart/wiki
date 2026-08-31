@@ -411,3 +411,17 @@ describe('site store: applySiteInfo() locale direction', () => {
     }
   })
 })
+
+/**
+ * OpenProject #1911: Page Data / Page Data Templates was decided OUT (#1890) rather than built out --
+ * the dialogs, the disabled rail entry point and this store slot were all dead weight behind an
+ * `experimental` flag with no save path. `pageDataTemplates` must not exist on the store any more.
+ */
+describe('site store: Page Data removal (#1911)', () => {
+  it('does not expose a pageDataTemplates slot', () => {
+    const store = useSiteStore()
+
+    expect(store.$state).not.toHaveProperty('pageDataTemplates')
+    expect(store).not.toHaveProperty('pageDataTemplates')
+  })
+})

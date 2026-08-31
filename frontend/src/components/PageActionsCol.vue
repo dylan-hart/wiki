@@ -30,17 +30,6 @@
           t('common.page.properties')
         }}</w-tooltip>
       </w-btn>
-      <w-btn
-        class="h-12"
-        v-if="flagsStore.experimental"
-        flat
-        icon="la:project-diagram"
-        :color="editorStore.isActive ? `white` : `deep-orange-9`"
-        :aria-label="t('pageActions.pageData')"
-        @click="togglePageData"
-        disabled>
-        <w-tooltip anchor="center left" self="center right">{{ t('common.page.data') }}</w-tooltip>
-      </w-btn>
       <!-- -> Nothing can be pasted or dropped onto a redirection: it is a form, not a document -->
       <w-btn
         class="h-12"
@@ -460,13 +449,6 @@ const hasPageActions = computed(() => flagsStore.experimental || canRerenderPage
 function togglePageProperties() {
   siteStore.$patch({
     sideDialogComponent: 'PagePropertiesDialog',
-    sideDialogShown: true
-  })
-}
-
-function togglePageData() {
-  siteStore.$patch({
-    sideDialogComponent: 'PageDataDialog',
     sideDialogShown: true
   })
 }

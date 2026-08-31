@@ -21,10 +21,6 @@ import { useSiteStore } from '@/stores/site'
 import LoadingGeneric from '@/components/LoadingGeneric.vue'
 
 const sideDialogs = {
-  PageDataDialog: defineAsyncComponent({
-    loader: () => import('@/components/PageDataDialog.vue'),
-    loadingComponent: LoadingGeneric
-  }),
   PagePropertiesDialog: defineAsyncComponent({
     loader: () => import('@/components/PagePropertiesDialog.vue'),
     loadingComponent: LoadingGeneric
@@ -109,10 +105,10 @@ const state = reactive({
     rail's containing block is the card INSIDE that panel, so the clip catches it and it disappeared
     outright the moment that overflow arrived.
 
-    Lifted only for the panel that actually carries a rail, rather than for every side panel: the
-    other one (`PageDataDialog`) still leans on the panel both to round it and to scroll a card wider
-    than the panel is. Nothing is given up here -- `PagePropertiesDialog` rounds its own toolbar and
-    scroll area, and that scroll area is what its body scrolls in.
+    Lifted only for the panel that actually carries a rail, rather than for every side panel: a side
+    dialog with no rail can still lean on the panel both to round it and to scroll a card wider than
+    the panel is. Nothing is given up here -- `PagePropertiesDialog` rounds its own toolbar and scroll
+    area, and that scroll area is what its body scrolls in.
   */
   .w-dialog-panel:has(> .page-properties-dialog) {
     overflow: visible;

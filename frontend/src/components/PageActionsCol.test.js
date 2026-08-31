@@ -14,6 +14,7 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import { useEditorStore } from '@/stores/editor'
+import { useFlagsStore } from '@/stores/flags'
 import { queue as notifyQueue } from '@/composables/notify'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 
@@ -215,6 +216,29 @@ async function mountRailWithHistory({ pageId = 'page-1', creating = false } = {}
 
   return { wrapper, pageStore, siteStore, userStore }
 }
+
+/**
+ * OpenProject #1911: Page Data / Page Data Templates was decided OUT (#1890) rather than built out --
+ * the rail's disabled "Page Data" button (behind `flagsStore.experimental`, with a hardcoded
+ * `disable`) and its `togglePageData` handler are gone entirely, not just re-hidden.
+ */
+describe('PageActionsCol Page Data removal (#1911)', () => {
+  let wrapper
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = undefined
+  })
+
+  it('never renders a Page Data button, even with the experimental flag on', async () => {
+    ;({ wrapper } = await mountRailWithPageActions())
+    const flagsStore = useFlagsStore()
+    flagsStore.experimental = true
+    await flushPromises()
+
+    expect(wrapper.find('[aria-label="Page Data"]').exists()).toBe(false)
+  })
+})
 
 describe('PageActionsCol page history button', () => {
   let wrapper
