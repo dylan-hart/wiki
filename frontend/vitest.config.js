@@ -80,7 +80,11 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     setupFiles: [fileURLToPath(new URL('./test/setup.js', import.meta.url))],
-    include: ['src/**/*.test.js'],
+    // `scripts/**/*.test.js` alongside `src/**/*.test.js`: `scripts/` holds build-time Node tools
+    // (icon/emoji generation, the notify()-err.message drift check) with the same co-located
+    // `*.test.js` convention as `src/` -- these need no `test/setup.js` fixtures (no API_CLIENT,
+    // EVENT_BUS, or w-* components to stand in for), but do need to be picked up by `npm run test`.
+    include: ['src/**/*.test.js', 'scripts/**/*.test.js'],
     css: true,
     server: {
       deps: {

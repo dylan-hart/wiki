@@ -14,7 +14,8 @@
     "icons:check": "node scripts/generate-icons.mjs --check",
     "test": "vitest run",
     "emoji": "node scripts/generate-emoji.mjs",
-    "emoji:check": "node scripts/generate-emoji.mjs --check"
+    "emoji:check": "node scripts/generate-emoji.mjs --check",
+    "notify-check": "node scripts/check-notify-err-message.mjs"
   },
   "dependencies": {
     "@simplewebauthn/browser": "13.3.0",
