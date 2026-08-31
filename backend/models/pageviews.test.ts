@@ -110,6 +110,62 @@ describe('Settings.init seeds pageviews.hashKey', () => {
 })
 
 /**
+ * OpenProject #2288: rotating `pageviews.hashKey` so historical rows can no longer be re-linked.
+ * Modelled on `models/sessions.ts#rotateSecret()` -- and, like that method's own test coverage, pure
+ * config mutation plus a stubbed `WIKI.configSvc.saveToDb()`, no real database needed: what's under
+ * test is the swap-and-persist-or-roll-back JS logic, not SQL orchestration.
+ */
+describe('rotateHashKey', () => {
+  const previousWiki = (globalThis as any).WIKI
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('rotates the key, persists it, and makes the same raw id hash differently', async () => {
+    const previousKey = 'pre-rotation-key'
+    const saveToDb = mock.fn((_keys: string[]) => Promise.resolve(true))
+    ;(globalThis as any).WIKI = {
+      config: { pageviews: { isEnabled: true, hashKey: previousKey } },
+      configSvc: { saveToDb },
+      logger: { info: mock.fn(), warn: mock.fn() }
+    }
+
+    const rawId = 'some-session-id'
+    const hashBeforeRotation = hashVisitor(rawId, previousKey)
+
+    const rotated = await pageviews.rotateHashKey()
+
+    assert.equal(rotated, true)
+    assert.notEqual(WIKI.config.pageviews.hashKey, previousKey)
+    assert.deepEqual(saveToDb.mock.calls[0]?.arguments[0], ['pageviews'])
+    assert.notEqual(
+      hashVisitor(rawId, WIKI.config.pageviews.hashKey),
+      hashBeforeRotation,
+      'the same raw id must hash differently once the key has rotated'
+    )
+  })
+
+  test('restores the previous key and reports failure when the save fails', async () => {
+    const previousConfig = { isEnabled: true, hashKey: 'pre-rotation-key' }
+    ;(globalThis as any).WIKI = {
+      config: { pageviews: { ...previousConfig } },
+      configSvc: { saveToDb: mock.fn(() => Promise.resolve(false)) },
+      logger: { info: mock.fn(), warn: mock.fn() }
+    }
+
+    const rotated = await pageviews.rotateHashKey()
+
+    assert.equal(rotated, false)
+    assert.deepEqual(
+      WIKI.config.pageviews,
+      previousConfig,
+      'a failed save must leave the old key in place, not a half-rotated one'
+    )
+  })
+})
+
+/**
  * OpenProject #2269: `countsForGraph` reads the same `WIKI.config.pageviews.isEnabled` flag `record()`
  * already gates writes on. No database at all here -- the point is that the query never runs in the
  * first place, which a real Postgres round trip couldn't distinguish from "ran and found nothing".

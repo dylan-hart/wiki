@@ -57,6 +57,9 @@ export const AUDIT_EVENTS = [
   'system.apiStateUpdated',
   'system.metricsUpdated',
   'system.pageviewsUpdated',
+  // -> #2288: an operator rotated `pageviews.hashKey`, breaking correlation between pre- and
+  //   post-rotation `visitorHash` rows on purpose.
+  'system.pageviewsHashKeyRotated',
   'system.certificatesRegenerated',
   'system.sessionsInvalidated',
   'system.pageHistoryPurged',
