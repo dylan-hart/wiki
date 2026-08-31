@@ -256,7 +256,7 @@
                     <w-item v-bind="itemProps">
                       <w-item-section side>
                         <w-checkbox
-                          size="sm"
+                          dense
                           :model-value="selected"
                           @update:model-value="toggleOption(opt)" />
                       </w-item-section>

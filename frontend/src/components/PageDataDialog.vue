@@ -48,7 +48,7 @@
             <template v-slot:before><w-icon name="la:infinity" color="primary" /></template>
           </w-input>
           <div class="py-1">
-            <w-checkbox label="Attribute Boolean" color="primary" dense size="lg" />
+            <w-checkbox label="Attribute Boolean" color="primary" dense />
           </div>
         </div>
       </w-card-section>
