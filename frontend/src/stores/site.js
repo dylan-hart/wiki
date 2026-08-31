@@ -190,7 +190,12 @@ export const useSiteStore = defineStore('site', {
     },
     sideDialogShown: false,
     sideDialogComponent: '',
-    docsBase: 'https://docs.js.wiki',
+    /**
+     * Base URL every in-app "view docs" / help link is built from -- always server-provided
+     * (`WIKI.config.docsBase`, from `backend/base.yml`), so this holds no hardcoded fallback: it
+     * reads as `''` until `applySiteInfo` (via `loadSite` or `bootstrap`) fills it in.
+     */
+    docsBase: '',
     nav: {
       currentId: null,
       items: [],
@@ -249,6 +254,7 @@ export const useSiteStore = defineStore('site', {
         description: siteInfo.description,
         logoText: siteInfo.logoText,
         pdfExportAvailable: siteInfo.pdfExportAvailable ?? false,
+        docsBase: siteInfo.docsBase,
         blocksIndex: siteInfo.blocksIndex ?? {},
         pageExtensions: siteInfo.pageExtensions ?? [],
         company: siteInfo.company,

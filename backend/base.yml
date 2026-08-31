@@ -184,6 +184,10 @@ defaults:
       # Whether the daily updateLocales scheduled job is allowed to pull the latest strings from
       # requarks/wiki-locales. Set to false to disable automatic locale syncing.
       locales: true
+    # Base URL for this fork's own documentation, prepended to every in-app "view docs" / help link
+    # (`siteStore.docsBase` on the frontend). Matches README.md's own Documentation link -- keep the
+    # two in sync if this ever changes.
+    docsBase: 'https://beta.js.wiki/docs'
     # Settings when running in dev mode only -- read directly off WIKI.config.dev by core/db.ts
     # (dropSchema, logQueries) and by frontend/vite.config.js (port, hmrClientPort) for its dev-server
     # proxy target. Declared here so config.sample.yml's `dev:` block (which every dev checkout ships)

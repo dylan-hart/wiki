@@ -7,6 +7,11 @@ import { TimeoutError } from 'ky'
 import AdminExtensions from './AdminExtensions.vue'
 import { isActive as loadingIsActive } from '@/composables/loading'
 import { dismiss as dismissNotification, queue as notifyQueue } from '@/composables/notify'
+import { useSiteStore } from '@/stores/site'
+
+/** OpenProject #1922: `siteStore.docsBase` is server-provided, with no hardcoded frontend default --
+ *  set it explicitly here so `mountWithExtensions`'s tests exercise a real base rather than `''`. */
+const TEST_DOCS_BASE = 'https://docs.example.test'
 
 /**
  * Task 661: the extensions list now surfaces two things `AdminExtensions.vue` used to only learn from
@@ -50,6 +55,7 @@ const messages = {
 
 async function mountWithExtensions(extensions) {
   setActivePinia(createPinia())
+  useSiteStore().docsBase = TEST_DOCS_BASE
 
   globalThis.API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(extensions) })
 
@@ -143,7 +149,7 @@ describe('AdminExtensions per-row instructions link', () => {
     const instructionsLink = wrapper.findAll('a').find((a) => a.text().includes('Instructions'))
 
     expect(instructionsLink.exists()).toBe(true)
-    expect(instructionsLink.attributes('href')).toBe('https://docs.js.wiki/system/extensions#git')
+    expect(instructionsLink.attributes('href')).toBe(`${TEST_DOCS_BASE}/system/extensions#git`)
   })
 })
 

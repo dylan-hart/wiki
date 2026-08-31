@@ -163,7 +163,10 @@ async function deleteSite(id: string) {
 
 before(async () => {
   ;(globalThis as any).WIKI = {
-    config: { security: { disallowOpenRedirect: true } },
+    config: {
+      security: { disallowOpenRedirect: true },
+      docsBase: 'https://test.docs.example/docs'
+    },
     models: {
       sites: {
         getSiteByHostname,
@@ -976,6 +979,20 @@ test('pdfExportAvailable reflects the rendering model when the extension is not 
   })
   assert.equal(res.statusCode, 200)
   assert.equal(res.json().pdfExportAvailable, false)
+})
+
+/**
+ * OpenProject #1922: `docsBase` surfaces `WIKI.config.docsBase` (a `base.yml` default, not per-site
+ * config) on the same site-info payload `pdfExportAvailable` above already does, so
+ * `siteStore.docsBase` never needs a hardcoded frontend fallback.
+ */
+test('docsBase reflects WIKI.config.docsBase', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/somehost.example.com'
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().docsBase, 'https://test.docs.example/docs')
 })
 
 /**

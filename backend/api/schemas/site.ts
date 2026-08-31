@@ -24,6 +24,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'Whether this instance can render a page to PDF — i.e. whether the Puppeteer extension is installed (`WIKI.models.rendering.isAvailable()`). Instance-wide, not a per-site setting: lets the PDF export control hide or disable itself with an explanatory tooltip instead of offering a button that always fails.'
       },
+      docsBase: {
+        type: 'string',
+        description:
+          "Base URL this instance's in-app \"view docs\" / help links are built from (`WIKI.config.docsBase`, from `base.yml`). Instance-wide, not a per-site setting: `siteStore.docsBase` on the frontend appends a path to it, e.g. `docsBase + '/admin/general'`."
+      },
       blocksConfig: {
         type: 'object',
         description:
