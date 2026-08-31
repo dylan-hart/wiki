@@ -168,13 +168,17 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
     const fixtureDir = await setupFixture(
       'port: 3000\nlogLvel: debug\ndb:\n  host: myhost\n  sslOptions:\n    autoo: false\n'
     )
-    const warn = mock.fn()
+    // -> Regression coverage for the boot-order bug this replaced `WIKI.logger.warn` for: `init()`
+    //    runs before `WIKI.logger` exists at every real call site, so `WIKI` here deliberately has no
+    //    `logger` at all, proving the warning path no longer depends on it being present.
     const previous = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = { ROOTPATH: fixtureDir, SERVERPATH: fixtureDir, logger: { warn } }
+    ;(globalThis as any).WIKI = { ROOTPATH: fixtureDir, SERVERPATH: fixtureDir }
+    const warn = mock.method(console, 'warn', () => {})
 
     try {
       await configSvc.init(true)
     } finally {
+      warn.mock.restore()
       ;(globalThis as any).WIKI = previous
       await rm(fixtureDir, { recursive: true, force: true })
     }
@@ -189,13 +193,14 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
     const fixtureDir = await setupFixture(
       'port: 3000\nlogLevel: debug\ndb:\n  host: myhost\n  sslOptions:\n    auto: false\n'
     )
-    const warn = mock.fn()
     const previous = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = { ROOTPATH: fixtureDir, SERVERPATH: fixtureDir, logger: { warn } }
+    ;(globalThis as any).WIKI = { ROOTPATH: fixtureDir, SERVERPATH: fixtureDir }
+    const warn = mock.method(console, 'warn', () => {})
 
     try {
       await configSvc.init(true)
     } finally {
+      warn.mock.restore()
       ;(globalThis as any).WIKI = previous
       await rm(fixtureDir, { recursive: true, force: true })
     }

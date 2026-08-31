@@ -20,12 +20,22 @@ type ConfigObject = Record<string, any>
  *
  * Only descends into a key present on both sides as a plain object; anything else either matches
  * (nothing to walk further) or is already reported as unknown at that path.
+ *
+ * Uses `console.warn`, not `WIKI.logger.warn`: this runs inside `init()`, which every call site
+ * (index.ts, worker.ts, migration/bootstrap.ts, mcp/bootstrap.ts, scripts/audit-site-scoped-rules.ts)
+ * awaits before `WIKI.logger` is set up — `logger.init()` itself reads `WIKI.config.logLevel`, so it
+ * can only run after config is loaded, not before.
  */
 function warnUnknownConfigKeys(config: ConfigObject, schema: ConfigObject, pathPrefix = ''): void {
   for (const key of Object.keys(config)) {
     const keyPath = pathPrefix ? `${pathPrefix}.${key}` : key
     if (!Object.hasOwn(schema, key)) {
-      WIKI.logger.warn(`Unknown configuration key \`${keyPath}\` in config.yml — ignored.`)
+      console.warn(
+        styleText(
+          ['yellow', 'bold'],
+          `Unknown configuration key \`${keyPath}\` in config.yml — ignored.`
+        )
+      )
       continue
     }
     if (isPlainObject(config[key]) && isPlainObject(schema[key])) {
