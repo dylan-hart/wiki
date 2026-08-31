@@ -18,7 +18,8 @@ function mountPage() {
     messages: {
       en: {
         'admin.audit.title': 'Audit Log',
-        'admin.audit.event.user.created': 'User Created'
+        'admin.audit.event.user.created': 'User Created',
+        'common.actions.save': 'Save'
       }
     }
   })
@@ -158,6 +159,39 @@ describe('AdminAuditLog', () => {
     await wrapper.vm.saveRetention()
 
     expect(API_CLIENT.put).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
+  it('commits the retention setting from its own card-local Save button, not a page-header action (OpenProject #2089)', async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'audit-log/settings') {
+        return { json: () => Promise.resolve({ retentionDays: 180 }) }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+    API_CLIENT.put.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, message: 'Audit log retention setting updated.' })
+    })
+
+    const wrapper = mountPage()
+    await flush(wrapper)
+
+    // The page header carries only view-docs/refresh actions -- no Apply/Save button lives there.
+    const header = wrapper.find('.flex.flex-wrap.p-4.items-center')
+    expect(header.text()).not.toContain('Save')
+
+    // The retention setting commits from its own in-card button instead.
+    wrapper.vm.state.retentionDays = 90
+    const saveBtn = wrapper.find('.retention-save-btn')
+    expect(saveBtn.exists()).toBe(true)
+
+    await saveBtn.trigger('click')
+    await flush(wrapper)
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('audit-log/settings', {
+      json: { retentionDays: 90 }
+    })
 
     wrapper.unmount()
   })

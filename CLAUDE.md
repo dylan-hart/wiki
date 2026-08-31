@@ -14,10 +14,10 @@ needs the history to get a live dev database to the current schema.
 Four independently-installed workspaces (each has its own `package.json` / `node_modules`, there is
 no root package or monorepo tooling):
 
-| Path        | What it is                                                                                |
-| ----------- | ------------------------------------------------------------------------------------------ |
-| `backend/`  | Fastify REST API server + job scheduler, Drizzle on PostgreSQL                            |
-| `frontend/` | Vue 3 / Vite SPA, Tailwind CSS + an in-repo component library                             |
+| Path        | What it is                                                                               |
+| ----------- | ---------------------------------------------------------------------------------------- |
+| `backend/`  | Fastify REST API server + job scheduler, Drizzle on PostgreSQL                           |
+| `frontend/` | Vue 3 / Vite SPA, Tailwind CSS + an in-repo component library                            |
 | `blocks/`   | Lit web components users embed into wiki pages                                           |
 | `e2e/`      | Playwright end-to-end suite, driving the built stack — see [Testing (e2e)](#testing-e2e) |
 
@@ -30,7 +30,7 @@ The backend is **TypeScript 7**; `frontend/`, `blocks/` and `e2e/` are JavaScrip
 
 ### Root
 
-- `config.yml` — instance config (copy of `config.sample.yml`). Read by the backend at boot *and* by
+- `config.yml` — instance config (copy of `config.sample.yml`). Read by the backend at boot _and_ by
   `frontend/vite.config.js` in dev mode to learn the proxy target port.
 - `assets/` — **build output** of the frontend (`vite build` writes here), plus static assets under
   `assets/_assets/`. Served by the backend. Don't hand-edit.
@@ -51,7 +51,7 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
   `system.ts`, `locales.ts`, `authentication.ts`), registered by `api/index.ts` under the `/_api`
   prefix.
   - `api/schemas/` — shared JSON Schemas registered via `app.addSchema()` and referenced from route
-    schemas as `{ $ref: 'Site#' }`. Register new shared schemas in `api/index.ts` *before* the routes.
+    schemas as `{ $ref: 'Site#' }`. Register new shared schemas in `api/index.ts` _before_ the routes.
 - `controllers/` — non-API HTTP routes: `site.ts` serves per-site resources (logo, favicon, login
   background) under `/_site`; `icons.ts` serves icons under `/_icons`, implementing the part of the
   Iconify API protocol the frontend speaks (`/_icons/<prefix>.json?icons=a,b` and
@@ -166,7 +166,7 @@ it — MDN has it deprecated, Firefox and Safari never implemented it, and there
 matches, so the block stayed light on a dark page. Instead construct a `DarkMode` controller
 (`this._darkMode = new DarkMode(this)`) in the block's constructor and write `:host([dark])`; the
 controller keeps that attribute in step, sharing one MutationObserver across every block on the page.
-A block that must *act* on the change rather than restyle for it passes `onChange`, or reads
+A block that must _act_ on the change rather than restyle for it passes `onChange`, or reads
 `.isDark` — `block-diagram` redraws mermaid in its own dark theme, `block-map` resolves a per-block
 `theme` prop that can pin a map light on a dark page.
 
@@ -361,7 +361,7 @@ expression: Unexpected token`). Write a named handler instead — `@click="close
 
 Neither side of that is worth reconfiguring, so don't try: the `includes(';')` check has no compiler
 option behind it, and the parse error is raised by the built-in `transformExpression`, which
-`baseCompile` runs *before* any `nodeTransforms` you could add — and Volar runs the same compiler,
+`baseCompile` runs _before_ any `nodeTransforms` you could add — and Volar runs the same compiler,
 so a build-time workaround would still leave the editor showing errors. On the formatter side,
 `embeddedLanguageFormatting: "off"` does leave attribute expressions alone but also stops formatting
 every `<script>` and `<style>` block in every SFC. This is not an oxfmt quirk either: Prettier with
@@ -521,7 +521,7 @@ separate transpile or worker config.
   logic is testable as plain functions or methods with no I/O — `helpers/pageRules.test.ts` and
   `models/users.test.ts` (`updateSession`, pure session/permission flattening — no `WIKI`, no
   database) are the reference examples. Reach for a real Postgres instance when the thing under test
-  *is* SQL orchestration that a mock of the query builder would mostly just be re-describing rather
+  _is_ SQL orchestration that a mock of the query builder would mostly just be re-describing rather
   than verifying — a `models/` write path that inserts, checks a constraint, and coordinates a couple
   of tables (`models/pages.test.ts`'s create/update/move/delete is the example: path-collision checks,
   a locale-scoped uniqueness constraint, the page/tree/history tables staying in step) is squarely
@@ -543,7 +543,7 @@ separate transpile or worker config.
     `.devcontainer` postgres, or a container reused across several local invocations) from
     accumulating one abandoned schema per run.
   - A throwaway instance to point `DATABASE_URL` at: `docker run --rm -d --name wiki-test-db -p
-    56001:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:18`, then
+56001:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:18`, then
     `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56001/postgres npm run test`. Nothing under
     `npm run test` spins up its own database — pointing `DATABASE_URL` at one, ephemeral or
     `.devcontainer`'s, is always the caller's choice to make.
@@ -576,6 +576,13 @@ separate transpile or worker config.
 - Cross-component messaging uses the `EVENT_BUS` global (mitt).
 - State lives in Pinia option stores. For utilities and dates use `es-toolkit` and `Temporal` — see
   [Utilities and dates](#utilities-and-dates); `lodash-es` and `luxon` have both been fully removed.
+- **Where an admin settings control saves from** depends on whether the page it sits on _is_ a
+  settings form or merely _contains_ one. A page that is one settings form top to bottom commits
+  from a header `unelevated` primary `common.actions.apply` button (`AdminGeneral.vue`,
+  `AdminTheme.vue`, and eleven more siblings). A setting embedded in a page whose primary content
+  is something else — a list, a viewer, a picker-plus-panel like `AdminSearch.vue` — gets its own
+  card-local save control instead (`AdminSearch.vue:105`, `AdminAuditLog.vue:174-180`); see
+  `docs/decisions/embedded-setting-save-affordance.md` for the full reasoning.
 
 ### Testing (frontend)
 
@@ -593,18 +600,18 @@ does in the real build, not because it was convenient to share:
   `transformAssetUrls` — every component compiles the same way under test as it does in the app;
 - the **Tailwind plugin** — component markup is full of Tailwind utility classes;
 - the **SCSS `additionalData` injection** (`css.preprocessorOptions.scss`) — several SFCs' `<style
-  lang="scss">` blocks reach for a bare `$primary` / `$grey-9` / ... (`PageToc.vue` is the test
+lang="scss">` blocks reach for a bare `$primary` / `$grey-9` / ... (`PageToc.vue` is the test
   suite's proof case), which only resolves under test if the same `@use '@/css/_theme.scss' as *;
-  @use '@/css/_palette.scss' as *;` runs here. Miss this and such a component doesn't fail its
-  assertion — it fails to even *compile* with a Sass "undefined variable" error, which wastes time
+@use '@/css/_palette.scss' as *;` runs here. Miss this and such a component doesn't fail its
+  assertion — it fails to even _compile_ with a Sass "undefined variable" error, which wastes time
   chasing the wrong problem. `test.css: true` in the Vitest `test` block is required alongside it:
   Vitest stubs out CSS processing by default (a `<style>` import resolves to `{}` and nothing is
   actually run through Sass), which would silently skip the very thing being verified.
-- **`vue()`'s template `compilerOptions.comments: false`** — deliberately *not* mirrored from
+- **`vue()`'s template `compilerOptions.comments: false`** — deliberately _not_ mirrored from
   `vite.config.js`, and load-bearing rather than optional. `@vitejs/plugin-vue` preserves
   template-level comments in dev mode (matching vue-loader's old behaviour) but strips them for
   `vite build`. Several SFCs — `WCheckbox.vue` among them — open with an explanatory HTML comment as
-  a template-level *sibling* of their root element, not a child of it: left in, the component
+  a template-level _sibling_ of their root element, not a child of it: left in, the component
   compiles to a two-node Fragment root instead of a single element. Vue itself handles that fine at
   runtime, but `@vue/test-utils` resolves `wrapper.element` (and therefore `.attributes()`,
   `.classes()`, `.find()` off the wrapper root, ...) from the component's single root node, and
@@ -662,7 +669,7 @@ transform it) and no app framework around it, so a test loads `component.js` exa
 would.
 
 - **`environment: 'jsdom'`**, not `happy-dom` (frontend's choice). A block's whole surface under test
-  *is* its shadow DOM — attribute reflection, light-DOM content read out of `this.textContent` /
+  _is_ its shadow DOM — attribute reflection, light-DOM content read out of `this.textContent` /
   `querySelector`, Lit's `adoptedStyleSheets`-or-injected-`<style>` fallback — and jsdom's coverage of
   that is the more complete of the two emulators. Verified directly rather than assumed: a
   `MutationObserver`-driven dark-mode toggle (see below) round-trips correctly under jsdom with no
@@ -675,7 +682,7 @@ would.
   also discover a future `shared/theme.test.js` or `shared/url-limit.test.js` (`shared/`'s
   `url-limit.js`, `config.js`, `icons.js`, `theme.js` currently have no test coverage at all) — a
   narrower `*/component.test.js` could only ever match inside a `block-*/` directory.
-- **Mounting pattern** — a block reads its content from the *light* DOM (the markdown body becomes its
+- **Mounting pattern** — a block reads its content from the _light_ DOM (the markdown body becomes its
   children before Lit ever renders), so a test builds that shape directly rather than passing props:
   ```js
   const el = document.createElement('block-gallery')
@@ -711,8 +718,8 @@ output out of `assets/`), which is a different thing from any one workspace's un
 superset of one of them.
 
 - **Boots the real thing, not a dev proxy.** `playwright.config.js`'s `webServer` runs `node
-  backend` (`cwd: '..'` — `index.ts` refuses to boot from anywhere else) against `CONFIG_FILE:
-  'e2e/config.e2e.yml'` and a `DATABASE_URL` the caller supplies. There is no dev-mode Vite proxy in
+backend` (`cwd: '..'` — `index.ts` refuses to boot from anywhere else) against `CONFIG_FILE:
+'e2e/config.e2e.yml'` and a `DATABASE_URL` the caller supplies. There is no dev-mode Vite proxy in
   this picture: `assets/` has to already be a real `frontend/`/`vite build` output (`npm run build`
   in `frontend/`, same as CI's own build step), or the specs fail on missing chrome, not a
   Playwright config problem — building it is deliberately left to the caller rather than triggered
@@ -724,8 +731,8 @@ superset of one of them.
   timeout" is the task's own bar, and a missing env var is the single most likely way to trip it. A
   throwaway container works the same way `backend/`'s DB-backed tests document (`test/db.ts`):
   `docker run --rm -d --name wiki-e2e-db -p 56002:5432 -e POSTGRES_PASSWORD=postgres -e
-  POSTGRES_DB=postgres postgres:18`, then `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56002/postgres
-  npm test`. In CI, a fresh `postgres:18` service container per run is what makes "seeded test
+POSTGRES_DB=postgres postgres:18`, then `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56002/postgres
+npm test`. In CI, a fresh `postgres:18` service container per run is what makes "seeded test
   database" true on every invocation, not just the first.
 - **The seed IS the app's own first-run path**, not a fixture this suite maintains separately: an
   empty database has no `settings` row, so `core/config.ts`'s `initDbValues()` runs exactly as it
@@ -787,7 +794,7 @@ superset of one of them.
   `index.ts`'s `fastifySession` sets no `domain` — so switching sites really does mean logging in
   again, not carrying a session across them). Asserted together off one page load
   (`${siteBOrigin}/${knownPageFromSiteA}`) rather than off the site's bare root: an unauthenticated
-  visitor to a *pageless* site's root gets redirected straight to `/login` by `Index.vue`'s route
+  visitor to a _pageless_ site's root gets redirected straight to `/login` by `Index.vue`'s route
   watcher, which is real behavior but would make a root-based guest-shell assertion race that
   client-side redirect instead of asserting on a stable page.
 - **CI wiring**: this suite runs as part of `.github/workflows/build.yml`'s `build` job now (task
@@ -801,7 +808,7 @@ backend/frontend/blocks unit tests) and `.github/workflows/build.yml` (version s
 building, the Playwright e2e suite, then the Docker publish). `quality.yml` is a `workflow_call:`
 target, not folded into `build.yml` directly: a plain `pull_request:` trigger added to `build.yml`
 itself would have no way to stop its expensive Docker build/push job from also queuing on every PR,
-where `needs:` only works between jobs in the *same* workflow run. `quality.yml`'s own header
+where `needs:` only works between jobs in the _same_ workflow run. `quality.yml`'s own header
 comment carries the full reasoning.
 
 - **`quality.yml` runs on every pull request directly, and on every `scarlett` push via
