@@ -31,12 +31,46 @@ import type { Pool } from 'pg'
  * unrelated targets occasionally serializing against each other rather than running concurrently,
  * never a correctness problem, so it is not worth a second int32 (`pg_advisory_lock(int, int)`) to
  * avoid.
+ *
+ * Acquisition is bounded by `LOCK_TIMEOUT_MS`: `pg_advisory_lock` takes Postgres's regular lock
+ * manager path, so the session `lock_timeout` GUC applies to it exactly as it would to a row or
+ * table lock. Without it, a contended key blocks the calling connection — and the scheduler slot
+ * running it — forever; the only caller (`tasks/simple/dispatch-storage.ts`) runs in-process, so an
+ * unbounded wait here is the unbounded wait behind a worker-slot leak, not merely a slow job. A
+ * caller that cannot acquire within the bound gets a rejected promise naming the key, so the job is
+ * recorded failed and retried on the scheduler's normal backoff instead of hanging.
+ *
+ * `lock_timeout` is set with `set_config(..., false)` (session-level) rather than `SET LOCAL`:
+ * `SET LOCAL` only takes effect inside a transaction block — outside one it is a silent no-op (with
+ * a warning), and this helper deliberately does not wrap the lock query in a transaction. The
+ * setting is reset to `0` (disabled) immediately after the acquisition attempt, before `fn()` runs
+ * and before the client goes back to the pool — a session-level GUC would otherwise leak onto
+ * whatever unrelated query the pool hands this same connection to next.
  */
+const LOCK_TIMEOUT_MS = 10_000
+
 export async function withAdvisoryLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const pool = WIKI.db.$client as Pool
   const client = await pool.connect()
   try {
-    await client.query('SELECT pg_advisory_lock(hashtext($1))', [key])
+    await client.query('SELECT set_config($1, $2, false)', [
+      'lock_timeout',
+      String(LOCK_TIMEOUT_MS)
+    ])
+    try {
+      try {
+        await client.query('SELECT pg_advisory_lock(hashtext($1))', [key])
+      } catch (err: any) {
+        throw new Error(
+          `Timed out acquiring advisory lock for key "${key}" after ${LOCK_TIMEOUT_MS}ms`,
+          { cause: err }
+        )
+      }
+    } finally {
+      // -> Runs whether the acquisition succeeded or timed out, so the raised lock_timeout never
+      //    outlives this one query on a connection that is about to be reused for something else.
+      await client.query('SELECT set_config($1, $2, false)', ['lock_timeout', '0'])
+    }
     try {
       return await fn()
     } finally {

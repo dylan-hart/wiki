@@ -83,6 +83,33 @@ test('two different keys do not serialize against each other', { skip }, async (
 })
 
 test(
+  'a second acquisition of an already-held key rejects within the bound instead of blocking indefinitely',
+  { skip },
+  async () => {
+    const key = `advisory-lock-test-timeout-${Date.now()}`
+
+    // -> Holds the lock well past LOCK_TIMEOUT_MS (10s in advisoryLock.ts), so `second` is guaranteed
+    //    to still be contending when its own bound elapses.
+    const first = withAdvisoryLock(key, async () => {
+      await delay(15_000)
+    })
+    await delay(20)
+
+    const start = Date.now()
+    await assert.rejects(
+      withAdvisoryLock(key, async () => 'should never run'),
+      /Timed out acquiring advisory lock for key "advisory-lock-test-timeout-\d+" after \d+ms/
+    )
+    const elapsed = Date.now() - start
+    // -> Rejects near the 10s bound, not after `first`'s 15s hold — proves it timed out rather than
+    //    eventually acquiring the lock once `first` released it.
+    assert.ok(elapsed < 14_000, `expected a bounded rejection, took ${elapsed}ms`)
+
+    await first
+  }
+)
+
+test(
   'releases the lock even when fn throws, so a later holder is not blocked forever',
   { skip },
   async () => {
