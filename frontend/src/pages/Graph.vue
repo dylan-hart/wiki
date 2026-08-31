@@ -21,6 +21,10 @@
         }}
       </template>
     </div>
+    <div v-if="graphTruncated" class="graph-view-truncation-notice">
+      Showing {{ allNodes.length }} of {{ totalNodes }} pages. Filters and search apply only to the
+      pages shown here, not the full site.
+    </div>
     <div class="graph-view-right-rail">
       <div class="graph-view-controls">
         <div class="graph-view-control-group">
@@ -181,6 +185,12 @@ const loadError = ref(null)
  *  after Task 26 (#901) are the CURRENTLY VISIBLE subset the simulation actually runs on. */
 const allNodes = ref([])
 const allEdges = ref([])
+
+/** Server-side truncation signal (OpenProject #1866): the endpoint caps the node set and reports
+ *  whether it had to. `totalNodes` is the true readable-page count even when truncated, so the
+ *  notice below (OpenProject #1875) can say how much was cut, not just that some was. */
+const graphTruncated = ref(false)
+const totalNodes = ref(0)
 
 /** 'site' is deliberately not an option here -- see the spec's architecture note: a single loaded
  *  graph has exactly one site value, so grouping by it would be a no-op UI control. */
@@ -726,6 +736,8 @@ async function loadGraph() {
     const graph = await API_CLIENT.get(`sites/${siteStore.id}/graph`).json()
     allNodes.value = graph.nodes ?? []
     allEdges.value = graph.edges ?? []
+    graphTruncated.value = graph.truncated ?? false
+    totalNodes.value = graph.totalNodes ?? allNodes.value.length
     applyFilters()
     sizeCanvas()
     startSimulation()
@@ -908,6 +920,29 @@ onBeforeUnmount(() => {
   }
   @at-root .body--dark & {
     background: rgba(0, 0, 0, 0.55);
+  }
+}
+
+.graph-view-truncation-notice {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  max-width: calc(100% - 64px);
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 12px;
+  text-align: center;
+  backdrop-filter: blur(4px);
+
+  @at-root .body--light & {
+    background: rgba(255, 244, 224, 0.9);
+    color: rgba(0, 0, 0, 0.8);
+  }
+  @at-root .body--dark & {
+    background: rgba(90, 60, 0, 0.55);
+    color: #fff;
   }
 }
 

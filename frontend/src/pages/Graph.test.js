@@ -77,10 +77,19 @@ const FIXTURE_GRAPH = {
   edges: [{ source: 'a', target: 'b', type: 'link' }]
 }
 
+/** OpenProject #1866's response shape as `FIXTURE_GRAPH` extended with `truncated`/`totalNodes` --
+ *  `truncated: true` with a `totalNodes` well above the two returned nodes, so the "N of totalNodes"
+ *  notice text (OpenProject #1875) is unambiguous either way it might be phrased. */
+const FIXTURE_GRAPH_TRUNCATED = {
+  ...FIXTURE_GRAPH,
+  truncated: true,
+  totalNodes: 5000
+}
+
 /** Options for `API_CLIENT.get('system/pageviews')` -- defaults to tracking enabled so the
  *  'visits' sizing option is available in the default `mountGraph()` fixture; a test asserting the
  *  disabled case passes `{ pageviewsEnabled: false }`. */
-async function mountGraph({ pageviewsEnabled = true } = {}) {
+async function mountGraph({ pageviewsEnabled = true, graph = FIXTURE_GRAPH } = {}) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
@@ -92,7 +101,7 @@ async function mountGraph({ pageviewsEnabled = true } = {}) {
   router.push('/')
   await router.isReady()
 
-  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_GRAPH) })
+  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(graph) })
   API_CLIENT.get.mockReturnValueOnce({
     json: () => Promise.resolve({ isEnabled: pageviewsEnabled })
   })
@@ -367,5 +376,20 @@ describe('Graph.vue (OpenProject #891)', () => {
     await flushPromises()
 
     expect(wrapper.find('canvas').exists()).toBe(true)
+  })
+
+  it('shows the truncation notice with the shown/total counts when the response is truncated (OpenProject #1875)', async () => {
+    const wrapper = await mountGraph({ graph: FIXTURE_GRAPH_TRUNCATED })
+
+    expect(wrapper.find('.graph-view-truncation-notice').exists()).toBe(true)
+    // -> FIXTURE_GRAPH_TRUNCATED's two nodes are what the (stubbed) server actually returned;
+    //    totalNodes (5000) is the true readable-page count the cap cut it down from.
+    expect(wrapper.text()).toContain('Showing 2 of 5000 pages')
+  })
+
+  it('does not show the truncation notice when the response is not truncated', async () => {
+    const wrapper = await mountGraph()
+
+    expect(wrapper.find('.graph-view-truncation-notice').exists()).toBe(false)
   })
 })
