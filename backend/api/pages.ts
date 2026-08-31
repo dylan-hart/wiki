@@ -2066,6 +2066,52 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * PAGE BACKLINKS (OpenProject #1914)
+   */
+  app.get<{ Params: { siteId: string; pageId: string } }>(
+    '/sites/:siteId/pages/:pageId/backlinks',
+    {
+      /*
+        No route-level `permissions`: `read:pages` is a page permission granted by a group's
+        RULES. Checked against the target page via `loadReadablePage` (folded into 404 when
+        missing or unreadable), and again per candidate row below -- exactly as `api/graph.ts`'s
+        edge assembly filters graph nodes.
+      */
+      schema: {
+        summary: 'Pages linking to this page',
+        description:
+          'Every page on this site whose content links to this one, as extracted from the rendered HTML on save (`models/rendering.ts#extractInternalLinks`, stored in `pages.links`). Needs `read:pages` on the target page to see the list at all; each row in the response also needs `read:pages` ON THAT PAGE -- a linking page the caller may not read is silently dropped rather than counted.',
+        tags: ['Pages'],
+        params: pageIdParam,
+        response: {
+          200: {
+            description: 'Pages linking to this one, filtered to what the caller may read',
+            type: 'array',
+            items: { $ref: 'PageBacklink#' }
+          },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      if (!page) {
+        return reply.notFound('This page does not exist.')
+      }
+      const rows = await WIKI.models.pages.listBacklinks(req.params.siteId, page.path)
+      return rows
+        .filter((row) => mayOnPage(req, 'read:pages', req.params.siteId, row))
+        .map((row) => ({
+          id: row.id,
+          path: row.path,
+          locale: row.locale,
+          title: row.title,
+          icon: row.icon
+        }))
+    }
+  )
+
+  /**
    * EXPORT PAGE AS MARKDOWN OR HTML
    */
   app.get<{

@@ -212,6 +212,20 @@ export interface GraphPageRow {
   links: string[]
 }
 
+/** One candidate row for `GET .../backlinks` (OpenProject #1914) -- a page whose extracted
+ *  internal links (`models/rendering.ts#extractInternalLinks`) target the requested page. Carries
+ *  `tags`/`classification` alongside the identifying fields so the route can run `mayOnPage` per
+ *  row, the same way `GraphPageRow` does for the knowledge graph. */
+export interface BacklinkRow {
+  id: string
+  path: string
+  locale: string
+  title: string
+  icon: string | null
+  tags: string[]
+  classification: string
+}
+
 /**
  * Who is saving, and what they are allowed to put in a page.
  *
@@ -565,6 +579,33 @@ class Pages {
       })
       .from(pagesTable)
       .where(eq(pagesTable.siteId, siteId)) as Promise<GraphPageRow[]>
+  }
+
+  /**
+   * Every page on this site whose `links` column (OpenProject #881) contains `targetPath` -- the
+   * raw candidate rows for `GET .../backlinks`, unfiltered by permission. A single `jsonb`
+   * containment query against the array `models/rendering.ts#extractInternalLinks` writes on every
+   * save, the same `@>` pattern `models/classificationLevels.ts`'s `deleteLevel` already uses
+   * against `apiKeys.allowedClassifications`. The route filters each row through `mayOnPage`.
+   */
+  async listBacklinks(siteId: string, targetPath: string): Promise<BacklinkRow[]> {
+    return WIKI.db
+      .select({
+        id: pagesTable.id,
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        title: pagesTable.title,
+        icon: pagesTable.icon,
+        tags: pagesTable.tags,
+        classification: pagesTable.classification
+      })
+      .from(pagesTable)
+      .where(
+        and(
+          eq(pagesTable.siteId, siteId),
+          sql`${pagesTable.links} @> ${JSON.stringify([targetPath])}::jsonb`
+        )
+      ) as Promise<BacklinkRow[]>
   }
 
   /**
