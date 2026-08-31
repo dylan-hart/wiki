@@ -55,6 +55,18 @@ const COMPLETION_PROMISE_TTL_MULTIPLIER = 2
 const TASK_TIMEOUT_GRACE = 5000
 
 /**
+ * Extra time `stop()`'s drain waits on top of `taskTimeout` before giving up on in-flight jobs.
+ *
+ * A worker-thread job already has its own ceiling — `executeOnWorker`'s abort at `taskTimeout`, or
+ * the backup timer at `taskTimeout + TASK_TIMEOUT_GRACE` for a worker that dies without answering —
+ * so `taskTimeout` alone already bounds that case with room to spare. An in-process (non-worker)
+ * task has no timeout of its own, though, so this grace is what keeps `stop()`'s drain bounded for
+ * that case too, without waiting the full `TASK_TIMEOUT_GRACE` on top for a job that's already
+ * limited elsewhere.
+ */
+const SHUTDOWN_DRAIN_GRACE = 1000
+
+/**
  * Sends the scheduler's cross-instance notifications, one at a time.
  *
  * Nothing here awaits a notification: a job being added or finishing should not wait on a round trip,
@@ -117,6 +129,8 @@ export default {
   scheduledRef: null as NodeJS.Timeout | null,
   tasks: null as Record<string, SimpleTask> | null,
   completionPromises: [] as CompletionPromise[],
+  /** `runJob` promises `processJob` currently has in flight, so `stop()` can drain them. */
+  inFlightJobs: new Set<Promise<void>>(),
   async init() {
     this.maxWorkers =
       WIKI.config.scheduler.workers === 'auto'
@@ -475,10 +489,20 @@ export default {
       return
     }
 
+    // -> Tracked in `inFlightJobs` so `stop()` can await these rather than abandoning them mid-run
+    //    (OpenProject #2019). Added before the first `await` below, so a `stop()` racing this call
+    //    always sees the full batch. `activeWorkers` is not incremented again here — the up-front
+    //    reservation above (`this.activeWorkers += availableWorkers`, corrected down to
+    //    `jobs.length`) already accounts for this batch.
+    const jobPromises = jobs.map((job) => this.runJob(job))
+    for (const p of jobPromises) {
+      this.inFlightJobs.add(p)
+      p.finally(() => this.inFlightJobs.delete(p))
+    }
     try {
       // -> `allSettled`, though `runJob` handles its own failures: one job that manages to throw
       //    anyway must not abandon the bookkeeping of the others
-      await Promise.allSettled(jobs.map((job) => this.runJob(job)))
+      await Promise.allSettled(jobPromises)
     } finally {
       this.activeWorkers -= jobs.length
     }
@@ -825,6 +849,12 @@ export default {
     WIKI.logger.info('Stopping Scheduler...')
     clearInterval(this.scheduledRef!)
     clearInterval(this.pollingRef!)
+    // -> Nulled synchronously, before anything below is awaited: no new job is claimed once shutdown
+    //    begins (`processJob` is only ever called from this interval), and the drain below only has
+    //    to deal with whatever was already in flight at this instant.
+    this.scheduledRef = null
+    this.pollingRef = null
+    await this.drainInFlightJobs()
     await this.workerPool!.destroy()
     if (this.listenerHandle) {
       await notifier.drained()
@@ -832,5 +862,32 @@ export default {
       this.listenerHandle = null
     }
     WIKI.logger.info('Scheduler: [ STOPPED ]')
+  },
+  /**
+   * Waits for whatever `processJob` currently has in flight, bounded so a hung task cannot hold
+   * shutdown open indefinitely (OpenProject #2019).
+   *
+   * Called from `stop()` after `pollingRef` is already cleared, so `inFlightJobs` only shrinks from
+   * here on — nothing new is added to it. A job's own promise is awaited (via `runJob`'s tracked
+   * promise in `inFlightJobs`), not dropped; a job that never settles on its own is not waited on
+   * past `taskTimeout + SHUTDOWN_DRAIN_GRACE`, after which `stop()` proceeds anyway and abandons it
+   * the same way an unbounded wait would eventually have had to.
+   */
+  async drainInFlightJobs(): Promise<void> {
+    if (this.inFlightJobs.size < 1) {
+      return
+    }
+    const timeoutMs =
+      (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000 + SHUTDOWN_DRAIN_GRACE
+    WIKI.logger.info(
+      `Waiting for ${this.inFlightJobs.size} in-flight job(s) to finish (up to ${timeoutMs}ms)...`
+    )
+    let timer: NodeJS.Timeout
+    const bound = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs)
+      timer.unref?.()
+    })
+    await Promise.race([Promise.allSettled(Array.from(this.inFlightJobs)), bound])
+    clearTimeout(timer!)
   }
 }
