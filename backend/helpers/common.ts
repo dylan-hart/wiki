@@ -405,6 +405,26 @@ export function localizedPagePath(
   return shouldPrefixLocale(locale, locales) ? `/${locale}${bare}` : bare
 }
 
+/** A vite build's `[name]-[hash].[ext]` filename, whose hash segment can never point at different bytes. */
+const HASHED_ASSET_PATTERN = /-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/
+
+/**
+ * Whether an `/_assets/` basename carries a vite-generated content hash, and can therefore be served
+ * with an immutable, far-future cache header.
+ *
+ * `frontend/vite.config.js`'s `entryFileNames`/asset naming appends `-[hash]` (an 8+ character
+ * base62-ish string) before the extension to every build output except the handful of names it pins
+ * on purpose (`renderer.js`, kept fixed because a static server-rendered page references it by name)
+ * — those, plus the hand-authored trees under `assets/_assets` that never go through vite at all
+ * (`bg/`, `fonts/`, `icons/`, `illustrations/`, `logo-wikijs.svg`, `storage/`, `svg/`), are exactly
+ * the entries this returns `false` for.
+ *
+ * @param filename Basename only (`path.basename(filePath)`), not a full path
+ */
+export function isHashedAssetFilename(filename: string): boolean {
+  return HASHED_ASSET_PATTERN.test(filename)
+}
+
 /**
  * Generate SHA-1 Hash of a string
  *
