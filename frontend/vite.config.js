@@ -8,6 +8,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import vueDevTools from 'vite-plugin-vue-devtools'
+import { temporalPolyfillChunkPlugin } from './src/build/temporalPolyfillChunk.js'
 
 const TWEMOJI_ROUTE = '/_assets/svg/twemoji'
 
@@ -175,6 +176,7 @@ export default defineConfig(({ mode }) => {
       }),
       tailwindcss(),
       twemojiAssets(),
+      temporalPolyfillChunkPlugin(),
       vueDevTools()
     ],
     css: {
