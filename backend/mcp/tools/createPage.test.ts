@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import { McpToolError } from '../auth.ts'
+import { CustomError } from '../../helpers/common.ts'
 import { handleCreatePage } from './createPage.ts'
 
 const SITE_ID = 'site-a'
@@ -183,6 +184,51 @@ test('handleCreatePage: wraps a model validation failure as an McpToolError', as
     (err: unknown) => {
       assert.ok(err instanceof McpToolError)
       assert.match((err as Error).message, /already exists/)
+      return true
+    }
+  )
+})
+
+/**
+ * OpenProject #1720: `renderPuppeteerMissing`/`renderUnsupportedEditor` (thrown by `ensureCanRender()`
+ * via `createPage()`'s own render-less-write guard, #1716) must reach the caller as an actionable
+ * `McpToolError` -- naming the cause AND telling the agent what to do next, since it has no `render`
+ * argument on this tool to retry with and no docs page to fall back on the way a REST client does.
+ */
+test('handleCreatePage: renderPuppeteerMissing becomes an McpToolError naming the extension and pointing at the web editor', async () => {
+  const c = ctx({ access: ['write:pages'] })
+  ;(globalThis as any).WIKI.models.pages.createPage = async () => {
+    throw new CustomError(
+      'renderPuppeteerMissing',
+      'Rendering a page on the server needs the Puppeteer extension, which is not installed.',
+      503
+    )
+  }
+  await assert.rejects(
+    () => handleCreatePage(c, { path: 'new-page', title: 'New', content: 'x' }),
+    (err: unknown) => {
+      assert.ok(err instanceof McpToolError)
+      assert.match((err as Error).message, /Puppeteer extension/)
+      assert.match((err as Error).message, /web editor/)
+      return true
+    }
+  )
+})
+
+test('handleCreatePage: renderUnsupportedEditor becomes an McpToolError naming the editor and pointing at markdown', async () => {
+  const c = ctx({ access: ['write:pages'] })
+  ;(globalThis as any).WIKI.models.pages.createPage = async () => {
+    throw new CustomError(
+      'renderUnsupportedEditor',
+      'Server-side rendering is not implemented for the ckeditor editor.'
+    )
+  }
+  await assert.rejects(
+    () => handleCreatePage(c, { path: 'new-page', title: 'New', content: 'x', editor: 'ckeditor' }),
+    (err: unknown) => {
+      assert.ok(err instanceof McpToolError)
+      assert.match((err as Error).message, /ckeditor/)
+      assert.match((err as Error).message, /markdown/)
       return true
     }
   )

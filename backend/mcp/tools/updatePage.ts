@@ -10,6 +10,7 @@ import {
   type McpAuthContextGetter
 } from '../auth.ts'
 import { resolveRequestedSite } from '../site.ts'
+import { renderRefusalGuidance } from '../renderRefusal.ts'
 
 const updatePageInputSchema = {
   pageId: z
@@ -99,7 +100,7 @@ export async function handleUpdatePage(
       actor
     )
   } catch (err: any) {
-    throw new McpToolError(err.message)
+    throw new McpToolError(renderRefusalGuidance(err) ?? err.message)
   }
   if (!page) {
     throw new McpToolError('This page does not exist.')
