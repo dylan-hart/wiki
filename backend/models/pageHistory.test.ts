@@ -6,13 +6,13 @@ import { users as usersTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
- * `listRecoverable` and `recoverDeletedPage` are SQL orchestration (a `DISTINCT ON` + `NOT EXISTS`
- * query, and a reconstruct-then-`createPage` write path) rather than pure logic, so — like
- * `models/pages.test.ts` — this suite runs the real methods against a migrated, per-run-fresh
- * database (see `test/db.ts`) rather than mocking the query builder.
+ * `list`, `listRecoverable` and `recoverDeletedPage` are SQL orchestration (a keyset-paginated query,
+ * a `DISTINCT ON` + `NOT EXISTS` query, and a reconstruct-then-`createPage` write path) rather than
+ * pure logic, so — like `models/pages.test.ts` — this suite runs the real methods against a migrated,
+ * per-run-fresh database (see `test/db.ts`) rather than mocking the query builder.
  */
 describe(
-  'pageHistory listRecoverable/recoverDeletedPage (DB-backed)',
+  'pageHistory list/listRecoverable/recoverDeletedPage (DB-backed)',
   { skip: !hasTestDatabase() },
   () => {
     let fixtures: TestFixtures
@@ -51,7 +51,7 @@ describe(
         actor
       )
 
-      const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+      const { items: entries } = await pageHistoryModel.list(fixtures.siteId, page.id)
       assert.equal(entries.length, 1)
       assert.equal(entries[0]!.locale, 'en')
       // -> OpenProject #1119: undefined `actor.via` defaults to 'editor', carried by both list() and
@@ -292,10 +292,77 @@ describe(
         pageInput({ path: 'docs/still-alive' }),
         actor
       )
-      const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+      const { items: entries } = await pageHistoryModel.list(fixtures.siteId, page.id)
       // -> The only version so far is the `created` row, not a `deleted` one
       await assert.rejects(
         pageHistoryModel.recoverDeletedPage(fixtures.siteId, entries[0]!.id, actor)
+      )
+    })
+
+    test('list() paginates by cursor: stable, non-overlapping pages across a history longer than the default limit', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/long-history' }),
+        actor
+      )
+      // -> createPage's own `created` row is version 1; 59 more `updated` rows makes 60 total,
+      //    comfortably past the default 50-row page size
+      for (let i = 0; i < 59; i++) {
+        await pageHistoryModel.record({
+          siteId: fixtures.siteId,
+          pageId: page.id,
+          action: 'updated',
+          authorId: fixtures.userId,
+          changedFields: ['title']
+        })
+      }
+
+      const firstPage = await pageHistoryModel.list(fixtures.siteId, page.id, { limit: 50 })
+      assert.equal(firstPage.items.length, 50)
+      assert.ok(firstPage.nextCursor, 'a 60-row history at a 50-row page size has a next page')
+
+      const secondPage = await pageHistoryModel.list(fixtures.siteId, page.id, {
+        limit: 50,
+        cursor: firstPage.nextCursor
+      })
+      assert.equal(secondPage.items.length, 10)
+      assert.equal(secondPage.nextCursor, null, 'the last page has nothing after it')
+
+      // -> Non-overlapping: no id appears on both pages
+      const firstIds = new Set(firstPage.items.map((row) => row.id))
+      const overlap = secondPage.items.filter((row) => firstIds.has(row.id))
+      assert.deepEqual(overlap, [])
+
+      // -> Stable and newest-first across the boundary: every id from both pages together, in order,
+      //    equals a single unpaginated fetch at the full size
+      const whole = await pageHistoryModel.list(fixtures.siteId, page.id, { limit: 200 })
+      assert.deepEqual(
+        [...firstPage.items, ...secondPage.items].map((row) => row.id),
+        whole.items.map((row) => row.id)
+      )
+    })
+
+    test('list() never includes an author email in its projection', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/no-author-email' }),
+        actor
+      )
+      const { items } = await pageHistoryModel.list(fixtures.siteId, page.id)
+      assert.ok(items.length > 0)
+      for (const item of items) {
+        assert.equal('email' in item.author, false)
+      }
+    })
+
+    test('list() rejects a malformed cursor', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/bad-cursor' }),
+        actor
+      )
+      await assert.rejects(
+        pageHistoryModel.list(fixtures.siteId, page.id, { cursor: 'not-a-real-cursor' })
       )
     })
   }

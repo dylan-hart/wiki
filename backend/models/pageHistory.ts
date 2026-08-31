@@ -1,5 +1,5 @@
 import { isEqual } from 'es-toolkit/predicate'
-import { and, desc, eq, isNotNull, lt, notExists, sql } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, lt, notExists, or, sql } from 'drizzle-orm'
 import {
   pageHistory as pageHistoryTable,
   pages as pagesTable,
@@ -7,6 +7,10 @@ import {
 } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
 import type { Page, PageActor, PageInput } from './pages.ts'
+
+/** The default page size for {@link PageHistory.list}, and its hard cap. */
+const HISTORY_LIST_DEFAULT_LIMIT = 50
+const HISTORY_LIST_MAX_LIMIT = 200
 
 /**
  * The kinds of change a history row records.
@@ -132,6 +136,76 @@ export type PageHistoryVersion = PageHistoryEntry & {
 }
 
 /**
+ * Who a version is attributed to, as {@link PageHistory.list} reports it -- name only.
+ *
+ * `list()` is what a page's whole timeline is read through, potentially hundreds of rows at once
+ * (see {@link PageHistory.list}'s own doc comment), and nothing on the frontend reads an author's
+ * address off it (`PageHistoryOverlay.vue` reads only `.author.name`) -- so the email a `getVersion()`
+ * or `listRecoverable()` row still carries is left out of this one's projection entirely, rather than
+ * fetched and thrown away.
+ */
+export type PageHistoryListAuthor = Omit<PageHistoryAuthor, 'email'>
+
+/** A version as {@link PageHistory.list} reports it -- {@link PageHistoryEntry} minus the author's email. */
+export type PageHistoryListEntry = Omit<PageHistoryEntry, 'author'> & {
+  author: PageHistoryListAuthor
+}
+
+/** One page of {@link PageHistory.list}'s keyset-paginated results. */
+export type PageHistoryPage = {
+  /** Newest first, same ordering as the unpaginated list used to return. */
+  items: PageHistoryListEntry[]
+  /** Pass back as `cursor` to fetch the next page. Null once there is nothing older left. */
+  nextCursor: string | null
+}
+
+/** The parts of a cursor: the last row's `versionDate` and `id`, in the same order the query sorts by. */
+type HistoryCursor = {
+  versionDate: Date
+  id: string
+}
+
+/**
+ * Turn a page's last row into an opaque cursor a caller can hand back for the next page.
+ *
+ * Encodes `versionDate` (millisecond precision -- what postgres actually stores, so a round trip
+ * through this never disagrees with the row it came from) and `id` together, since the query orders
+ * by both: several versions can share one `versionDate` on a page saved twice in the same
+ * millisecond, and `id` is what keeps their relative order stable across pages.
+ */
+function encodeHistoryCursor(cursor: HistoryCursor): string {
+  return Buffer.from(`${cursor.versionDate.getTime()}|${cursor.id}`, 'utf8').toString('base64url')
+}
+
+/**
+ * The inverse of {@link encodeHistoryCursor}.
+ *
+ * @throws {CustomError} `pageHistoryInvalidCursor` (400) if `raw` does not decode to a well-formed
+ *         cursor -- a tampered or truncated value, not a case the caller can otherwise trigger by
+ *         paging normally.
+ */
+function decodeHistoryCursor(raw: string): HistoryCursor {
+  const invalid = () =>
+    new CustomError('pageHistoryInvalidCursor', 'This history cursor is not valid.', 400)
+  let decoded: string
+  try {
+    decoded = Buffer.from(raw, 'base64url').toString('utf8')
+  } catch {
+    throw invalid()
+  }
+  const separatorIndex = decoded.indexOf('|')
+  if (separatorIndex < 0) {
+    throw invalid()
+  }
+  const epochMs = Number.parseInt(decoded.slice(0, separatorIndex), 10)
+  const id = decoded.slice(separatorIndex + 1)
+  if (!Number.isFinite(epochMs) || !id) {
+    throw invalid()
+  }
+  return { versionDate: new Date(epochMs), id }
+}
+
+/**
  * Unique-contributor counts for one page, split by `via` (OpenProject #1141's edit-volume node
  * sizing) -- `editor`/`mcp` are `pageHistory.via`'s own two buckets, and `all` is the union across
  * both, precomputed here rather than left for a caller to add `editor + mcp` together: a
@@ -251,13 +325,37 @@ class PageHistory {
   }
 
   /**
-   * A page's versions, newest first — the order a timeline reads in.
+   * A page's versions, newest first — the order a timeline reads in, one page of it at a time.
    *
    * The newest row is the page as it stands: it was written after the change that produced the state
    * the page is in now. No content here; a list of forty versions has no business carrying forty
    * copies of the page.
+   *
+   * Paginated by keyset on `(versionDate, id)` rather than `OFFSET` -- a page edited daily for a
+   * couple of years carries hundreds of versions, and `OFFSET` degrades exactly there, doing more
+   * work for every page further in rather than the constant-time seek a keyset cursor gets from the
+   * `(pageId, versionDate)` index. `cursor`, when given, is the opaque token a previous call's
+   * `nextCursor` returned; omitted, this starts from the newest version.
+   *
+   * @param options.limit Rows per page. Defaults to {@link HISTORY_LIST_DEFAULT_LIMIT}, capped at
+   *                       {@link HISTORY_LIST_MAX_LIMIT}; a value outside `[1, max]` is clamped rather
+   *                       than rejected.
+   * @param options.cursor Opaque cursor from a previous call's `nextCursor`. Omitted or null starts
+   *                        from the newest version.
+   * @throws {CustomError} `pageHistoryInvalidCursor` (400) if `cursor` does not decode -- see
+   *         {@link decodeHistoryCursor}.
    */
-  async list(siteId: string, pageId: string): Promise<PageHistoryEntry[]> {
+  async list(
+    siteId: string,
+    pageId: string,
+    options: { limit?: number; cursor?: string | null } = {}
+  ): Promise<PageHistoryPage> {
+    const limit = Math.min(
+      Math.max(1, Math.trunc(options.limit ?? HISTORY_LIST_DEFAULT_LIMIT)),
+      HISTORY_LIST_MAX_LIMIT
+    )
+    const after = options.cursor ? decodeHistoryCursor(options.cursor) : null
+
     const rows = await WIKI.db
       .select({
         id: pageHistoryTable.id,
@@ -270,31 +368,54 @@ class PageHistory {
         path: pageHistoryTable.path,
         title: pageHistoryTable.title,
         authorId: usersTable.id,
-        authorName: usersTable.name,
-        authorEmail: usersTable.email
+        authorName: usersTable.name
       })
       .from(pageHistoryTable)
       .leftJoin(usersTable, eq(usersTable.id, pageHistoryTable.authorId))
-      .where(and(eq(pageHistoryTable.siteId, siteId), eq(pageHistoryTable.pageId, pageId)))
+      .where(
+        and(
+          eq(pageHistoryTable.siteId, siteId),
+          eq(pageHistoryTable.pageId, pageId),
+          after
+            ? or(
+                lt(pageHistoryTable.versionDate, after.versionDate),
+                and(
+                  eq(pageHistoryTable.versionDate, after.versionDate),
+                  lt(pageHistoryTable.id, after.id)
+                )
+              )
+            : undefined
+        )
+      )
       .orderBy(desc(pageHistoryTable.versionDate), desc(pageHistoryTable.id))
+      // -> One extra row, never returned, just to know whether a next page exists without a second
+      //    (count) query
+      .limit(limit + 1)
 
-    return rows.map((row: any) => ({
-      id: row.id,
-      action: row.action,
-      via: row.via,
-      changedFields: row.changedFields ?? [],
-      reason: row.reason ?? '',
-      versionDate: row.versionDate,
-      locale: row.locale,
-      path: row.path,
-      title: row.title,
-      author: {
-        // -> Null once the account is gone: the version outlives it, see the column's own note
-        id: row.authorId ?? null,
-        name: row.authorName ?? '',
-        email: row.authorEmail ?? ''
-      }
-    }))
+    const hasMore = rows.length > limit
+    const page = hasMore ? rows.slice(0, limit) : rows
+    const last = page.at(-1)
+
+    return {
+      items: page.map((row: any) => ({
+        id: row.id,
+        action: row.action,
+        via: row.via,
+        changedFields: row.changedFields ?? [],
+        reason: row.reason ?? '',
+        versionDate: row.versionDate,
+        locale: row.locale,
+        path: row.path,
+        title: row.title,
+        author: {
+          // -> Null once the account is gone: the version outlives it, see the column's own note
+          id: row.authorId ?? null,
+          name: row.authorName ?? ''
+        }
+      })),
+      nextCursor:
+        hasMore && last ? encodeHistoryCursor({ versionDate: last.versionDate, id: last.id }) : null
+    }
   }
 
   /**
