@@ -96,7 +96,7 @@
               <w-td :props="props">
                 <i18n-t class="text-caption" keypath="admin.users.createdAt" tag="div">
                   <template #date
-                    ><strong>{{ formattedDate(props.value) }}</strong></template
+                    ><strong>{{ humanizeDate(t, props.value) }}</strong></template
                   >
                 </i18n-t>
                 <i18n-t
@@ -174,7 +174,7 @@ import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-import { relativeDate } from '@/helpers/datetime'
+import { humanizeDate, relativeDate } from '@/helpers/datetime'
 
 import { debounce } from 'es-toolkit/function'
 import UserCreateDialog from '../components/UserCreateDialog.vue'
@@ -330,11 +330,6 @@ async function load({ page } = {}) {
   }
   loading.hide()
   state.loading--
-}
-
-/** Largest-first. `week` is deliberately absent, so output reads e.g. "21 days ago". */
-function formattedDate(val) {
-  return userStore.formatDateTime(t, val)
 }
 
 function checkOverlay() {

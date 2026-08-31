@@ -266,7 +266,7 @@
               >
             </template>
             <template #body-cell-date="props">
-              <w-td :props="props">{{ formattedDate(props.value) }}</w-td>
+              <w-td :props="props">{{ humanizeDate(t, props.value) }}</w-td>
             </template>
             <template #body-cell-delete="props">
               <w-td :props="props">
@@ -307,9 +307,9 @@ import { confirm } from '@/composables/dialog'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
-import { useUserStore } from '@/stores/user'
 
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 
 // COMPOSABLES
 
@@ -319,7 +319,6 @@ const dark = useDark()
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
-const userStore = useUserStore()
 
 // I18N
 
@@ -504,11 +503,6 @@ function configIfCheck(ifs) {
 function excerptOf(content) {
   const flat = (content ?? '').replace(/\s+/g, ' ').trim()
   return flat.length > 140 ? `${flat.slice(0, 140)}…` : flat
-}
-
-/** Largest-first, matching `AdminUsers.vue`'s date column. */
-function formattedDate(val) {
-  return userStore.formatDateTime(t, val)
 }
 
 async function load() {

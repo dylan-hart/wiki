@@ -244,6 +244,7 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { useMinWidth } from '@/composables/screen'
 
+import { humanizeDate } from '@/helpers/datetime'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
 import { useFlagsStore } from '@/stores/flags'
@@ -370,7 +371,7 @@ const defaultPageIcon = DEFAULT_PAGE_ICON
  * rather than once per render of a list that can hold up to `RESULTS_LIMIT` rows.
  */
 const formattedResults = computed(() =>
-  state.results.map((r) => ({ ...r, updatedAtFormatted: humanizeDate(r.updatedAt) }))
+  state.results.map((r) => ({ ...r, updatedAtFormatted: humanizeDate(t, r.updatedAt) }))
 )
 
 // WATCHERS
@@ -390,10 +391,6 @@ watch(
 watch(() => state.params, debounce(performSearch, 500), { deep: true })
 
 // METHODS
-
-function humanizeDate(val) {
-  return userStore.formatDateTime(t, val)
-}
 
 function toggleFilters() {
   state.filtersOpen = !state.filtersOpen
