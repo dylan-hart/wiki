@@ -222,6 +222,15 @@
               </w-item-section>
             </w-item>
           </w-list>
+          <div class="flex justify-center p-4" v-if="state.results.length < state.total">
+            <w-btn
+              flat
+              no-caps
+              color="primary"
+              :label="t('search.loadMore')"
+              :loading="state.loading > 0"
+              @click="loadMore" />
+          </div>
         </w-page>
         <w-inner-loading :showing="state.loading > 0" />
       </div>
@@ -256,7 +265,7 @@ import { apiErrorMessage } from '@/helpers/apiError'
 
 const tagsInQueryRgx = /#[a-z0-9-\u3400-\u4DBF\u4E00-\u9FFF]+(?=(?:[^"]*(?:")[^"]*(?:"))*[^"]*$)/g
 
-/** How many results one search returns. The API caps this at 100, and there is no pager yet. */
+/** How many results one page of search results holds. The API caps a single request at 100. */
 const RESULTS_LIMIT = 100
 
 // STORES
@@ -310,7 +319,8 @@ const state = reactive({
   },
   selectedTags: [],
   results: [],
-  total: 0
+  total: 0,
+  offset: 0
 })
 
 /**
@@ -411,7 +421,12 @@ function syncTags(newSelection) {
   }
 }
 
-async function performSearch() {
+/**
+ * Runs a search. `append` distinguishes the two callers: a fresh search (a new query, filter or
+ * sort) starts over at offset 0 and replaces `state.results`, while `loadMore()` asks for the next
+ * page at the current offset and appends onto what is already shown.
+ */
+async function performSearch(append = false) {
   let q = siteStore.search ?? ''
 
   // -> Extract tags
@@ -436,10 +451,13 @@ async function performSearch() {
   if (!q && Object.keys(filters).length < 1) {
     state.results = []
     state.total = 0
+    state.offset = 0
     siteStore.searchLastQuery = siteStore.search
     siteStore.searchIsLoading = false
     return
   }
+
+  const offset = append ? state.offset : 0
 
   state.loading++
   siteStore.searchIsLoading = true
@@ -450,16 +468,21 @@ async function performSearch() {
         ...filters,
         orderBy: state.params.orderBy,
         orderByDirection: state.params.orderByDirection,
-        // -> There is no pager yet, so this is as deep as the results go
+        offset,
         limit: RESULTS_LIMIT
       }
     }).json()
-    state.results = (resp?.results ?? []).map((r) => ({ ...r, tags: [...(r.tags ?? [])].sort() }))
+    const results = (resp?.results ?? []).map((r) => ({ ...r, tags: [...(r.tags ?? [])].sort() }))
+    state.results = append ? [...state.results, ...results] : results
     state.total = resp?.totalHits ?? 0
+    state.offset = offset + results.length
     siteStore.searchLastQuery = siteStore.search
   } catch (err) {
-    state.results = []
-    state.total = 0
+    if (!append) {
+      state.results = []
+      state.total = 0
+      state.offset = 0
+    }
     notify({
       type: 'negative',
       message: t('search.failed'),
@@ -469,6 +492,10 @@ async function performSearch() {
     state.loading--
     siteStore.searchIsLoading = false
   }
+}
+
+function loadMore() {
+  return performSearch(true)
 }
 
 function goBack() {

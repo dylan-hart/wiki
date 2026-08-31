@@ -8,7 +8,16 @@ import TagsBrowse from './TagsBrowse.vue'
 import { useSiteStore } from '@/stores/site'
 
 function createTestI18n() {
-  return createI18n({ legacy: false, locale: 'en', fallbackWarn: false, messages: { en: {} } })
+  return createI18n({
+    legacy: false,
+    locale: 'en',
+    fallbackWarn: false,
+    messages: { en: { 'search.loadMore': 'Load More' } }
+  })
+}
+
+function findLoadMoreButton(wrapper) {
+  return wrapper.findAll('button').find((b) => b.text() === 'Load More')
 }
 
 const FIXTURE_TAGS = [
@@ -29,6 +38,9 @@ const FIXTURE_PAGE = {
   relevancy: 1,
   highlight: null
 }
+
+const FIXTURE_PAGE_2 = { ...FIXTURE_PAGE, id: 'p2', path: 'some/other-page', title: 'Other Page' }
+const FIXTURE_PAGE_3 = { ...FIXTURE_PAGE, id: 'p3', path: 'some/third-page', title: 'Third Page' }
 
 const EMPTY_RESULTS = { results: [], totalHits: 0, suggestion: null }
 
@@ -220,5 +232,101 @@ describe('TagsBrowse.vue (OpenProject #987)', () => {
     await flushPromises()
 
     expect(wrapper.vm.state.results).toEqual([])
+  })
+
+  it('sends offset 0 on the first page of a fresh search', async () => {
+    const { wrapper } = await mountTagsBrowse('/_tags?tags=equipment', {
+      results: [FIXTURE_PAGE, FIXTURE_PAGE_2],
+      totalHits: 3,
+      suggestion: null
+    })
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith(
+      'sites/site-1/pages/search',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ offset: 0 })
+      })
+    )
+    expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p1', 'p2'])
+    expect(wrapper.vm.state.offset).toBe(2)
+  })
+
+  it('loadMore requests the next page at the current offset and appends rather than replaces', async () => {
+    const { wrapper } = await mountTagsBrowse('/_tags?tags=equipment', {
+      results: [FIXTURE_PAGE, FIXTURE_PAGE_2],
+      totalHits: 3,
+      suggestion: null
+    })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE_3], totalHits: 3, suggestion: null })
+    })
+
+    await wrapper.vm.loadMore()
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ offset: 2 })
+      })
+    )
+    expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p1', 'p2', 'p3'])
+    expect(wrapper.vm.state.offset).toBe(3)
+  })
+
+  it('shows the load-more control while more results remain, and hides it once exhausted', async () => {
+    const { wrapper } = await mountTagsBrowse('/_tags?tags=equipment', {
+      results: [FIXTURE_PAGE, FIXTURE_PAGE_2],
+      totalHits: 3,
+      suggestion: null
+    })
+    expect(findLoadMoreButton(wrapper)).toBeTruthy()
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE_3], totalHits: 3, suggestion: null })
+    })
+    await wrapper.vm.loadMore()
+    await flushPromises()
+
+    expect(findLoadMoreButton(wrapper)).toBeFalsy()
+  })
+
+  it('never shows the load-more control when a single page already covers the total', async () => {
+    const { wrapper } = await mountTagsBrowse('/_tags?tags=equipment', {
+      results: [FIXTURE_PAGE, FIXTURE_PAGE_2],
+      totalHits: 2,
+      suggestion: null
+    })
+
+    expect(findLoadMoreButton(wrapper)).toBeFalsy()
+  })
+
+  it('toggling a second tag resets the offset instead of continuing to append onto the prior search', async () => {
+    const { wrapper } = await mountTagsBrowse('/_tags?tags=equipment', {
+      results: [FIXTURE_PAGE, FIXTURE_PAGE_2],
+      totalHits: 5,
+      suggestion: null
+    })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE_3], totalHits: 5, suggestion: null })
+    })
+    await wrapper.vm.loadMore()
+    await flushPromises()
+    expect(wrapper.vm.state.offset).toBe(3)
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [FIXTURE_PAGE], totalHits: 5, suggestion: null })
+    })
+    await wrapper.vm.toggleTag('procedure')
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+      'sites/site-1/pages/search',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ offset: 0 })
+      })
+    )
+    expect(wrapper.vm.state.results.map((r) => r.id)).toEqual(['p1'])
+    expect(wrapper.vm.state.offset).toBe(1)
   })
 })

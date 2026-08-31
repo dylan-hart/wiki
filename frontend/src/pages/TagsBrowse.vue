@@ -149,6 +149,17 @@
             </w-item-section>
           </w-item>
         </w-list>
+        <div
+          class="flex justify-center p-4"
+          v-if="state.results.length > 0 && state.results.length < state.total">
+          <w-btn
+            flat
+            no-caps
+            color="primary"
+            :label="t('search.loadMore')"
+            :loading="state.loading > 0"
+            @click="loadMore" />
+        </div>
       </div>
     </div>
   </w-page>
@@ -171,7 +182,7 @@ import { DEFAULT_PAGE_ICON } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-/** How many results one browse returns. The API caps this at 100, and there is no pager yet. */
+/** How many results one page of a browse holds. The API caps a single request at 100. */
 const RESULTS_LIMIT = 100
 
 // ROUTER
@@ -214,7 +225,8 @@ const state = reactive({
   filterQuery: '',
   orderBy: 'title',
   results: [],
-  total: 0
+  total: 0,
+  offset: 0
 })
 
 const defaultPageIcon = DEFAULT_PAGE_ICON
@@ -299,12 +311,19 @@ function setLocale(value) {
   state.filterLocale = value ?? ''
 }
 
-async function performSearch() {
+/**
+ * Runs a search. `append` distinguishes the two callers: a fresh search (a tag toggled, the query,
+ * locale or order changed) starts over at offset 0 and replaces `state.results`, while `loadMore()`
+ * asks for the next page at the current offset and appends onto what is already shown.
+ */
+async function performSearch(append = false) {
   if (state.selectedTags.length < 1) {
     state.results = []
     state.total = 0
+    state.offset = 0
     return
   }
+  const offset = append ? state.offset : 0
   state.loading++
   try {
     const resp = await API_CLIENT.get(`sites/${siteStore.id}/pages/search`, {
@@ -314,14 +333,20 @@ async function performSearch() {
         ...(state.filterLocale ? { locales: state.filterLocale } : {}),
         orderBy: state.orderBy,
         orderByDirection: orderByDirection.value,
+        offset,
         limit: RESULTS_LIMIT
       }
     }).json()
-    state.results = (resp?.results ?? []).map((r) => ({ ...r, tags: [...(r.tags ?? [])].sort() }))
+    const results = (resp?.results ?? []).map((r) => ({ ...r, tags: [...(r.tags ?? [])].sort() }))
+    state.results = append ? [...state.results, ...results] : results
     state.total = resp?.totalHits ?? 0
+    state.offset = offset + results.length
   } catch (err) {
-    state.results = []
-    state.total = 0
+    if (!append) {
+      state.results = []
+      state.total = 0
+      state.offset = 0
+    }
     notify({
       type: 'negative',
       message: t('search.failed'),
@@ -330,6 +355,10 @@ async function performSearch() {
   } finally {
     state.loading--
   }
+}
+
+function loadMore() {
+  return performSearch(true)
 }
 
 // MOUNTED
