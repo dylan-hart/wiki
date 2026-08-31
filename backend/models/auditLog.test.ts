@@ -117,6 +117,85 @@ describe('auditLog record/list/listActors/purge (DB-backed)', { skip: !hasTestDa
     assert.ok(actors.some((a) => a.id === fixtures.userId && a.name === 'Fixture User'))
   })
 
+  test('recordMany() writes N rows field-identical to N successive record() calls', async () => {
+    const before = (await auditLogModel.list({ limit: 1000 })).total
+
+    const entries = [
+      {
+        event: 'group.created' as const,
+        actor: { id: fixtures.userId, name: 'Batch Actor One', ip: '203.0.113.20' },
+        targetType: 'group' as const,
+        targetId: 'batch-target-1',
+        targetLabel: 'Batch Target One',
+        detail: { batch: 1 },
+        siteId: fixtures.siteId
+      },
+      {
+        event: 'apiKey.issued' as const,
+        actor: { id: null, name: 'API Key batch-key', ip: '203.0.113.21' },
+        targetType: 'apiKey' as const,
+        targetId: 'batch-target-2',
+        targetLabel: 'Batch Target Two',
+        detail: { batch: 2 }
+      },
+      {
+        event: 'site.settingsUpdated' as const,
+        actor: { id: fixtures.userId, name: 'Batch Actor Three' },
+        targetType: 'site' as const,
+        targetId: 'batch-target-3',
+        targetLabel: 'Batch Target Three',
+        detail: {}
+      }
+    ]
+
+    await auditLogModel.recordMany(entries)
+
+    const afterBatch = await auditLogModel.list({ limit: 1000 })
+    assert.equal(afterBatch.total, before + entries.length)
+
+    for (const entry of entries) {
+      const row = afterBatch.entries.find((e) => e.targetId === entry.targetId)
+      assert.ok(row, `expected a row for ${entry.targetId}`)
+      // Same field values `record()` would have written for this entry -- exercised directly by
+      // `record() writes an entry that list() reads back` above, so this checks recordMany() lands
+      // the identical shape rather than re-deriving record()'s own behavior.
+      assert.equal(row!.event, entry.event)
+      assert.equal(row!.actor.id, entry.actor.id)
+      assert.equal(row!.actor.name, entry.actor.name)
+      assert.equal(row!.actorIp, entry.actor.ip ?? '')
+      assert.equal(row!.targetType, entry.targetType)
+      assert.equal(row!.targetId, entry.targetId)
+      assert.equal(row!.targetLabel, entry.targetLabel)
+      assert.deepEqual(row!.detail, entry.detail)
+      assert.equal(row!.siteId, entry.siteId ?? null)
+      // Timestamps aren't dropped or left null by the batched path -- see the implementation plan's
+      // note on why this doesn't assert bit-exact equality against record()'s own timestamps: a
+      // single multi-row INSERT shares one transaction-start `now()` across every row in the batch,
+      // while N sequential record() calls (each its own implicit transaction) can differ by a few ms.
+      assert.ok(row!.createdAt instanceof Date)
+      assert.ok(Date.now() - row!.createdAt.getTime() < 5000)
+    }
+
+    // The batch's own rows share one INSERT's `now()` -- unlike sequential record() calls, they are
+    // not just close to each other, they are identical.
+    const batchRows = entries.map((entry) =>
+      afterBatch.entries.find((e) => e.targetId === entry.targetId)!
+    )
+    assert.ok(
+      batchRows.every((row) => row.createdAt.getTime() === batchRows[0]!.createdAt.getTime())
+    )
+  })
+
+  test('recordMany() with an empty array issues no statement', async (t) => {
+    const insertSpy = t.mock.method(WIKI.db, 'insert')
+    const before = (await auditLogModel.list({ limit: 1000 })).total
+
+    await auditLogModel.recordMany([])
+
+    assert.equal(insertSpy.mock.callCount(), 0)
+    assert.equal((await auditLogModel.list({ limit: 1000 })).total, before)
+  })
+
   test('purge() drops nothing when every entry is inside the retention window', async () => {
     const before = (await auditLogModel.list()).total
     const purged = await auditLogModel.purge(365)

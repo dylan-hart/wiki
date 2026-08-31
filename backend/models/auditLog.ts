@@ -112,6 +112,17 @@ export function actorFromRequest(req: FastifyRequest): AuditActor {
   return { id: null, name: '', ip: req.ip }
 }
 
+/** The entry shape `record()` and `recordMany()` both accept -- one event to write. */
+export type RecordEntry = {
+  event: AuditEvent
+  actor: AuditActor
+  targetType?: AuditTargetType | ''
+  targetId?: string
+  targetLabel?: string
+  detail?: Record<string, any>
+  siteId?: string | null
+}
+
 /**
  * Audit log model
  *
@@ -135,15 +146,7 @@ class AuditLog {
     targetLabel = '',
     detail = {},
     siteId = null
-  }: {
-    event: AuditEvent
-    actor: AuditActor
-    targetType?: AuditTargetType | ''
-    targetId?: string
-    targetLabel?: string
-    detail?: Record<string, any>
-    siteId?: string | null
-  }): Promise<void> {
+  }: RecordEntry): Promise<void> {
     try {
       await WIKI.db.insert(auditLogTable).values({
         event,
@@ -158,6 +161,40 @@ class AuditLog {
       })
     } catch (err: any) {
       WIKI.logger.warn(`Failed to record audit log entry for ${event}: ${err.message}`)
+    }
+  }
+
+  /**
+   * Record several events in one statement -- same entry shape `record()` takes, plural. For a
+   * caller that would otherwise loop `record()` once per item (`api/pages.ts`'s
+   * classification-conflict resolve route is the first, OpenProject #1899/#1894): N sequential
+   * single-row INSERTs become one multi-row INSERT.
+   *
+   * An empty array is a no-op that issues no statement at all -- a `VALUES` list needs at least one
+   * row, so this is a required guard rather than just an optimization -- and, same as `record()`, a
+   * failure here is logged and swallowed rather than thrown, since the caller's write already
+   * succeeded by the time this runs.
+   */
+  async recordMany(entries: RecordEntry[]): Promise<void> {
+    if (entries.length === 0) {
+      return
+    }
+    try {
+      await WIKI.db.insert(auditLogTable).values(
+        entries.map((entry) => ({
+          event: entry.event,
+          actorId: entry.actor.id,
+          actorName: entry.actor.name,
+          actorIp: entry.actor.ip ?? '',
+          targetType: entry.targetType ?? '',
+          targetId: entry.targetId ?? '',
+          targetLabel: entry.targetLabel ?? '',
+          detail: entry.detail ?? {},
+          siteId: entry.siteId ?? null
+        }))
+      )
+    } catch (err: any) {
+      WIKI.logger.warn(`Failed to record ${entries.length} audit log entr(ies): ${err.message}`)
     }
   }
 
