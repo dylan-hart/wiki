@@ -11,6 +11,16 @@
     <title>Wiki.js</title>
     <!--preload-links-->
     <!--
+      Substituted by the `temporalPolyfillChunk` Vite plugin (`src/build/temporalPolyfillChunk.js`)
+      with the real, hashed build URL of the temporal-polyfill 'global.esm' chunk, as an inline
+      script setting `window.__wikiTemporalPolyfillUrl`. This never becomes a
+      `<link rel="modulepreload">` here -- that chunk is deliberately absent from Vite's own
+      modulepreload links, since preloading it for every browser would waste ~20 KB gzipped on
+      browsers with native `Temporal`. It exists only so a feature-detect script can conditionally
+      preload the chunk for browsers that still need it.
+    -->
+    <!--temporal-polyfill-chunk-url-->
+    <!--
       No webfont is linked statically here any more: which family (if any -- `theme.baseFont` /
       `theme.contentFont` can both be `'user'`, meaning "no override") is a per-site setting, only
       known once the site's config has loaded. `helpers/fonts.js`'s `applyFonts()`, called from
