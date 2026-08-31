@@ -39,6 +39,19 @@ test('JOB_SCHEDULE_SEED registers purgePageviews on a valid daily cron', () => {
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 })
 
+test('JOB_SCHEDULE_SEED registers purgeSessions on a valid hourly cron, offset from purgeRateLimits', () => {
+  const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeSessions')
+  assert.ok(entry, 'expected a purgeSessions entry in the schedule seed')
+  assert.equal(entry!.type, 'system')
+  // -> A standard 5-field cron expression, e.g. "40 * * * *" (once an hour)
+  assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
+
+  const rateLimitsEntry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeRateLimits')
+  assert.ok(rateLimitsEntry, 'expected a purgeRateLimits entry in the schedule seed')
+  // -> Both run hourly against the same table-growth concern; they must not land on the same minute.
+  assert.notEqual(entry!.cron.split(' ')[0], rateLimitsEntry!.cron.split(' ')[0])
+})
+
 test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
   const tasks = JOB_SCHEDULE_SEED.map((e) => e.task)
   assert.deepEqual(
@@ -51,6 +64,7 @@ test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
       'purgeImports',
       'purgePageviews',
       'purgeRateLimits',
+      'purgeSessions',
       'sendWatchDigests',
       'storageDailyBackup',
       'storageSyncTick',
