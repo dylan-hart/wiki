@@ -281,6 +281,15 @@ function readJson<T>(entries: Record<string, Buffer>, name: string): T {
  *   this codebase (`models/tags.ts` derives the tag list from `pages.tags` on the fly instead), so there
  *   is nothing to export, nothing to purge on the target, and nothing to rebuild — see
  *   `docs/audit-2026-08-24/correctness-models.md` §15 for the table's own removal, tracked separately.
+ *
+ * **Cache and index invalidation is deliberately not this method's job.** `importSite` writes
+ * `pages`/`tree`/`assets` directly and upserts `groups` through a raw query rather than through
+ * `models/groups.ts`'s own methods, so none of the ordinary post-write hooks (the page-rule
+ * `rulesCache` reload/broadcast, the glossary's per-site term cache, the asset path-resolution cache,
+ * the search index) fire as a side effect of this transaction. That is intentional: this model has no
+ * business scheduling a cross-instance cache broadcast or queuing a search-index rebuild job, the way
+ * no other `models/` write path does either. `tasks/simple/import-content.ts`, the sole caller, is
+ * where that happens — see its own doc comment — once this method has actually returned successfully.
  */
 class ImportModel {
   /** `<dataPath>/imports` — created on first use, same as the export/icon/asset caches. */
