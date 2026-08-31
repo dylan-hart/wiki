@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import Emittery from 'emittery'
 
-import dbManager from './db.ts'
+import dbManager, { buildPoolOptions } from './db.ts'
 import configSvc from './config.ts'
 import maintenance from './maintenance.ts'
 import { groups } from '../models/groups.ts'
@@ -247,5 +247,64 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.equal(groupsReloadCacheMock.mock.calls.length, 1)
     assert.equal(sitesReloadCacheMock.mock.calls.length, 1)
     assert.equal(approvalsReloadCacheMock.mock.calls.length, 1)
+  })
+})
+
+/**
+ * OpenProject #1883: `base.yml`'s `pool:` default used to be just `min: 1`, leaving node-postgres'
+ * own `max` (10) and `connectionTimeoutMillis` (0 -- no timeout, so a saturated pool waits
+ * indefinitely) in effect with nothing documented for an operator to find or override. `buildPoolOptions`
+ * is the pure function `init()` calls to build the `new Pool()` options, split out specifically so
+ * this behavior is assertable without a real database connection.
+ */
+describe('buildPoolOptions()', () => {
+  const connectionConfig = {
+    host: 'db.example.com',
+    user: 'wikijs',
+    password: 'x',
+    database: 'wiki'
+  }
+
+  test('passes the configured pool straight through, including the explicit base.yml max/connectionTimeoutMillis defaults', () => {
+    const result = buildPoolOptions(
+      connectionConfig,
+      { min: 1, max: 20, connectionTimeoutMillis: 5000 },
+      false,
+      'Wiki.js - instance-a:MAIN',
+      'wiki'
+    )
+    assert.equal(result.application_name, 'Wiki.js - instance-a:MAIN')
+    assert.equal(result.host, 'db.example.com')
+    assert.equal(result.max, 20)
+    assert.equal(result.connectionTimeoutMillis, 5000)
+    assert.equal(result.options, '-c search_path=wiki')
+  })
+
+  test('an operator config.yml override wins over the base.yml defaults', () => {
+    // -> Simulates what `WIKI.config.pool` looks like once `core/config.ts` has already deep-merged
+    //    an operator's `config.yml` value over `base.yml`'s defaults -- `buildPoolOptions` does no
+    //    merging of its own here, it just passes whatever it is handed straight through.
+    const result = buildPoolOptions(
+      connectionConfig,
+      { min: 1, max: 50, connectionTimeoutMillis: 2000 },
+      false,
+      'Wiki.js - instance-a:MAIN',
+      'wiki'
+    )
+    assert.equal(result.max, 50)
+    assert.equal(result.connectionTimeoutMillis, 2000)
+  })
+
+  test('worker mode always forces { min: 0, max: 1 }, regardless of the configured pool', () => {
+    const result = buildPoolOptions(
+      connectionConfig,
+      { min: 1, max: 50, connectionTimeoutMillis: 2000 },
+      true,
+      'Wiki.js - instance-a:WORKER',
+      'wiki'
+    )
+    assert.equal(result.min, 0)
+    assert.equal(result.max, 1)
+    assert.equal(result.application_name, 'Wiki.js - instance-a:WORKER')
   })
 })

@@ -40,6 +40,24 @@ db:
     # pfx: path/to/cert.pfx
     # passphrase: xyz123
 
+# ---------------------------------------------------------------------
+# Postgres connection pool
+# ---------------------------------------------------------------------
+# `min`/`max` are the pool's minimum/maximum number of open connections;
+# `connectionTimeoutMillis` is how long a request for a connection waits
+# before failing, once the pool is fully saturated -- left unset, it waits
+# indefinitely instead of failing fast.
+#
+# 3 connections are permanently held open for LISTEN, outside this pool's
+# regular checkout/release cycle: the cross-instance event bus, the job
+# scheduler, and collaborative editing. `max` needs headroom above that
+# fixed cost, not just above your expected query concurrency.
+#
+# pool:
+#   min: 1
+#   max: 20
+#   connectionTimeoutMillis: 5000
+
 #######################################################################
 # ADVANCED OPTIONS                                                    #
 #######################################################################

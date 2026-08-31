@@ -21,6 +21,14 @@ defaults:
       enabled: false
     pool:
       min: 1
+      # -> `max` must stay above the 3 connections permanently held open for LISTEN (event bus in
+      #    core/db.ts, scheduler in core/scheduler.ts, collab in core/collab.ts, all checked out via
+      #    helpers/pubsub.ts) with real headroom left for actual query traffic — see
+      #    config.sample.yml's `pool:` section for the operator-facing writeup.
+      max: 20
+      # -> Without this, a request for a connection when the pool is fully saturated waits
+      #    indefinitely instead of failing fast. 5 seconds, in milliseconds (node-postgres's unit).
+      connectionTimeoutMillis: 5000
     bindIP: 0.0.0.0
     logLevel: info
     logFormat: default

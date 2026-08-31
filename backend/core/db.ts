@@ -73,6 +73,33 @@ function createDb(client: Pool) {
   return drizzle({ client, relations, logger: queryLogger })
 }
 
+/**
+ * Build the options passed to `new Pool()`, split out of `init()` so the pool-sizing behavior
+ * (explicit `max`/`connectionTimeoutMillis` defaults from `base.yml`, an operator's `config.yml`
+ * override winning, worker mode's forced single-connection pool) is unit-testable without a real
+ * database connection — see `db.test.ts`.
+ *
+ * `poolConfig` is `WIKI.config.pool` as already merged by `core/config.ts` (`base.yml` defaults
+ * deep-merged with any `config.yml`/db-stored override) — this function does no merging of its own
+ * beyond the worker-mode override below, which replaces `poolConfig` entirely rather than merging
+ * with it: a worker thread only ever needs one connection, regardless of what the main process is
+ * configured for.
+ */
+export function buildPoolOptions(
+  connectionConfig: PoolConfig,
+  poolConfig: PoolConfig | undefined,
+  workerMode: boolean,
+  applicationName: string,
+  searchPathSchema: string
+): PoolConfig {
+  return {
+    application_name: applicationName,
+    ...connectionConfig,
+    ...(workerMode ? { min: 0, max: 1 } : poolConfig),
+    options: `-c search_path=${searchPathSchema}`
+  }
+}
+
 /** The Drizzle instance, as returned by `init()` and exposed as `WIKI.db`. */
 export type WikiDb = ReturnType<typeof createDb>
 
@@ -180,12 +207,15 @@ export default {
 
     // Initialize Postgres Pool
 
-    this.pool = new Pool({
-      application_name: `Wiki.js - ${WIKI.INSTANCE_ID}:${workerMode ? 'WORKER' : 'MAIN'}`,
-      ...this.config,
-      ...(workerMode ? { min: 0, max: 1 } : WIKI.config.pool),
-      options: `-c search_path=${WIKI.config.db.schema}`
-    })
+    this.pool = new Pool(
+      buildPoolOptions(
+        this.config,
+        WIKI.config.pool,
+        workerMode,
+        `Wiki.js - ${WIKI.INSTANCE_ID}:${workerMode ? 'WORKER' : 'MAIN'}`,
+        WIKI.config.db.schema
+      )
+    )
 
     const db = createDb(this.pool)
 
