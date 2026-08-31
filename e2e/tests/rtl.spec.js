@@ -1,62 +1,68 @@
 import { expect, test } from '@playwright/test'
 
 // -> The e2e workspace has no `pg`/`drizzle-orm` of its own (it is a plain Playwright workspace --
-//    see `e2e/package.json`); `runSeedRtlTestLocale()` builds and closes its own connection, and
+//    see `e2e/package.json`); `runSeed*TestLocale()` each build and close their own connection, and
 //    everything IT imports resolves against `backend/`'s own `node_modules` because Node resolves
 //    bare specifiers relative to the importing file's location, not this file's.
 import {
+  LTR_TEST_LOCALE,
   RTL_TEST_LOCALE,
+  runSeedLtrTestLocale,
   runSeedRtlTestLocale
 } from '../../backend/scripts/seed-rtl-test-locale.ts'
-import { loginAsAdmin, uniqueSlug } from '../helpers/admin.js'
+import { createAndPublishPage, loginAsAdmin, uniqueSlug } from '../helpers/admin.js'
 
 /**
- * Feature 413 ("RTL support end-to-end"), task 727: seed the synthetic RTL test locale directly
- * into the same database the backend under test boots against (its own `refreshFromDisk()` boot
- * step never touches it -- see the seed script's header comment -- so this is safe to do once,
- * ahead of every test in this file, rather than per test).
+ * Feature 413 ("RTL support end-to-end"), task 727, and WP #1662 (content-vs-interface locale
+ * split): seed both synthetic test locales directly into the same database the backend under test
+ * boots against (its own `refreshFromDisk()` boot step never touches either -- see the seed
+ * script's header comment -- so this is safe to do once, ahead of every test in this file, rather
+ * than per test).
  */
 test.beforeAll(async () => {
-  await runSeedRtlTestLocale()
+  await Promise.all([runSeedRtlTestLocale(), runSeedLtrTestLocale()])
 })
 
-test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
-  test('activating the synthetic RTL locale via AdminLocale.vue flips dir/lang across the reading view, both editors, and the admin area', async ({
-    page
-  }) => {
-    await loginAsAdmin(page)
+/**
+ * Activates one or more test locales for the default site through the real admin screen
+ * (`AdminLocale.vue`), per the original task's own instruction -- not a direct API/DB write. Shared
+ * by every test in this file that needs an active non-primary locale before it can create or view a
+ * locale-prefixed page; assumes the caller has already called `loginAsAdmin(page)`.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {{ name: string }[]} testLocales
+ */
+async function activateTestLocales(page, testLocales) {
+  // -> `models/locales.ts#getLocales()` answers from `WIKI.cache`, populated once at boot
+  //    (`index.ts#postBoot`) and never invalidated on its own -- a locale inserted straight into the
+  //    table (as `beforeAll` above just did) is invisible to `GET /_api/locales`, and so to
+  //    `AdminLocale.vue`, until something busts that cache. `POST /_api/system/cache/flush` is the
+  //    real, existing mechanism for exactly this (`AdminUtilities.vue`'s "Flush Caches" button,
+  //    `core/maintenance.ts#flushCaches`) -- not a test-only workaround, and the same step a real
+  //    administrator would take after loading a locale outside the normal boot-time
+  //    `refreshFromDisk()` path.
+  await page.request.post('/_api/system/cache/flush')
 
-    // -> `models/locales.ts#getLocales()` answers from `WIKI.cache`, populated once at boot
-    //    (`index.ts#postBoot`) and never invalidated on its own -- a locale inserted straight into
-    //    the table (as `beforeAll` above just did) is invisible to `GET /_api/locales`, and so to
-    //    `AdminLocale.vue`, until something busts that cache. `POST /_api/system/cache/flush` is the
-    //    real, existing mechanism for exactly this (`AdminUtilities.vue`'s "Flush Caches" button,
-    //    `core/maintenance.ts#flushCaches`) -- not a test-only workaround, and the same step a real
-    //    administrator would take after loading a locale outside the normal boot-time
-    //    `refreshFromDisk()` path.
-    await page.request.post('/_api/system/cache/flush')
+  await page.goto('/_admin/sites')
+  await page.getByRole('button', { name: 'Edit', exact: true }).first().click()
+  await expect(page).toHaveURL(/\/_admin\/[^/]+\/general$/)
+  const siteId = new URL(page.url()).pathname.match(/\/_admin\/([^/]+)\/general/)[1]
 
-    // -> Activate the locale for the default site through the real admin screen (`AdminLocale.vue`),
-    //    per the task's own instruction -- not a direct API/DB write.
-    await page.goto('/_admin/sites')
-    await page.getByRole('button', { name: 'Edit', exact: true }).first().click()
-    await expect(page).toHaveURL(/\/_admin\/[^/]+\/general$/)
-    const siteId = new URL(page.url()).pathname.match(/\/_admin\/([^/]+)\/general/)[1]
+  await page.goto(`/_admin/${siteId}/locale`)
+  // -> `AdminLocale.vue#load()` re-fires on its own `watch(() => adminStore.currentSiteId, ...)`
+  //    shortly after `AdminLayout.vue`'s mount resolves that id from the URL -- on a slow run that
+  //    refetch can still be in flight when the toggle below is clicked, and its response (the
+  //    server's still-unchanged, `en`-only list) overwrites `state.active` right back out from
+  //    under the click, and a bare `waitForLoadState('networkidle')` is not late enough to rule
+  //    that out. An explicit, single `load()` this test itself triggers (via the "Refresh" button)
+  //    and then waits out (`aria-busy` clearing is `state.loading` reaching zero) is a fetch this
+  //    test knows has already landed before it touches the toggle, which the implicit one is not.
+  const refreshButton = page.getByRole('button', { name: 'Refresh', exact: true })
+  await refreshButton.click()
+  await expect(refreshButton).not.toHaveAttribute('aria-busy', 'true')
 
-    await page.goto(`/_admin/${siteId}/locale`)
-    // -> `AdminLocale.vue#load()` re-fires on its own `watch(() => adminStore.currentSiteId, ...)`
-    //    shortly after `AdminLayout.vue`'s mount resolves that id from the URL -- on a slow run that
-    //    refetch can still be in flight when the toggle below is clicked, and its response (the
-    //    server's still-unchanged, `en`-only list) overwrites `state.active` right back out from
-    //    under the click, and a bare `waitForLoadState('networkidle')` is not late enough to rule
-    //    that out. An explicit, single `load()` this test itself triggers (via the "Refresh" button)
-    //    and then waits out (`aria-busy` clearing is `state.loading` reaching zero) is a fetch this
-    //    test knows has already landed before it touches the toggle, which the implicit one is not.
-    const refreshButton = page.getByRole('button', { name: 'Refresh', exact: true })
-    await refreshButton.click()
-    await expect(refreshButton).not.toHaveAttribute('aria-busy', 'true')
-
-    const toggle = page.getByRole('switch', { name: RTL_TEST_LOCALE.name })
+  for (const testLocale of testLocales) {
+    const toggle = page.getByRole('switch', { name: testLocale.name })
     await toggle.waitFor()
     // -> Idempotent rather than an unconditional click: this suite's own database is not
     //    guaranteed empty of a previous run's activation (`test/db.ts`'s "fresh schema per run"
@@ -66,8 +72,17 @@ test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
       await toggle.click()
     }
     await expect(toggle).toHaveAttribute('aria-checked', 'true')
-    await page.getByRole('button', { name: 'Apply', exact: true }).click()
-    await expect(page.getByText('successfully', { exact: false })).toBeVisible()
+  }
+  await page.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(page.getByText('successfully', { exact: false })).toBeVisible()
+}
+
+test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
+  test('activating the synthetic RTL locale via AdminLocale.vue flips dir/lang across the reading view, both editors, and the admin area', async ({
+    page
+  }) => {
+    await loginAsAdmin(page)
+    await activateTestLocales(page, [RTL_TEST_LOCALE])
 
     // -> Not `/`: a brand new site has no home page yet, and `Index.vue`'s route watcher sends an
     //    unauthenticated visitor straight to `/login` in that case -- irrelevant here since this
@@ -138,5 +153,67 @@ test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
     await page.goto('/_admin/dashboard')
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
     await expect(page.getByText(RTL_TEST_LOCALE.strings['admin.adminArea'])).toBeVisible()
+  })
+})
+
+/**
+ * WP #1662, part of epic #1655 ("Resolve <html lang>/dir from the page's content locale, not the
+ * interface locale"): `App.vue#applyLocale` used to derive both `<html lang>` and `dir` from
+ * `commonStore.locale` -- the reader's INTERFACE language -- even though the server's own app-shell
+ * stamp (`backend/helpers/appShell.ts`) already gets both right from the page's own CONTENT locale.
+ * The fix (`applyContentLocale`, driven by `pageStore.locale`) is what these two cases exist to
+ * fail without and pass with.
+ *
+ * Neither case here ever touches `LocaleSelectorMenu.vue` (the reader's own interface-locale
+ * switcher) -- the whole point is that the interface locale is left at its untouched default (`en`,
+ * per `stores/common.js`'s `commonStore.locale` fallback) while the PAGE being viewed carries a
+ * different locale of its own, addressed directly by its locale-prefixed URL.
+ */
+test.describe("<html lang>/dir follow the page's own content locale, not the interface locale", () => {
+  test('an RTL-locale page keeps dir="rtl" after hydration while the interface locale stays English', async ({
+    page
+  }) => {
+    await loginAsAdmin(page)
+    await activateTestLocales(page, [RTL_TEST_LOCALE, LTR_TEST_LOCALE])
+
+    const path = `e2e-content-locale-rtl-${uniqueSlug()}`
+    await createAndPublishPage(page, {
+      path,
+      title: `Content locale RTL ${uniqueSlug()}`,
+      body: 'Content page under the RTL test locale, for the content-vs-interface-locale e2e coverage.',
+      locale: RTL_TEST_LOCALE.code
+    })
+
+    // -> `createAndPublishPage` already leaves `page` on the page's own real, locale-prefixed URL
+    //    (`/ar/<path>`) -- this is the buggy behaviour's own failure mode: the server's initial HTML
+    //    response gets `dir="rtl"` right (`resolveAppShellLocale` in `backend/helpers/appShell.ts`),
+    //    and the pre-fix `App.vue#applyLocale` then overwrites it back to `dir="ltr"` within a tick
+    //    of the SPA booting, because it reads the still-English interface locale instead of this
+    //    page's own `ar`. `toHaveAttribute` retries until it settles, so this asserts the FINAL,
+    //    post-hydration state, not merely the server's first response.
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
+  })
+
+  test('a non-RTL translation reflects its own locale in <html lang>, not the interface locale', async ({
+    page
+  }) => {
+    await loginAsAdmin(page)
+    await activateTestLocales(page, [RTL_TEST_LOCALE, LTR_TEST_LOCALE])
+
+    const path = `e2e-content-locale-ltr-${uniqueSlug()}`
+    await createAndPublishPage(page, {
+      path,
+      title: `Content locale LTR ${uniqueSlug()}`,
+      body: 'Content page under the non-RTL test locale, for the content-vs-interface-locale e2e coverage.',
+      locale: LTR_TEST_LOCALE.code
+    })
+
+    // -> `LTR_TEST_LOCALE.isRTL` is false, so `dir` alone can't tell the buggy behaviour from the
+    //    fixed one here (both the English interface and this page's own `es` resolve to `ltr`) --
+    //    that is the point of this second case, per WP #1655's own framing: the `lang` half is wrong
+    //    on ANY translated page regardless of direction, not only an RTL one. Pre-fix,
+    //    `App.vue#applyLocale` sets `lang` from `commonStore.locale` ("en"); fixed, it comes from
+    //    this page's own `pageStore.locale` ("es").
+    await expect(page.locator('html')).toHaveAttribute('lang', LTR_TEST_LOCALE.code)
   })
 })
