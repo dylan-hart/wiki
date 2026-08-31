@@ -433,6 +433,21 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
+   * PAGE BACKLINK - Another page whose content links to this one (OpenProject #1914)
+   */
+  app.addSchema({
+    $id: 'PageBacklink',
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      path: { type: 'string' },
+      locale: { type: 'string' },
+      title: { type: 'string' },
+      icon: { type: ['string', 'null'] }
+    }
+  })
+
+  /**
    * PAGE HISTORY ENTRY - One version of a page, as the history timeline lists it
    */
   app.addSchema({
