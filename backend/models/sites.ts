@@ -365,6 +365,25 @@ class Sites {
   }
 
   /**
+   * The sha1 hex digest of one of a site's uploaded images, without reading the blob back out of the
+   * database.
+   *
+   * Lets a conditional request (`If-None-Match`) be answered with a 304 from this column alone —
+   * `setAsset` keeps `hash` in sync with `data` on every write, so this always agrees with what
+   * `getAsset` would have produced.
+   *
+   * @returns The hash, or null if this kind has never been uploaded
+   */
+  async getAssetHash(siteId: string, kind: SiteAssetKind): Promise<string | null> {
+    const rows = await WIKI.db
+      .select({ hash: siteAssetsTable.hash })
+      .from(siteAssetsTable)
+      .where(and(eq(siteAssetsTable.siteId, siteId), eq(siteAssetsTable.kind, kind)))
+      .limit(1)
+    return rows[0]?.hash ?? null
+  }
+
+  /**
    * Replace one of a site's images.
    *
    * A raster upload is brought down to the size and format it will be served at, per

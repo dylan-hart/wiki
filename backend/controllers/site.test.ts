@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { after, afterEach, before, describe, test } from 'node:test'
+import { after, afterEach, before, describe, mock, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
@@ -58,6 +58,11 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
     return assetsBySiteId[siteId] ?? null
   }
 
+  async function getAssetHash(siteId: string, _kind: string) {
+    const asset = assetsBySiteId[siteId]
+    return asset ? crypto.createHash('sha1').update(asset.data).digest('hex') : null
+  }
+
   let app: FastifyInstance
 
   before(async () => {
@@ -67,7 +72,8 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
         sites: {
           getSiteByHostname,
           getSiteById: async () => null,
-          getAsset
+          getAsset,
+          getAssetHash
         }
       }
     }
@@ -152,6 +158,11 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
     let rootDir: string
     /** What `getAsset` returns for the current test; null reproduces "nothing uploaded". */
     let currentAsset: { data: Buffer; mime: string } | null = null
+    /**
+     * Tracked as a `mock.fn` (WP 1852) so a test can assert a matching conditional request never
+     * calls it — the whole point of answering from `getAssetHash` alone.
+     */
+    let getAsset: ReturnType<typeof mock.fn>
 
     before(async () => {
       previousWiki = (globalThis as any).WIKI
@@ -164,13 +175,18 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
         '<svg xmlns="http://www.w3.org/2000/svg"><circle/></svg>'
       )
 
+      getAsset = mock.fn(async () => currentAsset)
       ;(globalThis as any).WIKI = {
         ROOTPATH: rootDir,
         models: {
           sites: {
             getSiteByHostname: async () => SITE,
             getSiteById: async () => null,
-            getAsset: async () => currentAsset
+            getAsset,
+            getAssetHash: async () =>
+              currentAsset
+                ? crypto.createHash('sha1').update(currentAsset.data).digest('hex')
+                : null
           }
         }
       }
@@ -189,6 +205,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
     afterEach(() => {
       currentAsset = null
       SITE.config.assets = {}
+      getAsset.mock.resetCalls()
     })
 
     test('an uploaded (non-SVG) asset gets an ETag, "public, no-cache", nosniff, and no CSP header', async () => {
@@ -212,6 +229,11 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
       )
       const expectedEtag = `"${crypto.createHash('sha1').update(currentAsset.data).digest('hex')}"`
       assert.equal(res.headers.etag, expectedEtag)
+      assert.equal(
+        getAsset.mock.callCount(),
+        1,
+        'a non-conditional (or mismatched) request must still load the blob to serve it'
+      )
     })
 
     test('an uploaded SVG asset gets the CSP/sandbox lockdown header in addition to the same caching headers', async () => {
@@ -233,7 +255,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
       assert.ok(res.headers.etag)
     })
 
-    test('a matching If-None-Match short-circuits to an empty 304, keeping ETag/Cache-Control on the response', async () => {
+    test('a matching If-None-Match short-circuits to an empty 304, keeping ETag/Cache-Control on the response, WITHOUT ever loading the blob (WP 1852)', async () => {
       SITE.config.assets = { logo: true }
       currentAsset = { data: Buffer.from('raw-png-bytes'), mime: 'image/png' }
       const etag = `"${crypto.createHash('sha1').update(currentAsset.data).digest('hex')}"`
@@ -248,6 +270,11 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
       assert.equal(res.body, '')
       assert.equal(res.headers.etag, etag)
       assert.equal(res.headers['cache-control'], 'public, no-cache')
+      assert.equal(
+        getAsset.mock.callCount(),
+        0,
+        'a matching conditional request must never load the asset blob'
+      )
     })
 
     test('a stale/mismatched If-None-Match still gets the full 200 response, not a 304', async () => {
@@ -375,13 +402,18 @@ describe('GET /_site/:siteId/<resource> — isEnabled guard (task 699)', () => {
       : null
   }
 
+  async function getAssetHash(siteId: string, kind: string) {
+    const asset = await getAsset(siteId, kind)
+    return asset ? crypto.createHash('sha1').update(asset.data).digest('hex') : null
+  }
+
   let app: FastifyInstance
 
   before(async () => {
     ;(globalThis as any).WIKI = {
       ROOTPATH: process.cwd(),
       models: {
-        sites: { getSiteById, getSiteByHostname: async () => null, getAsset }
+        sites: { getSiteById, getSiteByHostname: async () => null, getAsset, getAssetHash }
       }
     }
     app = fastify()
@@ -446,13 +478,17 @@ describe('GET /_site/:siteId/<resource> — enforceApiKeySite (OpenProject #2201
     return { data: Buffer.from('logo-bytes'), mime: 'image/webp' }
   }
 
+  async function getAssetHash(_siteId: string, _kind: string) {
+    return crypto.createHash('sha1').update('logo-bytes').digest('hex')
+  }
+
   let app: FastifyInstance
 
   before(async () => {
     ;(globalThis as any).WIKI = {
       ROOTPATH: process.cwd(),
       models: {
-        sites: { getSiteById, getSiteByHostname: async () => null, getAsset }
+        sites: { getSiteById, getSiteByHostname: async () => null, getAsset, getAssetHash }
       }
     }
     app = fastify()

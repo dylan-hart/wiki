@@ -2,7 +2,6 @@ import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
 import { guardSiteEnabled, isValidUuid, replyWithFile } from '../helpers/common.ts'
 import { svgMimeType } from '../helpers/images.ts'
 import { SVG_CSP } from '../helpers/security.ts'
-import crypto from 'node:crypto'
 import path from 'node:path'
 import type { SiteAssetKind } from '../models/sites.ts'
 import type { FastifyInstance } from 'fastify'
@@ -95,10 +94,10 @@ async function routes(app: FastifyInstance) {
 
       // -> The flag lives in the cached site config, so a site that has uploaded nothing — which is
       //    every site until an administrator says otherwise — never touches the database here
-      const asset = site.config.assets?.[kind]
-        ? await WIKI.models.sites.getAsset(site.id, kind)
+      const hash = site.config.assets?.[kind]
+        ? await WIKI.models.sites.getAssetHash(site.id, kind)
         : null
-      if (!asset) {
+      if (!hash) {
         // -> No SVG_CSP here: this file's bytes are picked by the codebase (`SITE_ASSET_FALLBACKS`),
         //    never by anything a request can influence, so the admin-upload risk that header guards
         //    against doesn't apply to it. Cache-Control/ETag/Last-Modified DO apply — `replyWithFile`
@@ -107,17 +106,30 @@ async function routes(app: FastifyInstance) {
         return replyWithFile(req, reply, path.join(WIKI.ROOTPATH, fallback))
       }
 
-      const etag = `"${crypto.createHash('sha1').update(asset.data).digest('hex')}"`
+      // -> Answered from the hash column alone whenever possible: a conditional request never has to
+      //    read the blob back out of the database or hash it. The blob is only read below, to build
+      //    the 200 response, when the ETag does not match.
+      const etag = `"${hash}"`
       reply.header('ETag', etag)
       reply.header('Cache-Control', SITE_ASSET_CACHE)
       // -> The bytes were uploaded, so the browser must take the type at its word rather than looking
       //    for something more interesting in them
       reply.header('X-Content-Type-Options', 'nosniff')
-      if (asset.mime === svgMimeType) {
-        reply.header('Content-Security-Policy', SVG_CSP)
-      }
       if (req.headers['if-none-match'] === etag) {
         return reply.code(304).send()
+      }
+
+      // -> Theoretical only (`hash` and `data` are written together by `setAsset` and removed
+      //    together by `clearAsset`): a hash existing but the row being gone by the time this second
+      //    read runs would mean it was deleted in between, which the headers already sent above
+      //    (built from the now-stale hash) cannot un-send — so this reports the asset as gone rather
+      //    than silently serving the unrelated static fallback under those headers.
+      const asset = await WIKI.models.sites.getAsset(site.id, kind)
+      if (!asset) {
+        return reply.notFound('Site Resource not found')
+      }
+      if (asset.mime === svgMimeType) {
+        reply.header('Content-Security-Policy', SVG_CSP)
       }
 
       return reply.type(asset.mime).send(asset.data)

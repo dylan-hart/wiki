@@ -949,6 +949,24 @@ class Users {
   }
 
   /**
+   * The sha1 hex digest of a user's avatar, without reading the blob back out of the database.
+   *
+   * Lets a conditional request (`If-None-Match`) be answered with a 304 from this column alone —
+   * `setAvatar` keeps `hash` in sync with `data` on every write, so this always agrees with what
+   * `getAvatar` would have produced.
+   *
+   * @returns The hash, or null if this user has no avatar
+   */
+  async getAvatarHash(userId: string): Promise<string | null> {
+    const rows = await WIKI.db
+      .select({ hash: userAvatars.hash })
+      .from(userAvatars)
+      .where(eq(userAvatars.id, userId))
+      .limit(1)
+    return rows[0]?.hash ?? null
+  }
+
+  /**
    * Replace a user's avatar.
    *
    * Normalized to a square JPEG when the Sharp extension is installed — an avatar is displayed at one

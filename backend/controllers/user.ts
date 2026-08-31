@@ -1,4 +1,3 @@
-import crypto from 'node:crypto'
 import { isValidUuid } from '../helpers/common.ts'
 import type { FastifyInstance } from 'fastify'
 
@@ -33,12 +32,15 @@ async function routes(app: FastifyInstance) {
       return reply.notFound('User not found')
     }
 
-    const avatar = await WIKI.models.users.getAvatar(userId)
-    if (!avatar) {
+    // -> Answered from the hash column alone whenever possible: a conditional request (the common
+    //    case, since AVATAR_CACHE forces revalidation on every open) never has to read the blob back
+    //    out of the database or hash it.
+    const hash = await WIKI.models.users.getAvatarHash(userId)
+    if (!hash) {
       return reply.notFound('This user has no avatar')
     }
 
-    const etag = `"${crypto.createHash('sha1').update(avatar.data).digest('hex')}"`
+    const etag = `"${hash}"`
     reply.header('ETag', etag)
     reply.header('Cache-Control', AVATAR_CACHE)
     // -> The bytes came from a user, so the browser must take the type at its word rather than looking
@@ -46,6 +48,11 @@ async function routes(app: FastifyInstance) {
     reply.header('X-Content-Type-Options', 'nosniff')
     if (req.headers['if-none-match'] === etag) {
       return reply.code(304).send()
+    }
+
+    const avatar = await WIKI.models.users.getAvatar(userId)
+    if (!avatar) {
+      return reply.notFound('This user has no avatar')
     }
 
     return reply.type(avatar.mime).send(avatar.data)
