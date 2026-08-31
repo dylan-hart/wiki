@@ -63,4 +63,23 @@ describe('WCheckbox', () => {
     expect(wrapper.attributes('disabled')).toBeDefined()
     expect(wrapper.classes()).toContain('w-checkbox--disabled')
   })
+
+  it.each([
+    { dense: false, expected: 'size-5' },
+    { dense: true, expected: 'size-4' }
+  ])('sizes the box $expected when dense is $dense', ({ dense, expected }) => {
+    const wrapper = mount(WCheckbox, {
+      props: { modelValue: false, ariaLabel: 'Enabled', dense }
+    })
+
+    expect(wrapper.find('.w-checkbox__box').classes()).toContain(expected)
+  })
+
+  it('shrinks the check glyph to match the dense box', () => {
+    const wrapper = mount(WCheckbox, {
+      props: { modelValue: true, ariaLabel: 'Enabled', dense: true }
+    })
+
+    expect(wrapper.find('[data-icon="mdi:check"]').attributes('style')).toContain('0.8em')
+  })
 })

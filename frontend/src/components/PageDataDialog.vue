@@ -49,7 +49,7 @@
             <template v-slot:before><w-icon name="la:infinity" color="primary" /></template>
           </w-input>
           <div class="py-1">
-            <w-checkbox :label="t('editor.pageData.attributeBooleanLabel')" color="primary" />
+            <w-checkbox :label="t('editor.pageData.attributeBooleanLabel')" color="primary" dense />
           </div>
         </div>
       </w-card-section>
