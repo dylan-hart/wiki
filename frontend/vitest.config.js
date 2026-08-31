@@ -80,7 +80,11 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     setupFiles: [fileURLToPath(new URL('./test/setup.js', import.meta.url))],
-    include: ['src/**/*.test.js'],
+    // The first glob below covers everything under `src/`. `index.html` sits at the workspace root
+    // (co-located per this repo's test convention means `index.test.js` alongside it), so it's named
+    // explicitly rather than widened with a root-level wildcard that would also sweep in any future
+    // stray root-level test file.
+    include: ['src/**/*.test.js', 'index.test.js'],
     css: true,
     server: {
       deps: {
