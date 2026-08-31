@@ -1,5 +1,7 @@
-import { after, before, describe, test } from 'node:test'
+import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
+import { inArray } from 'drizzle-orm'
 import {
   hasTestDatabase,
   seedLocale,
@@ -8,7 +10,7 @@ import {
   type TestFixtures
 } from '../test/db.ts'
 import { generatePathHash } from '../helpers/common.ts'
-import { sites as sitesTable } from '../db/schema.ts'
+import { pages as pagesTable, sites as sitesTable, tree as treeTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
@@ -22,13 +24,14 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let treeModel: typeof import('./tree.ts').tree
   let pagesModel: typeof import('./pages.ts').pages
   let actor: PageActor
+  let TREE_UPDATE_CHUNK_SIZE: number
 
   before(async () => {
     fixtures = await setupTestDb()
     // -> Seeded before any model call, so the very first `getLocales()` cache fill already sees them.
     await seedLocale(fixtures.db, { code: 'en' })
     await seedLocale(fixtures.db, { code: 'fr' })
-    ;({ tree: treeModel } = await import('./tree.ts'))
+    ;({ tree: treeModel, TREE_UPDATE_CHUNK_SIZE } = await import('./tree.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
   })
@@ -96,6 +99,82 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     //   cascade in the first place, since `renameFolder` was only ever given `en.id`.
     const frPageTreeRow = await treeModel.getById(frPage!.id)
     assert.equal(frPageTreeRow!.folderPath, 'docs')
+  })
+
+  /**
+   * OpenProject #1865: `refreshDescendantPaths` used to write back one `UPDATE` per descendant page
+   * (`pages.path`/`hash`). This locks in the chunked `VALUES`-join replacement — one
+   * `UPDATE ... FROM (VALUES ...)` per `TREE_UPDATE_CHUNK_SIZE` rows instead. The `tree` table itself
+   * carries no `hash` column of its own to rewrite here: the bulk ltree `UPDATE`s `renameFolder` runs
+   * before ever calling this already rewrote every descendant's `folderPath`, so only each page's own
+   * `path`/`hash` on `pages` is left for this to redo.
+   *
+   * Descendant rows and their `pages` counterparts are seeded directly (two bulk `INSERT`s, not
+   * `pagesModel.createPage()` in a loop) so the fixture stays fast regardless of row count, and
+   * `refreshDescendantPaths` itself is called directly (it is `renameFolder`'s only caller) so the
+   * `db.execute` spy counts only the write-back `UPDATE`s this WP touches, not the query-builder
+   * calls (`.select()`/`.update()`) the rest of `renameFolder` also makes.
+   */
+  test('refreshDescendantPaths rewrites more descendants than one chunk via batched VALUES joins, not one UPDATE per row (OpenProject #1865)', async () => {
+    // -> Deliberately one row over a single chunk: the smallest fixture that still proves batching
+    //    happened rather than merely fitting in one call by coincidence.
+    const rowCount = TREE_UPDATE_CHUNK_SIZE + 1
+    const ids = Array.from({ length: rowCount }, () => randomUUID())
+
+    await fixtures.db.insert(treeTable).values(
+      ids.map((id, i) => ({
+        id,
+        siteId: fixtures.siteId,
+        folderPath: 'bulk',
+        fileName: `page-${i}`,
+        type: 'page' as const,
+        locale: 'en',
+        title: `Page ${i}`
+      }))
+    )
+    await fixtures.db.insert(pagesTable).values(
+      ids.map((id, i) => ({
+        id,
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: `stale-path-${i}`,
+        hash: 'stale-hash',
+        title: `Page ${i}`,
+        editor: 'markdown',
+        contentType: 'markdown',
+        authorId: fixtures.userId,
+        creatorId: fixtures.userId,
+        ownerId: fixtures.userId,
+        classification: fixtures.classificationId
+      }))
+    )
+
+    const executeSpy = mock.method(fixtures.db, 'execute')
+    await (treeModel as any).refreshDescendantPaths(fixtures.siteId, 'en', 'bulk', fixtures.db)
+
+    // -> One `UPDATE ... FROM (VALUES ...)` per `TREE_UPDATE_CHUNK_SIZE` rows -- the real proof that
+    //    the write-back batches rather than looping one `UPDATE` per row.
+    const expectedChunkCalls = Math.ceil(rowCount / TREE_UPDATE_CHUNK_SIZE)
+    assert.equal(executeSpy.mock.callCount(), expectedChunkCalls)
+    assert.ok(
+      executeSpy.mock.callCount() < rowCount,
+      'must not issue one UPDATE statement per descendant row'
+    )
+
+    const updatedPages = await fixtures.db
+      .select({ id: pagesTable.id, path: pagesTable.path, hash: pagesTable.hash })
+      .from(pagesTable)
+      .where(inArray(pagesTable.id, ids))
+    assert.equal(updatedPages.length, rowCount)
+    const pageById = new Map(updatedPages.map((row) => [row.id, row]))
+
+    for (const [i, id] of ids.entries()) {
+      const expectedPath = `bulk/page-${i}`
+      const page = pageById.get(id)
+      assert.ok(page, `page ${i} must still exist`)
+      assert.equal(page!.path, expectedPath)
+      assert.equal(page!.hash, generatePathHash(expectedPath))
+    }
   })
 
   test('deleting a folder deletes only its own locale (bug #932)', async () => {

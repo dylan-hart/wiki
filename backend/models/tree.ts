@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, exists, inArray, ne, or, sql, type SQL } from 'drizzle-orm'
 import { alias, type PgColumn } from 'drizzle-orm/pg-core'
+import { chunk } from 'es-toolkit/array'
 import type { WikiDbOrTx } from '../core/db.ts'
 import { pages as pagesTable, tree as treeTable } from '../db/schema.ts'
 import {
@@ -9,6 +10,13 @@ import {
   generatePathHash,
   normalizePagePath
 } from '../helpers/common.ts'
+
+/**
+ * How many descendant rows `refreshDescendantPaths` writes back per `UPDATE ... FROM (VALUES ...)`
+ * statement (OpenProject #1865). Exported so its test can size a fixture off the real production
+ * value instead of a magic number duplicated between the two files.
+ */
+export const TREE_UPDATE_CHUNK_SIZE = 200
 
 /** What a tree entry can be. Mirrors the `treeType` enum in the schema. */
 export type TreeItemType = 'folder' | 'page' | 'asset'
@@ -1206,9 +1214,17 @@ class Tree {
    * descendant's `folderPath`, folders and assets included, and neither of those has a path of its
    * own beyond that.
    *
-   * `generatePathHash` does not exist in postgres, so each page's hash is recomputed here, row by
-   * row. What is deliberately not touched is `updatedAt`: the folder moved, the pages under it did
-   * not change, and marking a few hundred of them as freshly edited would say otherwise.
+   * `generatePathHash` does not exist in postgres, so each page's new path and hash are computed here
+   * in JS, row by row. What is deliberately not touched is `updatedAt`: the folder moved, the pages
+   * under it did not change, and marking a few hundred of them as freshly edited would say otherwise.
+   *
+   * The computation is genuinely row-by-row, but the write-back is not: every page row's new
+   * `path`/`hash` is batched into chunks of `TREE_UPDATE_CHUNK_SIZE` and written with one
+   * `UPDATE ... FROM (VALUES ...)` per chunk rather than one `UPDATE` per row (OpenProject #1865) --
+   * a folder with a couple thousand descendants used to be that many sequential round trips with row
+   * locks held on `pages` throughout. The updated rows are then read back with one typed `.select()`
+   * per chunk, rather than parsed out of the raw `UPDATE`'s own return, so the full row shape
+   * `movedPages` needs stays guaranteed by drizzle rather than by hand.
    *
    * @returns Every page this call repathed -- its full post-update row plus where it used to live, for
    *          `renameFolder` to fire the move side effects (search reindex, storage dispatch) once the
@@ -1253,20 +1269,41 @@ class Tree {
       }
     }
 
-    const movedPages: MovedDescendantPage[] = []
+    const pageUpdates: { id: string; path: string; hash: string }[] = []
     for (const row of rows) {
       const folderPath = decodeTreePath(row.folderPath ?? '')
       const fullPath = folderPath ? `${folderPath}/${row.fileName}` : row.fileName
-      const [updated] = await db
-        .update(pagesTable)
-        .set({ path: fullPath, hash: generatePathHash(fullPath) })
-        .where(eq(pagesTable.id, row.id))
-        .returning()
-      const previousPath = previousPaths.get(row.id)
-      if (updated && previousPath !== undefined) {
-        movedPages.push({ page: updated, previousPath, previousLocale: locale })
+      pageUpdates.push({ id: row.id, path: fullPath, hash: generatePathHash(fullPath) })
+    }
+
+    const movedPages: MovedDescendantPage[] = []
+    for (const batch of chunk(pageUpdates, TREE_UPDATE_CHUNK_SIZE)) {
+      await db.execute(sql`
+        UPDATE pages AS p
+        SET path = v.path, hash = v.hash
+        FROM (VALUES ${sql.join(
+          batch.map((u) => sql`(${u.id}::uuid, ${u.path}, ${u.hash})`),
+          sql`, `
+        )}) AS v(id, path, hash)
+        WHERE p.id = v.id
+      `)
+      const updatedRows = await db
+        .select()
+        .from(pagesTable)
+        .where(
+          inArray(
+            pagesTable.id,
+            batch.map((u) => u.id)
+          )
+        )
+      for (const updatedRow of updatedRows) {
+        const previousPath = previousPaths.get(updatedRow.id)
+        if (previousPath !== undefined) {
+          movedPages.push({ page: updatedRow, previousPath, previousLocale: locale })
+        }
       }
     }
+
     if (rows.length > 0) {
       WIKI.logger.debug(`Refreshed the path of ${rows.length} moved page(s).`)
     }
