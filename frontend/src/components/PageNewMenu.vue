@@ -69,13 +69,11 @@
 </template>
 
 <script setup>
+import { defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { dialog } from '@/composables/dialog'
 import { loading } from '@/composables/loading'
-
-import ImportPageDialog from '@/components/ImportPageDialog.vue'
-import ImportBatchPageDialog from '@/components/ImportBatchPageDialog.vue'
 
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
@@ -102,6 +100,18 @@ const props = defineProps({
 // EMITS
 
 const emit = defineEmits(['newFolder', 'newPage'])
+
+// ASYNC COMPONENTS
+
+// -> Loaded lazily rather than as static top-of-file imports: `ImportBatchPageDialog.vue` pulls in
+//    `@/renderers/markdown` (markdown-it + plugins, katex, highlight.js), which otherwise sits in
+//    every reader's static bundle for a menu item almost nobody clicks. Matches the
+//    `defineAsyncComponent(() => import(...))` passed straight into `dialog()` at PageActionsCol.vue's
+//    own `RerenderPageDialog`/`TreeBrowserDialog`/`PageDeleteDialog` call sites.
+const ImportPageDialog = defineAsyncComponent(() => import('@/components/ImportPageDialog.vue'))
+const ImportBatchPageDialog = defineAsyncComponent(
+  () => import('@/components/ImportBatchPageDialog.vue')
+)
 
 // STORES
 
