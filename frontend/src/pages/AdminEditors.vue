@@ -102,6 +102,8 @@ import { useAdminStore } from '@/stores/admin'
 import { useFlagsStore } from '@/stores/flags'
 import { useSiteStore } from '@/stores/site'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 // COMPOSABLES
 
 const dark = useDark()
@@ -249,7 +251,7 @@ async function save() {
     notify({
       type: 'negative',
       message: 'Failed to save site editors config',
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

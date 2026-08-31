@@ -125,6 +125,8 @@ import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 import GroupCreateDialog from '../components/GroupCreateDialog.vue'
 import GroupDeleteDialog from '../components/GroupDeleteDialog.vue'
 
@@ -227,7 +229,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t(`admin.groups.loadFailed`),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()

@@ -210,6 +210,8 @@ import { useAdminStore } from '@/stores/admin'
 import { useEditorStore } from '@/stores/editor'
 import { useSiteStore } from '@/stores/site'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 import { toMerged } from 'es-toolkit/object'
 
 // STORES
@@ -312,7 +314,7 @@ async function save() {
     notify({
       type: 'negative',
       message: 'Failed to save Markdown editor config',
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

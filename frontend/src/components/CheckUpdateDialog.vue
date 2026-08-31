@@ -67,6 +67,8 @@ import { computed, onMounted, reactive } from 'vue'
 
 import { useUserStore } from '@/stores/user'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 // EMITS
 
 defineEmits([...dialogComponentEmits])
@@ -113,7 +115,7 @@ async function check() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: apiErrorMessage(err)
     })
     onDialogCancel()
   }

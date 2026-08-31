@@ -174,6 +174,8 @@ import { loading } from '@/composables/loading'
 
 import { useAdminStore } from '@/stores/admin'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 // COMPOSABLES
 
 const dark = useDark()
@@ -285,7 +287,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.analytics.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()
@@ -330,7 +332,7 @@ async function save() {
     notify({
       type: 'negative',
       message: t('admin.analytics.saveFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

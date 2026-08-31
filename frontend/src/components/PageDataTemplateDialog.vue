@@ -192,6 +192,8 @@ import { notify } from '@/composables/notify'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 import { v4 as uuid } from 'uuid'
 import { sortBy } from 'es-toolkit/array'
 import { cloneDeep } from 'es-toolkit/object'
@@ -419,7 +421,7 @@ function commit() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: apiErrorMessage(err)
     })
   }
 }

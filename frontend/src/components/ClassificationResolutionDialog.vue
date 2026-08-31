@@ -73,6 +73,8 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { useSiteStore } from '@/stores/site'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 // PROPS
 
 const props = defineProps({
@@ -127,7 +129,7 @@ async function bumpOne(item) {
     notify({
       type: 'negative',
       message: t('editor.classification.bumpFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   item.isLoading = false
@@ -148,7 +150,7 @@ async function bumpAll() {
     notify({
       type: 'negative',
       message: t('editor.classification.bumpFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.isBumpingAll = false

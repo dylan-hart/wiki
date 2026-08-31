@@ -314,6 +314,7 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { dialog } from '@/composables/dialog'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { copyToClipboard } from '@/helpers/clipboard'
 
 import { useSiteStore } from '@/stores/site'
@@ -405,7 +406,7 @@ async function load() {
     notify({
       type: 'negative',
       message: 'Failed to load system information.',
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()
@@ -440,7 +441,7 @@ Total RAM: ${state.info.ramTotal}`
     notify({
       type: 'negative',
       message: 'Failed to copy system info',
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
 }

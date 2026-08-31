@@ -93,6 +93,7 @@ import { useI18n } from 'vue-i18n'
 import { onMounted, reactive, ref } from 'vue'
 
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 // I18N
 
@@ -149,7 +150,7 @@ async function save() {
     notify({
       type: 'negative',
       message: 'Failed to save user defaults.',
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--
@@ -168,7 +169,7 @@ onMounted(async () => {
     notify({
       type: 'negative',
       message: 'Failed to load user defaults',
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

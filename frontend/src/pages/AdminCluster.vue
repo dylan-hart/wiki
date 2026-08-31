@@ -105,6 +105,7 @@ import { notify } from '@/composables/notify'
 
 import { useSiteStore } from '@/stores/site'
 
+import { apiErrorMessage } from '@/helpers/apiError'
 import { relativeDate } from '@/helpers/datetime'
 
 // STORES
@@ -203,7 +204,7 @@ async function load() {
     notify({
       type: 'negative',
       message: 'Failed to load list of cluster nodes.',
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

@@ -158,6 +158,8 @@ import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 import { sortBy } from 'es-toolkit/array'
 
 // COMPOSABLES
@@ -254,7 +256,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.locale.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()
@@ -300,7 +302,7 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: apiErrorMessage(err)
     })
   }
   state.loading--

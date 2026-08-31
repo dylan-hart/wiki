@@ -359,6 +359,7 @@ import {
 import { dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { useMinWidth } from '@/composables/screen'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { assetPath } from '@/helpers/assets'
 import { blockMarkdown } from '@/helpers/blocks'
 import { directionalAnchor } from '@/helpers/directionalAnchor'
@@ -774,7 +775,7 @@ async function insertTabset() {
     notify({
       type: 'negative',
       message: t('editor.blockPicker.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
 }
@@ -1493,7 +1494,7 @@ function processContent(newContent) {
     notify({
       type: 'negative',
       message: t('editor.renderFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
     return
   }
@@ -1740,7 +1741,7 @@ function resolveSaveConflict(snapshot) {
           notify({
             type: 'negative',
             message: t('editor.collab.saveConflict.saveFailed'),
-            caption: err.message
+            caption: apiErrorMessage(err)
           })
         }
       }

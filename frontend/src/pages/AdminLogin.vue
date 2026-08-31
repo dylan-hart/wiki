@@ -245,6 +245,8 @@ import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 import {
   clearSiteImage,
   isAcceptedSiteImage,
@@ -340,7 +342,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.login.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()
@@ -381,7 +383,7 @@ async function save() {
     notify({
       type: 'negative',
       message: 'Failed to save login configuration.',
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--
@@ -433,7 +435,7 @@ async function uploadBg() {
     notify({
       type: 'negative',
       message: t('admin.login.bgUploadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--
@@ -453,7 +455,7 @@ async function clearBg() {
     notify({
       type: 'negative',
       message: t('admin.login.bgClearFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

@@ -54,6 +54,8 @@ import { notify } from '@/composables/notify'
 import { useSiteStore } from '@/stores/site'
 import { onMounted, reactive } from 'vue'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 // I18N
 
 const { t } = useI18n()
@@ -102,7 +104,7 @@ async function fetchGroups() {
     notify({
       type: 'negative',
       message: t('profile.groupsLoadingFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

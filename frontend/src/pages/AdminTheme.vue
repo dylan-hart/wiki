@@ -363,6 +363,7 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 import { contrastRatio, getAccessibleColor, WCAG_AA_CONTRAST } from '@/helpers/accessibility'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { toMerged } from 'es-toolkit/object'
 import { startCase } from 'es-toolkit/string'
@@ -841,7 +842,7 @@ async function save() {
     notify({
       type: 'negative',
       message: 'Failed to save site theme config',
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

@@ -176,6 +176,7 @@ import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { passwordStrengthScore } from '@/helpers/passwordStrength'
 import { computed, onMounted, reactive, ref } from 'vue'
 
@@ -293,7 +294,7 @@ async function loadGroups() {
     notify({
       type: 'negative',
       message: t('admin.users.groupsLoadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loadingGroups = false
@@ -349,7 +350,7 @@ async function create() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: apiErrorMessage(err)
     })
   }
   state.loading--

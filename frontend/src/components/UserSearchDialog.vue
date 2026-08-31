@@ -109,6 +109,8 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { computed, onMounted, reactive, watch } from 'vue'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 // PROPS
 
 const props = defineProps({
@@ -208,7 +210,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.users.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

@@ -223,6 +223,8 @@ import { computed, onMounted, reactive } from 'vue'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 // STORES
 
 const siteStore = useSiteStore()
@@ -299,7 +301,7 @@ async function fetchProfile() {
     notify({
       type: 'negative',
       message: t('profile.infoLoadingFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--
@@ -362,7 +364,7 @@ async function save() {
     notify({
       type: 'negative',
       message: t('profile.saveFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()

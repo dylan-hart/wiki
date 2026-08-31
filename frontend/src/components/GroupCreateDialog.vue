@@ -49,6 +49,8 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { reactive, ref } from 'vue'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 // EMITS
 
 defineEmits([...dialogComponentEmits])
@@ -109,7 +111,7 @@ async function create() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: apiErrorMessage(err)
     })
   }
   state.isLoading = false

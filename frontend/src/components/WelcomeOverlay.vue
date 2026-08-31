@@ -84,6 +84,8 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 // STORES
 
 const flagsStore = useFlagsStore()
@@ -157,7 +159,7 @@ async function createHomePage(editor) {
     notify({
       type: 'negative',
       message: 'Failed to open the editor.',
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()

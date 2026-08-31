@@ -55,6 +55,8 @@ import { notify } from '@/composables/notify'
 
 import { usePageStore } from '@/stores/page'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 /**
  * Prompts for a password-protected page's password and asks the server to open it.
  *
@@ -111,7 +113,8 @@ async function unlock() {
     notify({
       type: 'negative',
       // -> A rejected password is the expected outcome here, not a failure to report as one
-      message: err.response?.status === 401 ? t('common.page.lockedWrongPassword') : err.message
+      message:
+        err.response?.status === 401 ? t('common.page.lockedWrongPassword') : apiErrorMessage(err)
     })
     // -> Cleared and refocused, because the next thing a reader does is type it again
     state.password = ''

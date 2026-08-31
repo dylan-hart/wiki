@@ -63,6 +63,8 @@ import { computed, reactive } from 'vue'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 // STORES
 
 const siteStore = useSiteStore()
@@ -136,7 +138,7 @@ async function uploadImage() {
       notify({
         type: 'negative',
         message: t('profile.avatarUploadFailed'),
-        caption: err.message
+        caption: apiErrorMessage(err)
       })
     }
     state.loading--
@@ -164,7 +166,7 @@ async function clearImage() {
     notify({
       type: 'negative',
       message: t('profile.avatarClearFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--
