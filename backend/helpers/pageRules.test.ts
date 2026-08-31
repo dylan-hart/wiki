@@ -798,4 +798,3 @@ describe('rename escalation (OpenProject #2102): root ALLOW plus a narrower DENY
     assert.equal(rulesAllow(rules, 'manage:pages', after), true)
   })
 })
-

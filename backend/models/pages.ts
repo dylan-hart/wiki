@@ -15,7 +15,6 @@ import type { RenderPermissions, TocNode } from './rendering.ts'
 import { pageIsVisible } from './tree.ts'
 import type { DeletedEntry } from './tree.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
-import type { AccessActor } from './groups.ts'
 import type { WikiDbOrTx, WikiTx } from '../core/db.ts'
 
 /**
