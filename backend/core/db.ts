@@ -482,6 +482,23 @@ export default {
     }
   },
   /**
+   * Shut down the database manager for a graceful process exit.
+   *
+   * Composes the two independent teardown steps the caller previously fired off separately (and
+   * unawaited — see `index.ts`'s `SHUTTING_DOWN` handler, task 708 follow-up OpenProject #2023)
+   * into one awaitable promise: unsubscribe from LISTEN/NOTIFY first, then end the pool. Ordering
+   * matters, not just bundling — `unsubscribeFromNotifications()`'s own `notifier.drained()` still
+   * needs a live pool to flush anything queued, so ending the pool first would fail that drain for
+   * no reason.
+   *
+   * `pool` can be `null` if `init()` was never called (e.g. worker mode never creates one for some
+   * call paths, or a test harness) — guarded rather than assumed non-null.
+   */
+  async shutdown(): Promise<void> {
+    await this.unsubscribeFromNotifications()
+    await this.pool?.end()
+  },
+  /**
    * Publish event via database NOTIFY
    *
    * Takes one `{ name, data }` object, which is what Emittery hands an `onAny` listener — not the

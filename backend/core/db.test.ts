@@ -77,6 +77,7 @@ class FakeClient extends EventEmitter {
 class FakePool {
   private queue: FakeClient[] = []
   connectCalls = 0
+  endCalls = 0
   queueClient(client: FakeClient): void {
     this.queue.push(client)
   }
@@ -87,6 +88,9 @@ class FakePool {
       throw new Error('FakePool.connect() called with nothing queued')
     }
     return next
+  }
+  async end(): Promise<void> {
+    this.endCalls++
   }
 }
 
@@ -653,5 +657,49 @@ describe('subscribeToNotifications() checks out from the dedicated listener pool
     assert.equal(dbManager.pubsubClient, client)
     assert.equal(listenerPool.connectCalls, 1)
     assert.equal(queryPool.connectCalls, 0)
+  })
+})
+
+describe('shutdown() — OpenProject #2023', () => {
+  test('unsubscribes from notifications before ending the pool, and resolves once both have completed', async () => {
+    const order: string[] = []
+    const pool = new FakePool()
+    const client = new FakeClient()
+    // -> Instrument the two steps shutdown() composes, in the order it must run them: releasing the
+    //    LISTEN client (part of unsubscribeFromNotifications()'s teardown) has to be observed before
+    //    the pool is ended.
+    const originalRelease = client.release.bind(client)
+    client.release = () => {
+      order.push('unsubscribed')
+      originalRelease()
+    }
+    const originalEnd = pool.end.bind(pool)
+    pool.end = async () => {
+      order.push('pool-ended')
+      await originalEnd()
+    }
+    pool.queueClient(client)
+    dbManager.pool = pool as any
+
+    await dbManager.subscribeToNotifications()
+    assert.equal(dbManager.listenerHandle !== null, true, 'precondition: listener is subscribed')
+
+    const result = await dbManager.shutdown()
+
+    assert.equal(result, undefined, 'shutdown() resolves once both steps have completed')
+    assert.deepEqual(
+      order,
+      ['unsubscribed', 'pool-ended'],
+      'the pool is not ended until unsubscribeFromNotifications() has released its client'
+    )
+    assert.equal(dbManager.listenerHandle, null, 'unsubscribeFromNotifications() ran to completion')
+    assert.equal(pool.endCalls, 1)
+  })
+
+  test('tolerates a pool that was never initialized (pool is null)', async () => {
+    dbManager.pool = null
+    dbManager.listenerHandle = null
+
+    await assert.doesNotReject(dbManager.shutdown())
   })
 })
