@@ -961,6 +961,22 @@ class Users {
   }
 
   /**
+   * The sha1 hash of a user's avatar, without reading the blob itself — selects only the `hash`
+   * column, kept in step with `data` by every write in `setAvatar`. Lets a conditional request
+   * (ETag) be answered without pulling the avatar back out of the database.
+   *
+   * @returns The hash, or null if this user has no avatar
+   */
+  async getAvatarHash(userId: string): Promise<string | null> {
+    const rows = await WIKI.db
+      .select({ hash: userAvatars.hash })
+      .from(userAvatars)
+      .where(eq(userAvatars.id, userId))
+      .limit(1)
+    return rows[0]?.hash ?? null
+  }
+
+  /**
    * Replace a user's avatar.
    *
    * Normalized to a square JPEG when the Sharp extension is installed — an avatar is displayed at one

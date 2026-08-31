@@ -365,6 +365,22 @@ class Sites {
   }
 
   /**
+   * The sha1 hash of one of a site's uploaded images, without reading the blob itself — selects
+   * only the `hash` column, kept in step with `data` by every write in `setAsset`. Lets a
+   * conditional request (ETag) be answered without pulling the asset back out of the database.
+   *
+   * @returns The hash, or null if this kind has never been uploaded for this site
+   */
+  async getAssetHash(siteId: string, kind: SiteAssetKind): Promise<string | null> {
+    const rows = await WIKI.db
+      .select({ hash: siteAssetsTable.hash })
+      .from(siteAssetsTable)
+      .where(and(eq(siteAssetsTable.siteId, siteId), eq(siteAssetsTable.kind, kind)))
+      .limit(1)
+    return rows[0]?.hash ?? null
+  }
+
+  /**
    * Replace one of a site's images.
    *
    * A raster upload is brought down to the size and format it will be served at, per
