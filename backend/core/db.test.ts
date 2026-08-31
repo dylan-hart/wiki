@@ -680,6 +680,14 @@ describe('shutdown() — OpenProject #2023', () => {
     }
     pool.queueClient(client)
     dbManager.pool = pool as any
+    // -> subscribeToNotifications() checks its client out of `listenerPool`, not `pool` (see
+    //    "subscribeToNotifications() checks out from the dedicated listener pool" above) -- left
+    //    unset here, `connectListener` would call `.connect()` on `null` and its `reconnect()` loop
+    //    catches that TypeError like any other connection failure, retrying forever rather than
+    //    surfacing it. Same fake pool/client stands in for both roles: shutdown() ends `dbManager.pool`
+    //    and releases whatever client `dbManager.listenerPool` handed out, and this test only needs to
+    //    observe both of those against the one instrumented pair.
+    dbManager.listenerPool = pool as any
 
     await dbManager.subscribeToNotifications()
     assert.equal(dbManager.listenerHandle !== null, true, 'precondition: listener is subscribed')
