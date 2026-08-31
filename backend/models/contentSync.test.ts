@@ -1,4 +1,4 @@
-import { test, before, after } from 'node:test'
+import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { eq, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -12,6 +12,14 @@ import {
   storage as storageTable,
   users as usersTable
 } from '../db/schema.ts'
+import {
+  hasTestDatabase,
+  seedLocale,
+  setupTestDb,
+  teardownTestDb,
+  type TestFixtures
+} from '../test/db.ts'
+import type { PageActor } from './pages.ts'
 import { contentSync } from './contentSync.ts'
 
 /**
@@ -447,4 +455,167 @@ test('getOutOfDateAssets tracks the same out-of-date logic for assets', { skip }
   })
   const afterSync = await contentSync.getOutOfDateAssets(pageTargetId, { siteId })
   assert.ok(!afterSync.some((a) => a.id === assetId))
+})
+
+// ---------------------------------------------------------------------------------------------
+// forgetContent / forgetContentBatch (OpenProject #1673) -- `contentId` carries no FK, so this is
+// the application-side cleanup a page/asset's own deletion has to call.
+// ---------------------------------------------------------------------------------------------
+
+test(
+  'forgetContent removes every target row for a page, leaving another page untouched',
+  { skip },
+  async () => {
+    const forgottenPageId = await makePage('forget-content-target')
+    const otherPageId = await makePage('forget-content-other')
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: forgottenPageId,
+      targetId: pageTargetId,
+      direction: 'push'
+    })
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: forgottenPageId,
+      targetId: otherTargetId,
+      direction: 'push'
+    })
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: otherPageId,
+      targetId: pageTargetId,
+      direction: 'push'
+    })
+
+    await contentSync.forgetContent('page', forgottenPageId)
+
+    const forgottenStates = await contentSync.getStatesForContent('page', forgottenPageId)
+    assert.equal(forgottenStates.length, 0)
+    const otherState = await contentSync.getState('page', otherPageId, pageTargetId)
+    assert.ok(otherState)
+  }
+)
+
+test('forgetContent is scoped to contentType, not just contentId', { skip }, async () => {
+  const pageId = await makePage('forget-content-type-scope')
+  const assetId = await makeAsset('forget-content-type-scope.png')
+  await contentSync.recordSuccess({
+    contentType: 'page',
+    contentId: pageId,
+    targetId: pageTargetId,
+    direction: 'push'
+  })
+  await contentSync.recordSuccess({
+    contentType: 'asset',
+    contentId: assetId,
+    targetId: pageTargetId,
+    direction: 'push'
+  })
+
+  await contentSync.forgetContent('asset', assetId)
+
+  assert.equal(await contentSync.getState('asset', assetId, pageTargetId), null)
+  assert.ok(await contentSync.getState('page', pageId, pageTargetId))
+})
+
+test(
+  'forgetContentBatch removes rows for every id in the batch in one call',
+  { skip },
+  async () => {
+    const firstId = await makePage('forget-batch-1')
+    const secondId = await makePage('forget-batch-2')
+    const untouchedId = await makePage('forget-batch-untouched')
+    for (const contentId of [firstId, secondId, untouchedId]) {
+      await contentSync.recordSuccess({
+        contentType: 'page',
+        contentId,
+        targetId: pageTargetId,
+        direction: 'push'
+      })
+    }
+
+    await contentSync.forgetContentBatch('page', [firstId, secondId])
+
+    assert.equal(await contentSync.getState('page', firstId, pageTargetId), null)
+    assert.equal(await contentSync.getState('page', secondId, pageTargetId), null)
+    assert.ok(await contentSync.getState('page', untouchedId, pageTargetId))
+  }
+)
+
+test('forgetContentBatch is a no-op for an empty id list', { skip }, async () => {
+  // -> Just asserting it doesn't throw on `IN ()`, which some drivers reject outright.
+  await contentSync.forgetContentBatch('page', [])
+})
+
+// ---------------------------------------------------------------------------------------------
+// Integration: deleting a page through the real model cleans up its contentSyncState rows. Uses
+// the shared `test/db.ts` fixture (its own migrated schema + full `WIKI.models`) rather than the
+// hand-rolled `WIKI` above, because this needs `pages.deletePage`'s real dependency graph
+// (`pageHistory`, `tree`, `navigation`, `glossary`, `search`, `hooks`, `storage`), not just `db`.
+// ---------------------------------------------------------------------------------------------
+
+describe('forgetContent via pages.deletePage (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let pagesModel: typeof import('./pages.ts').pages
+  let actor: PageActor
+  let targetId: string
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    await seedLocale(fixtures.db, { code: 'en' })
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+
+    const [target] = await fixtures.db
+      .insert(storageTable)
+      .values({ siteId: fixtures.siteId, module: 'test-forget-content' })
+      .returning({ id: storageTable.id })
+    targetId = target!.id
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('deletePage drops the page from contentSyncState and its target summary', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'docs/sync-state-delete-me',
+        title: 'Sync State Delete Me',
+        editor: 'markdown',
+        content: '# Hello'
+      },
+      actor
+    )
+
+    // -> A prior success (so `lastSyncedAt` is set) followed by a failure (so `lastError` is set
+    //    too, without clearing `lastSyncedAt` -- see `recordFailure`'s own doc) exercises both
+    //    fields `getTargetSummary` reads.
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: page.id,
+      targetId,
+      direction: 'push'
+    })
+    await contentSync.recordFailure({
+      contentType: 'page',
+      contentId: page.id,
+      targetId,
+      error: 'connection refused'
+    })
+    const beforeDelete = await contentSync.getState('page', page.id, targetId)
+    assert.ok(beforeDelete)
+
+    const deleted = await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+    assert.equal(deleted, true)
+
+    const afterDelete = await contentSync.getState('page', page.id, targetId)
+    assert.equal(afterDelete, null)
+
+    const summary = await contentSync.getTargetSummary(targetId, { siteId: fixtures.siteId })
+    assert.equal(summary.lastError, null)
+    assert.equal(summary.lastSyncedAt, null)
+    assert.equal(summary.lastAttemptAt, null)
+  })
 })
