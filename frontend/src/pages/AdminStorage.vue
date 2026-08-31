@@ -88,18 +88,41 @@
             <!-- ----------------------- -->
             <!-- Setup -->
             <!-- ----------------------- -->
-            <w-card
-              class="pb-2 mb-4"
-              v-if="
-                state.target.setup &&
-                state.target.setup.handler &&
-                state.target.setup.state === `configured`
-              ">
+            <w-card class="pb-2 mb-4" v-if="state.target.setup && state.target.setup.handler">
               <w-card-header>
                 {{ t('admin.storage.setup') }}
-                <template #hint>{{ t('admin.storage.setupConfiguredHint') }}</template>
+                <template #hint>{{
+                  state.target.setup.state === `configured`
+                    ? t('admin.storage.setupConfiguredHint')
+                    : t('admin.storage.setupNotConfiguredHint')
+                }}</template>
               </w-card-header>
-              <w-item>
+              <!--
+                Task 1895: the module-agnostic counterpart to Uninstall below -- POST .../setup was
+                previously caller-less, since nothing here ever ran the FIRST step of a module's setup
+                process, only reset one already finished. `runSetupStep()` sends `'start'` from
+                `notconfigured` and the module's own reported state past that, so this one button both
+                starts and advances setup with no separate step tracked on this page -- see
+                `helpers/storageSetup.js#nextSetupStepName`.
+              -->
+              <w-item v-if="state.target.setup.state !== `configured`">
+                <blueprint-icon class="self-start" icon="matches" :hue-rotate="140" />
+                <w-item-section>
+                  <w-item-label>{{ t('admin.storage.startSetup') }}</w-item-label>
+                  <w-item-label caption>{{ t('admin.storage.startSetupInfo') }}</w-item-label>
+                </w-item-section>
+                <w-item-section side>
+                  <w-btn
+                    class="acrylic-btn"
+                    flat
+                    icon="la:arrow-circle-right"
+                    color="primary"
+                    :loading="state.runningSetup"
+                    @click="runSetupStep"
+                    :label="t('admin.storage.startSetup')" />
+                </w-item-section>
+              </w-item>
+              <w-item v-if="state.target.setup.state === `configured`">
                 <blueprint-icon class="self-start" icon="matches" :hue-rotate="140" />
                 <w-item-section>
                   <w-item-label>Uninstall</w-item-label>
@@ -703,6 +726,7 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeIsoDuration, relativeDate } from '@/helpers/datetime'
 import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
 import { isQueuedAction, syncPayloadFor, syncStatusKind } from '@/helpers/storageSync'
+import { nextSetupStepName } from '@/helpers/storageSetup'
 
 // COMPOSABLES
 
@@ -756,6 +780,8 @@ const state = reactive({
   displayMode: 'targets',
   runningAction: false,
   runningActionHandler: '',
+  /** A setup step (task 1895) is in flight -- see `runSetupStep()`. */
+  runningSetup: false,
   selectedTarget: '',
   desiredTarget: '',
   target: null,
@@ -1113,6 +1139,44 @@ async function executeAction(act) {
   } else {
     await run()
   }
+}
+
+/**
+ * Run the next step of the selected target's setup process (task 1895).
+ *
+ * `nextSetupStepName()` decides what `step` to send -- `'start'` the first time, the module's own
+ * previously-reported state past that -- so this button is both "Start Setup" and "Continue Setup"
+ * with no separate progress tracked here. The target list is reloaded rather than patched locally:
+ * `target.setup.state` is whatever the module just set it to, and `load()` already knows how to turn
+ * a freshly-fetched target back into what this page renders.
+ */
+async function runSetupStep() {
+  const step = nextSetupStepName(state.target?.setup?.state)
+  if (!step) {
+    return
+  }
+  state.runningSetup = true
+  try {
+    const resp = await API_CLIENT.post(
+      `sites/${adminStore.currentSiteId}/storage/targets/${state.target.id}/setup`,
+      { json: { step } }
+    ).json()
+    if (!resp?.ok) {
+      throw new Error(resp?.message || 'An unexpected error occured.')
+    }
+    notify({
+      type: 'positive',
+      message: resp.message || t('admin.storage.setupStepSuccess')
+    })
+    await load()
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.storage.setupStepFailed'),
+      caption: apiErrorMessage(err)
+    })
+  }
+  state.runningSetup = false
 }
 
 async function setupDestroy() {
