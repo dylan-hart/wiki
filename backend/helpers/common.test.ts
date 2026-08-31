@@ -4,6 +4,7 @@ import fastify from 'fastify'
 import {
   defaultLocale,
   guardSiteEnabled,
+  isHashedAssetFilename,
   isSameOriginWebSocketHandshake,
   localePrefixRedirectTarget,
   localePrefixStripTarget,
@@ -738,5 +739,56 @@ describe('siteEnabledPreHandler', () => {
     siteEnabledPreHandler({ params: { siteId: 'no-such-site' } } as any, reply, done)
     assert.deepEqual(forbiddenCalls.forbidden, [])
     assert.deepEqual(doneCalls, [undefined])
+  })
+})
+
+describe('isHashedAssetFilename', () => {
+  // -> Real basenames off a built `assets/_assets` (vite's `[name]-[hash].[ext]` output).
+  const hashedSamples = [
+    '1c-light.min-BO6Pf1_3.js',
+    '3024.min-BqdulyS4.js',
+    'AccountMenu-D3c-tApN.js',
+    'AccountMenu-jI0Xq9IQ.css',
+    'AdminAnalytics-Bq33DEXD.js',
+    'AdminAnalytics-_v2YFXZC.css',
+    'index-CL_uwIZr.js'
+  ]
+
+  for (const name of hashedSamples) {
+    test(`hashed build output "${name}" is immutable`, () => {
+      assert.equal(isHashedAssetFilename(name), true)
+    })
+  }
+
+  // -> The 8 entries under `assets/_assets` that are NOT vite build output: `renderer.js` is a
+  //    deliberately fixed entry point name (referenced by a static server-rendered page), and the
+  //    other 7 are hand-authored trees vite never touches.
+  const unhashedSamples = [
+    'bg',
+    'fonts',
+    'icons',
+    'illustrations',
+    'logo-wikijs.svg',
+    'renderer.js',
+    'storage',
+    'svg'
+  ]
+
+  for (const name of unhashedSamples) {
+    test(`unhashed entry "${name}" is not immutable`, () => {
+      assert.equal(isHashedAssetFilename(name), false)
+    })
+  }
+
+  test('a short suffix under 8 characters does not count as a hash', () => {
+    assert.equal(isHashedAssetFilename('logo-abc1234.svg'), false)
+  })
+
+  test('a name with no extension is never hashed, even with a long suffix', () => {
+    assert.equal(isHashedAssetFilename('some-long-enough-suffix12345678'), false)
+  })
+
+  test('a name with no hyphen at all is not hashed', () => {
+    assert.equal(isHashedAssetFilename('renderer.js'), false)
   })
 })

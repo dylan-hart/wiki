@@ -39,6 +39,7 @@ import { resolveAppShellLocale, templateAppShell } from './helpers/appShell.ts'
 import { assertValidAuthSecret } from './helpers/authSecret.ts'
 import { authSecretSigner } from './helpers/authSecretSigner.ts'
 import {
+  isHashedAssetFilename,
   isSameOriginWebSocketHandshake,
   localePrefixRedirectTarget,
   localePrefixStripTarget,
@@ -512,7 +513,17 @@ async function initHTTPServer() {
     root: path.join(WIKI.ROOTPATH, 'assets/_assets'),
     index: false,
     maxAge: '7d',
-    decorateReply: false
+    decorateReply: false,
+    // -> Most of what's under `assets/_assets` is a vite build output named `[name]-[hash].[ext]`,
+    //    whose bytes can never change under a given URL — those get the same far-future immutable
+    //    header `controllers/thumb.ts`'s THUMB_CACHE already uses. The handful of unhashed entries
+    //    (renderer.js, and the hand-authored bg/fonts/icons/illustrations/logo-wikijs.svg/storage/svg
+    //    trees) fall through to the `maxAge: '7d'` default above instead.
+    setHeaders(reply, filePath) {
+      if (isHashedAssetFilename(path.basename(filePath))) {
+        reply.header('Cache-Control', 'public, max-age=31536000, immutable')
+      }
+    }
   })
 
   // ----------------------------------------
