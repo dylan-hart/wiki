@@ -43,7 +43,7 @@
           :label="t(`common.actions.apply`)"
           color="secondary"
           @click="save()"
-          :disable="!selectedProvider || !selectedProvider.isSelectable"
+          :disabled="!selectedProvider || !selectedProvider.isSelectable"
           :loading="state.loading > 0" />
       </div>
     </div>
@@ -162,7 +162,7 @@
                   <w-item-label caption>{{ cfg.hint }}</w-item-label>
                 </w-item-section>
                 <w-item-section avatar>
-                  <w-toggle v-model="cfg.value" :aria-label="cfg.title" :disable="cfg.readOnly" />
+                  <w-toggle v-model="cfg.value" :aria-label="cfg.title" :disabled="cfg.readOnly" />
                 </w-item-section>
               </w-item>
               <w-item v-else>
@@ -182,7 +182,7 @@
                     dense
                     options-dense
                     :aria-label="cfg.title"
-                    :disable="cfg.readOnly" />
+                    :disabled="cfg.readOnly" />
                   <w-input
                     v-else
                     outlined
@@ -190,7 +190,7 @@
                     dense
                     :type="inputTypeFor(cfg)"
                     :aria-label="cfg.title"
-                    :disable="cfg.readOnly" />
+                    :disabled="cfg.readOnly" />
                 </w-item-section>
               </w-item>
             </template>

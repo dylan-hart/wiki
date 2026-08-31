@@ -61,10 +61,6 @@ const props = defineProps({
     type: String,
     default: 'primary'
   },
-  disable: {
-    type: Boolean,
-    default: false
-  },
   disabled: {
     type: Boolean,
     default: false
@@ -94,7 +90,7 @@ const isArrayModel = computed(() => Array.isArray(props.modelValue))
 const isOn = computed(() =>
   isArrayModel.value ? props.modelValue.includes(props.val) : props.modelValue === true
 )
-const isDisabled = computed(() => props.disable || props.disabled)
+const isDisabled = computed(() => props.disabled)
 
 function toggle() {
   if (isArrayModel.value) {

@@ -247,7 +247,7 @@
                 dense
                 no-caps
                 color="secondary"
-                :disable="!sideA"
+                :disabled="!sideA"
                 @click="downloadVersion(sideA)">
                 {{ t('history.downloadVersionLetter', { letter: 'A' }) }}
               </w-btn>
@@ -256,7 +256,7 @@
                 dense
                 no-caps
                 color="secondary"
-                :disable="!sideB"
+                :disabled="!sideB"
                 @click="downloadVersion(sideB)">
                 {{ t('history.downloadVersionLetter', { letter: 'B' }) }}
               </w-btn>

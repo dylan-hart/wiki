@@ -77,7 +77,7 @@
                       outline
                       icon="la:times"
                       color="primary"
-                      :disable="!state.hasBg"
+                      :disabled="!state.hasBg"
                       @click="clearBg" />
                   </div>
                 </w-item-section>

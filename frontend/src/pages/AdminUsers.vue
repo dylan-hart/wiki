@@ -132,7 +132,7 @@
                   flat
                   icon="la:trash"
                   color="negative"
-                  :disable="props.row.id === userStore.id"
+                  :disabled="props.row.id === userStore.id"
                   :aria-label="t(`admin.users.delete`)"
                   @click="deleteUser(props.row)">
                   <w-tooltip v-if="props.row.id === userStore.id">

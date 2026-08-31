@@ -605,7 +605,7 @@
                       icon="la:arrow-circle-right"
                       color="primary"
                       v-if="canManage"
-                      disable
+                      disabled
                       @click="sendWelcomeEmail"
                       :label="t(`common.actions.proceed`)" />
                   </w-item-section>

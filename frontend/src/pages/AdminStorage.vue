@@ -138,7 +138,7 @@
                     :color="state.target.module === `db` ? `grey` : `primary`"
                     val="pages"
                     :aria-label="t(`admin.storage.contentTypePages`)"
-                    :disable="state.target.module === `db`" />
+                    :disabled="state.target.module === `db`" />
                 </w-item-section>
                 <w-item-section>
                   <w-item-label>{{ t(`admin.storage.contentTypePages`) }}</w-item-label>
@@ -239,7 +239,7 @@
                         : `primary`
                     "
                     :aria-label="t(`admin.storage.contentTypePages`)"
-                    :disable="
+                    :disabled="
                       state.target.module === `db` ||
                       !state.target.assetDelivery.isStreamingSupported
                     " />
@@ -263,7 +263,7 @@
                       !state.target.assetDelivery.isDirectAccessSupported ? `grey` : `primary`
                     "
                     :aria-label="t(`admin.storage.contentTypePages`)"
-                    :disable="!state.target.assetDelivery.isDirectAccessSupported" />
+                    :disabled="!state.target.assetDelivery.isDirectAccessSupported" />
                 </w-item-section>
                 <w-item-section>
                   <w-item-label>{{ t(`admin.storage.assetDirectAccess`) }}</w-item-label>
@@ -375,7 +375,7 @@
                     toggle-color="primary"
                     :options="syncModeOptions"
                     :aria-label="t(`admin.storage.syncDirection`)"
-                    :disable="state.target.sync.supportedModes.length <= 1" />
+                    :disabled="state.target.sync.supportedModes.length <= 1" />
                 </w-item-section>
               </w-item>
               <w-separator class="my-2" inset />
@@ -459,7 +459,7 @@
                         color="primary"
                         @click="executeAction(act)"
                         :label="t(`common.actions.proceed`)"
-                        :disable="state.runningAction"
+                        :disabled="state.runningAction"
                         :loading="state.runningActionHandler === act.handler" />
                     </w-item-section>
                   </w-item>
@@ -521,7 +521,7 @@
                   <w-item-section avatar>
                     <w-toggle
                       v-model="state.target.isEnabled"
-                      :disable="state.target.module === `db` || isSetupNeeded"
+                      :disabled="state.target.module === `db` || isSetupNeeded"
                       :aria-label="t(`admin.storage.enabled`)" />
                   </w-item-section>
                   <w-inner-loading :showing="isSetupNeeded">
@@ -572,7 +572,7 @@
                 <w-item-section avatar>
                   <w-toggle
                     v-model="state.target.versioning.enabled"
-                    :disable="
+                    :disabled="
                       !state.target.versioning.isSupported || state.target.versioning.isForceEnabled
                     "
                     :aria-label="t(`admin.storage.useVersioning`)" />

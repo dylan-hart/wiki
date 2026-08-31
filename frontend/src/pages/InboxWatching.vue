@@ -47,7 +47,7 @@
               icon="mdi:check"
               color="grey"
               :aria-label="t(`inbox.notificationsMarkRead`)"
-              :disable="state.markingRead === notification.id"
+              :disabled="state.markingRead === notification.id"
               @click.stop="markRead(notification)">
               <w-tooltip>{{ t('inbox.notificationsMarkRead') }}</w-tooltip>
             </w-btn>
@@ -107,7 +107,7 @@
               icon="mdi:bell-off-outline"
               color="grey"
               :aria-label="t(`inbox.watchingUnwatch`)"
-              :disable="state.unwatching === page.pageId"
+              :disabled="state.unwatching === page.pageId"
               @click.stop="unwatch(page)">
               <w-tooltip>{{ t('inbox.watchingUnwatch') }}</w-tooltip>
             </w-btn>

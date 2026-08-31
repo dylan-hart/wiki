@@ -21,7 +21,7 @@
               class="browse-menu-up acrylic-btn"
               flat
               dense
-              :disable="state.isLoading"
+              :disabled="state.isLoading"
               :aria-label="t(`common.browse.upOneLevel`)"
               @click="goUp">
               <w-icon name="la:arrow-up" size="xs" />

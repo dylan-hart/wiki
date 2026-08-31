@@ -158,7 +158,7 @@
           no-caps
           toggle-color="primary"
           :options="timeFormats"
-          :disable="!canEdit"
+          :disabled="!canEdit"
           :aria-label="t(`profile.timeFormat`)" />
       </w-item-section>
     </w-item>
@@ -177,7 +177,7 @@
           no-caps
           toggle-color="primary"
           :options="appearances"
-          :disable="!canEdit"
+          :disabled="!canEdit"
           :aria-label="t(`profile.appearance`)" />
       </w-item-section>
     </w-item>
@@ -196,7 +196,7 @@
           no-caps
           toggle-color="primary"
           :options="cvdChoices"
-          :disable="!canEdit"
+          :disabled="!canEdit"
           :aria-label="t(`profile.cvd`)" />
       </w-item-section>
     </w-item>
@@ -206,7 +206,7 @@
         unelevated
         :label="t(`common.actions.saveChanges`)"
         color="secondary"
-        :disable="state.loading > 0"
+        :disabled="state.loading > 0"
         @click="save" />
     </div>
   </w-page>

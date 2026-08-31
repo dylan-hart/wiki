@@ -119,7 +119,7 @@
         :label="t(`common.actions.apply`)"
         unelevated
         color="secondary"
-        :disable="!pendingValue"
+        :disabled="!pendingValue"
         @click="applyAndClose" />
     </w-card-actions>
   </w-card>

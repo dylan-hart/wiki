@@ -50,7 +50,7 @@
           :label="t('editor.classification.bumpAll')"
           color="primary"
           padding="xs md"
-          :disable="state.items.every((i) => i.resolved)"
+          :disabled="state.items.every((i) => i.resolved)"
           :loading="state.isBumpingAll"
           @click="bumpAll" />
         <w-space />

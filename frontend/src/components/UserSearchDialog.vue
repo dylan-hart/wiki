@@ -93,7 +93,7 @@
           :label="t(`common.actions.select`)"
           color="primary"
           padding="xs md"
-          :disable="state.selected.length < 1"
+          :disabled="state.selected.length < 1"
           @click="confirm" />
       </w-card-actions>
     </w-card>
