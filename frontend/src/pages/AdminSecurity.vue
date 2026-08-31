@@ -2,10 +2,9 @@
   <w-page class="admin-mail">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-protect.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-protect.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.security.title') }}</h1>
@@ -725,15 +724,12 @@ async function save() {
       throw new Error(t('admin.security.maxUploadSizeInvalid'))
     }
 
-    const resp = await API_CLIENT.put('system/security', {
+    await API_CLIENT.put('system/security', {
       json: {
         ...state.config,
         uploadMaxFileSize
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
     notify({
       type: 'positive',
       message: t('admin.security.saveSuccess')

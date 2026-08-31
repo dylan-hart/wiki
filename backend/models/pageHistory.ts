@@ -1,5 +1,5 @@
 import { isEqual } from 'es-toolkit/predicate'
-import { and, desc, eq, lt, notExists, sql } from 'drizzle-orm'
+import { and, desc, eq, lt, notExists, or, sql } from 'drizzle-orm'
 import {
   pageHistory as pageHistoryTable,
   pages as pagesTable,
@@ -8,6 +8,10 @@ import {
 import { CustomError } from '../helpers/common.ts'
 import { invalidateGraphCache } from '../helpers/graphCache.ts'
 import type { Page, PageActor, PageInput } from './pages.ts'
+
+/** The default page size for {@link PageHistory.list}, and its hard cap. */
+const HISTORY_LIST_DEFAULT_LIMIT = 50
+const HISTORY_LIST_MAX_LIMIT = 200
 
 /**
  * The kinds of change a history row records.
@@ -57,8 +61,8 @@ export type PurgeTimeframe = keyof typeof purgeTimeframes
  * Taken straight off the stored row, so a field added to a page is captured here without this list
  * being touched. The exclusions are either derived from the content (`render`, `toc`, `searchContent`,
  * `ts`), fixed for the page's whole life (`id`, `siteId`, `creatorId`, `createdAt`), or bookkeeping
- * that says nothing about the version (`hash`, `updatedAt`, `authorId`, `ratingScore`, `ratingCount`,
- * `historyData`).
+ * that says nothing about the version (`hash`, `updatedAt`, `authorId`, `historyData`,
+ * `isSearchableComputed`).
  */
 const EXCLUDED_FROM_META = new Set([
   'id',
@@ -72,8 +76,6 @@ const EXCLUDED_FROM_META = new Set([
   'toc',
   'searchContent',
   'ts',
-  'ratingScore',
-  'ratingCount',
   'historyData',
   // -> Held in columns of their own
   'locale',
@@ -96,9 +98,8 @@ const NOT_REPORTED_AS_CHANGED = new Set([
   'hash',
   'authorId',
   'updatedAt',
-  'ratingScore',
-  'ratingCount',
-  'historyData'
+  'historyData',
+  'isSearchableComputed'
 ])
 
 /** Who a version is attributed to. Null once that account is gone; the version stays. */
@@ -131,7 +132,7 @@ export type PageHistoryVersion = PageHistoryEntry & {
 }
 
 /**
- * A row of {@link Pages.listRecoverable} — deliberately NOT `PageHistoryEntry`, in two ways
+ * A row of {@link PageHistory.listRecoverable} — deliberately NOT `PageHistoryEntry`, in two ways
  * (OpenProject #2168): it carries `tags`/`classification` so the route can narrow the per-row
  * `read:history` check with the same TAG/TAGALL/CLASSIFICATION rules any other read of the page
  * would apply, not just a bare path/locale match; and its `author` carries no `email` at all, which
@@ -145,6 +146,96 @@ export type RecoverablePageEntry = Omit<PageHistoryEntry, 'author'> & {
   tags: string[]
   classification: string | null
   author: Omit<PageHistoryAuthor, 'email'>
+}
+
+/**
+ * Who a version is attributed to, as {@link PageHistory.list} reports it -- name only.
+ *
+ * `list()` is what a page's whole timeline is read through, potentially hundreds of rows at once
+ * (see {@link PageHistory.list}'s own doc comment), and nothing on the frontend reads an author's
+ * address off it (`PageHistoryOverlay.vue` reads only `.author.name`) -- so the email a `getVersion()`
+ * or `listRecoverable()` row still carries is left out of this one's projection entirely, rather than
+ * fetched and thrown away.
+ */
+export type PageHistoryListAuthor = Omit<PageHistoryAuthor, 'email'>
+
+/** A version as {@link PageHistory.list} reports it -- {@link PageHistoryEntry} minus the author's email. */
+export type PageHistoryListEntry = Omit<PageHistoryEntry, 'author'> & {
+  author: PageHistoryListAuthor
+}
+
+/** One page of {@link PageHistory.list}'s keyset-paginated results. */
+export type PageHistoryPage = {
+  /** Newest first, same ordering as the unpaginated list used to return. */
+  items: PageHistoryListEntry[]
+  /** Pass back as `cursor` to fetch the next page. Null once there is nothing older left. */
+  nextCursor: string | null
+}
+
+/**
+ * One page of {@link PageHistory.listRecoverable}'s keyset-paginated results.
+ *
+ * `nextCursor` is derived strictly from where the underlying `versionDate`/`id` keyset scan actually
+ * stopped, BEFORE the route's per-row `read:history` filter runs -- so `items` can come back shorter
+ * than the requested `limit` (some rows filtered out) while `nextCursor` still correctly says there is
+ * more to page through. A caller decides whether it has reached the end by `nextCursor === null`, never
+ * by `items.length < limit`.
+ */
+export type PageHistoryRecoverablePage = {
+  items: RecoverablePageEntry[]
+  nextCursor: string | null
+}
+
+/** The default page size for {@link PageHistory.listRecoverable}, and its hard cap. */
+const RECOVERABLE_LIST_DEFAULT_LIMIT = 50
+const RECOVERABLE_LIST_MAX_LIMIT = 200
+
+/** The parts of a cursor: the last row's `versionDate` and `id`, in the same order the query sorts by. */
+type HistoryCursor = {
+  versionDate: Date
+  id: string
+}
+
+/**
+ * Turn a page's last row into an opaque cursor a caller can hand back for the next page.
+ *
+ * Encodes `versionDate` (millisecond precision -- what postgres actually stores, so a round trip
+ * through this never disagrees with the row it came from) and `id` together, since the query orders
+ * by both: several versions can share one `versionDate` on a page saved twice in the same
+ * millisecond, and `id` is what keeps their relative order stable across pages. Shared by
+ * {@link PageHistory.list} and {@link PageHistory.listRecoverable} -- both keyset-paginate the same
+ * `(versionDate, id)` shape, just over different underlying scans.
+ */
+function encodeHistoryCursor(cursor: HistoryCursor): string {
+  return Buffer.from(`${cursor.versionDate.getTime()}|${cursor.id}`, 'utf8').toString('base64url')
+}
+
+/**
+ * The inverse of {@link encodeHistoryCursor}.
+ *
+ * @throws {CustomError} `pageHistoryInvalidCursor` (400) if `raw` does not decode to a well-formed
+ *         cursor -- a tampered or truncated value, not a case the caller can otherwise trigger by
+ *         paging normally.
+ */
+function decodeHistoryCursor(raw: string): HistoryCursor {
+  const invalid = () =>
+    new CustomError('pageHistoryInvalidCursor', 'This history cursor is not valid.', 400)
+  let decoded: string
+  try {
+    decoded = Buffer.from(raw, 'base64url').toString('utf8')
+  } catch {
+    throw invalid()
+  }
+  const separatorIndex = decoded.indexOf('|')
+  if (separatorIndex < 0) {
+    throw invalid()
+  }
+  const epochMs = Number.parseInt(decoded.slice(0, separatorIndex), 10)
+  const id = decoded.slice(separatorIndex + 1)
+  if (!Number.isFinite(epochMs) || !id) {
+    throw invalid()
+  }
+  return { versionDate: new Date(epochMs), id }
 }
 
 /**
@@ -272,13 +363,37 @@ class PageHistory {
   }
 
   /**
-   * A page's versions, newest first — the order a timeline reads in.
+   * A page's versions, newest first — the order a timeline reads in, one page of it at a time.
    *
    * The newest row is the page as it stands: it was written after the change that produced the state
    * the page is in now. No content here; a list of forty versions has no business carrying forty
    * copies of the page.
+   *
+   * Paginated by keyset on `(versionDate, id)` rather than `OFFSET` -- a page edited daily for a
+   * couple of years carries hundreds of versions, and `OFFSET` degrades exactly there, doing more
+   * work for every page further in rather than the constant-time seek a keyset cursor gets from the
+   * `(pageId, versionDate)` index. `cursor`, when given, is the opaque token a previous call's
+   * `nextCursor` returned; omitted, this starts from the newest version.
+   *
+   * @param options.limit Rows per page. Defaults to {@link HISTORY_LIST_DEFAULT_LIMIT}, capped at
+   *                       {@link HISTORY_LIST_MAX_LIMIT}; a value outside `[1, max]` is clamped rather
+   *                       than rejected.
+   * @param options.cursor Opaque cursor from a previous call's `nextCursor`. Omitted or null starts
+   *                        from the newest version.
+   * @throws {CustomError} `pageHistoryInvalidCursor` (400) if `cursor` does not decode -- see
+   *         {@link decodeHistoryCursor}.
    */
-  async list(siteId: string, pageId: string): Promise<PageHistoryEntry[]> {
+  async list(
+    siteId: string,
+    pageId: string,
+    options: { limit?: number; cursor?: string | null } = {}
+  ): Promise<PageHistoryPage> {
+    const limit = Math.min(
+      Math.max(1, Math.trunc(options.limit ?? HISTORY_LIST_DEFAULT_LIMIT)),
+      HISTORY_LIST_MAX_LIMIT
+    )
+    const after = options.cursor ? decodeHistoryCursor(options.cursor) : null
+
     const rows = await WIKI.db
       .select({
         id: pageHistoryTable.id,
@@ -291,31 +406,54 @@ class PageHistory {
         path: pageHistoryTable.path,
         title: pageHistoryTable.title,
         authorId: usersTable.id,
-        authorName: usersTable.name,
-        authorEmail: usersTable.email
+        authorName: usersTable.name
       })
       .from(pageHistoryTable)
       .leftJoin(usersTable, eq(usersTable.id, pageHistoryTable.authorId))
-      .where(and(eq(pageHistoryTable.siteId, siteId), eq(pageHistoryTable.pageId, pageId)))
+      .where(
+        and(
+          eq(pageHistoryTable.siteId, siteId),
+          eq(pageHistoryTable.pageId, pageId),
+          after
+            ? or(
+                lt(pageHistoryTable.versionDate, after.versionDate),
+                and(
+                  eq(pageHistoryTable.versionDate, after.versionDate),
+                  lt(pageHistoryTable.id, after.id)
+                )
+              )
+            : undefined
+        )
+      )
       .orderBy(desc(pageHistoryTable.versionDate), desc(pageHistoryTable.id))
+      // -> One extra row, never returned, just to know whether a next page exists without a second
+      //    (count) query
+      .limit(limit + 1)
 
-    return rows.map((row: any) => ({
-      id: row.id,
-      action: row.action,
-      via: row.via,
-      changedFields: row.changedFields ?? [],
-      reason: row.reason ?? '',
-      versionDate: row.versionDate,
-      locale: row.locale,
-      path: row.path,
-      title: row.title,
-      author: {
-        // -> Null once the account is gone: the version outlives it, see the column's own note
-        id: row.authorId ?? null,
-        name: row.authorName ?? '',
-        email: row.authorEmail ?? ''
-      }
-    }))
+    const hasMore = rows.length > limit
+    const page = hasMore ? rows.slice(0, limit) : rows
+    const last = page.at(-1)
+
+    return {
+      items: page.map((row: any) => ({
+        id: row.id,
+        action: row.action,
+        via: row.via,
+        changedFields: row.changedFields ?? [],
+        reason: row.reason ?? '',
+        versionDate: row.versionDate,
+        locale: row.locale,
+        path: row.path,
+        title: row.title,
+        author: {
+          // -> Null once the account is gone: the version outlives it, see the column's own note
+          id: row.authorId ?? null,
+          name: row.authorName ?? ''
+        }
+      })),
+      nextCursor:
+        hasMore && last ? encodeHistoryCursor({ versionDate: last.versionDate, id: last.id }) : null
+    }
   }
 
   /**
@@ -436,25 +574,47 @@ class PageHistory {
   }
 
   /**
-   * Every deletion a site could still recover from — one row per path.
+   * Every deletion a site could still recover from — one row per path, newest first, paginated.
    *
    * A path can be deleted more than once (deleted, recreated, deleted again), so this is not simply
-   * "every `deleted` row": it is `DISTINCT ON (locale, path)`, newest `versionDate` first, which
-   * collapses that history down to the most recent deletion. And a path that was recovered, or reused
-   * by an unrelated new page, is not something to offer recovery into — a live `pages` row at the
-   * same `(siteId, locale, path)` excludes it via `NOT EXISTS`. Between the two, a path drops off this
-   * list the moment it stops being an actual gap, with no flag to set or clear anywhere.
+   * "every `deleted` row": the inner query is `DISTINCT ON (locale, path)`, newest `versionDate`
+   * first, which collapses that history down to the most recent deletion. And a path that was
+   * recovered, or reused by an unrelated new page, is not something to offer recovery into — a live
+   * `pages` row at the same `(siteId, locale, path)` excludes it via `NOT EXISTS`. Between the two, a
+   * path drops off this list the moment it stops being an actual gap, with no flag to set or clear
+   * anywhere.
    *
-   * Returns `RecoverablePageEntry`, not `PageHistoryEntry` (OpenProject #2168): `tags`/`classification`
-   * ride along -- lifted out of `meta` the same way `getDeletedVersion` does -- so the route can narrow
-   * its per-row `read:history` check with a TAG/TAGALL/CLASSIFICATION rule instead of the bare
-   * `{ path, locale }` ref it used to build, and `author.email` is dropped: unlike a single page's own
-   * history view (gated by `read:history` at that ONE page), this listing spans every deleted path on
-   * the site in one sweep, and handing back every deleter's email address across the whole site is a
-   * wider exposure than the entry needs to serve its purpose.
+   * Postgres requires a `DISTINCT ON`'s columns to lead its own `ORDER BY`, which rules out ordering
+   * that inner collapse itself by `versionDate` — the one thing a keyset cursor needs to page against.
+   * So the collapse happens in a derived subquery (still ordered `locale, path, versionDate desc`, to
+   * keep the newest version per path), and this method's own `versionDate`/`id` keyset ordering and
+   * pagination run in the outer query over that subquery's already-collapsed rows — the same
+   * `versionDate` keyset shape `list()`'s own pagination uses (OpenProject #1859), just one query
+   * deeper.
+   *
+   * Returns `RecoverablePageEntry` rows, not `PageHistoryEntry` (OpenProject #2168): `tags`/
+   * `classification` ride along -- lifted out of `meta` the same way `getDeletedVersion` does -- so
+   * the route can narrow its per-row `read:history` check with a TAG/TAGALL/CLASSIFICATION rule
+   * instead of the bare `{ path, locale }` ref it used to build, and `author.email` is dropped: unlike
+   * a single page's own history view (gated by `read:history` at that ONE page), this listing spans
+   * every deleted path on the site in one sweep, and handing back every deleter's email address across
+   * the whole site is a wider exposure than the entry needs to serve its purpose.
+   *
+   * The `read:history` permission filter runs afterwards, in JS, at the route
+   * (`GET .../pages/deleted`) — it cannot be pushed into this SQL because it is checked per row
+   * against a page-rule tree, not a column value. `nextCursor` is computed from where this method's
+   * own scan stopped, before that filter runs, so a caller paging via `nextCursor` never mistakes a
+   * page shortened by the permission filter for the actual end of the list — see
+   * {@link PageHistoryRecoverablePage}'s own doc comment.
    */
-  async listRecoverable(siteId: string): Promise<RecoverablePageEntry[]> {
-    const rows = await WIKI.db
+  async listRecoverable(
+    siteId: string,
+    { limit = RECOVERABLE_LIST_DEFAULT_LIMIT, cursor }: { limit?: number; cursor?: string } = {}
+  ): Promise<PageHistoryRecoverablePage> {
+    const boundedLimit = Math.min(Math.max(1, limit), RECOVERABLE_LIST_MAX_LIMIT)
+    const after = cursor ? decodeHistoryCursor(cursor) : null
+
+    const recoverable = WIKI.db
       .selectDistinctOn([pageHistoryTable.locale, pageHistoryTable.path], {
         id: pageHistoryTable.id,
         action: pageHistoryTable.action,
@@ -466,11 +626,9 @@ class PageHistory {
         path: pageHistoryTable.path,
         title: pageHistoryTable.title,
         meta: pageHistoryTable.meta,
-        authorId: usersTable.id,
-        authorName: usersTable.name
+        authorId: pageHistoryTable.authorId
       })
       .from(pageHistoryTable)
-      .leftJoin(usersTable, eq(usersTable.id, pageHistoryTable.authorId))
       .where(
         and(
           eq(pageHistoryTable.siteId, siteId),
@@ -490,27 +648,65 @@ class PageHistory {
         )
       )
       .orderBy(pageHistoryTable.locale, pageHistoryTable.path, desc(pageHistoryTable.versionDate))
+      .as('recoverable')
 
-    return rows.map((row: any) => {
-      const meta = (row.meta ?? {}) as Record<string, any>
-      return {
-        id: row.id,
-        action: row.action,
-        via: row.via,
-        changedFields: row.changedFields ?? [],
-        reason: row.reason ?? '',
-        versionDate: row.versionDate,
-        locale: row.locale,
-        path: row.path,
-        title: row.title,
-        author: {
-          id: row.authorId ?? null,
-          name: row.authorName ?? ''
-        },
-        tags: (meta.tags ?? []) as string[],
-        classification: (meta.classification ?? null) as string | null
-      }
-    })
+    const rows = await WIKI.db
+      .select({
+        id: recoverable.id,
+        action: recoverable.action,
+        via: recoverable.via,
+        changedFields: recoverable.changedFields,
+        reason: recoverable.reason,
+        versionDate: recoverable.versionDate,
+        locale: recoverable.locale,
+        path: recoverable.path,
+        title: recoverable.title,
+        meta: recoverable.meta,
+        authorId: usersTable.id,
+        authorName: usersTable.name
+      })
+      .from(recoverable)
+      .leftJoin(usersTable, eq(usersTable.id, recoverable.authorId))
+      .where(
+        after
+          ? or(
+              lt(recoverable.versionDate, after.versionDate),
+              and(eq(recoverable.versionDate, after.versionDate), lt(recoverable.id, after.id))
+            )
+          : undefined
+      )
+      .orderBy(desc(recoverable.versionDate), desc(recoverable.id))
+      // -> One extra row, never returned, just to tell whether a further page exists
+      .limit(boundedLimit + 1)
+
+    const hasMore = rows.length > boundedLimit
+    const page = hasMore ? rows.slice(0, boundedLimit) : rows
+    const last = page.at(-1)
+
+    return {
+      items: page.map((row: any) => {
+        const meta = (row.meta ?? {}) as Record<string, any>
+        return {
+          id: row.id,
+          action: row.action,
+          via: row.via,
+          changedFields: row.changedFields ?? [],
+          reason: row.reason ?? '',
+          versionDate: row.versionDate,
+          locale: row.locale,
+          path: row.path,
+          title: row.title,
+          author: {
+            id: row.authorId ?? null,
+            name: row.authorName ?? ''
+          },
+          tags: (meta.tags ?? []) as string[],
+          classification: (meta.classification ?? null) as string | null
+        }
+      }),
+      nextCursor:
+        hasMore && last ? encodeHistoryCursor({ versionDate: last.versionDate, id: last.id }) : null
+    }
   }
 
   /**
@@ -600,13 +796,15 @@ class PageHistory {
    *
    * Carries the classification the page held when it was deleted (OpenProject #1672), rather than
    * letting `createPage` fall back to the destination's floor or the instance default -- a page
-   * classified `Restricted` and deleted must not come back `Public`. Also queues a re-render once the
-   * page exists, since a deleted version's row never stored the rendered HTML (only `EXCLUDED_FROM_META`
-   * fields are derived, and `render`/`toc`/`searchContent` are among them) -- left unqueued, the
-   * recovered page would render as a blank body until someone re-saved it or an admin re-rendered it by
-   * hand.
+   * classified `Restricted` and deleted must not come back `Public`. `input` below carries no
+   * `render` -- a deleted version's row never stored the rendered HTML (only `EXCLUDED_FROM_META`
+   * fields are derived, and `render`/`toc`/`searchContent` are among them) -- so `createPage()` itself
+   * (OpenProject #1716) confirms up front that this instance can render the page at all, then queues
+   * the re-render once the row exists; there is nothing left for this method to do after the call
+   * (OpenProject #1723).
    *
-   * @throws If no `deleted` version exists at this id for this site.
+   * @throws If no `deleted` version exists at this id for this site, or (via `createPage()`'s own
+   *   up-front check) if nothing here could ever render the recovered page.
    */
   async recoverDeletedPage(
     siteId: string,
@@ -655,7 +853,6 @@ class PageHistory {
       tags: meta.tags ?? [],
       allowComments: config.allowComments,
       allowContributions: config.allowContributions,
-      allowRatings: config.allowRatings,
       showSidebar: config.showSidebar,
       showTags: config.showTags,
       showToc: config.showToc,
@@ -668,19 +865,6 @@ class PageHistory {
         .update(pagesTable)
         .set({ password: meta.password })
         .where(eq(pagesTable.id, page.id))
-    }
-
-    // -> Best effort, not a hard dependency: `queueRerender` calls `ensureCanRender` unconditionally and
-    //    throws `renderUnsupportedEditor`/`renderPuppeteerMissing` on an instance with no Puppeteer
-    //    extension, which must not turn a successful recovery into a 500 with the page already created.
-    //    Mirrors `migration/page-import.ts`'s try/catch/log/continue shape for the same call.
-    try {
-      await WIKI.models.pages.queueRerender(siteId, page.id, actor)
-    } catch (err: any) {
-      WIKI.logger.warn(
-        `Recovered page ${page.id} but failed to queue a re-render -- it will render blank until ` +
-          `re-saved or re-rendered manually: ${err.message}`
-      )
     }
 
     if (meta.password) {

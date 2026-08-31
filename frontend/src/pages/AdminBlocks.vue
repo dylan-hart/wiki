@@ -2,7 +2,9 @@
   <w-page class="admin-flags">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-plugin.svg" alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-plugin.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.blocks.title') }}</h1>
@@ -489,16 +491,11 @@ async function copyCredentialId(id) {
 async function save() {
   state.loading++
   try {
-    const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}/blocks`, {
+    await API_CLIENT.put(`sites/${adminStore.currentSiteId}/blocks`, {
       json: {
         states: state.blocks.map((bl) => pick(bl, ['id', 'isEnabled', 'config']))
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.blocks.${resp?.error}`, resp?.message || t('common.error.unexpected'))
-      )
-    }
     notify({
       type: 'positive',
       message: t('admin.blocks.saveSuccess')
@@ -507,7 +504,10 @@ async function save() {
     notify({
       type: 'negative',
       message: t('admin.blocks.saveFailed'),
-      caption: err.message
+      caption: t(
+        `admin.blocks.${err.data?.error}`,
+        apiErrorMessage(err, 'An unexpected error occured.')
+      )
     })
   }
   state.loading--
@@ -537,10 +537,7 @@ function deleteBlock(id) {
   }).onOk(async () => {
     state.loading++
     try {
-      const resp = await API_CLIENT.delete(`sites/${adminStore.currentSiteId}/blocks/${id}`)
-      if (!resp?.ok) {
-        throw new Error((await resp.json())?.message || t('common.error.unexpected'))
-      }
+      await API_CLIENT.delete(`sites/${adminStore.currentSiteId}/blocks/${id}`)
       notify({
         type: 'positive',
         message: t('admin.blocks.deleteSuccess')

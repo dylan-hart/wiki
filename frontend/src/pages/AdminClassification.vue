@@ -2,11 +2,7 @@
   <w-page class="admin-classification">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          class="admin-icon animated fadeInLeft"
-          name="la:layer-group"
-          size="48px"
-          color="primary" />
+        <w-icon name="img:/_assets/icons/fluent-tag.svg" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">
@@ -17,16 +13,6 @@
         </div>
       </div>
       <div class="flex-none">
-        <w-btn
-          class="mr-2 acrylic-btn"
-          icon="la:question-circle"
-          flat
-          color="grey"
-          :aria-label="t(`common.actions.viewDocs`)"
-          :href="siteStore.docsBase + `/admin/classification`"
-          target="_blank">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
-        </w-btn>
         <w-btn
           class="acrylic-btn mr-2"
           icon="la:redo-alt"
@@ -60,7 +46,7 @@
                     round
                     size="sm"
                     icon="la:arrow-up"
-                    :disable="idx === 0"
+                    :disabled="idx === 0"
                     :aria-label="t(`admin.classification.moveUp`)"
                     @click="move(idx, -1)" />
                   <w-btn
@@ -69,7 +55,7 @@
                     round
                     size="sm"
                     icon="la:arrow-down"
-                    :disable="idx === state.levels.length - 1"
+                    :disabled="idx === state.levels.length - 1"
                     :aria-label="t(`admin.classification.moveDown`)"
                     @click="move(idx, 1)" />
                 </div>
@@ -108,7 +94,7 @@
                   color="red"
                   icon="la:trash"
                   flat
-                  :disable="state.levels.length <= 1"
+                  :disabled="state.levels.length <= 1"
                   :aria-label="t(`common.actions.delete`)"
                   @click="deleteLevel(level)" />
               </w-item-section>
@@ -167,15 +153,9 @@ import { notify } from '@/composables/notify'
 import { confirm, dialog } from '@/composables/dialog'
 import { apiErrorMessage } from '@/helpers/apiError'
 
-import { useSiteStore } from '@/stores/site'
-
 // COMPOSABLES
 
 const dark = useDark()
-
-// STORES
-
-const siteStore = useSiteStore()
 
 // I18N
 

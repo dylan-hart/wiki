@@ -307,36 +307,6 @@
             <page-tags class="mt-2" :edit="state.tagEditMode" />
           </div>
         </template>
-        <template v-if="siteStore.features.ratingsMode !== `off` && pageStore.allowRatings">
-          <w-separator v-if="showToc || showTags" />
-          <!-- Rating -->
-          <div class="p-4 flex items-center">
-            <w-icon class="mr-2" name="la:star-half-alt" color="grey" />
-            <div class="text-caption text-grey-7">{{ t('common.page.ratePage') }}</div>
-          </div>
-          <div class="px-4">
-            <w-rating
-              v-if="siteStore.features.ratingsMode === `stars`"
-              v-model="state.currentRating"
-              icon="la:star"
-              color="secondary"
-              size="sm" />
-            <div class="flex items-center" v-else-if="siteStore.features.ratingsMode === `thumbs`">
-              <w-btn
-                class="acrylic-btn"
-                flat
-                icon="la:thumbs-down"
-                color="secondary"
-                :aria-label="t(`common.page.rateThumbsDown`)" />
-              <w-btn
-                class="acrylic-btn ml-2"
-                flat
-                icon="la:thumbs-up"
-                color="secondary"
-                :aria-label="t(`common.page.rateThumbsUp`)" />
-            </div>
-          </div>
-        </template>
       </div>
       <!-- -> Every action on it acts on a page: there is none here to edit, share, rate or delete -->
       <page-actions-col v-if="!pageStore.notFound" />
@@ -393,6 +363,7 @@ import { useMinWidth } from '@/composables/screen'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { scrollToAnchor, scrollToAnchorWhenReady } from '@/helpers/anchors'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { pickEditor } from '@/helpers/editorPicker'
 import { parseLocalePrefix } from '@/helpers/pagePaths'
 import { enhanceRenderedContent, routableHref, sameDocumentHash } from '@/helpers/renderedContent'
@@ -487,8 +458,7 @@ const state = reactive({
    * Whether the contents panel has been slid open. Only consulted below 750px, where the contents are a
    * panel over the article rather than a column beside it.
    */
-  tocPanelOpen: false,
-  currentRating: 3
+  tocPanelOpen: false
 })
 const pageContents = ref(null)
 /** The article column, which is what scrolls -- see `scrollPageToTop`. */
@@ -742,7 +712,7 @@ watch(
       try {
         await pageStore.pageCreate(pageCreateArgs)
       } catch (err) {
-        notify({ type: 'negative', message: err.message })
+        notify({ type: 'negative', message: apiErrorMessage(err) })
         router.replace('/')
       } finally {
         loading.hide()
@@ -773,7 +743,9 @@ watch(
           notify({
             type: 'negative',
             message:
-              err.message === 'ERR_PAGE_NOT_FOUND' ? 'This page does not exist.' : err.message
+              err.message === 'ERR_PAGE_NOT_FOUND'
+                ? 'This page does not exist.'
+                : apiErrorMessage(err)
           })
           router.replace('/')
         }
@@ -964,7 +936,7 @@ watch(
       } else {
         notify({
           type: 'negative',
-          message: err.message
+          message: apiErrorMessage(err)
         })
       }
     }
@@ -1121,7 +1093,7 @@ async function createPage() {
   try {
     await pageStore.pageCreate({ editor, path: pageStore.path, locale: pageStore.locale })
   } catch (err) {
-    notify({ type: 'negative', message: err.message })
+    notify({ type: 'negative', message: apiErrorMessage(err) })
   } finally {
     loading.hide()
   }

@@ -1,14 +1,18 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import PageHeader from './PageHeader.vue'
+import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
+import { useSiteStore } from '@/stores/site'
 import { useDirection } from '@/composables/direction'
+import { openDialogs } from '@/composables/dialog'
+import { queue } from '@/composables/notify'
 import WMenu from '@/components/shared/WMenu.vue'
 
 /**
@@ -152,5 +156,203 @@ describe('PageHeader review-queue menu direction', () => {
 
     const menuAfter = wrapper.findAllComponents(WMenu).at(-1)
     expect(menuAfter.props('anchor')).toBe('bottom left')
+  })
+})
+
+/**
+ * OpenProject #1747: the `editorStore.saveConflict` watcher and its `resolveSaveConflict()` dialog
+ * used to live only in `EditorMarkdown.vue`, so `EditorWysiwyg`, `EditorCode`, `EditorAsciidoc` and
+ * `EditorRedirect` all fell through to `saveChangesCommit()`'s generic negative toast on a 409 instead
+ * of ever raising `PageSaveConflictDialog.vue`. Hoisted here because `saveChangesCommit()` is the one
+ * save path every editor already routes through -- these tests drive `editorStore.saveConflict`
+ * directly (the same state `stores/page.js`'s 409 handler sets, regardless of which editor triggered
+ * the save) rather than through a real 409 round trip, so they exercise the shared, editor-agnostic
+ * path the fix actually lives on.
+ */
+describe('PageHeader save-conflict resolution (OpenProject #1747)', () => {
+  afterEach(() => {
+    // -> Leftover dialogs/toasts from one test must not bleed into the next test file's render.
+    openDialogs.splice(0, openDialogs.length)
+    queue.splice(0, queue.length)
+  })
+
+  async function mountHeaderForSave() {
+    setActivePinia(createPinia())
+
+    // -> `editorStore.editor` is set to 'code', deliberately not 'markdown': these tests must pass
+    //    for any editor, since the whole point of the hoist is that the dialog no longer depends on
+    //    which one is active.
+    const editorStore = useEditorStore()
+    editorStore.isActive = true
+    editorStore.editor = 'code'
+    editorStore.mode = 'edit'
+    editorStore.lastSaveTimestamp = 1
+    editorStore.lastChangeTimestamp = 2
+
+    const pageStore = usePageStore()
+    pageStore.editor = 'code'
+
+    const siteStore = useSiteStore()
+    siteStore.features.reasonForChange = 'off'
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    router.push('/')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(PageHeader, { global: { plugins: [router, i18n] } })
+
+    return { wrapper, editorStore, pageStore }
+  }
+
+  it('raises PageSaveConflictDialog.vue when editorStore.saveConflict is set, regardless of which editor is active', async () => {
+    const { wrapper, editorStore } = await mountHeaderForSave()
+
+    editorStore.saveConflict = {
+      title: 'Server Title',
+      content: 'Server content',
+      authorName: 'Someone Else',
+      updatedAt: '2026-08-31T00:00:00.000Z'
+    }
+    await wrapper.vm.$nextTick()
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props.authorName).toBe('Someone Else')
+  })
+
+  it('adopts the server snapshot into pageStore and clears editorStore.saveConflict on discard', async () => {
+    const { wrapper, editorStore, pageStore } = await mountHeaderForSave()
+
+    editorStore.saveConflict = {
+      title: 'Server Title',
+      content: 'Server content',
+      authorName: 'Someone Else',
+      updatedAt: '2026-08-31T00:00:00.000Z'
+    }
+    await wrapper.vm.$nextTick()
+    expect(openDialogs).toHaveLength(1)
+
+    const { closeDialog } = await import('@/composables/dialog')
+    closeDialog(openDialogs[0].id, true, 'discard')
+
+    expect(pageStore.content).toBe('Server content')
+    expect(pageStore.title).toBe('Server Title')
+  })
+
+  /**
+   * OpenProject #2073: a save-conflict "Discard" choice used to be permanent. `resolveSaveConflict`'s
+   * discard branch stashes the author's pending content in `editorStore.discardedContent` right
+   * before the overwrite, and raises a toast with an "undo" action (`undoDiscard`) that restores it.
+   * Store-only here, matching the hoist itself (OpenProject #1747): this file has no reference to
+   * whichever editor is mounted, so restoring is `pageStore.content` alone -- a mounted editor picks
+   * it back up the same way it does any other external change to that field.
+   */
+  it("retains the author's discarded content and restores it via the toast's undo action", async () => {
+    const { wrapper, editorStore, pageStore } = await mountHeaderForSave()
+    pageStore.content = 'Author draft text.'
+
+    editorStore.saveConflict = {
+      title: 'Server Title',
+      content: 'Server content.',
+      authorName: 'Jane',
+      updatedAt: '2026-01-01T00:00:00.000Z'
+    }
+    await wrapper.vm.$nextTick()
+    expect(openDialogs).toHaveLength(1)
+
+    const { closeDialog } = await import('@/composables/dialog')
+    closeDialog(openDialogs[0].id, true, 'discard')
+    await wrapper.vm.$nextTick()
+
+    expect(pageStore.content).toBe('Server content.')
+    expect(editorStore.discardedContent).toBe('Author draft text.')
+
+    const toast = queue.find((n) => n.action)
+    expect(toast).toBeTruthy()
+
+    toast.action.onClick()
+
+    expect(pageStore.content).toBe('Author draft text.')
+    // -> The stash is cleared once restored, so a stray repeat click has nothing left to redo.
+    expect(editorStore.discardedContent).toBeNull()
+  })
+
+  it('suppresses the generic negative toast for a save that fails with ERR_SAVE_CONFLICT -- the dialog handles it instead', async () => {
+    const { wrapper, pageStore } = await mountHeaderForSave()
+    vi.spyOn(pageStore, 'pageSave').mockRejectedValueOnce(new Error('ERR_SAVE_CONFLICT'))
+
+    await wrapper.find('[aria-label="common.actions.saveChanges"]').trigger('click')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+
+    // -> The i18n messages map above is deliberately empty (matching the aria-label assertions
+    //    throughout this file), so `t('common.page.saveFailed')` resolves to the untranslated key.
+    expect(queue.some((n) => n.message === 'common.page.saveFailed')).toBe(false)
+  })
+
+  it('still shows the generic negative toast for a save failure that is not a conflict', async () => {
+    const { wrapper, pageStore } = await mountHeaderForSave()
+    vi.spyOn(pageStore, 'pageSave').mockRejectedValueOnce(new Error('Network error'))
+
+    await wrapper.find('[aria-label="common.actions.saveChanges"]').trigger('click')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+
+    expect(queue.some((n) => n.message === 'common.page.saveFailed')).toBe(true)
+  })
+})
+
+/**
+ * OpenProject #2137: the return leg `hasOpenSuggestion` alone never gave -- that flag going false
+ * says nothing about what happened to the suggestion. `pageStore.resolvedSubmission`, set from the
+ * `viewer` block a page fetch carries back, is what fills that in here.
+ */
+describe('PageHeader suggestion outcome (OpenProject #2137)', () => {
+  it('renders a declined resolution with both the outcome and the reviewer’s reason visible', async () => {
+    const wrapper = await mountHeader()
+    usePageStore().$patch({
+      hasOpenSuggestion: false,
+      resolvedSubmission: { status: 'declined', reason: 'Overlaps with an existing section' }
+    })
+    await wrapper.vm.$nextTick()
+
+    const text = wrapper.text()
+    expect(text).toContain('common.page.suggestionResolvedDeclined')
+    expect(text).toContain('Overlaps with an existing section')
+  })
+
+  it('renders an approved resolution with no reason line, since approval never carries one', async () => {
+    const wrapper = await mountHeader()
+    usePageStore().$patch({
+      hasOpenSuggestion: false,
+      resolvedSubmission: { status: 'approved', reason: null }
+    })
+    await wrapper.vm.$nextTick()
+
+    const text = wrapper.text()
+    expect(text).toContain('common.page.suggestionResolvedApproved')
+    expect(text).not.toContain('common.page.suggestionResolvedReasonLabel')
+  })
+
+  it('stays hidden once nothing has been resolved', async () => {
+    const wrapper = await mountHeader()
+
+    expect(wrapper.text()).not.toContain('common.page.suggestionResolvedDeclined')
+    expect(wrapper.text()).not.toContain('common.page.suggestionResolvedApproved')
+  })
+
+  it('stays hidden behind a newer open suggestion, even with a resolved one on record', async () => {
+    const wrapper = await mountHeader()
+    usePageStore().$patch({
+      hasOpenSuggestion: true,
+      resolvedSubmission: { status: 'declined', reason: 'Try again later' }
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).not.toContain('common.page.suggestionResolvedDeclined')
   })
 })

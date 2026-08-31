@@ -2,10 +2,9 @@
   <w-page class="admin-locale">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-language.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-language.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.locale.title') }}</h1>
@@ -131,12 +130,28 @@
             </w-item-section>
             <w-item-section avatar>
               <w-toggle
-                :disable="lc.code === state.primary"
+                :disabled="lc.code === state.primary"
                 v-model="state.active"
                 :val="lc.code"
                 :aria-label="lc.name" />
             </w-item-section>
           </w-item>
+        </w-card>
+        <!-- ----------------------- -->
+        <!-- Offline Sideload -->
+        <!-- ----------------------- -->
+        <w-card class="pb-4 mt-4" v-if="canSideload">
+          <w-card-header>{{ t('admin.locale.sideload') }}</w-card-header>
+          <div class="px-4 text-caption text-grey">{{ t('admin.locale.sideloadHelp') }}</div>
+          <div class="px-4 pt-3">
+            <w-btn
+              outline
+              icon="la:upload"
+              color="secondary"
+              :label="t('admin.locale.sideload')"
+              :loading="state.sideloading"
+              @click="sideload" />
+          </div>
         </w-card>
       </div>
       <div class="col-span-12 lg:col-span-5">
@@ -150,16 +165,18 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive, watch } from 'vue'
+import { computed, onMounted, reactive, watch } from 'vue'
 
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 import { sortBy } from 'es-toolkit/array'
 
@@ -174,6 +191,7 @@ useSiteAdminAccess('site:locale')
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
@@ -193,8 +211,14 @@ const state = reactive({
   primary: 'en',
   forcePrefix: false,
   showMenu: true,
-  active: []
+  active: [],
+  sideloading: false
 })
+
+// -> `POST locales/sideload` (backend/api/locales.ts) is `manage:system`-only, stricter than this
+//    page's own `site:locale` gate (see useSiteAdminAccess above) -- a site-scoped-only admin who
+//    lacks manage:system would just get a 403, so the control is hidden rather than shown disabled.
+const canSideload = computed(() => userStore.can('manage:system'))
 
 // WATCHERS
 
@@ -257,7 +281,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.locale.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()
@@ -276,7 +300,7 @@ async function save() {
     if (!active.includes(state.primary)) {
       active.push(state.primary)
     }
-    const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
+    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
       json: {
         locales: {
           primary: state.primary,
@@ -286,11 +310,6 @@ async function save() {
         }
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.locale.${resp?.error}`, resp?.message || t('common.error.unexpected'))
-      )
-    }
     state.active = active
     notify({
       type: 'positive',
@@ -303,10 +322,62 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: t(
+        `admin.locale.${err.data?.error}`,
+        apiErrorMessage(err, 'An unexpected error occured.')
+      )
     })
   }
   state.loading--
+}
+
+/**
+ * The air-gapped deployment path (OpenProject #820): `POST locales/sideload` rescans
+ * `<dataPath>/locales/` on the server's own data volume for JSON locale-pack files an operator
+ * placed there out-of-band (no request body -- there is nothing to upload over HTTP, the file
+ * already has to be on the volume) and force-reloads whatever it finds there. `loaded` and
+ * `skipped` can both be non-empty at once (a partial run), so success/failure isn't a strict
+ * either/or -- each is reported on its own.
+ */
+async function sideload() {
+  if (state.sideloading) {
+    return
+  }
+  state.sideloading = true
+  try {
+    const resp = await API_CLIENT.post('locales/sideload').json()
+    const loadedCodes = resp?.loaded ?? []
+    const skippedFiles = resp?.skipped ?? []
+    if (loadedCodes.length > 0) {
+      notify({
+        type: 'positive',
+        message: t('admin.locale.sideloadSuccess', { count: loadedCodes.length }),
+        caption: loadedCodes.join(', ')
+      })
+    } else if (skippedFiles.length === 0) {
+      notify({
+        type: 'info',
+        message: t('admin.locale.sideloadNone')
+      })
+    }
+    if (skippedFiles.length > 0) {
+      notify({
+        type: 'negative',
+        message: t('admin.locale.sideloadFailed'),
+        caption: skippedFiles.map((s) => `${s.code}: ${s.error}`).join('; ')
+      })
+    }
+    if (loadedCodes.length > 0) {
+      await load()
+    }
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.locale.sideloadFailed'),
+      caption: apiErrorMessage(err)
+    })
+  }
+  state.sideloading = false
 }
 
 // MOUNTED

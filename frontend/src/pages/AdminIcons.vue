@@ -2,10 +2,9 @@
   <w-page class="admin-icons">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon admin-icons-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-spring.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-spring.svg"
+          class="admin-icon admin-icons-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.icons.title') }}</h1>
@@ -237,7 +236,7 @@
                   icon="la:check"
                   >{{ t('admin.icons.added') }}</w-chip
                 >
-                <w-icon v-else name="la:plus-circle" color="primary" size="sm" />
+                <w-icon v-else name="la:plus" color="primary" size="sm" />
               </w-item-section>
             </w-item>
           </w-list>
@@ -399,10 +398,7 @@ async function addSet(set) {
 
   state.loading++
   try {
-    const resp = await API_CLIENT.post('icons/sets', { json: { prefix: set.prefix } }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
+    await API_CLIENT.post('icons/sets', { json: { prefix: set.prefix } }).json()
     set.isAdded = true
     notify({
       type: 'positive',
@@ -422,10 +418,7 @@ async function addSet(set) {
 async function setSetState(set, isEnabled) {
   state.loading++
   try {
-    const resp = await API_CLIENT.put(`icons/sets/${set.prefix}`, { json: { isEnabled } }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
+    await API_CLIENT.put(`icons/sets/${set.prefix}`, { json: { isEnabled } }).json()
     notify({
       type: 'positive',
       message: isEnabled
@@ -454,10 +447,7 @@ function confirmDeleteSet(set) {
   }).onOk(async () => {
     state.loading++
     try {
-      const resp = await API_CLIENT.delete(`icons/sets/${set.prefix}`).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
+      await API_CLIENT.delete(`icons/sets/${set.prefix}`).json()
       notify({
         type: 'positive',
         message: t('admin.icons.deleteSuccess', { set: set.name })
@@ -490,10 +480,7 @@ function purgeCache() {
   }).onOk(async () => {
     state.loading++
     try {
-      const resp = await API_CLIENT.delete('icons/cache').json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
+      await API_CLIENT.delete('icons/cache').json()
       notify({
         type: 'positive',
         message: t('admin.icons.purgeCacheSuccess')

@@ -49,6 +49,60 @@ test('JOB_SCHEDULE_SEED never claims two tasks on the same cron expression (Open
   assert.deepEqual(crons, [...new Set(crons)], 'expected every JOB_SCHEDULE_SEED cron to be unique')
 })
 
+test('JOB_SCHEDULE_SEED registers purgeContentSyncState on a valid daily cron, at a minute no other seeded job uses', () => {
+  const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeContentSyncState')
+  assert.ok(entry, 'expected a purgeContentSyncState entry in the schedule seed')
+  assert.equal(entry!.type, 'system')
+  // -> A standard 5-field cron expression, e.g. "40 0 * * *" (once a day)
+  assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
+
+  const crons: string[] = JOB_SCHEDULE_SEED.filter((e) => e.task !== 'purgeContentSyncState').map(
+    (e) => e.cron
+  )
+  const targetCron: string = entry!.cron
+  assert.ok(
+    !crons.includes(targetCron),
+    `expected purgeContentSyncState's cron minute to be unused by any other seeded job, got a clash on "${targetCron}"`
+  )
+})
+
+test('JOB_SCHEDULE_SEED registers purgeUserKeys on a valid daily cron', () => {
+  const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeUserKeys')
+  assert.ok(entry, 'expected a purgeUserKeys entry in the schedule seed')
+  assert.equal(entry!.type, 'system')
+  // -> A standard 5-field cron expression, e.g. "45 0 * * *" (once a day)
+  assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
+})
+
+test('JOB_SCHEDULE_SEED registers purgePageWatchEvents on a valid daily cron', () => {
+  const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgePageWatchEvents')
+  assert.ok(entry, 'expected a purgePageWatchEvents entry in the schedule seed')
+  assert.equal(entry!.type, 'system')
+  // -> A standard 5-field cron expression, e.g. "50 0 * * *" (once a day)
+  assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
+})
+
+test('JOB_SCHEDULE_SEED registers purgeSessions on a valid hourly cron, offset from purgeRateLimits', () => {
+  const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeSessions')
+  assert.ok(entry, 'expected a purgeSessions entry in the schedule seed')
+  assert.equal(entry!.type, 'system')
+  // -> A standard 5-field cron expression, e.g. "40 * * * *" (once an hour)
+  assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
+
+  const rateLimitsEntry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeRateLimits')
+  assert.ok(rateLimitsEntry, 'expected a purgeRateLimits entry in the schedule seed')
+  // -> Both run hourly against the same table-growth concern; they must not land on the same minute.
+  assert.notEqual(entry!.cron.split(' ')[0], rateLimitsEntry!.cron.split(' ')[0])
+})
+
+test('JOB_SCHEDULE_SEED registers purgeGuestPii on a valid daily cron', () => {
+  const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeGuestPii')
+  assert.ok(entry, 'expected a purgeGuestPii entry in the schedule seed')
+  assert.equal(entry!.type, 'system')
+  // -> A standard 5-field cron expression, e.g. "55 0 * * *" (once a day)
+  assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
+})
+
 test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
   const tasks = JOB_SCHEDULE_SEED.map((e) => e.task)
   assert.deepEqual(
@@ -57,10 +111,15 @@ test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
       'checkVersion',
       'cleanAuditLog',
       'cleanJobHistory',
+      'purgeContentSyncState',
       'purgeExports',
+      'purgeGuestPii',
       'purgeImports',
       'purgePageviews',
+      'purgePageWatchEvents',
       'purgeRateLimits',
+      'purgeSessions',
+      'purgeUserKeys',
       'sendWatchDigests',
       'storageDailyBackup',
       'storageSyncTick',
@@ -237,5 +296,29 @@ describe('jobs TZ regression (DB-backed)', { skip: !hasTestDatabase() }, () => {
         .where(eq(jobHistoryTable.id, activeRow!.id))
       assert.ok(stillActive, 'an active row must never be purged regardless of age')
     })
+  })
+})
+
+describe('countFailed (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+
+  before(async () => {
+    fixtures = await setupTestDb()
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('counts only jobHistory rows in the failed state', async () => {
+    await fixtures.db.insert(jobHistoryTable).values([
+      { task: 'testTask', state: 'failed', createdAt: new Date() },
+      { task: 'testTask', state: 'failed', createdAt: new Date() },
+      { task: 'testTask', state: 'completed', createdAt: new Date() },
+      { task: 'testTask', state: 'active', createdAt: new Date() },
+      { task: 'testTask', state: 'interrupted', createdAt: new Date() }
+    ])
+
+    assert.equal(await jobs.countFailed(), 2)
   })
 })

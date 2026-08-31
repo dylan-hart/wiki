@@ -821,8 +821,7 @@ export const pages = pgTable(
     //    on write and checks a guess against it with `bcrypt.compare` on read; nothing reads this
     //    column back as a value to hand to a caller.
     password: varchar({ length: 255 }),
-    ratingScore: integer().notNull().default(0),
-    ratingCount: integer().notNull().default(0),
+    scripts: jsonb().notNull().default({}),
     historyData: jsonb().notNull().default({}),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -1257,6 +1256,15 @@ export const pageWatching = pgTable(
  * removed the page — and with it, through `pageWatching.pageId`'s cascade, the very watch list this
  * row was resolved from. The row has to be able to outlive both.
  *
+ * OpenProject #1689 considered adding this FK back (`siteId`/`userId`/`actorId` all have one). Ruled
+ * out for the reason above: `models/pages.ts#deletePage` queues `notifyPageWatchers` as an async
+ * scheduler job *before* deleting the `pages` row, but that job's `recordMany()` INSERT — the only
+ * writer of this table — runs later, after the row is already gone. A hard FK requires the referenced
+ * `pages.id` to exist at INSERT time no matter what `onDelete` says, so every deletion notification for
+ * a watched page would fail to record. Fixing that for real would mean recording these rows
+ * synchronously before the page delete instead of in the deferred job — a larger change than #1689's
+ * scope; see `docs/variances.md`.
+ *
  * `actorId`, `changedFields`, `pageTitle` and `pagePath` are captured at write time rather than
  * looked up when a notification is finally sent, for the same reason `pageId` isn't a foreign key:
  * the page (and, for a delete, the `pageHistory` row it might otherwise be read from) can already be
@@ -1614,6 +1622,16 @@ export const tree = pgTable(
   (table) => [
     index('tree_folderpath_idx').on(table.folderPath),
     index('tree_folderpath_gist_idx').using('gist', table.folderPath),
+    // -> `models/navigation.ts#ancestorNavId` filters on `("folderPath" || "fileName") @>
+    //    <path>::ltree` — the concatenation, not the bare column, so the two indexes above never
+    //    match it. EXPLAIN (ANALYZE, BUFFERS) against a 280k-row tree with ~1,700
+    //    override/hide entries measured a ~10x execution-time drop (1.71ms -> 0.18ms) and a
+    //    ~230x buffer-read drop (1602 -> 7): without this index, postgres index-scans
+    //    `tree_navigationMode_idx` and evaluates the ltree containment test as a row-by-row
+    //    filter over every override/hide candidate; with it, a Bitmap AND against this index
+    //    and `tree_navigationMode_idx` finds the match directly. See work package #1823 for the
+    //    full before/after EXPLAIN output.
+    index('tree_folderpath_filename_gist_idx').using('gist', sql`("folderPath" || "fileName")`),
     index('tree_fileName_idx').on(table.fileName),
     index('tree_type_idx').on(table.type),
     // -> A plain btree: the locale is a string compared for equality, and GiST — which is what an
@@ -1638,7 +1656,9 @@ export const tree = pgTable(
 
 // USER AVATARS ------------------------
 export const userAvatars = pgTable('userAvatars', {
-  id: uuid().primaryKey(),
+  id: uuid()
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
   data: bytea().notNull(),
   // -> sha1 hex digest of `data`, kept in sync by every write path -- lets a conditional request
   //    (ETag) be answered without reading the blob back out of the database.
@@ -1659,7 +1679,14 @@ export const userKeys = pgTable(
       .notNull()
       .references(() => users.id)
   },
-  (table) => [index('userKeys_userId_idx').on(table.userId)]
+  (table) => [
+    index('userKeys_userId_idx').on(table.userId),
+    // -> Unique as documentation of intent: `countTfaFailure()`, `validateToken()` and
+    //    `destroyToken()` (models/users.ts) all look a row up by bare `token` equality and treat it
+    //    as an identity. Was previously unindexed, forcing a sequential scan on every 2FA attempt,
+    //    password reset and email verification.
+    uniqueIndex('userKeys_token_idx').on(table.token)
+  ]
 )
 
 // USERS -------------------------------

@@ -7,7 +7,7 @@ import { useSiteStore } from './site'
 import { useEditorStore } from './editor'
 import { useUserStore } from './user'
 import { isHomePath, localizedPagePath, normalizePagePath, pagePathHash } from '@/helpers/pagePaths'
-import { apiErrorBody } from '@/helpers/apiError'
+import { apiErrorBody, apiErrorMessage } from '@/helpers/apiError'
 
 /**
  * The icon a page starts with.
@@ -23,7 +23,6 @@ export const usePageStore = defineStore('page', {
     alias: '',
     allowComments: false,
     allowContributions: true,
-    allowRatings: true,
     authorId: 0,
     authorName: '',
     /**
@@ -107,6 +106,13 @@ export const usePageStore = defineStore('page', {
     canSuggestEdits: false,
     /** Whether the reader already has a suggestion open on this page, which they would carry on with. */
     hasOpenSuggestion: false,
+    /**
+     * What became of this reader's most recently resolved suggestion on this page, if a reviewer has
+     * acted on one -- `{ status: 'approved' | 'declined', reason: string | null, resolvedAt }`, or
+     * null while nothing of theirs has been resolved yet, or for a guest. `hasOpenSuggestion` going
+     * false on its own says nothing about what happened; this is the return leg.
+     */
+    resolvedSubmission: null,
     /** Whether this reader reviews this page, which is what shows the review button on it. */
     canReview: false,
     /** The suggestions waiting on this page, oldest first. Empty for everybody who is not its reviewer. */
@@ -328,6 +334,7 @@ export const usePageStore = defineStore('page', {
       this.$patch({
         canSuggestEdits: viewer.canSuggestEdits === true,
         hasOpenSuggestion: viewer.hasOpenSuggestion === true,
+        resolvedSubmission: viewer.resolvedSubmission ?? null,
         canReview: viewer.canReview === true,
         pendingSubmissions: viewer.pendingSubmissions ?? [],
         isWatching: viewer.isWatching === true,
@@ -370,6 +377,7 @@ export const usePageStore = defineStore('page', {
         removePassword: false,
         canSuggestEdits: false,
         hasOpenSuggestion: false,
+        resolvedSubmission: null,
         canReview: false,
         pendingSubmissions: [],
         isWatching: false,
@@ -614,9 +622,6 @@ export const usePageStore = defineStore('page', {
           ...(guestEmail ? { guestEmail } : {})
         }
       }).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || i18n.global.t('common.error.unexpected'))
-      }
       this.hasOpenSuggestion = true
       return resp.submission
     },
@@ -701,7 +706,7 @@ export const usePageStore = defineStore('page', {
      */
     async pageMove({ id, title, path, locale, includeTranslations } = {}) {
       const siteStore = useSiteStore()
-      unwrap(
+      try {
         await API_CLIENT.put(`sites/${siteStore.id}/pages/${id}/path`, {
           json: {
             path,
@@ -710,7 +715,9 @@ export const usePageStore = defineStore('page', {
             ...(includeTranslations ? { includeTranslations } : {})
           }
         }).json()
-      )
+      } catch (err) {
+        throw new Error(apiErrorMessage(err, 'An unexpected error occured.'))
+      }
       // -> Following the page only makes sense when it is the one being viewed. Moved from the file
       //    manager, it is some other page, and the reader is still on theirs.
       if (id === this.id) {
@@ -734,11 +741,13 @@ export const usePageStore = defineStore('page', {
      */
     async pageRename({ id, title } = {}) {
       const siteStore = useSiteStore()
-      unwrap(
+      try {
         await API_CLIENT.patch(`sites/${siteStore.id}/pages/${id}`, {
           json: { title }
         }).json()
-      )
+      } catch (err) {
+        throw new Error(apiErrorMessage(err, 'An unexpected error occured.'))
+      }
 
       // Update page store
       if (id === this.id) {
@@ -779,7 +788,6 @@ export const usePageStore = defineStore('page', {
             'alias',
             'allowComments',
             'allowContributions',
-            'allowRatings',
             'classification',
             'content',
             'description',
@@ -851,32 +859,28 @@ export const usePageStore = defineStore('page', {
         let pageData
         let classificationConflicts = []
         if (editorStore.mode === 'create') {
-          const resp = unwrap(
-            await API_CLIENT.post(`sites/${siteStore.id}/pages`, {
-              json: {
-                ...body,
-                locale: this.locale,
-                path: this.path,
-                editor: editorStore.editor
-              }
-            }).json()
-          )
+          const resp = await API_CLIENT.post(`sites/${siteStore.id}/pages`, {
+            json: {
+              ...body,
+              locale: this.locale,
+              path: this.path,
+              editor: editorStore.editor
+            }
+          }).json()
           pageData = resp?.page
           if (!pageData?.id) {
             throw new Error('ERR_CREATED_PAGE_NOT_FOUND')
           }
         } else {
-          const resp = unwrap(
-            await API_CLIENT.patch(`sites/${siteStore.id}/pages/${this.id}`, {
-              /*
-                Not a page field either, and not sent on create: there is nothing yet to conflict
-                with. The server compares this against what it actually has stored and refuses the
-                write on a mismatch -- see the 409 branch below -- which is what stops one editor's
-                save from silently overwriting another's.
-              */
-              json: { ...body, expectedUpdatedAt: this.updatedAt }
-            }).json()
-          )
+          const resp = await API_CLIENT.patch(`sites/${siteStore.id}/pages/${this.id}`, {
+            /*
+              Not a page field either, and not sent on create: there is nothing yet to conflict
+              with. The server compares this against what it actually has stored and refuses the
+              write on a mismatch -- see the 409 branch below -- which is what stops one editor's
+              save from silently overwriting another's.
+            */
+            json: { ...body, expectedUpdatedAt: this.updatedAt }
+          }).json()
           pageData = resp?.page
           if (!pageData?.id) {
             throw new Error('ERR_PAGE_NOT_FOUND')
@@ -954,7 +958,14 @@ export const usePageStore = defineStore('page', {
           throw new Error('ERR_SAVE_CONFLICT')
         }
         console.warn(err)
-        throw err
+        /*
+          A refused write (ky's `HTTPError`, identified the same way the 409 branch above does --
+          via `.response`) carries the server's real message under `.data.message`, not in `.message`
+          itself -- so it is converted here before rethrowing. The store's own plain `Error`s thrown
+          just above (`ERR_CREATED_PAGE_NOT_FOUND`, `ERR_PAGE_NOT_FOUND`) and a `contentFlusher`
+          failure both already carry the message a caller should show, and pass through unchanged.
+        */
+        throw err.response ? new Error(apiErrorMessage(err, 'An unexpected error occured.')) : err
       }
     },
     async cancelPageEdit() {
@@ -965,17 +976,3 @@ export const usePageStore = defineStore('page', {
     }
   }
 })
-
-/**
- * Turn a refused request back into an error.
- *
- * The API client is set up not to throw on 400 (see `boot/api.js`), so a rejected save arrives as a
- * parsed error envelope rather than an exception — and reading it as a success is how a validation
- * failure ends up reported as something unrelated.
- */
-function unwrap(resp) {
-  if (resp?.ok === false) {
-    throw new Error(resp.message || i18n.global.t('common.error.unexpected'))
-  }
-  return resp
-}

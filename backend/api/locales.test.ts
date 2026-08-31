@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import { after, before, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
@@ -88,12 +89,16 @@ let app: FastifyInstance
 
 const sideloadResult = { loaded: ['tlh'], skipped: [{ code: 'broken', error: 'invalid JSON' }] }
 
+// -> Mutable so a test can simulate a locale sideload changing what `getStrings('en')` returns
+//    without re-registering the whole app.
+let currentEnStrings: Record<string, string> = sampleStrings
+
 before(async () => {
   ;(globalThis as any).WIKI = {
     models: {
       locales: {
         getLocales: async () => [sampleLocale],
-        getStrings: async (code: string) => (code === 'en' ? sampleStrings : []),
+        getStrings: async (code: string) => (code === 'en' ? currentEnStrings : []),
         sideloadFromDataPath: async () => sideloadResult
       }
     }
@@ -180,6 +185,77 @@ test('GET /:code/strings serializes an empty array for an unknown locale', async
   const res = await app.inject({ method: 'GET', url: '/xx/strings' })
   assert.equal(res.statusCode, 200)
   assert.deepEqual(res.json(), [])
+})
+
+/**
+ * ETag/304 (OpenProject #1920): the ~190 KB translation map should not be re-sent on every cold
+ * page load — a browser holding a matching `ETag` from a prior response should get an empty `304`
+ * instead. `#1915` (caching `getStrings()` in `WIKI.cache`) is separate, out-of-scope work; these
+ * tests only cover the route's header/revalidation behavior against whatever the model returns.
+ */
+test('GET /:code/strings carries a quoted ETag and a revalidation Cache-Control', async () => {
+  const res = await app.inject({ method: 'GET', url: '/en/strings' })
+  assert.equal(res.statusCode, 200)
+  assert.match(res.headers.etag as string, /^".+"$/)
+  assert.equal(res.headers['cache-control'], 'public, no-cache')
+})
+
+test('GET /:code/strings returns an empty-bodied 304 when if-none-match matches the current ETag', async () => {
+  const first = await app.inject({ method: 'GET', url: '/en/strings' })
+  const etag = first.headers.etag as string
+
+  const second = await app.inject({
+    method: 'GET',
+    url: '/en/strings',
+    headers: { 'if-none-match': etag }
+  })
+  assert.equal(second.statusCode, 304)
+  assert.equal(second.body, '')
+  assert.equal(second.headers.etag, etag)
+})
+
+test('GET /:code/strings still returns 200 with the full body when if-none-match is stale', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/en/strings',
+    headers: { 'if-none-match': '"not-the-real-etag"' }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json(), sampleStrings)
+})
+
+test('GET /:code/strings produces a well-formed, matchable ETag for the unknown-locale [] shape too', async () => {
+  const first = await app.inject({ method: 'GET', url: '/xx/strings' })
+  assert.match(first.headers.etag as string, /^".+"$/)
+
+  const second = await app.inject({
+    method: 'GET',
+    url: '/xx/strings',
+    headers: { 'if-none-match': first.headers.etag as string }
+  })
+  assert.equal(second.statusCode, 304)
+})
+
+test('GET /:code/strings returns a 200 with a different ETag after the underlying strings change (e.g. a sideload)', async () => {
+  const before = await app.inject({ method: 'GET', url: '/en/strings' })
+  const beforeEtag = before.headers.etag as string
+
+  currentEnStrings = { ...sampleStrings, 'common.actions.cancel': 'Cancel' }
+  try {
+    const after = await app.inject({
+      method: 'GET',
+      url: '/en/strings',
+      headers: { 'if-none-match': beforeEtag }
+    })
+    assert.equal(after.statusCode, 200)
+    assert.deepEqual(after.json(), currentEnStrings)
+    assert.notEqual(after.headers.etag, beforeEtag)
+
+    const expectedEtag = `"${crypto.createHash('sha1').update(JSON.stringify(currentEnStrings)).digest('hex')}"`
+    assert.equal(after.headers.etag, expectedEtag)
+  } finally {
+    currentEnStrings = sampleStrings
+  }
 })
 
 /**

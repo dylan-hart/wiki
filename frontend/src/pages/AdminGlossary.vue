@@ -2,10 +2,9 @@
   <w-page>
     <div class="flex flex-wrap items-center p-4">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-find-and-replace-animated.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-find-and-replace-animated.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.glossary.title') }}</h1>
@@ -14,16 +13,6 @@
         </div>
       </div>
       <div class="flex flex-none flex-wrap items-center">
-        <w-btn
-          class="mr-2 acrylic-btn"
-          icon="la:question-circle"
-          flat
-          color="grey"
-          :aria-label="t(`common.actions.viewDocs`)"
-          :href="siteStore.docsBase + `/admin/glossary`"
-          target="_blank">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
-        </w-btn>
         <w-btn
           class="acrylic-btn mr-2"
           icon="la:history"
@@ -136,7 +125,6 @@ import { notify } from '@/composables/notify'
 import { confirm, dialog } from '@/composables/dialog'
 
 import { useAdminStore } from '@/stores/admin'
-import { useSiteStore } from '@/stores/site'
 
 import GlossaryImportDialog from '@/components/GlossaryImportDialog.vue'
 import GlossaryTermDialog from '@/components/GlossaryTermDialog.vue'
@@ -168,7 +156,6 @@ const dark = useDark()
 // STORES
 
 const adminStore = useAdminStore()
-const siteStore = useSiteStore()
 
 // I18N
 

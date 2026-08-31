@@ -1,22 +1,24 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import {
   classificationLevels as classificationLevelsTable,
+  pageHistory as pageHistoryTable,
+  pageRenderQueue as pageRenderQueueTable,
   users as usersTable
 } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
- * `listRecoverable` and `recoverDeletedPage` are SQL orchestration (a `DISTINCT ON` + `NOT EXISTS`
- * query, and a reconstruct-then-`createPage` write path) rather than pure logic, so — like
- * `models/pages.test.ts` — this suite runs the real methods against a migrated, per-run-fresh
- * database (see `test/db.ts`) rather than mocking the query builder.
+ * `list`, `listRecoverable` and `recoverDeletedPage` are SQL orchestration (a keyset-paginated query,
+ * a `DISTINCT ON` + `NOT EXISTS` query, and a reconstruct-then-`createPage` write path) rather than
+ * pure logic, so — like `models/pages.test.ts` — this suite runs the real methods against a migrated,
+ * per-run-fresh database (see `test/db.ts`) rather than mocking the query builder.
  */
 describe(
-  'pageHistory listRecoverable/recoverDeletedPage (DB-backed)',
+  'pageHistory list/listRecoverable/recoverDeletedPage (DB-backed)',
   { skip: !hasTestDatabase() },
   () => {
     let fixtures: TestFixtures
@@ -66,7 +68,7 @@ describe(
         actor
       )
 
-      const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+      const { items: entries } = await pageHistoryModel.list(fixtures.siteId, page.id)
       assert.equal(entries.length, 1)
       assert.equal(entries[0]!.locale, 'en')
       // -> OpenProject #1119: undefined `actor.via` defaults to 'editor', carried by both list() and
@@ -88,8 +90,8 @@ describe(
       await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Second Title' }, actor)
       await pagesModel.deletePage(fixtures.siteId, page.id, actor)
 
-      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
-      const entry = recoverable.find((row) => row.path === 'docs/recoverable-one')
+      const { items, nextCursor } = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = items.find((row) => row.path === 'docs/recoverable-one')
       assert.ok(entry, 'the deleted page should be listed as recoverable')
       assert.equal(entry!.action, 'deleted')
       assert.equal(entry!.title, 'Second Title')
@@ -101,6 +103,8 @@ describe(
       assert.deepEqual(entry!.tags, ['keep-me'])
       assert.ok(entry!.classification, 'a page always has a classification')
       assert.ok(entry!.author.name, 'the author name is still carried, unlike the email')
+      // -> Well under the default limit, so there is nothing left to page to
+      assert.equal(nextCursor, null)
     })
 
     test('listRecoverable carries tags/classification and no author email (OpenProject #2168)', async () => {
@@ -111,8 +115,8 @@ describe(
       )
       await pagesModel.deletePage(fixtures.siteId, page.id, actor)
 
-      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
-      const entry = recoverable.find((row) => row.path === 'docs/recoverable-tagged')
+      const { items } = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = items.find((row) => row.path === 'docs/recoverable-tagged')
       assert.ok(entry)
       // -> Lets the route narrow its `read:history` check with TAG/TAGALL/CLASSIFICATION rules, not
       //    just a bare path/locale match.
@@ -133,8 +137,8 @@ describe(
       )
       await pagesModel.deletePage(fixtures.siteId, page.id, actor)
 
-      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
-      const entry = recoverable.find((row) => row.path === 'docs/deleted-version-tags')
+      const { items } = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = items.find((row) => row.path === 'docs/deleted-version-tags')
       assert.ok(entry)
 
       const version = await pageHistoryModel.getDeletedVersion(fixtures.siteId, entry!.id)
@@ -156,9 +160,9 @@ describe(
         actor
       )
 
-      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const { items } = await pageHistoryModel.listRecoverable(fixtures.siteId)
       assert.equal(
-        recoverable.some((row) => row.path === 'docs/reused-path'),
+        items.some((row) => row.path === 'docs/reused-path'),
         false
       )
     })
@@ -166,20 +170,98 @@ describe(
     test('listRecoverable omits a path with no deletions at all', async () => {
       await pagesModel.createPage(fixtures.siteId, pageInput({ path: 'docs/never-deleted' }), actor)
 
-      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const { items } = await pageHistoryModel.listRecoverable(fixtures.siteId)
       assert.equal(
-        recoverable.some((row) => row.path === 'docs/never-deleted'),
+        items.some((row) => row.path === 'docs/never-deleted'),
         false
       )
     })
 
-    test('recoverDeletedPage recreates the page from its deleted version, preserving classification and queuing a re-render', async (t) => {
-      const queueRerenderCalls: unknown[][] = []
-      t.mock.method(pagesModel, 'queueRerender', async (...args: unknown[]) => {
-        queueRerenderCalls.push(args)
-        return true
-      })
+    /**
+     * Deletes a page, then backdates its `deleted` history row to a fixed `versionDate` -- so a
+     * pagination test can control ordering (and force ties) instead of depending on real wall-clock
+     * gaps between calls in the same test run.
+     */
+    async function deletePageAt(pageId: string, versionDate: Date) {
+      await pagesModel.deletePage(fixtures.siteId, pageId, actor)
+      await fixtures.db
+        .update(pageHistoryTable)
+        .set({ versionDate })
+        .where(and(eq(pageHistoryTable.pageId, pageId), eq(pageHistoryTable.action, 'deleted')))
+    }
 
+    test('listRecoverable pages through more deletions than the limit with no gaps or repeats', async () => {
+      const base = new Date('2026-01-01T00:00:00.000Z')
+      const paths = Array.from({ length: 6 }, (_, i) => `docs/paginate-${i}`)
+      for (const [i, path] of paths.entries()) {
+        const page = await pagesModel.createPage(fixtures.siteId, pageInput({ path }), actor)
+        // -> Newest (index 0) gets the latest versionDate, so descending order is `paginate-0` first
+        await deletePageAt(page.id, new Date(base.getTime() + (paths.length - i) * 60_000))
+      }
+
+      const seen: string[] = []
+      let cursor: string | undefined
+      let pageCount = 0
+      for (;;) {
+        const { items, nextCursor } = await pageHistoryModel.listRecoverable(fixtures.siteId, {
+          limit: 2,
+          cursor
+        })
+        pageCount++
+        assert.ok(items.length <= 2, 'never returns more than the requested limit')
+        seen.push(...items.filter((row) => paths.includes(row.path)).map((row) => row.path))
+        if (!nextCursor) {
+          break
+        }
+        cursor = nextCursor
+        // -> Generous bound, not a tight one: earlier tests in this suite leave their own recoverable
+        //    rows in the same site, so this loop also has to page past those. The point of the bound
+        //    is only to fail loudly if a cursor never nulls out, rather than hang forever.
+        assert.ok(
+          pageCount <= paths.length + 20,
+          'a cursor that never nulls out would loop forever'
+        )
+      }
+
+      // -> Every seeded path appeared, in strictly descending versionDate order, none twice
+      assert.deepEqual(seen, paths)
+    })
+
+    test('listRecoverable keeps a stable order across a versionDate tie via the id tiebreak', async () => {
+      // -> Far in the future, deliberately: guarantees these two rows sort ahead of every other
+      //    row this suite creates (real `now()` timestamps included), so `limit: 1` below is certain
+      //    to land on one of the tied pair rather than something else deleted since.
+      const tiedAt = new Date('2099-01-01T00:00:00.000Z')
+      const pageA = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/tie-a' }),
+        actor
+      )
+      const pageB = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/tie-b' }),
+        actor
+      )
+      await deletePageAt(pageA.id, tiedAt)
+      await deletePageAt(pageB.id, tiedAt)
+
+      const first = await pageHistoryModel.listRecoverable(fixtures.siteId, { limit: 1 })
+      const tiedPaths = ['docs/tie-a', 'docs/tie-b']
+      assert.equal(first.items.length, 1)
+      assert.ok(tiedPaths.includes(first.items[0]!.path))
+      assert.ok(first.nextCursor, 'one of the tied pair remains for a second page')
+
+      const second = await pageHistoryModel.listRecoverable(fixtures.siteId, {
+        limit: 1,
+        cursor: first.nextCursor!
+      })
+      assert.equal(second.items.length, 1)
+      // -> The id tiebreak means the second page names the OTHER tied row, not the same one again
+      assert.notEqual(second.items[0]!.path, first.items[0]!.path)
+      assert.ok(tiedPaths.includes(second.items[0]!.path))
+    })
+
+    test('recoverDeletedPage recreates the page from its deleted version, preserving classification and queuing a re-render', async () => {
       const page = await pagesModel.createPage(
         fixtures.siteId,
         pageInput({
@@ -194,8 +276,8 @@ describe(
       assert.equal(page.classification, restrictedLevelId)
       await pagesModel.deletePage(fixtures.siteId, page.id, actor)
 
-      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
-      const entry = recoverable.find((row) => row.path === 'docs/recover-me')
+      const { items } = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = items.find((row) => row.path === 'docs/recover-me')
       assert.ok(entry)
 
       const recovered = await pageHistoryModel.recoverDeletedPage(fixtures.siteId, entry!.id, actor)
@@ -212,9 +294,14 @@ describe(
 
       // -> A re-render is queued for the recovered page rather than left with the empty
       //    render/toc/searchContent `createPage` wrote (deleted versions never stored the rendered
-      //    HTML -- see `EXCLUDED_FROM_META`).
-      assert.equal(queueRerenderCalls.length, 1)
-      assert.deepEqual(queueRerenderCalls[0], [fixtures.siteId, recovered.id, actor])
+      //    HTML -- see `EXCLUDED_FROM_META`). `createPage()` itself does the queuing now, with no
+      //    separate call from `recoverDeletedPage` (OpenProject #1716/#1723), so this asserts the
+      //    real `pageRenderQueue` row rather than mocking a `queueRerender` call.
+      const queued = await fixtures.db
+        .select({ id: pageRenderQueueTable.id })
+        .from(pageRenderQueueTable)
+        .where(eq(pageRenderQueueTable.pageId, recovered.id))
+      assert.equal(queued.length, 1)
 
       const fetched = await pagesModel.getPage({
         siteId: fixtures.siteId,
@@ -227,7 +314,7 @@ describe(
       // -> Recovered, so it is no longer a candidate for recovery again
       const stillRecoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
       assert.equal(
-        stillRecoverable.some((row) => row.path === 'docs/recover-me'),
+        stillRecoverable.items.some((row) => row.path === 'docs/recover-me'),
         false
       )
     })
@@ -247,7 +334,7 @@ describe(
       )
       await pagesModel.deletePage(fixtures.siteId, page.id, actor)
 
-      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const { items: recoverable } = await pageHistoryModel.listRecoverable(fixtures.siteId)
       const entry = recoverable.find((row) => row.path === 'docs/recover-with-password')
       assert.ok(entry)
 
@@ -268,11 +355,7 @@ describe(
       assert.equal(rejected, null)
     })
 
-    test('recoverDeletedPage still succeeds when queueRerender throws', async (t) => {
-      t.mock.method(pagesModel, 'queueRerender', async () => {
-        throw new CustomError('renderPuppeteerMissing', 'Puppeteer is not installed.', 503)
-      })
-
+    test('recoverDeletedPage refuses up front when ensureCanRender fails, and leaves the page recoverable', async (t) => {
       const page = await pagesModel.createPage(
         fixtures.siteId,
         pageInput({ path: 'docs/recover-rerender-fails' }),
@@ -280,17 +363,28 @@ describe(
       )
       await pagesModel.deletePage(fixtures.siteId, page.id, actor)
 
-      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const { items: recoverable } = await pageHistoryModel.listRecoverable(fixtures.siteId)
       const entry = recoverable.find((row) => row.path === 'docs/recover-rerender-fails')
       assert.ok(entry)
 
-      // -> Must not reject or leave the page uncreated: queueRerender is best-effort, caught and
-      //    logged, not a hard dependency of a successful recovery.
-      const recovered = await pageHistoryModel.recoverDeletedPage(fixtures.siteId, entry!.id, actor)
-      assert.equal(recovered.path, 'docs/recover-rerender-fails')
+      // -> Applied only now, after the page to be recovered already exists -- `createPage()`'s own
+      //    up-front `ensureCanRender()` check (OpenProject #1716) must not also block seeding the
+      //    fixture above.
+      t.mock.method(WIKI.models.rendering, 'ensureCanRender', async () => {
+        throw new CustomError('renderPuppeteerMissing', 'Puppeteer is not installed.', 503)
+      })
 
-      const fetched = await pagesModel.getPage({ siteId: fixtures.siteId, id: recovered.id })
-      assert.ok(fetched)
+      // -> `createPage()` confirms `ensureCanRender()` *before* the write, and `recoverDeletedPage`
+      //    has nothing of its own left to catch that with (OpenProject #1723) -- a recovery nothing
+      //    here could ever render refuses outright rather than recreating a page that stays
+      //    permanently blank.
+      await assert.rejects(
+        () => pageHistoryModel.recoverDeletedPage(fixtures.siteId, entry!.id, actor),
+        /Puppeteer is not installed\./
+      )
+
+      const stillRecoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      assert.ok(stillRecoverable.items.some((row) => row.path === 'docs/recover-rerender-fails'))
     })
 
     test('recoverDeletedPage applies a path/locale override', async () => {
@@ -301,8 +395,8 @@ describe(
       )
       await pagesModel.deletePage(fixtures.siteId, page.id, actor)
 
-      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
-      const entry = recoverable.find((row) => row.path === 'docs/recover-with-override')
+      const { items } = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = items.find((row) => row.path === 'docs/recover-with-override')
       assert.ok(entry)
 
       const recovered = await pageHistoryModel.recoverDeletedPage(
@@ -426,7 +520,7 @@ describe(
       )
       await pagesModel.deletePage(fixtures.siteId, page.id, actor)
 
-      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const { items: recoverable } = await pageHistoryModel.listRecoverable(fixtures.siteId)
       const entry = recoverable.find((row) => row.path === 'docs/deleted-version-fields')
       assert.ok(entry)
 
@@ -451,10 +545,77 @@ describe(
         pageInput({ path: 'docs/still-alive' }),
         actor
       )
-      const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+      const { items: entries } = await pageHistoryModel.list(fixtures.siteId, page.id)
       // -> The only version so far is the `created` row, not a `deleted` one
       await assert.rejects(
         pageHistoryModel.recoverDeletedPage(fixtures.siteId, entries[0]!.id, actor)
+      )
+    })
+
+    test('list() paginates by cursor: stable, non-overlapping pages across a history longer than the default limit', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/long-history' }),
+        actor
+      )
+      // -> createPage's own `created` row is version 1; 59 more `updated` rows makes 60 total,
+      //    comfortably past the default 50-row page size
+      for (let i = 0; i < 59; i++) {
+        await pageHistoryModel.record({
+          siteId: fixtures.siteId,
+          pageId: page.id,
+          action: 'updated',
+          authorId: fixtures.userId,
+          changedFields: ['title']
+        })
+      }
+
+      const firstPage = await pageHistoryModel.list(fixtures.siteId, page.id, { limit: 50 })
+      assert.equal(firstPage.items.length, 50)
+      assert.ok(firstPage.nextCursor, 'a 60-row history at a 50-row page size has a next page')
+
+      const secondPage = await pageHistoryModel.list(fixtures.siteId, page.id, {
+        limit: 50,
+        cursor: firstPage.nextCursor
+      })
+      assert.equal(secondPage.items.length, 10)
+      assert.equal(secondPage.nextCursor, null, 'the last page has nothing after it')
+
+      // -> Non-overlapping: no id appears on both pages
+      const firstIds = new Set(firstPage.items.map((row) => row.id))
+      const overlap = secondPage.items.filter((row) => firstIds.has(row.id))
+      assert.deepEqual(overlap, [])
+
+      // -> Stable and newest-first across the boundary: every id from both pages together, in order,
+      //    equals a single unpaginated fetch at the full size
+      const whole = await pageHistoryModel.list(fixtures.siteId, page.id, { limit: 200 })
+      assert.deepEqual(
+        [...firstPage.items, ...secondPage.items].map((row) => row.id),
+        whole.items.map((row) => row.id)
+      )
+    })
+
+    test('list() never includes an author email in its projection', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/no-author-email' }),
+        actor
+      )
+      const { items } = await pageHistoryModel.list(fixtures.siteId, page.id)
+      assert.ok(items.length > 0)
+      for (const item of items) {
+        assert.equal('email' in item.author, false)
+      }
+    })
+
+    test('list() rejects a malformed cursor', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/bad-cursor' }),
+        actor
+      )
+      await assert.rejects(
+        pageHistoryModel.list(fixtures.siteId, page.id, { cursor: 'not-a-real-cursor' })
       )
     })
   }

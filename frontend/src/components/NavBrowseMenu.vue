@@ -21,7 +21,7 @@
               class="browse-menu-up acrylic-btn"
               flat
               dense
-              :disable="state.isLoading"
+              :disabled="state.isLoading"
               :aria-label="t(`common.browse.upOneLevel`)"
               @click="goUp">
               <w-icon name="la:arrow-up" size="xs" />
@@ -101,6 +101,7 @@ import { useI18n } from 'vue-i18n'
 
 import { notify } from '@/composables/notify'
 
+import { apiErrorMessage } from '@/helpers/apiError'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
 import { usePageStore } from '@/stores/page'
@@ -207,7 +208,7 @@ async function load(path) {
     notify({
       type: 'negative',
       message: t('common.browse.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
     return false
   } finally {

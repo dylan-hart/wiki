@@ -83,7 +83,6 @@ const FIXTURE_SITE = {
   features: {
     browse: true,
     comments: true,
-    ratingsMode: 'stars',
     profile: true,
     reasonForChange: 'optional',
     search: true,
@@ -295,7 +294,6 @@ describe('AdminGeneral save() field round-trip', () => {
       features: {
         browse: true,
         comments: true,
-        ratingsMode: 'stars',
         profile: true,
         reasonForChange: 'optional',
         search: true,
@@ -392,7 +390,6 @@ function siteResponse(hostname) {
     features: {
       browse: false,
       comments: false,
-      ratingsMode: 'off',
       profile: false,
       reasonForChange: 'required',
       search: false
@@ -403,7 +400,7 @@ function siteResponse(hostname) {
 }
 
 async function setHostnameAndSave(wrapper, newHostname) {
-  const input = wrapper.get('[aria-label="Site Hostname"] input')
+  const input = wrapper.get('[aria-label="Site Hostname"]')
   await input.setValue(newHostname)
   const applyButton = wrapper.findAll('button').find((btn) => btn.text() === 'Apply')
   await applyButton.trigger('click')

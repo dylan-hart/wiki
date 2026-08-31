@@ -2,10 +2,9 @@
   <w-page class="admin-flags">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-windsock-animated.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-windsock-animated.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.flags.title') }}</h1>
@@ -14,16 +13,6 @@
         </div>
       </div>
       <div class="flex-none">
-        <w-btn
-          class="mr-2 acrylic-btn"
-          icon="la:question-circle"
-          flat
-          color="grey"
-          :aria-label="t(`common.actions.viewDocs`)"
-          :href="siteStore.docsBase + `/admin/flags`"
-          target="_blank">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
-        </w-btn>
         <w-btn
           class="mr-2 acrylic-btn"
           icon="la:redo-alt"
@@ -149,7 +138,6 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 
-import { useSiteStore } from '@/stores/site'
 import { useFlagsStore } from '@/stores/flags'
 
 import { omit } from 'es-toolkit/object'
@@ -158,7 +146,6 @@ import { apiErrorMessage } from '@/helpers/apiError'
 // STORES
 
 const flagsStore = useFlagsStore()
-const siteStore = useSiteStore()
 
 // I18N
 
@@ -208,19 +195,15 @@ async function save() {
 
   state.loading++
   try {
-    const resp = await API_CLIENT.put('system/flags', {
+    await API_CLIENT.put('system/flags', {
       json: state.flags
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
     notify({
       type: 'positive',
       message: t('admin.flags.saveSuccess')
     })
     await load()
   } catch (err) {
-    // -> ky doesn't throw on 400, so the API's own message is on the response
     notify({
       type: 'negative',
       message: t('admin.flags.saveFailed'),

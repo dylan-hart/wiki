@@ -294,7 +294,7 @@ async function loadGroups() {
     notify({
       type: 'negative',
       message: t('admin.users.groupsLoadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loadingGroups = false
@@ -347,7 +347,12 @@ async function create() {
     //    ever reached, so the reason the API gave lives in the response body, not `err.message`.
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      // -> A refused create carries a server error code in `err.data.error`, which some codes have
+      //    a nicer translation for; a client-side validation failure above is a plain Error with no
+      //    `.data`, and its own message is already the text to show.
+      message: err.data
+        ? t(`admin.users.${err.data.error}`, apiErrorMessage(err, t('common.error.unexpected')))
+        : err.message
     })
   }
   state.loading--

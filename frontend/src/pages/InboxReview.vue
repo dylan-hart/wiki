@@ -171,12 +171,14 @@ import { MarkdownRenderer } from '@/renderers/markdown'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
-import { confirm } from '@/composables/dialog'
+import { confirm, dialog } from '@/composables/dialog'
 
 import { useEditorStore } from '@/stores/editor'
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate } from '@/helpers/datetime'
+
+import InboxDeclineDialog from '@/components/InboxDeclineDialog.vue'
 
 // COMPOSABLES
 
@@ -453,9 +455,6 @@ function approveSubmission() {
         `sites/${siteStore.id}/approvals/submissions/${state.selected.id}/approve`,
         { json: { content, render: renderReviewed(content) } }
       ).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
       // -> `finalized` is false the moment a rule asks for more than one sign-off and this reviewer
       //    is not the last one in: the page was not written, so leaving with the ordinary "applied"
       //    toast would be a straightforward lie. `finalized` defaults true for a server predating this
@@ -518,21 +517,15 @@ function approveSubmission() {
 }
 
 function rejectSubmission() {
-  confirm({
-    title: t('inbox.reviewDecline'),
-    message: t('inbox.reviewDeclineConfirm'),
-    cancel: true,
-    color: 'negative',
-    okLabel: t('inbox.reviewDecline')
-  }).onOk(async () => {
+  dialog({ component: InboxDeclineDialog }).onOk(async ({ reason } = {}) => {
     state.loading++
     try {
       const resp = await API_CLIENT.post(
-        `sites/${siteStore.id}/approvals/submissions/${state.selected.id}/reject`
+        `sites/${siteStore.id}/approvals/submissions/${state.selected.id}/reject`,
+        // -> The reject route's `reason` body field is optional and typed as a plain string, not
+        //    nullable, so a blank reason is left out of the body entirely rather than sent as `null`.
+        reason ? { json: { reason } } : undefined
       ).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
       notify({
         type: 'positive',
         message: t('inbox.reviewDeclineSuccess')

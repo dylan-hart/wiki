@@ -14,11 +14,11 @@ import { queue as notifyQueue } from '@/composables/notify'
  *
  * The recover endpoint (task 512) can answer three ways, and `AdminPagesDeleted.vue` has to tell
  * them apart rather than funnel every non-success into one dead-ending error toast:
- *   - a `pageDuplicatePath` conflict comes back as an HTTP 409, which ky's client throws for;
- *   - a `pageInvalidLocale` refusal comes back as an HTTP 400, which — per `boot/api.js`'s
- *     `throwHttpErrors: (status) => status > 400` — does NOT throw, so it has to be read off the
- *     resolved body's `ok: false` instead.
- * Both must reopen a picker rather than just reporting failure.
+ *   - a `pageDuplicatePath` conflict comes back as an HTTP 409;
+ *   - a `pageInvalidLocale` refusal comes back as an HTTP 400.
+ * ky throws for both — `catch (err)` tells them apart by `err.response?.status` for the 409 case
+ * and `err.data?.error` for the 400 case, reading the parsed body off `err.data` the same way
+ * `apiErrorMessage()` does. Both must reopen a picker rather than just reporting failure.
  */
 
 const row = {
@@ -35,7 +35,10 @@ const row = {
 function mockLoadEndpoints(rows = [row]) {
   globalThis.API_CLIENT.get.mockImplementation((url) => {
     if (String(url).includes('pages/deleted')) {
-      return { json: () => Promise.resolve(rows) }
+      // -> One page, already exhausted -- `fetchAllRecoverable`'s cursor loop stops as soon as
+      //    `nextCursor` is null, so a single-page mock is enough for tests that don't care about
+      //    pagination itself.
+      return { json: () => Promise.resolve({ items: rows, nextCursor: null }) }
     }
     // -> The site lookup `load()` makes alongside the row list, for its currently active locales
     return { json: () => Promise.resolve({ locales: { active: ['en', 'fr'] } }) }
@@ -80,6 +83,44 @@ async function clickRecover(wrapper) {
 beforeEach(() => {
   openDialogs.splice(0, openDialogs.length)
   notifyQueue.splice(0, notifyQueue.length)
+})
+
+describe('AdminPagesDeleted: load()', () => {
+  it('pages through the cursor until nextCursor is null, assembling the full list', async () => {
+    const rowA = { ...row, id: 'hist-a', path: 'a' }
+    const rowB = { ...row, id: 'hist-b', path: 'b' }
+    const seenUrls = []
+
+    setActivePinia(createPinia())
+    const adminStore = useAdminStore()
+    adminStore.currentSiteId = 'site-1'
+
+    globalThis.API_CLIENT.get.mockImplementation((url) => {
+      seenUrls.push(String(url))
+      if (String(url).includes('pages/deleted')) {
+        if (!String(url).includes('cursor=')) {
+          return { json: () => Promise.resolve({ items: [rowA], nextCursor: 'page-2' }) }
+        }
+        return { json: () => Promise.resolve({ items: [rowB], nextCursor: null }) }
+      }
+      return { json: () => Promise.resolve({ locales: { active: ['en'] } }) }
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
+    })
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const wrapper = mount(AdminPagesDeleted, { global: { plugins: [router, i18n] } })
+    await flushPromises()
+
+    // -> Both server pages' rows landed in the same list, and the second request carried the first
+    //    page's own `nextCursor` forward
+    expect(wrapper.vm.state.rows.map((r) => r.id)).toEqual(['hist-a', 'hist-b'])
+    expect(seenUrls.some((u) => u.includes('pages/deleted') && u.includes('cursor=page-2'))).toBe(
+      true
+    )
+  })
 })
 
 describe('AdminPagesDeleted: recover()', () => {
@@ -136,15 +177,19 @@ describe('AdminPagesDeleted: recover()', () => {
 
   it('on a 400 pageInvalidLocale refusal, offers the active locales instead of dead-ending', async () => {
     const { wrapper } = await mountPage()
-    // -> `throwHttpErrors` does not throw for exactly 400, so this resolves rather than rejecting
     globalThis.API_CLIENT.post.mockReturnValueOnce({
       json: () =>
-        Promise.resolve({
-          ok: false,
-          error: 'pageInvalidLocale',
-          statusCode: 400,
-          message: 'This site does not have the "en" locale enabled.'
-        })
+        Promise.reject(
+          Object.assign(new Error('Bad Request'), {
+            response: { status: 400 },
+            data: {
+              ok: false,
+              error: 'pageInvalidLocale',
+              statusCode: 400,
+              message: 'This site does not have the "en" locale enabled.'
+            }
+          })
+        )
     })
 
     await clickRecover(wrapper)
@@ -159,7 +204,12 @@ describe('AdminPagesDeleted: recover()', () => {
     const { wrapper, router } = await mountPage()
     globalThis.API_CLIENT.post.mockReturnValueOnce({
       json: () =>
-        Promise.resolve({ ok: false, error: 'pageInvalidLocale', statusCode: 400, message: 'x' })
+        Promise.reject(
+          Object.assign(new Error('Bad Request'), {
+            response: { status: 400 },
+            data: { ok: false, error: 'pageInvalidLocale', statusCode: 400, message: 'x' }
+          })
+        )
     })
     await clickRecover(wrapper)
 

@@ -112,6 +112,34 @@ class Pageviews {
    * the whole of the admin opt-out's mechanism -- turning tracking off stops the write, it does not
    * merely hide what already got written.
    */
+  /**
+   * Rotate `pageviews.hashKey` so historical `visitorHash` rows can no longer be re-linked to
+   * whatever the same raw visitor id (session id / API key id) hashes to from here on. Modelled on
+   * `models/sessions.ts#rotateSecret()`: swap the key, persist it, and restore the previous value if
+   * the save fails -- but with no cascading side effect of its own, unlike that method's session
+   * wipe, since nothing else keys off `pageviews.hashKey`.
+   *
+   * Deliberately does not touch a single existing `pageviews` row. Breaking correlation with
+   * pre-rotation rows is the entire point of a rotation, not a regression to migrate around -- per
+   * CLAUDE.md's no-legacy-fallback policy, old rows simply stop hashing the same way new ones do.
+   *
+   * @returns true if the key was rotated and persisted, or false if the settings failed to save --
+   *   in which case the previous key is restored so pageviews recorded around the failed attempt
+   *   keep hashing consistently under the key that is actually still in effect.
+   */
+  async rotateHashKey(): Promise<boolean> {
+    const previousConfig = WIKI.config.pageviews
+    WIKI.config.pageviews = { ...previousConfig, hashKey: crypto.randomBytes(32).toString('hex') }
+    // -> Propagates as `reloadConfig`, so every other instance is holding the new key immediately.
+    if (!(await WIKI.configSvc.saveToDb(['pageviews']))) {
+      WIKI.config.pageviews = previousConfig
+      return false
+    }
+
+    WIKI.logger.info('Rotated the pageview hash key [ OK ]')
+    return true
+  }
+
   async record(params: RecordPageviewParams): Promise<void> {
     if (WIKI.config.pageviews?.isEnabled !== true) {
       return

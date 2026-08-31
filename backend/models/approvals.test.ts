@@ -1,4 +1,4 @@
-import { after, before, describe, mock, test } from 'node:test'
+import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
@@ -12,6 +12,7 @@ import {
 import type { PageActor } from './pages.ts'
 import type { ApprovalPageRef } from './approvals.ts'
 import type { GroupRule, AccessActor } from './groups.ts'
+import { mail } from './mail.ts'
 
 /**
  * `approveSubmission` writes to the page and closes the suggestion out -- almost entirely SQL
@@ -836,7 +837,7 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
 
     const history = await pageHistoryModel.list(fixtures.siteId, page.id)
     assert.equal(
-      history.filter((entry) => entry.action === 'updated').length,
+      history.items.filter((entry) => entry.action === 'updated').length,
       1,
       'the page should carry exactly one "updated" history version'
     )
@@ -951,7 +952,7 @@ describe('approvals concurrent finalisation (DB-backed)', { skip: !hasTestDataba
     assert.equal(finalPage!.content, 'Suggested content')
 
     const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
-    const updated = entries.filter((e) => e.action === 'updated')
+    const updated = entries.items.filter((e) => e.action === 'updated')
     assert.equal(updated.length, 1, 'exactly one updated history version, not two')
 
     // -> Closed out: gone from the queue, not left behind for either racer to find again
@@ -1201,6 +1202,354 @@ describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase
     send.mock.restore()
   })
 })
+
+/**
+ * OpenProject #2134: the submission author is told the outcome on approve and decline, through the
+ * same `notifyPageWatchers` job path a logged-in author's watch preference would otherwise route an
+ * ordinary page-edit notice through, addressed directly at them (`skipIfWatching` is what stops
+ * approve from ALSO sending the generic "page updated" notice `updatePage()` queues for a watcher). A
+ * guest author has no account to address that job at, so their notification goes straight through
+ * `models/mail.ts` to the stored `guestEmail` instead.
+ */
+describe(
+  'approvals submission author notification (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let pagesModel: typeof import('./pages.ts').pages
+    let approvalsModel: typeof import('./approvals.ts').approvals
+    let actor: PageActor
+    let authorId: string
+    let reviewerBId: string
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ pages: pagesModel } = await import('./pages.ts'))
+      ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+      actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+
+      const [author] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'notify-author@example.com',
+          name: 'Notify Author',
+          isActive: true,
+          isVerified: true
+        })
+        .returning({ id: usersTable.id })
+      authorId = author!.id
+
+      const [reviewerB] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'notify-reviewer-b@example.com',
+          name: 'Notify Reviewer B',
+          isActive: true,
+          isVerified: true
+        })
+        .returning({ id: usersTable.id })
+      reviewerBId = reviewerB!.id
+
+      await approvalsModel.createRule(fixtures.siteId, {
+        name: 'notify covers everything',
+        isEnabled: true,
+        match: 'START',
+        path: '',
+        submitterGroups: [],
+        reviewerGroups: []
+      })
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    const originalSendPageWatchNotification = mail.sendPageWatchNotification.bind(mail)
+
+    beforeEach(() => {
+      // -> A stub installed by one test must not leak into the next.
+      mail.sendPageWatchNotification = originalSendPageWatchNotification
+      ;(WIKI.scheduler.addJob as unknown as { mock: { resetCalls: () => void } }).mock.resetCalls()
+    })
+
+    function pageRef(page: { id: string; path: string }): ApprovalPageRef {
+      return {
+        id: page.id,
+        path: page.path,
+        locale: 'en',
+        tags: [],
+        allowContributions: true,
+        classification: null
+      }
+    }
+
+    /** Every `notifyPageWatchers` job queued since the last reset, decoded from the stub scheduler. */
+    function queuedNotifyJobs(): { task: string; payload: any }[] {
+      const addJob = WIKI.scheduler.addJob as unknown as {
+        mock: { calls: { arguments: [{ task: string; payload: any }] }[] }
+      }
+      return addJob.mock.calls
+        .map((call) => call.arguments[0])
+        .filter((call) => call.task === 'notifyPageWatchers')
+    }
+
+    test('a finalizing approve queues a suggestApproved notification addressed to the author', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'notify-author/approve',
+          title: 'Approve Me',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        actor
+      )
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Suggested',
+        authorId
+      })
+
+      const result = await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested',
+        render: '<p>Suggested</p>',
+        actor
+      })
+      assert.equal(result.ok, true)
+      assert.equal((result as any).finalized, true)
+
+      const jobs = queuedNotifyJobs().filter((job) => job.payload.action === 'suggestApproved')
+      assert.equal(jobs.length, 1)
+      assert.deepEqual(jobs[0]!.payload.watchers, [{ userId: authorId, notifyMode: 'immediate' }])
+      assert.equal(jobs[0]!.payload.pageId, page.id)
+      assert.equal(jobs[0]!.payload.actorId, actor.id)
+    })
+
+    test('an approve does not double-notify an author who already watches the page', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'notify-author/approve-watching',
+          title: 'Approve Watching',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        actor
+      )
+      await WIKI.models.pageWatching.watch({
+        siteId: fixtures.siteId,
+        pageId: page.id,
+        userId: authorId
+      })
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Suggested',
+        authorId
+      })
+
+      await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested',
+        render: '<p>Suggested</p>',
+        actor
+      })
+
+      // -> `updatePage()`'s own generic notice still queues (action: 'updated') -- only the
+      //    submission-specific one must be skipped
+      const suggestJobs = queuedNotifyJobs().filter(
+        (job) => job.payload.action === 'suggestApproved'
+      )
+      assert.equal(suggestJobs.length, 0)
+      const updatedJobs = queuedNotifyJobs().filter((job) => job.payload.action === 'updated')
+      assert.equal(updatedJobs.length, 1)
+      assert.deepEqual(updatedJobs[0]!.payload.watchers, [
+        { userId: authorId, notifyMode: 'digest' }
+      ])
+    })
+
+    test('a decline always queues a suggestDeclined notification, even for an author who watches the page', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'notify-author/decline-watching',
+          title: 'Decline Watching',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        actor
+      )
+      await WIKI.models.pageWatching.watch({
+        siteId: fixtures.siteId,
+        pageId: page.id,
+        userId: authorId
+      })
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Suggested',
+        authorId
+      })
+
+      const declined = await approvalsModel.rejectSubmission(
+        fixtures.siteId,
+        submission.id,
+        null,
+        actor.id
+      )
+      assert.equal(declined, true)
+
+      const jobs = queuedNotifyJobs().filter((job) => job.payload.action === 'suggestDeclined')
+      assert.equal(jobs.length, 1)
+      assert.deepEqual(jobs[0]!.payload.watchers, [{ userId: authorId, notifyMode: 'immediate' }])
+    })
+
+    test('a partial approve, short of the threshold, does not notify the author yet', async () => {
+      await approvalsModel.createRule(fixtures.siteId, {
+        name: 'notify threshold two',
+        isEnabled: true,
+        match: 'START',
+        path: 'notify-author/partial',
+        submitterGroups: [],
+        reviewerGroups: [],
+        minApprovals: 2
+      })
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'notify-author/partial/page',
+          title: 'Partial',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        actor
+      )
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Suggested',
+        authorId
+      })
+
+      const firstApprove = await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested',
+        render: '<p>Suggested</p>',
+        actor
+      })
+      assert.equal((firstApprove as any).finalized, false)
+      assert.equal(
+        queuedNotifyJobs().filter((job) => job.payload.action === 'suggestApproved').length,
+        0,
+        'no notification yet -- the threshold has not been reached'
+      )
+
+      const secondApprove = await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested',
+        render: '<p>Suggested</p>',
+        actor: { id: reviewerBId, permissions: ['manage:system'], groupIds: [] }
+      })
+      assert.equal((secondApprove as any).finalized, true)
+      assert.equal(
+        queuedNotifyJobs().filter((job) => job.payload.action === 'suggestApproved').length,
+        1,
+        'the finalizing approve notifies'
+      )
+    })
+
+    test('an approve notifies a guest author directly by mail, not through the scheduler', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'notify-author/guest-approve',
+          title: 'Guest Approve',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        actor
+      )
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Suggested',
+        authorId: null,
+        guestName: 'A Guest',
+        guestEmail: 'guest-approve@example.com'
+      })
+
+      const send = mock.method(mail, 'sendPageWatchNotification', async () => {})
+
+      await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested',
+        render: '<p>Suggested</p>',
+        actor
+      })
+
+      assert.equal(send.mock.callCount(), 1)
+      const [args] = send.mock.calls[0]!.arguments as [any]
+      assert.equal(args.to, 'guest-approve@example.com')
+      assert.equal(args.action, 'suggestApproved')
+      assert.equal(
+        queuedNotifyJobs().filter((job) => job.payload.action === 'suggestApproved').length,
+        0,
+        'a guest has no account for the job to address'
+      )
+      send.mock.restore()
+    })
+
+    test('a decline notifies a guest author directly by mail, not through the scheduler', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'notify-author/guest-decline',
+          title: 'Guest Decline',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        actor
+      )
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Suggested',
+        authorId: null,
+        guestName: 'A Guest',
+        guestEmail: 'guest-decline@example.com'
+      })
+
+      const send = mock.method(mail, 'sendPageWatchNotification', async () => {})
+
+      const declined = await approvalsModel.rejectSubmission(
+        fixtures.siteId,
+        submission.id,
+        null,
+        actor.id
+      )
+      assert.equal(declined, true)
+
+      assert.equal(send.mock.callCount(), 1)
+      const [args] = send.mock.calls[0]!.arguments as [any]
+      assert.equal(args.to, 'guest-decline@example.com')
+      assert.equal(args.action, 'suggestDeclined')
+      send.mock.restore()
+    })
+  }
+)
 
 /**
  * `findSubmitRule`'s additive contract: when several enabled rules all let the same groups suggest
@@ -1613,6 +1962,75 @@ describe(
       })
       assert.match(updated!.render, /<script/)
       assert.match(updated!.render, /onclick/)
+    })
+  }
+)
+
+/**
+ * `status`/`resolvedReason`/`resolvedBy` (OpenProject #2125): a freshly-inserted submission is
+ * `open` with no resolution recorded yet, before any reviewer has acted on it. Approve/reject
+ * actually setting these on resolution is sibling work (#2129) -- this only locks down what the
+ * migrated schema itself hands back on insert.
+ */
+describe(
+  'approvals submission resolution columns (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let pagesModel: typeof import('./pages.ts').pages
+    let approvalsModel: typeof import('./approvals.ts').approvals
+    let actor: PageActor
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ pages: pagesModel } = await import('./pages.ts'))
+      ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+      actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test('a new submission defaults to status open with no resolvedReason or resolvedBy', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'approvals/resolution-columns',
+          title: 'Resolution Columns',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        actor
+      )
+
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: {
+          id: page.id,
+          path: page.path,
+          locale: 'en',
+          tags: [],
+          allowContributions: true,
+          classification: null
+        },
+        baseContent: 'Original',
+        content: 'Suggested edit',
+        authorId: fixtures.userId
+      })
+
+      const rows = await WIKI.db
+        .select({
+          status: submissionsTable.status,
+          resolvedReason: submissionsTable.resolvedReason,
+          resolvedBy: submissionsTable.resolvedBy
+        })
+        .from(submissionsTable)
+        .where(eq(submissionsTable.id, submission.id))
+      assert.equal(rows.length, 1)
+      assert.equal(rows[0]!.status, 'open')
+      assert.equal(rows[0]!.resolvedReason, null)
+      assert.equal(rows[0]!.resolvedBy, null)
     })
   }
 )
@@ -2278,5 +2696,341 @@ describe('approvals retain resolved submissions (DB-backed)', { skip: !hasTestDa
 
     const secondRow = await rowFor(second.id)
     assert.equal(secondRow!.status, 'open')
+  })
+
+  /*
+    OpenProject #2137: the return leg -- what `getResolvedSubmission`/`pageViewerState` hand back once
+    a reviewer has acted, since `hasOpenSuggestion` alone only ever says a suggestion is gone, never
+    what happened to it.
+  */
+
+  test('getResolvedSubmission: null while nothing of this author’s has been resolved yet', async () => {
+    const page = await makePage('approvals/resolved/none-yet', 'Original content')
+    await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    assert.equal(await approvalsModel.getResolvedSubmission(page.id, fixtures.userId), null)
+  })
+
+  test('getResolvedSubmission: a declined row carries its status and reason', async () => {
+    const page = await makePage('approvals/resolved/declined', 'Original content')
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+    await approvalsModel.rejectSubmission(
+      fixtures.siteId,
+      submission.id,
+      'Overlaps with an existing section',
+      actor.id
+    )
+
+    const resolved = await approvalsModel.getResolvedSubmission(page.id, fixtures.userId)
+    assert.ok(resolved)
+    assert.equal(resolved!.status, 'declined')
+    assert.equal(resolved!.reason, 'Overlaps with an existing section')
+  })
+
+  test('getResolvedSubmission: an approved row carries its status with a null reason', async () => {
+    const page = await makePage('approvals/resolved/approved', 'Original content')
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+    await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Suggested content',
+      render: '<p>Suggested content</p>',
+      actor
+    })
+
+    const resolved = await approvalsModel.getResolvedSubmission(page.id, fixtures.userId)
+    assert.ok(resolved)
+    assert.equal(resolved!.status, 'approved')
+    assert.equal(resolved!.reason, null)
+  })
+
+  test('getResolvedSubmission: null for a guest, who has no account to look one up by', async () => {
+    const page = await makePage('approvals/resolved/guest', 'Original content')
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: null,
+      guestName: 'A Reader',
+      guestEmail: 'reader@example.com'
+    })
+    await approvalsModel.rejectSubmission(fixtures.siteId, submission.id, 'Not needed', actor.id)
+
+    assert.equal(await approvalsModel.getResolvedSubmission(page.id, null), null)
+  })
+
+  test('pageViewerState surfaces resolvedSubmission for the author of a declined suggestion', async () => {
+    const page = await makePage('approvals/resolved/viewer-state', 'Original content')
+    // -> The describe block's own rule (`before()` above) has `submitterGroups: []`, which
+    //    `findSubmitRule` never matches -- a rule that actually names this actor's group as a
+    //    submitter is what makes `pageViewerState` look up `resolvedSubmission` at all (same gate as
+    //    `hasOpenSuggestion`), scoped to this test's own page so the site-wide rule above is untouched.
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'submitter rule for viewer-state test',
+      isEnabled: true,
+      match: 'START',
+      path: 'approvals/resolved/viewer-state',
+      submitterGroups: [fixtures.groupId],
+      reviewerGroups: [fixtures.groupId]
+    })
+
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+    await approvalsModel.rejectSubmission(
+      fixtures.siteId,
+      submission.id,
+      'Try again later',
+      actor.id
+    )
+
+    const req = {
+      session: {
+        authenticated: true,
+        user: { id: fixtures.userId },
+        groups: [fixtures.groupId],
+        permissions: []
+      }
+    }
+    const state = await approvalsModel.pageViewerState(req, fixtures.siteId, pageRef(page))
+    assert.equal(state.hasOpenSuggestion, false)
+    assert.ok(state.resolvedSubmission)
+    assert.equal(state.resolvedSubmission!.status, 'declined')
+    assert.equal(state.resolvedSubmission!.reason, 'Try again later')
+  })
+})
+
+/**
+ * OpenProject #1932: `saveSubmission`/`approveSubmission`/`rejectSubmission` each now fire an
+ * `approval:*` webhook event beside their primary write, the same convention `models/pages.ts` uses
+ * for `page:*`. `WIKI.models.hooks.emit` is replaced with a `mock.fn()` after `setupTestDb()` installs
+ * the real models, so every call this suite makes is captured directly rather than inferred from a
+ * queued job -- `Hooks.emit()`'s own SQL/queuing behaviour is already covered by `Hooks.emit (unit)`
+ * above and does not need re-proving here.
+ */
+describe('approvals webhook events (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let pagesModel: typeof import('./pages.ts').pages
+  let approvalsModel: typeof import('./approvals.ts').approvals
+  let actor: PageActor
+  let emit: ReturnType<typeof mock.fn>
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'covers everything',
+      isEnabled: true,
+      match: 'START',
+      path: '',
+      submitterGroups: [],
+      reviewerGroups: []
+    })
+  })
+
+  beforeEach(() => {
+    emit = mock.fn(async () => 0)
+    ;(WIKI.models as any).hooks = { ...WIKI.models.hooks, emit }
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  function pageRef(page: { id: string; path: string }): ApprovalPageRef {
+    return {
+      id: page.id,
+      path: page.path,
+      locale: 'en',
+      tags: [],
+      allowContributions: true,
+      classification: null
+    }
+  }
+
+  test('saveSubmission fires approval:submitted exactly once, with the page and actor', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'approvals/webhook-submit', title: 'x', editor: 'markdown', content: 'Original' },
+      actor
+    )
+
+    // -> Reset AFTER creating the page, not before: `createPage` fires its own real
+    //    `page:create` through this same mocked `emit`, and that call is not what this test
+    //    is about.
+    emit.mock.resetCalls()
+
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'Suggested',
+      authorId: fixtures.userId
+    })
+
+    assert.equal(emit.mock.calls.length, 1)
+    const [event, siteId, data] = emit.mock.calls[0]!.arguments
+    assert.equal(event, 'approval:submitted')
+    assert.equal(siteId, fixtures.siteId)
+    assert.deepEqual(data, {
+      id: submission.id,
+      pageId: page.id,
+      path: page.path,
+      siteId: fixtures.siteId,
+      authorId: fixtures.userId
+    })
+  })
+
+  test('saveSubmission does not re-fire on a resubmission that replaces the same open submission', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'approvals/webhook-resubmit', title: 'x', editor: 'markdown', content: 'Original' },
+      actor
+    )
+    await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'First suggestion',
+      authorId: fixtures.userId
+    })
+    emit.mock.resetCalls()
+
+    await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'Revised suggestion',
+      authorId: fixtures.userId
+    })
+
+    assert.equal(emit.mock.calls.length, 0)
+  })
+
+  test('approveSubmission fires approval:approved exactly once, with the page and actor', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'approvals/webhook-approve', title: 'x', editor: 'markdown', content: 'Original' },
+      actor
+    )
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'Suggested',
+      authorId: fixtures.userId
+    })
+    emit.mock.resetCalls()
+
+    const result = await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Suggested',
+      render: '<p>Suggested</p>',
+      actor
+    })
+    assert.equal(result.ok, true)
+
+    // -> Filtered to `approval:approved` specifically, not a raw call count: a finalizing approve
+    //    also writes the page through `pages.updatePage`, which fires its own real `page:edit`
+    //    through this same mocked `emit` -- exactly-once is about THIS event, not every hook call
+    //    the write path happens to make.
+    const approvedCalls = emit.mock.calls.filter((c) => c.arguments[0] === 'approval:approved')
+    assert.equal(approvedCalls.length, 1)
+    const [event, siteId, data] = approvedCalls[0]!.arguments
+    assert.equal(event, 'approval:approved')
+    assert.equal(siteId, fixtures.siteId)
+    assert.deepEqual(data, {
+      id: submission.id,
+      pageId: page.id,
+      path: page.path,
+      siteId: fixtures.siteId,
+      authorId: fixtures.userId
+    })
+  })
+
+  test('approveSubmission does not fire for a submission that does not exist', async () => {
+    const result = await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: '00000000-0000-0000-0000-000000000000',
+      content: 'x',
+      render: '<p>x</p>',
+      actor
+    })
+    assert.deepEqual(result, { ok: false, reason: 'not-found' })
+    assert.equal(emit.mock.calls.length, 0)
+  })
+
+  test('rejectSubmission fires approval:rejected exactly once, with the page and actor', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'approvals/webhook-reject', title: 'x', editor: 'markdown', content: 'Original' },
+      actor
+    )
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'Suggested',
+      authorId: fixtures.userId
+    })
+    emit.mock.resetCalls()
+
+    const declined = await approvalsModel.rejectSubmission(
+      fixtures.siteId,
+      submission.id,
+      null,
+      actor.id
+    )
+    assert.equal(declined, true)
+
+    assert.equal(emit.mock.calls.length, 1)
+    const [event, siteId, data] = emit.mock.calls[0]!.arguments
+    assert.equal(event, 'approval:rejected')
+    assert.equal(siteId, fixtures.siteId)
+    assert.deepEqual(data, {
+      id: submission.id,
+      pageId: page.id,
+      path: page.path,
+      siteId: fixtures.siteId,
+      authorId: fixtures.userId
+    })
+  })
+
+  test('rejectSubmission does not fire for a submission that does not exist', async () => {
+    const declined = await approvalsModel.rejectSubmission(
+      fixtures.siteId,
+      '00000000-0000-0000-0000-000000000000',
+      null,
+      actor.id
+    )
+    assert.equal(declined, false)
+    assert.equal(emit.mock.calls.length, 0)
   })
 })

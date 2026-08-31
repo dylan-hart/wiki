@@ -2,10 +2,9 @@
   <w-page class="admin-auth">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-security-lock.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-security-lock.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.auth.title') }}</h1>
@@ -187,7 +186,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.strategy.isEnabled"
-                :disable="isBuiltInLocal"
+                :disabled="isBuiltInLocal"
                 :aria-label="t(`admin.auth.enabled`)" />
             </w-item-section>
           </w-item>
@@ -289,6 +288,7 @@
                     <w-item v-bind="itemProps">
                       <w-item-section side>
                         <w-checkbox
+                          dense
                           :model-value="selected"
                           @update:model-value="toggleOption(opt)" />
                       </w-item-section>
@@ -345,7 +345,7 @@
                   }}</w-item-label>
                 </w-item-section>
                 <w-item-section avatar>
-                  <w-toggle v-model="cfg.value" :aria-label="cfg.title" :disable="cfg.readOnly" />
+                  <w-toggle v-model="cfg.value" :aria-label="cfg.title" :disabled="cfg.readOnly" />
                 </w-item-section>
               </w-item>
               <w-item v-else>
@@ -368,7 +368,7 @@
                     toggle-color="primary"
                     :aria-label="cfg.title"
                     :options="cfg.enum"
-                    :disable="cfg.readOnly" />
+                    :disabled="cfg.readOnly" />
                   <w-select
                     v-else-if="cfg.enum"
                     outlined
@@ -379,7 +379,7 @@
                     dense
                     options-dense
                     :aria-label="cfg.title"
-                    :disable="cfg.readOnly" />
+                    :disabled="cfg.readOnly" />
                   <w-input
                     v-else
                     outlined
@@ -387,7 +387,7 @@
                     dense
                     :type="inputTypeFor(cfg)"
                     :aria-label="cfg.title"
-                    :disable="cfg.readOnly" />
+                    :disabled="cfg.readOnly" />
                 </w-item-section>
               </w-item>
             </template>
@@ -444,7 +444,6 @@
                     <w-item v-bind="itemProps">
                       <w-item-section side>
                         <w-checkbox
-                          size="sm"
                           :model-value="selected"
                           @update:model-value="toggleOption(opt)" />
                       </w-item-section>
@@ -523,7 +522,7 @@
             icon="la:trash"
             flat
             color="negative"
-            :disable="isBuiltInLocal"
+            :disabled="isBuiltInLocal"
             :label="t(`admin.auth.deleteStrategy`)"
             @click="confirmDelete">
             <w-tooltip v-if="isBuiltInLocal">{{ t('admin.auth.deleteLocalForbidden') }}</w-tooltip>
@@ -783,9 +782,6 @@ async function save() {
         : await API_CLIENT.put(`authentication/strategies/${str.id}`, {
             json: payloadFor(str)
           }).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
       if (str.isNew && resp.id) {
         // -> So that the reload lands back on the strategy that was just created
         state.selectedStrategy = resp.id
@@ -872,10 +868,7 @@ function confirmDelete() {
   }).onOk(async () => {
     state.loading++
     try {
-      const resp = await API_CLIENT.delete(`authentication/strategies/${strategy.id}`)
-      if (!resp?.ok) {
-        throw new Error((await resp.json())?.message || t('common.error.unexpected'))
-      }
+      await API_CLIENT.delete(`authentication/strategies/${strategy.id}`)
       notify({
         type: 'positive',
         message: t('admin.auth.deleteSuccess', { strategy: strategy.displayName })

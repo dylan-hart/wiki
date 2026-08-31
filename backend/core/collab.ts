@@ -305,7 +305,7 @@ export default {
     //    on a dropped connection it re-connects and re-LISTENs on its own, rather than throwing on
     //    an unhandled 'error' and taking the process down with it.
     this.listenerHandle = await connectListener({
-      pool: WIKI.dbManager.pool!,
+      pool: WIKI.dbManager.listenerPool!,
       applicationName: `Wiki.js - ${WIKI.INSTANCE_ID}:COLLAB`,
       channels: [NOTIFY_CHANNEL],
       label: 'collaboration relay',

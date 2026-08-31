@@ -1,0 +1,1 @@
+CREATE INDEX "tree_folderpath_filename_gist_idx" ON "tree" USING gist (("folderPath" || "fileName"));

@@ -2,10 +2,9 @@
   <w-page class="admin-dashboard">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-apps-tab-animated.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-apps-tab-animated.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.dashboard.title') }}</h1>
@@ -51,9 +50,9 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:plus-circle"
+              icon="la:plus"
               :label="t(`common.actions.new`)"
-              :disable="!userStore.can(`manage:sites`)"
+              :disabled="!userStore.can(`manage:sites`)"
               @click="newSite" />
             <w-separator vertical />
             <w-btn
@@ -61,7 +60,7 @@
               :color="actionColor"
               icon="la:sitemap"
               :label="t(`common.actions.manage`)"
-              :disable="!userStore.can(`manage:sites`)"
+              :disabled="!userStore.can(`manage:sites`)"
               to="/_admin/sites" />
           </w-card-actions>
         </w-card>
@@ -80,9 +79,9 @@
             <w-btn
               flat
               :color="actionColor"
-              icon="la:plus-circle"
+              icon="la:plus"
               :label="t(`common.actions.new`)"
-              :disable="!userStore.can(`manage:groups`)"
+              :disabled="!userStore.can(`manage:groups`)"
               @click="newGroup" />
             <w-separator vertical />
             <w-btn
@@ -90,7 +89,7 @@
               :color="actionColor"
               icon="la:users"
               :label="t(`common.actions.manage`)"
-              :disable="!groupsAreVisible"
+              :disabled="!groupsAreVisible"
               to="/_admin/groups" />
           </w-card-actions>
         </w-card>
@@ -111,7 +110,7 @@
               :color="actionColor"
               icon="la:user-plus"
               :label="t(`common.actions.new`)"
-              :disable="!userStore.can(`manage:users`)"
+              :disabled="!userStore.can(`manage:users`)"
               @click="newUser" />
             <w-separator vertical />
             <w-btn
@@ -119,7 +118,7 @@
               :color="actionColor"
               icon="la:user-friends"
               :label="t(`common.actions.manage`)"
-              :disable="!usersAreVisible"
+              :disabled="!usersAreVisible"
               to="/_admin/users" />
           </w-card-actions>
         </w-card>
@@ -140,7 +139,7 @@
               :color="actionColor"
               icon="la:sitemap"
               :label="t(`common.actions.view`)"
-              to="/" />
+              :to="`/_admin/` + adminStore.currentSiteId + `/pages`" />
           </w-card-actions>
         </w-card>
       </div>
@@ -192,7 +191,7 @@
               :color="actionColor"
               icon="la:sync-alt"
               :label="t(`admin.system.checkForUpdates`)"
-              :disable="!userStore.can(`manage:system`)"
+              :disabled="!userStore.can(`manage:system`)"
               @click="checkForUpdates" />
             <w-separator vertical />
             <w-btn
@@ -200,7 +199,7 @@
               :color="actionColor"
               icon="la:info-circle"
               :label="t(`admin.system.title`)"
-              :disable="!userStore.can(`manage:system`)"
+              :disabled="!userStore.can(`manage:system`)"
               to="/_admin/system" />
           </w-card-actions>
         </w-card>
@@ -221,7 +220,7 @@
               :color="actionColor"
               icon="la:tasks"
               :label="t(`admin.scheduler.title`)"
-              :disable="!userStore.can(`manage:system`)"
+              :disabled="!userStore.can(`manage:system`)"
               to="/_admin/scheduler" />
           </w-card-actions>
         </w-card>
@@ -242,7 +241,7 @@
               :color="actionColor"
               icon="la:server"
               :label="t(`common.actions.view`)"
-              :disable="!userStore.can(`manage:system`)"
+              :disabled="!userStore.can(`manage:system`)"
               to="/_admin/cluster" />
           </w-card-actions>
         </w-card>
@@ -263,7 +262,7 @@
               :color="actionColor"
               icon="la:bolt"
               :label="t(`common.actions.manage`)"
-              :disable="!userStore.can(`manage:system`)"
+              :disabled="!userStore.can(`manage:system`)"
               to="/_admin/webhooks" />
           </w-card-actions>
         </w-card>
@@ -322,6 +321,7 @@ import { useMeta } from '@/composables/meta'
 import { dialog } from '@/composables/dialog'
 import { useDark } from '@/composables/dark'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { relativeDate } from '@/helpers/datetime'
 
 import { useSiteStore } from '@/stores/site'
@@ -430,7 +430,7 @@ async function loadLastLogins() {
     notify({
       type: 'negative',
       message: t(`admin.dashboard.lastLoginsLoadFailed`),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
 }
@@ -443,7 +443,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t(`admin.dashboard.refreshFailed`),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

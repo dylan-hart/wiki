@@ -290,8 +290,10 @@ describe('NavItemEditor', () => {
     copyAction.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await vi.waitUntil(() => typeof confirm === 'function')
 
+    const err = new Error('Bad Request')
+    err.data = { message: 'Nope.' }
     API_CLIENT.post.mockReturnValueOnce({
-      json: vi.fn().mockResolvedValue({ ok: false, message: 'Nope.' })
+      json: vi.fn().mockRejectedValue(err)
     })
     const itemsBefore = wrapper.vm.buildSaveItems()
 
@@ -436,5 +438,20 @@ describe('NavItemEditor', () => {
       })
       expect(wrapper.emitted('copied')).toBeTruthy()
     })
+  })
+})
+
+/**
+ * OpenProject #2074: the "Add" button used to draw `la:plus-circle` while every other create/add
+ * affordance in the app draws `la:plus` for the same kind of action -- settled on `la:plus`
+ * everywhere, so this button must not regress back to the other glyph.
+ */
+describe('NavItemEditor "Add" icon (OpenProject #2074)', () => {
+  it('uses the settled la:plus add glyph, not la:plus-circle', async () => {
+    const wrapper = mountEditor()
+    await flushPromises()
+
+    expect(wrapper.find('[data-icon="la:plus"]').exists()).toBe(true)
+    expect(wrapper.find('[data-icon="la:plus-circle"]').exists()).toBe(false)
   })
 })

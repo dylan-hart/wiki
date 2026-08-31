@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { after, afterEach, before, describe, test } from 'node:test'
 import { load } from 'js-yaml'
+import { buildInstallArgs, installRequest } from './extensions.ts'
 import type { ExtensionDefinition } from './extensions.ts'
 
 /**
@@ -187,5 +188,91 @@ describe('package.json has no decorative allowScripts key (WP 2290)', () => {
       '@lavamoat/allow-scripts is not installed; if this ever changes, allowScripts becomes a real ' +
         'policy again and this assertion (and the one above it) should be updated together'
     )
+  })
+})
+
+/**
+ * OpenProject #2291: locks the exact npm argv `install()` builds against the policy its own doc
+ * comment states, so a flag added or removed on one side without the other is caught here rather than
+ * discovered later as either a broken install or a stale, misleading comment (the exact drift WP 2290
+ * already had to clean up once). `buildInstallArgs()`/`installRequest()` are asserted directly, as
+ * pure functions, rather than through `install()` itself with `execFile` mocked — Node's `node:test`
+ * cannot stub a core module's export (`node:child_process`'s `execFile` is non-configurable) without
+ * the `--experimental-test-module-mocks` flag, which this project's `test` script does not set; see
+ * `models/import.ts`'s `buildPandocArgs`/`pandocCwd` (OpenProject #2191) for the established pattern
+ * this follows for the same class of problem.
+ */
+describe('install() argv locked to its documented flag policy (OpenProject #2291)', () => {
+  // -> Sharp's shape: a declared optional dependency (`backend/package.json`), so no `installVersion`
+  //    in its definition — the manifest is the only place its version is pinned.
+  const declaredNoVersion = moduleDefinition({
+    key: 'sharp',
+    detect: { type: 'module', value: 'sharp' }
+  })
+
+  // -> Puppeteer's shape: not declared in any manifest, so `installVersion` in its definition.yml is
+  //    the only place its version is pinned — read by both the admin-area install and the Dockerfile.
+  const undeclaredPinned = moduleDefinition({
+    key: 'puppeteer',
+    detect: { type: 'module', value: 'puppeteer' },
+    installVersion: '25.4.0'
+  })
+
+  test('requests the bare specifier when the extension carries no installVersion', () => {
+    assert.equal(installRequest(declaredNoVersion), 'sharp')
+  })
+
+  test('requests specifier@version when the extension pins installVersion', () => {
+    assert.equal(installRequest(undeclaredPinned), 'puppeteer@25.4.0')
+  })
+
+  test('builds the exact, fully-ordered argv for a declared/unversioned extension', () => {
+    assert.deepEqual(buildInstallArgs(declaredNoVersion), [
+      'install',
+      '--no-save',
+      '--force',
+      '--include=optional',
+      '--no-ignore-scripts',
+      '--no-audit',
+      '--no-fund',
+      'sharp'
+    ])
+  })
+
+  test('builds the exact, fully-ordered argv for an undeclared/version-pinned extension', () => {
+    assert.deepEqual(buildInstallArgs(undeclaredPinned), [
+      'install',
+      '--no-save',
+      '--force',
+      '--include=optional',
+      '--no-ignore-scripts',
+      '--no-audit',
+      '--no-fund',
+      'puppeteer@25.4.0'
+    ])
+  })
+
+  /**
+   * A change to the flag list is exactly what this drift guard exists to catch — this asserts every
+   * flag in the actual policy comment above `install()` (excluding `install`/the request itself and
+   * the two npm-noise suppressors `--no-audit`/`--no-fund`, which are not policy-relevant and are not
+   * individually justified in the comment) is present in `buildInstallArgs()`'s output, so a flag
+   * documented but silently dropped from the code fails here too, not just the reverse.
+   */
+  test('every flag the install() doc comment justifies is actually present in the built argv', async () => {
+    const source = await readFile(path.join(import.meta.dirname, 'extensions.ts'), 'utf8')
+    const docCommentMatch = source.match(/Hence the flags:\n([\s\S]*?)\*\/\n\s*async install/)
+    assert.ok(
+      docCommentMatch,
+      'expected to find the "Hence the flags:" doc comment block above install()'
+    )
+    const docComment = docCommentMatch[1]
+
+    const documentedFlags = ['--no-save', '--force', '--include=optional', '--no-ignore-scripts']
+    const argv = buildInstallArgs(declaredNoVersion)
+    for (const flag of documentedFlags) {
+      assert.ok(docComment.includes(`\`${flag}\``), `expected the doc comment to justify ${flag}`)
+      assert.ok(argv.includes(flag), `expected the built argv to include documented flag ${flag}`)
+    }
   })
 })

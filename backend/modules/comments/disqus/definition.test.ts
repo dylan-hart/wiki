@@ -25,7 +25,9 @@ describe('modules/comments/disqus definition.yml', () => {
     assert.equal(parsed.logo, 'https://static.requarks.io/logo/disqus.svg')
     assert.equal(parsed.website, 'https://disqus.com/')
     assert.equal(parsed.codeTemplate, true)
-    assert.equal(parsed.isAvailable, true)
+    // -> OpenProject #1958: marked unavailable -- no page-view code renders a codeTemplate provider's
+    //    embed, so this fork does not offer it as a live choice. See docs/variances.md.
+    assert.equal(parsed.isAvailable, false)
   })
 
   it('parses and declares exactly the accountName prop', async () => {

@@ -4,20 +4,45 @@ import fastify from 'fastify'
 import {
   defaultLocale,
   guardSiteEnabled,
+  isHashedAssetFilename,
   isSameOriginWebSocketHandshake,
   localePrefixRedirectTarget,
   localePrefixStripTarget,
   localizedPagePath,
+  maskSensitiveConfig,
   matchLocaleCode,
   normalizeHostname,
   requestOrigin,
   resolveRequestSite,
+  SENSITIVE_CONFIG_MASK,
   shouldPrefixLocale,
   siteEnabledPreHandler,
   SITE_DISABLED_MESSAGE,
   stripLocalePrefix,
-  type LocaleRoutingConfig
+  unmaskSensitiveConfig,
+  type LocaleRoutingConfig,
+  type ModuleProp
 } from './common.ts'
+
+function fakeProp(overrides: Partial<ModuleProp> = {}): ModuleProp {
+  return {
+    default: '',
+    type: 'string',
+    title: 'Fake Prop',
+    hint: '',
+    enum: false,
+    enumDisplay: 'select',
+    multiline: false,
+    sensitive: false,
+    readOnly: false,
+    required: false,
+    pattern: '',
+    icon: 'text-box',
+    order: 100,
+    if: [],
+    ...overrides
+  }
+}
 
 const locales = (overrides: Partial<LocaleRoutingConfig> = {}): LocaleRoutingConfig => ({
   primary: 'en',
@@ -738,5 +763,120 @@ describe('siteEnabledPreHandler', () => {
     siteEnabledPreHandler({ params: { siteId: 'no-such-site' } } as any, reply, done)
     assert.deepEqual(forbiddenCalls.forbidden, [])
     assert.deepEqual(doneCalls, [undefined])
+  })
+})
+
+describe('isHashedAssetFilename', () => {
+  // -> Real basenames off a built `assets/_assets` (vite's `[name]-[hash].[ext]` output).
+  const hashedSamples = [
+    '1c-light.min-BO6Pf1_3.js',
+    '3024.min-BqdulyS4.js',
+    'AccountMenu-D3c-tApN.js',
+    'AccountMenu-jI0Xq9IQ.css',
+    'AdminAnalytics-Bq33DEXD.js',
+    'AdminAnalytics-_v2YFXZC.css',
+    'index-CL_uwIZr.js'
+  ]
+
+  for (const name of hashedSamples) {
+    test(`hashed build output "${name}" is immutable`, () => {
+      assert.equal(isHashedAssetFilename(name), true)
+    })
+  }
+
+  // -> The 8 entries under `assets/_assets` that are NOT vite build output: `renderer.js` is a
+  //    deliberately fixed entry point name (referenced by a static server-rendered page), and the
+  //    other 7 are hand-authored trees vite never touches.
+  const unhashedSamples = [
+    'bg',
+    'fonts',
+    'icons',
+    'illustrations',
+    'logo-wikijs.svg',
+    'renderer.js',
+    'storage',
+    'svg'
+  ]
+
+  for (const name of unhashedSamples) {
+    test(`unhashed entry "${name}" is not immutable`, () => {
+      assert.equal(isHashedAssetFilename(name), false)
+    })
+  }
+
+  test('a short suffix under 8 characters does not count as a hash', () => {
+    assert.equal(isHashedAssetFilename('logo-abc1234.svg'), false)
+  })
+
+  test('a name with no extension is never hashed, even with a long suffix', () => {
+    assert.equal(isHashedAssetFilename('some-long-enough-suffix12345678'), false)
+  })
+
+  test('a name with no hyphen at all is not hashed', () => {
+    assert.equal(isHashedAssetFilename('renderer.js'), false)
+  })
+})
+
+describe('maskSensitiveConfig', () => {
+  const props = {
+    apiKey: fakeProp({ sensitive: true }),
+    label: fakeProp({ sensitive: false })
+  }
+
+  test('replaces a non-empty sensitive value with the mask', () => {
+    const masked = maskSensitiveConfig(props, { apiKey: 'super-secret', label: 'My Provider' })
+    assert.deepEqual(masked, { apiKey: SENSITIVE_CONFIG_MASK, label: 'My Provider' })
+  })
+
+  test('leaves an empty sensitive value alone — nothing stored, nothing to hide', () => {
+    const masked = maskSensitiveConfig(props, { apiKey: '', label: 'My Provider' })
+    assert.deepEqual(masked, { apiKey: '', label: 'My Provider' })
+  })
+
+  test('leaves a non-string sensitive value alone (e.g. still undefined)', () => {
+    const masked = maskSensitiveConfig(props, { label: 'My Provider' })
+    assert.deepEqual(masked, { label: 'My Provider' })
+  })
+
+  test('does not mutate the config object passed in', () => {
+    const config = { apiKey: 'super-secret' }
+    maskSensitiveConfig(props, config)
+    assert.equal(config.apiKey, 'super-secret')
+  })
+
+  test('returns the config unchanged when no prop is declared sensitive', () => {
+    const masked = maskSensitiveConfig({ label: fakeProp() }, { label: 'value' })
+    assert.deepEqual(masked, { label: 'value' })
+  })
+})
+
+describe('unmaskSensitiveConfig', () => {
+  const props = {
+    apiKey: fakeProp({ sensitive: true }),
+    label: fakeProp({ sensitive: false })
+  }
+
+  test('drops a sensitive key whose incoming value is exactly the mask', () => {
+    const cleaned = unmaskSensitiveConfig(props, {
+      apiKey: SENSITIVE_CONFIG_MASK,
+      label: 'My Provider'
+    })
+    assert.deepEqual(cleaned, { label: 'My Provider' })
+  })
+
+  test('leaves a genuinely new sensitive value alone', () => {
+    const cleaned = unmaskSensitiveConfig(props, { apiKey: 'brand-new-secret' })
+    assert.deepEqual(cleaned, { apiKey: 'brand-new-secret' })
+  })
+
+  test('leaves a non-sensitive value equal to the mask string alone', () => {
+    const cleaned = unmaskSensitiveConfig(props, { label: SENSITIVE_CONFIG_MASK })
+    assert.deepEqual(cleaned, { label: SENSITIVE_CONFIG_MASK })
+  })
+
+  test('does not mutate the incoming object passed in', () => {
+    const incoming = { apiKey: SENSITIVE_CONFIG_MASK }
+    unmaskSensitiveConfig(props, incoming)
+    assert.equal(incoming.apiKey, SENSITIVE_CONFIG_MASK)
   })
 })

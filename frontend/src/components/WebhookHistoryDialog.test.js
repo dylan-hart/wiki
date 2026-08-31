@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import WebhookHistoryDialog from './WebhookHistoryDialog.vue'
+import { useUserStore } from '@/stores/user'
 
 /**
  * `getDeliveryHistory()`'s API surface — a status icon/color per row plus the error message on
@@ -22,7 +23,11 @@ function mountDialog(deliveries, { total } = {}) {
       })
   })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    messages: { en: { common: { datetime: '{date} at {time}' } } }
+  })
 
   return mount(WebhookHistoryDialog, {
     props: {
@@ -91,5 +96,29 @@ describe('WebhookHistoryDialog', () => {
     await flushPromises()
 
     expect(document.body.textContent).toContain('admin.webhooks.historyNone')
+  })
+
+  /** WP 2082: `humanizeDate` used to render a hardcoded browser-locale/timezone string directly; it
+   *  now delegates to the shared `humanizeDateWithSeconds` helper (`helpers/datetime.js`), which
+   *  routes through `userStore.formatDateTime`, so a stored timezone changes what shows. */
+  it("renders a delivery's startedAt through the shared date helper, so a stored timezone changes it", async () => {
+    const wrapper = mountDialog([
+      {
+        event: 'page:create',
+        state: 'completed',
+        attempt: 1,
+        maxRetries: 3,
+        lastErrorMessage: null,
+        startedAt: '2026-08-01T23:30:15.000Z',
+        completedAt: '2026-08-01T23:30:16.000Z'
+      }
+    ])
+    const userStore = useUserStore()
+    userStore.timezone = 'Pacific/Kiritimati'
+    userStore.dateFormat = 'YYYY-MM-DD'
+    userStore.timeFormat = '24h'
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('2026-08-02 at 13:30:15')
   })
 })

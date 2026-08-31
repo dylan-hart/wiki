@@ -3,6 +3,7 @@ import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { TimeoutError } from 'ky'
 
 import ImportBatchPageDialog from './ImportBatchPageDialog.vue'
 import { usePageStore } from '@/stores/page'
@@ -193,6 +194,96 @@ describe('ImportBatchPageDialog', () => {
     // -> Convert-only: nothing is saved, and this dialog never hands content back like the
     //    single-file one does -- it saves through the ordinary create-page endpoint itself instead.
     expect(wrapper.emitted()).not.toHaveProperty('ok')
+  })
+
+  /**
+   * OpenProject #1718: unlike `EXPORT_PDF_TIMEOUT`/`INSTALL_TIMEOUT`'s fixed ceilings, this request's
+   * `timeout` is computed from the batch actually being sent -- mirrors `computeBatchImportTimeout`'s
+   * three terms (base + per-file + per-byte, see that function's doc comment in the component) rather
+   * than asserting a single hardcoded magic number, so this stays a real regression guard against the
+   * *shape* of the scaling (does it grow with more/larger files at all), not brittle against a
+   * deliberate future retuning of the constants themselves.
+   */
+  function expectedBatchImportTimeout(files) {
+    const BASE = 40 * 1000
+    const PER_FILE = 3 * 1000
+    const BYTES_PER_MS = 100
+    const totalBytes = files.reduce((sum, file) => sum + file.size, 0)
+    return BASE + files.length * PER_FILE + Math.ceil(totalBytes / BYTES_PER_MS)
+  }
+
+  it('sends a timeout computed from the selected files, scaled by count and total size', async () => {
+    await mountDialog()
+    globalThis.API_CLIENT.post.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({
+        ok: true,
+        results: [{ fileName: 'good.docx', ok: true, markdown: '# Good\n' }]
+      })
+    })
+
+    const files = [new File(['a'.repeat(5000)], 'good.docx', { type: 'application/octet-stream' })]
+    await selectFiles(files)
+    await body().find('.import-convert-btn').trigger('click')
+    await flushPromises()
+
+    const [, opts] = globalThis.API_CLIENT.post.mock.calls[0]
+    expect(opts.timeout).toBe(expectedBatchImportTimeout(files))
+  })
+
+  it('sends a larger timeout for a bigger batch than for a single small file', async () => {
+    await mountDialog()
+    globalThis.API_CLIENT.post.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({
+        ok: true,
+        results: [{ fileName: 'one.docx', ok: true, markdown: '# One\n' }]
+      })
+    })
+    await selectFiles([new File(['a'], 'one.docx', { type: 'application/octet-stream' })])
+    await body().find('.import-convert-btn').trigger('click')
+    await flushPromises()
+    const smallBatchTimeout = globalThis.API_CLIENT.post.mock.calls.at(-1)[1].timeout
+
+    await mountDialog()
+    globalThis.API_CLIENT.post.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({
+        ok: true,
+        results: [
+          { fileName: 'a.docx', ok: true, markdown: '# A\n' },
+          { fileName: 'b.docx', ok: true, markdown: '# B\n' },
+          { fileName: 'c.docx', ok: true, markdown: '# C\n' }
+        ]
+      })
+    })
+    const bigFiles = [
+      new File(['x'.repeat(200_000)], 'a.docx', { type: 'application/octet-stream' }),
+      new File(['y'.repeat(200_000)], 'b.docx', { type: 'application/octet-stream' }),
+      new File(['z'.repeat(200_000)], 'c.docx', { type: 'application/octet-stream' })
+    ]
+    await selectFiles(bigFiles)
+    await body().find('.import-convert-btn').trigger('click')
+    await flushPromises()
+    const bigBatchTimeout = globalThis.API_CLIENT.post.mock.calls.at(-1)[1].timeout
+
+    expect(bigBatchTimeout).toBeGreaterThan(smallBatchTimeout)
+    expect(bigBatchTimeout).toBe(expectedBatchImportTimeout(bigFiles))
+  })
+
+  it('shows a distinct timed-out toast for a client-side TimeoutError, telling the reader not to blindly retry', async () => {
+    await mountDialog()
+    globalThis.API_CLIENT.post.mockImplementationOnce(() => {
+      throw new TimeoutError({ method: 'POST', url: '/_api/sites/site-1/pages/import/batch' })
+    })
+
+    await selectFiles([new File(['a'], 'good.docx', { type: 'application/octet-stream' })])
+    await body().find('.import-convert-btn').trigger('click')
+    await flushPromises()
+
+    expect(body().findAll('.import-batch-row')).toHaveLength(0)
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'pages.importBatch.convertTimedOut',
+      caption: 'pages.importBatch.convertTimedOutHint'
+    })
   })
 
   it('surfaces a failed batch-conversion request as a negative toast instead of advancing', async () => {

@@ -2,10 +2,9 @@
   <w-page class="admin-login">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-bunch-of-keys-animated.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-bunch-of-keys-animated.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.login.title') }}</h1>
@@ -77,7 +76,7 @@
                       outline
                       icon="la:times"
                       color="primary"
-                      :disable="!state.hasBg"
+                      :disabled="!state.hasBg"
                       @click="clearBg" />
                   </div>
                 </w-item-section>
@@ -242,6 +241,7 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
@@ -341,7 +341,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.login.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()
@@ -351,7 +351,7 @@ async function load() {
 async function save() {
   state.loading++
   try {
-    const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
+    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
       json: {
         auth: {
           autoLogin: state.config.autoLogin ?? false,
@@ -369,11 +369,6 @@ async function save() {
         }))
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.login.${resp?.error}`, resp?.message || t('common.error.unexpected'))
-      )
-    }
     notify({
       type: 'positive',
       message: t('admin.login.saveSuccess')
@@ -382,7 +377,10 @@ async function save() {
     notify({
       type: 'negative',
       message: t('admin.login.saveFailed'),
-      caption: err.message
+      caption: t(
+        `admin.login.${err.data?.error}`,
+        apiErrorMessage(err, t('common.error.unexpected'))
+      )
     })
   }
   state.loading--
@@ -434,7 +432,7 @@ async function uploadBg() {
     notify({
       type: 'negative',
       message: t('admin.login.bgUploadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--
@@ -454,7 +452,7 @@ async function clearBg() {
     notify({
       type: 'negative',
       message: t('admin.login.bgClearFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

@@ -94,6 +94,26 @@ definition-loading test suite (retargeted at `commentProviders.test.ts`, run aga
 `modules/comments/` tree). #396's own `models/comments.ts`/`models/comments.test.ts` additions were
 discarded as dead weight once ported.
 
+**Addendum, 2026-08-31 (OpenProject #1953):** The `codeTemplate`/`isSelectable()` porting above is
+reversed. `docs/audit-2026-08-24/product-value.md` §14 (OpenProject #1950) flagged that nothing ever
+consumes the stored choice for a `codeTemplate`-only provider — the picker offers Disqus, Commento
+and Artalk, `PUT /sites/:siteId/comments/providers` stores any of the three, and no render path swaps
+in the vendor embed, so `AdminComments.vue`'s warning banner is the entire feature. Rebuilding the
+missing half (a `codeTemplate` embed-render path in `frontend/src/pages/Index.vue`, swapping
+`PageComments.vue` for third-party vendor JS on every page view) was considered and rejected: it opens
+a standing script-injection/CSP trust boundary for three vendors this fork has never actually
+integrated, in exchange for restoring a picker option nobody depends on today. Decision: keep the one
+real, DB-wired provider (`default`) as the sole selectable choice and let the picker reflect that
+honestly rather than advertise three non-functional ones. The `codeTemplate` "would have left
+Disqus/Commento/Artalk permanently unselectable" precondition that motivated the original port no
+longer holds as a reason to keep it — permanently unselectable is now the intended state for a
+provider with no implementation. Carried out in #1958: `isAvailable: false` on the three
+`backend/modules/comments/{disqus,commento,artalk}/definition.yml` files, `codeTemplate` dropped from
+`isSelectable()` in `backend/models/commentProviders.ts`. The dead-end case (a site whose already-
+stored `activeProvider` is one of the three) is #1962's, not this addendum's — it must keep resolving
+to *something* rather than silently breaking, per `backend/api/comments.ts:290`'s "no provider active
+is not a supported state."
+
 ## Storage targets: Box, Dropbox, Google Drive, OneDrive omitted (no 3.x storage module)
 
 **Date:** 2026-08-17
@@ -896,9 +916,15 @@ Decided, not left ambiguous: the admin area's own chrome (`AdminLayout.vue` and 
 `/_admin`) inherits `dir="rtl"` along with the rest of the document rather than being forced to stay
 LTR. Reasoning:
 
-- The app has exactly one document-wide direction control point (`App.vue#applyLocale`,
-  `composables/direction.js`) and one `commonStore.locale` — there is no separate "admin UI language"
-  concept to hang a different direction off of.
+- **Updated 2026-08-31 (task #1656):** this was originally justified by "the app has exactly one
+  document-wide direction control point and one `commonStore.locale`" — that premise turned out to
+  be wrong (`docs/decisions/lang-dir-contract.md`): the server has stamped `<html lang>`/`dir` from
+  the _content_ locale since before this note was written (`backend/helpers/appShell.ts`), and the
+  client now matches it (#1660) rather than overwriting it from the interface locale. The
+  conclusion is unchanged — admin chrome still inherits `dir` off `<html>` like everything else
+  that isn't `.page-contents`-scoped — but the reasoning is: the document's direction is the
+  _content_ locale's direction, and there is no separate "admin chrome direction" to hang off a
+  concept (a single UI-locale-driven axis) that no longer describes how `dir` is actually resolved.
 - `AdminLayout.vue`'s own header carries a locale switcher (`commonStore.setLocale(lang.code)`) that
   lets an operator pick _any_ installed locale, RTL ones included, directly from within the admin
   area — the admin UI is evidently meant to render in whatever locale is active, not assumed
@@ -906,7 +932,10 @@ LTR. Reasoning:
   router guard used to validate `desiredLocale` against the site's active _content_ locales only, so
   a UI-only interface locale picked here reverted on the very next navigation, direction included.
   The guard now also accepts any locale from the instance's installed catalogue
-  (`adminStore.locales`), which is what makes this bullet's claim actually true today.)
+  (`adminStore.locales`), which is what makes this bullet's claim actually true today. This switcher
+  still drives `commonStore.locale` — the _interface_ locale — and does not, by itself, change
+  `<html dir>`; see `lang-dir-contract.md` §5 for the mechanism that keeps admin chrome's direction
+  meaningful for readers whose interface locale differs from a page's content locale.)
 - Forcing LTR chrome around genuinely RTL-translated `admin.*` label text (which does render in
   Arabic once `ar` is the active locale, per the same `t()` mechanism as everywhere else) would
   produce mismatched, not merely conservative, layout — worse than mirroring, not safer.
@@ -1674,3 +1703,149 @@ Three chunks are named here because they are expected to still warn at 500 kB ev
 
 A warning on any chunk not named above is a real signal and should be investigated — resist raising
 `chunkSizeWarningLimit` again as a way to make it go away.
+
+## OpenProject #1689 — `pageWatchEvents.pageId` stays without a foreign key
+
+**Date:** 2026-08-31
+
+#1689 asked for a foreign key from `pageWatchEvents.pageId` to `pages.id` (`siteId`/`userId`/`actorId`
+immediately below it all have one), purging pre-existing orphans first so the constraint could apply.
+Not added: `db/schema.ts#pageWatchEvents`'s own doc comment already documents, deliberately, why this
+column has never had one — and tracing the write path confirms adding it now would be a real
+regression, not a hypothetical one.
+
+`models/pages.ts#deletePage` reads the watch list and queues the `notifyPageWatchers` scheduler job
+_before_ deleting the page's `pages` row (it has to — deleting the row cascades `pageWatching` away
+first). That job is asynchronous: it runs later, after `deletePage`'s own `DELETE FROM pages` has
+already committed. Its `recordMany()` call — `pageWatchEvents`'s only writer — is therefore always
+inserting a `pageId` that no longer exists in `pages` for a `deleted`-action row. A foreign key
+requires the referenced row to exist at INSERT time regardless of what `onDelete` says, so the
+constraint would make every deletion notification for a watched page fail to record, silently losing
+exactly the notifications this table exists to deliver.
+
+The real fix would be recording `pageWatchEvents` rows synchronously inside `deletePage` (before the
+page row goes) rather than deferring the whole `recordMany()` call into the async job — a materially
+larger change than #1689's stated scope covers ("Done when" only exercises the retention purge and
+the digest query's bound, not this ordering). Left as a follow-up decision rather than implemented
+as a drive-by inside #1689. See `db/schema.ts`'s comment on `pageWatchEvents.pageId` for the same
+reasoning inline with the code.
+
+## Page ratings dropped — thumbs/stars widgets and the `ratings`/`ratingsMode` config removed (OpenProject #1890, Epic #1885)
+
+**Date:** 2026-08-31
+**Feature:** Epic #1885 — "Decide the fate of page ratings and Page Data Templates, and delete the
+`features.ratings` legacy shim"
+**Decision:** Cut. Page ratings do not ship in 3.x. The `ratingsMode` admin select
+(`AdminGeneral.vue:240`), the `allowRatings` per-page toggle (`PagePropertiesDialog.vue:286`), the
+stars/thumbs widgets (`Index.vue:310-328`, `SideDialog.vue`), and the `ratingScore`/`ratingCount`
+columns on `pages` are all removed by this epic's carry-out children rather than completed.
+
+**Why this is a deviation:** 2.5.x shipped a working ratings feature (thumbs or 1-5 stars per page,
+aggregated and displayed). A straight port would carry it forward; this fork does not.
+
+**Reasoning:**
+
+1. **Nothing here currently works, and completing it is real, not incidental, work.** The admin
+   toggle and the per-page toggle are both fully wired — an administrator can turn ratings on today —
+   but every consuming surface is dead: the thumbs buttons have no `@click`, no `v-model`, and no
+   `aria-label`; the stars widget binds a component-local `currentRating` hardcoded to `3` that is
+   never posted anywhere and resets on navigation; there is no ratings API route; and
+   `backend/db/schema.ts`'s `ratingCount` column is typed `timestamp`, not `integer`, so it cannot
+   even hold a count without a schema change. Shipping this for real means a new
+   permission-checked write endpoint (a rating is a write against a page the caller can `read:pages`)
+   plus a migration retyping `ratingCount` — not a bugfix to existing behavior.
+2. **No design for preventing duplicate votes exists, and building one is more than a column fix.**
+   Neither the 2.5.x source nor anything in this repo's history tracks a rating against a
+   voter — `ratingScore`/`ratingCount` are page-level aggregates only. Shipping a fair rating
+   feature (one vote per reader, changeable, not replayable by refresh) needs its own per-user
+   tracking table, which is new design, not something this epic's audit finding scoped or budgeted.
+3. **No confirmed demand distinct from what already exists.** The wiki already has a real, working
+   comments system for reader engagement/feedback signal on a page. Nothing in the open OpenProject
+   backlog or `WIKI3_ASSESSMENT.md`'s unbacklogged-ideas list asks for ratings specifically, and nobody
+   has reported the current half-built toggles as a gap they need closed versus simply broken.
+
+**Scope:** applies to both ratings modes (`thumbs` and `stars`) — the audit finding was the same
+non-functional state for each, and neither is kept over the other. The `features.ratings` legacy
+alias at `backend/api/sites.ts:746-748` is deleted unconditionally as part of the same epic, separate
+from this in/out call, per Epic #1885's own instruction not to leave `config.features.ratings` behind
+under any outcome.
+
+**Reversible if:** a real product need for reader-facing ratings surfaces later — this cut removes a
+non-functional prototype, not a decision that ratings can never be useful; a future implementation
+would need to design the endpoint, the anti-duplicate-vote tracking, and the schema from scratch
+either way, so nothing here is lost by cutting now versus finishing later.
+
+**Evidence trail:** OpenProject #1885 (epic), #1890 (this decision), `docs/audit-2026-08-24/ux-consistency.md`
+§11, `docs/audit-2026-08-24/product-value.md` §13, `docs/audit-2026-08-24/accessibility-i18n.md` §18,
+`docs/audit-2026-08-24/correctness-data-schema.md` §10, `docs/audit-2026-08-24/correctness-frontend-state.md` §13.
+
+## Page Data / Page Data Templates dropped — dialogs and store slot removed (OpenProject #1890, Epic #1885)
+
+**Date:** 2026-08-31
+**Feature:** Epic #1885 — "Decide the fate of page ratings and Page Data Templates, and delete the
+`features.ratings` legacy shim"
+**Decision:** Cut. `PageDataDialog.vue`, `PageDataTemplateDialog.vue`, the `siteStore.pageDataTemplates`
+Pinia slot, and the `PageActionsCol.vue` entry point that opens them are removed by this epic's
+carry-out child rather than completed or exposed.
+
+**Why this is a deviation:** roughly 1,400 lines across the two dialogs already exist and describe
+real UI (custom per-page fields plus reusable templates for them) that a straight "finish what's
+there" reading would complete; this fork removes it instead.
+
+**Reasoning:**
+
+1. **Nothing here is wired to anything.** `PageDataDialog.vue` (148 lines) has no `v-model` on any of
+   its three fixed inputs and no save action of any kind. `PageDataTemplateDialog.vue` (561 lines)
+   writes into `siteStore.pageDataTemplates` (`stores/site.js:119`), a plain Pinia array with zero
+   backend references — nothing persists it, nothing reads it back on reload. The entry point at
+   `PageActionsCol.vue:31-41` is gated by both `v-if="flagsStore.experimental"` _and_ a bare
+   `disable`, so it has been unreachable even with the experimental flag turned on.
+2. **The existing code is not a stepping-stone toward the one real product idea in this space.**
+   `WIKI3_ASSESSMENT.md` idea #1 ("Structured page fields + saved views") is the actual product
+   context named on OpenProject #1890 — but its own build note describes a materially different
+   design: a `jsonb` fields column on `pages` (mirroring `sites.config`), a separate `page_views`
+   table for saved queries, one admin editor, and one reader-facing render mode over a matching set of
+   pages. `PageDataDialog`'s three fixed inputs and `PageDataTemplateDialog`'s standalone
+   template-picker are a different, narrower shape that doesn't extend into that design. Keeping the
+   current dialogs around "for later" would mean maintaining dead code against a design nothing has
+   committed to building.
+3. **Idea #1 itself is not yet approved scope.** It sits in `WIKI3_ASSESSMENT.md`'s "not yet on
+   anyone's backlog" list, not as an OpenProject Epic or Feature. Building toward it now, through
+   these dialogs or otherwise, is out of proportion to what this audit finding asked — that pass
+   found and disposed of already-existing dead code, it did not greenlight new feature work.
+
+**Scope:** both dialogs, the store slot, and the disabled entry point — all one inert surface, cut
+together rather than partially.
+
+**Reversible if:** idea #1 is promoted to a real OpenProject Epic later — at that point it should be
+built against its own build note's design (jsonb fields + `page_views`), not by resurrecting these
+dialogs, since they were never wired to persistence in the first place and don't match that design's
+shape.
+
+**Evidence trail:** OpenProject #1885 (epic), #1890 (this decision), `docs/audit-2026-08-24/ux-consistency.md`
+§11, `docs/audit-2026-08-24/product-value.md` §13, `docs/audit-2026-08-24/correctness-frontend-state.md`
+§13, `WIKI3_ASSESSMENT.md` idea #1.
+
+## 2026-08-31 — OpenProject #1916: published Docker image is amd64-only, not multi-arch
+
+`.github/workflows/build.yml` and `.github/workflows/release.yml` both build and push
+`docker/build-push-action` with `platforms: linux/amd64` only. `build.yml` additionally carried a
+commented-out `# platforms: linux/amd64,linux/arm64` line, inherited from three upstream Wiki.js
+commits (`git log -S"platforms: linux/amd64,linux/arm64"`) with no fork decision ever recorded behind
+it; that line has been deleted rather than enabled.
+
+Decision: stay amd64-only. Enabling `linux/amd64,linux/arm64` would require adding
+`docker/setup-qemu-action` before Buildx in both workflows and accepting QEMU-emulated (not native)
+arm64 builds, which typically run several times slower than a native build — a real, recurring cost
+on every `scarlett` push (`build.yml`) and every tagged release (`release.yml`), for arm64 image
+availability nobody has asked for. This repo already treats CI runtime as a scarce resource worth
+protecting (see root `CLAUDE.md`'s "Testing (CI)" section on avoiding redundant suite runs), and that
+reasoning applies here too. `dev/build/Dockerfile`'s comment on installing Chromium from the distro
+partly "because it exists for arm64 as well as amd64" remains accurate as a statement about the base
+image and package, independent of what platforms the published image actually targets — no change
+needed there.
+
+Both workflows' `platforms:` values are asserted equal, and neither may contain a commented-out
+platform line, by `backend/test/release-workflow.test.ts`. Revisit if arm64 image availability is
+ever actually requested — the added CI time would then be a cost worth paying rather than an unpriced
+inheritance.

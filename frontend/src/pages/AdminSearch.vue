@@ -2,10 +2,9 @@
   <w-page class="admin-search">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-find-and-replace-animated.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-find-and-replace-animated.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.search.title') }}</h1>
@@ -358,21 +357,15 @@ async function save() {
       }
     }
 
-    const resp = await API_CLIENT.put(
+    await API_CLIENT.put(
       `sites/${adminStore.currentSiteId}/search/engines/${selectedEngine.value.key}`,
       { json: payloadFor(selectedEngine.value) }
     ).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
 
     if (dictOverrides !== undefined) {
-      const dictResp = await API_CLIENT.patch(`sites/${adminStore.currentSiteId}/search`, {
+      await API_CLIENT.patch(`sites/${adminStore.currentSiteId}/search`, {
         json: { dictOverrides }
       }).json()
-      if (!dictResp?.ok) {
-        throw new Error(dictResp?.message || t('common.error.unexpected'))
-      }
     }
 
     notify({
@@ -396,10 +389,7 @@ async function save() {
 async function rebuild() {
   state.rebuildLoading = true
   try {
-    const resp = await API_CLIENT.post(`sites/${adminStore.currentSiteId}/search/rebuild`).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
+    await API_CLIENT.post(`sites/${adminStore.currentSiteId}/search/rebuild`).json()
     notify({
       type: 'positive',
       message: t('admin.search.rebuildInitSuccess')

@@ -1173,6 +1173,10 @@ class Assets {
     this.forgetPath(siteId, asset.folderPath, asset.fileName)
     await this.dropCachedContent([id])
 
+    // -> `contentSyncState.contentId` isn't a real FK (it can point at a page or an asset), so nothing
+    //    at the db level drops the sync-state rows for this asset on its own.
+    await WIKI.models.contentSync.forgetContent('asset', id)
+
     await WIKI.models.hooks.emit('asset:delete', siteId, {
       id,
       fileName: asset.fileName,
@@ -1211,6 +1215,9 @@ class Assets {
     // -> Which paths they sat at is no longer knowable from the tree: those rows went with the folder
     this.forgetAllPaths()
     await this.dropCachedContent(ids)
+
+    // -> Same reasoning as `deleteAsset`: one batched call rather than one per asset.
+    await WIKI.models.contentSync.forgetContentBatch('asset', ids)
 
     // -> One per file, as deleting them one at a time would have sent: a subscriber mirroring the
     //    wiki has to hear about each file, not about the folder it happened to sit in

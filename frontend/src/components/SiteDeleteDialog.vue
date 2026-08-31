@@ -37,7 +37,7 @@
           :label="t(`common.actions.delete`)"
           color="negative"
           padding="xs md"
-          :disable="!isConfirmed"
+          :disabled="!isConfirmed"
           :loading="state.isLoading"
           @click="confirm" />
       </w-card-actions>
@@ -99,10 +99,7 @@ async function confirm() {
   }
   state.isLoading = true
   try {
-    const resp = await API_CLIENT.delete(`sites/${props.site.id}`)
-    if (!resp?.ok) {
-      throw new Error((await resp.json())?.message || t('common.error.unexpected'))
-    }
+    await API_CLIENT.delete(`sites/${props.site.id}`)
     notify({
       type: 'positive',
       message: t('admin.sites.deleteSuccess')

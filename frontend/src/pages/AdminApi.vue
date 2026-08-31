@@ -2,10 +2,9 @@
   <w-page class="admin-api">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-rest-api-animated.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-rest-api-animated.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.api.title') }}</h1>
@@ -26,21 +25,11 @@
         </div>
       </div>
       <div class="flex-none">
-        <w-btn
-          class="mr-2 ml-4 acrylic-btn"
-          icon="la:question-circle"
-          flat
-          color="grey"
-          :aria-label="t(`common.actions.viewDocs`)"
-          :href="siteStore.docsBase + `/dev/api`"
-          target="_blank">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
-        </w-btn>
         <!-- -> A real href, not a router link: the Swagger UI at `/_api` is served by the backend and is
              not part of this SPA. Labelled rather than tooltipped, so the visible text is already the
              accessible name and there is no `aria-label` -->
         <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn mr-2 ml-4"
           icon="la:book"
           flat
           color="grey"
@@ -181,7 +170,7 @@
                   flat
                   :aria-label="t(`admin.api.revoke`)"
                   @click="revoke(key)"
-                  :disable="key.isRevoked">
+                  :disabled="key.isRevoked">
                   <w-tooltip v-if="!key.isRevoked" anchor="center left" self="center right">{{
                     t('admin.api.revoke')
                   }}</w-tooltip>
@@ -206,7 +195,6 @@ import { loading } from '@/composables/loading'
 import { dialog } from '@/composables/dialog'
 
 import { useAdminStore } from '@/stores/admin'
-import { useSiteStore } from '@/stores/site'
 
 import ApiKeyCreateDialog from '../components/ApiKeyCreateDialog.vue'
 import ApiKeyRevokeDialog from '../components/ApiKeyRevokeDialog.vue'
@@ -220,7 +208,6 @@ const dark = useDark()
 // STORES
 
 const adminStore = useAdminStore()
-const siteStore = useSiteStore()
 
 // I18N
 
@@ -377,12 +364,9 @@ async function globalSwitch() {
   state.isToggleLoading = true
   const wanted = !state.enabled
   try {
-    const resp = await API_CLIENT.put('system/api', {
+    await API_CLIENT.put('system/api', {
       json: { isEnabled: wanted }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occurred.')
-    }
     notify({
       type: 'positive',
       message: wanted

@@ -60,7 +60,7 @@
             padding="xs md"
             :label="t(`pages.import.convert`)"
             :loading="state.converting"
-            :disable="!canConvert"
+            :disabled="!canConvert"
             @click="convert" />
         </w-card-actions>
       </template>
@@ -102,6 +102,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { isTimeoutError } from 'ky'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
@@ -153,6 +154,18 @@ const EXTENSION_FORMATS = {
   docx: 'docx',
   odt: 'odt'
 }
+
+/**
+ * How long the client gives a single-file conversion, in milliseconds -- past `ky`'s own 10s default,
+ * which is well under what a Pandoc-backed conversion can take.
+ *
+ * Sized against the server's own ceiling on the same work: `backend/models/import.ts`'s
+ * `IMPORT_TIMEOUT` kills a stalled pandoc process after 30s, and `MAX_IMPORT_SIZE` caps the upload at
+ * 25MB. This adds 30s of margin on top of that 30s pandoc ceiling for the upload itself to complete on
+ * a slow connection, rather than trying to compute a byte-accurate figure for a single file the way
+ * `ImportBatchPageDialog.vue`'s batch request has to.
+ */
+const IMPORT_TIMEOUT = 60 * 1000
 
 // PROPS
 
@@ -261,6 +274,7 @@ async function convert() {
   state.converting = true
   try {
     const resp = await API_CLIENT.post(`sites/${siteStore.id}/pages/import`, {
+      timeout: IMPORT_TIMEOUT,
       searchParams: {
         fileName: state.fileName,
         format: state.format,
@@ -282,13 +296,26 @@ async function convert() {
     state.tags = resp?.tags ?? []
     state.step = 'preview'
   } catch (err) {
-    // -> The server's own message carries which of unsupported format / missing Pandoc / a failed
-    //    conversion this was, same pattern `AdminExtensions.vue`'s `install()` uses for its errors
-    notify({
-      type: 'negative',
-      message: t('pages.import.convertFailed'),
-      caption: apiErrorMessage(err)
-    })
+    // -> A client-side `TimeoutError` firing while pandoc is still genuinely working server-side must
+    //    not read like a real failure: it looks identical to one otherwise, and retrying converts the
+    //    same file a second time for nothing. Same distinction `AdminExtensions.vue`'s `install()`
+    //    draws for `INSTALL_TIMEOUT`. Anything else -- unsupported format, missing Pandoc, a genuine
+    //    conversion failure -- falls through to the generic caption, where the server's own message
+    //    (via `apiErrorMessage`) says which of those it was.
+    if (isTimeoutError(err)) {
+      notify({
+        type: 'negative',
+        message: t('pages.import.convertTimedOut'),
+        caption: t('pages.import.convertTimedOutHint'),
+        timeout: 0
+      })
+    } else {
+      notify({
+        type: 'negative',
+        message: t('pages.import.convertFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
   }
   state.converting = false
 }

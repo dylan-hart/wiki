@@ -112,7 +112,7 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  disable: {
+  disabled: {
     type: Boolean,
     default: false
   },
@@ -132,7 +132,7 @@ const trackEl = ref(null)
 /** Which handle the current drag is moving. */
 const dragging = ref(null)
 
-const isDisabled = computed(() => props.disable)
+const isDisabled = computed(() => props.disabled)
 
 const model = computed(() => ({
   min: clamp(props.modelValue?.min ?? props.min),

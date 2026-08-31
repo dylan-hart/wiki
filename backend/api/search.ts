@@ -251,7 +251,7 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('Site does not exist.')
       }
       return withDbSearchExtras(
-        await WIKI.models.search.getSiteEngines(req.params.siteId),
+        await WIKI.models.search.getSiteEngines(req.params.siteId, { mask: true }),
         req.params.siteId
       )
     }
@@ -389,7 +389,7 @@ async function routes(app: FastifyInstance) {
       }
       await WIKI.models.search.refreshFromDisk()
       return withDbSearchExtras(
-        await WIKI.models.search.getSiteEngines(req.params.siteId),
+        await WIKI.models.search.getSiteEngines(req.params.siteId, { mask: true }),
         req.params.siteId
       )
     }

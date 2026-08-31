@@ -34,6 +34,7 @@ import { useI18n } from 'vue-i18n'
 import { fileSave } from 'browser-fs-access'
 
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { copyToClipboard } from '@/helpers/clipboard'
 
 /**
@@ -78,7 +79,7 @@ async function copyCodes() {
     notify({
       type: 'negative',
       message: t('profile.tfaRecoveryCodesCopyFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
 }
@@ -98,7 +99,7 @@ async function downloadCodes() {
       notify({
         type: 'negative',
         message: t('profile.tfaRecoveryCodesDownloadFailed'),
-        caption: err.message
+        caption: apiErrorMessage(err)
       })
     }
   }

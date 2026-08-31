@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { load } from 'js-yaml'
 import { asc, eq } from 'drizzle-orm'
-import { parseModuleProps } from '../helpers/common.ts'
+import { maskSensitiveConfig, parseModuleProps, unmaskSensitiveConfig } from '../helpers/common.ts'
 import { authentication as authenticationTable, groups as groupsTable } from '../db/schema.ts'
 import type { ModuleProp } from '../helpers/common.ts'
 import type { SystemIds } from './types.ts'
@@ -206,27 +206,41 @@ class Authentication {
    *
    * Config values are completed from the module's declared defaults, so a prop added to a module
    * after a strategy was configured is returned with its default rather than as a missing key.
+   *
+   * @param opts.mask When true, a `sensitive` prop's stored value (an OAuth client secret, an LDAP
+   *   bind password, ...) is replaced with a mask before being returned -- see
+   *   `helpers/common.ts#maskSensitiveConfig`. Defaults to false: `updateStrategy()`'s own merge
+   *   reads through this method too, and needs the real values to preserve an untouched secret
+   *   correctly. The actual login flow never reads config from here at all -- it goes through the
+   *   raw `getStrategies()` below, used only to build `WIKI.auth.strategies` -- so masking here by
+   *   default would not even protect that path, only complicate this one. Only an admin-facing read
+   *   that serializes `config` straight into an HTTP response should pass `{ mask: true }`.
    */
-  async getActiveStrategies(): Promise<AuthStrategy[]> {
+  async getActiveStrategies({ mask = false }: { mask?: boolean } = {}): Promise<AuthStrategy[]> {
     const strategies = await WIKI.db
       .select()
       .from(authenticationTable)
       .orderBy(asc(authenticationTable.displayName))
     return strategies
-      .map((stg) => ({
-        ...stg,
-        autoEnrollGroups: stg.autoEnrollGroups ?? [],
-        mappableGroups: stg.mappableGroups ?? [],
-        config: this.buildConfig(stg.module, {}, stg.config as Record<string, any>)
-      }))
+      .map((stg) => {
+        const config = this.buildConfig(stg.module, {}, stg.config as Record<string, any>)
+        return {
+          ...stg,
+          autoEnrollGroups: stg.autoEnrollGroups ?? [],
+          mappableGroups: stg.mappableGroups ?? [],
+          config: mask
+            ? maskSensitiveConfig(this.getModule(stg.module)?.props ?? {}, config)
+            : config
+        }
+      })
       .sort((a, b) => (isBuiltInLocal(a.id) ? -1 : isBuiltInLocal(b.id) ? 1 : 0))
   }
 
   /**
    * A single configured strategy, or null if there is no such strategy
    */
-  async getStrategyById(id: string): Promise<AuthStrategy | null> {
-    return (await this.getActiveStrategies()).find((stg) => stg.id === id) ?? null
+  async getStrategyById(id: string, opts?: { mask?: boolean }): Promise<AuthStrategy | null> {
+    return (await this.getActiveStrategies(opts)).find((stg) => stg.id === id) ?? null
   }
 
   /**
@@ -241,10 +255,15 @@ class Authentication {
     existing: Record<string, any> = {}
   ): Record<string, any> {
     const props = this.getModule(moduleKey)?.props ?? {}
+    // -> Drops a `sensitive` value that is just the mask being echoed back unchanged, so it falls
+    //    through to `current` below instead of overwriting the real stored secret with the mask
+    //    string itself. See `helpers/common.ts#unmaskSensitiveConfig`.
+    const cleanedIncoming = unmaskSensitiveConfig(props, incoming)
     const config: Record<string, any> = {}
     for (const [key, prop] of Object.entries(props)) {
       const current = existing[key] !== undefined ? existing[key] : prop.default
-      config[key] = prop.readOnly || incoming[key] === undefined ? current : incoming[key]
+      config[key] =
+        prop.readOnly || cleanedIncoming[key] === undefined ? current : cleanedIncoming[key]
     }
     return config
   }

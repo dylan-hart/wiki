@@ -1,5 +1,6 @@
-import { after, before, beforeEach, describe, mock, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import { eq } from 'drizzle-orm'
 import { matchRecoveryCode, users } from './users.ts'
@@ -18,6 +19,7 @@ import {
   pages as pagesTable,
   sessions as sessionsTable,
   userAvatars,
+  userAvatars as userAvatarsTable,
   userGroups as userGroupsTable,
   userKeys,
   users as usersTable
@@ -3359,5 +3361,165 @@ describe('users.updateProfile locale preference (DB-backed)', { skip: !hasTestDa
     assert.equal(updated?.locale, 'en')
     assert.equal(updated?.appearance, 'dark')
     assert.equal(updated?.cvd, 'protanopia')
+  })
+})
+
+/**
+ * OpenProject #1849: `setAvatar` writes the sha1 of the exact (Sharp-normalized-or-not) bytes it
+ * stores, and `getAvatarHash` reads it back without touching `data`. This round-trips the real write
+ * path against a migrated database rather than re-describing its SQL.
+ */
+describe('users.setAvatar / getAvatarHash (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let usersModel: typeof import('./users.ts').users
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ users: usersModel } = await import('./users.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('getAvatarHash returns null for a user with no avatar', async () => {
+    assert.equal(await usersModel.getAvatarHash(fixtures.userId), null)
+  })
+
+  test('setAvatar stores a hash equal to the sha1 of the bytes getAvatar later returns', async () => {
+    await usersModel.setAvatar(fixtures.userId, Buffer.from('first-avatar-bytes'))
+
+    const avatar = await usersModel.getAvatar(fixtures.userId)
+    const hash = await usersModel.getAvatarHash(fixtures.userId)
+
+    assert.ok(avatar)
+    const expected = crypto.createHash('sha1').update(avatar!.data).digest('hex')
+    assert.equal(hash, expected)
+  })
+
+  test('re-uploading different bytes changes the hash', async () => {
+    await usersModel.setAvatar(fixtures.userId, Buffer.from('avatar-version-one'))
+    const firstHash = await usersModel.getAvatarHash(fixtures.userId)
+
+    await usersModel.setAvatar(fixtures.userId, Buffer.from('avatar-version-two-different'))
+    const secondHash = await usersModel.getAvatarHash(fixtures.userId)
+
+    assert.notEqual(firstHash, secondHash)
+    const avatar = await usersModel.getAvatar(fixtures.userId)
+    assert.equal(secondHash, crypto.createHash('sha1').update(avatar!.data).digest('hex'))
+  })
+
+  test('clearAvatar leaves getAvatarHash returning null again', async () => {
+    await usersModel.setAvatar(fixtures.userId, Buffer.from('avatar-to-clear'))
+    assert.ok(await usersModel.getAvatarHash(fixtures.userId), 'sanity: upload landed first')
+
+    await usersModel.clearAvatar(fixtures.userId)
+
+    assert.equal(await usersModel.getAvatarHash(fixtures.userId), null)
+  })
+})
+
+/**
+ * OpenProject #1849: `getAvatarHash` exists specifically so a conditional avatar request never pulls
+ * the blob out of the database. A real Postgres round trip only proves the returned value is correct,
+ * not that the column list sent to it actually shrank — so this spies on `WIKI.db.select` instead,
+ * following the precedent set by `models/pages.test.ts`'s `getPage selection (pure unit, OpenProject
+ * #1834)` describe block.
+ */
+describe('getAvatarHash selection (pure unit, OpenProject #1849)', () => {
+  let previousWiki: typeof globalThis.WIKI
+
+  function stubSelect(row?: Record<string, unknown>) {
+    const calls: Record<string, unknown>[] = []
+    const chain: any = {}
+    chain.from = mock.fn(() => chain)
+    chain.where = mock.fn(() => chain)
+    chain.limit = mock.fn(async () => (row ? [row] : []))
+    const select = mock.fn((config: Record<string, unknown>) => {
+      calls.push(config)
+      return chain
+    })
+    return { select, calls }
+  }
+
+  beforeEach(() => {
+    previousWiki = globalThis.WIKI
+  })
+
+  afterEach(() => {
+    globalThis.WIKI = previousWiki
+  })
+
+  test('the emitted selection asks only for hash, never data', async () => {
+    const { select, calls } = stubSelect({ hash: 'deadbeef' })
+    globalThis.WIKI = { db: { select } } as unknown as typeof globalThis.WIKI
+    const { users: usersModel } = await import('./users.ts')
+
+    const hash = await usersModel.getAvatarHash('user-1')
+
+    assert.equal(hash, 'deadbeef')
+    assert.equal(calls.length, 1)
+    const selectedKeys = Object.keys(calls[0]!)
+    assert.deepEqual(selectedKeys, ['hash'])
+  })
+
+  test('returns null rather than throwing when no row matches', async () => {
+    const { select } = stubSelect(undefined)
+    globalThis.WIKI = { db: { select } } as unknown as typeof globalThis.WIKI
+    const { users: usersModel } = await import('./users.ts')
+
+    assert.equal(await usersModel.getAvatarHash('missing-user'), null)
+  })
+})
+
+/**
+ * `userAvatars.id` carries an `onDelete: 'cascade'` foreign key to `users.id` (see `db/schema.ts`) —
+ * an avatar dies with its user at the database layer, not merely through `deleteUser()` remembering
+ * to clean it up. Deleting the `users` row directly, bypassing `deleteUser()` entirely, is what
+ * actually exercises that the constraint (rather than app code) is what enforces it.
+ */
+describe('userAvatars cascades from users (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+
+  before(async () => {
+    fixtures = await setupTestDb()
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('removes the avatar when the users row is deleted directly, without calling deleteUser()', async () => {
+    const [avatarOwner] = await fixtures.db
+      .insert(usersTable)
+      .values({
+        email: 'avatar-owner@example.com',
+        name: 'Avatar Owner',
+        isActive: true,
+        isVerified: true
+      })
+      .returning({ id: usersTable.id })
+    const userId = avatarOwner!.id
+
+    // -> Inserted directly rather than via `setAvatar()`: this suite is about the FK's own
+    //    `onDelete: 'cascade'`, not the avatar-normalization path, so it needs no real image bytes.
+    await fixtures.db
+      .insert(userAvatarsTable)
+      .values({ id: userId, data: Buffer.from('avatar-bytes'), hash: 'avatar-bytes-hash' })
+    const beforeDelete = await fixtures.db
+      .select()
+      .from(userAvatarsTable)
+      .where(eq(userAvatarsTable.id, userId))
+    assert.equal(beforeDelete.length, 1)
+
+    // -> Direct row delete, not `deleteUser()`: this is what proves the FK's own `onDelete: 'cascade'`
+    //    is doing the work, rather than an app-level call site that happens to also clear the avatar.
+    await fixtures.db.delete(usersTable).where(eq(usersTable.id, userId))
+
+    const afterDelete = await fixtures.db
+      .select()
+      .from(userAvatarsTable)
+      .where(eq(userAvatarsTable.id, userId))
+    assert.equal(afterDelete.length, 0)
   })
 })

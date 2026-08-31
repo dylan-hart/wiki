@@ -112,3 +112,33 @@ describe('CollabPresence aria-live announcement', () => {
     expect(wrapper.find('[role="status"]').text()).toBe('Bob Martin is editing this page with you.')
   })
 })
+
+/**
+ * OpenProject #1855: the per-row avatar in the presence bubble list should not compete with the
+ * initial page render for network priority, and should reserve its own box so the row doesn't
+ * jump once it loads.
+ */
+describe('CollabPresence avatar images', () => {
+  it('renders a participant avatar lazily with explicit dimensions', async () => {
+    const { wrapper, collabStore } = mountPresence()
+
+    collabStore.participants = [
+      { id: 'me', name: 'Ada', color: '#111', isSelf: true, typing: false, hasAvatar: false },
+      {
+        id: 'grace',
+        name: 'Grace Hopper',
+        color: '#222',
+        isSelf: false,
+        typing: false,
+        hasAvatar: true
+      }
+    ]
+    await wrapper.vm.$nextTick()
+
+    const img = wrapper.find('.collab-presence-bubble img')
+    expect(img.exists()).toBe(true)
+    expect(img.attributes('loading')).toBe('lazy')
+    expect(img.attributes('width')).toBe('30')
+    expect(img.attributes('height')).toBe('30')
+  })
+})

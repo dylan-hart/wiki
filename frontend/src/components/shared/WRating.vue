@@ -4,7 +4,7 @@
     role="radiogroup"
     :style="rootStyle"
     :aria-readonly="readonly ? 'true' : undefined"
-    :aria-disabled="disable ? 'true' : undefined"
+    :aria-disabled="disabled ? 'true' : undefined"
     @mouseleave="hovered = 0">
     <div
       v-for="i of max"
@@ -67,7 +67,7 @@ const props = defineProps({
     default: null
   },
   readonly: Boolean,
-  disable: Boolean
+  disabled: Boolean
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -93,7 +93,7 @@ function setContainer(el, i) {
   containers.value[i - 1] = el
 }
 
-const editable = computed(() => !props.readonly && !props.disable)
+const editable = computed(() => !props.readonly && !props.disabled)
 
 const rootStyle = computed(() => ({
   color: `var(--color-${props.color ?? 'yellow'})`,

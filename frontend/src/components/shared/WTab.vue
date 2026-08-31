@@ -4,7 +4,7 @@
     role="tab"
     :aria-selected="String(isActive)"
     :tabindex="isActive ? 0 : -1"
-    :disabled="disable || disabled"
+    :disabled="disabled"
     class="w-tab w-unstyled flex min-h-10 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md px-4 py-1.5 text-sm transition-[background-color,box-shadow,color] duration-200 ease-[var(--ease-standard)]"
     :class="[
       tabs?.inlineLabel.value ? 'flex-row' : 'flex-col',
@@ -17,7 +17,7 @@
       isActive
         ? 'w-tab--active bg-white font-semibold text-black shadow-sm dark:bg-dark-2 dark:text-white'
         : 'font-medium text-black/45 hover:text-black/70 dark:text-white/45 dark:hover:text-white/70',
-      disable || disabled ? 'pointer-events-none opacity-40' : ''
+      disabled ? 'pointer-events-none opacity-40' : ''
     ]"
     @click="tabs?.select(name)">
     <!--
@@ -48,10 +48,6 @@ const props = defineProps({
   icon: {
     type: String,
     default: null
-  },
-  disable: {
-    type: Boolean,
-    default: false
   },
   disabled: {
     type: Boolean,

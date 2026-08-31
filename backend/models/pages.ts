@@ -59,6 +59,15 @@ export function getEditorForContentType(contentType: string): string {
  */
 const REDIRECT_EDITOR = 'redirect'
 
+/**
+ * Hard ceiling on `listPagesForSitemap`'s read. Independent of, and much larger than, the
+ * sitemaps.org 50,000-URL-per-file cap `controllers/seo.ts` paginates its result around — that one
+ * decides how many child sitemaps a large site's page count is split into; this one exists purely so
+ * the query itself can never scan an unbounded table (`security/09-dos-resource.md` finding 5,
+ * OpenProject #1857). Sized well past any realistic installation so ordinary sites never notice it.
+ */
+const SITEMAP_QUERY_CAP = 500_000
+
 /** A page path is what ends up in a URL, so it is held to what reads and routes cleanly. */
 const rePagePath = /^[a-zA-Z0-9-_/]*$/
 const reAlias = /^[a-zA-Z0-9-_]*$/
@@ -92,7 +101,6 @@ export interface UnlockPageRef {
 const CONFIG_FIELDS = [
   'allowComments',
   'allowContributions',
-  'allowRatings',
   'showSidebar',
   'showTags',
   'showToc',
@@ -139,7 +147,6 @@ export interface Page {
   content?: string
   allowComments: boolean
   allowContributions: boolean
-  allowRatings: boolean
   showSidebar: boolean
   showTags: boolean
   showToc: boolean
@@ -188,7 +195,6 @@ export interface PageInput {
   classification?: string
   allowComments?: boolean
   allowContributions?: boolean
-  allowRatings?: boolean
   showSidebar?: boolean
   showTags?: boolean
   showToc?: boolean
@@ -243,6 +249,20 @@ export interface GraphPageRow {
    *  bundle is fetched once with `publicOnly: false` and narrowed per-caller rather than re-queried
    *  per request. */
   publishState: 'draft' | 'published' | 'scheduled'
+}
+
+/** One candidate row for `GET .../backlinks` (OpenProject #1914) -- a page whose extracted
+ *  internal links (`models/rendering.ts#extractInternalLinks`) target the requested page. Carries
+ *  `tags`/`classification` alongside the identifying fields so the route can run `mayOnPage` per
+ *  row, the same way `GraphPageRow` does for the knowledge graph. */
+export interface BacklinkRow {
+  id: string
+  path: string
+  locale: string
+  title: string
+  icon: string | null
+  tags: string[]
+  classification: string
 }
 
 /**
@@ -438,7 +458,6 @@ class Pages {
         : {}),
       allowComments: config.allowComments ?? true,
       allowContributions: config.allowContributions ?? true,
-      allowRatings: config.allowRatings ?? true,
       showSidebar: config.showSidebar ?? true,
       showTags: config.showTags ?? true,
       showToc: config.showToc ?? true,
@@ -629,7 +648,7 @@ class Pages {
    * The immediate-parent classification floor for a set of `(locale, path)` pairs, in one query over
    * their distinct parent paths — the batched form of `parentClassification`, for a caller checking
    * the floor invariant against many targets at once (the classification-conflicts resolve route,
-   * OpenProject #1902).
+   * OpenProject #1897/#1902).
    *
    * @returns A Map keyed by `${locale}\0${path}` (the ORIGINAL pair passed in, not the derived parent
    *          path) so a caller looks up each of its own targets directly without re-deriving the
@@ -720,6 +739,16 @@ class Pages {
    * `publishState` directly, so a caller holding one shared, `publicOnly: false` bundle (the graph
    * cache, OpenProject #2269) can still narrow it to published-only rows itself, per request, without
    * re-querying.
+   *
+   * Deliberately NOT narrowed by actor (OpenProject #1872 proposed pushing a `deriveReadScope`
+   * superset into this `WHERE`): the result of this call is the shared, per-site graph cache
+   * (`api/graph.ts#loadGraphData`, OpenProject #2269), rebuilt by whichever signed-in caller
+   * happens to hit a cold cache first -- any authenticated session may trigger a rebuild, with no
+   * permission floor. Narrowing the fetch to that one caller's own rule set would bake their
+   * read scope into the bundle every other caller reuses until the TTL expires, silently hiding
+   * pages from a more-privileged reader who never triggered the rebuild themselves. The exact,
+   * per-request permission filter still runs unchanged in `assembleGraph`'s `canRead` -- this
+   * function only ever needs to be a safe superset of what SOME caller could read, not this one.
    */
   async listAllForGraph(siteId: string, publicOnly = false): Promise<GraphPageRow[]> {
     return WIKI.db
@@ -739,6 +768,33 @@ class Pages {
       .where(
         and(eq(pagesTable.siteId, siteId), ...pageIsVisible(pagesTable, publicOnly))
       ) as Promise<GraphPageRow[]>
+  }
+
+  /**
+   * Every page on this site whose `links` column (OpenProject #881) contains `targetPath` -- the
+   * raw candidate rows for `GET .../backlinks`, unfiltered by permission. A single `jsonb`
+   * containment query against the array `models/rendering.ts#extractInternalLinks` writes on every
+   * save, the same `@>` pattern `models/classificationLevels.ts`'s `deleteLevel` already uses
+   * against `apiKeys.allowedClassifications`. The route filters each row through `mayOnPage`.
+   */
+  async listBacklinks(siteId: string, targetPath: string): Promise<BacklinkRow[]> {
+    return WIKI.db
+      .select({
+        id: pagesTable.id,
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        title: pagesTable.title,
+        icon: pagesTable.icon,
+        tags: pagesTable.tags,
+        classification: pagesTable.classification
+      })
+      .from(pagesTable)
+      .where(
+        and(
+          eq(pagesTable.siteId, siteId),
+          sql`${pagesTable.links} @> ${JSON.stringify([targetPath])}::jsonb`
+        )
+      ) as Promise<BacklinkRow[]>
   }
 
   /**
@@ -1252,6 +1308,13 @@ class Pages {
     //    permission follows (see CLAUDE.md's Permissions section). This is the structural check: a
     //    page's classification, whichever direction it moves, may never end up below its immediate
     //    parent's floor.
+    // -> Compared against the row as it stands, not merely `!== undefined`: the editor can send a
+    //    patch that restates the current level (same as `changedFields` below does for every other
+    //    field), and `page:classification-changed` (OpenProject #1935) must never fire for that --
+    //    a webhook firing on a no-op change is worse than no webhook for the compliance integrations
+    //    this event exists for.
+    const classificationChanged =
+      patch.classification !== undefined && patch.classification !== existing.classification
     if (patch.classification !== undefined) {
       if (!WIKI.models.classificationLevels.byId(patch.classification)) {
         throw new CustomError(
@@ -1373,6 +1436,20 @@ class Pages {
       })
       .where(eq(treeTable.id, id))
 
+    // -> A generated menu item's label comes from the tree row's title (just synced above), and its
+    //    icon/inclusion at all from `pages.icon`/`isBrowsable`/`publishState` -- any ancestor
+    //    `auto`/`mixed` menu's cached tree walk for this site depends on whichever of these changed
+    //    (OpenProject #1825). This write bypasses `tree.ts`'s own methods (a direct `treeTable`
+    //    update above, not `renameEntry`), so it needs its own invalidation rather than inheriting one.
+    if (
+      treeTitle !== null ||
+      patch.icon !== undefined ||
+      patch.isBrowsable !== undefined ||
+      patch.publishState !== undefined
+    ) {
+      WIKI.models.navigation.invalidateCache(siteId)
+    }
+
     await WIKI.models.search.updated(rawUpdated)
     // -> A glossary term's cached canonical-page mapping (`models/glossary.ts`'s `getRawCachedTerms`)
     //    caches the page's classification and tags alongside its path/locale, and `getCachedTerms`
@@ -1391,6 +1468,17 @@ class Pages {
       authorId: actor.id,
       metadata: { title: updated.title, description: updated.description }
     })
+    if (classificationChanged) {
+      await WIKI.models.hooks.emit('page:classification-changed', siteId, {
+        id,
+        path: updated.path,
+        locale: updated.locale,
+        siteId,
+        authorId: actor.id,
+        previousClassification: existing.classification,
+        classification: updated.classification
+      })
+    }
     await WIKI.models.storage.dispatch('page:edit', {
       id,
       path: updated.path,
@@ -1512,22 +1600,35 @@ class Pages {
   }
 
   /**
-   * The side effects one moved page fires once its transaction has committed -- history, watchers,
-   * search, hooks and storage dispatch, all keyed to what THIS page changed rather than the batch as
-   * a whole, so an `includeTranslations` cascade fires one full set per twin, exactly as if each had
-   * been moved on its own (spec item 2 of OpenProject #1026).
+   * The per-page side effects one moved page fires once its transaction has committed -- history,
+   * watchers, search, hooks and storage dispatch, keyed to what THIS page changed rather than the
+   * batch as a whole, so an `includeTranslations` cascade fires one full set per twin, exactly as if
+   * each had been moved on its own (spec item 2 of OpenProject #1026). Deliberately callable per page
+   * id + previous path/locale rather than a full previous `Page`, so a future bulk mover (e.g. every
+   * descendant of a renamed folder -- OpenProject #1683) can fire this per page without first
+   * assembling a `Page` snapshot of each one.
+   *
+   * Does NOT invalidate the glossary cache itself -- that is a per-SITE concern (OpenProject #870: a
+   * canonical page's path/locale change has to drop the cached term->page mapping), and calling it
+   * once per page in a large batch would be wasteful the same way `deleteOrphaned` calling it once per
+   * entry would be. Instead this reports whether THIS page's move requires it, via the returned
+   * `glossaryInvalidate` flag, and leaves the caller to OR that across the whole batch and call
+   * `WIKI.models.glossary.invalidateCache(siteId)` at most once -- `deleteOrphaned`'s
+   * one-call-covers-the-batch pattern is the reference.
    */
-  private async recordMoveSideEffects(
+  private async recordPageMoveSideEffects(
     siteId: string,
-    previous: Page,
+    pageId: string,
+    previousPath: string,
+    previousLocale: string,
     rawMoved: typeof pagesTable.$inferSelect,
     changedFields: string[],
     actor: PageActor
-  ): Promise<Page> {
-    const moved = (await this.getPage({ siteId, id: previous.id })) as Page
+  ): Promise<{ moved: Page; glossaryInvalidate: boolean }> {
+    const moved = (await this.getPage({ siteId, id: pageId })) as Page
     await WIKI.models.pageHistory.record({
       siteId,
-      pageId: previous.id,
+      pageId,
       action: 'moved',
       authorId: actor.id,
       via: actor.via,
@@ -1535,7 +1636,7 @@ class Pages {
     })
     await this.notifyWatchers(
       siteId,
-      previous.id,
+      pageId,
       'moved',
       actor.id,
       {
@@ -1547,43 +1648,38 @@ class Pages {
       },
       changedFields
     )
-    await WIKI.models.search.renamed(siteId, rawMoved, previous.path, previous.locale)
+    await WIKI.models.search.renamed(siteId, rawMoved, previousPath, previousLocale)
     // -> A moved page's `<loc>` is built from its path and locale, so any move -- not only one that
     //    also affects the glossary's canonical-page cache below -- has to drop the cached sitemap list.
     this.invalidateSitemapCache(siteId)
     // -> A moved page's path is what every edge pointing at it is keyed by (`assembleGraph` matches
     //    relations/links against `row.path`), so a move can silently break edges in a stale bundle.
     invalidateGraphCache(siteId)
-    // -> A glossary term's cached canonical-page mapping (`models/glossary.ts`'s `getRawCachedTerms`)
-    //    caches the page's path, locale, classification and tags, so a canonical page's path or
-    //    locale changing has to drop it too, the same way a term CRUD does -- otherwise the cache
-    //    would keep resolving a link to where the page used to live (OpenProject #870). A
-    //    classification or tags change is `updatePage`'s to invalidate, not this one's.
-    if (moved.path !== previous.path || moved.locale !== previous.locale) {
-      WIKI.models.glossary.invalidateCache(siteId)
-    }
     // -> `previousLocale` alongside `previousPath` because a move can now change either: a consumer
     //    that has to find what the page used to be (the git target's own file for it, say) needs the
     //    whole of where it was, not half of it
     await WIKI.models.hooks.emit('page:rename', siteId, {
-      id: previous.id,
+      id: pageId,
       path: moved.path,
-      previousPath: previous.path,
+      previousPath,
       locale: moved.locale,
-      previousLocale: previous.locale,
+      previousLocale,
       siteId,
       authorId: actor.id
     })
     await WIKI.models.storage.dispatch('page:rename', {
-      id: previous.id,
+      id: pageId,
       path: moved.path,
-      previousPath: previous.path,
+      previousPath,
       locale: moved.locale,
-      previousLocale: previous.locale,
+      previousLocale,
       siteId,
       authorId: actor.id
     })
-    return moved
+    return {
+      moved,
+      glossaryInvalidate: moved.path !== previousPath || moved.locale !== previousLocale
+    }
   }
 
   /**
@@ -1749,17 +1845,26 @@ class Pages {
     }
 
     let primaryMoved: Page | undefined
+    // -> One `invalidateCache` call covers the whole batch (this move plus every `includeTranslations`
+    //    twin), same as `deleteOrphaned` -- rather than once per page, as a per-page call would be.
+    let glossaryInvalidate = false
     for (const result of results) {
-      const moved = await this.recordMoveSideEffects(
+      const { moved, glossaryInvalidate: needsInvalidate } = await this.recordPageMoveSideEffects(
         siteId,
-        result.previous,
+        result.previous.id,
+        result.previous.path,
+        result.previous.locale,
         result.rawMoved,
         result.changedFields,
         actor
       )
+      glossaryInvalidate ||= needsInvalidate
       if (result.previous.id === id) {
         primaryMoved = moved
       }
+    }
+    if (glossaryInvalidate) {
+      WIKI.models.glossary.invalidateCache(siteId)
     }
     return primaryMoved!
   }
@@ -1806,7 +1911,7 @@ class Pages {
     })
     // -> A page that overrode the sidebar owns a menu keyed by its own id, which nothing could reach
     //    once the page is gone
-    await WIKI.models.navigation.deleteNavForEntries([id])
+    await WIKI.models.navigation.deleteNavForEntries(siteId, [id])
     // -> The FK from `glossaryTerms.pageId` is `set null` (see `db/schema.ts`), so a term canonically
     //    linked to this page is unlinked at the db level already; the cached, resolved copy of that
     //    link needs the same drop or it would keep pointing at a page that no longer exists
@@ -1817,6 +1922,10 @@ class Pages {
     this.invalidateSitemapCache(siteId)
     // -> Nor in the cached graph bundle, as a node or as an edge target.
     invalidateGraphCache(siteId)
+
+    // -> `contentSyncState.contentId` isn't a real FK (it can point at a page or an asset), so nothing
+    //    at the db level drops the sync-state rows for this page on its own.
+    await WIKI.models.contentSync.forgetContent('page', id)
 
     await WIKI.models.search.deleted(siteId, id)
     await WIKI.models.hooks.emit('page:delete', siteId, {
@@ -1910,6 +2019,12 @@ class Pages {
     this.invalidateSitemapCache(siteId)
     // -> ...and in the cached graph bundle.
     invalidateGraphCache(siteId)
+
+    // -> Same reasoning as `deletePage`: one batched call rather than one per page.
+    await WIKI.models.contentSync.forgetContentBatch(
+      'page',
+      entries.map((entry) => entry.id)
+    )
 
     // -> One per page, as deleting them one at a time would have sent: a subscriber mirroring the
     //    wiki has to hear about each page, not about the folder it happened to sit in
@@ -2125,6 +2240,12 @@ class Pages {
    * against the guests group's rules with `helpers/pageRules.ts`'s own `read:pages` logic — the same
    * check a real anonymous request would get from `checkAccess` — rather than assuming "published and
    * browsable" already means "public".
+   *
+   * Capped at `SITEMAP_QUERY_CAP` so the query itself can never scan an unbounded table — a distinct
+   * concern from sitemaps.org's own 50,000-URL-per-file limit, which `controllers/seo.ts` paginates
+   * around on the (already-capped) result of this call. Ordered by path so that a page's translations
+   * (same path, several locale rows) land next to each other, keeping a multi-locale hreflang cluster
+   * out of two different paginated child sitemaps in the common case.
    */
   async listPagesForSitemap(
     siteId: string
@@ -2153,6 +2274,8 @@ class Pages {
           eq(pagesTable.isBrowsable, true)
         )
       )
+      .orderBy(pagesTable.path)
+      .limit(SITEMAP_QUERY_CAP)
 
     const guestRules = WIKI.models.groups.rulesForGroups([WIKI.data.systemIds.guestsGroupId])
     const result = rows
@@ -2226,7 +2349,6 @@ class Pages {
     return {
       allowComments: input.allowComments ?? existing.allowComments ?? true,
       allowContributions: input.allowContributions ?? existing.allowContributions ?? true,
-      allowRatings: input.allowRatings ?? existing.allowRatings ?? true,
       showSidebar: input.showSidebar ?? existing.showSidebar ?? true,
       showTags: input.showTags ?? existing.showTags ?? true,
       showToc: input.showToc ?? existing.showToc ?? true,

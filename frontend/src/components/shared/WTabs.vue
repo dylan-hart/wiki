@@ -17,8 +17,8 @@ import { computed, provide, ref } from 'vue'
  * are either `WTabPanels` or, where a caller prefers, plain `v-if` on the same model.
  *
  * The track fill is a utility rather than a rule in this file's stylesheet, so a caller that puts
- * the strip on a surface of its own -- `PageDataDialog` bands it with `alt-card` -- still overrides
- * it. An SFC stylesheet is emitted unlayered and would outrank any such class.
+ * the strip on a surface of its own can still override it with a class like `alt-card`. An SFC
+ * stylesheet is emitted unlayered and would outrank any such class.
  *
  * Simplification: no scroll arrows, no overflow menu. The two tab strips in this app have two tabs
  * each; the strip simply scrolls if it ever cannot fit.

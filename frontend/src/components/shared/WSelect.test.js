@@ -159,7 +159,7 @@ describe('WSelect', () => {
   describe('disabled/readonly', () => {
     it('does not open on click while disabled', async () => {
       const wrapper = mount(WSelect, {
-        props: { modelValue: null, options: ['a'], disable: true, ariaLabel: 'Pick one' }
+        props: { modelValue: null, options: ['a'], disabled: true, ariaLabel: 'Pick one' }
       })
 
       expect(control(wrapper).attributes('disabled')).toBeDefined()

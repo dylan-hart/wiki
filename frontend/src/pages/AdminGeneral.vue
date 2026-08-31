@@ -2,7 +2,7 @@
   <w-page class="admin-general">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-web.svg" alt="" />
+        <w-icon name="img:/_assets/icons/fluent-web.svg" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.general.title') }}</h1>
@@ -229,24 +229,6 @@
             </w-item-section>
           </w-item>
           <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="star-half-empty" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.allowRatings`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.allowRatingsHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section class="flex-none">
-              <w-btn-toggle
-                v-model="state.config.features.ratingsMode"
-                push
-                glossy
-                no-caps
-                toggle-color="primary"
-                :aria-label="t(`admin.general.allowRatings`)"
-                :options="ratingsModes" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
           <w-item tag="label">
             <blueprint-icon icon="search" />
             <w-item-section>
@@ -346,7 +328,7 @@
                       outline
                       icon="la:times"
                       color="primary"
-                      :disable="!state.hasLogo"
+                      :disabled="!state.hasLogo"
                       @click="clearLogo" />
                   </div>
                 </w-item-section>
@@ -420,7 +402,7 @@
                       outline
                       icon="la:times"
                       color="primary"
-                      :disable="!state.hasFavicon"
+                      :disabled="!state.hasFavicon"
                       @click="clearFavicon" />
                   </div>
                 </w-item-section>
@@ -589,6 +571,7 @@ import {
   pickSiteImage,
   uploadSiteImage
 } from '@/helpers/siteImages'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { isValidHostname } from '@/helpers/siteValidation'
 import { hostnameRenamedAway } from '@/helpers/siteRename'
 
@@ -636,8 +619,6 @@ function defaultConfig() {
       follow: false
     },
     features: {
-      ratings: false,
-      ratingsMode: 'off',
       comments: false,
       reasonForChange: 'required',
       profile: false
@@ -681,11 +662,6 @@ const contentLicenses = [
   { value: 'ccbync', text: t('common.license.ccbync') },
   { value: 'ccbyncsa', text: t('common.license.ccbyncsa') },
   { value: 'ccbyncnd', text: t('common.license.ccbyncnd') }
-]
-const ratingsModes = [
-  { value: 'off', label: t('admin.general.ratingsOff') },
-  { value: 'thumbs', label: t('admin.general.ratingsThumbs') },
-  { value: 'stars', label: t('admin.general.ratingsStars') }
 ]
 const reasonForChangeModes = [
   { value: 'off', label: t('admin.general.reasonForChangeOff') },
@@ -740,7 +716,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.general.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()
@@ -775,7 +751,7 @@ function parsePageExtensions(value) {
 async function save() {
   state.loading++
   try {
-    const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
+    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
       json: {
         hostname: state.config.hostname ?? '',
         title: state.config.title ?? '',
@@ -796,7 +772,6 @@ async function save() {
         features: {
           browse: state.config.features?.browse ?? false,
           comments: state.config.features?.comments ?? false,
-          ratingsMode: state.config.features?.ratingsMode ?? 'off',
           profile: state.config.features?.profile ?? false,
           reasonForChange: state.config.features?.reasonForChange ?? 'required',
           search: state.config.features?.search ?? false,
@@ -811,11 +786,6 @@ async function save() {
         }
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.general.${resp?.error}`, resp?.message || t('common.error.unexpected'))
-      )
-    }
     notify({
       type: 'positive',
       message: t('admin.general.saveSuccess')
@@ -852,7 +822,10 @@ async function save() {
     notify({
       type: 'negative',
       message: t('admin.general.saveFailed'),
-      caption: err.message
+      caption: t(
+        `admin.general.${err.data?.error}`,
+        apiErrorMessage(err, t('common.error.unexpected'))
+      )
     })
   }
   state.loading--
@@ -884,7 +857,7 @@ async function uploadLogo() {
     notify({
       type: 'negative',
       message: t('admin.general.logoUploadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--
@@ -904,7 +877,7 @@ async function clearLogo() {
     notify({
       type: 'negative',
       message: t('admin.general.logoClearFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--
@@ -936,7 +909,7 @@ async function uploadFavicon() {
     notify({
       type: 'negative',
       message: t('admin.general.faviconUploadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--
@@ -956,7 +929,7 @@ async function clearFavicon() {
     notify({
       type: 'negative',
       message: t('admin.general.faviconClearFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

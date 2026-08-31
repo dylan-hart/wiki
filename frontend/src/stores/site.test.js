@@ -62,6 +62,28 @@ describe('site store: applySiteInfo() pdfExportAvailable', () => {
 })
 
 /**
+ * OpenProject #1922: `docsBase` reaches `siteStore` from `applySiteInfo` the same way
+ * `pdfExportAvailable` does above -- but, unlike it, the store holds no hardcoded default of its
+ * own. Every in-app "view docs" link is built from this value, so it must always come from the
+ * server (`WIKI.config.docsBase`, from `backend/base.yml`) rather than a frontend literal that could
+ * drift from it.
+ */
+describe('site store: applySiteInfo() docsBase', () => {
+  it('has no hardcoded default before any site info is applied', () => {
+    const store = useSiteStore()
+
+    expect(store.docsBase).toBe('')
+  })
+
+  it('adopts docsBase from the site payload', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture({ docsBase: 'https://docs.example.com' }))
+
+    expect(store.docsBase).toBe('https://docs.example.com')
+  })
+})
+
+/**
  * OpenProject #954: `blocksIndex` reaches `siteStore` from `applySiteInfo` the same way
  * `pdfExportAvailable` does above, so `Index.vue`'s block-loading scan can resolve a custom block's
  * `id`/`isCustom` off the store instead of calling the manage:sites-gated `GET /sites/:siteId/blocks`
@@ -114,7 +136,7 @@ describe('site store: features.comments default', () => {
     const store = useSiteStore()
     store.applySiteInfo({
       pageExtensions: [],
-      features: { ratingsMode: 'stars' },
+      features: { search: true },
       auth: {},
       editors: {
         asciidoc: { isActive: false },
@@ -126,7 +148,7 @@ describe('site store: features.comments default', () => {
     })
 
     expect(store.features.comments).toBe(false)
-    expect(store.features.ratingsMode).toBe('stars')
+    expect(store.features.search).toBe(true)
   })
 })
 
@@ -409,5 +431,19 @@ describe('site store: applySiteInfo() locale direction', () => {
     } finally {
       Intl.Locale = RealLocale
     }
+  })
+})
+
+/**
+ * OpenProject #1911: Page Data / Page Data Templates was decided OUT (#1890) rather than built out --
+ * the dialogs, the disabled rail entry point and this store slot were all dead weight behind an
+ * `experimental` flag with no save path. `pageDataTemplates` must not exist on the store any more.
+ */
+describe('site store: Page Data removal (#1911)', () => {
+  it('does not expose a pageDataTemplates slot', () => {
+    const store = useSiteStore()
+
+    expect(store.$state).not.toHaveProperty('pageDataTemplates')
+    expect(store).not.toHaveProperty('pageDataTemplates')
   })
 })

@@ -83,7 +83,7 @@
                       :rules="groupNameValidation"
                       hide-bottom-space
                       :aria-label="t(`admin.groups.name`)"
-                      :disable="isGuestGroup" />
+                      :disabled="isGuestGroup" />
                   </w-item-section>
                 </w-item>
               </w-card>
@@ -258,7 +258,6 @@
                         <w-chip
                           square
                           dense
-                          :tabindex="scope.tabindex"
                           :color="getRuleModeBgColor(rule.mode)"
                           text-color="white">
                           <span class="text-caption">{{ scope.opt.title }}</span>
@@ -435,7 +434,6 @@
                       <w-input
                         v-else
                         class="mt-2"
-                        standout
                         :model-value="rule.path"
                         @update:model-value="onRulePathInput(rule, $event)"
                         dense
@@ -474,7 +472,7 @@
                       <w-toggle
                         v-model="state.group.permissions"
                         :val="perm.permission"
-                        :disable="isSystemPermissionLocked(perm.permission)"
+                        :disabled="isSystemPermissionLocked(perm.permission)"
                         :aria-label="t(`admin.general.allowComments`)" />
                     </w-item-section>
                   </w-item>
@@ -528,7 +526,6 @@
               :loading="state.isLoadingUsers">
               <template #no-data>
                 <w-banner
-                  rounded
                   :class="dark.isActive ? `bg-negative text-white` : `bg-grey-4 text-grey-9`"
                   >{{ t('admin.groups.usersNone') }}</w-banner
                 >
@@ -987,20 +984,20 @@ async function save() {
         rules: state.group.rules ?? []
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.groups.${resp?.error}`, resp?.message || t('common.error.unexpected'))
-      )
-    }
     notify({
       type: 'positive',
       message: t('admin.groups.saveSuccess')
     })
   } catch (err) {
-    // -> ky throws above 400 with the reason in the body, which is where the server explains itself
+    // -> ky throws above 400 with the reason in the body, which is where the server explains itself;
+    //    some error codes have a nicer translation under `admin.groups.*`, so look it up before
+    //    falling back to the server's own message
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, t('common.error.unexpected'))
+      message: t(
+        `admin.groups.${err.data?.error}`,
+        apiErrorMessage(err, t('common.error.unexpected'))
+      )
     })
   }
   state.isLoading = false
@@ -1140,10 +1137,7 @@ function assignUser() {
     let assigned = 0
     for (const usr of users) {
       try {
-        const resp = await API_CLIENT.post(`groups/${state.group.id}/users/${usr.id}`).json()
-        if (!resp?.ok) {
-          throw new Error(resp?.message || t('common.error.unexpected'))
-        }
+        await API_CLIENT.post(`groups/${state.group.id}/users/${usr.id}`).json()
         assigned++
       } catch (err) {
         // -> ky throws above 400, with the reason in the body
@@ -1175,10 +1169,7 @@ async function unassignUser(user) {
   }).onOk(async () => {
     state.isLoadingUsers = true
     try {
-      const resp = await API_CLIENT.delete(`groups/${state.group.id}/users/${user.id}`)
-      if (!resp?.ok) {
-        throw new Error((await resp.json())?.message || t('common.error.unexpected'))
-      }
+      await API_CLIENT.delete(`groups/${state.group.id}/users/${user.id}`)
       notify({
         type: 'positive',
         message: t('admin.groups.unassignUserSuccess')

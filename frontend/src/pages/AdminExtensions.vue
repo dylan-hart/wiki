@@ -2,7 +2,9 @@
   <w-page class="admin-extensions">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-module.svg" alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-module.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">
@@ -257,9 +259,6 @@ async function install(ext) {
     const resp = await API_CLIENT.post(`system/extensions/${ext.key}/install`, {
       timeout: INSTALL_TIMEOUT
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
     // -> A reinstall repairs the files on disk, but a server that already failed to load the module
     //    keeps failing until it restarts — so that answer is a warning, not a success
     notify({
@@ -275,8 +274,8 @@ async function install(ext) {
     // -> The 20-minute client timeout (INSTALL_TIMEOUT) firing while npm is still genuinely working
     //    on the server must not read like a real failure -- it looks identical to one otherwise, and
     //    a legitimate slow download would send the administrator off to retry an install already in
-    //    flight. `resp?.ok` failures and HTTP errors (ky throws above 400, e.g. the 409 an extension
-    //    that must be installed by hand answers with) fall through to the generic caption below.
+    //    flight. Every other HTTP error (ky throws for every non-2xx status, e.g. the 409 an extension
+    //    that must be installed by hand answers with) falls through to the generic caption below.
     if (isTimeoutError(err)) {
       notify({
         type: 'negative',

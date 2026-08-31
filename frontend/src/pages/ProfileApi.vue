@@ -101,7 +101,7 @@
                 flat
                 :aria-label="t(`profile.api.revoke`)"
                 @click="revoke(key)"
-                :disable="key.isRevoked">
+                :disabled="key.isRevoked">
                 <w-tooltip v-if="!key.isRevoked" anchor="center left" self="center right">{{
                   t('profile.api.revoke')
                 }}</w-tooltip>

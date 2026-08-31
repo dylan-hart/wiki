@@ -2,7 +2,6 @@ import BlueprintIcon from '@/components/BlueprintIcon.vue'
 import StatusLight from '@/components/StatusLight.vue'
 import LoadingGeneric from '@/components/LoadingGeneric.vue'
 import { registerSharedComponents } from '@/components/shared'
-import VNetworkGraph from 'v-network-graph'
 
 export function initializeComponents(app) {
   app.component('BlueprintIcon', BlueprintIcon)
@@ -10,5 +9,6 @@ export function initializeComponents(app) {
   app.component('StatusLight', StatusLight)
   // -> The `w-*` shared library; see components/shared/index.js
   registerSharedComponents(app)
-  app.use(VNetworkGraph)
+  // -> v-network-graph is registered locally in AdminStorage.vue, the sole consumer -- see
+  //    AdminStorage.vue's own `VNetworkGraph` binding and <style> block.
 }

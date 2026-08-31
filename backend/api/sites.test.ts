@@ -163,7 +163,10 @@ async function deleteSite(id: string) {
 
 before(async () => {
   ;(globalThis as any).WIKI = {
-    config: { security: { disallowOpenRedirect: true } },
+    config: {
+      security: { disallowOpenRedirect: true },
+      docsBase: 'https://test.docs.example/docs'
+    },
     models: {
       sites: {
         getSiteByHostname,
@@ -485,21 +488,21 @@ test('manage:sites may still save a patch touching fields beyond theme', async (
 
 /**
  * OpenProject #1893: the route used to maintain a legacy `ratings` boolean alias under `features`,
- * deriving it from `ratingsMode` on every write despite nothing ever reading it. That write has been
- * deleted along with the alias's seeds and JSON Schema entry; a `ratingsMode` patch should reach
- * `updateSite` carrying only the key that was actually sent, never a synthesized `ratings` key
- * alongside it.
+ * derived on every write from a page-ratings config key that OpenProject #1903 has since removed
+ * entirely, despite nothing ever reading the alias. That write has been deleted along with the
+ * alias's seeds and JSON Schema entry; a `features` patch should reach `updateSite` carrying only
+ * the key that was actually sent, never a synthesized `ratings` key alongside it.
  */
-test('a features.ratingsMode patch does not synthesize a legacy ratings alias key', async () => {
+test('a features patch does not synthesize a legacy ratings alias key', async () => {
   const res = await app.inject({
     method: 'PUT',
     url: `/${PUT_SITE_ID}`,
     headers: { 'x-test-permissions': 'manage:sites' },
-    payload: { features: { ratingsMode: 'stars' } }
+    payload: { features: { comments: true } }
   })
   assert.equal(res.statusCode, 200)
   assert.equal(updateSiteCalls.length, 1)
-  assert.deepEqual(updateSiteCalls[0].patch.config.features, { ratingsMode: 'stars' })
+  assert.deepEqual(updateSiteCalls[0].patch.config.features, { comments: true })
 })
 
 /**
@@ -976,6 +979,20 @@ test('pdfExportAvailable reflects the rendering model when the extension is not 
   })
   assert.equal(res.statusCode, 200)
   assert.equal(res.json().pdfExportAvailable, false)
+})
+
+/**
+ * OpenProject #1922: `docsBase` surfaces `WIKI.config.docsBase` (a `base.yml` default, not per-site
+ * config) on the same site-info payload `pdfExportAvailable` above already does, so
+ * `siteStore.docsBase` never needs a hardcoded frontend fallback.
+ */
+test('docsBase reflects WIKI.config.docsBase', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/somehost.example.com'
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().docsBase, 'https://test.docs.example/docs')
 })
 
 /**

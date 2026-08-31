@@ -47,7 +47,7 @@
               icon="mdi:check"
               color="grey"
               :aria-label="t(`inbox.notificationsMarkRead`)"
-              :disable="state.markingRead === notification.id"
+              :disabled="state.markingRead === notification.id"
               @click.stop="markRead(notification)">
               <w-tooltip>{{ t('inbox.notificationsMarkRead') }}</w-tooltip>
             </w-btn>
@@ -95,22 +95,87 @@
             </w-item-label>
           </w-item-section>
           <w-item-section side>
-            <!--
-              `@click.stop`, so pressing Stop Watching does not also follow the row to the page it is
-              about — which would leave the reader on a page they just said they were done with.
-            -->
-            <!-- -> `mdi`, to match the bell this is the undoing of; see the page header -->
-            <w-btn
-              class="acrylic-btn"
-              flat
-              dense
-              icon="mdi:bell-off-outline"
-              color="grey"
-              :aria-label="t(`inbox.watchingUnwatch`)"
-              :disable="state.unwatching === page.pageId"
-              @click.stop="unwatch(page)">
-              <w-tooltip>{{ t('inbox.watchingUnwatch') }}</w-tooltip>
-            </w-btn>
+            <div class="flex items-center gap-1">
+              <!--
+                Task 1895: the PATCH this menu calls already existed (`resolvePreference` /
+                `setPreference` in `models/pageWatching.ts`) with nothing in the UI to reach it -- the
+                watch button only ever PUTs/DELETEs. `@click.stop` on the trigger for the same reason
+                as Stop Watching below: this row is itself clickable, and opening the menu must not
+                also follow it to the page.
+              -->
+              <w-btn
+                class="acrylic-btn"
+                flat
+                dense
+                icon="mdi:tune-variant"
+                color="grey"
+                :aria-label="t('inbox.watchingPreferences')"
+                @click.stop>
+                <w-tooltip>{{ t('inbox.watchingPreferences') }}</w-tooltip>
+                <w-menu
+                  class="translucent-menu"
+                  anchor="bottom right"
+                  self="top right"
+                  :ref="(el) => setPreferenceMenuRef(page.pageId, el)"
+                  @show="openPreferenceMenu(page)">
+                  <w-card style="width: 300px">
+                    <w-card-header>{{ t('inbox.watchingPreferences') }}</w-card-header>
+                    <div class="px-4 pb-2" v-if="state.editingPreference">
+                      <w-select
+                        outlined
+                        dense
+                        class="mb-3"
+                        :label="t('inbox.watchingPreferencesMode')"
+                        v-model="state.editingPreference.notifyMode"
+                        :options="notifyModeOptions"
+                        emit-value
+                        map-options />
+                      <w-checkbox
+                        class="block"
+                        v-model="state.editingPreference.notifyOnEdited"
+                        :label="t('inbox.watchingPreferencesEdited')" />
+                      <w-checkbox
+                        class="mt-2 block"
+                        v-model="state.editingPreference.notifyOnMoved"
+                        :label="t('inbox.watchingPreferencesMoved')" />
+                      <w-checkbox
+                        class="mt-2 block"
+                        v-model="state.editingPreference.notifyOnDeleted"
+                        :label="t('inbox.watchingPreferencesDeleted')" />
+                    </div>
+                    <w-card-actions>
+                      <w-space />
+                      <w-btn
+                        flat
+                        :label="t('common.actions.cancel')"
+                        @click="closePreferenceMenu(page)" />
+                      <w-btn
+                        unelevated
+                        color="primary"
+                        :label="t('common.actions.save')"
+                        :loading="state.savingPreferenceFor === page.pageId"
+                        @click="savePreference(page)" />
+                    </w-card-actions>
+                  </w-card>
+                </w-menu>
+              </w-btn>
+              <!--
+                `@click.stop`, so pressing Stop Watching does not also follow the row to the page it is
+                about — which would leave the reader on a page they just said they were done with.
+              -->
+              <!-- -> `mdi`, to match the bell this is the undoing of; see the page header -->
+              <w-btn
+                class="acrylic-btn"
+                flat
+                dense
+                icon="mdi:bell-off-outline"
+                color="grey"
+                :aria-label="t(`inbox.watchingUnwatch`)"
+                :disabled="state.unwatching === page.pageId"
+                @click.stop="unwatch(page)">
+                <w-tooltip>{{ t('inbox.watchingUnwatch') }}</w-tooltip>
+              </w-btn>
+            </div>
           </w-item-section>
         </w-item>
       </w-list>
@@ -166,8 +231,28 @@ const state = reactive({
   loadingNotifications: 0,
   notifications: [],
   /** The notification whose Mark Read is in flight, so its button cannot be pressed twice. */
-  markingRead: null
+  markingRead: null,
+  /** A copy of the preference the open menu is editing, seeded fresh from the page's own on open. */
+  editingPreference: null,
+  /** The page whose preference Save is in flight, so its button cannot be pressed twice. */
+  savingPreferenceFor: null
 })
+
+/** One `<w-menu>` ref per watched page, keyed by pageId, so Save/Cancel can close the right one. */
+const preferenceMenuRefs = new Map()
+
+function setPreferenceMenuRef(pageId, el) {
+  if (el) {
+    preferenceMenuRefs.set(pageId, el)
+  } else {
+    preferenceMenuRefs.delete(pageId)
+  }
+}
+
+const notifyModeOptions = [
+  { value: 'digest', label: t('inbox.watchingPreferencesModeDigest') },
+  { value: 'immediate', label: t('inbox.watchingPreferencesModeImmediate') }
+]
 
 // MOUNTED
 
@@ -290,5 +375,40 @@ async function unwatch(page) {
     })
   }
   state.unwatching = null
+}
+
+/**
+ * Notification preferences for one watch (task 1895).
+ *
+ * Opened, edited and saved as a copy in `state.editingPreference` rather than mutating `page`
+ * directly: Cancel has to be able to walk away from a half-edited select/checkboxes without leaving
+ * the row showing a preference that was never actually saved.
+ */
+function openPreferenceMenu(page) {
+  state.editingPreference = { ...page.preference }
+}
+
+function closePreferenceMenu(page) {
+  preferenceMenuRefs.get(page.pageId)?.hide()
+}
+
+async function savePreference(page) {
+  state.savingPreferenceFor = page.pageId
+  try {
+    const resp = await API_CLIENT.patch(`sites/${siteStore.id}/pages/${page.pageId}/watch`, {
+      json: state.editingPreference
+    }).json()
+    if (resp?.preference) {
+      page.preference = resp.preference
+    }
+    preferenceMenuRefs.get(page.pageId)?.hide()
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('inbox.watchingPreferencesSaveFailed'),
+      caption: apiErrorMessage(err)
+    })
+  }
+  state.savingPreferenceFor = null
 }
 </script>

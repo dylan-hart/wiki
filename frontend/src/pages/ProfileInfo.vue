@@ -158,7 +158,7 @@
           no-caps
           toggle-color="primary"
           :options="timeFormats"
-          :disable="!canEdit"
+          :disabled="!canEdit"
           :aria-label="t(`profile.timeFormat`)" />
       </w-item-section>
     </w-item>
@@ -177,7 +177,7 @@
           no-caps
           toggle-color="primary"
           :options="appearances"
-          :disable="!canEdit"
+          :disabled="!canEdit"
           :aria-label="t(`profile.appearance`)" />
       </w-item-section>
     </w-item>
@@ -196,17 +196,17 @@
           no-caps
           toggle-color="primary"
           :options="cvdChoices"
-          :disable="!canEdit"
+          :disabled="!canEdit"
           :aria-label="t(`profile.cvd`)" />
       </w-item-section>
     </w-item>
     <div v-if="canEdit" class="actions-bar mt-6">
       <w-btn
-        icon="la:check"
+        icon="mdi:check"
         unelevated
         :label="t(`common.actions.saveChanges`)"
         color="secondary"
-        :disable="state.loading > 0"
+        :disabled="state.loading > 0"
         @click="save" />
     </div>
   </w-page>
@@ -218,6 +218,7 @@ import { useI18n } from 'vue-i18n'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { computed, onMounted, reactive } from 'vue'
 
 import { useCommonStore } from '@/stores/common'
@@ -301,7 +302,7 @@ async function fetchProfile() {
     notify({
       type: 'negative',
       message: t('profile.infoLoadingFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--
@@ -346,9 +347,6 @@ async function save() {
         locale: commonStore.locale
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
     if (resp.profile) {
       applyProfile(resp.profile)
     }
@@ -370,7 +368,7 @@ async function save() {
     notify({
       type: 'negative',
       message: t('profile.saveFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err, 'An unexpected error occured')
     })
   }
   loading.hide()

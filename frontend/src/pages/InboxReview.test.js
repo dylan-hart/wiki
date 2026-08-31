@@ -236,6 +236,64 @@ describe('InboxReview approveSubmission / rejectSubmission not-found (404)', () 
   })
 })
 
+/**
+ * OpenProject #2137: the decline confirmation now carries a reason field, and what a reviewer types
+ * into it must reach the reject route's body -- `models/approvals.ts#rejectSubmission`'s
+ * `resolvedReason`, shown back to the submission's author. The dialog itself
+ * (`InboxDeclineDialog.vue`) is never mounted here, the same way the plain confirm dialog wasn't
+ * before it: `dialog()`'s `openDialogs` is a stub with no `<w-dialog-host>` rendering it, so its
+ * `onOk` payload is simulated directly through `closeDialog`.
+ */
+describe('InboxReview decline reason (OpenProject #2137)', () => {
+  function mockSubmissionEndpoints() {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (String(url).endsWith('/approvals/submissions')) {
+        return { json: () => Promise.resolve([]) }
+      }
+      return { json: () => Promise.resolve(submissionDetail()) }
+    })
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, message: 'Edit suggestion declined.' })
+    })
+  }
+
+  it('sends the typed reason in the reject request body', async () => {
+    mockSubmissionEndpoints()
+    const wrapper = await mountReview()
+
+    const button = rejectButton(wrapper)
+    expect(button).toBeTruthy()
+    await button.trigger('click')
+
+    const declineDialog = openDialogs.at(-1)
+    expect(declineDialog).toBeTruthy()
+    // -> What typing a reason into the dialog and pressing Decline hands back to `onOk`
+    closeDialog(declineDialog.id, true, { reason: 'Overlaps with an existing section' })
+    await flushPromises()
+
+    expect(API_CLIENT.post).toHaveBeenCalledTimes(1)
+    const [url, opts] = API_CLIENT.post.mock.calls[0]
+    expect(String(url)).toBe(`sites/site-1/approvals/submissions/${SUBMISSION_ID}/reject`)
+    expect(opts).toEqual({ json: { reason: 'Overlaps with an existing section' } })
+  })
+
+  it('omits the reason from the request body when none was typed', async () => {
+    mockSubmissionEndpoints()
+    const wrapper = await mountReview()
+
+    const button = rejectButton(wrapper)
+    await button.trigger('click')
+
+    const declineDialog = openDialogs.at(-1)
+    closeDialog(declineDialog.id, true, { reason: null })
+    await flushPromises()
+
+    expect(API_CLIENT.post).toHaveBeenCalledTimes(1)
+    const [, opts] = API_CLIENT.post.mock.calls[0]
+    expect(opts).toBeUndefined()
+  })
+})
+
 describe('InboxReview multi-approver threshold (OpenProject #828)', () => {
   it('shows no approval-progress badge for an ordinary single-approver submission', async () => {
     API_CLIENT.get.mockImplementation((url) => {

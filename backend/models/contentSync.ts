@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNotNull, isNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, isNotNull, isNull, notExists, or, sql } from 'drizzle-orm'
 import {
   assets as assetsTable,
   contentSyncState as contentSyncStateTable,
@@ -165,7 +165,16 @@ class ContentSync {
   ): Promise<TargetSyncSummary> {
     const [[syncedRow], [errorRow], outOfDatePagesCount, outOfDateAssetsCount] = await Promise.all([
       WIKI.db
-        .select({ lastSyncedAt: sql<Date | null>`max(${contentSyncStateTable.lastSyncedAt})` })
+        .select({
+          // -> `.mapWith(contentSyncStateTable.lastSyncedAt)` reuses the column's own decoder: a raw
+          //    `sql` fragment has no column of its own for drizzle's node-postgres driver to look up a
+          //    decoder for, so without this the aggregate comes back as the undecoded wire string
+          //    (e.g. `"2026-08-31 12:47:05.013+00"`) instead of a `Date`, and the `.toISOString()`
+          //    below throws.
+          lastSyncedAt: sql<Date | null>`max(${contentSyncStateTable.lastSyncedAt})`.mapWith(
+            contentSyncStateTable.lastSyncedAt
+          )
+        })
         .from(contentSyncStateTable)
         .where(eq(contentSyncStateTable.targetId, targetId)),
       WIKI.db
@@ -270,6 +279,43 @@ class ContentSync {
         ],
         set: { lastError: error, updatedAt: sql`now()` }
       })
+  }
+
+  /**
+   * Drop every sync-state row for one content item, across every target. Call this when the page or
+   * asset itself is deleted -- `contentId` is deliberately not a foreign key (see the schema comment
+   * on `contentSyncState`, since it points at either `pages.id` or `assets.id`), so nothing at the db
+   * level cleans this up on its own; this is the compensating delete that design assumed.
+   *
+   * Covered cheaply by the existing `contentSyncState_content_idx` (`(contentType, contentId)`).
+   */
+  async forgetContent(contentType: SyncContentType, contentId: string): Promise<void> {
+    await WIKI.db
+      .delete(contentSyncStateTable)
+      .where(
+        and(
+          eq(contentSyncStateTable.contentType, contentType),
+          eq(contentSyncStateTable.contentId, contentId)
+        )
+      )
+  }
+
+  /**
+   * Same as `forgetContent`, but for a batch of content items of the same type in one call -- what a
+   * folder deletion's bulk `deleteOrphaned` path needs, rather than one query per item.
+   */
+  async forgetContentBatch(contentType: SyncContentType, contentIds: string[]): Promise<void> {
+    if (contentIds.length < 1) {
+      return
+    }
+    await WIKI.db
+      .delete(contentSyncStateTable)
+      .where(
+        and(
+          eq(contentSyncStateTable.contentType, contentType),
+          inArray(contentSyncStateTable.contentId, contentIds)
+        )
+      )
   }
 
   /**
@@ -404,6 +450,41 @@ class ContentSync {
       )
       .as('out_of_date_assets')
     return WIKI.db.$count(outOfDateAssets)
+  }
+
+  /**
+   * Sweeps rows whose `contentId` no longer matches any `pages`/`assets` row -- the backstop for the
+   * delete-path's own cleanup (which drops a content item's `contentSyncState` rows as part of
+   * deleting the item itself). This exists for rows the delete path never reached: ones written before
+   * that cleanup existed, or lost to a dispatch that failed partway through. `contentId` is
+   * deliberately not a foreign key (see the table's own doc comment), so nothing else enforces this.
+   *
+   * One bounded `DELETE`, no batching -- mirrors `pageviews.ts#purgeExpired`'s shape.
+   */
+  async purgeOrphaned(): Promise<number> {
+    const result = await WIKI.db.delete(contentSyncStateTable).where(
+      or(
+        and(
+          eq(contentSyncStateTable.contentType, 'page'),
+          notExists(
+            WIKI.db
+              .select({ exists: sql`1` })
+              .from(pagesTable)
+              .where(eq(pagesTable.id, contentSyncStateTable.contentId))
+          )
+        ),
+        and(
+          eq(contentSyncStateTable.contentType, 'asset'),
+          notExists(
+            WIKI.db
+              .select({ exists: sql`1` })
+              .from(assetsTable)
+              .where(eq(assetsTable.id, contentSyncStateTable.contentId))
+          )
+        )
+      )
+    )
+    return result.rowCount ?? 0
   }
 }
 

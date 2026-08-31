@@ -94,6 +94,7 @@ import { useI18n } from 'vue-i18n'
 import { onMounted, reactive, ref } from 'vue'
 
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 // I18N
 
@@ -129,18 +130,13 @@ const timezones = Intl.supportedValuesOf('timeZone')
 async function save() {
   state.loading++
   try {
-    const resp = await API_CLIENT.put('users/defaults', {
+    await API_CLIENT.put('users/defaults', {
       json: {
         timezone: state.timezone,
         dateFormat: state.dateFormat,
         timeFormat: state.timeFormat
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.users.${resp?.error}`, resp?.message || t('common.error.unexpected'))
-      )
-    }
     notify({
       type: 'positive',
       message: t('admin.users.defaultsSaveSuccess')
@@ -150,7 +146,10 @@ async function save() {
     notify({
       type: 'negative',
       message: t('admin.users.defaultsSaveFailed'),
-      caption: err.message
+      caption: t(
+        `admin.users.${err.data?.error}`,
+        apiErrorMessage(err, t('common.error.unexpected'))
+      )
     })
   }
   state.loading--
@@ -169,7 +168,7 @@ onMounted(async () => {
     notify({
       type: 'negative',
       message: t('admin.users.defaultsLoadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

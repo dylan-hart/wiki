@@ -150,16 +150,12 @@ async function rename() {
     if (!isFormValid) {
       throw new Error(t('fileman.renameFolderInvalidData'))
     }
-    const resp = await API_CLIENT.patch(`sites/${siteStore.id}/tree/folders/${props.folderId}`, {
+    await API_CLIENT.patch(`sites/${siteStore.id}/tree/folders/${props.folderId}`, {
       json: {
         pathName: state.path,
         title: state.title
       }
     }).json()
-    // -> The API client does not throw on 400, so a refused name comes back as a parsed error
-    if (resp?.ok === false) {
-      throw new Error(resp.message || t('common.error.unexpected'))
-    }
     notify({
       type: 'positive',
       message: t('fileman.renameFolderSuccess')

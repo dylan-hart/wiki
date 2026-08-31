@@ -41,7 +41,7 @@ describe('WRange', () => {
 
   it('marks both handle buttons disabled and out of the tab order when disabled', () => {
     const wrapper = mount(WRange, {
-      props: { modelValue: { min: 2, max: 8 }, min: 0, max: 10, disable: true }
+      props: { modelValue: { min: 2, max: 8 }, min: 0, max: 10, disabled: true }
     })
 
     for (const handle of wrapper.findAll('button')) {
@@ -52,7 +52,7 @@ describe('WRange', () => {
 
   it('emits no update:modelValue on ArrowLeft/ArrowRight/Home/End while disabled', async () => {
     const wrapper = mount(WRange, {
-      props: { modelValue: { min: 2, max: 8 }, min: 0, max: 10, disable: true }
+      props: { modelValue: { min: 2, max: 8 }, min: 0, max: 10, disabled: true }
     })
     const [minHandle, maxHandle] = wrapper.findAll('button')
 

@@ -266,8 +266,7 @@ describe('AuthLoginPanel register', () => {
         name: 'Ada Lovelace',
         email: 'ada@example.com',
         password: 'supersecret1'
-      },
-      throwHttpErrors: expect.any(Function)
+      }
     })
 
     await wrapper.vm.$nextTick()
@@ -452,8 +451,7 @@ describe('AuthLoginPanel reset password', () => {
         strategyId: 'strategy-1',
         token: 'tok-abc',
         newPassword: 'supersecret1'
-      },
-      throwHttpErrors: expect.any(Function)
+      }
     })
 
     await vi.waitFor(() => expect(wrapper.text()).toContain('Security code required:'))

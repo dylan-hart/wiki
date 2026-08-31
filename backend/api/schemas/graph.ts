@@ -160,12 +160,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       contributors: {
         $ref: 'GraphContributorCounts#',
         description:
-          "Unique-contributor counts from this page's edit history (OpenProject #1141), the source for the graph's edit-volume node sizing."
+          "Unique-contributor counts from this page's edit history (OpenProject #1141), the source for the graph's edit-volume node sizing. Omitted entirely unless the request carries `?sizing=` (OpenProject #1863)."
       },
       pageviews: {
         $ref: 'GraphPageviewCounts#',
         description:
-          "Unique-visitor counts from this page's pageview log (OpenProject #1140), the source for the graph's page-visit-volume node sizing. Zeroed while pageview tracking is disabled (`WIKI.config.pageviews.isEnabled`), same as for a page with no pageviews logged."
+          "Unique-visitor counts from this page's pageview log (OpenProject #1140), the source for the graph's page-visit-volume node sizing. Zeroed while pageview tracking is disabled (`WIKI.config.pageviews.isEnabled`), same as for a page with no pageviews logged. Omitted entirely unless the request carries `?sizing=` (OpenProject #1863)."
       }
     }
   })
@@ -200,7 +200,18 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     type: 'object',
     properties: {
       nodes: { type: 'array', items: { $ref: 'GraphNode#' } },
-      edges: { type: 'array', items: { $ref: 'GraphEdge#' } }
-    }
+      edges: { type: 'array', items: { $ref: 'GraphEdge#' } },
+      truncated: {
+        type: 'boolean',
+        description:
+          'Whether the node set was cut off by the server-side node cap (OpenProject #1866) -- when true, `nodes` holds only a subset of `totalNodes` readable pages, and every edge touching a dropped node has been dropped with it.'
+      },
+      totalNodes: {
+        type: 'integer',
+        description:
+          'Count of pages the caller may read, before the cap is applied. Equal to `nodes.length` when `truncated` is false.'
+      }
+    },
+    required: ['nodes', 'edges', 'truncated', 'totalNodes']
   })
 }

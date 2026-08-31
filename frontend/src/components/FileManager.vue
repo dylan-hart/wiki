@@ -173,7 +173,7 @@
                 @click="insertItem()"
                 :label="t(`common.actions.insert`)"
                 color="primary"
-                icon="la:plus-circle"
+                icon="la:plus"
                 push
                 padding="sm" />
             </template>
@@ -335,7 +335,7 @@
               color="blue"
               :label="t(`common.actions.new`)"
               :aria-label="t(`common.actions.new`)"
-              icon="la:plus-circle">
+              icon="la:plus">
               <new-menu
                 :hide-asset-btn="true"
                 :show-new-folder="true"
@@ -367,7 +367,7 @@
               color="primary"
               :label="t(`common.actions.insert`)"
               :aria-label="t(`common.actions.insert`)"
-              icon="la:plus-circle"
+              icon="la:plus"
               @click="insertItem()" />
           </template>
         </w-toolbar>
@@ -433,7 +433,7 @@
                           v-if="insertMode && item.type !== `folder`"
                           @click="insertItem(item)">
                           <w-item-section side>
-                            <w-icon name="la:plus-circle" color="primary" />
+                            <w-icon name="la:plus" color="primary" />
                           </w-item-section>
                           <w-item-section>{{ t(`common.actions.insert`) }}</w-item-section>
                         </w-item>
@@ -1357,7 +1357,7 @@ async function uploadFiles(filesToUpload) {
           // -> The body is the file itself rather than a multipart form. The locale is the one
           //    currently being browsed, so an upload lands in the same locale as the folder it was
           //    dropped into rather than always the site's primary.
-          const resp = await API_CLIENT.post(`sites/${siteStore.id}/assets`, {
+          await API_CLIENT.post(`sites/${siteStore.id}/assets`, {
             searchParams: {
               fileName: fileToUpload.name,
               locale: state.locale,
@@ -1368,10 +1368,6 @@ async function uploadFiles(filesToUpload) {
             },
             body: fileToUpload
           }).json()
-          // -> The API client does not throw on 400, so a refused file comes back as a parsed error
-          if (resp?.ok === false) {
-            throw new Error(resp.message || t('common.error.unexpected'))
-          }
         }
         state.uploadPercentage = 100
         loadTree({ parentId: state.currentFolderId })

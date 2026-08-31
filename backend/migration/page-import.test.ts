@@ -99,6 +99,12 @@ class FakePagesModel implements PagesWriteModel {
     }
     const id = `page-${this.nextId++}`
     this.created.push({ siteId, input, actor })
+    // -> Mirrors the real `models/pages.ts#createPage()`'s own behavior (OpenProject #1716): content
+    //    with no `render` queues its own re-render internally, with no separate caller-side call --
+    //    `page-import.ts` relies on exactly this (OpenProject #1723).
+    if (input.render === undefined) {
+      this.queued.push({ siteId, id, actor })
+    }
     return {
       id,
       path: input.path,
@@ -122,7 +128,6 @@ class FakePagesModel implements PagesWriteModel {
       render: input.render ?? '',
       allowComments: true,
       allowContributions: true,
-      allowRatings: true,
       showSidebar: true,
       showTags: true,
       showToc: true,
@@ -135,11 +140,6 @@ class FakePagesModel implements PagesWriteModel {
       updatedAt: new Date(),
       classification: input.classification ?? 'classification-1'
     }
-  }
-
-  async queueRerender(siteId: string, id: string, actor: PageActor): Promise<boolean> {
-    this.queued.push({ siteId, id, actor })
-    return true
   }
 }
 
@@ -451,7 +451,7 @@ describe('importPages', () => {
     )
   })
 
-  test('defaults to passthrough rendering: render carried straight through, no queueRerender call', async () => {
+  test('defaults to passthrough rendering: render carried straight through, no render queued', async () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ render: '<p>from 2.x</p>' })
 
@@ -465,7 +465,7 @@ describe('importPages', () => {
     assert.equal(pagesModel.queued.length, 0)
   })
 
-  test('renderBootstrap "queue" creates with empty render and calls queueRerender for a markdown page', async () => {
+  test('renderBootstrap "queue" creates with no render, and createPage() alone queues exactly one re-render for a markdown page', async () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ editorKey: 'markdown', render: '<p>stale 2.x render</p>' })
 

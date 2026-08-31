@@ -5,7 +5,7 @@ author: requarks.io
 logo: https://static.requarks.io/logo/commento.svg
 website: https://commento.io/
 codeTemplate: true
-isAvailable: true
+isAvailable: false
 props:
   instanceUrl:
     type: String

@@ -2,10 +2,9 @@
   <w-page class="admin-analytics">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-bar-chart.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-bar-chart.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.analytics.title') }}</h1>
@@ -174,6 +173,7 @@ import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 
@@ -288,7 +288,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.analytics.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()
@@ -317,14 +317,11 @@ async function save() {
         config
       }
     }
-    const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
+    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
       json: {
         analytics: { providers }
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
     notify({
       type: 'positive',
       message: t('admin.analytics.saveSuccess')
@@ -333,7 +330,7 @@ async function save() {
     notify({
       type: 'negative',
       message: t('admin.analytics.saveFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err, 'An unexpected error occured.')
     })
   }
   state.loading--

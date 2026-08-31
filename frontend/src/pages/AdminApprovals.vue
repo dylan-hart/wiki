@@ -2,10 +2,9 @@
   <w-page>
     <div class="flex flex-wrap items-center p-4">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-inspection-animated.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-inspection-animated.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.approval.title') }}</h1>
@@ -14,16 +13,6 @@
         </div>
       </div>
       <div class="flex flex-none">
-        <w-btn
-          class="mr-2 acrylic-btn"
-          icon="la:question-circle"
-          flat
-          color="grey"
-          :aria-label="t(`common.actions.viewDocs`)"
-          :href="siteStore.docsBase + `/admin/approvals`"
-          target="_blank">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
-        </w-btn>
         <w-btn
           class="acrylic-btn mr-2"
           icon="la:redo-alt"
@@ -141,7 +130,6 @@ import { confirm, dialog } from '@/composables/dialog'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 
 import { useAdminStore } from '@/stores/admin'
-import { useSiteStore } from '@/stores/site'
 
 import ApprovalRuleDialog from '@/components/ApprovalRuleDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
@@ -156,7 +144,6 @@ useSiteAdminAccess('site:approvals')
 // STORES
 
 const adminStore = useAdminStore()
-const siteStore = useSiteStore()
 
 // I18N
 
@@ -250,9 +237,6 @@ async function setEnabled(rule, isEnabled) {
       `sites/${adminStore.currentSiteId}/approvals/rules/${rule.id}`,
       { json: { isEnabled } }
     ).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
     Object.assign(rule, resp.rule)
     notify({
       type: 'positive',
@@ -302,12 +286,7 @@ function deleteRule(rule) {
   }).onOk(async () => {
     state.loading++
     try {
-      const resp = await API_CLIENT.delete(
-        `sites/${adminStore.currentSiteId}/approvals/rules/${rule.id}`
-      )
-      if (!resp?.ok) {
-        throw new Error((await resp.json())?.message || t('common.error.unexpected'))
-      }
+      await API_CLIENT.delete(`sites/${adminStore.currentSiteId}/approvals/rules/${rule.id}`)
       notify({
         type: 'positive',
         message: t('admin.approval.deleteSuccess')

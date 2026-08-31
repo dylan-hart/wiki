@@ -53,6 +53,7 @@ test('the Site schema registers editors.code alongside asciidoc/markdown/wysiwyg
  */
 test('buildSitePayload returns exactly the allow-listed keys and never `search`', async () => {
   ;(globalThis as any).WIKI = {
+    config: { docsBase: 'https://test.docs.example/docs' },
     models: {
       rendering: { isAvailable: async () => false },
       blocks: { getSiteBlocks: async () => [] }
@@ -107,6 +108,7 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
     'defaults',
     'description',
     'discoverable',
+    'docsBase',
     'editors',
     'features',
     'footerExtra',

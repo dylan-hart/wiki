@@ -26,7 +26,10 @@ defaults:
       # headroom under such a burst while staying well under Postgres' own default `max_connections`
       # (100), which also has to cover other app instances, the scheduler's worker-thread pools
       # (each a separate `{min:0,max:1}` connection — see `workerMode` in `core/db.ts`), and
-      # admin/maintenance connections.
+      # admin/maintenance connections. `max` also needs headroom above the 3 connections permanently
+      # held open for LISTEN (event bus in core/db.ts, scheduler in core/scheduler.ts, collab in
+      # core/collab.ts, all checked out via helpers/pubsub.ts) — see config.sample.yml's `pool:`
+      # section for the operator-facing writeup.
       max: 20
       connectionTimeoutMillis: 5000
       statementTimeoutMillis: 60000
@@ -181,6 +184,10 @@ defaults:
       # Whether the daily updateLocales scheduled job is allowed to pull the latest strings from
       # requarks/wiki-locales. Set to false to disable automatic locale syncing.
       locales: true
+    # Base URL for this fork's own documentation, prepended to every in-app "view docs" / help link
+    # (`siteStore.docsBase` on the frontend). Matches README.md's own Documentation link -- keep the
+    # two in sync if this ever changes.
+    docsBase: 'https://beta.js.wiki/docs'
     # Settings when running in dev mode only -- read directly off WIKI.config.dev by core/db.ts
     # (dropSchema, logQueries) and by frontend/vite.config.js (port, hmrClientPort) for its dev-server
     # proxy target. Declared here so config.sample.yml's `dev:` block (which every dev checkout ships)

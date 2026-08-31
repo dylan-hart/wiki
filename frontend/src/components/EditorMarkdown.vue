@@ -359,6 +359,7 @@ import {
 import { dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { useMinWidth } from '@/composables/screen'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { assetPath } from '@/helpers/assets'
 import { blockMarkdown } from '@/helpers/blocks'
 import { directionalAnchor } from '@/helpers/directionalAnchor'
@@ -784,7 +785,7 @@ async function insertTabset() {
     notify({
       type: 'negative',
       message: t('editor.blockPicker.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
 }
@@ -1329,16 +1330,14 @@ function onDividerPointerUp() {
 async function persistPreviewWidth(px) {
   const payload = { ...editorStore.userSettings.markdown, previewWidth: px }
   try {
-    const resp = await API_CLIENT.put('users/profile/editor-settings/markdown', {
+    await API_CLIENT.put('users/profile/editor-settings/markdown', {
       json: payload
     }).json()
-    if (resp?.ok) {
-      editorStore.$patch({
-        userSettings: { ...editorStore.userSettings, markdown: payload }
-      })
-    }
+    editorStore.$patch({
+      userSettings: { ...editorStore.userSettings, markdown: payload }
+    })
   } catch (err) {
-    console.warn(`Could not save the Markdown editor's preview width: ${err.message}`)
+    console.warn(`Could not save the Markdown editor's preview width: ${apiErrorMessage(err)}`)
   }
 }
 
@@ -1503,7 +1502,7 @@ function processContent(newContent) {
     notify({
       type: 'negative',
       message: t('editor.renderFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
     return
   }
@@ -1750,109 +1749,6 @@ function flushEditorContentForSave() {
   flushEditorContent()
   flushStaleRenderIfNeeded()
 }
-
-/**
- * Puts up the resolution dialog once `pageSave()` has flagged a save the server refused because
- * somebody else saved first (`editorStore.saveConflict`, the page snapshot the 409 came back with --
- * see `stores/page.js`).
- *
- * Offers two ways out: adopt the server's version wholesale, or re-issue the save with the server's
- * `updatedAt` as the new baseline -- an informed overwrite, now that this author has been told there
- * was something to overwrite, rather than the blind one `expectedUpdatedAt` exists to prevent.
- *
- * Either choice recovers this author's edit one way or another -- discard adopts the server's content
- * in its place, overwrite forces this author's own content through as the new version -- so a 409
- * is never a dead end (OpenProject #838, upstream requarks/wiki #2256). Nothing here is lost if the
- * overwrite's own `pageSave()` hits a second conflict, either: the 409 handler in `stores/page.js`
- * sets `editorStore.saveConflict` again, which re-triggers the `watch` below and puts this same
- * dialog back up with the newer snapshot -- the editor's content itself is never touched by a
- * refusal, only ever replaced by an explicit "Discard" choice.
- *
- * A "Discard" choice is itself still recoverable (OpenProject #2073): the author's pending content is
- * stashed in `editorStore.discardedContent` right before it is overwritten, and the toast that
- * follows offers it straight back via `undoDiscard()` below.
- */
-function resolveSaveConflict(snapshot) {
-  dialog({
-    component: defineAsyncComponent(() => import('./PageSaveConflictDialog.vue')),
-    componentProps: { authorName: snapshot.authorName }
-  })
-    .onOk(async (action) => {
-      if (action === 'discard') {
-        editorStore.stashDiscardedContent(pageStore.content)
-        pageStore.$patch({
-          title: snapshot.title,
-          content: snapshot.content,
-          contentLoaded: true,
-          updatedAt: snapshot.updatedAt
-        })
-        editor.setValue(snapshot.content)
-        processContent(pageStore.content)
-        // -> This render is current as of the line above, whatever was pending before it
-        state.renderIsStale = false
-        // -> Adopting the server's copy leaves nothing of this author's pending; see `hasPendingChanges`
-        const now = Temporal.Now.instant()
-        editorStore.$patch({ lastChangeTimestamp: now, lastSaveTimestamp: now })
-        notify({
-          type: 'warning',
-          message: t('editor.collab.saveConflict.discarded'),
-          // -> Longer than the 5s default: this toast is the only remaining route back to the
-          //    author's discarded text, so it should still be there a moment after a quick glance.
-          timeout: 10000,
-          action: {
-            label: t('editor.collab.saveConflict.undoDiscard'),
-            onClick: undoDiscard
-          }
-        })
-      } else if (action === 'overwrite') {
-        pageStore.updatedAt = snapshot.updatedAt
-        try {
-          await pageStore.pageSave()
-          notify({
-            type: 'positive',
-            message: t('editor.collab.saveConflict.saveSuccess')
-          })
-        } catch (err) {
-          notify({
-            type: 'negative',
-            message: t('editor.collab.saveConflict.saveFailed'),
-            caption: err.message
-          })
-        }
-      }
-    })
-    .onDismiss(() => {
-      editorStore.saveConflict = null
-    })
-}
-
-/**
- * Restores the author's own content after a save-conflict "Discard" replaced it with the server's
- * snapshot -- the undo action offered on the toast `resolveSaveConflict` raises right after
- * (OpenProject #2073). Puts the stashed copy back into `pageStore.content` and the live Monaco model
- * the same way discard itself does (`editor.setValue`), then clears the stash so a stray second
- * click -- the toast is already gone by then, but nothing stops calling this directly -- has nothing
- * left to restore.
- */
-function undoDiscard() {
-  const content = editorStore.discardedContent
-  if (content === null) {
-    return
-  }
-  pageStore.$patch({ content, contentLoaded: true })
-  editor.setValue(content)
-  processContent(content)
-  editorStore.clearDiscardedContent()
-}
-
-watch(
-  () => editorStore.saveConflict,
-  (snapshot) => {
-    if (snapshot) {
-      resolveSaveConflict(snapshot)
-    }
-  }
-)
 
 // -> Catches up a render that `flushEditorContent` skipped while the pane was closed (OpenProject
 //    #1889), so an author who reopens it sees what they just typed rather than what was on screen

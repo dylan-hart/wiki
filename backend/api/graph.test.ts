@@ -1,10 +1,10 @@
-import { after, before, describe, test } from 'node:test'
+import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import { eq } from 'drizzle-orm'
-import graphRoutes, { assembleGraph, folderOf, type GraphPageRow } from './graph.ts'
+import graphRoutes, { assembleGraph, folderOf, GRAPH_NODE_CAP, type GraphPageRow } from './graph.ts'
 import { registerSchemas as registerGraphSchema } from './schemas/graph.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import {
@@ -352,6 +352,57 @@ describe('assembleGraph', () => {
 
     assert.deepEqual(result.nodes[0]!.pageviews, ZERO_PAGEVIEWS)
   })
+
+  // -> OpenProject #1863: `contributors`/`pageviews` dominate the per-node payload and most readers
+  //    of the default view never look at them, so they're gated behind `includeSizing` (the route's
+  //    `?sizing=` querystring, `Boolean`-cast) -- omitted as KEYS, not merely zeroed, when unwanted.
+  describe('includeSizing gate', () => {
+    test('omits both contributors and pageviews keys entirely when includeSizing is false', () => {
+      const rows = [makeRow({ path: 'a' })]
+
+      const result = assembleGraph(rows, () => true, undefined, undefined, undefined, false)
+
+      assert.equal('contributors' in result.nodes[0]!, false)
+      assert.equal('pageviews' in result.nodes[0]!, false)
+    })
+
+    test('includes both contributors and pageviews when includeSizing is true, regardless of which sizing mode they came from', () => {
+      const rows = [makeRow({ path: 'a', id: 'page-a' })]
+      const contributors = { editor: 2, mcp: 0, all: 2, total: { editor: 2, mcp: 0, all: 2 } }
+      const pageviews = {
+        last30d: {
+          browser: 1,
+          api: 0,
+          mcp: 0,
+          all: 1,
+          total: { browser: 1, api: 0, mcp: 0, all: 1 }
+        },
+        last6mo: ZERO_PAGEVIEW_WINDOW,
+        last2yr: ZERO_PAGEVIEW_WINDOW
+      }
+
+      const result = assembleGraph(
+        rows,
+        () => true,
+        undefined,
+        () => contributors,
+        () => pageviews,
+        true
+      )
+
+      assert.deepEqual(result.nodes[0]!.contributors, contributors)
+      assert.deepEqual(result.nodes[0]!.pageviews, pageviews)
+    })
+
+    test('defaults to including sizing data when includeSizing is not passed at all (backward compatible)', () => {
+      const rows = [makeRow({ path: 'a' })]
+
+      const result = assembleGraph(rows, () => true)
+
+      assert.ok('contributors' in result.nodes[0]!)
+      assert.ok('pageviews' in result.nodes[0]!)
+    })
+  })
 })
 
 /**
@@ -687,5 +738,217 @@ describe('listAllForGraph publication filtering (DB-backed)', { skip: !hasTestDa
       'en:graph-filter/also-published',
       'en:graph-filter/draft'
     ])
+  })
+})
+
+/**
+ * OpenProject #1864: `GET /sites/:siteId/graph`'s permission filter used to call `mayOnPage(req, ...)`
+ * per row, which rebuilds the actor internally on every call. It now hoists
+ * `WIKI.models.groups.actorForRequest(req)` once per request (`tree.ts`'s `visibleTreeItems()`
+ * shape) and calls `checkAccess(actor, ...)` per row directly.
+ *
+ * Exercised at the route/HTTP level rather than through `assembleGraph()`'s pure predicate, since
+ * the hoisting only exists at the call site inside the route handler.
+ */
+describe('GET /sites/:siteId/graph — actor hoisted out of the per-row filter (OpenProject #1864)', () => {
+  const SITE_ID = '11111111-1111-1111-1111-111111111111'
+
+  function makeGraphRow(path: string): GraphPageRow {
+    return {
+      id: path,
+      path,
+      locale: 'en',
+      title: path,
+      icon: null,
+      tags: [],
+      classification: 'level-public',
+      relations: [],
+      links: [],
+      publishState: 'published'
+    }
+  }
+
+  let app: FastifyInstance
+  let actorForRequest: ReturnType<typeof mock.fn>
+  let checkAccess: ReturnType<typeof mock.fn>
+  // -> A bare Map stands in for `WIKI.cache` (a real `NodeCache` in production) -- the route reads
+  //    and writes the graph bundle through it (`helpers/graphCache.ts`), so `loadGraphData` needs
+  //    somewhere to look before it will ever call `listAllForGraph` et al.
+  let cacheStore: Map<string, unknown>
+
+  before(async () => {
+    actorForRequest = mock.fn(() => ({ groupIds: [], permissions: [] }))
+    checkAccess = mock.fn(
+      (_actor: unknown, _permission: string, page: { path: string }) => page.path !== 'secret'
+    )
+    cacheStore = new Map()
+    ;(globalThis as any).WIKI = {
+      sites: {},
+      cache: {
+        get: (key: string) => cacheStore.get(key),
+        set: (key: string, value: unknown) => {
+          cacheStore.set(key, value)
+        },
+        delete: (key: string) => {
+          cacheStore.delete(key)
+        }
+      },
+      models: {
+        pages: {
+          listAllForGraph: async () => [
+            makeGraphRow('open-a'),
+            makeGraphRow('open-b'),
+            makeGraphRow('secret')
+          ]
+        },
+        pageHistory: {
+          contributorCountsForGraph: async () => new Map()
+        },
+        pageviews: {
+          countsForGraph: async () => new Map()
+        },
+        groups: {
+          actorForRequest,
+          checkAccess
+        },
+        classificationLevels: {
+          byId: () => null
+        }
+      }
+    }
+
+    app = fastify()
+    app.addHook('onRequest', async (req) => {
+      ;(req as any).session = { authenticated: true }
+    })
+    await app.register(fastifySensible)
+    await registerErrorSchema(app)
+    await registerGraphSchema(app)
+    await app.register(graphRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('filters out a row checkAccess refuses, keeping the rest -- same node set as the unhoisted call', async () => {
+    const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/graph` })
+
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(
+      res
+        .json()
+        .nodes.map((n: { path: string }) => n.path)
+        .sort(),
+      ['open-a', 'open-b']
+    )
+  })
+
+  test('builds the actor exactly once per request, not once per row', async () => {
+    actorForRequest.mock.resetCalls()
+    checkAccess.mock.resetCalls()
+
+    await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/graph` })
+
+    assert.equal(actorForRequest.mock.calls.length, 1)
+    // -> Three rows in the fixture -- checkAccess is still called per row, only actor construction
+    //    is hoisted.
+    assert.equal(checkAccess.mock.calls.length, 3)
+    // -> Every checkAccess call reuses the exact same actor object actorForRequest returned once.
+    const actor = actorForRequest.mock.calls[0]!.result
+    for (const call of checkAccess.mock.calls) {
+      assert.equal(call.arguments[0], actor)
+    }
+  })
+})
+
+// -> OpenProject #1866: the node cap, and the truncated/totalNodes signal that lets a client tell
+//    the reader a graph view is partial rather than silently attempting a layout it cannot finish.
+describe('assembleGraph node cap', () => {
+  /** `n` rows with zero-padded paths, so lexicographic order (what the cap sorts by) matches
+   *  numeric order -- makes "which rows survive" trivial to assert on. */
+  function makeManyRows(n: number): GraphPageRow[] {
+    return Array.from({ length: n }, (_, i) => makeRow({ path: `p${String(i).padStart(6, '0')}` }))
+  }
+
+  test('an under-cap site is not truncated, and totalNodes equals nodes.length', () => {
+    const rows = makeManyRows(3)
+
+    const result = assembleGraph(rows, () => true)
+
+    assert.equal(result.truncated, false)
+    assert.equal(result.totalNodes, result.nodes.length)
+    assert.equal(result.totalNodes, 3)
+  })
+
+  test('an over-cap site is truncated to exactly the cap, reporting the true totalNodes', () => {
+    const rows = makeManyRows(GRAPH_NODE_CAP + 137)
+
+    const result = assembleGraph(rows, () => true)
+
+    assert.equal(result.truncated, true)
+    assert.equal(result.nodes.length, GRAPH_NODE_CAP)
+    assert.equal(result.totalNodes, GRAPH_NODE_CAP + 137)
+  })
+
+  test('the cap only counts readable rows -- totalNodes reflects canRead, not the raw row count', () => {
+    const rows = makeManyRows(GRAPH_NODE_CAP + 50)
+
+    const result = assembleGraph(
+      rows,
+      (row) => row.path < `p${String(GRAPH_NODE_CAP).padStart(6, '0')}`
+    )
+
+    assert.equal(result.truncated, false)
+    assert.equal(result.totalNodes, GRAPH_NODE_CAP)
+    assert.equal(result.nodes.length, GRAPH_NODE_CAP)
+  })
+
+  test('selection is deterministic (sorted by path), not raw row order', () => {
+    const ordered = makeManyRows(GRAPH_NODE_CAP + 10)
+    const shuffled = [...ordered].reverse()
+
+    const fromOrdered = assembleGraph(ordered, () => true)
+    const fromShuffled = assembleGraph(shuffled, () => true)
+
+    assert.deepEqual(
+      fromOrdered.nodes.map((n) => n.path),
+      fromShuffled.nodes.map((n) => n.path)
+    )
+    // -> The lexicographically-first GRAPH_NODE_CAP paths, specifically -- not just "some stable
+    //    subset". Confirms the sort key is `path`, not e.g. insertion order surviving a stable sort.
+    assert.deepEqual(
+      fromOrdered.nodes.map((n) => n.path),
+      ordered.slice(0, GRAPH_NODE_CAP).map((r) => r.path)
+    )
+  })
+
+  test('no returned edge references a node dropped by the cap', () => {
+    const rows = makeManyRows(GRAPH_NODE_CAP + 20)
+    // -> Every row links to the very last (guaranteed-dropped) row, and to the very first
+    //    (guaranteed-retained) row -- if capped-out targets leaked through, half these edges would
+    //    dangle.
+    const droppedPath = rows.at(-1)!.path
+    const retainedPath = rows[0]!.path
+    for (const row of rows) {
+      row.links = [droppedPath, retainedPath]
+    }
+
+    const result = assembleGraph(rows, () => true)
+    // -> Edge `source`/`target` are composite `locale:path` node ids (OpenProject #1621/#1626),
+    //    not bare paths -- compare against `n.id`, not `n.path`.
+    const nodeIds = new Set(result.nodes.map((n) => n.id))
+    const retainedId = `en:${retainedPath}`
+
+    assert.ok(result.truncated)
+    for (const edge of result.edges) {
+      assert.ok(nodeIds.has(edge.source), `edge source ${edge.source} is not a returned node`)
+      assert.ok(nodeIds.has(edge.target), `edge target ${edge.target} is not a returned node`)
+    }
+    // -> Sanity: edges to the retained target did survive, so the assertion above isn't vacuously
+    //    true from every edge having been dropped.
+    assert.ok(result.edges.some((e) => e.target === retainedId))
   })
 })

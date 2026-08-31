@@ -25,8 +25,76 @@
           </div>
         </template>
 
-        <div class="tags-browse-subheader">{{ t('editor.props.tags') }}</div>
-        <div class="flex flex-wrap items-center gap-1 p-2">
+        <div class="tags-browse-subheader flex items-center justify-between">
+          <span>{{ state.managementMode ? t('tags.manageTags') : t('editor.props.tags') }}</span>
+          <w-btn
+            v-if="canManageTags"
+            flat
+            dense
+            round
+            :icon="state.managementMode ? 'la:times' : 'la:cog'"
+            :aria-label="state.managementMode ? t('common.actions.exit') : t('tags.manageTags')"
+            @click="toggleManagementMode" />
+        </div>
+
+        <div v-if="state.managementMode" class="flex flex-col gap-1 p-2">
+          <div
+            v-for="entry of siteStore.tags"
+            :key="`manage-${entry.tag}`"
+            class="tag-manage-row flex items-center gap-1">
+            <template v-if="state.renamingTag === entry.tag">
+              <w-input
+                ref="iptRename"
+                dense
+                outlined
+                class="flex-1"
+                v-model="state.renameValue"
+                :aria-label="t('tags.renameTagLabel')"
+                @keyup:enter="confirmRename(entry)" />
+              <w-btn
+                flat
+                dense
+                round
+                icon="la:check"
+                :aria-label="t('common.actions.confirm')"
+                @click="confirmRename(entry)" />
+              <w-btn
+                flat
+                dense
+                round
+                icon="la:times"
+                :aria-label="t('common.actions.cancel')"
+                @click="cancelRename" />
+            </template>
+            <template v-else>
+              <span class="flex flex-1 items-center text-caption">
+                <w-icon class="mr-1" name="la:hashtag" size="14px" />
+                {{ entry.tag }} ({{ entry.usageCount }})
+              </span>
+              <w-btn
+                flat
+                dense
+                round
+                icon="la:edit"
+                :aria-label="t('common.actions.rename')"
+                @click="startRename(entry)" />
+              <w-btn
+                flat
+                dense
+                round
+                icon="la:trash"
+                color="negative"
+                :aria-label="t('common.actions.delete')"
+                @click="deleteTag(entry)" />
+            </template>
+          </div>
+          <span
+            v-if="siteStore.tags.length < 1 && state.loadingTags < 1"
+            class="text-caption text-grey p-2">
+            {{ t('tags.selectOneMoreTagsHint') }}
+          </span>
+        </div>
+        <div v-else class="flex flex-wrap items-center gap-1 p-2">
           <w-chip
             v-for="entry of availableTags"
             :key="`available-${entry.tag}`"
@@ -99,7 +167,7 @@
             clearable
             v-model="state.filterQuery"
             :placeholder="t(`tags.searchWithinResultsPlaceholder`)"
-            :disable="state.selectedTags.length < 1">
+            :disabled="state.selectedTags.length < 1">
             <template #prepend><w-icon name="la:search" size="xs" /></template>
           </w-input>
         </div>
@@ -130,7 +198,7 @@
               <w-item-label v-if="item.description" caption>{{ item.description }}</w-item-label>
               <w-item-label class="text-grey" caption>/{{ item.path }}</w-item-label>
               <w-item-label caption>{{
-                t('tags.pageLastUpdated', { date: humanizeDate(item.updatedAt) })
+                t('tags.pageLastUpdated', { date: humanizeDate(t, item.updatedAt) })
               }}</w-item-label>
             </w-item-section>
             <w-item-section side>
@@ -149,29 +217,42 @@
             </w-item-section>
           </w-item>
         </w-list>
+        <div
+          class="flex justify-center p-4"
+          v-if="state.results.length > 0 && state.results.length < state.total">
+          <w-btn
+            flat
+            no-caps
+            color="primary"
+            :label="t('search.loadMore')"
+            :loading="state.loading > 0"
+            @click="loadMore" />
+        </div>
       </div>
     </div>
   </w-page>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { debounce } from 'es-toolkit/function'
 
+import { confirm } from '@/composables/dialog'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
 import { DEFAULT_PAGE_ICON } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-/** How many results one browse returns. The API caps this at 100, and there is no pager yet. */
+/** How many results one page of a browse holds. The API caps a single request at 100. */
 const RESULTS_LIMIT = 100
 
 // ROUTER
@@ -214,14 +295,31 @@ const state = reactive({
   filterQuery: '',
   orderBy: 'title',
   results: [],
-  total: 0
+  total: 0,
+  offset: 0,
+  // -> Tag management (OpenProject #1877): mutating a tag is a page-rule-permission action, so it is
+  //    off by default and hidden entirely from anyone without `manage:pages` -- see `canManageTags`.
+  managementMode: false,
+  renamingTag: null,
+  renameValue: '',
+  mutatingTags: 0
 })
 
 const defaultPageIcon = DEFAULT_PAGE_ICON
+const iptRename = ref(null)
 
 const availableTags = computed(() =>
   siteStore.tags.filter((entry) => !state.selectedTags.includes(entry.tag))
 )
+
+/*
+ * A page-rule permission cannot be checked with `userStore.can()` (the global-permission list) --
+ * `pagePermissions` is what the session holds for the CURRENT route path, which is what the
+ * PATCH/DELETE endpoint behind this control actually checks too (per affected page, server-side).
+ * This is a visibility gate only: a reader who fails it never sees the controls at all, but the real
+ * enforcement -- and which of the tag's pages actually get touched -- happens per page on the server.
+ */
+const canManageTags = computed(() => userStore.pagePermissions.includes('manage:pages'))
 
 const localeOptions = computed(() => [
   { label: t('tags.localeAny'), value: '' },
@@ -272,10 +370,6 @@ function splitTags(raw) {
     .filter(Boolean)
 }
 
-function humanizeDate(val) {
-  return userStore.formatDateTime(t, val)
-}
-
 /**
  * Adds or removes one tag from the selection, AND-narrowing what is shown -- see the spec decision
  * this feature shipped under (OpenProject #987): selecting more tags only ever narrows the results.
@@ -299,12 +393,19 @@ function setLocale(value) {
   state.filterLocale = value ?? ''
 }
 
-async function performSearch() {
+/**
+ * Runs a search. `append` distinguishes the two callers: a fresh search (a tag toggled, the query,
+ * locale or order changed) starts over at offset 0 and replaces `state.results`, while `loadMore()`
+ * asks for the next page at the current offset and appends onto what is already shown.
+ */
+async function performSearch(append = false) {
   if (state.selectedTags.length < 1) {
     state.results = []
     state.total = 0
+    state.offset = 0
     return
   }
+  const offset = append ? state.offset : 0
   state.loading++
   try {
     const resp = await API_CLIENT.get(`sites/${siteStore.id}/pages/search`, {
@@ -314,14 +415,20 @@ async function performSearch() {
         ...(state.filterLocale ? { locales: state.filterLocale } : {}),
         orderBy: state.orderBy,
         orderByDirection: orderByDirection.value,
+        offset,
         limit: RESULTS_LIMIT
       }
     }).json()
-    state.results = (resp?.results ?? []).map((r) => ({ ...r, tags: [...(r.tags ?? [])].sort() }))
+    const results = (resp?.results ?? []).map((r) => ({ ...r, tags: [...(r.tags ?? [])].sort() }))
+    state.results = append ? [...state.results, ...results] : results
     state.total = resp?.totalHits ?? 0
+    state.offset = offset + results.length
   } catch (err) {
-    state.results = []
-    state.total = 0
+    if (!append) {
+      state.results = []
+      state.total = 0
+      state.offset = 0
+    }
     notify({
       type: 'negative',
       message: t('search.failed'),
@@ -330,6 +437,122 @@ async function performSearch() {
   } finally {
     state.loading--
   }
+}
+
+function loadMore() {
+  return performSearch(true)
+}
+
+/**
+ * Toggles the management mode sidebar view. Never called unless `canManageTags` already gated the
+ * button that triggers it, so no permission check happens here.
+ */
+function toggleManagementMode() {
+  state.managementMode = !state.managementMode
+  cancelRename()
+}
+
+function startRename(entry) {
+  state.renamingTag = entry.tag
+  state.renameValue = entry.tag
+  nextTick(() => iptRename.value?.[0]?.focus?.())
+}
+
+function cancelRename() {
+  state.renamingTag = null
+  state.renameValue = ''
+}
+
+/**
+ * Confirms and performs a rename -- renaming onto a value that is already another tag's name IS the
+ * merge (OpenProject #1868/#1873): same route, same handler, distinguished only by which title/message
+ * the confirmation shows.
+ */
+function confirmRename(entry) {
+  const newTag = state.renameValue.trim()
+  if (!newTag || newTag === entry.tag) {
+    cancelRename()
+    return
+  }
+  const merging = siteStore.tags.some((t) => t.tag === newTag)
+  confirm({
+    title: merging ? t('tags.mergeTagTitle') : t('tags.renameTagTitle'),
+    message: merging
+      ? t('tags.mergeTagConfirm', { from: entry.tag, to: newTag, count: entry.usageCount })
+      : t('tags.renameTagConfirm', { from: entry.tag, to: newTag, count: entry.usageCount }),
+    caption: t('tags.manageUnauthorizedCaption'),
+    cancel: true,
+    color: 'primary',
+    okLabel: t('common.actions.rename')
+  }).onOk(() => performRename(entry.tag, newTag))
+}
+
+async function performRename(oldTag, newTag) {
+  state.mutatingTags++
+  try {
+    const resp = await API_CLIENT.patch(
+      `sites/${siteStore.id}/tags/${encodeURIComponent(oldTag)}`,
+      {
+        json: { newTag }
+      }
+    ).json()
+    notify({
+      type: 'positive',
+      message: t('tags.renameTagSuccess', { count: resp?.affected ?? 0 })
+    })
+    cancelRename()
+    await refreshAfterMutation()
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('tags.renameTagFailed'),
+      caption: apiErrorMessage(err)
+    })
+  } finally {
+    state.mutatingTags--
+  }
+}
+
+function deleteTag(entry) {
+  confirm({
+    title: t('tags.deleteTagTitle'),
+    message: t('tags.deleteTagConfirm', { tag: entry.tag, count: entry.usageCount }),
+    caption: t('tags.manageUnauthorizedCaption'),
+    cancel: true,
+    color: 'negative',
+    okLabel: t('common.actions.delete')
+  }).onOk(() => performDelete(entry.tag))
+}
+
+async function performDelete(tagValue) {
+  state.mutatingTags++
+  try {
+    const resp = await API_CLIENT.delete(
+      `sites/${siteStore.id}/tags/${encodeURIComponent(tagValue)}`
+    ).json()
+    notify({
+      type: 'positive',
+      message: t('tags.deleteTagSuccess', { count: resp?.affected ?? 0 })
+    })
+    await refreshAfterMutation()
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('tags.deleteTagFailed'),
+      caption: apiErrorMessage(err)
+    })
+  } finally {
+    state.mutatingTags--
+  }
+}
+
+/** Refreshes the tag list and re-runs the current search, so a rename/delete is visible at once. */
+async function refreshAfterMutation() {
+  await siteStore.fetchTags(true)
+  state.selectedTags = state.selectedTags.filter((tag) =>
+    siteStore.tags.some((entry) => entry.tag === tag)
+  )
+  await performSearch()
 }
 
 // MOUNTED

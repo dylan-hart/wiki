@@ -2,7 +2,9 @@
   <w-page class="admin-groups">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-people.svg" alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-people.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.groups.title') }}</h1>
@@ -131,6 +133,8 @@ import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
+import { apiErrorMessage } from '@/helpers/apiError'
+
 import GroupCreateDialog from '../components/GroupCreateDialog.vue'
 import GroupDeleteDialog from '../components/GroupDeleteDialog.vue'
 
@@ -233,7 +237,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t(`admin.groups.loadFailed`),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()

@@ -2,10 +2,9 @@
   <w-page class="admin-groups">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-account.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-account.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.users.title') }}</h1>
@@ -96,7 +95,7 @@
               <w-td :props="props">
                 <i18n-t class="text-caption" keypath="admin.users.createdAt" tag="div">
                   <template #date
-                    ><strong>{{ formattedDate(props.value) }}</strong></template
+                    ><strong>{{ humanizeDate(t, props.value) }}</strong></template
                   >
                 </i18n-t>
                 <i18n-t
@@ -132,7 +131,7 @@
                   flat
                   icon="la:trash"
                   color="negative"
-                  :disable="props.row.id === userStore.id"
+                  :disabled="props.row.id === userStore.id"
                   :aria-label="t(`admin.users.delete`)"
                   @click="deleteUser(props.row)">
                   <w-tooltip v-if="props.row.id === userStore.id">
@@ -174,7 +173,8 @@ import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-import { relativeDate } from '@/helpers/datetime'
+import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate, relativeDate } from '@/helpers/datetime'
 
 import { debounce } from 'es-toolkit/function'
 import UserCreateDialog from '../components/UserCreateDialog.vue'
@@ -325,16 +325,11 @@ async function load({ page } = {}) {
     notify({
       type: 'negative',
       message: t('admin.users.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()
   state.loading--
-}
-
-/** Largest-first. `week` is deliberately absent, so output reads e.g. "21 days ago". */
-function formattedDate(val) {
-  return userStore.formatDateTime(t, val)
 }
 
 function checkOverlay() {

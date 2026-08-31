@@ -4,6 +4,7 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { activeBanMemo } from '../helpers/rateLimit.ts'
 import httpRoutes from './http.ts'
 
 /**
@@ -101,6 +102,11 @@ describe('mcp/http', () => {
     rateLimitAllowed = true
     tokenASiteId = null
     auditCalls = []
+    // -> `limitApiKey`'s ban memo (`helpers/rateLimit.ts#activeBanMemo`) is a module-level singleton
+    //    shared across every test in this file; clearing it here keeps the "over its rate limit" test
+    //    below from banning TOKEN_A for real (42s TTL) and bleeding a 429 into every test after it —
+    //    same reasoning as `rateLimit.test.ts`'s own `beforeEach`.
+    activeBanMemo.clear()
   })
 
   function initializeRequest() {
@@ -304,6 +310,7 @@ describe('mcp/http', () => {
       'get_page',
       'list_navigation',
       'list_sites',
+      'render_diagram',
       'search_pages',
       'update_page'
     ])

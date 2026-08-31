@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import fastifyMultipart from '@fastify/multipart'
 import type { PageActor, PageInput } from '../models/pages.ts'
 import {
@@ -10,6 +10,7 @@ import {
 } from '../models/import.ts'
 import { SEARCH_ORDER_BY, type SearchOrderBy } from '../models/search.ts'
 import {
+  CustomError,
   defaultLocale,
   generatePathHash,
   isValidUuid,
@@ -31,6 +32,29 @@ import { actorFromRequest } from '../models/auditLog.ts'
 function exportFilenameStem(path: string): string {
   const segment = path.split('/').filter(Boolean).pop() || 'home'
   return segment.replaceAll(/[^a-z0-9-]+/gi, '-')
+}
+
+/**
+ * `ensureCanRender()` (`models/rendering.ts`) throws these two named errors -- via `createPage()`/
+ * `updatePage()` (OpenProject #1716) -- when a render-less write can't be safely accepted: an editor
+ * this server has no renderer for, or a markdown page with no Puppeteer extension to render it. Maps
+ * each to a `@fastify/sensible` error carrying `ensureCanRender()`'s own message (which names the
+ * editor or the missing extension), reusing the exact wording the existing recovery route
+ * (`POST …/pages/:pageId/render`, below) already 503s with rather than inventing a second one
+ * (OpenProject #1720). Returns the sent reply once handled, or `null` for any other error so the
+ * caller rethrows it for the generic `setErrorHandler` in `index.ts` to shape.
+ */
+function replyForRenderRefusal(err: any, reply: FastifyReply): FastifyReply | null {
+  if (!(err instanceof CustomError)) {
+    return null
+  }
+  if (err.name === 'renderPuppeteerMissing') {
+    return reply.serviceUnavailable(err.message)
+  }
+  if (err.name === 'renderUnsupportedEditor') {
+    return reply.badRequest(err.message)
+  }
+  return null
 }
 
 /** Comma-separated query lists, which is how the browser sends a multi-valued filter here. */
@@ -859,8 +883,18 @@ async function routes(app: FastifyInstance) {
               page: { $ref: 'Page#' }
             }
           },
+          400: {
+            $ref: 'ApiError#',
+            description:
+              'The declared editor has no server-side renderer, and this write carried content with no explicit render for it to fall back on.'
+          },
           401: { $ref: 'ApiError#' },
-          403: { $ref: 'ApiError#' }
+          403: { $ref: 'ApiError#' },
+          503: {
+            $ref: 'ApiError#',
+            description:
+              'This write carried content with no explicit render, and the instance has no Puppeteer extension installed to produce one server-side.'
+          }
         }
       }
     },
@@ -884,7 +918,16 @@ async function routes(app: FastifyInstance) {
       ) {
         return reply.forbidden('You are not allowed to create a page here.')
       }
-      const page = await WIKI.models.pages.createPage(req.params.siteId, req.body, actor)
+      let page
+      try {
+        page = await WIKI.models.pages.createPage(req.params.siteId, req.body, actor)
+      } catch (err: any) {
+        const refusal = replyForRenderRefusal(err, reply)
+        if (refusal) {
+          return refusal
+        }
+        throw err
+      }
       return {
         ok: true,
         message: 'Page created successfully.',
@@ -1221,6 +1264,11 @@ async function routes(app: FastifyInstance) {
               }
             }
           },
+          400: {
+            $ref: 'ApiError#',
+            description:
+              'The page has no server-side renderer for its editor, and this write carried content with no explicit render for it to fall back on.'
+          },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
           404: { $ref: 'ApiError#' },
@@ -1243,6 +1291,11 @@ async function routes(app: FastifyInstance) {
                 }
               }
             }
+          },
+          503: {
+            $ref: 'ApiError#',
+            description:
+              'This write carried content with no explicit render, and the instance has no Puppeteer extension installed to produce one server-side.'
           }
         }
       }
@@ -1321,12 +1374,21 @@ async function routes(app: FastifyInstance) {
           }
         })
       }
-      const page = await WIKI.models.pages.updatePage(
-        req.params.siteId,
-        req.params.pageId,
-        req.body,
-        actor
-      )
+      let page
+      try {
+        page = await WIKI.models.pages.updatePage(
+          req.params.siteId,
+          req.params.pageId,
+          req.body,
+          actor
+        )
+      } catch (err: any) {
+        const refusal = replyForRenderRefusal(err, reply)
+        if (refusal) {
+          return refusal
+        }
+        throw err
+      }
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
@@ -1906,6 +1968,195 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * BULK ACTION (OpenProject #1882)
+   *
+   * The row-selection/bulk-actions half of the admin page inventory: delete, re-render or retag a
+   * set of pages in one request. Each id is checked and acted on independently — a page the caller
+   * may not act on is reported as `skipped` rather than failing the whole batch, which is the
+   * opposite of `POST …/classification-conflicts/resolve` just above (that route `forbidden()`s the
+   * entire request on the first denied page). Both are correct for what each one is: the
+   * classification-conflicts flow is a single all-or-nothing bump an admin already knows they may
+   * make on every listed descendant, while a bulk action here starts from an arbitrary, admin-picked
+   * selection that may well mix pages the actor can and cannot act on — the whole point of reporting
+   * per-page outcomes instead of refusing outright.
+   *
+   * Retag is add/remove-RELATIVE per page, not a blanket overwrite: a mixed selection can carry
+   * different existing tag sets, so "add x, remove y" is applied against each page's own tags rather
+   * than a client-supplied full list clobbering whatever else a page already carried.
+   */
+  app.post<{
+    Params: { siteId: string }
+    Body: {
+      pageIds: string[]
+      action: 'delete' | 'render' | 'retag'
+      addTags?: string[]
+      removeTags?: string[]
+    }
+  }>(
+    '/sites/:siteId/pages/bulk',
+    {
+      // -> No route-level `permissions`: page-rule permissions, checked per page below.
+      // -> Only the `render` action drives Puppeteer; the same throttle the single-page render route
+      //    uses, since a bulk request can still queue many browser renders from one call.
+      preHandler: async (req, reply) => {
+        if ((req.body as { action?: string } | undefined)?.action === 'render') {
+          await limitRenders(req, reply)
+        }
+      },
+      schema: {
+        summary: 'Delete, re-render or retag a set of pages',
+        description:
+          "For the admin page inventory's row selection. Every id is looked up and permission-checked on its own — `delete:pages` for `delete`, `write:pages` for `render`/`retag` — so a page the caller may not act on is reported back as `skipped` rather than refusing the whole request. An id that does not exist on this site comes back `notFound`; an action that threw while running (e.g. re-rendering a page this instance cannot render) comes back `error` with its message. `retag` needs at least one of `addTags`/`removeTags`, applied against each page's own existing tags rather than replacing them outright.",
+        tags: ['Pages'],
+        params: siteIdParam,
+        body: {
+          type: 'object',
+          required: ['pageIds', 'action'],
+          properties: {
+            pageIds: {
+              type: 'array',
+              items: { type: 'string', format: 'uuid' },
+              minItems: 1,
+              maxItems: 500
+            },
+            action: {
+              type: 'string',
+              enum: ['delete', 'render', 'retag']
+            },
+            addTags: {
+              type: 'array',
+              items: { type: 'string', maxLength: 255 },
+              maxItems: 100,
+              description: '`retag` only: tags to add to every page that is not skipped.'
+            },
+            removeTags: {
+              type: 'array',
+              items: { type: 'string', maxLength: 255 },
+              maxItems: 100,
+              description: '`retag` only: tags to remove from every page that is not skipped.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Every id, with what happened to it',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              action: { type: 'string' },
+              results: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    path: { type: ['string', 'null'] },
+                    status: {
+                      type: 'string',
+                      enum: ['done', 'skipped', 'notFound', 'error']
+                    },
+                    message: { type: 'string' }
+                  }
+                }
+              },
+              counts: {
+                type: 'object',
+                description: 'How many ids landed in each `status`, keyed the same way.',
+                additionalProperties: { type: 'integer' }
+              }
+            }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('A bulk page action requires a logged in user.')
+      }
+      const { action } = req.body
+      const addTags = (req.body.addTags ?? []).map((t) => t.trim()).filter(Boolean)
+      const removeTags = (req.body.removeTags ?? []).map((t) => t.trim()).filter(Boolean)
+      if (action === 'retag' && addTags.length < 1 && removeTags.length < 1) {
+        return reply.badRequest('Provide at least one tag to add or remove.')
+      }
+      // -> De-duplicated, same reasoning as the classification-conflicts-resolve route just above: a
+      //    repeated id would otherwise be looked up, permission-checked and acted on once per
+      //    occurrence instead of once per page.
+      const pageIds = [...new Set(req.body.pageIds)]
+      // -> ONE batched select instead of a per-id `getPage` loop -- the same `getPagesByIds` the
+      //    classification-conflicts-resolve route already uses, projecting only what `mayOnPage`
+      //    (and, for `retag`, the page's own current tags) actually needs.
+      const pageMap = await WIKI.models.pages.getPagesByIds(req.params.siteId, pageIds)
+      const permission = action === 'delete' ? 'delete:pages' : 'write:pages'
+      const results: {
+        id: string
+        path: string | null
+        status: 'done' | 'skipped' | 'notFound' | 'error'
+        message?: string
+      }[] = []
+      for (const pageId of pageIds) {
+        const target = pageMap.get(pageId)
+        if (!target) {
+          results.push({ id: pageId, path: null, status: 'notFound' })
+          continue
+        }
+        if (!mayOnPage(req, permission, req.params.siteId, target)) {
+          results.push({
+            id: pageId,
+            path: target.path,
+            status: 'skipped',
+            message: 'Not permitted.'
+          })
+          continue
+        }
+        try {
+          if (action === 'delete') {
+            const deleted = await WIKI.models.pages.deletePage(req.params.siteId, pageId, actor)
+            results.push({
+              id: pageId,
+              path: target.path,
+              status: deleted ? 'done' : 'notFound'
+            })
+          } else if (action === 'render') {
+            const queued = await WIKI.models.pages.queueRerender(req.params.siteId, pageId, actor)
+            results.push({
+              id: pageId,
+              path: target.path,
+              status: queued ? 'done' : 'notFound'
+            })
+          } else {
+            const removeSet = new Set(removeTags)
+            const nextTags = [
+              ...new Set([...target.tags.filter((t) => !removeSet.has(t)), ...addTags])
+            ]
+            const updated = await WIKI.models.pages.updatePage(
+              req.params.siteId,
+              pageId,
+              { tags: nextTags },
+              actor
+            )
+            results.push({
+              id: pageId,
+              path: target.path,
+              status: updated ? 'done' : 'notFound'
+            })
+          }
+        } catch (err: any) {
+          results.push({ id: pageId, path: target.path, status: 'error', message: err.message })
+        }
+      }
+      const counts: Record<string, number> = {}
+      for (const result of results) {
+        counts[result.status] = (counts[result.status] ?? 0) + 1
+      }
+      return { ok: true, action, results, counts }
+    }
+  )
+
+  /**
    * EXPORT PAGE AS PDF
    */
   app.get<{ Params: { siteId: string; pageId: string } }>(
@@ -2023,7 +2274,10 @@ async function routes(app: FastifyInstance) {
   /**
    * PAGE HISTORY
    */
-  app.get<{ Params: { siteId: string; pageId: string } }>(
+  app.get<{
+    Params: { siteId: string; pageId: string }
+    Querystring: { limit?: number; cursor?: string }
+  }>(
     '/sites/:siteId/pages/:pageId/history',
     {
       /*
@@ -2033,15 +2287,29 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "Get a page's version history",
         description:
-          'Every recorded version of the page, newest first — the first entry is the page as it stands now.\n\nNeeds `read:history` ON THIS PAGE, granted by a group rule — the permission that says who may see what a page used to contain. Reading the page itself is required on top, so a page the caller could not open answers 404 and a password-protected one answers only once the session has satisfied `POST …/unlock`.',
+          "One page of recorded versions of the page, newest first — the first entry of the first page is the page as it stands now.\n\nKeyset-paginated on `versionDate` rather than offset-based, so a deep history stays cheap to page through: pass the previous response's `nextCursor` back as `cursor` to fetch the next page, and stop once `nextCursor` comes back null. Needs `read:history` ON THIS PAGE, granted by a group rule — the permission that says who may see what a page used to contain. Reading the page itself is required on top, so a page the caller could not open answers 404 and a password-protected one answers only once the session has satisfied `POST …/unlock`.",
         tags: ['Pages'],
         params: pageIdParam,
+        querystring: {
+          type: 'object',
+          properties: {
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 200,
+              default: 50,
+              description: 'Versions per page.'
+            },
+            cursor: {
+              type: 'string',
+              description:
+                "Opaque cursor from a previous response's `nextCursor`, to fetch the next page."
+            }
+          }
+        },
         response: {
-          200: {
-            description: 'Versions of this page, newest first',
-            type: 'array',
-            items: { $ref: 'PageHistoryEntry#' }
-          },
+          200: { $ref: 'PageHistoryList#' },
+          400: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
           404: { $ref: 'ApiError#' }
         }
@@ -2058,7 +2326,10 @@ async function routes(app: FastifyInstance) {
       if (page.isLocked) {
         return reply.forbidden('This page is password protected.')
       }
-      return WIKI.models.pageHistory.list(req.params.siteId, req.params.pageId)
+      return WIKI.models.pageHistory.list(req.params.siteId, req.params.pageId, {
+        limit: req.query.limit,
+        cursor: req.query.cursor
+      })
     }
   )
 
@@ -2119,6 +2390,52 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('This version does not exist.')
       }
       return version
+    }
+  )
+
+  /**
+   * PAGE BACKLINKS (OpenProject #1914)
+   */
+  app.get<{ Params: { siteId: string; pageId: string } }>(
+    '/sites/:siteId/pages/:pageId/backlinks',
+    {
+      /*
+        No route-level `permissions`: `read:pages` is a page permission granted by a group's
+        RULES. Checked against the target page via `loadReadablePage` (folded into 404 when
+        missing or unreadable), and again per candidate row below -- exactly as `api/graph.ts`'s
+        edge assembly filters graph nodes.
+      */
+      schema: {
+        summary: 'Pages linking to this page',
+        description:
+          'Every page on this site whose content links to this one, as extracted from the rendered HTML on save (`models/rendering.ts#extractInternalLinks`, stored in `pages.links`). Needs `read:pages` on the target page to see the list at all; each row in the response also needs `read:pages` ON THAT PAGE -- a linking page the caller may not read is silently dropped rather than counted.',
+        tags: ['Pages'],
+        params: pageIdParam,
+        response: {
+          200: {
+            description: 'Pages linking to this one, filtered to what the caller may read',
+            type: 'array',
+            items: { $ref: 'PageBacklink#' }
+          },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      if (!page) {
+        return reply.notFound('This page does not exist.')
+      }
+      const rows = await WIKI.models.pages.listBacklinks(req.params.siteId, page.path)
+      return rows
+        .filter((row) => mayOnPage(req, 'read:pages', req.params.siteId, row))
+        .map((row) => ({
+          id: row.id,
+          path: row.path,
+          locale: row.locale,
+          title: row.title,
+          icon: row.icon
+        }))
     }
   )
 
@@ -2195,7 +2512,7 @@ async function routes(app: FastifyInstance) {
   /**
    * DELETED PAGES (RECOVERABLE)
    */
-  app.get<{ Params: { siteId: string } }>(
+  app.get<{ Params: { siteId: string }; Querystring: { limit?: number; cursor?: string } }>(
     '/sites/:siteId/pages/deleted',
     {
       /*
@@ -2210,28 +2527,54 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'List recoverable deletions',
         description:
-          'One row per deleted path still recoverable: the most recent `deleted` version at a path with no live page there now. A path that was recovered, or reused by an unrelated new page, drops off this list on its own — there is no flag to set or clear.\n\nEach row needs `read:history` at the path and locale it was deleted from, using the tags and classification the deleted version itself carried — so a TAG/TAGALL/CLASSIFICATION-scoped rule narrows this listing the same way it would a live page — granted by a group rule.',
+          'One row per deleted path still recoverable: the most recent `deleted` version at a path with no live page there now. A path that was recovered, or reused by an unrelated new page, drops off this list on its own — there is no flag to set or clear.\n\nEach row needs `read:history` at the path and locale it was deleted from, using the tags and classification the deleted version itself carried — so a TAG/TAGALL/CLASSIFICATION-scoped rule narrows this listing the same way it would a live page — granted by a group rule. Rows the caller may not read are dropped from `items` after each page is fetched, which can make `items` shorter than `limit` even mid-list; only `nextCursor` says whether more remain, so keep paging while it is non-null regardless of how many rows came back on any one page.',
         tags: ['Pages'],
         params: siteIdParam,
-        response: {
-          200: {
-            description: 'Recoverable deletions, one row per path',
-            type: 'array',
-            items: { $ref: 'RecoverablePageEntry#' }
+        querystring: {
+          type: 'object',
+          properties: {
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 200,
+              default: 50,
+              description: 'Rows to scan per page, before the per-row permission filter is applied.'
+            },
+            cursor: {
+              type: 'string',
+              description: 'Opaque `nextCursor` from a previous page. Omit for the first page.'
+            }
           }
+        },
+        response: {
+          200: { $ref: 'PageHistoryRecoverablePage#' }
         }
       }
     },
     async (req) => {
-      const rows = await WIKI.models.pageHistory.listRecoverable(req.params.siteId)
-      return rows.filter((row) =>
-        mayOnPage(req, 'read:history', req.params.siteId, {
-          path: row.path,
-          locale: row.locale,
-          tags: row.tags,
-          classification: row.classification
-        })
+      const { items, nextCursor } = await WIKI.models.pageHistory.listRecoverable(
+        req.params.siteId,
+        {
+          limit: req.query.limit,
+          cursor: req.query.cursor
+        }
       )
+      // -> Built once per request rather than once per row -- `mayOnPage()` rebuilds it internally
+      //    on every call. See `graph.ts`'s graph route and `tree.ts`'s `visibleTreeItems()` for the
+      //    same shape.
+      const actor = WIKI.models.groups.actorForRequest(req)
+      return {
+        items: items.filter((row) =>
+          WIKI.models.groups.checkAccess(actor, 'read:history', {
+            path: row.path,
+            locale: row.locale,
+            tags: row.tags,
+            classification: row.classification,
+            siteId: req.params.siteId
+          })
+        ),
+        nextCursor
+      }
     }
   )
 

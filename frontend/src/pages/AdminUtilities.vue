@@ -2,10 +2,9 @@
   <w-page class="admin-utilities">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-swiss-army-knife-animated.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-swiss-army-knife-animated.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.utilities.title') }}</h1>
@@ -130,6 +129,24 @@
                 icon="la:arrow-circle-right"
                 color="primary"
                 @click="invalidateSessionSecret"
+                :label="t(`common.actions.proceed`)" />
+            </w-item-section>
+          </w-item>
+          <w-item>
+            <blueprint-icon icon="fingerprint-scan" :hue-rotate="45" />
+            <w-item-section>
+              <w-item-label>{{ t(`admin.utilities.rotatePageviewsHashKey`) }}</w-item-label>
+              <w-item-label caption>{{
+                t(`admin.utilities.rotatePageviewsHashKeyHint`)
+              }}</w-item-label>
+            </w-item-section>
+            <w-item-section side>
+              <w-btn
+                class="acrylic-btn"
+                flat
+                icon="la:arrow-circle-right"
+                color="primary"
+                @click="rotatePageviewsHashKey"
                 :label="t(`common.actions.proceed`)" />
             </w-item-section>
           </w-item>
@@ -369,10 +386,7 @@ function disconnectWS() {
   }).onOk(async () => {
     loading.show()
     try {
-      const resp = await API_CLIENT.post('system/websockets/disconnect').json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
+      await API_CLIENT.post('system/websockets/disconnect').json()
       notify({
         type: 'positive',
         message: t('admin.utilities.disconnectWSSuccess')
@@ -408,9 +422,6 @@ function invalidateApiCertificates() {
     loading.show()
     try {
       const resp = await API_CLIENT.post('system/certificates').json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
       const count = resp.invalidatedKeys ?? 0
       notify({
         type: 'positive',
@@ -446,10 +457,7 @@ function invalidateSessionSecret() {
   }).onOk(async () => {
     loading.show()
     try {
-      const resp = await API_CLIENT.post('system/sessions/invalidate').json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
+      await API_CLIENT.post('system/sessions/invalidate').json()
       // -> This session is one of the ones just ended, so there is nowhere to go but back to the
       //    login screen. A full load rather than a route push: every store is holding the state of
       //    somebody who is no longer signed in.
@@ -462,6 +470,45 @@ function invalidateSessionSecret() {
         caption: apiErrorMessage(err)
       })
     }
+  })
+}
+
+/**
+ * Rotate the key pageview `visitorHash` rows are keyed with (OpenProject #2288).
+ *
+ * Existing rows are left untouched, but they stop correlating with anything logged from here on —
+ * the confirmation says so, since that is the entire point of rotating rather than a side effect to
+ * apologize for. Unlike {@link invalidateSessionSecret}, nobody is logged out and nothing else stops
+ * working: no other part of the app keys off `pageviews.hashKey`.
+ */
+function rotatePageviewsHashKey() {
+  confirm({
+    title: t('admin.utilities.rotatePageviewsHashKey'),
+    message: t('admin.utilities.rotatePageviewsHashKeyConfirm'),
+    caption: t('admin.utilities.rotatePageviewsHashKeyConfirmWarn'),
+    cancel: true,
+    persistent: true,
+    color: 'negative',
+    okLabel: t('common.actions.proceed')
+  }).onOk(async () => {
+    loading.show()
+    try {
+      const resp = await API_CLIENT.post('system/pageviews/rotate-key').json()
+      if (!resp?.ok) {
+        throw new Error(resp?.message || t('common.error.unexpected'))
+      }
+      notify({
+        type: 'positive',
+        message: t('admin.utilities.rotatePageviewsHashKeySuccess')
+      })
+    } catch (err) {
+      notify({
+        type: 'negative',
+        message: t('admin.utilities.rotatePageviewsHashKeyFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
+    loading.hide()
   })
 }
 
@@ -489,9 +536,6 @@ function purgeHistory() {
       const resp = await API_CLIENT.post('system/history/purge', {
         json: { olderThan: state.purgeHistoryTimeframe }
       }).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
       const count = resp.count ?? 0
       notify({
         type: 'positive',
@@ -527,9 +571,6 @@ function purgeRevokedKeys() {
     loading.show()
     try {
       const resp = await API_CLIENT.post('system/api-keys/purge').json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
       const count = resp.count ?? 0
       notify({
         type: 'positive',
@@ -563,8 +604,8 @@ async function exportContent() {
     const queued = await API_CLIENT.post('system/export', {
       json: { siteId: siteStore.id }
     }).json()
-    if (!queued?.ok || !queued?.id) {
-      throw new Error(queued?.message || t('common.error.unexpected'))
+    if (!queued?.id) {
+      throw new Error(t('common.error.unexpected'))
     }
 
     let blob
@@ -636,16 +677,13 @@ function importFileSelected() {
     .onOk(async () => {
       loading.show()
       try {
-        const resp = await API_CLIENT.post('system/import', {
+        await API_CLIENT.post('system/import', {
           searchParams: { targetSiteId: siteStore.id },
           headers: {
             'content-type': file.type || 'application/gzip'
           },
           body: file
         }).json()
-        if (!resp?.ok) {
-          throw new Error(resp?.message || t('common.error.unexpected'))
-        }
         notify({
           type: 'positive',
           message: t('admin.utilities.importSuccess')
@@ -672,10 +710,7 @@ function importFileSelected() {
 async function flushCache() {
   loading.show()
   try {
-    const resp = await API_CLIENT.post('system/cache/flush').json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
+    await API_CLIENT.post('system/cache/flush').json()
     notify({
       type: 'positive',
       message: t('admin.utilities.flushCacheSuccess')
@@ -704,8 +739,8 @@ async function scanPageProblems() {
   state.scanReport = null
   try {
     const queued = await API_CLIENT.post('system/pages/scan').json()
-    if (!queued?.ok || !queued?.id) {
-      throw new Error(queued?.message || t('common.error.unexpected'))
+    if (!queued?.id) {
+      throw new Error(t('common.error.unexpected'))
     }
 
     let job

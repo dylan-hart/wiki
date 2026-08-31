@@ -25,7 +25,11 @@ export const HOOK_EVENTS = [
   'comment:delete',
   'user:join',
   'user:login',
-  'user:logout'
+  'user:logout',
+  'approval:submitted',
+  'approval:approved',
+  'approval:rejected',
+  'page:classification-changed'
 ] as const
 
 export type HookEvent = (typeof HOOK_EVENTS)[number]
@@ -55,7 +59,11 @@ export const EMITTED_EVENTS: HookEvent[] = [
   'comment:delete',
   'user:join',
   'user:login',
-  'user:logout'
+  'user:logout',
+  'approval:submitted',
+  'approval:approved',
+  'approval:rejected',
+  'page:classification-changed'
 ]
 
 /** A webhook as exposed by the API. */

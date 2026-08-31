@@ -3,8 +3,8 @@
 // Licensed under AGPLv3
 // ===========================================
 
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import semver from 'semver'
 import { customAlphabet } from 'nanoid'
@@ -35,10 +35,11 @@ import logger from './core/logger.ts'
 import { registerUnhandledRejectionHandler, runBootPhaseOrExit } from './core/processGuards.ts'
 import scheduler from './core/scheduler.ts'
 import { apiKeySitePinHook } from './helpers/apiKeySite.ts'
-import { resolveAppShellLocale, templateAppShell } from './helpers/appShell.ts'
+import { resolveAppShellLocale, getTemplatedAppShell } from './helpers/appShell.ts'
 import { assertValidAuthSecret } from './helpers/authSecret.ts'
 import { authSecretSigner } from './helpers/authSecretSigner.ts'
 import {
+  isHashedAssetFilename,
   isSameOriginWebSocketHandshake,
   localePrefixRedirectTarget,
   localePrefixStripTarget,
@@ -54,13 +55,13 @@ import {
   limitPublicRequests,
   isPublicRateLimitedPath
 } from './helpers/rateLimit.ts'
+import { buildErrorLogContext } from './helpers/requestLogContext.ts'
 import {
   corsOptions,
   parseCspDirectives,
   sessionCookieName,
   shouldBlockCrossOriginApiRequest
 } from './helpers/security.ts'
-import { withAdvisoryLock } from './helpers/advisoryLock.ts'
 
 // `Temporal` has been a real native global since Node 26.0.0 (unflagged, per Node's own release notes)
 // — the `engines` floor this repo requires — so the real boot path needs no polyfill install here.
@@ -217,29 +218,9 @@ async function preBoot() {
     WIKI.db = await dbManager.init()
     WIKI.models = (await import('./models/index.ts')).default
 
-    // -> The is-empty check and the first-run seed it can trigger are held under the same advisory
-    //    lock `dbManager.syncSchemas()` already takes around the migration itself ('wiki:migrate'),
-    //    as one atomic decision. Without this, two instances booting together against a fresh
-    //    database can interleave: `settings.init()` (the first thing `initDbValues()` does) is a
-    //    single-row PRIMARY KEY insert, so a genuinely concurrent seed collides there and the loser
-    //    exits below like today -- but a *second* instance's own `loadFromDb()` can land in the
-    //    window after the first has committed `settings.init()` but before it has finished
-    //    `sites`/`groups`/`users`/`jobs`/`icons` init, sees a settings row, and proceeds straight to
-    //    `postBoot()` reloading caches from a half-seeded database (zero sites, no groups) with no
-    //    error at all. Serializing the whole decision closes that: a second instance's check now
-    //    waits for the first's seed to fully finish (or fail) before running its own.
-    await withAdvisoryLock('wiki:migrate', async () => {
-      if (await WIKI.configSvc.loadFromDb()) {
-        WIKI.logger.info('Settings merged with DB successfully [ OK ]')
-      } else {
-        WIKI.logger.warn('No settings found in DB. Initializing with defaults...')
-        await WIKI.configSvc.initDbValues()
-
-        if (!(await WIKI.configSvc.loadFromDb())) {
-          throw new Error('Settings table is empty! Could not initialize [ ERROR ]')
-        }
-      }
-    })
+    // -> The is-empty check and the seed itself are held under one advisory lock so a concurrently
+    //    booting instance can never observe a half-seeded database — see `configSvc.ensureSeeded()`.
+    await WIKI.configSvc.ensureSeeded()
   } catch (err: any) {
     WIKI.logger.error('Database Initialization Error: ' + err.message)
     if (WIKI.IS_DEBUG) {
@@ -360,8 +341,27 @@ async function initHTTPServer() {
       }
     },
     bodyLimit: WIKI.config.bodyParserLimit || 5242880, // 5mb
+    // -> `level: 'error'` used to suppress pino's own request/response logging entirely (emitted at
+    //    `info`) — no access log, no per-request latency, no status code, no correlation id
+    //    (OpenProject #1937). `genReqId` gives every request one; in `logFormat: 'json'` mode the
+    //    `formatters`/`messageKey`/`timestamp`/`base` options below reshape pino's own JSON line into
+    //    the exact `{ timestamp, instance, level, message, ... }` shape `core/logger.ts`'s JSON branch
+    //    already emits, so an aggregator sees one format across both loggers instead of two. Text mode
+    //    is left as Fastify's own default pino output — the audit note this WP implements only scopes
+    //    shape-matching to JSON mode.
     logger: {
-      level: 'error'
+      level: 'info',
+      genReqId: () => randomUUID(),
+      ...(WIKI.config.logFormat === 'json'
+        ? {
+            messageKey: 'message',
+            timestamp: () => `,"timestamp":"${new Date().toISOString()}"`,
+            base: { instance: WIKI.INSTANCE_ID },
+            formatters: {
+              level: (label: string) => ({ level: label })
+            }
+          }
+        : {})
     },
     // -> `securityTrustProxy` was the 2.x name: the setting is `trustProxy`, so this read never
     //    matched and the option was permanently off no matter what the admin area showed.
@@ -387,28 +387,26 @@ async function initHTTPServer() {
     livenessEndpoint: '/_live',
     readinessEndpoint: '/_ready',
     kubernetes: Boolean(process.env.KUBERNETES_SERVICE_HOST),
-    // -> The real shutdown routines, awaited (`Promise.allSettled`) before the server closes and the
-    //    process exits -- replacing the previous `SHUTTING_DOWN` handler below, which called two of
-    //    these directly and awaited neither, so the library's own 1000ms default `timeout` (below)
-    //    elapsed and forced the exit regardless of whether they had actually finished.
-    //    `scheduler.stop()` first clears `pollingRef`/`scheduledRef` so no new job is claimed once
-    //    shutdown begins, then drains and closes its own LISTEN client; `collab.shutdown()` closes
-    //    every editing socket with a going-away code so editors reconnect to whichever instance takes
-    //    over rather than sitting on a dead connection; `dbManager.unsubscribeFromNotifications()`
-    //    drains and closes the event bus's LISTEN client; the pool itself closes last, once nothing
-    //    above is still checking a connection out of it.
+    // -> Awaited via `Promise.allSettled` by the library once the pre-close delay below has
+    //    elapsed — each one is itself internally bounded (`scheduler.stop()`'s own drain timeout,
+    //    `collab.shutdown()`/`dbManager.shutdown()`'s bounded socket/pool teardown), so a hung
+    //    routine here cannot hold the process open indefinitely. Previously empty, so every deploy,
+    //    restart or pod eviction abandoned an in-flight job, a live collab socket and the pg pool's
+    //    LISTEN client rather than draining them (OpenProject #2018/#2028). `dbManager.shutdown()`
+    //    is one call rather than its two steps listed separately here, because those two steps have
+    //    an order dependency (`unsubscribeFromNotifications()`'s own drain needs a live pool) that
+    //    `Promise.allSettled` running sibling entries concurrently would not preserve.
     closePromises: [
       () => WIKI.scheduler.stop(),
       () => WIKI.collab.shutdown(),
-      () => WIKI.dbManager.unsubscribeFromNotifications(),
-      () => WIKI.dbManager.pool?.end() ?? Promise.resolve()
+      () => WIKI.dbManager.shutdown()
     ],
-    // -> Above the library's 1000ms default, which gave an in-flight job, render, export or webhook
-    //    delivery essentially no drain window before being killed mid-work on every ordinary deploy,
-    //    restart or pod eviction (the cost `core/scheduler.ts#processJob`'s own doc comment describes
-    //    `reapStaleJobs` existing to clean up after). Comfortably inside a typical orchestrator's own
-    //    termination grace period (Kubernetes defaults to 30s) while still bounded.
-    timeout: 10000
+    // -> Library default is 1000ms, spent entirely as a pre-close delay *before* `closePromises`
+    //    run (not a timeout wrapping them) — barely enough for a readiness probe to notice
+    //    `isReady()` has flipped and stop routing new traffic here. Raised well above that, while
+    //    staying comfortably under a typical 30s Kubernetes `terminationGracePeriodSeconds` once
+    //    added to `scheduler.stop()`'s own drain bound above.
+    timeout: 5000
   })
 
   app.register(fastifySensible)
@@ -455,9 +453,10 @@ async function initHTTPServer() {
   // ----------------------------------------
 
   WIKI.server.on(gracefulServer.SHUTTING_DOWN, () => {
+    // -> The actual teardown (scheduler drain, collab socket close, db unsubscribe + pool end) now
+    //    runs via `closePromises` above, awaited by the library before it closes the server — this
+    //    handler is logging only.
     WIKI.logger.info('Shutting down HTTP Server... [ STOPPING ]')
-    // -> The actual shutdown work happens in `closePromises` above, which the library awaits before
-    //    closing the server -- this handler is log-only now.
   })
 
   WIKI.server.on(gracefulServer.SHUTDOWN, (err: Error) => {
@@ -512,7 +511,17 @@ async function initHTTPServer() {
     root: path.join(WIKI.ROOTPATH, 'assets/_assets'),
     index: false,
     maxAge: '7d',
-    decorateReply: false
+    decorateReply: false,
+    // -> Most of what's under `assets/_assets` is a vite build output named `[name]-[hash].[ext]`,
+    //    whose bytes can never change under a given URL — those get the same far-future immutable
+    //    header `controllers/thumb.ts`'s THUMB_CACHE already uses. The handful of unhashed entries
+    //    (renderer.js, and the hand-authored bg/fonts/icons/illustrations/logo-wikijs.svg/storage/svg
+    //    trees) fall through to the `maxAge: '7d'` default above instead.
+    setHeaders(reply, filePath) {
+      if (isHashedAssetFilename(path.basename(filePath))) {
+        reply.header('Cache-Control', 'public, max-age=31536000, immutable')
+      }
+    }
   })
 
   // ----------------------------------------
@@ -1031,15 +1040,19 @@ async function initHTTPServer() {
     convention, which are absent here rather than being the app.
 
     `no-store`: the bundles this pulls in are hashed and immutable under `/_assets`, but the document
-    naming them must never be held, or a rebuilt frontend would keep booting the previous one. Read per
-    request for the same reason -- `npm run build` while the server is up should be enough. It also
-    means a cache never has to be told the templated `lang`/`dir` below vary per site, since nothing
-    is cached at all.
+    naming them must never be held, or a rebuilt frontend would keep booting the previous one. Stat'd
+    per request for the same reason -- `npm run build` while the server is up should be enough. It
+    also means a cache never has to be told the templated `lang`/`dir` below vary per site, since
+    nothing is cached at all client-side (the server-side memo below is a from-scratch re-template
+    keyed on that same stat, not a cache the client could ever observe).
 
     `lang`/`dir` are filled in here rather than left to `App.vue` (which also sets them, from
     `siteStore.locales`, the moment it boots): that only happens once its JS has loaded, parsed and
     run, so an RTL locale would flash LTR for however long that takes. Templating them into the shell
-    itself closes that window -- see `helpers/appShell.ts`.
+    itself closes that window -- see `helpers/appShell.ts`, whose `getTemplatedAppShell` memoises the
+    templated output per `(lang, isRTL)` pair (there are only a handful) rather than re-reading and
+    re-templating the shell on every request; it also keeps `getLocales()` off the hot path for an
+    already-seen `lang`, only calling it again once the shell file's `mtimeMs` moves.
   */
   app.setNotFoundHandler(async (req, reply) => {
     const [urlPath, urlSearch] = req.raw.url!.split('?')
@@ -1053,15 +1066,15 @@ async function initHTTPServer() {
       return reply.notFound()
     }
     try {
-      const shell = await readFile(appShellPath, 'utf8')
       // -> Same site resolution as the SEO hook above: straight off the caches, since this also
       //    runs on every request that reaches the shell.
       const siteId = WIKI.sitesMappings[normalizeHostname(req.hostname)] || WIKI.sitesMappings['*']
       const siteConfig = WIKI.sites[siteId]?.config
       const lang = resolveAppShellLocale(urlPath!, urlSearch, siteConfig?.locales)
-      const locales = await WIKI.models.locales.getLocales()
-      const isRTL = locales.find((l: any) => l.code === lang)?.isRTL ?? false
-      const templated = templateAppShell(shell, { lang, isRTL })
+      const templated = await getTemplatedAppShell(appShellPath, lang, async () => {
+        const locales = await WIKI.models.locales.getLocales()
+        return locales.find((l: any) => l.code === lang)?.isRTL ?? false
+      })
       return reply
         .header('Cache-Control', 'no-store')
         .type('text/html; charset=utf-8')
@@ -1091,7 +1104,10 @@ async function initHTTPServer() {
           message: error.message
         })
       } else {
-        WIKI.logger.warn(error)
+        // -> A bare `WIKI.logger.warn(error)` gave an operator no way to trace a 500 back to the
+        //    request that caused it. `req.id` is the same correlation id Fastify's own access log
+        //    carries for this request (`genReqId`, above), so the two lines join in an aggregator.
+        WIKI.logger.warn(error, buildErrorLogContext(req))
         reply.code(500).type('application/json').send({
           ok: false,
           error: 'Internal Server Error',

@@ -2,10 +2,9 @@
   <w-page class="admin-audit-log">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-event-log.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-event-log.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.audit.title') }}</h1>
@@ -171,6 +170,12 @@
 
       <w-separator class="my-4" inset />
 
+      <!--
+        Card-local save, not a page-header Apply, by decision (OpenProject #2089): this page is a
+        viewer (audit entries + filters) with settings embedded in it, not itself a settings form,
+        and its filter card above already commits locally the same way -- see
+        `docs/decisions/embedded-setting-save-affordance.md`.
+      -->
       <w-card class="rounded" flat :class="dark.isActive ? `bg-dark-5` : `bg-grey-2`">
         <w-card-section>
           <div class="text-subtitle1">{{ t('admin.audit.retentionTitle') }}</div>
@@ -191,7 +196,7 @@
                 :aria-label="t('admin.audit.retentionTitle')" />
             </div>
             <w-btn
-              class="acrylic-btn"
+              class="acrylic-btn retention-save-btn"
               flat
               color="primary"
               :label="t('common.actions.save')"
@@ -425,12 +430,9 @@ async function saveRetention() {
   }
   state.savingRetention = true
   try {
-    const resp = await API_CLIENT.put('audit-log/settings', {
+    await API_CLIENT.put('audit-log/settings', {
       json: { retentionDays: state.retentionDays }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
     notify({
       type: 'positive',
       message: t('admin.audit.retentionSaveSuccess')

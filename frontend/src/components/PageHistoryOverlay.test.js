@@ -76,7 +76,7 @@ const FULL_VERSION = {
 function mockGetEndpoints() {
   globalThis.API_CLIENT.get.mockImplementation((url) => {
     if (String(url).endsWith('/history')) {
-      return { json: () => Promise.resolve([VERSION]) }
+      return { json: () => Promise.resolve({ items: [VERSION], nextCursor: null }) }
     }
     if (String(url).includes('/history/')) {
       return { json: () => Promise.resolve(FULL_VERSION) }
@@ -288,7 +288,7 @@ describe('PageHistoryOverlay: diff too large to render inline', () => {
     return () => {
       globalThis.API_CLIENT.get.mockImplementation((url) => {
         if (String(url).endsWith('/history')) {
-          return { json: () => Promise.resolve([VERSION, OLDER]) }
+          return { json: () => Promise.resolve({ items: [VERSION, OLDER], nextCursor: null }) }
         }
         if (String(url).includes(`/history/${OLDER.id}`)) {
           return { json: () => Promise.resolve(olderFull) }
@@ -364,7 +364,7 @@ describe('PageHistoryOverlay: languageOf for a redirect-editor page', () => {
       mockEndpoints: () => {
         globalThis.API_CLIENT.get.mockImplementation((url) => {
           if (String(url).endsWith('/history')) {
-            return { json: () => Promise.resolve([VERSION]) }
+            return { json: () => Promise.resolve({ items: [VERSION], nextCursor: null }) }
           }
           if (String(url).includes('/history/')) {
             return { json: () => Promise.resolve(redirectVersion) }
@@ -395,7 +395,7 @@ describe('PageHistoryOverlay: MCP provenance marker', () => {
       mockEndpoints: () => {
         globalThis.API_CLIENT.get.mockImplementation((url) => {
           if (String(url).endsWith('/history')) {
-            return { json: () => Promise.resolve([mcpVersion]) }
+            return { json: () => Promise.resolve({ items: [mcpVersion], nextCursor: null }) }
           }
           return { json: () => Promise.resolve({ ...FULL_VERSION, via: 'mcp' }) }
         })
@@ -416,13 +416,57 @@ describe('PageHistoryOverlay: MCP provenance marker', () => {
   })
 })
 
+/**
+ * OpenProject #1859: `pageHistory.list` is now keyset-paginated rather than returning the whole
+ * history in one call, so the overlay has to fetch further pages itself.
+ */
+describe('PageHistoryOverlay: cursor pagination', () => {
+  const OLDER = { ...VERSION, id: 'v0', versionDate: '2023-12-31T00:00:00.000Z' }
+
+  it('shows a "load more" control when the first page has a nextCursor, and hides it once exhausted', async () => {
+    const { wrapper } = await mountOverlay({
+      mockEndpoints: () => {
+        globalThis.API_CLIENT.get.mockImplementation((url, opts) => {
+          if (String(url).endsWith('/history') && !opts?.searchParams) {
+            return { json: () => Promise.resolve({ items: [VERSION], nextCursor: 'cursor-1' }) }
+          }
+          if (String(url).endsWith('/history') && opts?.searchParams?.cursor === 'cursor-1') {
+            return { json: () => Promise.resolve({ items: [OLDER], nextCursor: null }) }
+          }
+          return { json: () => Promise.resolve(FULL_VERSION) }
+        })
+      }
+    })
+
+    const loadMoreBtn = () => document.body.querySelector('.page-history-load-more button')
+    expect(loadMoreBtn()).not.toBeNull()
+
+    await loadMoreBtn().dispatchEvent(new Event('click', { bubbles: true }))
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.get).toHaveBeenCalledWith(
+      'sites/site-1/pages/page-1/history',
+      expect.objectContaining({ searchParams: { cursor: 'cursor-1' } })
+    )
+    // -> The older page's entry is now on the timeline, appended after the first page's
+    expect(wrapper.findAll('.page-history-item')).toHaveLength(2)
+    // -> nextCursor came back null, so there is nothing left to load
+    expect(loadMoreBtn()).toBeNull()
+  })
+
+  it('shows no "load more" control when the first page has no nextCursor', async () => {
+    await mountOverlay()
+    expect(document.body.querySelector('.page-history-load-more')).toBeNull()
+  })
+})
+
 describe('PageHistoryOverlay: no history yet', () => {
   it('shows the empty-history notice instead of crashing on an empty version list', async () => {
     const { wrapper } = await mountOverlay({
       mockEndpoints: () => {
         globalThis.API_CLIENT.get.mockImplementation((url) => {
           if (String(url).endsWith('/history')) {
-            return { json: () => Promise.resolve([]) }
+            return { json: () => Promise.resolve({ items: [], nextCursor: null }) }
           }
           return { json: () => Promise.resolve({ id: 'page-1' }) }
         })

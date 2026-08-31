@@ -2,10 +2,9 @@
   <w-page class="admin-mail">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-message-settings-animated.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-message-settings-animated.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.mail.title') }}</h1>
@@ -448,7 +447,7 @@ async function save() {
 
   state.loading++
   try {
-    const resp = await API_CLIENT.put('mail/config', {
+    await API_CLIENT.put('mail/config', {
       json: {
         senderName: state.config.senderName || '',
         senderEmail: state.config.senderEmail || '',
@@ -466,9 +465,6 @@ async function save() {
         dkimPrivateKey: state.config.dkimPrivateKey || ''
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(t(`admin.mail.${resp?.error}`, resp?.message || t('common.error.unexpected')))
-    }
     notify({
       type: 'positive',
       message: t('admin.mail.saveSuccess')
@@ -477,7 +473,10 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: t(
+        `admin.mail.${err.data?.error}`,
+        apiErrorMessage(err, 'An unexpected error occured.')
+      )
     })
   }
   state.loading--
@@ -497,12 +496,9 @@ async function sendTest() {
 
   state.testLoading = true
   try {
-    const resp = await API_CLIENT.post('mail/test', {
+    await API_CLIENT.post('mail/test', {
       json: { recipientEmail: state.testEmail || '' }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
     notify({
       type: 'positive',
       message: t('admin.mail.sendTestSuccess')

@@ -59,6 +59,15 @@ describe('BlockPickerOverlay', () => {
     // -> Equal to the prop's own default, so `blockAttributes` leaves it out of the markup entirely
     expect(wrapper.find('.block-picker-output').text()).not.toContain('server=')
   })
+
+  // -> OpenProject #1929: `/guide/blocks` names a concept this fork invented (custom blocks are not
+  //    an upstream Wiki.js feature), so no docs site can describe it -- the help button was deleted
+  //    rather than left pointing at a page that does not exist.
+  it('has no help/docs button', async () => {
+    const wrapper = await mountPicker([BLOCK])
+
+    expect(wrapper.html()).not.toContain('/guide/blocks')
+  })
 })
 
 /**

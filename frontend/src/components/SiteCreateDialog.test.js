@@ -19,11 +19,10 @@ afterEach(() => {
 })
 
 /**
- * Audit-and-align test for create(): unlike `SiteDeleteDialog` / `SiteActivateDialog`, this endpoint's
- * failures are all <=400 today, so ky's `throwHttpErrors: (statusNumber) => statusNumber > 400` never
- * throws here. But `create()` used to read `err.message` in its `catch`, same as the other two, so it
- * would have gone straight to ky's generic text the moment this endpoint grew a >400 response. Routing
- * it through `apiErrorMessage()` keeps it correct either way.
+ * Regression coverage for #1767: `create()` used to test the resolved 400's `resp?.ok` and read
+ * `resp.json()` for the message -- dead once `boot/api.js` throws on every non-2xx status instead of
+ * resolving a 400. The `catch` now reads the same message off `err.data` via `apiErrorMessage()`,
+ * same as `SiteDeleteDialog` / `SiteActivateDialog`.
  */
 function mountDialog() {
   setActivePinia(createPinia())
@@ -61,10 +60,11 @@ async function fillAndSubmit() {
 }
 
 describe('SiteCreateDialog create()', () => {
-  it('surfaces the server-provided message on a <=400 failure, not a generic fallback', async () => {
-    API_CLIENT.post.mockReturnValueOnce({
-      ok: false,
-      json: () => Promise.resolve({ message: 'A site with that hostname already exists.' })
+  it('surfaces the server-provided message on a refused create, not a generic fallback', async () => {
+    const err = new Error('Bad Request')
+    err.data = { message: 'A site with that hostname already exists.' }
+    API_CLIENT.post.mockImplementationOnce(() => {
+      throw err
     })
 
     const wrapper = mountDialog()
@@ -76,7 +76,7 @@ describe('SiteCreateDialog create()', () => {
   })
 
   it('confirms and closes on success', async () => {
-    API_CLIENT.post.mockReturnValueOnce({ ok: true })
+    API_CLIENT.post.mockReturnValueOnce({})
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.resolve([{ id: 1, title: 'My Site' }])
     })

@@ -2,10 +2,9 @@
   <w-page class="admin-system">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-processor.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-processor.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.system.title') }}</h1>
@@ -317,6 +316,7 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { dialog } from '@/composables/dialog'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { copyToClipboard } from '@/helpers/clipboard'
 
 import { useSiteStore } from '@/stores/site'
@@ -408,7 +408,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.system.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()
@@ -443,7 +443,7 @@ Total RAM: ${state.info.ramTotal}`
     notify({
       type: 'negative',
       message: t('admin.system.copyFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
 }

@@ -46,7 +46,7 @@
             v-if="userStore.can(`write:pages`)"
             class="header-nav-btn"
             flat
-            icon="la:plus-circle"
+            icon="la:plus"
             color="blue-4"
             :aria-label="t('common.header.createNewPage')">
             <w-tooltip>{{ t('common.header.createNewPage') }}</w-tooltip>

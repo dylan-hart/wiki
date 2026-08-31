@@ -44,7 +44,12 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
         '  apiKey:',
         '    type: String',
         "    default: ''",
-        '    title: API Key'
+        '    title: API Key',
+        '  secret:',
+        '    type: String',
+        "    default: ''",
+        '    title: Secret Key',
+        '    sensitive: true'
       ].join('\n')
     )
     await fs.mkdir(path.join(modulesDir, 'beta'), { recursive: true })
@@ -126,7 +131,7 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
         { module: 'gamma', isEnabled: false }
       ]
     )
-    assert.deepEqual(providers[0]!.config, { apiKey: '' })
+    assert.deepEqual(providers[0]!.config, { apiKey: '', secret: '' })
   })
 
   test('setActiveProvider enables exactly one provider, disabling every other one for that site', async () => {
@@ -231,17 +236,58 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const active = await commentProvidersModel.getActiveProvider(fixtures.siteId)
     assert.equal(active?.module, 'default')
   })
+
+  test('a sensitive prop (secret) never leaves a config read, masked or via the PUT response', async () => {
+    await commentProvidersModel.syncSite(fixtures.siteId)
+    // -> `setActiveProvider`'s own return value is what `PUT .../comments/providers` sends straight
+    //    back to the client, so it must come back masked without a caller having to ask for it.
+    const activated = await commentProvidersModel.setActiveProvider(fixtures.siteId, 'alpha', {
+      apiKey: 'not-sensitive',
+      secret: 'akismet-key-value'
+    })
+    assert.equal(activated?.config.secret, '********')
+    // -> A non-sensitive prop on the same provider is untouched.
+    assert.equal(activated?.config.apiKey, 'not-sensitive')
+
+    // -> Default (unmasked): `setActiveProvider`'s own internal merge reads through this method, and
+    //    needs the real value to preserve an untouched secret correctly.
+    const unmasked = await commentProvidersModel.getSiteProviderByModule(fixtures.siteId, 'alpha')
+    assert.equal(unmasked?.config.secret, 'akismet-key-value')
+
+    // -> `{ mask: true }`: what the admin GET route (api/comments.ts) actually returns.
+    const maskedList = await commentProvidersModel.getSiteProviders(fixtures.siteId, { mask: true })
+    assert.equal(maskedList.find((p) => p.module === 'alpha')!.config.secret, '********')
+  })
+
+  test('a PUT that echoes the mask back leaves the real stored secret unchanged', async () => {
+    await commentProvidersModel.syncSite(fixtures.siteId)
+    await commentProvidersModel.setActiveProvider(fixtures.siteId, 'alpha', {
+      secret: 'original-akismet-key'
+    })
+
+    // -> Simulates an admin form resubmitting the masked value it was shown, having only changed an
+    //    unrelated field (apiKey) -- the secret field itself was never touched.
+    await commentProvidersModel.setActiveProvider(fixtures.siteId, 'alpha', {
+      apiKey: 'changed-value',
+      secret: '********'
+    })
+
+    const current = await commentProvidersModel.getSiteProviderByModule(fixtures.siteId, 'alpha')
+    assert.equal(current?.config.secret, 'original-akismet-key')
+    assert.equal(current?.config.apiKey, 'changed-value')
+  })
 })
 
 /**
- * `codeTemplate`/`hasImplementation`/`isSelectable` (Feature 396): the module loader must not gate
- * "is this provider selectable" purely on `hasImplementation`, the way `models/storage.ts` currently
- * does for storage targets -- harmless there only because no storage module has shipped an
- * implementation yet, so every target is equally (and temporarily) unavailable. Disqus, Commento and
- * Artalk are pure client-side embeds -- a shortname/instance URL handed to the vendor's own script --
- * and were never going to get a `comments.ts`, so the same gate would mark them *permanently*
- * unselectable. `codeTemplate: true` (declared on each of their `definition.yml`) is the independent
- * signal that lets a provider be selectable without server-side code behind it.
+ * `codeTemplate`/`hasImplementation`/`isSelectable` (OpenProject #1958): `isSelectable()` now gates
+ * purely on `hasImplementation`, matching `models/storage.ts`'s equivalent gate for storage targets.
+ * An earlier version (Feature 396) treated `codeTemplate: true` (declared on each of Disqus/Commento/
+ * Artalk's `definition.yml`) as an independent grant, so a provider with no server-side
+ * implementation could still be selected on the theory that a future page-view render path would
+ * embed the vendor's own client-side script. No such render path was ever built, and the three
+ * providers now declare `isAvailable: false` instead (see the "Comment provider selectability" entry
+ * in `docs/variances.md` for the full reversal) -- `codeTemplate` remains a descriptive field on the
+ * definition (still read off disk below), it just no longer feeds `isSelectable()`.
  *
  * No `WIKI` global/database beyond `SERVERPATH` + a silent logger is needed: `refreshFromDisk()` only
  * reads disk, and points at this repo's own real `modules/comments/` directory (not a fixture) so
@@ -278,31 +324,29 @@ describe('commentProviders (definition loading)', () => {
     assert.equal(defaultProvider.codeTemplate, false)
   })
 
-  test('all three external providers are selectable despite having no comments.ts', () => {
+  test('all three external providers are unavailable and not selectable despite declaring codeTemplate', () => {
     for (const key of ['disqus', 'commento', 'artalk']) {
       const definition = commentProvidersModel.definitions.find((d) => d.key === key)!
       assert.equal(definition.hasImplementation, false, `${key} unexpectedly has an implementation`)
       assert.equal(definition.codeTemplate, true, `${key} did not declare codeTemplate: true`)
+      assert.equal(definition.isAvailable, false, `${key} should declare isAvailable: false`)
       assert.equal(
         commentProvidersModel.isSelectable(definition),
-        true,
-        `${key} should be selectable via codeTemplate even without hasImplementation`
+        false,
+        `${key} should not be selectable -- codeTemplate no longer grants selectability on its own`
       )
     }
   })
 
-  test('the default provider is selectable via hasImplementation, not codeTemplate', () => {
+  test('the default provider is selectable via hasImplementation', () => {
     const definition = commentProvidersModel.definitions.find((d) => d.key === 'default')!
     assert.equal(definition.hasImplementation, true)
     assert.equal(definition.codeTemplate, false)
     assert.equal(commentProvidersModel.isSelectable(definition), true)
   })
 
-  test('a hypothetical provider with neither hasImplementation nor codeTemplate is not selectable', () => {
-    assert.equal(
-      commentProvidersModel.isSelectable({ hasImplementation: false, codeTemplate: false }),
-      false
-    )
+  test('a hypothetical provider with no implementation is not selectable, codeTemplate notwithstanding', () => {
+    assert.equal(commentProvidersModel.isSelectable({ hasImplementation: false }), false)
   })
 
   test('backend/locales/en.json carries a codeTemplate-aware caption under admin.comments.*', async () => {

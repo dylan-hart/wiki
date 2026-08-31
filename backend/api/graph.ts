@@ -3,7 +3,6 @@ import type { GraphPageRow } from '../models/pages.ts'
 import type { PageHistoryContributorCounts } from '../models/pageHistory.ts'
 import type { PageviewCountsForGraph } from '../models/pageviews.ts'
 import { zeroPageviewCountsForGraph } from '../models/pageviews.ts'
-import { mayOnPage } from './pages.ts'
 import { guardSiteEnabled } from '../helpers/common.ts'
 import {
   getCachedGraphData,
@@ -35,16 +34,19 @@ export interface GraphNode {
    *  id no longer resolves to a configured level. */
   classification: string | null
   /** Unique-contributor counts from this page's edit history (OpenProject #1141), the source for
-   *  the graph's edit-volume node sizing. Always present, zeroed rather than omitted for a page
-   *  with no history to look up. */
-  contributors: PageHistoryContributorCounts
+   *  the graph's edit-volume node sizing. Omitted entirely (OpenProject #1863) unless the request
+   *  carries `?sizing=` -- these, together with `pageviews` below, dominate the per-node payload
+   *  and most readers never look at them. Present and zeroed (not omitted) for a page with no
+   *  history to look up, whenever sizing data was asked for at all. */
+  contributors?: PageHistoryContributorCounts
   /** Unique-visitor counts from this page's pageview log (OpenProject #1140), the source for the
    *  graph's page-visit-volume node sizing -- split by trailing window and client type so the
    *  frontend's window selector and client-type checkboxes both work client-side against this one
-   *  fetched payload. Always present, zeroed rather than omitted for a page with no pageviews
-   *  logged (including while `WIKI.config.pageviews.isEnabled` is off, in which case there is
-   *  nothing to log in the first place). */
-  pageviews: PageviewCountsForGraph
+   *  fetched payload. Omitted entirely (OpenProject #1863) unless the request carries `?sizing=`,
+   *  same gating as `contributors` above. Present and zeroed (not omitted) for a page with no
+   *  pageviews logged (including while `WIKI.config.pageviews.isEnabled` is off, in which case
+   *  there is nothing to log in the first place), whenever sizing data was asked for at all. */
+  pageviews?: PageviewCountsForGraph
 }
 
 /** One edge — an authored relation or an extracted internal link, always between two visible nodes.
@@ -59,7 +61,25 @@ export interface GraphEdge {
 export interface Graph {
   nodes: GraphNode[]
   edges: GraphEdge[]
+  /** Whether the node set was cut off by `GRAPH_NODE_CAP` (OpenProject #1866) -- when true, `nodes`
+   *  holds only the first `GRAPH_NODE_CAP` of `totalNodes` readable pages, and every edge touching a
+   *  dropped node has been dropped with it. */
+  truncated: boolean
+  /** Count of pages the caller may read, before the cap is applied -- equal to `nodes.length` when
+   *  `truncated` is false. */
+  totalNodes: number
 }
+
+/**
+ * Hard ceiling on nodes returned by one `assembleGraph` call (OpenProject #1866). Unbounded, the
+ * response is one row (plus contributor/pageview count objects) per readable page -- multi-megabyte
+ * JSON and a multi-second force-layout block on a wiki of a few thousand pages, with no degradation
+ * path. This is a first hedge, not a redesign of #848's fetch-once-and-filter-client-side shape (a
+ * `?folder=`/`?depth=` neighbourhood parameter is the follow-up if that shape ever needs revisiting)
+ * -- picked generously enough that it should rarely bite in practice, retune via this one constant
+ * once real graph sizes are observed.
+ */
+export const GRAPH_NODE_CAP = 2000
 
 /** A page's first path segment — `docs/child` -> `docs`, the home page (path `''`) -> `''`. */
 export function folderOf(path: string): string {
@@ -87,6 +107,13 @@ export function folderOf(path: string): string {
  *
  * `pageviewsFor` resolves a page id to its page-visit-volume counts (OpenProject #1140), same
  * testability reasoning and same all-zero-default shape as `contributorsFor`.
+ *
+ * `includeSizing` (OpenProject #1863) gates whether `contributors`/`pageviews` are attached to each
+ * node at all -- both together, not independently, since `Graph.vue`'s sizing-mode toggle switches
+ * client-side with no refetch and needs both dimensions already on hand either way. Defaults to
+ * `true` so an existing caller that doesn't care about the gate (every pure-unit test that predates
+ * #1863) keeps seeing the same all-present shape it always has; the route below passes the real
+ * `Boolean(req.query.sizing)` explicitly.
  */
 export function assembleGraph(
   rows: GraphPageRow[],
@@ -98,7 +125,8 @@ export function assembleGraph(
     all: 0,
     total: { editor: 0, mcp: 0, all: 0 }
   }),
-  pageviewsFor: (pageId: string) => PageviewCountsForGraph = zeroPageviewCountsForGraph
+  pageviewsFor: (pageId: string) => PageviewCountsForGraph = zeroPageviewCountsForGraph,
+  includeSizing = true
 ): Graph {
   const visible = rows.filter(canRead)
   // -> A relation/link target is a bare path, resolved within the target's own locale (translations
@@ -107,9 +135,26 @@ export function assembleGraph(
   //    link would count as visible when only a `fr`-locale page occupies that path (OpenProject
   //    #1621/#1626).
   const nodeId = (locale: string, path: string) => `${locale}:${path}`
-  const visibleIds = new Set(visible.map((row) => nodeId(row.locale, row.path)))
 
-  const nodes: GraphNode[] = visible.map((row) => ({
+  const totalNodes = visible.length
+  const truncated = totalNodes > GRAPH_NODE_CAP
+
+  // -> Deterministic, not arbitrary DB row order (OpenProject #1866's "not arbitrary row order"
+  //    requirement): sort by composite id before capping, so which pages survive a truncated
+  //    response is stable across requests and across a physical row order Postgres gives no
+  //    guarantee on -- and stays a total order even across locales sharing a path (#1621/#1626).
+  const retained = truncated
+    ? [...visible]
+        .sort((a, b) => nodeId(a.locale, a.path).localeCompare(nodeId(b.locale, b.path)))
+        .slice(0, GRAPH_NODE_CAP)
+    : visible
+
+  // -> Rebuilt from `retained`, not `visible`: this is what keeps edge assembly below internally
+  //    consistent -- an edge whose source or target got capped out is dropped along with it, for
+  //    free, by the same `visibleIds.has(...)` checks that already filter out unreadable pages.
+  const visibleIds = new Set(retained.map((row) => nodeId(row.locale, row.path)))
+
+  const nodes: GraphNode[] = retained.map((row) => ({
     id: nodeId(row.locale, row.path),
     path: row.path,
     locale: row.locale,
@@ -118,12 +163,13 @@ export function assembleGraph(
     tags: row.tags,
     folder: folderOf(row.path),
     classification: classificationName(row.classification),
-    contributors: contributorsFor(row.id),
-    pageviews: pageviewsFor(row.id)
+    ...(includeSizing
+      ? { contributors: contributorsFor(row.id), pageviews: pageviewsFor(row.id) }
+      : {})
   }))
 
   const edges: GraphEdge[] = []
-  for (const row of visible) {
+  for (const row of retained) {
     const sourceId = nodeId(row.locale, row.path)
     for (const relation of row.relations) {
       // -> A relation's `target` is a bare path with no locale of its own -- it can only ever mean
@@ -147,13 +193,30 @@ export function assembleGraph(
     }
   }
 
-  return { nodes, edges }
+  return { nodes, edges, truncated, totalNodes }
 }
 
 const siteIdParam = {
   type: 'object',
   properties: { siteId: { type: 'string', format: 'uuid' } },
   required: ['siteId']
+}
+
+/** OpenProject #1863: opt-in to each node's `contributors`/`pageviews` count objects, which
+ *  dominate the per-node payload and which most readers of the default view never look at.
+ *  `Graph.vue` sends its currently-active "Size by" mode as the value, but only presence is
+ *  checked here -- see `assembleGraph`'s `includeSizing` doc comment for why both objects always
+ *  come back together regardless of which mode the value names. */
+const graphQuerystring = {
+  type: 'object',
+  properties: {
+    sizing: {
+      type: 'string',
+      enum: ['edits', 'visits'],
+      description:
+        "When present, every node also carries its `contributors` and `pageviews` count objects (omitted by default to keep the default view's payload lean). The value should match the caller's active sizing mode, but presence alone -- not the specific value -- decides whether sizing data comes back."
+    }
+  }
 }
 
 /**
@@ -198,7 +261,7 @@ async function routes(app: FastifyInstance) {
   /**
    * GET GRAPH
    */
-  app.get<{ Params: { siteId: string } }>(
+  app.get<{ Params: { siteId: string }; Querystring: { sizing?: string } }>(
     '/sites/:siteId/graph',
     {
       schema: {
@@ -207,6 +270,7 @@ async function routes(app: FastifyInstance) {
           "Every page the caller may read on this site, across all locales, as nodes -- plus the relation and internal-link edges between pages that are both visible. Fetched once; every drill-down filter and re-cluster after that (OpenProject #874/#875) runs client-side against this response, per #848's design. The underlying data is cached per site for a short TTL (OpenProject #2269); a cold cache is only rebuilt for a signed-in caller.",
         tags: ['Pages'],
         params: siteIdParam,
+        querystring: graphQuerystring,
         response: {
           200: { $ref: 'Graph#' },
           401: { $ref: 'ApiError#' }
@@ -232,9 +296,18 @@ async function routes(app: FastifyInstance) {
       const rows = authenticated
         ? data.rows
         : data.rows.filter((row) => row.publishState === 'published')
+      // -> Built once per request rather than once per row -- `mayOnPage()` rebuilds it internally
+      //    on every call, and the graph's input is unbounded (`listAllForGraph()` selects every page
+      //    row for the site with no limit). See `tree.ts`'s `visibleTreeItems()` for the same shape.
+      const actor = WIKI.models.groups.actorForRequest(req)
       return assembleGraph(
         rows,
-        (row) => mayOnPage(req, 'read:pages', req.params.siteId, row),
+        (row) =>
+          WIKI.models.groups.checkAccess(actor, 'read:pages', {
+            ...row,
+            classification: row.classification ?? null,
+            siteId: req.params.siteId
+          }),
         (id) => WIKI.models.classificationLevels.byId(id)?.name ?? null,
         (pageId) =>
           data.contributorCounts.get(pageId) ?? {
@@ -243,7 +316,8 @@ async function routes(app: FastifyInstance) {
             all: 0,
             total: { editor: 0, mcp: 0, all: 0 }
           },
-        (pageId) => data.pageviewCounts.get(pageId) ?? zeroPageviewCountsForGraph()
+        (pageId) => data.pageviewCounts.get(pageId) ?? zeroPageviewCountsForGraph(),
+        Boolean(req.query.sizing)
       )
     }
   )

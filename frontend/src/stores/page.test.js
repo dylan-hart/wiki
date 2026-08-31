@@ -236,6 +236,61 @@ describe('page store: pageSave() concurrency', () => {
     expect(pageStore.content).toBe("this author's unsaved edit")
     expect(pageStore.updatedAt).toBe('2026-01-01T05:00:01.000Z')
   })
+
+  /**
+   * OpenProject #1762: `unwrap()` used to compensate for `boot/api.js` resolving a 400 instead of
+   * throwing. Now that a refusal is a real rejection, this is the ky `HTTPError` shape (`.response`,
+   * `.data.message`) it arrives in -- and the server's own message must survive onto the thrown
+   * error's `.message`, since callers such as `PageHeader.vue` read `err.message` directly rather
+   * than going through `apiErrorMessage()` themselves.
+   */
+  it('on an update refused with a non-conflict error, rejects with the server message', async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    editorStore.mode = 'edit'
+    pageStore.$patch({
+      id: '5',
+      contentLoaded: true,
+      updatedAt: '2026-01-01T00:00:00.000Z'
+    })
+
+    const refusalErr = new Error('Bad Request')
+    refusalErr.response = { status: 400 }
+    refusalErr.data = { message: 'Path already exists.' }
+    API_CLIENT.patch.mockReturnValueOnce({
+      json: () => Promise.reject(refusalErr)
+    })
+
+    await expect(pageStore.pageSave()).rejects.toThrow('Path already exists.')
+  })
+
+  it('on a create refused with a non-conflict error, rejects with the server message', async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    editorStore.mode = 'create'
+    pageStore.$patch({
+      id: 0,
+      contentLoaded: true,
+      locale: 'en',
+      path: 'new-page',
+      updatedAt: ''
+    })
+
+    const refusalErr = new Error('Bad Request')
+    refusalErr.response = { status: 400 }
+    refusalErr.data = { message: 'A page already exists at this path.' }
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.reject(refusalErr)
+    })
+
+    await expect(pageStore.pageSave()).rejects.toThrow('A page already exists at this path.')
+  })
 })
 
 /**
@@ -974,6 +1029,66 @@ describe('page store: pageMove()', () => {
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1')
     expect(siteStore.nav.items).toEqual([{ id: 'item-after-move' }])
+  })
+
+  /**
+   * OpenProject #1762: `unwrap()` used to compensate for `boot/api.js` resolving a 400 instead of
+   * throwing. Now that a refusal is a real rejection (a ky `HTTPError`, with the server's message
+   * under `.data.message`), the store must still surface that message on the thrown error's own
+   * `.message` -- callers such as `PageActionsCol.vue` read `err.message` directly.
+   */
+  it('rejects with the server message when the move is refused', async () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    pageStore.$patch({ id: 'page-1', locale: 'en', path: 'some-page' })
+
+    const refusalErr = new Error('Bad Request')
+    refusalErr.response = { status: 400 }
+    refusalErr.data = { message: 'A page already exists at that path.' }
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.reject(refusalErr) })
+
+    await expect(pageStore.pageMove({ id: 'page-1', path: 'taken' })).rejects.toThrow(
+      'A page already exists at that path.'
+    )
+    expect(pageStore.router.replace).not.toHaveBeenCalled()
+  })
+})
+
+describe('page store: pageRename()', () => {
+  it('patches the title and, for the currently viewed page, updates the store', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+    const pageStore = usePageStore()
+    pageStore.$patch({ id: 'page-1', title: 'Old Title' })
+
+    await pageStore.pageRename({ id: 'page-1', title: 'New Title' })
+
+    expect(API_CLIENT.patch).toHaveBeenCalledWith('sites/site-1/pages/page-1', {
+      json: { title: 'New Title' }
+    })
+    expect(pageStore.title).toBe('New Title')
+  })
+
+  it('rejects with the server message when the rename is refused', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    const refusalErr = new Error('Bad Request')
+    refusalErr.response = { status: 400 }
+    refusalErr.data = { message: 'Title cannot be empty.' }
+    API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.reject(refusalErr) })
+
+    const pageStore = usePageStore()
+    pageStore.$patch({ id: 'page-1', title: 'Old Title' })
+
+    await expect(pageStore.pageRename({ id: 'page-1', title: '' })).rejects.toThrow(
+      'Title cannot be empty.'
+    )
+    // -> A refused rename must not be applied optimistically.
+    expect(pageStore.title).toBe('Old Title')
   })
 })
 

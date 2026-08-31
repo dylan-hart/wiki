@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { eq, inArray, sql } from 'drizzle-orm'
+import { eq, inArray, lt, sql } from 'drizzle-orm'
 import { sessions as sessionsTable, userGroups as userGroupsTable } from '../db/schema.ts'
 import type { WikiDbOrTx } from '../core/db.ts'
 
@@ -150,6 +150,28 @@ class Sessions {
     const ended = result.rowCount ?? 0
     WIKI.logger.info(`Rotated the session secret and ended ${ended} session(s) [ OK ]`)
     return ended
+  }
+
+  /**
+   * Drop rows past the cookie's 30-day window (`index.ts`'s `fastifySession` `cookie.maxAge`).
+   *
+   * `@fastify/session` only does cookie-side `expires` bookkeeping -- it never calls `store.destroy`
+   * on a stale row, so once a cookie stops being presented its row is never revisited on its own.
+   * Left alone that makes `sessions` an unbounded, monotonically growing table that is SELECTed by
+   * primary key on every authenticated request and whose `data` jsonb holds `email`, `name` and the
+   * flattened permission list. Mirrors `rateLimits.ts#purgeStale()`'s shape exactly.
+   *
+   * `updatedAt`, not `createdAt`, is the right column: `set()` bumps it on every touch, so this is 30
+   * days of *inactivity*, matching how the cookie itself actually expires client-side rather than
+   * purging an active session early just because it is old.
+   *
+   * @returns How many rows were dropped
+   */
+  async purgeExpiredSessions(): Promise<number> {
+    const result = await WIKI.db
+      .delete(sessionsTable)
+      .where(lt(sessionsTable.updatedAt, sql`now() - interval '30 days'`))
+    return result.rowCount ?? 0
   }
 }
 

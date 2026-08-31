@@ -167,7 +167,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       actor
     )
     const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
-    const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+    const { items: entries } = await pageHistoryModel.list(fixtures.siteId, page.id)
     assert.equal(entries.length, 1)
     assert.equal(entries[0]!.via, 'editor')
   })
@@ -182,7 +182,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Updated via MCP' }, mcpActor)
 
     const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
-    const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+    const { items: entries } = await pageHistoryModel.list(fixtures.siteId, page.id)
     // -> Newest first: [0] is the update, [1] is the creation -- both attributed to the same actor.
     assert.equal(entries.length, 2)
     assert.equal(entries[0]!.via, 'mcp')
@@ -317,7 +317,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     // real updatedAt, not the moment this test ran — otherwise a page imported with genuinely old
     // history would show a "created" entry timestamped today at the top of its timeline.
     const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
-    const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+    const { items: entries } = await pageHistoryModel.list(fixtures.siteId, page.id)
     assert.equal(entries.length, 1)
     assert.equal(entries[0]!.versionDate.toISOString(), sourceUpdatedAt)
   })
@@ -898,6 +898,82 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       )
     } finally {
       await WIKI.models.glossary.deleteTerm(fixtures.siteId, term.id)
+    }
+  })
+
+  /**
+   * OpenProject #1688: `recordPageMoveSideEffects` was extracted out of `recordMoveSideEffects` as a
+   * per-page helper (for a future bulk mover -- OpenProject #1683 -- to call once per page while still
+   * batching the glossary invalidation). This is the regression case the extraction's own "Done when"
+   * calls for: the full side-effect set a single-page `movePage` fires -- history, search, hooks,
+   * storage, glossary -- must still fire exactly as before. Search/storage/hooks/glossary are stubbed
+   * with `mock.fn()` (`backend/test/mocks.ts`'s convention) so each call's exact arguments can be
+   * asserted directly, the same way `WIKI.cache`/`WIKI.events`'s stubs let a test read `.mock.calls`.
+   */
+  test('movePage fires the full side-effect set for a single-page move', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/side-effects-before' }),
+      actor
+    )
+
+    const searchModel = (globalThis as any).WIKI.models.search
+    const hooksModel = (globalThis as any).WIKI.models.hooks
+    const storageModel = (globalThis as any).WIKI.models.storage
+    const glossaryModel = (globalThis as any).WIKI.models.glossary
+    searchModel.renamed = mock.fn(async () => {})
+    hooksModel.emit = mock.fn(async () => {})
+    storageModel.dispatch = mock.fn(async () => {})
+    glossaryModel.invalidateCache = mock.fn(() => {})
+
+    try {
+      const moved = await pagesModel.movePage(
+        fixtures.siteId,
+        page.id,
+        { path: 'docs/side-effects-after' },
+        actor
+      )
+      assert.equal(moved!.path, 'docs/side-effects-after')
+
+      // -> History: a "moved" entry was recorded for this page
+      const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
+      const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+      assert.equal(entries.items[0]!.action, 'moved')
+
+      // -> Search
+      assert.equal(searchModel.renamed.mock.calls.length, 1)
+      const [searchSiteId, searchRawMoved, searchPreviousPath, searchPreviousLocale] =
+        searchModel.renamed.mock.calls[0]!.arguments
+      assert.equal(searchSiteId, fixtures.siteId)
+      assert.equal(searchRawMoved.id, page.id)
+      assert.equal(searchPreviousPath, 'docs/side-effects-before')
+      assert.equal(searchPreviousLocale, 'en')
+
+      // -> Hooks
+      assert.equal(hooksModel.emit.mock.calls.length, 1)
+      const [hookEvent, hookSiteId, hookPayload] = hooksModel.emit.mock.calls[0]!.arguments
+      assert.equal(hookEvent, 'page:rename')
+      assert.equal(hookSiteId, fixtures.siteId)
+      assert.equal(hookPayload.id, page.id)
+      assert.equal(hookPayload.path, 'docs/side-effects-after')
+      assert.equal(hookPayload.previousPath, 'docs/side-effects-before')
+
+      // -> Storage
+      assert.equal(storageModel.dispatch.mock.calls.length, 1)
+      const [storageEvent, storagePayload] = storageModel.dispatch.mock.calls[0]!.arguments
+      assert.equal(storageEvent, 'page:rename')
+      assert.equal(storagePayload.id, page.id)
+      assert.equal(storagePayload.path, 'docs/side-effects-after')
+      assert.equal(storagePayload.previousPath, 'docs/side-effects-before')
+
+      // -> Glossary: invalidated exactly once for this single-page move
+      assert.equal(glossaryModel.invalidateCache.mock.calls.length, 1)
+      assert.equal(glossaryModel.invalidateCache.mock.calls[0]!.arguments[0], fixtures.siteId)
+    } finally {
+      delete searchModel.renamed
+      delete hooksModel.emit
+      delete storageModel.dispatch
+      delete glossaryModel.invalidateCache
     }
   })
 
@@ -2030,6 +2106,57 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       assert.equal(moved!.classification, restrictedId)
     })
 
+    /**
+     * OpenProject #1935: `page:classification-changed` must fire on a real level change and stay
+     * silent on a patch that merely restates the current level -- the editor sends every field on
+     * every save, so `patch.classification !== undefined` alone is not the right guard. Spies on
+     * `WIKI.models.hooks.emit` the same way this file already spies on `WIKI.models.search` above
+     * (own-property shadow, restored via `delete` in `finally`).
+     */
+    test('updatePage emits page:classification-changed only when the level actually changes', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/hook-classification', classification: internalId }),
+        actor
+      )
+
+      const hooksModel = (globalThis as any).WIKI.models.hooks
+      const emitted: { event: string; siteId: string | null; data: any }[] = []
+      hooksModel.emit = async (event: string, siteId: string | null, data: any) => {
+        emitted.push({ event, siteId, data })
+        return 0
+      }
+
+      try {
+        // -> Restates the current level: must fire nothing
+        await pagesModel.updatePage(fixtures.siteId, page.id, { classification: internalId }, actor)
+        assert.equal(
+          emitted.filter((e) => e.event === 'page:classification-changed').length,
+          0,
+          'a no-op classification restate must not emit page:classification-changed'
+        )
+
+        // -> An actual change: must fire exactly once, carrying the old and new level
+        await pagesModel.updatePage(
+          fixtures.siteId,
+          page.id,
+          { classification: restrictedId },
+          actor
+        )
+        const changeEvents = emitted.filter((e) => e.event === 'page:classification-changed')
+        assert.equal(changeEvents.length, 1, 'a real classification change must emit exactly once')
+        const [{ siteId, data }] = changeEvents
+        assert.equal(siteId, fixtures.siteId)
+        assert.equal(data.id, page.id)
+        assert.equal(data.path, page.path)
+        assert.equal(data.siteId, fixtures.siteId)
+        assert.equal(data.previousClassification, internalId)
+        assert.equal(data.classification, restrictedId)
+      } finally {
+        delete hooksModel.emit
+      }
+    })
+
     test('movePage never lowers a page already at or above the new floor', async () => {
       const openParent = await pagesModel.createPage(
         fixtures.siteId,
@@ -2055,9 +2182,9 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * OpenProject #1902: the batched reads the classification-conflicts resolve route uses instead of
-   * a per-id `getPage`/`parentClassification` loop -- `api/pages.classification.test.ts` stubs the
-   * model entirely, so this is what proves each one actually resolves the right rows.
+   * OpenProject #1897/#1902: the batched reads the classification-conflicts resolve route uses
+   * instead of a per-id `getPage`/`parentClassification` loop -- `api/pages.classification.test.ts`
+   * stubs the model entirely, so this is what proves each one actually resolves the right rows.
    */
   describe('getPagesByIds / parentClassifications (OpenProject #1902)', () => {
     let internalId: string
@@ -2159,6 +2286,57 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       assert.equal(expectedChild, restrictedId)
       assert.equal(expectedRoot, null)
       assert.equal(expectedEmptyFolder, null)
+    })
+
+    test('the query is scoped per locale, not just per path -- a same-named parent path in another locale never leaks in', async () => {
+      // -> Same parent path in two locales with two DIFFERENT classifications, so a query that
+      //    matched `locale IN (...)` and `path IN (...)` independently (rather than as a real pair)
+      //    would risk picking up the wrong locale's row.
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch-locale/parent', locale: 'en', classification: restrictedId }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch-locale/parent', locale: 'fr', classification: internalId }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch-locale/parent/child', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch-locale/parent/child', locale: 'fr' }),
+        actor
+      )
+
+      // -> Each locale queried on its own, against the single-page method, so a distinct map key
+      //    per locale never masks a cross-locale mismatch the way batching both together under one
+      //    path-only key could.
+      const enBatched = await pagesModel.parentClassifications(fixtures.siteId, [
+        { locale: 'en', path: 'batch-locale/parent/child' }
+      ])
+      const enSingle = await pagesModel.parentClassification(
+        fixtures.siteId,
+        'en',
+        'batch-locale/parent/child'
+      )
+      assert.equal(enBatched.get('en\0batch-locale/parent/child'), restrictedId)
+      assert.equal(enBatched.get('en\0batch-locale/parent/child'), enSingle)
+
+      const frBatched = await pagesModel.parentClassifications(fixtures.siteId, [
+        { locale: 'fr', path: 'batch-locale/parent/child' }
+      ])
+      const frSingle = await pagesModel.parentClassification(
+        fixtures.siteId,
+        'fr',
+        'batch-locale/parent/child'
+      )
+      assert.equal(frBatched.get('fr\0batch-locale/parent/child'), internalId)
+      assert.equal(frBatched.get('fr\0batch-locale/parent/child'), frSingle)
     })
   })
 

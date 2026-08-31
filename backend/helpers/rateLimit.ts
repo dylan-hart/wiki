@@ -94,8 +94,13 @@ const API_DEFAULTS: RateLimitPolicy = {
  * a secret, and no deployment has a reason to raise it. How many browsers run at once is settled by
  * the render queue rather than here — this only keeps one client from filling that queue faster than
  * anything could drain it. Ten in five minutes is far more than re-rendering a stale page takes.
+ *
+ * Exported so `mcp/tools/renderDiagram.ts` can consume it directly against
+ * `WIKI.models.rateLimits` — an MCP tool call has no Fastify `req`/`reply` to hang the
+ * {@link limitRenders} `preHandler` off of, but it is the same expensive, Puppeteer-backed operation
+ * this policy exists to bound, so it shares the exact same numbers rather than inventing its own.
  */
-const RENDER_LIMIT: RateLimitPolicy = {
+export const RENDER_LIMIT: RateLimitPolicy = {
   max: 10,
   windowSeconds: 300,
   banSeconds: 300
@@ -415,5 +420,50 @@ export async function limitApiKey(req: FastifyRequest, reply: FastifyReply): Pro
   reply.header('Retry-After', String(verdict.retryAfter))
   return reply.tooManyRequests(
     `Too many requests for this API key. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
+  )
+}
+
+/**
+ * The limit on comments an anonymous (guest) poster may create, across every page and site.
+ *
+ * Not configurable, same reasoning as {@link API_KEY_LIMIT}: this is a floor against a script
+ * flooding the guest comment form, not a policy an operator has a reason to tune per-deployment. Five
+ * in ten minutes is far more than a real person leaving a comment or two needs, and well short of
+ * what a scripted flood would attempt.
+ */
+const COMMENT_GUEST_LIMIT: RateLimitPolicy = {
+  max: 5,
+  windowSeconds: 600,
+  banSeconds: 900
+}
+
+/**
+ * Refuse a guest comment once its poster's address has made too many.
+ *
+ * This is the abuse-tracking use `req.ip` (stored per-comment as `guestIp` — see
+ * `models/comments.ts#create`) was captured for: `api/comments.ts`'s POST handler calls this
+ * directly, only on the anonymous branch, immediately before `WIKI.models.comments.create()` — an
+ * authenticated poster is excluded, both because they already sit behind {@link limitApiRequests}'s
+ * broader per-user ceiling and because their identity is already known, unlike an anonymous poster's
+ * (OpenProject #2256).
+ *
+ * Keyed by `req.ip` alone (not per-page or per-site): one flooding script working through many pages
+ * is one abuser, and splitting its count per page would let it multiply the limit by how many pages
+ * it targets.
+ */
+export async function limitGuestComments(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const verdict = await WIKI.models.rateLimits.consume(
+    `comment-guest:${req.ip}`,
+    COMMENT_GUEST_LIMIT
+  )
+  if (verdict.allowed) {
+    return
+  }
+  WIKI.logger.debug(
+    `Rate limit: refused guest comment from ${req.ip}, ${verdict.retryAfter}s left of its ban.`
+  )
+  reply.header('Retry-After', String(verdict.retryAfter))
+  return reply.tooManyRequests(
+    `Too many comments. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
   )
 }

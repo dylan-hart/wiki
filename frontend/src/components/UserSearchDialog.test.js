@@ -128,6 +128,27 @@ describe('UserSearchDialog singleSelect', () => {
   })
 })
 
+describe('UserSearchDialog avatar images', () => {
+  it('renders a row avatar lazily with explicit dimensions', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          users: [{ id: 'user-1', name: 'User One', email: 'one@example.com', hasAvatar: true }],
+          total: 1
+        })
+    })
+
+    mountDialog()
+    await flushPromises()
+
+    const img = document.body.querySelector('.user-search-dialog-list img')
+    expect(img).not.toBeNull()
+    expect(img.getAttribute('loading')).toBe('lazy')
+    expect(img.getAttribute('width')).toBe('32')
+    expect(img.getAttribute('height')).toBe('32')
+  })
+})
+
 describe('UserSearchDialog excludeUserIds', () => {
   it('hides the excluded user from the results', async () => {
     API_CLIENT.get.mockReturnValueOnce({

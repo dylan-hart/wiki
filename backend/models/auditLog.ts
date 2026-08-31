@@ -57,6 +57,9 @@ export const AUDIT_EVENTS = [
   'system.apiStateUpdated',
   'system.metricsUpdated',
   'system.pageviewsUpdated',
+  // -> #2288: an operator rotated `pageviews.hashKey`, breaking correlation between pre- and
+  //   post-rotation `visitorHash` rows on purpose.
+  'system.pageviewsHashKeyRotated',
   'system.certificatesRegenerated',
   'system.sessionsInvalidated',
   'system.pageHistoryPurged',
@@ -86,7 +89,10 @@ export const AUDIT_TARGET_TYPES = [
   //   (that's `mcp.sessionOpened`'s `apiKey` target) -- naming the page is what makes the log entry
   //   answer "what did the agent write", not just "an agent wrote something".
   'page',
-  'glossaryTerm'
+  'glossaryTerm',
+  // -> #2229: the target of a `system.*`/`auth.*`/`auditLog.*` event -- there is no row to point at,
+  //   so `targetId` for these stays '' and `targetLabel` names the setting/module changed instead.
+  'system'
 ] as const
 
 export type AuditTargetType = (typeof AUDIT_TARGET_TYPES)[number]
@@ -153,6 +159,17 @@ export function actorFromRequest(req: FastifyRequest): AuditActor {
   return { id: null, name: '', ip: req.ip }
 }
 
+/** The entry shape `record()` and `recordMany()` both accept -- one event to write. */
+export type RecordEntry = {
+  event: AuditEvent
+  actor: AuditActor
+  targetType?: AuditTargetType | ''
+  targetId?: string
+  targetLabel?: string
+  detail?: Record<string, any>
+  siteId?: string | null
+}
+
 /**
  * Audit log model
  *
@@ -176,15 +193,7 @@ class AuditLog {
     targetLabel = '',
     detail = {},
     siteId = null
-  }: {
-    event: AuditEvent
-    actor: AuditActor
-    targetType?: AuditTargetType | ''
-    targetId?: string
-    targetLabel?: string
-    detail?: Record<string, any>
-    siteId?: string | null
-  }): Promise<void> {
+  }: RecordEntry): Promise<void> {
     try {
       await WIKI.db.insert(auditLogTable).values({
         event,
@@ -212,17 +221,7 @@ class AuditLog {
    * `record()` — the log is a record of what happened, and losing entries is never a reason to fail
    * the write that produced them.
    */
-  async recordMany(
-    entries: {
-      event: AuditEvent
-      actor: AuditActor
-      targetType?: AuditTargetType | ''
-      targetId?: string
-      targetLabel?: string
-      detail?: Record<string, any>
-      siteId?: string | null
-    }[]
-  ): Promise<void> {
+  async recordMany(entries: RecordEntry[]): Promise<void> {
     if (entries.length < 1) {
       return
     }

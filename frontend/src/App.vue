@@ -12,6 +12,7 @@ import { defineAsyncComponent, reactive, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
+import { apiErrorMessage } from '@/helpers/apiError'
 import { bootstrapFailureRedirectFor } from '@/helpers/bootstrap'
 import { setCssVar } from '@/helpers/cssVars'
 import { applyFonts } from '@/helpers/fonts'
@@ -158,7 +159,7 @@ async function applyLocale(locale) {
         notify({
           type: 'negative',
           message: i18n.t('common.error.localeLoadFailed', { locale }),
-          caption: err.message
+          caption: apiErrorMessage(err)
         })
       }
     }

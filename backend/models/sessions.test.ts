@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import {
   groups as groupsTable,
@@ -15,9 +15,15 @@ import configSvc from '../core/config.ts'
  * OpenProject #936: `session.groups`/`session.permissions` are snapshots taken at login and
  * otherwise live for up to the 30-day cookie age -- `clearSessionsFromUser` existed with zero
  * callers, and `clearSessionsForGroup` is new here, both wired into the deactivation /
- * group-membership / group-permission-change routes in `api/users.ts` and `api/groups.ts`. This is
- * the SQL orchestration itself (a delete, and a delete filtered by a membership lookup) -- exactly
- * the DB-backed case CLAUDE.md's Testing section carves out from the pure-unit default.
+ * group-membership / group-permission-change routes in `api/users.ts` and `api/groups.ts`.
+ *
+ * OpenProject #2248: `purgeExpiredSessions` is the same table's housekeeping counterpart --
+ * `@fastify/session` never calls `store.destroy` on a stale row, so a row past the cookie's 30-day
+ * window is otherwise never revisited on its own.
+ *
+ * This is the SQL orchestration itself (deletes, one filtered by a membership lookup, one by an age
+ * predicate) -- exactly the DB-backed case CLAUDE.md's Testing section carves out from the pure-unit
+ * default.
  */
 describe('sessions model (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -158,5 +164,39 @@ describe('sessions model (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const result = authSecretSigner.unsign(signedAfterRotation)
     assert.equal(result.valid, true)
     assert.equal(result.value, 'session-after-rotation')
+  })
+
+  test('purgeExpiredSessions deletes only rows past the 30-day cookie window', async () => {
+    await fixtures.db.insert(sessionsTable).values([
+      {
+        id: 'stale-session',
+        userId: fixtures.userId,
+        data: { user: { id: fixtures.userId } },
+        updatedAt: sql`now() - interval '31 days'`
+      },
+      {
+        id: 'fresh-session',
+        userId: fixtures.userId,
+        data: { user: { id: fixtures.userId } },
+        updatedAt: sql`now() - interval '1 day'`
+      }
+    ] as any)
+
+    const purged = await sessionsModel.purgeExpiredSessions()
+    assert.equal(purged, 1)
+
+    const remaining = await fixtures.db.select().from(sessionsTable)
+    assert.deepEqual(
+      remaining.map((r) => r.id),
+      ['fresh-session']
+    )
+  })
+
+  test('purgeExpiredSessions returns 0 and touches nothing when every row is within the window', async () => {
+    await seedSession('fresh-session', fixtures.userId)
+
+    const purged = await sessionsModel.purgeExpiredSessions()
+    assert.equal(purged, 0)
+    assert.equal((await fixtures.db.select().from(sessionsTable)).length, 1)
   })
 })

@@ -120,9 +120,10 @@ describe('UserDeleteDialog confirm()', () => {
   })
 
   it('stops before deleting when reassignment itself fails', async () => {
-    API_CLIENT.post.mockReturnValueOnce({
-      ok: false,
-      json: () => Promise.resolve({ message: 'ERR_REASSIGN_SAME_USER' })
+    const err = new Error('Bad Request')
+    err.data = { message: 'ERR_REASSIGN_SAME_USER' }
+    API_CLIENT.post.mockImplementationOnce(() => {
+      throw err
     })
 
     const wrapper = mountDialog()

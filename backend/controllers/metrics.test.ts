@@ -6,7 +6,7 @@ import metricsRoutes from './metrics.ts'
 import { groups as groupsTable, pages as pagesTable, users as usersTable } from '../db/schema.ts'
 
 /**
- * Regression coverage for task 1842: `/metrics` used to build its snapshot from six `await`
+ * Regression coverage for task 1842: `/metrics` used to build its snapshot from `await`
  * expressions inside one object literal, so each round trip waited on the previous one instead of
  * running concurrently. `WIKI.db.$count`/`WIKI.db.execute`/`WIKI.models.jobs.*` are stubbed to each
  * record when they were *called* and when they *resolved* into a shared `events` array, with a fixed
@@ -17,6 +17,11 @@ import { groups as groupsTable, pages as pagesTable, users as usersTable } from 
  * first 'end' lands before the later 'start's. Unlike a countdown-latch/barrier stub (which would
  * simply hang forever on a serial regression instead of failing cleanly), this fixed-delay approach
  * fails fast and with a readable assertion either way.
+ *
+ * Task 1939 added `jobsFailed` (via `WIKI.models.jobs.countFailed()`, so it joins the same
+ * `Promise.all` and the concurrency assertion below) and the three `dbPoolTotal`/`dbPoolIdle`/
+ * `dbPoolWaiting` gauges (read synchronously off `WIKI.dbManager.pool`, not awaited, so they don't
+ * join the concurrency count).
  */
 describe('GET /metrics', () => {
   const DELAY_MS = 20
@@ -38,14 +43,15 @@ describe('GET /metrics', () => {
   before(async () => {
     ;(globalThis as any).WIKI = {
       config: { metrics: { isEnabled: true } },
-      dbManager: { dbName: 'wiki_test' },
+      dbManager: { dbName: 'wiki_test', pool: { totalCount: 4, idleCount: 1, waitingCount: 0 } },
       models: {
         apiKeys: {
           verify: async () => ({ permissions: ['manage:system'] })
         },
         jobs: {
           countActive: () => record('activeWorkers', 3),
-          countPending: () => record('jobsQueued', 7)
+          countPending: () => record('jobsQueued', 7),
+          countFailed: () => record('jobsFailed', 1)
         }
       },
       db: {
@@ -69,7 +75,7 @@ describe('GET /metrics', () => {
     delete (globalThis as any).WIKI
   })
 
-  test('issues all six lookups concurrently, not serially', async () => {
+  test('issues all seven lookups concurrently, not serially', async () => {
     events = []
 
     const res = await app.inject({
@@ -83,10 +89,10 @@ describe('GET /metrics', () => {
     const starts = events.filter((e) => e.startsWith('start:'))
     const firstEndIndex = events.findIndex((e) => e.startsWith('end:'))
 
-    assert.equal(starts.length, 6, `expected all six lookups to have been called, got: ${events}`)
+    assert.equal(starts.length, 7, `expected all seven lookups to have been called, got: ${events}`)
     assert.equal(
       firstEndIndex,
-      6,
+      7,
       `expected every lookup to be issued before any of them resolved, got order: ${events}`
     )
   })
@@ -123,6 +129,18 @@ describe('GET /metrics', () => {
         '# HELP wikijs_jobs_queued Jobs waiting in the queue, not yet claimed by a worker.',
         '# TYPE wikijs_jobs_queued gauge',
         'wikijs_jobs_queued 7',
+        '# HELP wikijs_jobs_failed_total Failed jobs currently retained in job history. Not a lifetime total: rows age out under the configured job history retention window, so this can decrease as well as increase between scrapes.',
+        '# TYPE wikijs_jobs_failed_total gauge',
+        'wikijs_jobs_failed_total 1',
+        '# HELP wikijs_db_pool_total Total clients (idle + in use) in the database connection pool.',
+        '# TYPE wikijs_db_pool_total gauge',
+        'wikijs_db_pool_total 4',
+        '# HELP wikijs_db_pool_idle Idle clients in the database connection pool, available to be checked out.',
+        '# TYPE wikijs_db_pool_idle gauge',
+        'wikijs_db_pool_idle 1',
+        '# HELP wikijs_db_pool_waiting Queries currently waiting for a client to become available in the database connection pool.',
+        '# TYPE wikijs_db_pool_waiting gauge',
+        'wikijs_db_pool_waiting 0',
         ''
       ].join('\n')
     )

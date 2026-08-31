@@ -10,6 +10,42 @@
       content="user-scalable=no, initial-scale=1, maximum-scale=1, minimum-scale=1, width=device-width" />
     <title>Wiki.js</title>
     <!--preload-links-->
+    <!-- temporal-polyfill-preload:start
+      Feature-detects native `Temporal` support and, only when it's missing, starts fetching the
+      `temporal-polyfill` chunk in parallel with the eager bundle instead of after it. Without this,
+      `main.js`'s top-level `await initializeTemporal()` only reaches `boot/temporal.js`'s dynamic
+      `import('temporal-polyfill/global')` once the whole eager module graph has already loaded and
+      evaluated, so an affected browser (Safari, as of 2026-08-31 -- see WP #1828) pays a full extra
+      round trip, serialised after the main bundle, before the app can mount. This script only warms
+      the cache that dynamic import then hits; `main.js` and `boot/temporal.js` keep their current
+      logic unchanged.
+
+      `__TEMPORAL_POLYFILL_HREF__` is a placeholder. The chunk's real filename is content-hashed and
+      only known post-build, so it can't be hand-written here -- the Vite plugin added by WP #1833
+      substitutes this exact token with the real `assets/_assets/global.esm-<hash>.js` path via
+      `transformIndexHtml`. Do not preload unconditionally: browsers with native `Temporal` must
+      receive no such link, which is exactly what the guard below (and #1833 skipping the plugin's
+      own unconditional-preload list for this chunk) ensures.
+    -->
+    <script>
+      if (typeof globalThis.Temporal === 'undefined') {
+        var temporalPolyfillPreload = document.createElement('link')
+        temporalPolyfillPreload.rel = 'modulepreload'
+        temporalPolyfillPreload.href = '__TEMPORAL_POLYFILL_HREF__'
+        document.head.appendChild(temporalPolyfillPreload)
+      }
+    </script>
+    <!-- temporal-polyfill-preload:end -->
+    <!--
+      Substituted by the `temporalPolyfillChunk` Vite plugin (`src/build/temporalPolyfillChunk.js`)
+      with the real, hashed build URL of the temporal-polyfill 'global.esm' chunk, as an inline
+      script setting `window.__wikiTemporalPolyfillUrl`. This never becomes a
+      `<link rel="modulepreload">` here -- that chunk is deliberately absent from Vite's own
+      modulepreload links, since preloading it for every browser would waste ~20 KB gzipped on
+      browsers with native `Temporal`. It exists only so a feature-detect script can conditionally
+      preload the chunk for browsers that still need it.
+    -->
+    <!--temporal-polyfill-chunk-url-->
     <!--
       No webfont is linked statically here any more: which family (if any -- `theme.baseFont` /
       `theme.contentFont` can both be `'user'`, meaning "no override") is a per-site setting, only

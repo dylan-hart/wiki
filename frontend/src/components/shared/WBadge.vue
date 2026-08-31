@@ -9,7 +9,8 @@
   <div
     class="w-badge inline-flex min-h-3 items-center justify-center px-1.5 py-0.5 text-xs leading-none font-medium"
     :class="classes"
-    :style="styles">
+    :style="styles"
+    :title="title">
     <slot>{{ label }}</slot>
   </div>
 </template>
@@ -47,6 +48,11 @@ const props = defineProps({
   floating: {
     type: Boolean,
     default: false
+  },
+  /** Native tooltip. */
+  title: {
+    type: String,
+    default: null
   }
 })
 

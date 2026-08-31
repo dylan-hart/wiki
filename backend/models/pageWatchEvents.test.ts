@@ -7,6 +7,7 @@ import {
   userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
+import { DIGEST_PENDING_LIMIT } from './pageWatchEvents.ts'
 import type { PageActor, PageInput } from './pages.ts'
 import type { GroupRule } from './groups.ts'
 
@@ -189,6 +190,46 @@ describe('pageWatchEvents digest queries (DB-backed)', { skip: !hasTestDatabase(
 
   test('markManyDelivered with an empty list is a no-op', async () => {
     await assert.doesNotReject(() => pageWatchEventsModel.markManyDelivered([]))
+  })
+
+  test('listPendingForDigest is bounded even when the pending backlog is larger', async () => {
+    // -> One over `DIGEST_PENDING_LIMIT` is enough to prove the cap; bulk-insert both the users and
+    //    the events (one statement each) rather than one row at a time, so this stays a fast test
+    //    despite the row count.
+    const overLimitCount = DIGEST_PENDING_LIMIT + 1
+    const userRows = await fixtures.db
+      .insert(usersTable)
+      .values(
+        Array.from({ length: overLimitCount }, (_, i) => ({
+          email: `digest-bound-${i}@example.com`,
+          name: `digest-bound-${i}`,
+          isActive: true,
+          isVerified: true
+        }))
+      )
+      .returning({ id: usersTable.id })
+
+    await pageWatchEventsModel.recordMany(
+      userRows.map((row) => ({
+        siteId,
+        pageId,
+        pageTitle: 'Digest Fixture',
+        pagePath: 'digest-fixture',
+        pageLocale: 'en',
+        userId: row.id,
+        action: 'updated' as const,
+        actorId: actor.id,
+        changedFields: ['title'],
+        notifyMode: 'digest' as const
+      }))
+    )
+
+    const pending = await pageWatchEventsModel.listPendingForDigest()
+
+    assert.ok(
+      pending.length <= DIGEST_PENDING_LIMIT,
+      `expected at most ${DIGEST_PENDING_LIMIT} rows, got ${pending.length}`
+    )
   })
 })
 

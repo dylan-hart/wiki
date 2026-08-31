@@ -340,10 +340,6 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  disable: {
-    type: Boolean,
-    default: false
-  },
   disabled: {
     type: Boolean,
     default: false
@@ -475,7 +471,7 @@ watch(isOpen, (open) => {
 
 // COMPUTED
 
-const isDisabled = computed(() => props.disable || props.disabled)
+const isDisabled = computed(() => props.disabled)
 
 /**
  * Everything the caller passed through as a plain HTML attribute -- `name`, `data-*`, ... --

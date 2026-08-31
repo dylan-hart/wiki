@@ -2,10 +2,9 @@
   <w-page class="admin-terminal">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-bot-animated.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-bot-animated.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.scheduler.title') }}</h1>
@@ -19,7 +18,7 @@
           v-model="state.displayMode"
           push
           no-caps
-          :disable="state.loading > 0"
+          :disabled="state.loading > 0"
           :toggle-color="dark.isActive ? `white` : `black`"
           :toggle-text-color="dark.isActive ? `black` : `white`"
           :text-color="dark.isActive ? `white` : `black`"
@@ -33,16 +32,6 @@
             { label: t('admin.scheduler.failed'), value: 'failed' }
           ]" />
         <w-separator class="mr-4" vertical />
-        <w-btn
-          class="mr-2 acrylic-btn"
-          icon="la:question-circle"
-          flat
-          color="grey"
-          :aria-label="t(`common.actions.viewDocs`)"
-          :href="siteStore.docsBase + `/admin/scheduler`"
-          target="_blank">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
-        </w-btn>
         <w-btn
           class="mr-2 acrylic-btn"
           icon="la:redo-alt"
@@ -387,7 +376,7 @@
                   color="orange"
                   :aria-label="t(`admin.scheduler.retryJob`)"
                   @click="retryJob(props.row.id)"
-                  :disable="
+                  :disabled="
                     (props.row.state === `failed` || props.row.state === `interrupted`) &&
                     props.row.attempt <= props.row.maxRetries
                   ">
@@ -421,15 +410,9 @@ import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDateWithSeconds, humanizeDuration, relativeDate } from '@/helpers/datetime'
 
-import { useSiteStore } from '@/stores/site'
-
 // COMPOSABLES
 
 const dark = useDark()
-
-// STORES
-
-const siteStore = useSiteStore()
 
 // I18N
 
@@ -666,10 +649,7 @@ async function load() {
 async function runNow(entry) {
   state.loading++
   try {
-    const resp = await API_CLIENT.post(`scheduler/schedule/${entry.id}/run`).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
+    await API_CLIENT.post(`scheduler/schedule/${entry.id}/run`).json()
     // -> Nothing on this tab changes: the job it queued shows up under upcoming, then in the history
     notify({
       type: 'positive',
@@ -688,10 +668,7 @@ async function runNow(entry) {
 async function cancelJob(jobId) {
   state.loading++
   try {
-    const resp = await API_CLIENT.delete(`scheduler/upcoming/${jobId}`)
-    if (!resp?.ok) {
-      throw new Error((await resp.json())?.message || t('common.error.unexpected'))
-    }
+    await API_CLIENT.delete(`scheduler/upcoming/${jobId}`)
     notify({
       type: 'positive',
       message: t('admin.scheduler.cancelJobSuccess')
@@ -711,10 +688,7 @@ async function cancelJob(jobId) {
 async function retryJob(jobId) {
   state.loading++
   try {
-    const resp = await API_CLIENT.post(`scheduler/jobs/${jobId}/retry`).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
+    await API_CLIENT.post(`scheduler/jobs/${jobId}/retry`).json()
     notify({
       type: 'positive',
       message: t('admin.scheduler.retryJobSuccess')

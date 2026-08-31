@@ -145,9 +145,6 @@ async function upload() {
       },
       body: state.file
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
     notify({
       type: 'positive',
       message: t('admin.blocks.uploadSuccess')

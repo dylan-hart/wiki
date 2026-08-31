@@ -3,7 +3,6 @@
 @use 'page-contents';
 @use 'print';
 
-@import 'v-network-graph/lib/style.css';
 /*
   KaTeX's own stylesheet, loaded globally rather than per-block: `renderers/markdown.js` resolves
   `$…$`/`$$…$$` TeX authoring straight to literal KaTeX markup at render time (see its `texMathHtml`),

@@ -1,4 +1,5 @@
 import { actorFrom, loadReadablePage, mayOnPage } from './pages.ts'
+import { limitGuestComments } from '../helpers/rateLimit.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { AccessActor } from '../models/groups.ts'
 import type { AdminPageRef, ThreadedComment } from '../models/comments.ts'
@@ -244,7 +245,7 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
-      return WIKI.models.commentProviders.getSiteProviders(req.params.siteId)
+      return WIKI.models.commentProviders.getSiteProviders(req.params.siteId, { mask: true })
     }
   )
 
@@ -596,6 +597,16 @@ async function routes(app: FastifyInstance) {
         )
       }
 
+      // -> Only anonymous posters are bucketed: an authenticated poster already sits behind the
+      //    broader per-user API limit and is individually identifiable, neither of which is true for
+      //    a guest (OpenProject #2256).
+      if (!actor) {
+        await limitGuestComments(req, reply)
+        if (reply.sent) {
+          return reply
+        }
+      }
+
       const replyTo = req.body.replyTo ?? null
       if (replyTo) {
         // -> A `replyTo` naming a comment that doesn't exist, or that exists on a different page,
@@ -617,7 +628,8 @@ async function routes(app: FastifyInstance) {
         //    anonymous one has all three (the validation above guarantees guestName/guestEmail are
         //    present by this point). `req.ip` is Fastify's resolved client address (honors
         //    `trustProxy`, same as the rest of this codebase), captured here for abuse tracking —
-        //    Akismet/rate-limit policy itself is a comment-provider's job, not this route's.
+        //    `limitGuestComments` above is what actually acts on it; Akismet spam-check policy is
+        //    still a comment-provider's job, not this route's.
         guestName: actor ? null : req.body.guestName,
         guestEmail: actor ? null : req.body.guestEmail,
         guestIp: actor ? null : req.ip

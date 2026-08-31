@@ -11,19 +11,22 @@
     <!--
       A recessed well rather than an outlined square, matching the switch's track: the box reads as
       cut into the surface, and ticking it fills that well rather than painting a flat block. The
-      rim and the shadows come from the style block; `size-5` and the radius stay here because they
-      are metrics rather than relief.
+      rim and the shadows come from the style block; the `size-4`/`size-5` pair (picked by `dense`)
+      and the radius stay here because they are metrics rather than relief.
 
       Indeterminate fills the same as checked (a well with nothing in it reads as unchecked, not as a
       third state) but shows a dash rather than the check glyph, so all three states stay visually
       distinct from one another.
     -->
     <span
-      class="w-checkbox__box inline-flex size-5 shrink-0 items-center justify-center rounded-sm transition-colors"
-      :class="isOn || indeterminate ? 'w-checkbox__box--on text-white' : ''"
+      class="w-checkbox__box inline-flex shrink-0 items-center justify-center rounded-sm transition-colors"
+      :class="[
+        dense ? 'size-4' : 'size-5',
+        isOn || indeterminate ? 'w-checkbox__box--on text-white' : ''
+      ]"
       :style="isOn || indeterminate ? { backgroundColor: `var(--color-${color})` } : undefined">
-      <w-icon v-if="indeterminate" name="mdi:minus" size="0.9em" />
-      <w-icon v-else-if="isOn" name="mdi:check" size="0.9em" />
+      <w-icon v-if="indeterminate" name="mdi:minus" :size="dense ? '0.8em' : '0.9em'" />
+      <w-icon v-else-if="isOn" name="mdi:check" :size="dense ? '0.8em' : '0.9em'" />
     </span>
     <!--
       Same treatment as the switch's label, down to the optical centring: `text-caption` rather than
@@ -61,7 +64,8 @@ const props = defineProps({
     type: String,
     default: 'primary'
   },
-  disable: {
+  /** Shrinks the box and its glyph, matching WToggle's and WInput's compact variant. */
+  dense: {
     type: Boolean,
     default: false
   },
@@ -94,7 +98,7 @@ const isArrayModel = computed(() => Array.isArray(props.modelValue))
 const isOn = computed(() =>
   isArrayModel.value ? props.modelValue.includes(props.val) : props.modelValue === true
 )
-const isDisabled = computed(() => props.disable || props.disabled)
+const isDisabled = computed(() => props.disabled)
 
 function toggle() {
   if (isArrayModel.value) {

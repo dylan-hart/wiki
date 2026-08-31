@@ -41,6 +41,15 @@ export const JOB_SCHEDULE_SEED = [
     cron: '10 * * * *',
     type: 'system'
   },
+  // -> Sweeps `sessions` rows past the cookie's 30-day window -- see
+  //    `tasks/simple/purge-sessions.ts` / `models/sessions.ts#purgeExpiredSessions()`. Hourly, like
+  //    `purgeRateLimits` above (also SELECTed on every authenticated request, also unbounded), offset
+  //    to a different minute so the two don't compete on the same tick.
+  {
+    task: 'purgeSessions',
+    cron: '40 * * * *',
+    type: 'system'
+  },
   // -> Sweeps expired site-backup archives/uploads off disk — see
   //    `tasks/simple/purge-exports.ts` / `models/export.ts` and
   //    `tasks/simple/purge-imports.ts` / `models/siteImport.ts`. Offset five minutes apart, both
@@ -81,6 +90,32 @@ export const JOB_SCHEDULE_SEED = [
     cron: '35 0 * * *',
     type: 'system'
   },
+  // -> Sweeps `contentSyncState` rows whose `contentId` no longer matches any `pages`/`assets` row --
+  //    the backstop for rows the delete-path's own cleanup cannot reach. See
+  //    `tasks/simple/purge-content-sync-state.ts` / `models/contentSync.ts#purgeOrphaned()`. Offset
+  //    alongside the other midnight housekeeping jobs above.
+  {
+    task: 'purgeContentSyncState',
+    cron: '40 0 * * *',
+    type: 'system'
+  },
+  // -> Sweeps `userKeys` rows past their `validUntil` (abandoned password-reset links, abandoned 2FA
+  //    continuations) -- see `tasks/simple/purge-user-keys.ts` / `models/users.ts#purgeExpiredKeys()`.
+  //    Offset alongside the other midnight housekeeping jobs above.
+  {
+    task: 'purgeUserKeys',
+    cron: '45 0 * * *',
+    type: 'system'
+  },
+  // -> Nulls `guestName`/`guestEmail`/`guestIp` on guest comments past the configured retention
+  //    window (default `DEFAULT_GUEST_PII_RETENTION_DAYS`, admin-editable) -- see
+  //    `tasks/simple/purge-guest-pii.ts` / `models/comments.ts#purgeGuestPii()`. Offset from the
+  //    other midnight housekeeping jobs above.
+  {
+    task: 'purgeGuestPii',
+    cron: '55 0 * * *',
+    type: 'system'
+  },
   // -> Checks every pull/two-way storage target's schedule and queues a sync for whichever is due —
   //    a short cron since the comparison against each target's own interval happens inside the task
   //    itself, not here. See `tasks/simple/storage-sync-tick.ts` / `Storage.tickScheduledSyncs()`.
@@ -106,6 +141,14 @@ export const JOB_SCHEDULE_SEED = [
   {
     task: 'sendWatchDigests',
     cron: '0 8 * * *',
+    type: 'system'
+  },
+  // -> Sweeps `pageWatchEvents` rows past the 90-day retention window -- see
+  //    `tasks/simple/purge-page-watch-events.ts` / `models/pageWatchEvents.ts#purgeExpired()`. Offset
+  //    alongside the other midnight housekeeping jobs above (OpenProject #1689).
+  {
+    task: 'purgePageWatchEvents',
+    cron: '50 0 * * *',
     type: 'system'
   }
 ] as const
@@ -185,6 +228,18 @@ class Jobs {
    */
   async countPending(): Promise<number> {
     return WIKI.db.$count(jobsTable)
+  }
+
+  /**
+   * How many failed jobs are currently retained in job history.
+   *
+   * Not a true monotonic total: `jobHistory` rows age out under `cleanJobHistory`'s retention window
+   * (see `tasks/simple/clean-job-history.ts`), so this can go down as well as up between reads — a
+   * count of what is currently retained, not a running lifetime count. `/metrics`' gauge of the same
+   * name documents this same caveat for scrapers.
+   */
+  async countFailed(): Promise<number> {
+    return WIKI.db.$count(jobHistoryTable, eq(jobHistoryTable.state, 'failed'))
   }
 
   /**

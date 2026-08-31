@@ -49,10 +49,13 @@ real generation itself once the tag is pushed.
 
 ## 4. Tag and push
 
-This is the action that starts the release build — nothing before this step is visible to CI.
+This is the action that starts the release build — nothing before this step is visible to CI. The
+tag must be **signed** (`-s`, not `-a`) — this requires git already configured for signing
+(`user.signingkey` plus `gpg.format`/`commit.gpgsign`, GPG or SSH; see GitHub's docs on signing
+tags) before you run this step:
 
 ```sh
-git tag -a "v$VERSION" -m "Release v$VERSION"
+git tag -s "v$VERSION" -m "Release v$VERSION"
 git push origin "v$VERSION"
 ```
 
@@ -91,6 +94,17 @@ Once the workflow finishes green:
 
   The two `Id` values must match. If this was a release candidate, confirm the opposite: `:latest`
   did **not** move (compare its digest against the previous stable release).
+
+- **Build provenance attestation** — confirm the image is signed and attestable to this repo and
+  commit:
+
+  ```sh
+  gh attestation verify oci://ghcr.io/requarks/wiki:$VERSION --owner requarks
+  ```
+
+- **Release archive** — confirm the GitHub Release carries `wiki-js.tar.gz` and
+  `wiki-js.tar.gz.sha256`, and that the checksum verifies against the downloaded archive
+  (`sha256sum -c wiki-js.tar.gz.sha256`).
 
 ## 7. Communicate the release
 

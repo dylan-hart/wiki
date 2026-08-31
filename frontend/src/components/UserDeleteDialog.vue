@@ -126,18 +126,12 @@ async function confirm() {
       left half-reassigned is a worse outcome than the delete simply not having happened yet.
     */
     if (state.targetUser) {
-      const reassignResp = await API_CLIENT.post(`users/${props.user.id}/reassignContent`, {
+      await API_CLIENT.post(`users/${props.user.id}/reassignContent`, {
         json: { targetUserId: state.targetUser.id }
       })
-      if (!reassignResp?.ok) {
-        throw new Error((await reassignResp.json())?.message || t('common.error.unexpected'))
-      }
     }
 
-    const resp = await API_CLIENT.delete(`users/${props.user.id}`)
-    if (!resp?.ok) {
-      throw new Error((await resp.json())?.message || t('common.error.unexpected'))
-    }
+    await API_CLIENT.delete(`users/${props.user.id}`)
     notify({
       type: 'positive',
       message: t('admin.users.deleteSuccess', { username: props.user.name })

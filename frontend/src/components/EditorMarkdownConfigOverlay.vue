@@ -190,6 +190,7 @@ import { onMounted, reactive, ref } from 'vue'
 
 import { loading } from '@/composables/loading'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 import { useEditorStore } from '@/stores/editor'
@@ -298,11 +299,6 @@ async function save() {
         }
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.editors.markdown.${resp?.error}`, resp?.message || t('common.error.unexpected'))
-      )
-    }
     notify({
       type: 'positive',
       message: t('admin.editors.markdown.saveSuccess')
@@ -313,7 +309,10 @@ async function save() {
     notify({
       type: 'negative',
       message: t('admin.editors.markdown.saveFailed'),
-      caption: err.message
+      caption: t(
+        `admin.editors.markdown.${err.data?.error}`,
+        apiErrorMessage(err, t('common.error.unexpected'))
+      )
     })
   }
   state.loading--

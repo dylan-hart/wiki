@@ -25,7 +25,9 @@ describe('modules/comments/commento definition.yml', () => {
     assert.equal(parsed.logo, 'https://static.requarks.io/logo/commento.svg')
     assert.equal(parsed.website, 'https://commento.io/')
     assert.equal(parsed.codeTemplate, true)
-    assert.equal(parsed.isAvailable, true)
+    // -> OpenProject #1958: marked unavailable -- no page-view code renders a codeTemplate provider's
+    //    embed, so this fork does not offer it as a live choice. See docs/variances.md.
+    assert.equal(parsed.isAvailable, false)
   })
 
   it('parses and declares exactly the instanceUrl prop', async () => {

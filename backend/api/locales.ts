@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -70,6 +71,18 @@ async function routes(app: FastifyInstance) {
         response: {
           200: {
             description: 'Locale strings',
+            headers: {
+              ETag: {
+                type: 'string',
+                description:
+                  'sha1 hash of the strings payload, quoted. Send back as `If-None-Match` on the next request to revalidate cheaply.'
+              },
+              'Cache-Control': {
+                type: 'string',
+                description:
+                  'Always `public, no-cache` — cacheable, but must be revalidated before reuse.'
+              }
+            },
             oneOf: [
               {
                 type: 'object',
@@ -82,12 +95,23 @@ async function routes(app: FastifyInstance) {
                 maxItems: 0
               }
             ]
+          },
+          304: {
+            description: 'Strings unchanged since the `ETag` named in `If-None-Match`.',
+            type: 'null'
           }
         }
       }
     },
-    async (req) => {
-      return WIKI.models.locales.getStrings(req.params.code)
+    async (req, reply) => {
+      const strings = await WIKI.models.locales.getStrings(req.params.code)
+      const etag = `"${crypto.createHash('sha1').update(JSON.stringify(strings)).digest('hex')}"`
+      reply.header('ETag', etag)
+      reply.header('Cache-Control', 'public, no-cache')
+      if (req.headers['if-none-match'] === etag) {
+        return reply.code(304).send()
+      }
+      return strings
     }
   )
 

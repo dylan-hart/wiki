@@ -5,7 +5,7 @@ author: CDN18
 logo: https://static.requarks.io/logo/artalk.png
 website: https://artalk.js.org
 codeTemplate: true
-isAvailable: true
+isAvailable: false
 props:
   server:
     type: String

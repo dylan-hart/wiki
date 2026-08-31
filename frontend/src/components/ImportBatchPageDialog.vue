@@ -86,7 +86,7 @@
             padding="xs md"
             :label="t(`pages.importBatch.convert`)"
             :loading="state.converting"
-            :disable="!canConvert"
+            :disabled="!canConvert"
             @click="convert" />
         </w-card-actions>
       </template>
@@ -111,7 +111,7 @@
             option-label="label"
             options-dense
             hide-bottom-space
-            :disable="state.saving"
+            :disabled="state.saving"
             :label="t(`pages.importBatch.conflictBehavior`)" />
 
           <div
@@ -135,7 +135,7 @@
                   dense
                   class="flex-1"
                   hide-bottom-space
-                  :disable="row.saveStatus === `saving` || row.saveStatus === `saved`"
+                  :disabled="row.saveStatus === `saving` || row.saveStatus === `saved`"
                   :label="t(`pages.importBatch.pageTitle`)" />
                 <w-input
                   v-model="row.path"
@@ -143,7 +143,7 @@
                   dense
                   class="flex-1"
                   hide-bottom-space
-                  :disable="row.saveStatus === `saving` || row.saveStatus === `saved`"
+                  :disabled="row.saveStatus === `saving` || row.saveStatus === `saved`"
                   :label="t(`pages.importBatch.destinationPath`)" />
               </div>
               <p v-if="row.saveMessage" class="text-caption text-negative mt-1">
@@ -160,7 +160,7 @@
             icon="la:arrow-left"
             color="grey-5"
             padding="xs md"
-            :disable="state.saving"
+            :disabled="state.saving"
             :label="t(`pages.import.back`)"
             @click="backToSelect" />
           <w-space />
@@ -178,7 +178,7 @@
             padding="xs md"
             :label="t(`pages.importBatch.saveAll`)"
             :loading="state.saving"
-            :disable="!canSaveAll"
+            :disabled="!canSaveAll"
             @click="saveAll" />
         </w-card-actions>
       </template>
@@ -191,6 +191,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v4 as uuid } from 'uuid'
 import slugify from 'slugify'
+import { isTimeoutError } from 'ky'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
@@ -252,6 +253,44 @@ const MAX_BATCH_FILES = 20
 
 /** How many `-1`, `-2`, ... suffixes the `new` conflict behavior will try before giving up on a row. */
 const MAX_PATH_ATTEMPTS = 25
+
+/**
+ * How long the client gives the batch-conversion request, in milliseconds -- past `ky`'s own 10s
+ * default, which no batch of any real size finishes inside (`backend/models/import.ts`'s
+ * `MAX_IMPORT_BATCH_FILES = 20` at up to `MAX_IMPORT_SIZE = 25MB` each routinely takes far longer).
+ *
+ * Unlike `EXPORT_PDF_TIMEOUT` (`PageActionsCol.vue`) or `INSTALL_TIMEOUT` (`AdminExtensions.vue`),
+ * which are both fixed ceilings for a request whose own duration barely varies, this request's size
+ * varies batch to batch -- so `computeBatchImportTimeout` below computes it from the files actually
+ * selected, out of three terms:
+ *
+ * - A base of `IMPORT_BATCH_TIMEOUT_BASE`: past the server's own single-conversion ceiling
+ *   (`backend/models/import.ts`'s `IMPORT_TIMEOUT`, 30s -- one pandoc process killed if it stalls),
+ *   with margin. The batch route converts every file in parallel (one `Promise.all`, `api/pages.ts`),
+ *   so this is not "30s times file count" -- it is what one file alone would already need.
+ * - `IMPORT_BATCH_TIMEOUT_PER_FILE` per file: even run in parallel, more files mean more pandoc
+ *   processes contending for the same CPU, more disk I/O staging each upload, and a slower parallel
+ *   conversion overall than a single file's -- this is the marginal cost of each additional one.
+ * - The full upload transfer time at a deliberately pessimistic `IMPORT_BATCH_ASSUMED_BYTES_PER_MS`
+ *   throughput (100 KB/s) -- the one thing a fixed ceiling genuinely cannot cover: a large batch (a
+ *   20-file, 25MB-each worst case is 500MB) sent over a slow or congested connection.
+ */
+const IMPORT_BATCH_TIMEOUT_BASE = 40 * 1000
+const IMPORT_BATCH_TIMEOUT_PER_FILE = 3 * 1000
+const IMPORT_BATCH_ASSUMED_BYTES_PER_MS = 100
+
+/**
+ * The `timeout` to send with a batch-conversion request carrying exactly these files -- see
+ * `IMPORT_BATCH_TIMEOUT_BASE`'s doc comment for what each term accounts for.
+ */
+function computeBatchImportTimeout(files) {
+  const totalBytes = files.reduce((sum, file) => sum + (file.size || 0), 0)
+  return (
+    IMPORT_BATCH_TIMEOUT_BASE +
+    files.length * IMPORT_BATCH_TIMEOUT_PER_FILE +
+    Math.ceil(totalBytes / IMPORT_BATCH_ASSUMED_BYTES_PER_MS)
+  )
+}
 
 // PROPS
 
@@ -496,6 +535,7 @@ async function convert() {
       form.append('formats', state.formats[idx] ?? '')
     })
     const resp = await API_CLIENT.post(`sites/${siteStore.id}/pages/import/batch`, {
+      timeout: computeBatchImportTimeout(state.files),
       searchParams: {
         path: props.basePath || ''
       },
@@ -528,11 +568,25 @@ async function convert() {
     })
     state.step = 'review'
   } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('pages.importBatch.convertFailed'),
-      caption: apiErrorMessage(err)
-    })
+    // -> A client-side `TimeoutError` firing while the server is still genuinely converting the batch
+    //    must not read like a real failure -- retrying resends every file and re-runs every pandoc
+    //    conversion a second time for nothing. Same distinction `AdminExtensions.vue`'s `install()`
+    //    draws for `INSTALL_TIMEOUT`. Anything else -- missing Pandoc, a bad file, a real server
+    //    refusal -- falls through to the generic caption, where the server's own message says which.
+    if (isTimeoutError(err)) {
+      notify({
+        type: 'negative',
+        message: t('pages.importBatch.convertTimedOut'),
+        caption: t('pages.importBatch.convertTimedOutHint'),
+        timeout: 0
+      })
+    } else {
+      notify({
+        type: 'negative',
+        message: t('pages.importBatch.convertFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
   }
   state.converting = false
 }
@@ -578,12 +632,8 @@ async function renderMarkdown(markdown, pagePath) {
   return md.render(markdown, { pagePath })
 }
 
-/** One `POST sites/:siteId/pages`, thrown as a plain Error on `{ ok: false }` even when ky itself did not throw (see `boot/api.js`'s 400 carve-out). */
 async function createPage(payload) {
   const resp = await API_CLIENT.post(`sites/${siteStore.id}/pages`, { json: payload }).json()
-  if (resp?.ok === false) {
-    throw new Error(resp.message || 'Failed to save the page.')
-  }
   return resp.page
 }
 
@@ -604,9 +654,6 @@ async function overwriteExisting(row, render) {
       expectedUpdatedAt: existing.updatedAt
     }
   }).json()
-  if (resp?.ok === false) {
-    throw new Error(resp.message || 'Failed to save the page.')
-  }
   return resp.page
 }
 

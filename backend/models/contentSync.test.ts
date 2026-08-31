@@ -1,6 +1,7 @@
-import { test, before, after } from 'node:test'
+import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { eq, sql } from 'drizzle-orm'
+import { randomUUID } from 'node:crypto'
+import { asc, eq, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { relations } from '../db/relations.ts'
@@ -12,6 +13,14 @@ import {
   storage as storageTable,
   users as usersTable
 } from '../db/schema.ts'
+import {
+  hasTestDatabase,
+  seedLocale,
+  setupTestDb,
+  teardownTestDb,
+  type TestFixtures
+} from '../test/db.ts'
+import type { PageActor } from './pages.ts'
 import { contentSync } from './contentSync.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
@@ -61,10 +70,16 @@ before(async () => {
     .returning({ id: usersTable.id })
   userId = user.id
 
+  // -> Not inserted: the real migration this schema was built from already seeds the three default
+  //    levels at fixed ids (`db/migrations/.../migration.sql`, mirroring
+  //    `models/classificationLevels.ts#init()`) -- the same "Public" a fresh install gets, and an
+  //    unconditional `INSERT` this test cannot duplicate without colliding with the seed's own
+  //    `sortOrder` unique index. Read back rather than inserted, matching `test/db.ts#setupTestDb()`.
   const [classification] = await WIKI.db
-    .insert(classificationLevelsTable)
-    .values({ name: 'Public', sortOrder: 0 })
-    .returning({ id: classificationLevelsTable.id })
+    .select({ id: classificationLevelsTable.id })
+    .from(classificationLevelsTable)
+    .orderBy(asc(classificationLevelsTable.sortOrder))
+    .limit(1)
   classificationId = classification.id
 
   const targets = await WIKI.db
@@ -89,9 +104,8 @@ after(async () => {
   await WIKI.db.delete(storageTable).where(eq(storageTable.siteId, siteId))
   await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, siteId))
   await WIKI.db.delete(usersTable).where(eq(usersTable.id, userId))
-  await WIKI.db
-    .delete(classificationLevelsTable)
-    .where(eq(classificationLevelsTable.id, classificationId))
+  // -> The classification level itself is not this test's to delete -- it's the migration's own seed
+  //    row (see the `before()` comment above), shared with every other suite against this database.
   await pool.end()
 })
 
@@ -595,5 +609,253 @@ test(
     assert.equal(nonUtc.lastError, utc.lastError)
     assert.ok(nonUtc.lastAttemptAt)
     assert.ok(utc.lastAttemptAt)
+  }
+)
+
+// ---------------------------------------------------------------------------------------------
+// forgetContent / forgetContentBatch (OpenProject #1673) -- `contentId` carries no FK, so this is
+// the application-side cleanup a page/asset's own deletion has to call.
+// ---------------------------------------------------------------------------------------------
+
+test(
+  'forgetContent removes every target row for a page, leaving another page untouched',
+  { skip },
+  async () => {
+    const forgottenPageId = await makePage('forget-content-target')
+    const otherPageId = await makePage('forget-content-other')
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: forgottenPageId,
+      targetId: pageTargetId,
+      direction: 'push'
+    })
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: forgottenPageId,
+      targetId: otherTargetId,
+      direction: 'push'
+    })
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: otherPageId,
+      targetId: pageTargetId,
+      direction: 'push'
+    })
+
+    await contentSync.forgetContent('page', forgottenPageId)
+
+    const forgottenStates = await contentSync.getStatesForContent('page', forgottenPageId)
+    assert.equal(forgottenStates.length, 0)
+    const otherState = await contentSync.getState('page', otherPageId, pageTargetId)
+    assert.ok(otherState)
+  }
+)
+
+test('forgetContent is scoped to contentType, not just contentId', { skip }, async () => {
+  const pageId = await makePage('forget-content-type-scope')
+  const assetId = await makeAsset('forget-content-type-scope.png')
+  await contentSync.recordSuccess({
+    contentType: 'page',
+    contentId: pageId,
+    targetId: pageTargetId,
+    direction: 'push'
+  })
+  await contentSync.recordSuccess({
+    contentType: 'asset',
+    contentId: assetId,
+    targetId: pageTargetId,
+    direction: 'push'
+  })
+
+  await contentSync.forgetContent('asset', assetId)
+
+  assert.equal(await contentSync.getState('asset', assetId, pageTargetId), null)
+  assert.ok(await contentSync.getState('page', pageId, pageTargetId))
+})
+
+test(
+  'forgetContentBatch removes rows for every id in the batch in one call',
+  { skip },
+  async () => {
+    const firstId = await makePage('forget-batch-1')
+    const secondId = await makePage('forget-batch-2')
+    const untouchedId = await makePage('forget-batch-untouched')
+    for (const contentId of [firstId, secondId, untouchedId]) {
+      await contentSync.recordSuccess({
+        contentType: 'page',
+        contentId,
+        targetId: pageTargetId,
+        direction: 'push'
+      })
+    }
+
+    await contentSync.forgetContentBatch('page', [firstId, secondId])
+
+    assert.equal(await contentSync.getState('page', firstId, pageTargetId), null)
+    assert.equal(await contentSync.getState('page', secondId, pageTargetId), null)
+    assert.ok(await contentSync.getState('page', untouchedId, pageTargetId))
+  }
+)
+
+test('forgetContentBatch is a no-op for an empty id list', { skip }, async () => {
+  // -> Just asserting it doesn't throw on `IN ()`, which some drivers reject outright.
+  await contentSync.forgetContentBatch('page', [])
+})
+
+// ---------------------------------------------------------------------------------------------
+// Integration: deleting a page through the real model cleans up its contentSyncState rows. Uses
+// the shared `test/db.ts` fixture (its own migrated schema + full `WIKI.models`) rather than the
+// hand-rolled `WIKI` above, because this needs `pages.deletePage`'s real dependency graph
+// (`pageHistory`, `tree`, `navigation`, `glossary`, `search`, `hooks`, `storage`), not just `db`.
+// ---------------------------------------------------------------------------------------------
+
+describe('forgetContent via pages.deletePage (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let pagesModel: typeof import('./pages.ts').pages
+  let actor: PageActor
+  let targetId: string
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    await seedLocale(fixtures.db, { code: 'en' })
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+
+    const [target] = await fixtures.db
+      .insert(storageTable)
+      .values({ siteId: fixtures.siteId, module: 'test-forget-content' })
+      .returning({ id: storageTable.id })
+    targetId = target!.id
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('deletePage drops the page from contentSyncState and its target summary', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'docs/sync-state-delete-me',
+        title: 'Sync State Delete Me',
+        editor: 'markdown',
+        content: '# Hello'
+      },
+      actor
+    )
+
+    // -> A prior success (so `lastSyncedAt` is set) followed by a failure (so `lastError` is set
+    //    too, without clearing `lastSyncedAt` -- see `recordFailure`'s own doc) exercises both
+    //    fields `getTargetSummary` reads.
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: page.id,
+      targetId,
+      direction: 'push'
+    })
+    await contentSync.recordFailure({
+      contentType: 'page',
+      contentId: page.id,
+      targetId,
+      error: 'connection refused'
+    })
+    const beforeDelete = await contentSync.getState('page', page.id, targetId)
+    assert.ok(beforeDelete)
+
+    const deleted = await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+    assert.equal(deleted, true)
+
+    const afterDelete = await contentSync.getState('page', page.id, targetId)
+    assert.equal(afterDelete, null)
+
+    const summary = await contentSync.getTargetSummary(targetId, { siteId: fixtures.siteId })
+    assert.equal(summary.lastError, null)
+    assert.equal(summary.lastSyncedAt, null)
+    assert.equal(summary.lastAttemptAt, null)
+  })
+})
+
+// ---------------------------------------------------------------------------------------------
+// purgeOrphaned (OpenProject #1679) -- the backstop sweep for rows whose page/asset is already
+// gone. `contentId` is deliberately not a foreign key (see the table's own doc comment in
+// `db/schema.ts`), so these rows only ever get cleaned up here or by the delete path's own
+// cleanup.
+// ---------------------------------------------------------------------------------------------
+
+test(
+  'purgeOrphaned removes a page row with no matching page, keeps a live one',
+  { skip },
+  async () => {
+    const deletedPageId = randomUUID()
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: deletedPageId,
+      targetId: pageTargetId,
+      direction: 'push'
+    })
+
+    const livePageId = await makePage('purge-orphaned-live-page')
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: livePageId,
+      targetId: pageTargetId,
+      direction: 'push'
+    })
+
+    const count = await contentSync.purgeOrphaned()
+    assert.ok(count >= 1)
+
+    assert.equal(await contentSync.getState('page', deletedPageId, pageTargetId), null)
+    assert.ok(await contentSync.getState('page', livePageId, pageTargetId))
+  }
+)
+
+test(
+  'purgeOrphaned removes an asset row with no matching asset, keeps a live one',
+  { skip },
+  async () => {
+    const deletedAssetId = randomUUID()
+    await contentSync.recordSuccess({
+      contentType: 'asset',
+      contentId: deletedAssetId,
+      targetId: pageTargetId,
+      direction: 'push'
+    })
+
+    const liveAssetId = await makeAsset('purge-orphaned-live.png')
+    await contentSync.recordSuccess({
+      contentType: 'asset',
+      contentId: liveAssetId,
+      targetId: pageTargetId,
+      direction: 'push'
+    })
+
+    const count = await contentSync.purgeOrphaned()
+    assert.ok(count >= 1)
+
+    assert.equal(await contentSync.getState('asset', deletedAssetId, pageTargetId), null)
+    assert.ok(await contentSync.getState('asset', liveAssetId, pageTargetId))
+  }
+)
+
+test(
+  'purgeOrphaned checks each row against the table matching its own contentType, not the other one',
+  { skip },
+  async () => {
+    // -> A page row whose contentId happens to match a real *asset*'s id must still be treated as
+    //    orphaned (nothing in `pages` matches it), and vice versa -- the two branches must not cross.
+    const assetId = await makeAsset('purge-orphaned-cross-check.png')
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: assetId,
+      targetId: pageTargetId,
+      direction: 'push'
+    })
+
+    await contentSync.purgeOrphaned()
+
+    assert.equal(await contentSync.getState('page', assetId, pageTargetId), null)
+    // -> The asset itself, and its own real contentSyncState rows if any, are untouched by this --
+    //    this test only asserts the mis-typed row above was swept.
   }
 )

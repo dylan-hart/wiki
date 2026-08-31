@@ -2,10 +2,9 @@
   <w-page class="admin-comments">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-comments.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-comments.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.comments.title') }}</h1>
@@ -43,7 +42,7 @@
           :label="t(`common.actions.apply`)"
           color="secondary"
           @click="save()"
-          :disable="!selectedProvider || !selectedProvider.isSelectable"
+          :disabled="!selectedProvider || !selectedProvider.isSelectable"
           :loading="state.loading > 0" />
       </div>
     </div>
@@ -162,7 +161,7 @@
                   <w-item-label caption>{{ cfg.hint }}</w-item-label>
                 </w-item-section>
                 <w-item-section avatar>
-                  <w-toggle v-model="cfg.value" :aria-label="cfg.title" :disable="cfg.readOnly" />
+                  <w-toggle v-model="cfg.value" :aria-label="cfg.title" :disabled="cfg.readOnly" />
                 </w-item-section>
               </w-item>
               <w-item v-else>
@@ -182,7 +181,7 @@
                     dense
                     options-dense
                     :aria-label="cfg.title"
-                    :disable="cfg.readOnly" />
+                    :disabled="cfg.readOnly" />
                   <w-input
                     v-else
                     outlined
@@ -190,7 +189,7 @@
                     dense
                     :type="inputTypeFor(cfg)"
                     :aria-label="cfg.title"
-                    :disable="cfg.readOnly" />
+                    :disabled="cfg.readOnly" />
                 </w-item-section>
               </w-item>
             </template>
@@ -266,7 +265,7 @@
               >
             </template>
             <template #body-cell-date="props">
-              <w-td :props="props">{{ formattedDate(props.value) }}</w-td>
+              <w-td :props="props">{{ humanizeDate(t, props.value) }}</w-td>
             </template>
             <template #body-cell-delete="props">
               <w-td :props="props">
@@ -307,9 +306,9 @@ import { confirm } from '@/composables/dialog'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
-import { useUserStore } from '@/stores/user'
 
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 
 // COMPOSABLES
 
@@ -319,7 +318,6 @@ const dark = useDark()
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
-const userStore = useUserStore()
 
 // I18N
 
@@ -504,11 +502,6 @@ function configIfCheck(ifs) {
 function excerptOf(content) {
   const flat = (content ?? '').replace(/\s+/g, ' ').trim()
   return flat.length > 140 ? `${flat.slice(0, 140)}…` : flat
-}
-
-/** Largest-first, matching `AdminUsers.vue`'s date column. */
-function formattedDate(val) {
-  return userStore.formatDateTime(t, val)
 }
 
 async function load() {

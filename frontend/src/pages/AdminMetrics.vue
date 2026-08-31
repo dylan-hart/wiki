@@ -2,7 +2,7 @@
   <w-page class="admin-api">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-graph.svg" alt="" />
+        <w-icon name="img:/_assets/icons/fluent-graph.svg" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.metrics.title') }}</h1>
@@ -24,17 +24,7 @@
       </div>
       <div class="flex-none">
         <w-btn
-          class="mr-2 ml-4 acrylic-btn"
-          icon="la:question-circle"
-          flat
-          color="grey"
-          :aria-label="t(`common.actions.viewDocs`)"
-          :href="siteStore.docsBase + `/admin/metrics`"
-          target="_blank">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
-        </w-btn>
-        <w-btn
-          class="acrylic-btn mr-2"
+          class="acrylic-btn mr-2 ml-4"
           icon="la:redo-alt"
           flat
           color="secondary"
@@ -110,7 +100,6 @@ import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 
 import { useAdminStore } from '@/stores/admin'
-import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
 
 // COMPOSABLES
@@ -120,7 +109,6 @@ const dark = useDark()
 // STORES
 
 const adminStore = useAdminStore()
-const siteStore = useSiteStore()
 
 // I18N
 
@@ -173,12 +161,9 @@ async function globalSwitch() {
   state.isToggleLoading = true
   const wanted = !state.enabled
   try {
-    const resp = await API_CLIENT.put('system/metrics', {
+    await API_CLIENT.put('system/metrics', {
       json: { isEnabled: wanted }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occurred.')
-    }
     notify({
       type: 'positive',
       message: wanted

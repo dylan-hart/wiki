@@ -169,7 +169,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       allowComments: { type: 'boolean' },
       allowContributions: { type: 'boolean' },
-      allowRatings: { type: 'boolean' },
       showSidebar: { type: 'boolean' },
       showTags: { type: 'boolean' },
       showToc: { type: 'boolean' },
@@ -258,7 +257,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description: 'How many comments this page has, replies included.'
       },
       allowContributions: { type: 'boolean' },
-      allowRatings: { type: 'boolean' },
       showSidebar: { type: 'boolean' },
       showTags: { type: 'boolean' },
       showToc: { type: 'boolean' },
@@ -309,6 +307,19 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
             type: 'array',
             items: { $ref: 'PageEditSubmission#' },
             description: 'What is waiting on this page, oldest first. Empty unless `canReview`.'
+          },
+          resolvedSubmission: {
+            type: ['object', 'null'],
+            description:
+              'What became of the requester’s most recently resolved suggestion on this page, if they made one and a reviewer has acted on it. Null while nothing of theirs has been resolved, or for a guest, whose suggestions are attributed to nobody.',
+            properties: {
+              status: { type: 'string', enum: ['approved', 'declined'] },
+              reason: {
+                type: ['string', 'null'],
+                description: 'The reviewer’s note on why. Always null for an approval.'
+              },
+              resolvedAt: { type: 'string', format: 'date-time' }
+            }
           },
           activeEditors: {
             type: 'object',
@@ -431,6 +442,21 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'string',
         description: 'The stored HTML, already sanitised when the page was saved.'
       }
+    }
+  })
+
+  /**
+   * PAGE BACKLINK - Another page whose content links to this one (OpenProject #1914)
+   */
+  app.addSchema({
+    $id: 'PageBacklink',
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      path: { type: 'string' },
+      locale: { type: 'string' },
+      title: { type: 'string' },
+      icon: { type: ['string', 'null'] }
     }
   })
 
@@ -581,6 +607,96 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
+   * PAGE HISTORY LIST ENTRY - One version as the paginated history list reports it: the same as
+   * PageHistoryEntry, but the author carries no email -- `list()` doesn't select it (see
+   * `models/pageHistory.ts`'s `PageHistoryListAuthor`), since nothing reading a page's whole timeline
+   * needs a contributor's address and there's no reason to hand hundreds of rows carrying one.
+   */
+  app.addSchema({
+    $id: 'PageHistoryListEntry',
+    type: 'object',
+    properties: {
+      id: {
+        type: 'string',
+        format: 'uuid'
+      },
+      action: {
+        type: 'string',
+        enum: [...pageHistoryActions],
+        description: 'What happened to the page. `moved` is a change of path or title.'
+      },
+      via: {
+        type: 'string',
+        enum: [...pageHistoryVia],
+        description:
+          "What actually made the change: `editor` for the standard editor (every REST-API-driven save), or `mcp` for an MCP tool call acting on the author's behalf."
+      },
+      changedFields: {
+        type: 'array',
+        description:
+          'Which page fields the change touched, named as the page stores them. Empty for a creation or a deletion, where the whole page is the change.',
+        items: {
+          type: 'string'
+        }
+      },
+      reason: {
+        type: 'string',
+        description:
+          "Why the change was made, in the author's words. Empty when the site does not ask for a reason — see the `reasonForChange` site feature — or asked and was not answered."
+      },
+      versionDate: {
+        type: 'string',
+        format: 'date-time',
+        description: 'RFC 3339 Date Time'
+      },
+      locale: {
+        type: 'string',
+        description:
+          'The locale the page was in at the time, which is not necessarily its locale now.'
+      },
+      path: {
+        type: 'string',
+        description: 'Where the page was at the time, which is not necessarily where it is now.'
+      },
+      title: {
+        type: 'string'
+      },
+      author: {
+        type: 'object',
+        description: 'Who made the change. Null id and empty name once that account is deleted.',
+        properties: {
+          id: {
+            type: ['string', 'null'],
+            format: 'uuid'
+          },
+          name: {
+            type: 'string'
+          }
+        }
+      }
+    }
+  })
+
+  /**
+   * PAGE HISTORY LIST - One keyset-paginated page of a page's version history
+   */
+  app.addSchema({
+    $id: 'PageHistoryList',
+    type: 'object',
+    properties: {
+      items: {
+        type: 'array',
+        description: 'This page of versions, newest first.',
+        items: { $ref: 'PageHistoryListEntry#' }
+      },
+      nextCursor: {
+        type: ['string', 'null'],
+        description: 'Pass back as `cursor` to fetch the next, older page. Null once there is none.'
+      }
+    }
+  })
+
+  /**
    * PAGE HISTORY VERSION - The same, with the source it held: one side of a diff
    */
   app.addSchema({
@@ -608,6 +724,30 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         }
       }
     ]
+  })
+
+  /**
+   * PAGE HISTORY RECOVERABLE PAGE - One keyset page of `listRecoverable` results
+   *
+   * Wraps `RecoverablePageEntry`, not `PageHistoryEntry` (OpenProject #2168) -- see that schema's own
+   * doc comment for why: `tags`/`classification` ride along and `author.email` is dropped, since this
+   * listing spans every deleted path on the site in one sweep rather than one page's own history.
+   */
+  app.addSchema({
+    $id: 'PageHistoryRecoverablePage',
+    type: 'object',
+    properties: {
+      items: {
+        type: 'array',
+        description:
+          'Recoverable deletions from this page of the scan, already filtered to rows the caller may read the history of — can be shorter than the requested `limit` even mid-list.',
+        items: { $ref: 'RecoverablePageEntry#' }
+      },
+      nextCursor: {
+        type: ['string', 'null'],
+        description: 'Pass back as `cursor` to fetch the next page. Null once there is no more.'
+      }
+    }
   })
 
   /**

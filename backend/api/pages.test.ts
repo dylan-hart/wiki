@@ -307,6 +307,191 @@ describe('pages API — apiKeySitePinHook site-scoping', () => {
   })
 })
 
+/**
+ * OpenProject #1720: once `models/pages.ts#createPage()`/`updatePage()` refuse a render-less write up
+ * front via `ensureCanRender()` (#1716), the two named errors it throws --
+ * `renderUnsupportedEditor`/`renderPuppeteerMissing` -- must reach a REST caller as an actionable
+ * `@fastify/sensible` error (400/503 with a message naming the cause), not an opaque 500. `WIKI.models
+ * .pages.createPage`/`updatePage` are stubbed to throw directly, standing in for a render-less write
+ * against a lean/non-markdown-unsupported instance without needing a real Puppeteer-less environment.
+ */
+describe('pages API — renderPuppeteerMissing / renderUnsupportedEditor mapped to actionable errors', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+  const PAGE_ID = '22222222-2222-4222-8222-222222222222'
+
+  let app: FastifyInstance
+  let createPageCalls: any[]
+  let updatePageCalls: any[]
+  let createPageImpl: (...args: any[]) => Promise<any>
+  let updatePageImpl: (...args: any[]) => Promise<any>
+
+  function currentPage() {
+    return {
+      id: PAGE_ID,
+      path: 'some-page',
+      locale: 'en',
+      tags: [],
+      classification: null,
+      editor: 'markdown'
+    }
+  }
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      models: {
+        pages: {
+          getPage: async () => currentPage(),
+          createPage: async (...args: any[]) => {
+            createPageCalls.push(args)
+            return createPageImpl(...args)
+          },
+          updatePage: async (...args: any[]) => {
+            updatePageCalls.push(args)
+            return updatePageImpl(...args)
+          }
+        },
+        groups: {
+          actorForRequest: () => ({ permissions: [] }),
+          checkAccess: () => true,
+          groupIdsForRequest: () => []
+        }
+      },
+      sites: {}
+    }
+
+    app = Fastify()
+    await app.register(fastifySensible)
+    // -> Mirrors `index.ts`'s real `setErrorHandler` -- see the identical comment on the
+    //    `enforceApiKeySite` describe block above for why this is inlined rather than imported.
+    app.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    app.addHook('onRequest', async (req) => {
+      ;(req as any).session = {
+        authenticated: true,
+        user: { id: 'user-1' },
+        permissions: []
+      }
+    })
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerErrorSchema(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    createPageCalls = []
+    updatePageCalls = []
+  })
+
+  test('CREATE page: renderPuppeteerMissing maps to 503 naming the missing extension, and no page is returned', async () => {
+    createPageImpl = async () => {
+      throw new CustomError(
+        'renderPuppeteerMissing',
+        'Rendering a page on the server needs the Puppeteer extension, which is not installed.',
+        503
+      )
+    }
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages`,
+      payload: { path: 'test-page', title: 'Test', editor: 'markdown', content: 'hello' }
+    })
+    assert.equal(res.statusCode, 503)
+    const body = res.json()
+    assert.equal(body.ok, false)
+    assert.match(body.message, /Puppeteer extension/)
+    assert.equal(body.page, undefined)
+    assert.equal(createPageCalls.length, 1)
+  })
+
+  test('CREATE page: renderUnsupportedEditor maps to 400 naming the editor', async () => {
+    createPageImpl = async () => {
+      throw new CustomError(
+        'renderUnsupportedEditor',
+        'Server-side rendering is not implemented for the ckeditor editor.'
+      )
+    }
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages`,
+      payload: { path: 'test-page', title: 'Test', editor: 'ckeditor', content: 'hello' }
+    })
+    assert.equal(res.statusCode, 400)
+    const body = res.json()
+    assert.equal(body.ok, false)
+    assert.match(body.message, /ckeditor/)
+    assert.equal(body.page, undefined)
+    assert.equal(createPageCalls.length, 1)
+  })
+
+  test('CREATE page: an unrelated model error still falls through to the generic 500, not swallowed as a render refusal', async () => {
+    createPageImpl = async () => {
+      throw new Error('Something else entirely broke.')
+    }
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages`,
+      payload: { path: 'test-page', title: 'Test', editor: 'markdown', content: 'hello' }
+    })
+    assert.equal(res.statusCode, 500)
+    assert.equal(createPageCalls.length, 1)
+  })
+
+  test('UPDATE page: renderPuppeteerMissing maps to 503 naming the missing extension, and the page is left unmodified', async () => {
+    updatePageImpl = async () => {
+      throw new CustomError(
+        'renderPuppeteerMissing',
+        'Rendering a page on the server needs the Puppeteer extension, which is not installed.',
+        503
+      )
+    }
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
+      payload: { content: 'new content, no render' }
+    })
+    assert.equal(res.statusCode, 503)
+    const body = res.json()
+    assert.equal(body.ok, false)
+    assert.match(body.message, /Puppeteer extension/)
+    assert.equal(body.page, undefined)
+    assert.equal(updatePageCalls.length, 1)
+  })
+
+  test('UPDATE page: renderUnsupportedEditor maps to 400 naming the editor', async () => {
+    updatePageImpl = async () => {
+      throw new CustomError(
+        'renderUnsupportedEditor',
+        'Server-side rendering is not implemented for the ckeditor editor.'
+      )
+    }
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
+      payload: { content: 'new content, no render' }
+    })
+    assert.equal(res.statusCode, 400)
+    const body = res.json()
+    assert.equal(body.ok, false)
+    assert.match(body.message, /ckeditor/)
+    assert.equal(body.page, undefined)
+    assert.equal(updatePageCalls.length, 1)
+  })
+})
+
 describe('pages API — concurrent-edit safety and search rule-permission audit', () => {
   /**
    * Regression test for the optimistic-concurrency check on `PATCH /sites/:siteId/pages/:pageId`
@@ -704,7 +889,6 @@ describe('pages API — response schema completeness (task 602)', () => {
     render: '<p>hi</p>',
     allowComments: true,
     allowContributions: true,
-    allowRatings: true,
     showSidebar: true,
     showTags: true,
     showToc: true,
@@ -928,7 +1112,6 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
       ...(withContent ? { content: RAW_CONTENT } : {}),
       allowComments: false,
       allowContributions: false,
-      allowRatings: false,
       showSidebar: true,
       showTags: true,
       showToc: true,
@@ -1122,7 +1305,6 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — pageview session write resp
       render: '<p>Hello</p>',
       allowComments: false,
       allowContributions: false,
-      allowRatings: false,
       showSidebar: true,
       showTags: true,
       showToc: true,
@@ -2321,7 +2503,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   const VERSION_ID = '22222222-2222-2222-2222-222222222222'
 
   let app: FastifyInstance
-  let listRecoverableResult: any[]
+  let listRecoverableResult: { items: any[]; nextCursor: string | null }
   let getDeletedVersionResult: any
   let recoverDeletedPageImpl: (...args: any[]) => Promise<any>
   let checkAccessImpl: (actor: any, permission: string, page: any) => boolean
@@ -2344,7 +2526,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
           groupIdsForRequest: () => []
         },
         pageHistory: {
-          listRecoverable: async (_siteId: string) => listRecoverableResult,
+          listRecoverable: async (_siteId: string, _opts?: any) => listRecoverableResult,
           getDeletedVersion: async (_siteId: string, _versionId: string) => getDeletedVersionResult,
           recoverDeletedPage: async (...args: any[]) => recoverDeletedPageImpl(...args)
         }
@@ -2387,7 +2569,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   beforeEach(() => {
-    listRecoverableResult = []
+    listRecoverableResult = { items: [], nextCursor: null }
     getDeletedVersionResult = null
     checkAccessImpl = () => false
     recoverDeletedPageImpl = async () => {
@@ -2396,28 +2578,31 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   test('GET /sites/:siteId/pages/deleted only includes rows the actor may read the history of', async () => {
-    listRecoverableResult = [
-      {
-        id: 'v1',
-        path: 'visible',
-        locale: 'en',
-        title: 'Visible',
-        action: 'deleted',
-        tags: [],
-        classification: null,
-        author: { id: 'u1', name: 'Author One' }
-      },
-      {
-        id: 'v2',
-        path: 'hidden',
-        locale: 'en',
-        title: 'Hidden',
-        action: 'deleted',
-        tags: [],
-        classification: null,
-        author: { id: 'u2', name: 'Author Two' }
-      }
-    ]
+    listRecoverableResult = {
+      items: [
+        {
+          id: 'v1',
+          path: 'visible',
+          locale: 'en',
+          title: 'Visible',
+          action: 'deleted',
+          tags: [],
+          classification: null,
+          author: { id: 'u1', name: 'Author One' }
+        },
+        {
+          id: 'v2',
+          path: 'hidden',
+          locale: 'en',
+          title: 'Hidden',
+          action: 'deleted',
+          tags: [],
+          classification: null,
+          author: { id: 'u2', name: 'Author Two' }
+        }
+      ],
+      nextCursor: null
+    }
     checkAccessImpl = (_actor, permission, page) =>
       permission === 'read:history' && page.path === 'visible'
 
@@ -2428,26 +2613,30 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
 
     assert.equal(res.statusCode, 200)
     const body = res.json()
-    assert.equal(body.length, 1)
-    assert.equal(body[0].path, 'visible')
+    assert.equal(body.items.length, 1)
+    assert.equal(body.items[0].path, 'visible')
+    assert.equal(body.nextCursor, null)
     // -> No authorEmail anywhere in the response (OpenProject #2168)
-    assert.equal(body[0].author.email, undefined)
+    assert.equal(body.items[0].author.email, undefined)
     assert.ok(!JSON.stringify(body).includes('email'))
   })
 
   test("GET /sites/:siteId/pages/deleted checks read:history with the version's own tags/classification (OpenProject #2168)", async () => {
-    listRecoverableResult = [
-      {
-        id: 'v1',
-        path: 'classified',
-        locale: 'en',
-        title: 'Classified',
-        action: 'deleted',
-        tags: ['secret'],
-        classification: 'restricted-level-id',
-        author: { id: 'u1', name: 'Author One' }
-      }
-    ]
+    listRecoverableResult = {
+      items: [
+        {
+          id: 'v1',
+          path: 'classified',
+          locale: 'en',
+          title: 'Classified',
+          action: 'deleted',
+          tags: ['secret'],
+          classification: 'restricted-level-id',
+          author: { id: 'u1', name: 'Author One' }
+        }
+      ],
+      nextCursor: null
+    }
     const seenChecks: any[] = []
     checkAccessImpl = (_actor, permission, page) => {
       if (permission === 'read:history') {
@@ -2462,7 +2651,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     })
 
     assert.equal(res.statusCode, 200)
-    assert.equal(res.json().length, 0)
+    assert.equal(res.json().items.length, 0)
     assert.deepEqual(seenChecks, [
       {
         path: 'classified',
@@ -2475,18 +2664,21 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   test('GET /sites/:siteId/pages/deleted never carries authorEmail, even for a row the actor may read', async () => {
-    listRecoverableResult = [
-      {
-        id: 'v1',
-        path: 'visible',
-        locale: 'en',
-        title: 'Visible',
-        action: 'deleted',
-        author: { id: 'u2', name: 'Someone' },
-        tags: [],
-        classification: null
-      }
-    ]
+    listRecoverableResult = {
+      items: [
+        {
+          id: 'v1',
+          path: 'visible',
+          locale: 'en',
+          title: 'Visible',
+          action: 'deleted',
+          author: { id: 'u2', name: 'Someone' },
+          tags: [],
+          classification: null
+        }
+      ],
+      nextCursor: null
+    }
     checkAccessImpl = () => true
 
     const res = await app.inject({
@@ -2496,8 +2688,8 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
 
     assert.equal(res.statusCode, 200)
     const body = res.json()
-    assert.equal(body.length, 1)
-    assert.equal(body[0].author.email, undefined)
+    assert.equal(body.items.length, 1)
+    assert.equal(body.items[0].author.email, undefined)
   })
 
   test('GET /sites/:siteId/pages/deleted narrows by a TAG-scoped DENY rule', async () => {
@@ -2536,19 +2728,29 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
       })
       return rule ? rule.mode !== 'DENY' : false
     }
-    listRecoverableResult = [
-      { id: 'v1', path: 'open', locale: 'en', title: 'Open', action: 'deleted', tags: ['public'] },
-      {
-        id: 'v2',
-        path: 'closed',
-        locale: 'en',
-        title: 'Closed',
-        action: 'deleted',
-        // -> Tagged BOTH: matches the broad ALLOW too, so this actually exercises the DENY tiebreak
-        //    rather than just "no rule matched at all".
-        tags: ['public', 'secret']
-      }
-    ]
+    listRecoverableResult = {
+      items: [
+        {
+          id: 'v1',
+          path: 'open',
+          locale: 'en',
+          title: 'Open',
+          action: 'deleted',
+          tags: ['public']
+        },
+        {
+          id: 'v2',
+          path: 'closed',
+          locale: 'en',
+          title: 'Closed',
+          action: 'deleted',
+          // -> Tagged BOTH: matches the broad ALLOW too, so this actually exercises the DENY tiebreak
+          //    rather than just "no rule matched at all".
+          tags: ['public', 'secret']
+        }
+      ],
+      nextCursor: null
+    }
 
     const res = await app.inject({
       method: 'GET',
@@ -2557,8 +2759,65 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
 
     assert.equal(res.statusCode, 200)
     const body = res.json()
-    assert.equal(body.length, 1)
-    assert.equal(body[0].path, 'open')
+    assert.equal(body.items.length, 1)
+    assert.equal(body.items[0].path, 'open')
+  })
+
+  test('GET /sites/:siteId/pages/deleted forwards nextCursor unchanged even when the permission filter shortens items', async () => {
+    // -> The model's own page boundary says there is more (`nextCursor` set) even though every row on
+    //    THIS page gets filtered out by the actor's permissions -- the route must not let a
+    //    permission-shortened (here, emptied) page read as "end of list".
+    listRecoverableResult = {
+      items: [
+        {
+          id: 'v1',
+          path: 'hidden',
+          locale: 'en',
+          title: 'Hidden',
+          action: 'deleted',
+          tags: [],
+          classification: null,
+          author: { id: 'u1', name: 'Author One' }
+        }
+      ],
+      nextCursor: 'opaque-cursor-token'
+    }
+    checkAccessImpl = () => false
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/deleted`
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.deepEqual(body.items, [])
+    assert.equal(body.nextCursor, 'opaque-cursor-token')
+  })
+
+  test('GET /sites/:siteId/pages/deleted forwards limit and cursor query params to the model', async () => {
+    const original = (globalThis as any).WIKI.models.pageHistory.listRecoverable
+    let seenOpts: any
+    try {
+      ;(globalThis as any).WIKI.models.pageHistory.listRecoverable = async (
+        _siteId: string,
+        opts: any
+      ) => {
+        seenOpts = opts
+        return { items: [], nextCursor: null }
+      }
+      checkAccessImpl = () => true
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/sites/${SITE_ID}/pages/deleted?limit=10&cursor=abc123`
+      })
+
+      assert.equal(res.statusCode, 200)
+      assert.deepEqual(seenOpts, { limit: 10, cursor: 'abc123' })
+    } finally {
+      ;(globalThis as any).WIKI.models.pageHistory.listRecoverable = original
+    }
   })
 
   test('POST recover requires a logged in user', async () => {
@@ -2718,18 +2977,21 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   test('GET /sites/:siteId/pages/deleted carries no authorEmail on any row (OpenProject #2168)', async () => {
-    listRecoverableResult = [
-      {
-        id: 'v1',
-        path: 'visible',
-        locale: 'en',
-        title: 'Visible',
-        action: 'deleted',
-        tags: [],
-        classification: null,
-        author: { id: 'u1', name: 'Someone' }
-      }
-    ]
+    listRecoverableResult = {
+      items: [
+        {
+          id: 'v1',
+          path: 'visible',
+          locale: 'en',
+          title: 'Visible',
+          action: 'deleted',
+          tags: [],
+          classification: null,
+          author: { id: 'u1', name: 'Someone' }
+        }
+      ],
+      nextCursor: null
+    }
     checkAccessImpl = () => true
 
     const res = await app.inject({
@@ -2739,9 +3001,9 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
 
     assert.equal(res.statusCode, 200)
     const body = res.json()
-    assert.equal(body.length, 1)
-    assert.equal(body[0].author.email, undefined)
-    assert.equal('authorEmail' in body[0], false)
+    assert.equal(body.items.length, 1)
+    assert.equal(body.items[0].author.email, undefined)
+    assert.equal('authorEmail' in body.items[0], false)
   })
 
   test('POST recover recreates the page and returns it', async () => {
@@ -2828,6 +3090,175 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
       url: `/sites/${SITE_ID}/pages/deleted/${VERSION_ID}/recover`,
       headers: withSession({ authenticated: true, user: { id: 'u1' } }),
       payload: { locale: '' }
+    })
+
+    assert.equal(res.statusCode, 400)
+  })
+})
+
+/**
+ * OpenProject #1859: `GET /sites/:siteId/pages/:pageId/history` is now a thin pass-through onto
+ * `pageHistory.list`'s own keyset pagination -- `models/pageHistory.test.ts` covers the pagination and
+ * no-`authorEmail` behavior itself against a real database, so this file only proves the route wires
+ * the querystring through and shapes the model's error the way every other route here does.
+ */
+describe('GET /sites/:siteId/pages/:pageId/history — querystring wiring', () => {
+  const SITE_ID = '11111111-1111-1111-1111-111111111111'
+  const PAGE_ID = '22222222-2222-2222-2222-222222222222'
+
+  let app: FastifyInstance
+  let getPageResult: any
+  let listCalledWith: any[]
+  let listImpl: (...args: any[]) => Promise<any>
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      models: {
+        pages: {
+          getPage: async () => getPageResult
+        },
+        groups: {
+          actorForRequest: () => ({ permissions: [] }),
+          checkAccess: () => true,
+          groupIdsForRequest: () => []
+        },
+        pageHistory: {
+          list: async (...args: any[]) => {
+            listCalledWith = args
+            return listImpl(...args)
+          }
+        }
+      }
+    }
+
+    app = Fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    // -> Mirrors `index.ts`'s real `setErrorHandler`, same as the deleted-pages block above
+    app.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerErrorSchema(app)
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    getPageResult = { id: PAGE_ID, path: 'some-page', locale: 'en', isLocked: false }
+    listCalledWith = []
+    listImpl = async () => ({ items: [], nextCursor: null })
+  })
+
+  test('forwards limit and cursor from the querystring to the model, and returns its shape verbatim', async () => {
+    listImpl = async () => ({
+      items: [
+        {
+          id: 'v1',
+          action: 'updated',
+          via: 'editor',
+          changedFields: [],
+          reason: '',
+          versionDate: '2026-01-01T00:00:00.000Z',
+          locale: 'en',
+          path: 'some-page',
+          title: 'Some Page',
+          author: { id: 'u1', name: 'Ada' }
+        }
+      ],
+      nextCursor: 'opaque-cursor-token'
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/history?limit=10&cursor=abc`
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(listCalledWith, [SITE_ID, PAGE_ID, { limit: 10, cursor: 'abc' }])
+    const body = res.json()
+    assert.equal(body.nextCursor, 'opaque-cursor-token')
+    assert.equal(body.items.length, 1)
+    // -> No `email` anywhere on the author, matching `PageHistoryListEntry`'s narrower schema
+    assert.equal('email' in body.items[0].author, false)
+  })
+
+  test('omitting the querystring applies the schema default (50) for limit, and no cursor', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/history`
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(listCalledWith, [SITE_ID, PAGE_ID, { limit: 50, cursor: undefined }])
+  })
+
+  test('surfaces an invalid-cursor rejection from the model as 400 JSON, not a 500', async () => {
+    listImpl = async () => {
+      throw new CustomError('pageHistoryInvalidCursor', 'This history cursor is not valid.', 400)
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/history?cursor=not-valid`
+    })
+
+    assert.equal(res.statusCode, 400)
+    const body = res.json()
+    assert.equal(body.error, 'pageHistoryInvalidCursor')
+  })
+
+  test('404s for a page the actor cannot read, without ever reaching pageHistory.list', async () => {
+    getPageResult = null
+    listImpl = async () => {
+      throw new Error('list should not be called when the page is unreadable')
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/history`
+    })
+
+    assert.equal(res.statusCode, 404)
+  })
+
+  test('403s for a password-locked page, without ever reaching pageHistory.list', async () => {
+    getPageResult = { id: PAGE_ID, path: 'some-page', locale: 'en', isLocked: true }
+    listImpl = async () => {
+      throw new Error('list should not be called for a locked page')
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/history`
+    })
+
+    assert.equal(res.statusCode, 403)
+  })
+
+  test('rejects a limit outside [1, 200] at the schema, before it can reach the handler', async () => {
+    listImpl = async () => {
+      throw new Error('list should not be called for a schema-invalid limit')
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/history?limit=201`
     })
 
     assert.equal(res.statusCode, 400)
@@ -3527,5 +3958,332 @@ describe('GET /sites/:siteId/pages/:pageId/export/pdf — anonymous access (Open
     assert.equal(res.statusCode, 200)
     assert.equal(exportPdfCalls.length, 1)
     assert.equal(exportPdfCalls[0].path, 'some/page')
+  })
+})
+
+/**
+ * OpenProject #1864: `GET /sites/:siteId/pages/deleted`'s per-row `read:history` filter used to call
+ * `mayOnPage(req, ...)` once per row, which rebuilds the actor internally on every call. It now
+ * hoists `WIKI.models.groups.actorForRequest(req)` once per request and calls `checkAccess(actor,
+ * ...)` per row directly -- the same shape `tree.ts`'s `visibleTreeItems()` and the graph route use.
+ */
+describe('GET /sites/:siteId/pages/deleted — actor hoisted out of the per-row filter (OpenProject #1864)', () => {
+  const SITE_ID = '11111111-1111-1111-1111-111111111111'
+
+  function makeRow(path: string) {
+    return {
+      id: path,
+      action: 'deleted',
+      via: 'editor',
+      changedFields: [],
+      reason: '',
+      versionDate: new Date('2026-01-01T00:00:00.000Z'),
+      locale: 'en',
+      path,
+      title: path,
+      tags: [],
+      classification: null,
+      author: { id: 'user-1', name: 'Alice' }
+    }
+  }
+
+  let app: FastifyInstance
+  let actorForRequest: ReturnType<typeof mock.fn>
+  let checkAccess: ReturnType<typeof mock.fn>
+
+  before(async () => {
+    actorForRequest = mock.fn(() => ({ groupIds: [], permissions: [] }))
+    checkAccess = mock.fn(
+      (_actor: unknown, _permission: string, page: { path: string }) => page.path !== 'secret'
+    )
+    ;(globalThis as any).WIKI = {
+      sites: {},
+      models: {
+        pageHistory: {
+          listRecoverable: async () => ({
+            items: [makeRow('open-a'), makeRow('secret'), makeRow('open-b')],
+            nextCursor: null
+          })
+        },
+        groups: {
+          actorForRequest,
+          checkAccess
+        }
+      }
+    }
+
+    app = Fastify()
+    await app.register(fastifySensible)
+    await registerErrorSchema(app)
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('filters out a row checkAccess refuses, keeping the rest', async () => {
+    const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/pages/deleted` })
+
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(
+      res
+        .json()
+        .items.map((row: { path: string }) => row.path)
+        .sort(),
+      ['open-a', 'open-b']
+    )
+  })
+
+  test('builds the actor exactly once per request, not once per row', async () => {
+    actorForRequest.mock.resetCalls()
+    checkAccess.mock.resetCalls()
+
+    await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/pages/deleted` })
+
+    assert.equal(actorForRequest.mock.calls.length, 1)
+    assert.equal(checkAccess.mock.calls.length, 3)
+    const actor = actorForRequest.mock.calls[0]!.result
+    for (const call of checkAccess.mock.calls) {
+      assert.equal(call.arguments[0], actor)
+    }
+  })
+})
+
+/**
+ * `POST /sites/:siteId/pages/bulk` (OpenProject #1882): the admin page inventory's bulk
+ * delete/re-render/retag action. The behavior this proves is the thing that distinguishes it from
+ * `POST …/classification-conflicts/resolve` elsewhere in this file -- that route refuses the WHOLE
+ * request on the first page the caller may not act on; this one reports that one page as `skipped`
+ * and keeps going, since a bulk action starts from an arbitrary admin-picked selection rather than a
+ * conflict list the caller already knows they may act on.
+ */
+describe('POST /sites/:siteId/pages/bulk', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+  const PAGE_ALLOWED = '22222222-2222-4222-8222-222222222222'
+  const PAGE_DENIED = '33333333-3333-4333-8333-333333333333'
+  const PAGE_UNSAFE_RENDER = '44444444-4444-4444-8444-444444444444'
+
+  let app: FastifyInstance
+  let pageRows: Map<
+    string,
+    { id: string; path: string; locale: string; tags: string[]; classification: string }
+  >
+  let deleteCalls: string[]
+  let renderCalls: string[]
+  let updateCalls: { id: string; patch: any }[]
+  let deniedIds: Set<string>
+
+  function withSession(session: Record<string, any>) {
+    return { 'x-test-session': JSON.stringify(session) }
+  }
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      config: { port: 3000 },
+      logger: { debug: () => {} },
+      models: {
+        rateLimits: {
+          consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
+        },
+        groups: {
+          actorForRequest: (req: any) => ({
+            id: req.session?.user?.id ?? null,
+            permissions: req.session?.permissions ?? [],
+            groups: req.session?.groups ?? []
+          }),
+          // -> Denies exactly the page ids this test session put in `deniedIds` -- everything else
+          //    passes, whatever permission is actually being asked for.
+          checkAccess: (_actor: any, _permission: string, page: any) => !deniedIds.has(page.id),
+          groupIdsForRequest: () => []
+        },
+        pages: {
+          getPagesByIds: async (_siteId: string, ids: string[]) => {
+            const out = new Map()
+            for (const id of ids) {
+              if (pageRows.has(id)) {
+                out.set(id, pageRows.get(id))
+              }
+            }
+            return out
+          },
+          deletePage: async (_siteId: string, id: string) => {
+            deleteCalls.push(id)
+            return true
+          },
+          queueRerender: async (_siteId: string, id: string) => {
+            renderCalls.push(id)
+            if (id === PAGE_UNSAFE_RENDER) {
+              throw new Error('This editor cannot be rendered.')
+            }
+            return true
+          },
+          updatePage: async (_siteId: string, id: string, patch: any) => {
+            updateCalls.push({ id, patch })
+            return { id, ...patch }
+          }
+        }
+      }
+    }
+
+    app = Fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
+    await app.register(fastifySensible)
+    app.decorateRequest('session', null as any)
+    app.addHook('onRequest', async (req) => {
+      const raw = req.headers['x-test-session']
+      ;(req as any).session = typeof raw === 'string' ? JSON.parse(raw) : {}
+    })
+    app.setErrorHandler((error: any, _req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerErrorSchema(app)
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    deleteCalls = []
+    renderCalls = []
+    updateCalls = []
+    deniedIds = new Set()
+    pageRows = new Map([
+      [
+        PAGE_ALLOWED,
+        {
+          id: PAGE_ALLOWED,
+          path: 'docs/allowed',
+          locale: 'en',
+          tags: ['a', 'b'],
+          classification: ''
+        }
+      ],
+      [
+        PAGE_DENIED,
+        { id: PAGE_DENIED, path: 'docs/denied', locale: 'en', tags: [], classification: '' }
+      ],
+      [
+        PAGE_UNSAFE_RENDER,
+        { id: PAGE_UNSAFE_RENDER, path: 'docs/unsafe', locale: 'en', tags: [], classification: '' }
+      ]
+    ])
+  })
+
+  const AUTHED = withSession({ authenticated: true, user: { id: 'u1' }, permissions: [] })
+
+  test('401 for an anonymous request, before touching any page', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/bulk`,
+      payload: { pageIds: [PAGE_ALLOWED], action: 'delete' }
+    })
+    assert.equal(res.statusCode, 401)
+    assert.equal(deleteCalls.length, 0)
+  })
+
+  test('a mixed selection deletes the allowed page and reports the denied one skipped, not a batch failure', async () => {
+    deniedIds = new Set([PAGE_DENIED])
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/bulk`,
+      headers: AUTHED,
+      payload: { pageIds: [PAGE_ALLOWED, PAGE_DENIED], action: 'delete' }
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.ok, true)
+    assert.deepEqual(deleteCalls, [PAGE_ALLOWED])
+    const byId = Object.fromEntries(body.results.map((r: any) => [r.id, r]))
+    assert.equal(byId[PAGE_ALLOWED].status, 'done')
+    assert.equal(byId[PAGE_DENIED].status, 'skipped')
+    assert.equal(byId[PAGE_DENIED].path, 'docs/denied')
+    assert.deepEqual(body.counts, { done: 1, skipped: 1 })
+  })
+
+  test('an id that does not exist on this site comes back notFound, not an error', async () => {
+    const missing = '99999999-9999-4999-8999-999999999999'
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/bulk`,
+      headers: AUTHED,
+      payload: { pageIds: [missing], action: 'delete' }
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.results[0].status, 'notFound')
+    assert.equal(body.counts.notFound, 1)
+  })
+
+  test('a page that throws while rendering is reported as error, and the rest of the batch still runs', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/bulk`,
+      headers: AUTHED,
+      payload: { pageIds: [PAGE_UNSAFE_RENDER, PAGE_ALLOWED], action: 'render' }
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.deepEqual(renderCalls, [PAGE_UNSAFE_RENDER, PAGE_ALLOWED])
+    const byId = Object.fromEntries(body.results.map((r: any) => [r.id, r]))
+    assert.equal(byId[PAGE_UNSAFE_RENDER].status, 'error')
+    assert.match(byId[PAGE_UNSAFE_RENDER].message, /cannot be rendered/)
+    assert.equal(byId[PAGE_ALLOWED].status, 'done')
+  })
+
+  test('retag adds and removes tags relative to each page’s own existing tags', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/bulk`,
+      headers: AUTHED,
+      payload: {
+        pageIds: [PAGE_ALLOWED],
+        action: 'retag',
+        addTags: ['c'],
+        removeTags: ['a']
+      }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(updateCalls.length, 1)
+    assert.deepEqual(new Set(updateCalls[0].patch.tags), new Set(['b', 'c']))
+  })
+
+  test('400 when retag is called with neither addTags nor removeTags', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/bulk`,
+      headers: AUTHED,
+      payload: { pageIds: [PAGE_ALLOWED], action: 'retag' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(updateCalls.length, 0)
+  })
+
+  test('a repeated id in the selection is only acted on once', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/bulk`,
+      headers: AUTHED,
+      payload: { pageIds: [PAGE_ALLOWED, PAGE_ALLOWED], action: 'delete' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(deleteCalls, [PAGE_ALLOWED])
+    assert.equal(res.json().results.length, 1)
   })
 })

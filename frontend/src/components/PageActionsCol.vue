@@ -23,23 +23,12 @@
         flat
         icon="la:pen-nib"
         :color="editorStore.isActive ? `white` : `deep-orange-9`"
-        :disable="isRedirect"
+        :disabled="isRedirect"
         :aria-label="t('pageActions.pageProperties')"
         @click="togglePageProperties">
         <w-tooltip anchor="center left" self="center right">{{
           t('common.page.properties')
         }}</w-tooltip>
-      </w-btn>
-      <w-btn
-        class="h-12"
-        v-if="flagsStore.experimental"
-        flat
-        icon="la:project-diagram"
-        :color="editorStore.isActive ? `white` : `deep-orange-9`"
-        :aria-label="t('pageActions.pageData')"
-        @click="togglePageData"
-        disable>
-        <w-tooltip anchor="center left" self="center right">{{ t('common.page.data') }}</w-tooltip>
       </w-btn>
       <!-- -> Nothing can be pasted or dropped onto a redirection: it is a form, not a document -->
       <w-btn
@@ -264,7 +253,7 @@
                 ><w-item-label>{{ t('common.page.rerender') }}</w-item-label></w-item-section
               >
             </w-item>
-            <w-item clickable disabled v-if="flagsStore.experimental">
+            <w-item clickable @click="toggleBacklinks">
               <w-item-section class="items-center" avatar>
                 <w-icon class="text-deep-orange-9" name="la:sun" size="sm" />
               </w-item-section>
@@ -448,12 +437,13 @@ const canRerenderPage = computed(
 /**
  * Whether the "..." menu has anything to show.
  *
- * Every entry in it is behind something: Rerender Page behind `canRerenderPage`, Convert Page and View
- * Backlinks behind the experimental flag (the first behind `manage:pages` as well). So those two tests
- * cover the whole menu -- and with neither of them true it opened an empty panel, which is what a guest
- * got on every page. Keep this in step with the entries themselves.
+ * View Backlinks (OpenProject #1917) is unconditional -- unlike Rerender Page (behind
+ * `canRerenderPage`) and Convert Page (still behind the experimental flag, plus `manage:pages`),
+ * every reader who can see this rail at all can see it. So the menu can never come up empty any
+ * more; this stays `true` rather than being deleted outright because OpenProject #1921 (deleting the
+ * dead Convert Page entry) is the one that also removes this workaround for good.
  */
-const hasPageActions = computed(() => flagsStore.experimental || canRerenderPage.value)
+const hasPageActions = computed(() => true)
 
 // METHODS
 
@@ -464,9 +454,9 @@ function togglePageProperties() {
   })
 }
 
-function togglePageData() {
+function toggleBacklinks() {
   siteStore.$patch({
-    sideDialogComponent: 'PageDataDialog',
+    sideDialogComponent: 'PageBacklinksDialog',
     sideDialogShown: true
   })
 }

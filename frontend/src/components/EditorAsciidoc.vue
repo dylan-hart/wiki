@@ -38,6 +38,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { apiErrorMessage } from '@/helpers/apiError'
 import { assetPath } from '@/helpers/assets'
 import { directionalAnchor } from '@/helpers/directionalAnchor'
 import { notify } from '@/composables/notify'
@@ -171,7 +172,7 @@ async function processContent(newContent) {
     notify({
       type: 'negative',
       message: t('editor.renderFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
     return
   }

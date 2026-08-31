@@ -2,10 +2,9 @@
   <w-page class="admin-locale">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-change-theme.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-change-theme.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.sites.title') }}</h1>
@@ -14,16 +13,6 @@
         </div>
       </div>
       <div class="flex-none">
-        <w-btn
-          class="mr-2 acrylic-btn"
-          icon="la:question-circle"
-          flat
-          color="grey"
-          :aria-label="t(`common.actions.viewDocs`)"
-          :href="siteStore.docsBase + `/admin/sites`"
-          target="_blank">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
-        </w-btn>
         <w-btn
           class="mr-2 acrylic-btn"
           icon="la:redo-alt"
@@ -143,8 +132,6 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { dialog } from '@/composables/dialog'
 
-import { useSiteStore } from '@/stores/site'
-
 import { useAdminStore } from '../stores/admin'
 import SiteActivateDialog from '../components/SiteActivateDialog.vue'
 import SiteCreateDialog from '../components/SiteCreateDialog.vue'
@@ -157,7 +144,6 @@ const dark = useDark()
 // STORES
 
 const adminStore = useAdminStore()
-const siteStore = useSiteStore()
 
 // ROUTER
 

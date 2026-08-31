@@ -7,8 +7,6 @@ import { usePageStore } from '@/stores/page'
 import { useEditorStore } from '@/stores/editor'
 import { useCommonStore } from '@/stores/common'
 import WBtn from '@/components/shared/WBtn.vue'
-import { openDialogs } from '@/composables/dialog'
-import { queue as notifyQueue } from '@/composables/notify'
 
 /**
  * `monaco-editor` needs real browser layout/measurement APIs that `happy-dom` (this workspace's
@@ -60,8 +58,7 @@ const fakeEditor = {
   getModel: vi.fn(() => fakeModel),
   getValue: vi.fn(() => fakeModel.getValue()),
   // -> Real Monaco resets the whole model (and its undo stack) on `setValue`; rebuilding `fakeModel`
-  //    from scratch reproduces that "wholesale replace" shape closely enough for the save-conflict
-  //    discard/undo round trip (OpenProject #2073) to assert against.
+  //    from scratch reproduces that "wholesale replace" shape.
   setValue: vi.fn((value) => {
     fakeModel = createFakeModel(value)
   }),
@@ -955,61 +952,5 @@ describe('EditorMarkdown list continuation on Enter (OpenProject #802)', () => {
     pressEnter()
 
     expect(fakeModel.getValue()).toBe('- one\n')
-  })
-})
-
-/*
-  OpenProject #2073: a save-conflict "Discard" choice used to be permanent -- `editor.setValue()`
-  clears Monaco's own undo stack, so once the author's text was overwritten with the server's
-  snapshot, nothing in the app could get it back. `resolveSaveConflict`'s discard branch now stashes
-  the author's pending content in `editorStore.discardedContent` right before the overwrite, and
-  raises a toast with an "undo" action (`undoDiscard`) that restores it into both the store and the
-  live Monaco model.
-*/
-describe('EditorMarkdown save-conflict discard + undo (OpenProject #2073)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    // -> Both are module-level singletons shared across every test in the suite; a leftover entry
-    //    from another test finding a stray `n.action` (or a second `openDialogs` row) would make
-    //    this test's own assertions ambiguous about which one they matched.
-    openDialogs.splice(0, openDialogs.length)
-    notifyQueue.splice(0, notifyQueue.length)
-  })
-
-  it("retains the author's discarded content and restores it via the toast's undo action", async () => {
-    const { pageStore } = await mountEditor('Author draft text.')
-    const editorStore = useEditorStore()
-
-    // -> The shape `stores/page.js`'s 409 handler sets `editorStore.saveConflict` to.
-    editorStore.saveConflict = {
-      title: 'Server Title',
-      content: 'Server content.',
-      authorName: 'Jane',
-      updatedAt: '2026-01-01T00:00:00.000Z'
-    }
-    await flushPromises()
-
-    expect(openDialogs).toHaveLength(1)
-    // -> Same as `<w-dialog-host>` calling the registered handler with the dialog's own emitted
-    //    payload -- 'discard' is `PageSaveConflictDialog.vue`'s own `onOk` value for that choice.
-    await openDialogs[0].handlers.ok[0]('discard')
-    await flushPromises()
-
-    // -> The server's snapshot replaced both the store and the live Monaco model, same as before
-    //    this fix...
-    expect(pageStore.content).toBe('Server content.')
-    expect(fakeModel.getValue()).toBe('Server content.')
-    // -> ...but this time the author's own text was retained rather than lost outright.
-    expect(editorStore.discardedContent).toBe('Author draft text.')
-
-    const toast = notifyQueue.find((n) => n.action)
-    expect(toast).toBeTruthy()
-
-    toast.action.onClick()
-
-    expect(pageStore.content).toBe('Author draft text.')
-    expect(fakeModel.getValue()).toBe('Author draft text.')
-    // -> The stash is cleared once restored, so a stray repeat click has nothing left to redo.
-    expect(editorStore.discardedContent).toBeNull()
   })
 })

@@ -60,20 +60,15 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /wiki/backend
+# Installs the Puppeteer extension too: it is a declared `optionalDependency` of `backend/package.json`
+# (alongside Sharp), so `npm ci` resolves it from the same locked, hash-checked tree as everything else
+# rather than reaching out to the registry live and unpinned at build time, the way a second, separate
+# `npm` command used to. A source checkout that genuinely has no use for a server-side browser -- an
+# installation that renders its pages in the editor, which is all of them on any normal save -- can skip
+# it by adding `--omit=optional` below (this drops the native Sharp binaries too; see the definition.yml
+# comment on that tradeoff). `PUPPETEER_SKIP_DOWNLOAD` above runs before this, so Puppeteer's own
+# postinstall never fetches a Chromium build here -- it resolves the distro copy installed above instead.
 RUN npm ci --omit=dev
-
-# The Puppeteer extension, which server-side page rendering needs. Added here rather than declared in
-# `backend/package.json` because it is an optional extension: an installation that renders its pages in
-# the editor -- which is all of them, on any normal save -- has no use for a browser on the server, and
-# a source checkout should not have to fetch one to install the backend.
-#
-# The version is read from the extension definition, which is also what the admin area installs when an
-# operator adds Puppeteer to an instance by hand: one place to bump, and an image that cannot drift from
-# what a hand-installed instance gets. An empty read fails the build rather than quietly installing
-# whatever is newest.
-RUN PUPPETEER_VERSION="$(sed -n 's/^installVersion: *//p' modules/extensions/puppeteer/definition.yml)" && \
-    test -n "$PUPPETEER_VERSION" && \
-    npm install --no-save "puppeteer@${PUPPETEER_VERSION}"
 
 WORKDIR /wiki
 

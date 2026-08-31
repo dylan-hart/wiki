@@ -478,6 +478,10 @@ class Blocks {
    * `config` is left untouched, not cleared, when the caller omits it for a state entry — an empty
    * object `{}` is a deliberate "clear whatever was set", not the same as "say nothing about it".
    *
+   * Deliberately does not queue a re-render of pages that already embed a block moved to disabled here
+   * — see `models/rendering.ts#blockAllowances`'s doc comment (OpenProject #1738) for why, and for what
+   * keeps a disabled block from reaching a reader in the meantime regardless.
+   *
    * @param states Block IDs with their desired state, and optionally a new site-level config
    * @returns The number of block rows written — a block already in the requested state still counts
    */

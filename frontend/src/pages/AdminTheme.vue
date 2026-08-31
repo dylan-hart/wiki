@@ -2,10 +2,9 @@
   <w-page class="admin-theme">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-paint-roller-animated.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-paint-roller-animated.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.theme.title') }}</h1>
@@ -367,6 +366,7 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 import { contrastRatio, getAccessibleColor, WCAG_AA_CONTRAST } from '@/helpers/accessibility'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { toMerged } from 'es-toolkit/object'
 import { startCase } from 'es-toolkit/string'
@@ -820,16 +820,11 @@ async function save() {
       baseFont: state.config.baseFont,
       contentFont: state.config.contentFont
     }
-    const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
+    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
       json: {
         theme: patchTheme
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.theme.${resp?.error}`, resp?.message || t('common.error.unexpected'))
-      )
-    }
     if (adminStore.currentSiteId === siteStore.id) {
       siteStore.$patch({
         theme: patchTheme
@@ -844,7 +839,10 @@ async function save() {
     notify({
       type: 'negative',
       message: t('admin.theme.saveFailed'),
-      caption: err.message
+      caption: t(
+        `admin.theme.${err.data?.error}`,
+        apiErrorMessage(err, t('common.error.unexpected'))
+      )
     })
   }
   state.loading--

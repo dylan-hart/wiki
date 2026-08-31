@@ -2,10 +2,9 @@
   <w-page class="admin-storage">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-ssd-animated.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-ssd-animated.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.storage.title') }}</h1>
@@ -92,18 +91,41 @@
             <!-- ----------------------- -->
             <!-- Setup -->
             <!-- ----------------------- -->
-            <w-card
-              class="pb-2 mb-4"
-              v-if="
-                state.target.setup &&
-                state.target.setup.handler &&
-                state.target.setup.state === `configured`
-              ">
+            <w-card class="pb-2 mb-4" v-if="state.target.setup && state.target.setup.handler">
               <w-card-header>
                 {{ t('admin.storage.setup') }}
-                <template #hint>{{ t('admin.storage.setupConfiguredHint') }}</template>
+                <template #hint>{{
+                  state.target.setup.state === `configured`
+                    ? t('admin.storage.setupConfiguredHint')
+                    : t('admin.storage.setupNotConfiguredHint')
+                }}</template>
               </w-card-header>
-              <w-item>
+              <!--
+                Task 1895: the module-agnostic counterpart to Uninstall below -- POST .../setup was
+                previously caller-less, since nothing here ever ran the FIRST step of a module's setup
+                process, only reset one already finished. `runSetupStep()` sends `'start'` from
+                `notconfigured` and the module's own reported state past that, so this one button both
+                starts and advances setup with no separate step tracked on this page -- see
+                `helpers/storageSetup.js#nextSetupStepName`.
+              -->
+              <w-item v-if="state.target.setup.state !== `configured`">
+                <blueprint-icon class="self-start" icon="matches" :hue-rotate="140" />
+                <w-item-section>
+                  <w-item-label>{{ t('admin.storage.startSetup') }}</w-item-label>
+                  <w-item-label caption>{{ t('admin.storage.startSetupInfo') }}</w-item-label>
+                </w-item-section>
+                <w-item-section side>
+                  <w-btn
+                    class="acrylic-btn"
+                    flat
+                    icon="la:arrow-circle-right"
+                    color="primary"
+                    :loading="state.runningSetup"
+                    @click="runSetupStep"
+                    :label="t('admin.storage.startSetup')" />
+                </w-item-section>
+              </w-item>
+              <w-item v-if="state.target.setup.state === `configured`">
                 <blueprint-icon class="self-start" icon="matches" :hue-rotate="140" />
                 <w-item-section>
                   <w-item-label>{{ t('admin.storage.uninstall') }}</w-item-label>
@@ -138,7 +160,7 @@
                     :color="state.target.module === `db` ? `grey` : `primary`"
                     val="pages"
                     :aria-label="t(`admin.storage.contentTypePages`)"
-                    :disable="state.target.module === `db`" />
+                    :disabled="state.target.module === `db`" />
                 </w-item-section>
                 <w-item-section>
                   <w-item-label>{{ t(`admin.storage.contentTypePages`) }}</w-item-label>
@@ -239,7 +261,7 @@
                         : `primary`
                     "
                     :aria-label="t(`admin.storage.contentTypePages`)"
-                    :disable="
+                    :disabled="
                       state.target.module === `db` ||
                       !state.target.assetDelivery.isStreamingSupported
                     " />
@@ -263,7 +285,7 @@
                       !state.target.assetDelivery.isDirectAccessSupported ? `grey` : `primary`
                     "
                     :aria-label="t(`admin.storage.contentTypePages`)"
-                    :disable="!state.target.assetDelivery.isDirectAccessSupported" />
+                    :disabled="!state.target.assetDelivery.isDirectAccessSupported" />
                 </w-item-section>
                 <w-item-section>
                   <w-item-label>{{ t(`admin.storage.assetDirectAccess`) }}</w-item-label>
@@ -375,7 +397,7 @@
                     toggle-color="primary"
                     :options="syncModeOptions"
                     :aria-label="t(`admin.storage.syncDirection`)"
-                    :disable="state.target.sync.supportedModes.length <= 1" />
+                    :disabled="state.target.sync.supportedModes.length <= 1" />
                 </w-item-section>
               </w-item>
               <w-separator class="my-2" inset />
@@ -459,7 +481,7 @@
                         color="primary"
                         @click="executeAction(act)"
                         :label="t(`common.actions.proceed`)"
-                        :disable="state.runningAction"
+                        :disabled="state.runningAction"
                         :loading="state.runningActionHandler === act.handler" />
                     </w-item-section>
                   </w-item>
@@ -521,7 +543,7 @@
                   <w-item-section avatar>
                     <w-toggle
                       v-model="state.target.isEnabled"
-                      :disable="state.target.module === `db` || isSetupNeeded"
+                      :disabled="state.target.module === `db` || isSetupNeeded"
                       :aria-label="t(`admin.storage.enabled`)" />
                   </w-item-section>
                   <w-inner-loading :showing="isSetupNeeded">
@@ -572,7 +594,7 @@
                 <w-item-section avatar>
                   <w-toggle
                     v-model="state.target.versioning.enabled"
-                    :disable="
+                    :disabled="
                       !state.target.versioning.isSupported || state.target.versioning.isForceEnabled
                     "
                     :aria-label="t(`admin.storage.useVersioning`)" />
@@ -712,10 +734,19 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeIsoDuration, relativeDate } from '@/helpers/datetime'
 import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
 import { isQueuedAction, syncPayloadFor, syncStatusKind } from '@/helpers/storageSync'
+import { nextSetupStepName } from '@/helpers/storageSetup'
 
 // COMPOSABLES
 
 const dark = useDark()
+
+// COMPONENTS
+//
+// Task #1888: this is the sole consumer of v-network-graph, so it's registered locally off the
+// namespace import above rather than globally in boot/components.js. `<script setup>` auto-exposes
+// this top-level binding to the template, resolving the `<v-network-graph>` tag -- a property access
+// on `VNG` directly in the template would not resolve the same way.
+const VNetworkGraph = VNG.VNetworkGraph
 
 // STORES
 
@@ -765,6 +796,8 @@ const state = reactive({
   displayMode: 'targets',
   runningAction: false,
   runningActionHandler: '',
+  /** A setup step (task 1895) is in flight -- see `runSetupStep()`. */
+  runningSetup: false,
   selectedTarget: '',
   desiredTarget: '',
   target: null,
@@ -1024,12 +1057,9 @@ async function save({ silent = false } = {}) {
     loading.show()
   }
   try {
-    const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}/storage/targets`, {
+    await API_CLIENT.put(`sites/${adminStore.currentSiteId}/storage/targets`, {
       json: { targets: state.targets.map(payloadFor) }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
     saveSuccess = true
     if (!silent) {
       notify({
@@ -1083,12 +1113,9 @@ async function executeAction(act) {
     state.runningAction = true
     state.runningActionHandler = act.handler
     try {
-      const resp = await API_CLIENT.post(
+      await API_CLIENT.post(
         `sites/${adminStore.currentSiteId}/storage/targets/${state.selectedTarget}/actions/${act.handler}`
       ).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
       // -> A sync-shaped action (sync / syncUntracked / importAll) is queued on the scheduler by
       //    `api/storage.ts` rather than run inline -- this response confirms it was queued, not that
       //    it finished, so the notification says so rather than claiming completion.
@@ -1124,6 +1151,44 @@ async function executeAction(act) {
   }
 }
 
+/**
+ * Run the next step of the selected target's setup process (task 1895).
+ *
+ * `nextSetupStepName()` decides what `step` to send -- `'start'` the first time, the module's own
+ * previously-reported state past that -- so this button is both "Start Setup" and "Continue Setup"
+ * with no separate progress tracked here. The target list is reloaded rather than patched locally:
+ * `target.setup.state` is whatever the module just set it to, and `load()` already knows how to turn
+ * a freshly-fetched target back into what this page renders.
+ */
+async function runSetupStep() {
+  const step = nextSetupStepName(state.target?.setup?.state)
+  if (!step) {
+    return
+  }
+  state.runningSetup = true
+  try {
+    const resp = await API_CLIENT.post(
+      `sites/${adminStore.currentSiteId}/storage/targets/${state.target.id}/setup`,
+      { json: { step } }
+    ).json()
+    if (!resp?.ok) {
+      throw new Error(resp?.message || 'An unexpected error occured.')
+    }
+    notify({
+      type: 'positive',
+      message: resp.message || t('admin.storage.setupStepSuccess')
+    })
+    await load()
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.storage.setupStepFailed'),
+      caption: apiErrorMessage(err)
+    })
+  }
+  state.runningSetup = false
+}
+
 async function setupDestroy() {
   confirm({
     title: t('admin.storage.destroyConfirm'),
@@ -1138,12 +1203,9 @@ async function setupDestroy() {
     })
 
     try {
-      const resp = await API_CLIENT.delete(
+      await API_CLIENT.delete(
         `sites/${adminStore.currentSiteId}/storage/targets/${state.selectedTarget}/setup`
       ).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
       state.target.setup.state = 'notconfigured'
       // -> A provider-backed setup handler may need a moment to settle before it can be started over
       setTimeout(() => {
@@ -1360,4 +1422,15 @@ onMounted(() => {
 .admin-storage-logo {
   border-radius: 5px;
 }
+</style>
+
+<style>
+/*
+  Task #1888: kept in its own unscoped block, not folded into the `scoped` block above -- Vue's
+  scoped-CSS rewriting only reaches this component's own template output and each child component's
+  root element, not the deeply-nested `.v-ng-*` elements v-network-graph renders inside its own
+  render tree. A scoped `@import` here would compile to attribute selectors those elements never
+  carry, silently breaking the diagram's styling.
+*/
+@import 'v-network-graph/lib/style.css';
 </style>

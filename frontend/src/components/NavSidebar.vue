@@ -3,9 +3,7 @@
           right one only while the sidebar is on the left; see the stylesheet -->
   <w-scroll-area
     class="sidebar-nav"
-    :class="siteStore.theme.sidebarPosition === `right` ? `sidebar-nav--flipped` : ``"
-    :thumb-style="thumbStyle"
-    :bar-style="barStyle">
+    :class="siteStore.theme.sidebarPosition === `right` ? `sidebar-nav--flipped` : ``">
     <!-- -> The primary navigation landmark: distinct from `PageToc`'s own `<nav>` so the two are
             reachable and tellable apart from the landmarks rotor -->
     <nav :aria-label="t(`common.sidebar.browse`)">

@@ -123,15 +123,12 @@ async function create() {
     if (!isFormValid) {
       throw new Error(t('admin.sites.createInvalidData'))
     }
-    const resp = await API_CLIENT.post('sites', {
+    await API_CLIENT.post('sites', {
       json: {
         hostname: state.siteHostname,
         title: state.siteName
       }
     })
-    if (!resp?.ok) {
-      throw new Error((await resp.json())?.message || t('common.error.unexpected'))
-    }
     notify({
       type: 'positive',
       message: t('admin.sites.createSuccess')
@@ -139,9 +136,8 @@ async function create() {
     await adminStore.fetchSites()
     onDialogOK()
   } catch (err) {
-    // -> Aligned with the other Site*Dialog confirm()s for consistency: this endpoint's failures are
-    //    all <=400 today (so ky never throws here), but `apiErrorMessage()` reads the server's actual
-    //    reason either way, and stays correct the moment that stops being true.
+    // -> ky throws for every non-2xx status, including a plain 400 (a hostname already taken);
+    //    `apiErrorMessage()` reads the server's actual reason off the body either way.
     notify({
       type: 'negative',
       message: apiErrorMessage(err)

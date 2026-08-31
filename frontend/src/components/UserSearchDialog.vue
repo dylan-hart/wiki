@@ -40,7 +40,12 @@
             </w-item-section>
             <w-item-section avatar>
               <w-avatar v-if="usr.hasAvatar" size="md">
-                <img :src="`/_user/` + usr.id + `/avatar`" :alt="usr.name" />
+                <img
+                  :src="`/_user/` + usr.id + `/avatar`"
+                  :alt="usr.name"
+                  loading="lazy"
+                  width="32"
+                  height="32" />
               </w-avatar>
               <w-avatar v-else size="md" color="primary" text-color="white" icon="la:user" />
             </w-item-section>
@@ -93,7 +98,7 @@
           :label="t(`common.actions.select`)"
           color="primary"
           padding="xs md"
-          :disable="state.selected.length < 1"
+          :disabled="state.selected.length < 1"
           @click="confirm" />
       </w-card-actions>
     </w-card>
@@ -107,6 +112,8 @@ import { useI18n } from 'vue-i18n'
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+
+import { apiErrorMessage } from '@/helpers/apiError'
 
 // PROPS
 
@@ -213,7 +220,7 @@ async function load() {
     notify({
       type: 'negative',
       message: t('admin.users.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.loading--

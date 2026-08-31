@@ -2,7 +2,12 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { load } from 'js-yaml'
 import { and, eq, inArray } from 'drizzle-orm'
-import { parseModuleProps, requestOrigin } from '../helpers/common.ts'
+import {
+  maskSensitiveConfig,
+  parseModuleProps,
+  requestOrigin,
+  unmaskSensitiveConfig
+} from '../helpers/common.ts'
 import { commentProviders as commentProvidersTable, sites as sitesTable } from '../db/schema.ts'
 import type { ModuleProp } from '../helpers/common.ts'
 
@@ -142,19 +147,18 @@ class CommentProviders {
   /**
    * Whether a provider may be listed and selected.
    *
-   * Deliberately **not** `hasImplementation` alone: `models/storage.ts` gates a storage target's
-   * actions on that field, which happens to be harmless there only because no storage module has
-   * shipped an implementation yet, so every target is equally unavailable. A comment provider is a
-   * different shape entirely — Disqus, Commento and Artalk are pure client-side embeds (a shortname
-   * or instance URL handed to the vendor's own script) and were never going to get a `comments.ts`,
-   * so gating on `hasImplementation` the same way would mark them permanently unselectable instead of
-   * temporarily unavailable. `codeTemplate` is the independent signal that a provider needs no
-   * server-side implementation to be usable.
+   * `hasImplementation` alone, matching `models/storage.ts`'s equivalent gate. Reversed from an
+   * earlier version that also treated `codeTemplate` as an independent grant — see the "Comment
+   * provider selectability" entry in `docs/variances.md` for why: no page-view code renders a
+   * `codeTemplate` provider's embed, and building that render path turned out to be materially more
+   * than the one-field flip it looked like (a new public, per-page-permission-gated API to expose
+   * the active provider to anonymous readers, plus vendor-specific glue for three different
+   * third-party SDKs), so the fork now marks Disqus/Commento/Artalk `isAvailable: false` instead —
+   * `AdminComments.vue` already renders such a row disabled — rather than advertise a provider the
+   * picker cannot actually deliver comments through.
    */
-  isSelectable(
-    definition: Pick<CommentProviderDefinition, 'hasImplementation' | 'codeTemplate'>
-  ): boolean {
-    return definition.hasImplementation || definition.codeTemplate
+  isSelectable(definition: Pick<CommentProviderDefinition, 'hasImplementation'>): boolean {
+    return definition.hasImplementation
   }
 
   /**
@@ -280,8 +284,17 @@ class CommentProviders {
    *
    * Config values are completed from the module's declared defaults, so a prop added to a module
    * after a provider was configured is returned with its default rather than as a missing key.
+   *
+   * @param opts.mask When true, a `sensitive` prop's stored value (the Akismet API key, ...) is
+   *   replaced with a mask before being returned -- see `helpers/common.ts#maskSensitiveConfig`.
+   *   Defaults to false: `setActiveProvider()`'s own merge reads through this method too, and needs
+   *   the real values to preserve an untouched secret correctly. Only an admin-facing read that
+   *   serializes `config` straight into an HTTP response should pass `{ mask: true }`.
    */
-  async getSiteProviders(siteId: string): Promise<CommentProvider[]> {
+  async getSiteProviders(
+    siteId: string,
+    { mask = false }: { mask?: boolean } = {}
+  ): Promise<CommentProvider[]> {
     const rows = await WIKI.db
       .select()
       .from(commentProvidersTable)
@@ -294,6 +307,7 @@ class CommentProviders {
       if (!row) {
         continue
       }
+      const config = this.buildConfig(definition.key, {}, row.config as Record<string, any>)
       providers.push({
         id: row.id,
         module: definition.key,
@@ -307,7 +321,7 @@ class CommentProviders {
         website: definition.website,
         isAvailable: definition.isAvailable,
         props: definition.props,
-        config: this.buildConfig(definition.key, {}, row.config as Record<string, any>),
+        config: mask ? maskSensitiveConfig(definition.props, config) : config,
         codeTemplate: definition.codeTemplate,
         hasImplementation: definition.hasImplementation,
         isSelectable: this.isSelectable(definition)
@@ -319,9 +333,10 @@ class CommentProviders {
   /** A single provider of a site by module key, or null if there is no such provider. */
   async getSiteProviderByModule(
     siteId: string,
-    moduleKey: string
+    moduleKey: string,
+    opts?: { mask?: boolean }
   ): Promise<CommentProvider | null> {
-    return (await this.getSiteProviders(siteId)).find((p) => p.module === moduleKey) ?? null
+    return (await this.getSiteProviders(siteId, opts)).find((p) => p.module === moduleKey) ?? null
   }
 
   /**
@@ -360,10 +375,15 @@ class CommentProviders {
     existing: Record<string, any> = {}
   ): Record<string, any> {
     const props = this.getDefinition(moduleKey)?.props ?? {}
+    // -> Drops a `sensitive` value that is just the mask being echoed back unchanged, so it falls
+    //    through to `current` below instead of overwriting the real stored secret with the mask
+    //    string itself. See `helpers/common.ts#unmaskSensitiveConfig`.
+    const cleanedIncoming = unmaskSensitiveConfig(props, incoming)
     const config: Record<string, any> = {}
     for (const [key, prop] of Object.entries(props)) {
       const current = existing[key] !== undefined ? existing[key] : prop.default
-      config[key] = prop.readOnly || incoming[key] === undefined ? current : incoming[key]
+      config[key] =
+        prop.readOnly || cleanedIncoming[key] === undefined ? current : cleanedIncoming[key]
     }
     return config
   }
@@ -466,7 +486,10 @@ class CommentProviders {
         )
     })
 
-    return this.getSiteProviderByModule(siteId, moduleKey)
+    // -> Masked: this return value is what `PUT /sites/:siteId/comments/providers` sends straight
+    //    back to the client as the response body (see `api/comments.ts`), unlike `current` above,
+    //    whose raw config the merge just used.
+    return this.getSiteProviderByModule(siteId, moduleKey, { mask: true })
   }
 }
 

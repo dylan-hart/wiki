@@ -609,6 +609,79 @@ describe('addJob (fake WIKI, rejecting insert)', () => {
 })
 
 /**
+ * OpenProject #1937: `runJob()`'s catch branch used to log a job's failure as two bare strings, with
+ * no way to trace which job (or attempt) a given log line was about. This asserts both failure log
+ * calls in that branch now carry `{ jobId, task, attempt }` as a sibling context argument, not folded
+ * into the message string. `error` and `warn` share one mock here (task #1993's log-level split
+ * routes an exhausted-retries failure to `error`, not `warn`) since this test's own concern is the
+ * context payload, not which level a given retry count picks.
+ */
+describe('runJob failure logging (fake WIKI)', () => {
+  let previousWiki: any
+  let failureMock: ReturnType<typeof mock.fn>
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    failureMock = mock.fn((..._args: any[]) => {})
+    ;(globalThis as any).WIKI = {
+      INSTANCE_ID: 'test-instance',
+      config: { scheduler: { retryBackoff: 0 } },
+      // -> `notifier.send()` (module scope in scheduler.ts) reads `WIKI.scheduler.pubsubClient` on
+      //    every send; `null` is a valid, silently-discarded target (`helpers/pubsub.ts`), so this
+      //    exercises the catch branch with no real LISTEN/NOTIFY client needed.
+      scheduler: { pubsubClient: null },
+      logger: { info: () => {}, warn: failureMock, error: failureMock },
+      // -> Only the `jobHistory` write in the catch branch's own recording step; letting this
+      //    succeed keeps the assertion focused on the two failure-logging calls instead of also
+      //    picking up the branch's own "could not record the failure" fallback warn.
+      db: {
+        update: (_table: any) => ({
+          set: (_values: any) => ({
+            where: async () => ({})
+          })
+        })
+      }
+    }
+    scheduler.tasks = {
+      boom: async () => {
+        throw new Error('task exploded')
+      }
+    }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('both failure log calls carry { jobId, task, attempt } as sibling context, not concatenated in', async () => {
+    failureMock.mock.resetCalls()
+    // -> retries === maxRetries: no reschedule branch, so this stays free of the Temporal/db.insert
+    //    path that `attempt` here doesn't need. This also means retries are exhausted, so both calls
+    //    log at `error` (task #1993) — `failureMock` above is registered for both levels.
+    const job = {
+      id: 'job-1',
+      task: 'boom',
+      payload: {},
+      useWorker: false,
+      retries: 2,
+      maxRetries: 2
+    }
+
+    await scheduler.runJob(job)
+
+    assert.equal(failureMock.mock.callCount(), 2)
+    const expectedContext = { jobId: 'job-1', task: 'boom', attempt: 3 }
+    const [firstCall, secondCall] = failureMock.mock.calls
+
+    assert.match(firstCall!.arguments[0] as string, /Failed to complete job job-1: boom/)
+    assert.deepEqual(firstCall!.arguments[1], expectedContext)
+
+    assert.ok(secondCall!.arguments[0] instanceof Error)
+    assert.deepEqual(secondCall!.arguments[1], expectedContext)
+  })
+})
+
+/**
  * Task 704 (a): `executeOnWorker`'s two timeout ceilings, verified against a REAL poolifier worker
  * thread rather than a mock of one — see `test/fixtures/schedulerCrashWorker.ts` for why a worker
  * thread's own `process.exit()` is the faithful in-process equivalent of `kill -9`-ing it.
@@ -727,6 +800,99 @@ describe('executeInProcess (fake WIKI)', () => {
 })
 
 /**
+ * `stop()`'s bounded drain of in-flight jobs, OpenProject #2019. `processJob()` tracks each
+ * `runJob` promise in `inFlightJobs`; `stop()` must (1) clear `pollingRef`/`scheduledRef`
+ * synchronously, before it starts waiting on anything, so no new job is claimed mid-shutdown, (2)
+ * actually await whatever was already in flight rather than dropping it, and (3) not let a job that
+ * never settles on its own hold shutdown open past a bound.
+ *
+ * Drives the real `stop()` against a fake `workerPool`/`listenerHandle` (no real pool, no pubsub) so
+ * only the drain behavior itself is under test.
+ */
+describe('stop (fake WIKI)', () => {
+  let previousWiki: any
+  let destroyCalls: number
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    destroyCalls = 0
+    ;(globalThis as any).WIKI = {
+      // -> 0.05s taskTimeout + the fixed 1s SHUTDOWN_DRAIN_GRACE = a ~1.05s bound: short enough to
+      //    keep this suite fast, long enough to clearly separate "waited out the bound" from
+      //    "resolved immediately".
+      config: { scheduler: { taskTimeout: 0.05 } },
+      logger: { info: () => {}, warn: () => {}, debug: () => {} }
+    }
+    scheduler.pollingRef = setInterval(() => {}, 1_000_000)
+    scheduler.scheduledRef = setInterval(() => {}, 1_000_000)
+    scheduler.workerPool = {
+      destroy: async () => {
+        destroyCalls++
+      }
+    }
+    scheduler.listenerHandle = null
+    scheduler.inFlightJobs = new Set()
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+    scheduler.workerPool = null
+    scheduler.pollingRef = null
+    scheduler.scheduledRef = null
+    scheduler.inFlightJobs = new Set()
+  })
+
+  test('clears pollingRef and scheduledRef synchronously, before anything is awaited', () => {
+    assert.ok(scheduler.pollingRef, 'test setup sanity check')
+    assert.ok(scheduler.scheduledRef, 'test setup sanity check')
+
+    const stopPromise = scheduler.stop()
+
+    // -> `stop()` runs synchronously up to its first `await` -- by the time control returns here,
+    //    both refs must already be nulled, regardless of how long the drain that follows takes.
+    assert.equal(scheduler.pollingRef, null)
+    assert.equal(scheduler.scheduledRef, null)
+
+    return stopPromise
+  })
+
+  test('awaits an in-flight job rather than dropping it', async () => {
+    let settled = false
+    const job: Promise<void> = new Promise((resolve) =>
+      setTimeout(() => {
+        settled = true
+        resolve()
+      }, 100)
+    )
+    scheduler.inFlightJobs.add(job)
+
+    await scheduler.stop()
+
+    assert.equal(settled, true, 'stop() must not resolve before the in-flight job settled')
+    assert.equal(destroyCalls, 1, 'the worker pool must still be destroyed after the drain')
+  })
+
+  test('a never-settling in-flight job does not prevent stop() from resolving within the bound', async () => {
+    scheduler.inFlightJobs.add(new Promise<void>(() => {})) // -> deliberately never settles
+
+    const start = Date.now()
+    await scheduler.stop()
+    const elapsed = Date.now() - start
+
+    // Bound is taskTimeout (0.05s) + SHUTDOWN_DRAIN_GRACE (1s) = ~1.05s.
+    assert.ok(elapsed < 3000, `expected stop() to resolve within the bound, took ${elapsed}ms`)
+    assert.ok(
+      elapsed >= 900,
+      `expected stop() to wait out most of the bound rather than short-circuiting, took ${elapsed}ms`
+    )
+    assert.equal(destroyCalls, 1, 'the worker pool must still be destroyed once the bound elapses')
+  })
+})
+
+/**
  * Task 704 (b)/(c): `reapStaleJobs()`'s stale-claim recovery and its concurrency guarantee, plus a
  * regression for a bug this verification turned up in `processJob()`'s reclaim path — all run against
  * a real, migrated Postgres (see `test/db.ts`), not a mock of the query builder: the thing under test
@@ -748,7 +914,12 @@ describe(
       scheduler.tasks = {}
       scheduler.maxWorkers = 1
       scheduler.activeWorkers = 0
-      WIKI.config = { scheduler: { retryBackoff: 0, staleJobTimeout: 1, maxRetries: 2 } }
+      // -> `taskTimeout: 1`: short enough to keep the new "in-process task that never settles" test
+      //    below fast, and otherwise unused by every other test in this block (none of them exercise
+      //    `executeInProcess()`'s ceiling, only `staleJobTimeout`/`retryBackoff`/`maxRetries`).
+      WIKI.config = {
+        scheduler: { retryBackoff: 0, staleJobTimeout: 1, maxRetries: 2, taskTimeout: 1 }
+      }
     })
 
     after(async () => {
@@ -1039,6 +1210,51 @@ describe(
         warnCalls.some((msg) => msg.includes(rowB.id) && msg.includes('simulated insert failure')),
         'the warning must name the failing job id'
       )
+    })
+
+    /**
+     * OpenProject #1996: `runJob()`'s in-process branch used to `await` the task call directly, with
+     * no ceiling -- unlike `executeOnWorker()`, which already races against `taskTimeout`. A task
+     * whose promise never settles left `runJob()` (and therefore `processJob()`'s
+     * `Promise.allSettled`) pending forever, so `activeWorkers` was never returned and, after enough
+     * wedged jobs, the instance stopped claiming any further job at all. `executeInProcess()` gives
+     * the in-process branch the same race-against-a-timer shape, so `runJob()` always settles and
+     * this bookkeeping always completes. This is a DB-backed integration test of that fix through the
+     * full `processJob()` claim path, complementing the pure-unit `executeInProcess (fake WIKI)` suite
+     * above, which exercises the same ceiling in isolation.
+     */
+    test('an in-process task whose promise never settles is recorded failed and returns activeWorkers to 0', async () => {
+      scheduler.tasks = { neverSettles: () => new Promise(() => {}) }
+      try {
+        const [job] = await fixtures.db
+          .insert(jobsTable)
+          .values({
+            task: 'neverSettles',
+            useWorker: false,
+            retries: 0,
+            maxRetries: 0,
+            payload: {},
+            createdBy: 'test'
+          })
+          .returning()
+        historyIds.push(job!.id)
+
+        await scheduler.processJob()
+
+        assert.equal(
+          scheduler.activeWorkers,
+          0,
+          'the slot must be returned once runJob settles, even though the task itself never did'
+        )
+
+        const [history] = await fixtures.db
+          .select()
+          .from(jobHistoryTable)
+          .where(eq(jobHistoryTable.id, job!.id))
+        assert.equal(history.state, 'failed')
+      } finally {
+        scheduler.tasks = {}
+      }
     })
 
     /**

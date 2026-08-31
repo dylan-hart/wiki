@@ -158,11 +158,19 @@ class Glossary {
 
   /**
    * `actor` is optional -- a caller with no session to attribute to (a test, a future seed/migration
-   * path) simply gets no audit entry, rather than being forced to invent one. The single-term REST
-   * routes (`api/glossary.ts`) always pass `actorFromRequest(req)`, so every real admin edit through
-   * those routes IS attributed. Written from here rather than the API layer -- unlike every other
-   * `auditLog.record()` call site in this codebase -- per the OpenProject #1115 spec's explicit
-   * instruction to instrument these model methods directly.
+   * path) simply gets no audit entry AND no version row, rather than being forced to invent an
+   * attribution for either. The single-term REST routes (`api/glossary.ts`) always pass
+   * `actorFromRequest(req)`, so every real admin/API-key edit through those routes IS attributed, and
+   * therefore IS versioned. Audit instrumentation written from here rather than the API layer --
+   * unlike every other `auditLog.record()` call site in this codebase -- per the OpenProject #1115
+   * spec's explicit instruction to instrument these model methods directly.
+   *
+   * The insert and the version snapshot it triggers run in ONE transaction (OpenProject #1891):
+   * before this, the per-term routes wrote directly with no version recorded at all, so a later
+   * "restore previous version" would silently revert an edit made through them. Snapshotting the
+   * whole glossary here, the same way `saveVersion`/`restoreVersion` do, means a per-term write is
+   * indistinguishable from a staged-edit save as far as the version history is concerned -- both
+   * leave the version list an accurate, restorable record of what the live glossary actually held.
    */
   async createTerm(
     siteId: string,
@@ -183,10 +191,16 @@ class Glossary {
 
     let inserted
     try {
-      inserted = await WIKI.db
-        .insert(glossaryTermsTable)
-        .values({ siteId, term, definition, aliases, pageId })
-        .returning()
+      inserted = await WIKI.db.transaction(async (tx) => {
+        const rows = await tx
+          .insert(glossaryTermsTable)
+          .values({ siteId, term, definition, aliases, pageId })
+          .returning()
+        if (actor) {
+          await this.recordVersionIn(tx, siteId, actor)
+        }
+        return rows
+      })
     } catch (err: any) {
       if (err.cause?.code === '23505' || err.code === '23505') {
         throw new CustomError('glossaryDuplicateTerm', 'A term with this name already exists.', 409)
@@ -209,6 +223,9 @@ class Glossary {
     return row
   }
 
+  /** Same actor-optional audit + version semantics as `createTerm` above (OpenProject #1891) --
+   *  the update and its version snapshot share one transaction, recorded only when a row actually
+   *  changed. */
   async updateTerm(
     siteId: string,
     id: string,
@@ -260,11 +277,17 @@ class Glossary {
 
     let updated
     try {
-      updated = await WIKI.db
-        .update(glossaryTermsTable)
-        .set(values)
-        .where(and(eq(glossaryTermsTable.siteId, siteId), eq(glossaryTermsTable.id, id)))
-        .returning()
+      updated = await WIKI.db.transaction(async (tx) => {
+        const rows = await tx
+          .update(glossaryTermsTable)
+          .set(values)
+          .where(and(eq(glossaryTermsTable.siteId, siteId), eq(glossaryTermsTable.id, id)))
+          .returning()
+        if (actor && rows[0]) {
+          await this.recordVersionIn(tx, siteId, actor)
+        }
+        return rows
+      })
     } catch (err: any) {
       if (err.cause?.code === '23505' || err.code === '23505') {
         throw new CustomError('glossaryDuplicateTerm', 'A term with this name already exists.', 409)
@@ -290,12 +313,21 @@ class Glossary {
     return row
   }
 
+  /** Same actor-optional audit + version semantics as `createTerm` above (OpenProject #1891) --
+   *  the delete and its version snapshot share one transaction, recorded only when a row was
+   *  actually deleted. */
   async deleteTerm(siteId: string, id: string, actor?: GlossaryActor): Promise<boolean> {
     const existing = actor ? await this.getTerm(siteId, id) : null
-    const deleted = await WIKI.db
-      .delete(glossaryTermsTable)
-      .where(and(eq(glossaryTermsTable.siteId, siteId), eq(glossaryTermsTable.id, id)))
-      .returning({ id: glossaryTermsTable.id })
+    const deleted = await WIKI.db.transaction(async (tx) => {
+      const rows = await tx
+        .delete(glossaryTermsTable)
+        .where(and(eq(glossaryTermsTable.siteId, siteId), eq(glossaryTermsTable.id, id)))
+        .returning({ id: glossaryTermsTable.id })
+      if (actor && rows.length > 0) {
+        await this.recordVersionIn(tx, siteId, actor)
+      }
+      return rows
+    })
     if (deleted.length > 0) {
       this.invalidateCache(siteId)
       if (actor && existing) {

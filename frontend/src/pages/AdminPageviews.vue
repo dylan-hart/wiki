@@ -2,7 +2,7 @@
   <w-page class="admin-pageviews">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-live.svg" alt="" />
+        <w-icon name="img:/_assets/icons/fluent-live.svg" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.pageviews.title') }}</h1>
@@ -136,12 +136,9 @@ async function globalSwitch() {
   state.isToggleLoading = true
   const wanted = !state.enabled
   try {
-    const resp = await API_CLIENT.put('system/pageviews', {
+    await API_CLIENT.put('system/pageviews', {
       json: { isEnabled: wanted }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occurred.')
-    }
     notify({
       type: 'positive',
       message: wanted

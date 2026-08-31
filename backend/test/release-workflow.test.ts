@@ -19,6 +19,9 @@ import { load } from 'js-yaml'
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..')
 const BUILD_YML = path.join(REPO_ROOT, '.github/workflows/build.yml')
 const RELEASE_YML = path.join(REPO_ROOT, '.github/workflows/release.yml')
+const QUALITY_YML = path.join(REPO_ROOT, '.github/workflows/quality.yml')
+const E2E_YML = path.join(REPO_ROOT, '.github/workflows/e2e.yml')
+const ALL_WORKFLOW_FILES = [BUILD_YML, RELEASE_YML, QUALITY_YML, E2E_YML]
 
 /** Flattens every step across every job in a parsed workflow document, in file order. */
 function allSteps(doc: any): any[] {
@@ -62,6 +65,36 @@ describe('publish workflow split (build.yml + release.yml)', () => {
 
     test('derives the GHCR namespace from github.repository rather than hard-coding an owner', () => {
       assert.match(raw, /IMAGE_NAMESPACE:\s*ghcr\.io\/\$\{\{\s*github\.repository\s*\}\}/)
+    })
+  })
+
+  describe('multi-arch publishing decision (OpenProject #1916) — both workflows agree', () => {
+    const buildRaw = fs.readFileSync(BUILD_YML, 'utf8')
+    const buildDoc: any = load(buildRaw)
+    const releaseRaw = fs.readFileSync(RELEASE_YML, 'utf8')
+    const releaseDoc: any = load(releaseRaw)
+
+    function platformsOf(doc: any): string {
+      const step = allSteps(doc).find((s) => /docker\/build-push-action/.test(s.uses ?? ''))
+      assert.ok(step, 'expected a docker/build-push-action step')
+      return step.with.platforms
+    }
+
+    test('build.yml and release.yml declare the same platforms: value', () => {
+      assert.equal(platformsOf(buildDoc), platformsOf(releaseDoc))
+    })
+
+    test('neither workflow leaves a commented-out platforms: line behind', () => {
+      assert.doesNotMatch(
+        buildRaw,
+        /^\s*#\s*platforms:/m,
+        'build.yml has a commented-out platforms: line'
+      )
+      assert.doesNotMatch(
+        releaseRaw,
+        /^\s*#\s*platforms:/m,
+        'release.yml has a commented-out platforms: line'
+      )
     })
   })
 
@@ -206,5 +239,179 @@ describe('publish workflow split (build.yml + release.yml)', () => {
         'expected the guard to fail the job when no run is found'
       )
     })
+
+    test('fails closed before building/publishing anything when the tag is not on scarlett', () => {
+      const containmentIndex = findStepIndex(steps, /merge-base\s+--is-ancestor/)
+      assert.ok(containmentIndex !== -1, 'expected a step running git merge-base --is-ancestor')
+
+      const containmentStep = steps[containmentIndex]
+      assert.match(
+        containmentStep.run,
+        /origin\/scarlett/,
+        'expected the containment check to compare against origin/scarlett'
+      )
+      assert.match(
+        containmentStep.run,
+        /\$GITHUB_SHA/,
+        'expected the containment check to test the tagged commit ($GITHUB_SHA)'
+      )
+      assert.match(
+        containmentStep.run,
+        /exit 1/,
+        'expected the step to exit non-zero (fail the job) when the ancestor check fails'
+      )
+
+      // Must fetch the scarlett ref explicitly — fetch-depth: 0 on checkout gives full history for
+      // the tag ref, not a guaranteed origin/scarlett remote-tracking ref.
+      assert.match(
+        containmentStep.run,
+        /git fetch origin scarlett/,
+        'expected an explicit fetch of the scarlett branch before the ancestor check'
+      )
+
+      // Must run immediately after checkout — before Node setup, every quality gate, the
+      // build.yml-run guard, and the Docker publish step — so nothing downstream ever executes
+      // against an out-of-branch tag.
+      const checkoutIndex = findStepIndex(steps, /actions\/checkout/)
+      const guardIndex = findStepIndex(steps, /gh run list.*--workflow=build\.yml/s)
+      const dockerStepIndex = findStepIndex(steps, /docker\/build-push-action/)
+      assert.ok(checkoutIndex !== -1, 'expected a checkout step')
+      assert.ok(
+        containmentIndex === checkoutIndex + 1,
+        'expected the containment check to be the step immediately after checkout'
+      )
+      assert.ok(
+        containmentIndex < guardIndex,
+        'expected the containment check to run before the build.yml-run guard'
+      )
+      assert.ok(
+        containmentIndex < dockerStepIndex,
+        'expected the containment check to run before the Docker publish step'
+      )
+      for (const [, pattern] of gateChecks) {
+        const gateIndex = findStepIndex(steps, pattern)
+        assert.ok(
+          containmentIndex < gateIndex,
+          'expected the containment check to run before the quality gates too'
+        )
+      }
+    })
+
+    describe('provenance, SBOM, signed attestation and release-artifact checksums (WP #2280)', () => {
+      const dockerStepIndex = findStepIndex(steps, /docker\/build-push-action/)
+      const dockerStep = steps[dockerStepIndex]
+
+      test('grants the job attestations:write and id-token:write, alongside contents/packages write', () => {
+        const jobWithPerms = Object.values<any>(doc.jobs).find((job: any) => job.permissions)
+        assert.equal(jobWithPerms.permissions.attestations, 'write')
+        assert.equal(jobWithPerms.permissions['id-token'], 'write')
+      })
+
+      test('the Docker build step turns on max-mode provenance and an SBOM', () => {
+        assert.equal(dockerStep.with.provenance, 'mode=max')
+        assert.equal(dockerStep.with.sbom, true)
+      })
+
+      test('the Docker build step exposes an id so its digest output can be attested', () => {
+        assert.ok(dockerStep.id, 'expected the docker/build-push-action step to declare an `id`')
+      })
+
+      test('an attest-build-provenance step runs after the Docker push, keyed on its digest', () => {
+        const attestIndex = findStepIndex(steps, /attest-build-provenance/)
+        assert.ok(attestIndex !== -1, 'expected an actions/attest-build-provenance step')
+        assert.ok(
+          attestIndex > dockerStepIndex,
+          'expected the attestation step to run after the Docker push it attests'
+        )
+        const attestStep = steps[attestIndex]
+        assert.match(attestStep.with['subject-digest'], /docker_build.*digest|digest/)
+        assert.equal(attestStep.with['push-to-registry'], true)
+      })
+
+      test('the attestation subject-name is driven by the derived GHCR namespace, not hard-coded', () => {
+        const attestIndex = findStepIndex(steps, /attest-build-provenance/)
+        const attestStep = steps[attestIndex]
+        assert.match(String(attestStep.with['subject-name']), /env\.IMAGE_NAMESPACE/)
+      })
+
+      test('a release archive is prepared and checksummed before the GitHub Release step', () => {
+        const releaseStepIndex = findStepIndex(steps, /action-gh-release/)
+        const archiveIndex = findStepIndex(steps, /wiki-js\.tar\.gz/)
+        const checksumIndex = findStepIndex(steps, /sha256sum/)
+        assert.ok(archiveIndex !== -1, 'expected a step producing wiki-js.tar.gz')
+        assert.ok(checksumIndex !== -1, 'expected a sha256sum step')
+        assert.ok(archiveIndex < releaseStepIndex && checksumIndex < releaseStepIndex)
+      })
+
+      test('the GitHub Release attaches the archive and its checksum via files:', () => {
+        const releaseStepIndex = findStepIndex(steps, /action-gh-release/)
+        const releaseStep = steps[releaseStepIndex]
+        assert.match(releaseStep.with.files, /wiki-js\.tar\.gz\.sha256/)
+        assert.match(releaseStep.with.files, /wiki-js\.tar\.gz(?!\.sha256)/)
+      })
+    })
+  })
+})
+
+// task #2273: a git tag is mutable, so a floating `@v4`/`@v7`-style `uses:` reference lets whoever
+// owns or compromises an action repository repoint it and have every one of these four workflows
+// execute the new commit on the next run, with nothing here to review. Every external action must
+// be pinned to the full 40-character commit SHA it currently resolves to; the version stays visible
+// as a trailing `# vX.Y.Z` comment so a re-pin is still a one-line, reviewable diff. The one `uses:`
+// that is exempt is build.yml's `./.github/workflows/quality.yml` — a local, same-repo composite
+// reference, not an external action, so there is no separately-owned tag for anyone to repoint.
+describe('external actions are SHA-pinned across all four workflows', () => {
+  const SHA_PINNED = /^[^@]+@[0-9a-f]{40}(\s+#\s*v\S+)?$/
+  const LOCAL_REF = /^\.\//
+
+  for (const file of ALL_WORKFLOW_FILES) {
+    const relPath = path.relative(REPO_ROOT, file)
+
+    describe(relPath, () => {
+      // Parse the raw text (not js-yaml's `load`), since js-yaml strips trailing comments and this
+      // test needs to see the `# vX.Y.Z` annotation that lives on the same line as the pinned SHA.
+      const raw = fs.readFileSync(file, 'utf8')
+      const usesLines = raw
+        .split('\n')
+        .map((line) => line.match(/^\s*(?:-\s+)?uses:\s*(.+?)\s*$/))
+        .filter((m): m is RegExpMatchArray => m !== null)
+        .map((m) => m[1])
+
+      test('has at least one `uses:` reference to check', () => {
+        assert.ok(usesLines.length > 0, `expected at least one uses: line in ${relPath}`)
+      })
+
+      for (const usesValue of usesLines) {
+        const label = usesValue.length > 60 ? `${usesValue.slice(0, 60)}…` : usesValue
+
+        if (LOCAL_REF.test(usesValue)) {
+          test(`local composite reference is left as-is: ${label}`, () => {
+            assert.doesNotMatch(
+              usesValue,
+              /@/,
+              `expected local reference "${usesValue}" in ${relPath} to carry no @ref at all`
+            )
+          })
+          continue
+        }
+
+        test(`external action is SHA-pinned with a version comment: ${label}`, () => {
+          assert.match(
+            usesValue,
+            SHA_PINNED,
+            `expected "${usesValue}" in ${relPath} to be pinned to a 40-character commit SHA ` +
+              '(owner/repo@<40-hex-sha> # vX.Y.Z), not a floating tag'
+          )
+        })
+      }
+    })
+  }
+
+  test('fails against a floating-tag reference (sanity check on the assertion itself)', () => {
+    assert.doesNotMatch('actions/checkout@v7', /^[^@]+@[0-9a-f]{40}(\s+#\s*v\S+)?$/)
+    assert.match(
+      'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1',
+      /^[^@]+@[0-9a-f]{40}(\s+#\s*v\S+)?$/
+    )
   })
 })

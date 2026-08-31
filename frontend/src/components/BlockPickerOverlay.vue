@@ -4,17 +4,7 @@
       <w-icon name="img:/_assets/icons/fluent-rfid-tag.svg" left size="md" />
       <span>{{ t('editor.blockPicker.title') }}</span>
       <w-space />
-      <w-btn
-        class="mr-2"
-        flat
-        rounded
-        color="white"
-        :aria-label="t(`common.actions.viewDocs`)"
-        icon="la:question-circle"
-        :href="siteStore.docsBase + `/guide/blocks`"
-        target="_blank"
-        type="a" />
-      <w-btn-group>
+      <w-btn-group push>
         <w-btn
           push
           color="white"
@@ -114,6 +104,7 @@ import { useI18n } from 'vue-i18n'
 
 import { notify } from '@/composables/notify'
 import { useBlockLocale } from '@/composables/blockLocale'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { blockMarkdown, blockPropsFilled, propDefault } from '@/helpers/blocks'
 
 import BlockPropsForm from '@/components/BlockPropsForm.vue'
@@ -193,7 +184,7 @@ onMounted(async () => {
     notify({
       type: 'negative',
       message: t('editor.blockPicker.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   state.isLoading = false

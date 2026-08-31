@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
-import { after, before, describe, mock, test } from 'node:test'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { detectImageMime, svgMimeType } from '../helpers/images.ts'
@@ -101,7 +101,6 @@ describe('sites.createSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.deepEqual(config.features, {
       browse: true,
       collaborativeEditing: true,
-      ratingsMode: 'off',
       comments: false,
       profile: true,
       reasonForChange: 'optional',
@@ -1090,5 +1089,128 @@ describe('sites hostname normalization (pure unit)', () => {
 
     const result = await sites.getSiteByHostname({ hostname: 'Unknown.Example.Com' })
     assert.equal(result, null)
+  })
+})
+
+/**
+ * OpenProject #1849: `setAsset` writes the sha1 of the exact (normalized-or-raw) bytes it stores, and
+ * `getAssetHash` reads it back without touching `data`. This round-trips the real write path against
+ * a migrated database rather than re-describing its SQL.
+ */
+describe('sites.setAsset / getAssetHash (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let sitesModel: typeof import('./sites.ts').sites
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ sites: sitesModel } = await import('./sites.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('getAssetHash returns null for a kind that has never been uploaded', async () => {
+    assert.equal(await sitesModel.getAssetHash(fixtures.siteId, 'logo'), null)
+  })
+
+  test('setAsset stores a hash equal to the sha1 of the bytes getAsset later returns', async () => {
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>'
+    )
+    await sitesModel.setAsset(fixtures.siteId, 'logo', svg)
+
+    const asset = await sitesModel.getAsset(fixtures.siteId, 'logo')
+    const hash = await sitesModel.getAssetHash(fixtures.siteId, 'logo')
+
+    assert.ok(asset)
+    const expected = createHash('sha1').update(asset!.data).digest('hex')
+    assert.equal(hash, expected)
+  })
+
+  test('re-uploading different bytes changes the hash', async () => {
+    const svgOne = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>'
+    )
+    const svgTwo = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle r="10"/></svg>'
+    )
+    await sitesModel.setAsset(fixtures.siteId, 'favicon', svgOne)
+    const firstHash = await sitesModel.getAssetHash(fixtures.siteId, 'favicon')
+
+    await sitesModel.setAsset(fixtures.siteId, 'favicon', svgTwo)
+    const secondHash = await sitesModel.getAssetHash(fixtures.siteId, 'favicon')
+
+    assert.notEqual(firstHash, secondHash)
+    const asset = await sitesModel.getAsset(fixtures.siteId, 'favicon')
+    assert.equal(secondHash, createHash('sha1').update(asset!.data).digest('hex'))
+  })
+
+  test('clearAsset leaves getAssetHash returning null again', async () => {
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>'
+    )
+    await sitesModel.setAsset(fixtures.siteId, 'loginBg', svg)
+    assert.ok(
+      await sitesModel.getAssetHash(fixtures.siteId, 'loginBg'),
+      'sanity: upload landed first'
+    )
+
+    await sitesModel.clearAsset(fixtures.siteId, 'loginBg')
+
+    assert.equal(await sitesModel.getAssetHash(fixtures.siteId, 'loginBg'), null)
+  })
+})
+
+/**
+ * OpenProject #1849: `getAssetHash` exists specifically so a conditional site-asset request never
+ * pulls the blob out of the database. A real Postgres round trip only proves the returned value is
+ * correct, not that the column list sent to it actually shrank — so this spies on `WIKI.db.select`
+ * instead, following the precedent set by `models/pages.test.ts`'s `getPage selection (pure unit,
+ * OpenProject #1834)` describe block.
+ */
+describe('getAssetHash selection (pure unit, OpenProject #1849)', () => {
+  let previousWiki: typeof globalThis.WIKI
+
+  function stubSelect(row?: Record<string, unknown>) {
+    const calls: Record<string, unknown>[] = []
+    const chain: any = {}
+    chain.from = mock.fn(() => chain)
+    chain.where = mock.fn(() => chain)
+    chain.limit = mock.fn(async () => (row ? [row] : []))
+    const select = mock.fn((config: Record<string, unknown>) => {
+      calls.push(config)
+      return chain
+    })
+    return { select, calls }
+  }
+
+  beforeEach(() => {
+    previousWiki = globalThis.WIKI
+  })
+
+  afterEach(() => {
+    globalThis.WIKI = previousWiki
+  })
+
+  test('the emitted selection asks only for hash, never data', async () => {
+    const { select, calls } = stubSelect({ hash: 'deadbeef' })
+    globalThis.WIKI = { db: { select } } as unknown as typeof globalThis.WIKI
+    const { sites: sitesModel } = await import('./sites.ts')
+
+    const hash = await sitesModel.getAssetHash('site-1', 'logo')
+
+    assert.equal(hash, 'deadbeef')
+    assert.equal(calls.length, 1)
+    const selectedKeys = Object.keys(calls[0]!)
+    assert.deepEqual(selectedKeys, ['hash'])
+  })
+
+  test('returns null rather than throwing when no row matches', async () => {
+    const { select } = stubSelect(undefined)
+    globalThis.WIKI = { db: { select } } as unknown as typeof globalThis.WIKI
+    const { sites: sitesModel } = await import('./sites.ts')
+
+    assert.equal(await sitesModel.getAssetHash('site-1', 'logo'), null)
   })
 })

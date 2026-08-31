@@ -3,6 +3,7 @@ import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { TimeoutError } from 'ky'
 
 import ImportPageDialog from './ImportPageDialog.vue'
 import { useSiteStore } from '@/stores/site'
@@ -90,6 +91,9 @@ describe('ImportPageDialog', () => {
     expect(globalThis.API_CLIENT.post).toHaveBeenCalledWith(
       'sites/site-1/pages/import',
       expect.objectContaining({
+        // -> A named, work-sized timeout rather than ky's 10s default (OpenProject #1718) -- the
+        //    exact value is an internal implementation detail, just that one was sent at all
+        timeout: expect.any(Number),
         searchParams: { fileName: 'notes.docx', format: 'docx', path: 'docs' },
         headers: { 'content-type': 'application/octet-stream' },
         body: file
@@ -160,6 +164,24 @@ describe('ImportPageDialog', () => {
     expect(notifyQueue.at(-1)).toMatchObject({
       type: 'negative',
       caption: 'Importing a page needs the Pandoc extension, which is not installed.'
+    })
+  })
+
+  it('shows a distinct timed-out toast for a client-side TimeoutError, telling the reader not to blindly retry', async () => {
+    await mountDialog()
+    globalThis.API_CLIENT.post.mockImplementationOnce(() => {
+      throw new TimeoutError({ method: 'POST', url: '/_api/sites/site-1/pages/import' })
+    })
+
+    await selectFile(new File(['hello'], 'notes.docx', { type: 'application/octet-stream' }))
+    await body().find('.import-convert-btn').trigger('click')
+    await flushPromises()
+
+    expect(body().find('pre').exists()).toBe(false)
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'pages.import.convertTimedOut',
+      caption: 'pages.import.convertTimedOutHint'
     })
   })
 

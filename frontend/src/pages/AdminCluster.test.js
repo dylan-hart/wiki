@@ -122,3 +122,21 @@ describe('AdminCluster table', () => {
     wrapper.unmount()
   })
 })
+
+// -> OpenProject #1929: `/admin/cluster` names a concept this fork invented (cluster monitoring is not
+//    an upstream Wiki.js feature), so no docs site can describe it -- the help button was deleted
+//    rather than left pointing at a page that does not exist.
+describe('AdminCluster help link', () => {
+  it('has no help/docs button', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })
+
+    const wrapper = mountPage()
+    await wrapper.vm.$nextTick()
+    await Promise.resolve()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.html()).not.toContain('/admin/cluster')
+
+    wrapper.unmount()
+  })
+})

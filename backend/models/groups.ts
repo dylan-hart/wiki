@@ -3,7 +3,7 @@ import { and, count, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import { uniq } from 'es-toolkit/array'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
 import { CustomError, normalizePagePath } from '../helpers/common.ts'
-import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
+import { clearPageRuleRegexCache, resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { resolveSiteRule, ruleMatchesSite } from '../helpers/siteRules.ts'
 import type { SystemIds } from './types.ts'
 import type { FastifyRequest } from 'fastify'
@@ -230,6 +230,22 @@ export const GUEST_ROLES = [
 let rulesCache: Record<string, GroupRule[]> = {}
 
 /**
+ * Memoised pool of `rulesForGroups()`, keyed on the sorted, comma-joined group id set.
+ * `checkAccess`, `checkSiteAccess` and `mayHoldPermissionSomewhere` each call `rulesForGroups()` at
+ * least once per request -- often once per item when a caller filters a list -- and pooling was a
+ * fresh `flatMap` allocation on every single call. Rule order within the pooled array carries no
+ * meaning (`helpers/pageRules.ts`'s module doc: "Order in the array means nothing"), so sorting the
+ * key is safe and makes the same group set, passed in any order, share one memo entry.
+ *
+ * Cleared in `reloadCache()`, alongside `rulesCache` -- both `broadcastReload()` (this instance's own
+ * writes) and the inbound `reloadGroups` event handler (another cluster instance's writes, see
+ * `subscribeToEvents()`) call `reloadCache()` directly and exclusively, so clearing it there covers
+ * both paths: a rule change is visible on the very next `checkAccess`, not just on this instance's own
+ * writes.
+ */
+let rulesPoolCache: Record<string, GroupRule[]> = {}
+
+/**
  * Groups model
  */
 class Groups {
@@ -246,9 +262,14 @@ class Groups {
       .select({ id: groupsTable.id, rules: groupsTable.rules })
       .from(groupsTable)
     rulesCache = {}
+    rulesPoolCache = {}
     for (const row of rows) {
       rulesCache[row.id] = (row.rules ?? []) as GroupRule[]
     }
+    // -> Compiled REGEX rule patterns are keyed by pattern text, not by rule identity -- dropping
+    //    them here (rather than leaving them to accumulate) is what makes an edited pattern get
+    //    recompiled promptly instead of the cache growing across every group edit an instance sees.
+    clearPageRuleRegexCache()
     WIKI.logger.info(`Loaded page rules for ${rows.length} groups [ OK ]`)
   }
 
@@ -261,8 +282,13 @@ class Groups {
    * `reloadCache()` itself: `reloadCache()` also runs when `subscribeToEvents()`'s handler answers
    * *another* instance's event, and broadcasting from there would echo the event back around the
    * cluster forever.
+   *
+   * Public rather than internal-only: a write that bypasses this model's own insert/update/delete
+   * methods — `models/siteImport.ts#importSite`'s raw `tx.insert(groupsTable).onConflictDoUpdate(...)`
+   * upsert of imported groups is the one case today — still needs this same reload-then-notify shape,
+   * called by whoever performed the write (`tasks/simple/import-content.ts`) once it lands.
    */
-  private async broadcastReload(): Promise<void> {
+  async broadcastReload(): Promise<void> {
     await this.reloadCache()
     WIKI.events.outbound.emit('reloadGroups')
   }
@@ -276,9 +302,22 @@ class Groups {
     })
   }
 
-  /** The pooled rules of a set of groups, which is what a permission is decided against. */
+  /**
+   * The pooled rules of a set of groups, which is what a permission is decided against.
+   *
+   * Memoised in `rulesPoolCache`, keyed on the sorted group id set -- see that variable's doc comment
+   * for why the sort is safe and why `reloadCache()` alone is enough to invalidate it. The returned
+   * array is shared across callers with the same group set: never mutate it.
+   */
   rulesForGroups(groupIds: string[]): GroupRule[] {
-    return groupIds.flatMap((id) => rulesCache[id] ?? [])
+    const key = [...groupIds].sort().join(',')
+    const cached = rulesPoolCache[key]
+    if (cached) {
+      return cached
+    }
+    const pooled = groupIds.flatMap((id) => rulesCache[id] ?? [])
+    rulesPoolCache[key] = pooled
+    return pooled
   }
 
   /**

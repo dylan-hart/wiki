@@ -59,12 +59,10 @@ describe('WInput', () => {
   })
 
   describe('disabled state', () => {
-    it('disables the control via either disable or disabled', () => {
-      const viaDisable = mount(WInput, { props: { modelValue: '', disable: true } })
-      const viaDisabled = mount(WInput, { props: { modelValue: '', disabled: true } })
+    it('disables the control via the disabled prop', () => {
+      const wrapper = mount(WInput, { props: { modelValue: '', disabled: true } })
 
-      expect(viaDisable.find('input').attributes('disabled')).toBeDefined()
-      expect(viaDisabled.find('input').attributes('disabled')).toBeDefined()
+      expect(wrapper.find('input').attributes('disabled')).toBeDefined()
     })
   })
 

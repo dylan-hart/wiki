@@ -59,6 +59,27 @@ export const FALLBACK_DICTIONARY = 'simple'
 const MODULE_KEY = 'db'
 
 /**
+ * Extra raw rows fetched beyond a page's own `[offset, offset + limit)` span, to absorb rows a
+ * reader's page rules will end up denying before they ever reach the page — see the comment on the
+ * over-fetch loop in `query()` for why this exists.
+ */
+const OVERFETCH_MARGIN = 25
+
+/** How much the candidate window grows on each retry when `OVERFETCH_MARGIN` wasn't enough. */
+const OVERFETCH_GROWTH_FACTOR = 4
+
+/**
+ * Hard ceiling on raw rows fetched to fill one page (OpenProject #2151, #2010). Page-rule filtering
+ * cannot be expressed in the `WHERE` clause — a rule can be a regular expression or a set of tags —
+ * so `query()` scans a candidate window and derives both `totalHits` and the requested page from
+ * what survives `checkAccess()` rather than from postgres's own unfiltered match count (see
+ * `query()`'s own comment for why that used to be an oracle). This is the ceiling on that window, so
+ * a reader denied nearly everything cannot turn a single `query()` call into an unbounded scan of
+ * the site.
+ */
+const OVERFETCH_HARD_CAP = 5000
+
+/**
  * Markers `ts_headline` wraps a matched term in.
  *
  * Control characters, because the excerpt is page text that may itself contain anything: it is HTML
@@ -67,15 +88,6 @@ const MODULE_KEY = 'db'
  */
 const HL_START = '\u0002'
 const HL_STOP = '\u0003'
-
-/**
- * Ceiling on how many of the SQL query's own matches `query()` scans before deriving `totalHits`
- * and the requested page from what survives `checkAccess()` (OpenProject #2151). Page-rule
- * filtering cannot be expressed in the `WHERE` clause — a rule can be a regular expression or a set
- * of tags — so scanning is bounded rather than unbounded to keep one search request's cost
- * predictable regardless of how many rows match. See `query()`'s own comment for what this changes.
- */
-const SCAN_CAP = 500
 
 /** Escape the LIKE wildcards, so that a path filter is a prefix rather than a pattern. */
 function escapeLikePrefix(value: string): string {
@@ -293,9 +305,9 @@ class DbSearchModule implements SearchModule {
     const direction = orderByDirection === 'asc' ? sql`ASC` : sql`DESC`
     // -> Every page ranks 0 without a query, which would leave the order down to the planner
     const effectiveOrderBy = orderBy === 'relevancy' && !hasQuery ? 'updatedAt' : orderBy
-    // -> `p.id` breaks every tie: over-fetching up to `SCAN_CAP` and then slicing the
-    //    caller's `offset`/`limit` window out in JS (below) only lands on a stable page of results
-    //    when the underlying order is fully deterministic
+    // -> `p.id` breaks every tie: over-fetching a candidate window and then slicing the caller's
+    //    `offset`/`limit` window out in JS (below) only lands on a stable page of results when the
+    //    underlying order is fully deterministic
     const ordering = {
       relevancy: sql`relevancy ${direction}, p."updatedAt" DESC, p.id`,
       title: sql`p.title ${direction}, p.id`,
@@ -324,21 +336,16 @@ class DbSearchModule implements SearchModule {
       limit=1` against a corpus with at least two matches, one of them permission-denied, confirmed
       the phrase existed in a page the caller could not open: a count oracle, reachable
       unauthenticated wherever guest search is exposed.
-      Fixed by scanning up to `SCAN_CAP` matches (bounded, not the caller's own `offset`/`limit`,
-      since page-rule filtering happens after the query and needs a wider window to fill a page
-      from), filtering ALL of them through `checkAccess()`, and deriving both `totalHits` and the
-      requested page from that filtered set alone -- neither can ever count or return a row the
-      caller was not actually granted `read:pages` on. `totalHits` is exact whenever the true match
-      count is within `SCAN_CAP`; beyond that it is a floor (verified-visible matches within the cap
-      only), never an overcount -- the asymmetry that closes the oracle, since a floor cannot
-      confirm anything about a page beyond what was already checked.
-      Over-fetched and paged in JS rather than with LIMIT/OFFSET in SQL: `checkAccess` below can only
-      run per row, so the caller's page has to be sliced out *after* filtering, not before. `p.id` is
-      appended as a tiebreaker so the scanned order — and therefore which rows fall inside the cap —
-      is stable across calls with the same filters, even when `ordering` alone leaves ties (e.g. two
-      pages with identical `relevancy` and `updatedAt`).
+      Fixed by dropping the SQL `COUNT(*) OVER()` entirely, filtering a scanned candidate window
+      through `checkAccess()`, and deriving both `totalHits` and the requested page from that
+      filtered set alone -- neither can ever count or return a row the caller was not actually
+      granted `read:pages` on. `totalHits` is exact whenever the true match count is within the
+      window that was scanned; beyond that it is a floor (verified-visible matches within the window
+      only), never an overcount -- the asymmetry that closes the oracle, since a floor cannot confirm
+      anything about a page beyond what was already checked. See the over-fetch loop below
+      (OpenProject #2010) for how big that window is.
     */
-    const rows = await WIKI.db.execute(sql`
+    const rowsQuery = (queryLimit: number, queryOffset: number) => sql`
       SELECT
         p.id,
         p.path,
@@ -354,35 +361,70 @@ class DbSearchModule implements SearchModule {
       FROM pages p
       WHERE ${sql.join(conditions, sql` AND `)}
       ORDER BY ${ordering}
-      LIMIT ${SCAN_CAP}
-    `)
+      LIMIT ${queryLimit} OFFSET ${queryOffset}
+    `
 
     /*
       Filtered here rather than in SQL: a page rule can be a regular expression or a set of tags, so
       the deciding rule is only knowable per row. Search must not be a way around page permissions —
       a title and an excerpt are content too.
 
-      This runs over every scanned row (up to SCAN_CAP), not just the caller's page of `limit`
-      results -- `totalHits` below is derived from `visible.length`, so it has to see every row that
-      survived the query before the caller's `offset`/`limit` window is sliced out of it.
+      This runs over every scanned row in the candidate window (see the over-fetch loop below), not
+      just the caller's page of `limit` results -- `totalHits` further down is derived from
+      `visibleRows.length`, so it has to see every row that survived the query before the caller's
+      `offset`/`limit` window is sliced out of it.
     */
-    const visible = actor
-      ? ((rows.rows ?? rows) as any[]).filter((row) =>
-          WIKI.models.groups.checkAccess(actor, 'read:pages', {
-            path: row.path as string,
-            locale: row.locale as string,
-            siteId,
-            tags: (row.tags ?? []) as string[],
-            classification: (row.classification as string | null) ?? null
-          })
-        )
-      : ((rows.rows ?? rows) as any[])
+    const filterVisible = (candidates: any[]): any[] =>
+      candidates.filter((row) =>
+        WIKI.models.groups.checkAccess(actor!, 'read:pages', {
+          path: row.path as string,
+          locale: row.locale as string,
+          siteId,
+          tags: (row.tags ?? []) as string[],
+          classification: (row.classification as string | null) ?? null
+        })
+      )
 
-    // -> The caller's page of results comes out of the FILTERED list, not the raw scan -- an
-    //    unreadable row must not consume a slot in someone else's page of results
-    const windowed = visible.slice(offset, offset + limit)
+    /*
+      A plain `LIMIT`/`OFFSET` window filtered afterward shrinks whenever a rule denies a row inside
+      that window, without ever pulling in a later surviving row to fill the gap -- page 1 of 25 could
+      come back with 22 rows even though row 26 was visible and could have completed it, and the
+      boundary a caller's next `offset` lands on then depends on how many rows THIS reader was denied,
+      not on the query itself. So when there is an actor to filter for, the candidate window is always
+      re-fetched from row 0 -- the query order is deterministic, so that prefix is the same on every
+      call -- sized to `offset + limit` plus a margin, and grown (up to `OVERFETCH_HARD_CAP`) until
+      either enough rows survive the filter or the raw fetch comes back short of what it asked for
+      (nothing left to fetch). The page itself is then a plain slice of that filtered, consistently-
+      ordered array: nothing already surfaced on an earlier page can resurface on a later one, and
+      nothing in between is skipped, for as long as enough visible matches exist.
 
-    const result = windowed.map((row) => ({
+      No actor means nothing is ever filtered out, so the original direct windowed query is exact and
+      cheaper -- no reason to over-fetch when nothing will be dropped.
+    */
+    let rawRows: any[]
+    let visibleRows: any[]
+    if (actor) {
+      const needed = offset + limit
+      let candidateLimit = Math.min(needed + OVERFETCH_MARGIN, OVERFETCH_HARD_CAP)
+      for (;;) {
+        const fetched = await WIKI.db.execute(rowsQuery(candidateLimit, 0))
+        rawRows = (fetched.rows ?? fetched) as any[]
+        visibleRows = filterVisible(rawRows)
+        const exhausted = rawRows.length < candidateLimit
+        if (visibleRows.length >= needed || exhausted || candidateLimit >= OVERFETCH_HARD_CAP) {
+          break
+        }
+        candidateLimit = Math.min(candidateLimit * OVERFETCH_GROWTH_FACTOR, OVERFETCH_HARD_CAP)
+      }
+    } else {
+      const fetched = await WIKI.db.execute(rowsQuery(limit, offset))
+      rawRows = (fetched.rows ?? fetched) as any[]
+      visibleRows = rawRows
+    }
+
+    const pageRows = actor ? visibleRows.slice(offset, offset + limit) : visibleRows
+
+    const result = pageRows.map((row) => ({
       id: row.id as string,
       path: row.path as string,
       locale: row.locale as string,
@@ -401,11 +443,11 @@ class DbSearchModule implements SearchModule {
     }))
 
     /*
-      A count of rows that survived `checkAccess`, and nothing else -- see `SCAN_CAP`'s doc comment
-      for why this is exact up to that cap and a floor beyond it, never a total that includes a match
-      the caller could not open.
+      A count of rows that survived `checkAccess`, and nothing else -- see `OVERFETCH_HARD_CAP`'s doc
+      comment for why this is exact up to the scanned candidate window and a floor beyond it, never a
+      total that includes a match the caller could not open.
     */
-    const totalHits = visible.length
+    const totalHits = visibleRows.length
 
     // -> Only worth asking when the search itself came up empty: a query that matched something has
     //    nothing to be corrected, and no query means there was nothing to have mistyped.
@@ -416,7 +458,7 @@ class DbSearchModule implements SearchModule {
 
     // -> Rows were dropped from this page by the rules filter above, so the corrected `totalHits`
     //    is a floor, not an exact count -- see `SearchPagesResult.totalHitsApproximate`'s own doc.
-    const totalHitsApproximate = ((rows.rows ?? rows) as any[]).length !== visible.length
+    const totalHitsApproximate = rawRows.length !== visibleRows.length
 
     return { results: result, totalHits, totalHitsApproximate, suggestion }
   }

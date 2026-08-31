@@ -55,10 +55,6 @@ const props = defineProps({
     type: String,
     default: 'primary'
   },
-  disable: {
-    type: Boolean,
-    default: false
-  },
   disabled: {
     type: Boolean,
     default: false
@@ -68,7 +64,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue'])
 
 const isOn = computed(() => props.modelValue === props.val)
-const isDisabled = computed(() => props.disable || props.disabled)
+const isDisabled = computed(() => props.disabled)
 
 function select() {
   if (!isOn.value) {

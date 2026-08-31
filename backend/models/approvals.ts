@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createPatch } from 'diff'
-import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
   approvalRules as approvalRulesTable,
   groups as groupsTable,
@@ -14,6 +14,7 @@ import type { AccessActor } from './groups.ts'
 import { hasPermission } from './pages.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
 import type { RenderPermissions } from './rendering.ts'
+import { escapeHtml } from './mail.ts'
 
 /**
  * How a rule decides which pages it covers. The same set group page rules use, so an administrator
@@ -90,6 +91,17 @@ export interface PageEditSubmission {
   baseHash: string
   createdAt: Date
   updatedAt: Date
+}
+
+/**
+ * What became of a resolved suggestion, as its author sees it -- the return leg `hasOpenSuggestion`
+ * alone cannot give: that flag only ever says a suggestion is gone, never what happened to it.
+ */
+export interface ResolvedSubmission {
+  status: 'approved' | 'declined'
+  /** The reviewer's note on why. Always null for an approval -- only decline takes one. */
+  reason: string | null
+  resolvedAt: Date
 }
 
 /** A submission as a reviewer sees it in their queue. */
@@ -544,6 +556,7 @@ class Approvals {
     hasOpenSuggestion: boolean
     canReview: boolean
     pendingSubmissions: ReviewableSubmission[]
+    resolvedSubmission: ResolvedSubmission | null
   }> {
     const actorId = req.session?.authenticated ? (req.session.user?.id ?? null) : null
     const groupIds = this.getActorGroupIds(req)
@@ -558,6 +571,10 @@ class Approvals {
     const hasOpenSuggestion = Boolean(
       submitRule && actorId && (await this.getOwnSubmission(page.id, actorId))
     )
+    // -> Same gate as `hasOpenSuggestion` above: no submit rule covering this page for this reader
+    //    means no query, not just an unreachable answer.
+    const resolvedSubmission =
+      submitRule && actorId ? await this.getResolvedSubmission(page.id, actorId) : null
 
     const reviewerScope: ReviewerScope = this.isReviewerSession(req)
       ? {
@@ -586,7 +603,8 @@ class Approvals {
             ...reviewerScope,
             pageId: page.id
           })
-        : []
+        : [],
+      resolvedSubmission
     }
   }
 
@@ -621,6 +639,49 @@ class Approvals {
       )
       .limit(1)
     return (rows[0] as PageEditSubmission) ?? null
+  }
+
+  /**
+   * The most recently resolved (approved or declined) suggestion this user made on this page, if any.
+   *
+   * Guests get null whoever they are, for the same reason `getOwnSubmission` does: there is no
+   * account to look one up by, so there is nothing to show back to them here either. A page can carry
+   * more than one resolved row for the same author over time (declined, then suggested again and
+   * approved) -- this answers only the latest, which is what a reader returning to the page cares
+   * about.
+   */
+  async getResolvedSubmission(
+    pageId: string,
+    authorId: string | null
+  ): Promise<ResolvedSubmission | null> {
+    if (!authorId) {
+      return null
+    }
+    const rows = await WIKI.db
+      .select({
+        status: submissionsTable.status,
+        resolvedReason: submissionsTable.resolvedReason,
+        updatedAt: submissionsTable.updatedAt
+      })
+      .from(submissionsTable)
+      .where(
+        and(
+          eq(submissionsTable.pageId, pageId),
+          eq(submissionsTable.authorId, authorId),
+          inArray(submissionsTable.status, ['approved', 'declined'])
+        )
+      )
+      .orderBy(desc(submissionsTable.updatedAt))
+      .limit(1)
+    const row = rows[0]
+    if (!row) {
+      return null
+    }
+    return {
+      status: row.status as 'approved' | 'declined',
+      reason: row.resolvedReason,
+      resolvedAt: row.updatedAt
+    }
   }
 
   /**
@@ -702,6 +763,16 @@ class Approvals {
 
     if (!hadOpenSubmission) {
       await this.notifyReviewersOfSubmission(siteId, page, stored.id)
+      // -> Only for a genuinely NEW submission, same gate `notifyReviewersOfSubmission` uses just
+      //    above: an author revising their own still-open suggestion (the `onConflictDoUpdate`
+      //    branch) is not a new thing for a subscriber to hear about.
+      await WIKI.models.hooks.emit('approval:submitted', siteId, {
+        id: stored.id,
+        pageId: page.id,
+        path: page.path,
+        siteId,
+        authorId
+      })
     }
 
     return {
@@ -851,17 +922,14 @@ class Approvals {
   }
 
   /**
-   * The actual delivery, stubbed.
+   * Tell every resolved reviewer a suggestion is waiting on them, by mail.
    *
-   * Feature 375 ("Page watching: real notification delivery") is what is building the transport this
-   * belongs behind -- a mail send, or a queued job that records a pending notification the way its own
-   * `notifyPageWatchers` task does for watched pages -- and it had not landed a reusable send primitive
-   * as of this task. The call site and reviewer resolution above are already correct; only this
-   * function's body needs replacing once that primitive exists, which is why it is factored out on its
-   * own rather than inlined into `notifyReviewersOfSubmission`.
-   *
-   * TODO(#375): send the actual notification once Feature 375 exposes a delivery primitive
-   * (e.g. `WIKI.mail.send()` or an equivalent queued job) and call it here instead of logging.
+   * A plain send per reviewer with an email address, not routed through the `notifyPageWatchers` job:
+   * reviewing is not a preference a page-watch row could express (a reviewer's own review-queue
+   * membership comes from the approval rules, not from watching the page -- see `resolveReviewers`),
+   * so there is no watcher preference or in-app inbox entry to reuse here the way a submission
+   * author's own decision notice does. Each recipient's send is isolated in its own `try`/`catch`: one
+   * reviewer's bounce or missing email must not stop the rest of the queue from being told.
    */
   private async sendSubmissionNotification(
     siteId: string,
@@ -869,10 +937,32 @@ class Approvals {
     submissionId: string,
     reviewerIds: string[]
   ): Promise<void> {
-    WIKI.logger.debug(
-      `Would notify ${reviewerIds.length} reviewer(s) of submission ${submissionId} on ` +
-        `${page.path} (site ${siteId})`
+    const link = WIKI.models.mail.buildLink(
+      '/_admin/approvals',
+      WIKI.models.mail.resolveMailBaseURL(siteId)
     )
+    for (const reviewerId of reviewerIds) {
+      try {
+        const reviewer = await WIKI.models.users.getById(reviewerId)
+        if (!reviewer?.email) {
+          WIKI.logger.warn(
+            `Skipping submission notification for reviewer ${reviewerId}: no email address on file.`
+          )
+          continue
+        }
+        const safePath = escapeHtml(page.path)
+        await WIKI.models.mail.send({
+          to: reviewer.email,
+          subject: `New edit suggestion waiting for review: ${page.path}`,
+          text: `A new edit suggestion is waiting for your review on "${page.path}" — ${link}`,
+          html: `<p>A new edit suggestion is waiting for your review on <strong>${safePath}</strong> — <a href="${link}">${link}</a></p>`
+        })
+      } catch (err: any) {
+        WIKI.logger.warn(
+          `Failed to send submission notification to reviewer ${reviewerId} for submission ${submissionId}: ${err.message}`
+        )
+      }
+    }
   }
 
   /**
@@ -1136,8 +1226,11 @@ class Approvals {
         baseHash: submissionsTable.baseHash,
         status: submissionsTable.status,
         // -> Whose markup this is, for resolving submitter render permissions -- null for a guest
-        //    submission (`POST .../submissions` allows one; see that route)
-        authorId: submissionsTable.authorId
+        //    submission (`POST .../submissions` allows one; see that route). Also who
+        //    `notifySubmissionAuthor` tells the outcome to, below.
+        authorId: submissionsTable.authorId,
+        guestName: submissionsTable.guestName,
+        guestEmail: submissionsTable.guestEmail
       })
       .from(submissionsTable)
       .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.siteId, siteId)))
@@ -1249,6 +1342,21 @@ class Approvals {
     if (!decision.ok) {
       return decision
     }
+
+    // -> Fires once per call that gets this far (a real sign-off was recorded against a non-stale
+    //    submission), whether or not THIS call is the one that reaches the threshold below -- "a
+    //    reviewer approved" rather than "the page was finalized", so a subscriber watching every
+    //    approval on a multi-approver rule sees each one, not only the last. Emitted outside the
+    //    transaction above, same as `updatePage` below it: hook/webhook I/O must not run while
+    //    holding the row lock.
+    await WIKI.models.hooks.emit('approval:approved', siteId, {
+      id: submissionId,
+      pageId: page.id,
+      path: page.path,
+      siteId,
+      authorId: actor.id
+    })
+
     if (!decision.finalized) {
       WIKI.logger.debug(
         `Recorded approval ${decision.approvalsCount}/${decision.approvalsRequired} for edit ` +
@@ -1298,6 +1406,9 @@ class Approvals {
         classification: page.classification
       }
     )
+    // -> A suggestion approved with no `render` (content-only) is exactly the case `updatePage()`
+    //    itself now handles: it consults `ensureCanRender()` before the write and queues the
+    //    re-render after, so there is nothing left for this call site to do (OpenProject #1716/#1723).
     await WIKI.models.pages.updatePage(
       siteId,
       page.id,
@@ -1305,12 +1416,24 @@ class Approvals {
       actor,
       submitterRenderPermissions
     )
-    if (!render) {
-      // -> Briefly stale rather than wrong: the browser is a queue away, and a suggestion approved
-      //    while it is busy waits its turn instead of starting a second one
-      await WIKI.models.pages.queueRerender(siteId, page.id, actor, submitterRenderPermissions)
-    }
     WIKI.logger.debug(`Approved edit suggestion ${submissionId} onto page ${page.id}`)
+
+    // -> `skipIfWatching: true` -- the `updatePage()` call above already queued its own generic
+    //    "page updated by <reviewer>" notice to every watcher, this author included if they watch the
+    //    page. Notifying them again here would be a double notice for the same event.
+    await this.notifySubmissionAuthor(
+      siteId,
+      { id: page.id, title: page.title, path: page.path, locale: page.locale },
+      'suggestApproved',
+      {
+        authorId: submission.authorId,
+        guestName: submission.guestName,
+        guestEmail: submission.guestEmail
+      },
+      actor.id,
+      { skipIfWatching: true }
+    )
+
     return decision
   }
 
@@ -1348,6 +1471,10 @@ class Approvals {
    * Decline a suggestion. The page is untouched, and the submission is retained with `status:
    * 'declined'` (rather than deleted) so it can be shown back to its author along with `reason`.
    *
+   * Unlike `approveSubmission`, nothing else tells the author anything -- there is no page write to
+   * trigger `updatePage()`'s own watcher notice -- so this always notifies them, logged in or guest,
+   * with no `skipIfWatching` to consider.
+   *
    * @param reason The reviewer's optional note on why, shown to the author
    * @param resolvedBy The reviewer declining it
    * @returns False when there is no such submission
@@ -1358,6 +1485,27 @@ class Approvals {
     reason: string | null,
     resolvedBy: string
   ): Promise<boolean> {
+    // -> Read before the update, not after: `pagesTable` is only reachable from the submission row
+    //    through this join, so the event payload below has to be captured while it's still there,
+    //    same as it would have to be if this update were a delete. Also carries the fields
+    //    `notifySubmissionAuthor` needs -- the submission's own author/guest columns, and the page's
+    //    title/locale alongside the path `approval:rejected` already wanted.
+    const rows = await WIKI.db
+      .select({
+        pageId: pagesTable.id,
+        pagePath: pagesTable.path,
+        pageTitle: pagesTable.title,
+        pageLocale: pagesTable.locale,
+        authorId: submissionsTable.authorId,
+        guestName: submissionsTable.guestName,
+        guestEmail: submissionsTable.guestEmail
+      })
+      .from(submissionsTable)
+      .innerJoin(pagesTable, eq(pagesTable.id, submissionsTable.pageId))
+      .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.siteId, siteId)))
+      .limit(1)
+    const page = rows[0]
+
     const result = await WIKI.db
       .update(submissionsTable)
       .set({
@@ -1376,7 +1524,98 @@ class Approvals {
           eq(submissionsTable.status, 'open')
         )
       )
-    return (result.rowCount ?? 0) > 0
+    const declined = (result.rowCount ?? 0) > 0
+
+    if (declined && page) {
+      await WIKI.models.hooks.emit('approval:rejected', siteId, {
+        id: submissionId,
+        pageId: page.pageId,
+        path: page.pagePath,
+        siteId,
+        authorId: resolvedBy
+      })
+
+      await this.notifySubmissionAuthor(
+        siteId,
+        { id: page.pageId, title: page.pageTitle, path: page.pagePath, locale: page.pageLocale },
+        'suggestDeclined',
+        {
+          authorId: page.authorId,
+          guestName: page.guestName,
+          guestEmail: page.guestEmail
+        },
+        resolvedBy
+      )
+    }
+
+    return declined
+  }
+
+  /**
+   * Tell a submission's author their suggestion was approved or declined.
+   *
+   * A guest has no account to watch anything with, so their notification always goes straight through
+   * `models/mail.ts` to the `guestEmail` on record. A logged in author is told the same way any other
+   * page-watch change would reach them -- queued through the existing `notifyPageWatchers` job -- but
+   * addressed directly at just this one person rather than resolved via `pageWatching.listWatchers()`:
+   * being told the outcome of your own suggestion is not something the author's watch preference
+   * should be able to opt them out of the way an ordinary edit notification can be.
+   *
+   * @param skipIfWatching Approve-only: `updatePage()` already queues its own generic "page updated by
+   *   <reviewer>" notice to every watcher when the finalizing approve writes the page, the author
+   *   included if they watch it -- this is what stops that from becoming a second, more specific
+   *   notice on top. `rejectSubmission` never writes the page, so nothing else tells the author
+   *   anything, and always passes this as `false`.
+   *
+   * Never throws: a notification failure must not turn an already-successful approve/decline into a
+   * failed request, the same contract `notifyReviewersOfSubmission` keeps for the reviewer side.
+   */
+  private async notifySubmissionAuthor(
+    siteId: string,
+    page: { id: string; title: string; path: string; locale: string },
+    action: 'suggestApproved' | 'suggestDeclined',
+    author: { authorId: string | null; guestName: string | null; guestEmail: string | null },
+    actorId: string,
+    { skipIfWatching = false }: { skipIfWatching?: boolean } = {}
+  ): Promise<void> {
+    try {
+      if (!author.authorId) {
+        if (!author.guestEmail) {
+          return
+        }
+        const actorUser = await WIKI.models.users.getById(actorId)
+        await WIKI.models.mail.sendPageWatchNotification({
+          to: author.guestEmail,
+          siteId,
+          page: { title: page.title, path: page.path, locale: page.locale },
+          action,
+          changedFields: [],
+          actorName: actorUser?.name ?? 'Someone'
+        })
+        return
+      }
+
+      if (skipIfWatching && (await WIKI.models.pageWatching.isWatching(page.id, author.authorId))) {
+        return
+      }
+
+      await WIKI.scheduler.addJob({
+        task: 'notifyPageWatchers',
+        payload: {
+          siteId,
+          pageId: page.id,
+          pageTitle: page.title,
+          pagePath: page.path,
+          pageLocale: page.locale,
+          action,
+          changedFields: [],
+          actorId,
+          watchers: [{ userId: author.authorId, notifyMode: 'immediate' }]
+        }
+      })
+    } catch (err: any) {
+      WIKI.logger.warn(`Failed to notify submission author of page ${page.id}: ${err.message}`)
+    }
   }
 
   /**

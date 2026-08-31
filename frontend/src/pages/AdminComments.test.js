@@ -205,6 +205,34 @@ describe('AdminComments', () => {
     expect(wrapper.text()).toContain('Default')
   })
 
+  it('renders a non-available provider as a disabled row that cannot be selected', async () => {
+    // OpenProject #1958: Disqus/Commento/Artalk ship with `isAvailable: false` -- prove that carries
+    // through to a disabled, unselectable row, same as any other unavailable module.
+    const providers = PROVIDERS.map((p) =>
+      p.module === 'disqus'
+        ? { ...p, isEnabled: false, isAvailable: false, isSelectable: false }
+        : { ...p, isEnabled: true }
+    )
+    const { wrapper } = mountPage({ providers })
+    await flushPromises()
+
+    const items = wrapper.findAll('.w-item')
+    const disqusItem = items.find((i) => i.text().includes('Disqus'))
+    const defaultItem = items.find((i) => i.text().includes('Default'))
+
+    expect(disqusItem.attributes('aria-disabled')).toBe('true')
+    expect(defaultItem.attributes('aria-disabled')).toBeUndefined()
+
+    // -> Selection defaults to the enabled (Default) provider
+    expect(wrapper.text()).toContain('This provider has no configuration options you can modify.')
+
+    // -> Clicking the disabled row must not select it
+    await disqusItem.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('Shortname')
+    expect(wrapper.text()).toContain('This provider has no configuration options you can modify.')
+  })
+
   it('defaults the selection to the currently enabled provider', async () => {
     const { wrapper } = mountPage()
     await flushPromises()
