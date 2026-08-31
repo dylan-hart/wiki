@@ -39,6 +39,23 @@ test('JOB_SCHEDULE_SEED registers purgePageviews on a valid daily cron', () => {
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 })
 
+test('JOB_SCHEDULE_SEED registers purgeContentSyncState on a valid daily cron, at a minute no other seeded job uses', () => {
+  const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'purgeContentSyncState')
+  assert.ok(entry, 'expected a purgeContentSyncState entry in the schedule seed')
+  assert.equal(entry!.type, 'system')
+  // -> A standard 5-field cron expression, e.g. "40 0 * * *" (once a day)
+  assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
+
+  const crons: string[] = JOB_SCHEDULE_SEED.filter((e) => e.task !== 'purgeContentSyncState').map(
+    (e) => e.cron
+  )
+  const targetCron: string = entry!.cron
+  assert.ok(
+    !crons.includes(targetCron),
+    `expected purgeContentSyncState's cron minute to be unused by any other seeded job, got a clash on "${targetCron}"`
+  )
+})
+
 test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
   const tasks = JOB_SCHEDULE_SEED.map((e) => e.task)
   assert.deepEqual(
@@ -47,6 +64,7 @@ test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
       'checkVersion',
       'cleanAuditLog',
       'cleanJobHistory',
+      'purgeContentSyncState',
       'purgeExports',
       'purgeImports',
       'purgePageviews',

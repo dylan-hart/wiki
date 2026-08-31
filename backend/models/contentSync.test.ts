@@ -1,5 +1,6 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { eq, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
@@ -448,3 +449,88 @@ test('getOutOfDateAssets tracks the same out-of-date logic for assets', { skip }
   const afterSync = await contentSync.getOutOfDateAssets(pageTargetId, { siteId })
   assert.ok(!afterSync.some((a) => a.id === assetId))
 })
+
+// ---------------------------------------------------------------------------------------------
+// purgeOrphaned (OpenProject #1679) -- the backstop sweep for rows whose page/asset is already
+// gone. `contentId` is deliberately not a foreign key (see the table's own doc comment in
+// `db/schema.ts`), so these rows only ever get cleaned up here or by the delete path's own
+// cleanup.
+// ---------------------------------------------------------------------------------------------
+
+test(
+  'purgeOrphaned removes a page row with no matching page, keeps a live one',
+  { skip },
+  async () => {
+    const deletedPageId = randomUUID()
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: deletedPageId,
+      targetId: pageTargetId,
+      direction: 'push'
+    })
+
+    const livePageId = await makePage('purge-orphaned-live-page')
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: livePageId,
+      targetId: pageTargetId,
+      direction: 'push'
+    })
+
+    const count = await contentSync.purgeOrphaned()
+    assert.ok(count >= 1)
+
+    assert.equal(await contentSync.getState('page', deletedPageId, pageTargetId), null)
+    assert.ok(await contentSync.getState('page', livePageId, pageTargetId))
+  }
+)
+
+test(
+  'purgeOrphaned removes an asset row with no matching asset, keeps a live one',
+  { skip },
+  async () => {
+    const deletedAssetId = randomUUID()
+    await contentSync.recordSuccess({
+      contentType: 'asset',
+      contentId: deletedAssetId,
+      targetId: pageTargetId,
+      direction: 'push'
+    })
+
+    const liveAssetId = await makeAsset('purge-orphaned-live.png')
+    await contentSync.recordSuccess({
+      contentType: 'asset',
+      contentId: liveAssetId,
+      targetId: pageTargetId,
+      direction: 'push'
+    })
+
+    const count = await contentSync.purgeOrphaned()
+    assert.ok(count >= 1)
+
+    assert.equal(await contentSync.getState('asset', deletedAssetId, pageTargetId), null)
+    assert.ok(await contentSync.getState('asset', liveAssetId, pageTargetId))
+  }
+)
+
+test(
+  'purgeOrphaned checks each row against the table matching its own contentType, not the other one',
+  { skip },
+  async () => {
+    // -> A page row whose contentId happens to match a real *asset*'s id must still be treated as
+    //    orphaned (nothing in `pages` matches it), and vice versa -- the two branches must not cross.
+    const assetId = await makeAsset('purge-orphaned-cross-check.png')
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: assetId,
+      targetId: pageTargetId,
+      direction: 'push'
+    })
+
+    await contentSync.purgeOrphaned()
+
+    assert.equal(await contentSync.getState('page', assetId, pageTargetId), null)
+    // -> The asset itself, and its own real contentSyncState rows if any, are untouched by this --
+    //    this test only asserts the mis-typed row above was swept.
+  }
+)

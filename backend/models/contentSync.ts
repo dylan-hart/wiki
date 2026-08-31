@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNotNull, isNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, isNotNull, isNull, notExists, or, sql } from 'drizzle-orm'
 import {
   assets as assetsTable,
   contentSyncState as contentSyncStateTable,
@@ -332,6 +332,40 @@ class ContentSync {
           )
         )
       )
+  }
+  /**
+   * Sweeps rows whose `contentId` no longer matches any `pages`/`assets` row -- the backstop for the
+   * delete-path's own cleanup (which drops a content item's `contentSyncState` rows as part of
+   * deleting the item itself). This exists for rows the delete path never reached: ones written before
+   * that cleanup existed, or lost to a dispatch that failed partway through. `contentId` is
+   * deliberately not a foreign key (see the table's own doc comment), so nothing else enforces this.
+   *
+   * One bounded `DELETE`, no batching -- mirrors `pageviews.ts#purgeExpired`'s shape.
+   */
+  async purgeOrphaned(): Promise<number> {
+    const result = await WIKI.db.delete(contentSyncStateTable).where(
+      or(
+        and(
+          eq(contentSyncStateTable.contentType, 'page'),
+          notExists(
+            WIKI.db
+              .select({ exists: sql`1` })
+              .from(pagesTable)
+              .where(eq(pagesTable.id, contentSyncStateTable.contentId))
+          )
+        ),
+        and(
+          eq(contentSyncStateTable.contentType, 'asset'),
+          notExists(
+            WIKI.db
+              .select({ exists: sql`1` })
+              .from(assetsTable)
+              .where(eq(assetsTable.id, contentSyncStateTable.contentId))
+          )
+        )
+      )
+    )
+    return result.rowCount ?? 0
   }
 }
 

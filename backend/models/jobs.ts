@@ -76,6 +76,15 @@ export const JOB_SCHEDULE_SEED = [
     cron: '35 0 * * *',
     type: 'system'
   },
+  // -> Sweeps `contentSyncState` rows whose `contentId` no longer matches any `pages`/`assets` row --
+  //    the backstop for rows the delete-path's own cleanup cannot reach. See
+  //    `tasks/simple/purge-content-sync-state.ts` / `models/contentSync.ts#purgeOrphaned()`. Offset
+  //    alongside the other midnight housekeeping jobs above.
+  {
+    task: 'purgeContentSyncState',
+    cron: '40 0 * * *',
+    type: 'system'
+  },
   // -> Checks every pull/two-way storage target's schedule and queues a sync for whichever is due —
   //    a short cron since the comparison against each target's own interval happens inside the task
   //    itself, not here. See `tasks/simple/storage-sync-tick.ts` / `Storage.tickScheduledSyncs()`.
