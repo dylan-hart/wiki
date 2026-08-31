@@ -41,6 +41,15 @@ export const JOB_SCHEDULE_SEED = [
     cron: '10 * * * *',
     type: 'system'
   },
+  // -> Sweeps `sessions` rows past the cookie's 30-day window -- see
+  //    `tasks/simple/purge-sessions.ts` / `models/sessions.ts#purgeExpiredSessions()`. Hourly, like
+  //    `purgeRateLimits` above (also SELECTed on every authenticated request, also unbounded), offset
+  //    to a different minute so the two don't compete on the same tick.
+  {
+    task: 'purgeSessions',
+    cron: '40 * * * *',
+    type: 'system'
+  },
   // -> Sweeps expired site-backup archives/uploads off disk — see
   //    `tasks/simple/purge-exports.ts` / `models/export.ts` and
   //    `tasks/simple/purge-imports.ts` / `models/siteImport.ts`. Offset five minutes apart, both
