@@ -139,7 +139,7 @@
               :color="actionColor"
               icon="la:sitemap"
               :label="t(`common.actions.view`)"
-              to="/" />
+              :to="`/_admin/` + adminStore.currentSiteId + `/pages`" />
           </w-card-actions>
         </w-card>
       </div>

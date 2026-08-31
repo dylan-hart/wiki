@@ -222,6 +222,14 @@
               <w-item-section>{{ t('admin.navigation.title') }}</w-item-section>
             </w-item>
             <w-item
+              :to="`/_admin/` + adminStore.currentSiteId + `/pages`"
+              active-class="bg-primary text-white">
+              <w-item-section avatar>
+                <w-icon name="img:/_assets/icons/fluent-document-in-folder.svg" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.pages.title') }}</w-item-section>
+            </w-item>
+            <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/pages/deleted`"
               active-class="bg-primary text-white">
               <w-item-section avatar>
