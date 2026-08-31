@@ -34,10 +34,11 @@ platforms:
   - linux
   - darwin
   - win32
-# Not a declared dependency of the backend, unlike Sharp: a browser is worth a few hundred megabytes
-# only to an instance that renders pages on the server, so installing it is a decision rather than a
-# default. That makes this a real first install and not merely a repair.
+# Detection: a declared optional dependency of the backend (backend/package.json), same as Sharp -- an
+# ordinary `npm ci`/`npm install` already has it (skippable with `--omit=optional` for a source checkout
+# that has no use for a server-side browser). Installable with npm, which is also how the admin area
+# repairs an instance that was set up with optional dependencies omitted.
 isInstallable: true
-# The version installed, here rather than in `package.json` for the reason above. The Docker image
-# reads this same line, so an image and a hand-installed instance agree on what Puppeteer is.
-installVersion: 25.4.0
+# No installVersion here: the pin lives in backend/package.json now that this is a declared dependency,
+# and a second one here could only drift from it (see ExtensionDefinition.installVersion's doc comment
+# in models/extensions.ts).
