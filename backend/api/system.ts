@@ -903,6 +903,57 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * ROTATE PAGEVIEW HASH KEY
+   */
+  app.post(
+    '/pageviews/rotate-key',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Rotate the key pageview visitor hashes are keyed with',
+        description:
+          'Generates a new `pageviews.hashKey` and swaps it in immediately. `visitorHash` is an HMAC keyed with this value (OpenProject #2285/#2286), so every pageview row logged from here on hashes the same raw session/API key id differently than rows logged before the rotation -- existing rows are left exactly as they are, they simply stop correlating with new ones, which is the point of rotating at all.',
+        tags: ['System'],
+        response: {
+          200: {
+            description: 'Pageview hash key rotated successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The new pageview hash key could not be saved.' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const rotated = await WIKI.models.pageviews.rotateHashKey()
+      if (!rotated) {
+        return reply.internalServerError('Failed to save the new pageview hash key.')
+      }
+
+      await WIKI.models.auditLog.record({
+        event: 'system.pageviewsHashKeyRotated',
+        actor: actorFromRequest(req)
+      })
+
+      return {
+        ok: true,
+        message: 'Pageview hash key rotated successfully.'
+      }
+    }
+  )
+
+  /**
    * LIST CLUSTER NODES
    */
   app.get(

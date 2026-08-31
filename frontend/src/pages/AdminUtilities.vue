@@ -134,6 +134,24 @@
             </w-item-section>
           </w-item>
           <w-item>
+            <blueprint-icon icon="fingerprint-scan" :hue-rotate="45" />
+            <w-item-section>
+              <w-item-label>{{ t(`admin.utilities.rotatePageviewsHashKey`) }}</w-item-label>
+              <w-item-label caption>{{
+                t(`admin.utilities.rotatePageviewsHashKeyHint`)
+              }}</w-item-label>
+            </w-item-section>
+            <w-item-section side>
+              <w-btn
+                class="acrylic-btn"
+                flat
+                icon="la:arrow-circle-right"
+                color="primary"
+                @click="rotatePageviewsHashKey"
+                :label="t(`common.actions.proceed`)" />
+            </w-item-section>
+          </w-item>
+          <w-item>
             <blueprint-icon icon="historical" :hue-rotate="45" />
             <w-item-section>
               <w-item-label>{{ t(`admin.utilities.purgeHistory`) }}</w-item-label>
@@ -462,6 +480,45 @@ function invalidateSessionSecret() {
         caption: apiErrorMessage(err)
       })
     }
+  })
+}
+
+/**
+ * Rotate the key pageview `visitorHash` rows are keyed with (OpenProject #2288).
+ *
+ * Existing rows are left untouched, but they stop correlating with anything logged from here on —
+ * the confirmation says so, since that is the entire point of rotating rather than a side effect to
+ * apologize for. Unlike {@link invalidateSessionSecret}, nobody is logged out and nothing else stops
+ * working: no other part of the app keys off `pageviews.hashKey`.
+ */
+function rotatePageviewsHashKey() {
+  confirm({
+    title: t('admin.utilities.rotatePageviewsHashKey'),
+    message: t('admin.utilities.rotatePageviewsHashKeyConfirm'),
+    caption: t('admin.utilities.rotatePageviewsHashKeyConfirmWarn'),
+    cancel: true,
+    persistent: true,
+    color: 'negative',
+    okLabel: t('common.actions.proceed')
+  }).onOk(async () => {
+    loading.show()
+    try {
+      const resp = await API_CLIENT.post('system/pageviews/rotate-key').json()
+      if (!resp?.ok) {
+        throw new Error(resp?.message || t('common.error.unexpected'))
+      }
+      notify({
+        type: 'positive',
+        message: t('admin.utilities.rotatePageviewsHashKeySuccess')
+      })
+    } catch (err) {
+      notify({
+        type: 'negative',
+        message: t('admin.utilities.rotatePageviewsHashKeyFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
+    loading.hide()
   })
 }
 
