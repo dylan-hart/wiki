@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
 import { pageWatchEvents as pageWatchEventsTable, pages as pagesTable } from '../db/schema.ts'
 import type { WatchNotifyMode } from './pageWatching.ts'
 
@@ -61,6 +61,16 @@ export interface InboxNotification {
 const INBOX_LIST_LIMIT = 50
 
 /**
+ * How many pending digest rows one `listPendingForDigest` call returns at most — plenty for a normal
+ * night's worth of changes, but a hard ceiling on what one `sendWatchDigests` run loads into memory
+ * at once. Without it, a prolonged SMTP outage lets the pending backlog grow unbounded, and every
+ * subsequent nightly run would try to load all of it in one query. Rows already delivered drop out of
+ * the next call's `WHERE`, so a capped run still drains the backlog over successive nights rather than
+ * getting stuck reprocessing the same rows.
+ */
+export const DIGEST_PENDING_LIMIT = 1000
+
+/**
  * Page watch events model
  *
  * The delivery queue behind page watching: one row per watcher per change, written by the
@@ -117,6 +127,11 @@ class PageWatchEvents {
    * row can also be pending (a failed send left it that way — see `notify-page-watchers.ts`), and
    * that row belongs to a future in-app inbox, not to this job, which must never re-send it as part
    * of a digest just because it happens to still be undelivered.
+   *
+   * Bounded to `DIGEST_PENDING_LIMIT` rows so a prolonged SMTP outage (every send failing, nothing
+   * ever marked delivered) can't make one nightly `sendWatchDigests` run load an unbounded backlog
+   * into memory. Because delivered rows drop out of this `WHERE` on the next call, a capped run still
+   * works the backlog down over successive nights rather than reprocessing the same rows forever.
    */
   async listPendingForDigest(): Promise<PendingDigestEvent[]> {
     return WIKI.db
@@ -140,7 +155,22 @@ class PageWatchEvents {
         asc(pageWatchEventsTable.userId),
         asc(pageWatchEventsTable.siteId),
         asc(pageWatchEventsTable.createdAt)
-      ) as Promise<PendingDigestEvent[]>
+      )
+      .limit(DIGEST_PENDING_LIMIT) as Promise<PendingDigestEvent[]>
+  }
+
+  /**
+   * Delete every `pageWatchEvents` row older than the retention window, regardless of `deliveredAt`/
+   * `readAt` — an undelivered row (a permanently-failed send, or a digest recipient who never checks
+   * their in-app inbox) must not be able to accumulate forever just because nothing ever marked it
+   * done. Mirrors `pageviews.ts#purgeExpired`'s one-statement shape; called by
+   * `tasks/simple/purge-page-watch-events.ts` on its own daily cron entry.
+   */
+  async purgeExpired(): Promise<number> {
+    const result = await WIKI.db
+      .delete(pageWatchEventsTable)
+      .where(lt(pageWatchEventsTable.createdAt, sql`now() - interval '90 days'`))
+    return result.rowCount ?? 0
   }
 
   /**

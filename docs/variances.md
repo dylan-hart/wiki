@@ -1683,3 +1683,29 @@ Three chunks are named here because they are expected to still warn at 500 kB ev
 
 A warning on any chunk not named above is a real signal and should be investigated — resist raising
 `chunkSizeWarningLimit` again as a way to make it go away.
+
+## OpenProject #1689 — `pageWatchEvents.pageId` stays without a foreign key
+
+**Date:** 2026-08-31
+
+#1689 asked for a foreign key from `pageWatchEvents.pageId` to `pages.id` (`siteId`/`userId`/`actorId`
+immediately below it all have one), purging pre-existing orphans first so the constraint could apply.
+Not added: `db/schema.ts#pageWatchEvents`'s own doc comment already documents, deliberately, why this
+column has never had one — and tracing the write path confirms adding it now would be a real
+regression, not a hypothetical one.
+
+`models/pages.ts#deletePage` reads the watch list and queues the `notifyPageWatchers` scheduler job
+_before_ deleting the page's `pages` row (it has to — deleting the row cascades `pageWatching` away
+first). That job is asynchronous: it runs later, after `deletePage`'s own `DELETE FROM pages` has
+already committed. Its `recordMany()` call — `pageWatchEvents`'s only writer — is therefore always
+inserting a `pageId` that no longer exists in `pages` for a `deleted`-action row. A foreign key
+requires the referenced row to exist at INSERT time regardless of what `onDelete` says, so the
+constraint would make every deletion notification for a watched page fail to record, silently losing
+exactly the notifications this table exists to deliver.
+
+The real fix would be recording `pageWatchEvents` rows synchronously inside `deletePage` (before the
+page row goes) rather than deferring the whole `recordMany()` call into the async job — a materially
+larger change than #1689's stated scope covers ("Done when" only exercises the retention purge and
+the digest query's bound, not this ordering). Left as a follow-up decision rather than implemented
+as a drive-by inside #1689. See `db/schema.ts`'s comment on `pageWatchEvents.pageId` for the same
+reasoning inline with the code.

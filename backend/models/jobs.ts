@@ -124,6 +124,14 @@ export const JOB_SCHEDULE_SEED = [
     task: 'sendWatchDigests',
     cron: '0 8 * * *',
     type: 'system'
+  },
+  // -> Sweeps `pageWatchEvents` rows past the 90-day retention window -- see
+  //    `tasks/simple/purge-page-watch-events.ts` / `models/pageWatchEvents.ts#purgeExpired()`. Offset
+  //    alongside the other midnight housekeeping jobs above (OpenProject #1689).
+  {
+    task: 'purgePageWatchEvents',
+    cron: '50 0 * * *',
+    type: 'system'
   }
 ] as const
 

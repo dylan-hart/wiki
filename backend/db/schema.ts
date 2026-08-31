@@ -1257,6 +1257,15 @@ export const pageWatching = pgTable(
  * removed the page — and with it, through `pageWatching.pageId`'s cascade, the very watch list this
  * row was resolved from. The row has to be able to outlive both.
  *
+ * OpenProject #1689 considered adding this FK back (`siteId`/`userId`/`actorId` all have one). Ruled
+ * out for the reason above: `models/pages.ts#deletePage` queues `notifyPageWatchers` as an async
+ * scheduler job *before* deleting the `pages` row, but that job's `recordMany()` INSERT — the only
+ * writer of this table — runs later, after the row is already gone. A hard FK requires the referenced
+ * `pages.id` to exist at INSERT time no matter what `onDelete` says, so every deletion notification for
+ * a watched page would fail to record. Fixing that for real would mean recording these rows
+ * synchronously before the page delete instead of in the deferred job — a larger change than #1689's
+ * scope; see `docs/variances.md`.
+ *
  * `actorId`, `changedFields`, `pageTitle` and `pagePath` are captured at write time rather than
  * looked up when a notification is finally sent, for the same reason `pageId` isn't a foreign key:
  * the page (and, for a delete, the `pageHistory` row it might otherwise be read from) can already be
