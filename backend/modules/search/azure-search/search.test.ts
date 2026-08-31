@@ -143,8 +143,6 @@ function page(overrides: Partial<SearchIndexablePage> = {}): SearchIndexablePage
     isSearchable: true,
     classification: 'classification-1',
     password: null,
-    ratingScore: 0,
-    ratingCount: 0,
     scripts: {},
     historyData: {},
     createdAt: new Date('2024-01-01T00:00:00Z'),
