@@ -59,6 +59,22 @@ export const FALLBACK_DICTIONARY = 'simple'
 const MODULE_KEY = 'db'
 
 /**
+ * Extra raw rows fetched beyond a page's own `[offset, offset + limit)` span, to absorb rows a
+ * reader's page rules will end up denying before they ever reach the page — see the comment on the
+ * over-fetch loop in `query()` for why this exists.
+ */
+const OVERFETCH_MARGIN = 25
+
+/** How much the candidate window grows on each retry when `OVERFETCH_MARGIN` wasn't enough. */
+const OVERFETCH_GROWTH_FACTOR = 4
+
+/**
+ * Hard ceiling on raw rows fetched to fill one page, so a reader denied nearly everything cannot
+ * turn a single `query()` call into an unbounded scan of the site.
+ */
+const OVERFETCH_HARD_CAP = 5000
+
+/**
  * Markers `ts_headline` wraps a matched term in.
  *
  * Control characters, because the excerpt is page text that may itself contain anything: it is HTML
@@ -305,7 +321,7 @@ class DbSearchModule implements SearchModule {
           ? sql`CASE WHEN p.password IS NULL THEN ${headline} ELSE NULL END`
           : headline
 
-    const rows = await WIKI.db.execute(sql`
+    const rowsQuery = (queryLimit: number, queryOffset: number) => sql`
       SELECT
         p.id,
         p.path,
@@ -322,27 +338,65 @@ class DbSearchModule implements SearchModule {
       FROM pages p
       WHERE ${sql.join(conditions, sql` AND `)}
       ORDER BY ${ordering}
-      LIMIT ${limit} OFFSET ${offset}
-    `)
+      LIMIT ${queryLimit} OFFSET ${queryOffset}
+    `
 
     /*
       Filtered here rather than in SQL: a page rule can be a regular expression or a set of tags, so
       the deciding rule is only knowable per row. Search must not be a way around page permissions —
       a title and an excerpt are content too.
     */
-    const visible = actor
-      ? ((rows.rows ?? rows) as any[]).filter((row) =>
-          WIKI.models.groups.checkAccess(actor, 'read:pages', {
-            path: row.path as string,
-            locale: row.locale as string,
-            siteId,
-            tags: (row.tags ?? []) as string[],
-            classification: (row.classification as string | null) ?? null
-          })
-        )
-      : ((rows.rows ?? rows) as any[])
+    const filterVisible = (candidates: any[]): any[] =>
+      candidates.filter((row) =>
+        WIKI.models.groups.checkAccess(actor!, 'read:pages', {
+          path: row.path as string,
+          locale: row.locale as string,
+          siteId,
+          tags: (row.tags ?? []) as string[],
+          classification: (row.classification as string | null) ?? null
+        })
+      )
 
-    const result = visible.map((row) => ({
+    /*
+      A plain `LIMIT`/`OFFSET` window filtered afterward shrinks whenever a rule denies a row inside
+      that window, without ever pulling in a later surviving row to fill the gap -- page 1 of 25 could
+      come back with 22 rows even though row 26 was visible and could have completed it, and the
+      boundary a caller's next `offset` lands on then depends on how many rows THIS reader was denied,
+      not on the query itself. So when there is an actor to filter for, the candidate window is always
+      re-fetched from row 0 -- the query order is deterministic, so that prefix is the same on every
+      call -- sized to `offset + limit` plus a margin, and grown (up to `OVERFETCH_HARD_CAP`) until
+      either enough rows survive the filter or the raw fetch comes back short of what it asked for
+      (nothing left to fetch). The page itself is then a plain slice of that filtered, consistently-
+      ordered array: nothing already surfaced on an earlier page can resurface on a later one, and
+      nothing in between is skipped, for as long as enough visible matches exist.
+
+      No actor means nothing is ever filtered out, so the original direct windowed query is exact and
+      cheaper -- no reason to over-fetch when nothing will be dropped.
+    */
+    let rawRows: any[]
+    let visibleRows: any[]
+    if (actor) {
+      const needed = offset + limit
+      let candidateLimit = Math.min(needed + OVERFETCH_MARGIN, OVERFETCH_HARD_CAP)
+      for (;;) {
+        const fetched = await WIKI.db.execute(rowsQuery(candidateLimit, 0))
+        rawRows = (fetched.rows ?? fetched) as any[]
+        visibleRows = filterVisible(rawRows)
+        const exhausted = rawRows.length < candidateLimit
+        if (visibleRows.length >= needed || exhausted || candidateLimit >= OVERFETCH_HARD_CAP) {
+          break
+        }
+        candidateLimit = Math.min(candidateLimit * OVERFETCH_GROWTH_FACTOR, OVERFETCH_HARD_CAP)
+      }
+    } else {
+      const fetched = await WIKI.db.execute(rowsQuery(limit, offset))
+      rawRows = (fetched.rows ?? fetched) as any[]
+      visibleRows = rawRows
+    }
+
+    const pageRows = actor ? visibleRows.slice(offset, offset + limit) : visibleRows
+
+    const result = pageRows.map((row) => ({
       id: row.id as string,
       path: row.path as string,
       locale: row.locale as string,
@@ -363,14 +417,13 @@ class DbSearchModule implements SearchModule {
     const totalHits = Math.max(
       0,
       /*
-        The count postgres reported, less whatever the rules just removed from this page of results.
-        Not exact when rows are dropped -- the window function counted every match, including ones on
-        later pages this reader may not see -- but a total that ignored the filtering entirely would
-        promise results that do not exist.
+        The count postgres reported, less whatever the rules removed from the prefix actually scanned
+        to build this page (the whole over-fetched candidate window, not merely the page's own slice).
+        Not exact when rows are dropped -- the window function counted every match, including ones
+        beyond what was scanned that this reader may not see -- but a total that ignored the filtering
+        entirely would promise results that do not exist.
       */
-      Number((rows.rows ?? rows)[0]?.totalHits ?? 0) -
-        ((rows.rows ?? rows) as any[]).length +
-        visible.length
+      Number(rawRows[0]?.totalHits ?? 0) - rawRows.length + visibleRows.length
     )
 
     // -> Only worth asking when the search itself came up empty: a query that matched something has

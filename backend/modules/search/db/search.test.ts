@@ -1,6 +1,8 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { sql } from 'drizzle-orm'
+import { randomUUID } from 'node:crypto'
+import { eq, sql } from 'drizzle-orm'
+import { groups as groupsTable } from '../../../db/schema.ts'
 import {
   hasTestDatabase,
   setupTestDb,
@@ -8,6 +10,7 @@ import {
   type TestFixtures
 } from '../../../test/db.ts'
 import type { PageActor, PageInput } from '../../../models/pages.ts'
+import type { GroupRule } from '../../../models/groups.ts'
 
 /**
  * Task #561 moved every bit of postgres full-text logic (`dictionaryForLocale`, `searchPages` ->
@@ -306,6 +309,162 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
       assert.equal(result.totalHits, 0)
       assert.equal(result.suggestion, null)
+    })
+  })
+
+  /**
+   * OpenProject #2010: `query()` used to run a single `LIMIT`/`OFFSET` window against raw rows and
+   * filter denied ones out afterward — so a page could come back smaller than `limit` even though a
+   * later raw row (already earmarked for the NEXT page) would have filled it. For a reader whose page
+   * rules deny only part of a matching set, that meant every page shrank and the true boundary between
+   * "seen" and "not yet seen" results drifted from what a plain `offset += limit` walk assumed. The
+   * fix over-fetches a candidate window from the top of the (deterministic) result order, filters it,
+   * and slices the requested page out of the filtered array — this is what proves that: walking
+   * `offset` forward in `limit`-sized steps for a restricted reader returns full pages (until matches
+   * run out), with no result repeated and none skipped.
+   */
+  describe('paging stability for a restricted reader', () => {
+    let readerActor: PageActor
+
+    before(async () => {
+      const rules: GroupRule[] = [
+        {
+          id: randomUUID(),
+          name: 'allow everything by default',
+          roles: ['read:pages'],
+          match: 'START',
+          mode: 'ALLOW',
+          path: '',
+          locales: [],
+          sites: []
+        },
+        {
+          id: randomUUID(),
+          name: 'deny the hidden branch',
+          roles: ['read:pages'],
+          match: 'START',
+          mode: 'DENY',
+          path: 'docs/hidden',
+          locales: [],
+          sites: []
+        }
+      ]
+      /*
+        Written directly rather than through `groups.updateGroup()`: that method's guest-role
+        clamping reads `WIKI.data.systemIds.guestsGroupId`, which the DB-backed test fixture's
+        minimal `WIKI` (`test/db.ts`) never populates -- out of scope for this module's own suite to
+        add. `reloadCache()` is the same in-memory refresh `updateGroup()` itself triggers, so
+        `checkAccess()` sees these rules exactly as it would after a real admin edit.
+      */
+      await fixtures.db
+        .update(groupsTable)
+        .set({ rules })
+        .where(eq(groupsTable.id, fixtures.groupId))
+      const { groups: groupsModel } = await import('../../../models/groups.ts')
+      await groupsModel.reloadCache()
+
+      readerActor = { id: fixtures.userId, groupIds: [fixtures.groupId], permissions: [] }
+    })
+
+    test('pages stay full and non-overlapping across offsets when part of the match set is denied', async () => {
+      // -> 12 pages sharing one tag, titled so alphabetical order is predictable; every third one
+      //    (03, 06, 09, 12) lives under the denied branch. 8 of the 12 survive the reader's rules.
+      for (let i = 1; i <= 12; i++) {
+        const isHidden = i % 3 === 0
+        await pagesModel.createPage(
+          fixtures.siteId,
+          pageInput({
+            path: isHidden ? `docs/hidden/paging-${i}` : `docs/open/paging-${i}`,
+            title: `Paging Stability ${String(i).padStart(2, '0')}`,
+            tags: ['paging-stability-2010']
+          }),
+          actor
+        )
+      }
+
+      const fetchPage = (pageOffset: number, pageLimit: number) =>
+        searchModel.query({
+          siteId: fixtures.siteId,
+          tags: ['paging-stability-2010'],
+          orderBy: 'title',
+          orderByDirection: 'asc',
+          offset: pageOffset,
+          limit: pageLimit,
+          actor: readerActor
+        })
+
+      const limit = 3
+      const page1 = await fetchPage(0, limit)
+      const page2 = await fetchPage(limit, limit)
+      const page3 = await fetchPage(limit * 2, limit)
+
+      // -> Full pages while visible matches remain (8 visible total: 3 + 3 + 2), never a page shrunk
+      //    below `limit` just because a denied row happened to fall inside its raw window.
+      assert.equal(page1.results.length, 3)
+      assert.equal(page2.results.length, 3)
+      assert.equal(page3.results.length, 2)
+
+      const seenPaths = [...page1.results, ...page2.results, ...page3.results].map((r) => r.path)
+
+      // -> No repeats
+      assert.equal(new Set(seenPaths).size, seenPaths.length)
+      // -> No hidden-branch page ever surfaces
+      assert.ok(seenPaths.every((p) => !p.startsWith('docs/hidden/')))
+      // -> Nothing skipped: exactly the 8 open-branch pages, none missing
+      assert.deepEqual(
+        seenPaths.sort(),
+        Array.from({ length: 12 }, (_, idx) => idx + 1)
+          .filter((i) => i % 3 !== 0)
+          .map((i) => `docs/open/paging-${i}`)
+          .sort()
+      )
+    })
+
+    /**
+     * Forces the over-fetch loop to grow past its initial margin: 32 denied rows sort before 4
+     * visible ones (`H` < `V`), so the first candidate window (`limit + OVERFETCH_MARGIN` = well
+     * under 32) comes back with zero surviving rows and has to be widened before the first page can
+     * be filled at all.
+     */
+    test('the candidate window grows when the initial margin is not enough', async () => {
+      for (let i = 1; i <= 32; i++) {
+        await pagesModel.createPage(
+          fixtures.siteId,
+          pageInput({
+            path: `docs/hidden/growth-h-${i}`,
+            title: `H ${String(i).padStart(2, '0')}`,
+            tags: ['paging-growth-2010']
+          }),
+          actor
+        )
+      }
+      for (let i = 1; i <= 4; i++) {
+        await pagesModel.createPage(
+          fixtures.siteId,
+          pageInput({
+            path: `docs/open/growth-v-${i}`,
+            title: `V ${String(i).padStart(2, '0')}`,
+            tags: ['paging-growth-2010']
+          }),
+          actor
+        )
+      }
+
+      const result = await searchModel.query({
+        siteId: fixtures.siteId,
+        tags: ['paging-growth-2010'],
+        orderBy: 'title',
+        orderByDirection: 'asc',
+        offset: 0,
+        limit: 3,
+        actor: readerActor
+      })
+
+      assert.equal(result.results.length, 3)
+      assert.deepEqual(
+        result.results.map((r) => r.path),
+        ['docs/open/growth-v-1', 'docs/open/growth-v-2', 'docs/open/growth-v-3']
+      )
     })
   })
 })
