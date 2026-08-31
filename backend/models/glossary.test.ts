@@ -811,6 +811,126 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
     })
   })
 
+  describe('per-term CRUD versioning (OpenProject #1891)', () => {
+    const versionActor = { id: null, name: 'Version Tester' }
+
+    test('createTerm() with an actor appends a version snapshotting the resulting full term list', async () => {
+      const before = await glossaryModel.listVersions(fixtures.siteId)
+      const created = await glossaryModel.createTerm(
+        fixtures.siteId,
+        { term: 'VersionedCreate', definition: 'Should be versioned.' },
+        versionActor
+      )
+
+      const after = await glossaryModel.listVersions(fixtures.siteId)
+      assert.equal(after.length, before.length + 1)
+      const live = await glossaryModel.listTerms(fixtures.siteId)
+      assert.equal(after[0]!.termCount, live.length)
+
+      const snapshot = await glossaryModel.getVersion(fixtures.siteId, after[0]!.id)
+      assert.ok(snapshot?.snapshot.terms.some((t) => t.term === created.term))
+    })
+
+    test('createTerm() without an actor records no version', async () => {
+      const before = await glossaryModel.listVersions(fixtures.siteId)
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'UnversionedCreate',
+        definition: 'No actor, no version.'
+      })
+
+      const after = await glossaryModel.listVersions(fixtures.siteId)
+      assert.equal(after.length, before.length)
+    })
+
+    test('updateTerm() with an actor appends a version', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'VersionedUpdateTarget',
+        definition: 'Before.'
+      })
+      const before = await glossaryModel.listVersions(fixtures.siteId)
+
+      await glossaryModel.updateTerm(
+        fixtures.siteId,
+        created.id,
+        { definition: 'After.' },
+        versionActor
+      )
+
+      const after = await glossaryModel.listVersions(fixtures.siteId)
+      assert.equal(after.length, before.length + 1)
+    })
+
+    test('updateTerm() without an actor records no version', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'UnversionedUpdateTarget',
+        definition: 'Before.'
+      })
+      const before = await glossaryModel.listVersions(fixtures.siteId)
+
+      await glossaryModel.updateTerm(fixtures.siteId, created.id, { definition: 'After.' })
+
+      const after = await glossaryModel.listVersions(fixtures.siteId)
+      assert.equal(after.length, before.length)
+    })
+
+    test('updateTerm() records no version when the update fails (unknown id)', async () => {
+      const before = await glossaryModel.listVersions(fixtures.siteId)
+
+      await assert.rejects(() =>
+        glossaryModel.updateTerm(
+          fixtures.siteId,
+          '00000000-0000-0000-0000-000000000000',
+          { definition: 'Never applied.' },
+          versionActor
+        )
+      )
+
+      const after = await glossaryModel.listVersions(fixtures.siteId)
+      assert.equal(after.length, before.length)
+    })
+
+    test('deleteTerm() with an actor appends a version reflecting the term’s removal', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'VersionedDeleteTarget',
+        definition: 'Will be removed.'
+      })
+      const before = await glossaryModel.listVersions(fixtures.siteId)
+
+      await glossaryModel.deleteTerm(fixtures.siteId, created.id, versionActor)
+
+      const after = await glossaryModel.listVersions(fixtures.siteId)
+      assert.equal(after.length, before.length + 1)
+      const snapshot = await glossaryModel.getVersion(fixtures.siteId, after[0]!.id)
+      assert.ok(!snapshot?.snapshot.terms.some((t) => t.term === 'VersionedDeleteTarget'))
+    })
+
+    test('deleteTerm() without an actor records no version', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'UnversionedDeleteTarget',
+        definition: 'Will be removed, unattributed.'
+      })
+      const before = await glossaryModel.listVersions(fixtures.siteId)
+
+      await glossaryModel.deleteTerm(fixtures.siteId, created.id)
+
+      const after = await glossaryModel.listVersions(fixtures.siteId)
+      assert.equal(after.length, before.length)
+    })
+
+    test('deleteTerm() records no version when nothing was deleted', async () => {
+      const before = await glossaryModel.listVersions(fixtures.siteId)
+
+      await glossaryModel.deleteTerm(
+        fixtures.siteId,
+        '00000000-0000-0000-0000-000000000000',
+        versionActor
+      )
+
+      const after = await glossaryModel.listVersions(fixtures.siteId)
+      assert.equal(after.length, before.length)
+    })
+  })
+
   describe('audit log instrumentation (OpenProject #1115)', () => {
     let auditLogModel: typeof import('./auditLog.ts').auditLog
     const glossaryActor = { id: null, name: 'Audit Tester', ip: '127.0.0.1' }
