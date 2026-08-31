@@ -143,6 +143,15 @@ const NESTED_FIXTURE_GRAPH = {
   edges: []
 }
 
+/** OpenProject #1866's response shape as `FIXTURE_GRAPH` extended with `truncated`/`totalNodes` --
+ *  `truncated: true` with a `totalNodes` well above the two returned nodes, so the "N of totalNodes"
+ *  notice text (OpenProject #1875) is unambiguous either way it might be phrased. */
+const FIXTURE_GRAPH_TRUNCATED = {
+  ...FIXTURE_GRAPH,
+  truncated: true,
+  totalNodes: 5000
+}
+
 /** Options for `API_CLIENT.get('system/pageviews')` -- defaults to tracking enabled so the
  *  'visits' sizing option is available in the default `mountGraph()` fixture; a test asserting the
  *  disabled case passes `{ pageviewsEnabled: false }`. `graph` defaults to `FIXTURE_GRAPH` (a
@@ -1102,5 +1111,20 @@ describe('Graph.vue (OpenProject #891)', () => {
 
     expect(wrapper.vm.graphTruncated).toBe(true)
     expect(wrapper.vm.totalNodes).toBe(5000)
+  })
+
+  it('shows the truncation notice with the shown/total counts when the response is truncated (OpenProject #1875)', async () => {
+    const wrapper = await mountGraph({ graph: FIXTURE_GRAPH_TRUNCATED })
+
+    expect(wrapper.find('.graph-view-truncation-notice').exists()).toBe(true)
+    // -> FIXTURE_GRAPH_TRUNCATED's two nodes are what the (stubbed) server actually returned;
+    //    totalNodes (5000) is the true readable-page count the cap cut it down from.
+    expect(wrapper.text()).toContain('Showing 2 of 5000 pages')
+  })
+
+  it('does not show the truncation notice when the response is not truncated', async () => {
+    const wrapper = await mountGraph()
+
+    expect(wrapper.find('.graph-view-truncation-notice').exists()).toBe(false)
   })
 })
