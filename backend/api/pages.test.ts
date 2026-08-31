@@ -3963,3 +3963,97 @@ describe('GET /sites/:siteId/pages/:pageId/export/pdf — anonymous access (Open
     assert.equal(exportPdfCalls[0].path, 'some/page')
   })
 })
+
+/**
+ * OpenProject #1864: `GET /sites/:siteId/pages/deleted`'s per-row `read:history` filter used to call
+ * `mayOnPage(req, ...)` once per row, which rebuilds the actor internally on every call. It now
+ * hoists `WIKI.models.groups.actorForRequest(req)` once per request and calls `checkAccess(actor,
+ * ...)` per row directly -- the same shape `tree.ts`'s `visibleTreeItems()` and the graph route use.
+ */
+describe('GET /sites/:siteId/pages/deleted — actor hoisted out of the per-row filter (OpenProject #1864)', () => {
+  const SITE_ID = '11111111-1111-1111-1111-111111111111'
+
+  function makeRow(path: string) {
+    return {
+      id: path,
+      action: 'deleted',
+      via: 'editor',
+      changedFields: [],
+      reason: '',
+      versionDate: new Date('2026-01-01T00:00:00.000Z'),
+      locale: 'en',
+      path,
+      title: path,
+      tags: [],
+      classification: null,
+      author: { id: 'user-1', name: 'Alice' }
+    }
+  }
+
+  let app: FastifyInstance
+  let actorForRequest: ReturnType<typeof mock.fn>
+  let checkAccess: ReturnType<typeof mock.fn>
+
+  before(async () => {
+    actorForRequest = mock.fn(() => ({ groupIds: [], permissions: [] }))
+    checkAccess = mock.fn(
+      (_actor: unknown, _permission: string, page: { path: string }) => page.path !== 'secret'
+    )
+    ;(globalThis as any).WIKI = {
+      sites: {},
+      models: {
+        pageHistory: {
+          listRecoverable: async () => ({
+            items: [makeRow('open-a'), makeRow('secret'), makeRow('open-b')],
+            nextCursor: null
+          })
+        },
+        groups: {
+          actorForRequest,
+          checkAccess
+        }
+      }
+    }
+
+    app = Fastify()
+    await app.register(fastifySensible)
+    await registerErrorSchema(app)
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('filters out a row checkAccess refuses, keeping the rest', async () => {
+    const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/pages/deleted` })
+
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(
+      res
+        .json()
+        .items.map((row: { path: string }) => row.path)
+        .sort(),
+      ['open-a', 'open-b']
+    )
+  })
+
+  test('builds the actor exactly once per request, not once per row', async () => {
+    actorForRequest.mock.resetCalls()
+    checkAccess.mock.resetCalls()
+
+    await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/pages/deleted` })
+
+    assert.equal(actorForRequest.mock.calls.length, 1)
+    assert.equal(checkAccess.mock.calls.length, 3)
+    const actor = actorForRequest.mock.calls[0]!.result
+    for (const call of checkAccess.mock.calls) {
+      assert.equal(call.arguments[0], actor)
+    }
+  })
+})

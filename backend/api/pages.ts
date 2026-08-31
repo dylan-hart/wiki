@@ -2324,13 +2324,18 @@ async function routes(app: FastifyInstance) {
           cursor: req.query.cursor
         }
       )
+      // -> Built once per request rather than once per row -- `mayOnPage()` rebuilds it internally
+      //    on every call. See `graph.ts`'s graph route and `tree.ts`'s `visibleTreeItems()` for the
+      //    same shape.
+      const actor = WIKI.models.groups.actorForRequest(req)
       return {
         items: items.filter((row) =>
-          mayOnPage(req, 'read:history', req.params.siteId, {
+          WIKI.models.groups.checkAccess(actor, 'read:history', {
             path: row.path,
             locale: row.locale,
             tags: row.tags,
-            classification: row.classification
+            classification: row.classification,
+            siteId: req.params.siteId
           })
         ),
         nextCursor

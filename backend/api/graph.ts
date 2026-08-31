@@ -3,7 +3,6 @@ import type { GraphPageRow } from '../models/pages.ts'
 import type { PageHistoryContributorCounts } from '../models/pageHistory.ts'
 import type { PageviewCountsForGraph } from '../models/pageviews.ts'
 import { zeroPageviewCountsForGraph } from '../models/pageviews.ts'
-import { mayOnPage } from './pages.ts'
 import { guardSiteEnabled } from '../helpers/common.ts'
 import {
   getCachedGraphData,
@@ -262,9 +261,18 @@ async function routes(app: FastifyInstance) {
       const rows = authenticated
         ? data.rows
         : data.rows.filter((row) => row.publishState === 'published')
+      // -> Built once per request rather than once per row -- `mayOnPage()` rebuilds it internally
+      //    on every call, and the graph's input is unbounded (`listAllForGraph()` selects every page
+      //    row for the site with no limit). See `tree.ts`'s `visibleTreeItems()` for the same shape.
+      const actor = WIKI.models.groups.actorForRequest(req)
       return assembleGraph(
         rows,
-        (row) => mayOnPage(req, 'read:pages', req.params.siteId, row),
+        (row) =>
+          WIKI.models.groups.checkAccess(actor, 'read:pages', {
+            ...row,
+            classification: row.classification ?? null,
+            siteId: req.params.siteId
+          }),
         (id) => WIKI.models.classificationLevels.byId(id)?.name ?? null,
         (pageId) =>
           data.contributorCounts.get(pageId) ?? {

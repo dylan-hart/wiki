@@ -1,4 +1,4 @@
-import { after, before, describe, test } from 'node:test'
+import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
@@ -738,5 +738,128 @@ describe('listAllForGraph publication filtering (DB-backed)', { skip: !hasTestDa
       'en:graph-filter/also-published',
       'en:graph-filter/draft'
     ])
+  })
+})
+
+/**
+ * OpenProject #1864: `GET /sites/:siteId/graph`'s permission filter used to call `mayOnPage(req, ...)`
+ * per row, which rebuilds the actor internally on every call. It now hoists
+ * `WIKI.models.groups.actorForRequest(req)` once per request (`tree.ts`'s `visibleTreeItems()`
+ * shape) and calls `checkAccess(actor, ...)` per row directly.
+ *
+ * Exercised at the route/HTTP level rather than through `assembleGraph()`'s pure predicate, since
+ * the hoisting only exists at the call site inside the route handler.
+ */
+describe('GET /sites/:siteId/graph — actor hoisted out of the per-row filter (OpenProject #1864)', () => {
+  const SITE_ID = '11111111-1111-1111-1111-111111111111'
+
+  function makeGraphRow(path: string): GraphPageRow {
+    return {
+      id: path,
+      path,
+      locale: 'en',
+      title: path,
+      icon: null,
+      tags: [],
+      classification: 'level-public',
+      relations: [],
+      links: [],
+      publishState: 'published'
+    }
+  }
+
+  let app: FastifyInstance
+  let actorForRequest: ReturnType<typeof mock.fn>
+  let checkAccess: ReturnType<typeof mock.fn>
+  // -> A bare Map stands in for `WIKI.cache` (a real `NodeCache` in production) -- the route reads
+  //    and writes the graph bundle through it (`helpers/graphCache.ts`), so `loadGraphData` needs
+  //    somewhere to look before it will ever call `listAllForGraph` et al.
+  let cacheStore: Map<string, unknown>
+
+  before(async () => {
+    actorForRequest = mock.fn(() => ({ groupIds: [], permissions: [] }))
+    checkAccess = mock.fn(
+      (_actor: unknown, _permission: string, page: { path: string }) => page.path !== 'secret'
+    )
+    cacheStore = new Map()
+    ;(globalThis as any).WIKI = {
+      sites: {},
+      cache: {
+        get: (key: string) => cacheStore.get(key),
+        set: (key: string, value: unknown) => {
+          cacheStore.set(key, value)
+        },
+        delete: (key: string) => {
+          cacheStore.delete(key)
+        }
+      },
+      models: {
+        pages: {
+          listAllForGraph: async () => [
+            makeGraphRow('open-a'),
+            makeGraphRow('open-b'),
+            makeGraphRow('secret')
+          ]
+        },
+        pageHistory: {
+          contributorCountsForGraph: async () => new Map()
+        },
+        pageviews: {
+          countsForGraph: async () => new Map()
+        },
+        groups: {
+          actorForRequest,
+          checkAccess
+        },
+        classificationLevels: {
+          byId: () => null
+        }
+      }
+    }
+
+    app = fastify()
+    app.addHook('onRequest', async (req) => {
+      ;(req as any).session = { authenticated: true }
+    })
+    await app.register(fastifySensible)
+    await registerErrorSchema(app)
+    await registerGraphSchema(app)
+    await app.register(graphRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('filters out a row checkAccess refuses, keeping the rest -- same node set as the unhoisted call', async () => {
+    const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/graph` })
+
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(
+      res
+        .json()
+        .nodes.map((n: { path: string }) => n.path)
+        .sort(),
+      ['open-a', 'open-b']
+    )
+  })
+
+  test('builds the actor exactly once per request, not once per row', async () => {
+    actorForRequest.mock.resetCalls()
+    checkAccess.mock.resetCalls()
+
+    await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/graph` })
+
+    assert.equal(actorForRequest.mock.calls.length, 1)
+    // -> Three rows in the fixture -- checkAccess is still called per row, only actor construction
+    //    is hoisted.
+    assert.equal(checkAccess.mock.calls.length, 3)
+    // -> Every checkAccess call reuses the exact same actor object actorForRequest returned once.
+    const actor = actorForRequest.mock.calls[0]!.result
+    for (const call of checkAccess.mock.calls) {
+      assert.equal(call.arguments[0], actor)
+    }
   })
 })
