@@ -107,6 +107,15 @@ export const JOB_SCHEDULE_SEED = [
     cron: '45 0 * * *',
     type: 'system'
   },
+  // -> Nulls `guestName`/`guestEmail`/`guestIp` on guest comments past the configured retention
+  //    window (default `DEFAULT_GUEST_PII_RETENTION_DAYS`, admin-editable) -- see
+  //    `tasks/simple/purge-guest-pii.ts` / `models/comments.ts#purgeGuestPii()`. Offset from the
+  //    other midnight housekeeping jobs above.
+  {
+    task: 'purgeGuestPii',
+    cron: '55 0 * * *',
+    type: 'system'
+  },
   // -> Checks every pull/two-way storage target's schedule and queues a sync for whichever is due —
   //    a short cron since the comparison against each target's own interval happens inside the task
   //    itself, not here. See `tasks/simple/storage-sync-tick.ts` / `Storage.tickScheduledSyncs()`.

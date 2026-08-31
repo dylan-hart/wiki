@@ -6,10 +6,17 @@ import type { PageActor } from './pages.ts'
 
 // Node 26 (this repo's target runtime, per CLAUDE.md) provides `Temporal` as a native global. This
 // dev environment runs an older Node without it, so shim just enough of `Temporal.Now.instant()` for
-// `comments.update()` — which genuinely calls the real global, unmodified — to run here too.
+// `comments.update()` and `comments.purgeGuestPii()` — which genuinely call the real global,
+// unmodified — to run here too. `subtract()` only needs to understand `{ hours }`, the one duration
+// shape either method passes it.
 if (typeof (globalThis as any).Temporal === 'undefined') {
+  const makeInstant = (epochMilliseconds: number): any => ({
+    epochMilliseconds,
+    subtract: ({ hours = 0 }: { hours?: number }) =>
+      makeInstant(epochMilliseconds - hours * 60 * 60 * 1000)
+  })
   ;(globalThis as any).Temporal = {
-    Now: { instant: () => ({ epochMilliseconds: Date.now() }) }
+    Now: { instant: () => makeInstant(Date.now()) }
   }
 }
 
@@ -825,5 +832,66 @@ describe('comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const found = await commentsModel.getWithPage(comment.id)
     assert.equal(found, null)
+  })
+
+  test('purgeGuestPii nulls guest columns on guest comments past the window and leaves newer ones untouched', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'purge-guest-pii/target', title: 'Target', editor: 'markdown', content: 'x' },
+      actor
+    )
+    const now = Date.now()
+    const old = await insertComment({
+      pageId: page.id,
+      authorId: null,
+      guestName: 'Old Guest',
+      guestEmail: 'old@example.com',
+      guestIp: '203.0.113.1',
+      content: 'An old guest comment',
+      createdAt: new Date(now - 100 * 24 * 60 * 60 * 1000)
+    })
+    const recent = await insertComment({
+      pageId: page.id,
+      authorId: null,
+      guestName: 'Recent Guest',
+      guestEmail: 'recent@example.com',
+      guestIp: '203.0.113.2',
+      content: 'A recent guest comment',
+      createdAt: new Date(now - 1 * 24 * 60 * 60 * 1000)
+    })
+    // -> A logged-in author's row, backdated the same as `old`, must never be touched even though it
+    //    is past the window -- it has no guest columns to begin with.
+    const authored = await insertComment({
+      pageId: page.id,
+      authorId: fixtures.userId,
+      content: 'An old authored comment',
+      createdAt: new Date(now - 100 * 24 * 60 * 60 * 1000)
+    })
+
+    const purged = await commentsModel.purgeGuestPii(90)
+    assert.equal(purged, 1)
+
+    const oldAfter = await commentsModel.get(old.id)
+    assert.equal(oldAfter!.guestName, null)
+    assert.equal(oldAfter!.guestEmail, null)
+    assert.equal(oldAfter!.guestIp, null)
+    // -> Content and thread position are not PII -- only who-the-guest-was is cleared.
+    assert.equal(oldAfter!.content, 'An old guest comment')
+
+    const recentAfter = await commentsModel.get(recent.id)
+    assert.equal(recentAfter!.guestName, 'Recent Guest')
+    assert.equal(recentAfter!.guestEmail, 'recent@example.com')
+    assert.equal(recentAfter!.guestIp, '203.0.113.2')
+
+    const authoredAfter = await commentsModel.get(authored.id)
+    assert.equal(authoredAfter!.authorId, fixtures.userId)
+
+    // -> A second run finds nothing left to purge: already-swept rows are not rewritten.
+    const secondRun = await commentsModel.purgeGuestPii(90)
+    assert.equal(secondRun, 0)
+  })
+
+  test('getGuestPiiRetentionDays falls back to the default when unconfigured', () => {
+    assert.equal(commentsModel.getGuestPiiRetentionDays(), 90)
   })
 })
