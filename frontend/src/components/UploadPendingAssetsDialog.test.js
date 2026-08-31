@@ -9,6 +9,11 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { queue } from '@/composables/notify'
 
+const MESSAGES = {
+  'editor.pendingAssetsCancel': 'Cancel Upload',
+  'editor.pendingAssetsCancelled': 'Upload cancelled.'
+}
+
 /**
  * The component's own `onMounted` (not `useDialogComponent`'s) awaits a fixed 500ms delay before
  * uploading anything -- fake timers stand in for that, same as `EditorMarkdown.test.js`'s debounce
@@ -25,7 +30,7 @@ async function mountDialog({ path, pendingAssets }) {
   pageStore.content = pendingAssets.map((a) => a.blobUrl).join('\n')
   editorStore.pendingAssets = pendingAssets
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
   const wrapper = mount(UploadPendingAssetsDialog, {
     global: { plugins: [i18n], stubs: { teleport: true } }
   })
@@ -174,5 +179,101 @@ describe('UploadPendingAssetsDialog: mid-batch failure (OpenProject #945)', () =
     })
 
     expect(pageStore.content).toBe('blob:one.png')
+  })
+})
+
+describe('UploadPendingAssetsDialog: unbounded timeout + cancel (OpenProject #1714)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    queue.splice(0, queue.length)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('posts with an unbounded timeout and an AbortController signal, not the ky instance default', async () => {
+    API_CLIENT.post.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({
+        ok: true,
+        asset: { folderPath: '', fileName: 'photo.png' }
+      })
+    })
+
+    await mountDialog({
+      path: 'home',
+      pendingAssets: [pendingAsset('photo.png')]
+    })
+
+    expect(API_CLIENT.post).toHaveBeenCalledWith(
+      'sites/site-1/assets',
+      expect.objectContaining({
+        timeout: false,
+        signal: expect.any(AbortSignal)
+      })
+    )
+  })
+
+  it('reports a cancelled upload distinctly from a real server failure, via the Cancel button', async () => {
+    // -> The mocked post never resolves on its own; the component's own `AbortController` is what
+    //    ends it, by rejecting with a DOMException named AbortError, same as a real aborted `fetch`.
+    let capturedSignal
+    API_CLIENT.post.mockImplementationOnce((url, opts) => {
+      capturedSignal = opts.signal
+      return {
+        json: () =>
+          new Promise((resolve, reject) => {
+            opts.signal.addEventListener('abort', () => {
+              reject(new DOMException('The user aborted a request.', 'AbortError'))
+            })
+          })
+      }
+    })
+
+    const { wrapper } = await mountDialog({
+      path: 'home',
+      pendingAssets: [pendingAsset('big.png')]
+    })
+
+    expect(capturedSignal.aborted).toBe(false)
+
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+
+    expect(capturedSignal.aborted).toBe(true)
+    // -> Distinct from the generic negative failure toast covered by the mid-batch-failure suite
+    //    above: a cancel is the user's own action, not an unexplained server error.
+    expect(queue.at(-1)).toMatchObject({ type: 'warning', message: 'Upload cancelled.' })
+    expect(wrapper.emitted('ok')).toBeFalsy()
+  })
+
+  it('leaves an already-uploaded item applied and pruned when a later item is cancelled', async () => {
+    API_CLIENT.post
+      .mockReturnValueOnce({
+        json: vi.fn().mockResolvedValue({
+          ok: true,
+          asset: { folderPath: '', fileName: 'one.png' }
+        })
+      })
+      .mockImplementationOnce((url, opts) => ({
+        json: () =>
+          new Promise((resolve, reject) => {
+            opts.signal.addEventListener('abort', () => {
+              reject(new DOMException('The user aborted a request.', 'AbortError'))
+            })
+          })
+      }))
+
+    const { wrapper, editorStore } = await mountDialog({
+      path: 'home',
+      pendingAssets: [pendingAsset('one.png'), pendingAsset('two.png')]
+    })
+
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+
+    expect(editorStore.pendingAssets).toHaveLength(1)
+    expect(editorStore.pendingAssets[0].fileName).toBe('two.png')
+    expect(queue.at(-1)).toMatchObject({ type: 'warning', message: 'Upload cancelled.' })
   })
 })

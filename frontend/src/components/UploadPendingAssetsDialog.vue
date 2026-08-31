@@ -12,6 +12,16 @@
         <w-linear-progress indeterminate size="lg" rounded />
         <div class="mt-2 text-center text-caption">{{ state.current }} / {{ state.total }}</div>
       </w-card-section>
+      <w-card-actions class="card-actions">
+        <w-space />
+        <w-btn
+          class="acrylic-btn"
+          flat
+          :label="t(`editor.pendingAssetsCancel`)"
+          color="grey"
+          padding="xs md"
+          @click="cancelUpload" />
+      </w-card-actions>
     </w-card>
   </w-dialog>
 </template>
@@ -54,6 +64,17 @@ const state = reactive({
   total: 1
 })
 
+/**
+ * The batch's `AbortController`, created once `onMounted` starts the upload loop. `null` beforehand
+ * (nothing to cancel yet), so `cancelUpload` below has to guard against being clicked in that window.
+ */
+let controller = null
+
+/** Cancels whichever item is currently in flight -- the loop's own `catch` reports it distinctly. */
+function cancelUpload() {
+  controller?.abort()
+}
+
 // MOUNTED
 
 onMounted(async () => {
@@ -65,6 +86,16 @@ onMounted(async () => {
   state.current = 0
 
   await new Promise((resolve) => setTimeout(resolve, 500))
+
+  // -> A single controller for the whole batch: the file is posted with `timeout: false` below
+  //    because ky's 10s instance default (`boot/api.js`) is well under how long a 25MB upload
+  //    (`MAX_IMPORT_SIZE`, backend/models/import.ts) can take on a slow uplink -- the client used to
+  //    abort with a TimeoutError while the server finished the upload anyway, leaving the item stuck
+  //    in `pendingAssets` to re-upload as a `name-1.ext` duplicate on retry (OpenProject #945). An
+  //    unbounded request needs its own cancel escape hatch instead, which is what the Cancel button
+  //    triggers -- aborting only the item currently in flight; anything already uploaded this batch
+  //    stays applied and pruned (see the pruning comment further down).
+  controller = new AbortController()
 
   try {
     for (const item of items) {
@@ -79,7 +110,9 @@ onMounted(async () => {
         headers: {
           'content-type': item.file.type || 'application/octet-stream'
         },
-        body: item.file
+        body: item.file,
+        timeout: false,
+        signal: controller.signal
       }).json()
       if (resp?.ok === false) {
         throw new Error(resp.message || 'An unexpected error occured.')
@@ -107,10 +140,20 @@ onMounted(async () => {
     }
     onDialogOK()
   } catch (err) {
-    notify({
-      type: 'negative',
-      message: apiErrorMessage(err)
-    })
+    // -> An abort surfaces as a DOMException named AbortError from the underlying fetch, not a ky
+    //    TimeoutError (there is no client-side timeout to fire one) -- a user cancel must read as
+    //    exactly that, not as an unexplained server failure needing investigation.
+    if (err.name === 'AbortError') {
+      notify({
+        type: 'warning',
+        message: t('editor.pendingAssetsCancelled')
+      })
+    } else {
+      notify({
+        type: 'negative',
+        message: apiErrorMessage(err)
+      })
+    }
     onDialogCancel()
   }
 })
