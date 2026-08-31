@@ -556,10 +556,14 @@ export default {
       //    retried logs at `warn`, matching the "Rescheduling new attempt" line below it — an
       //    operator shipping only `error` to alerting must see a storm of failing-and-retrying jobs,
       //    not just the final give-up.
+      // -> `jobId`/`task`/`attempt` (OpenProject #1937) so a failure is traceable to the job that
+      //    caused it without cross-referencing `jobHistory` by timestamp. `attempt` is the one about
+      //    to be recorded below (`job.retries + 1`), not `job.retries` itself.
       const retriesExhausted = job.retries >= job.maxRetries
       const failureLog = retriesExhausted ? WIKI.logger.error : WIKI.logger.warn
-      failureLog(`Failed to complete job ${job.id}: ${job.task} [ FAILED ]`)
-      failureLog(err)
+      const jobContext = { jobId: job.id, task: job.task, attempt: job.retries + 1 }
+      failureLog(`Failed to complete job ${job.id}: ${job.task} [ FAILED ]`, jobContext)
+      failureLog(err, jobContext)
       try {
         await WIKI.db
           .update(jobHistoryTable)

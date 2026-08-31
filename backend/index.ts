@@ -3,6 +3,7 @@
 // Licensed under AGPLv3
 // ===========================================
 
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import semver from 'semver'
@@ -54,6 +55,7 @@ import {
   limitPublicRequests,
   isPublicRateLimitedPath
 } from './helpers/rateLimit.ts'
+import { buildErrorLogContext } from './helpers/requestLogContext.ts'
 import {
   corsOptions,
   parseCspDirectives,
@@ -360,8 +362,27 @@ async function initHTTPServer() {
       }
     },
     bodyLimit: WIKI.config.bodyParserLimit || 5242880, // 5mb
+    // -> `level: 'error'` used to suppress pino's own request/response logging entirely (emitted at
+    //    `info`) — no access log, no per-request latency, no status code, no correlation id
+    //    (OpenProject #1937). `genReqId` gives every request one; in `logFormat: 'json'` mode the
+    //    `formatters`/`messageKey`/`timestamp`/`base` options below reshape pino's own JSON line into
+    //    the exact `{ timestamp, instance, level, message, ... }` shape `core/logger.ts`'s JSON branch
+    //    already emits, so an aggregator sees one format across both loggers instead of two. Text mode
+    //    is left as Fastify's own default pino output — the audit note this WP implements only scopes
+    //    shape-matching to JSON mode.
     logger: {
-      level: 'error'
+      level: 'info',
+      genReqId: () => randomUUID(),
+      ...(WIKI.config.logFormat === 'json'
+        ? {
+            messageKey: 'message',
+            timestamp: () => `,"timestamp":"${new Date().toISOString()}"`,
+            base: { instance: WIKI.INSTANCE_ID },
+            formatters: {
+              level: (label: string) => ({ level: label })
+            }
+          }
+        : {})
     },
     // -> `securityTrustProxy` was the 2.x name: the setting is `trustProxy`, so this read never
     //    matched and the option was permanently off no matter what the admin area showed.
@@ -1105,7 +1126,10 @@ async function initHTTPServer() {
           message: error.message
         })
       } else {
-        WIKI.logger.warn(error)
+        // -> A bare `WIKI.logger.warn(error)` gave an operator no way to trace a 500 back to the
+        //    request that caused it. `req.id` is the same correlation id Fastify's own access log
+        //    carries for this request (`genReqId`, above), so the two lines join in an aggregator.
+        WIKI.logger.warn(error, buildErrorLogContext(req))
         reply.code(500).type('application/json').send({
           ok: false,
           error: 'Internal Server Error',

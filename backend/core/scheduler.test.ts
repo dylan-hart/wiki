@@ -609,6 +609,79 @@ describe('addJob (fake WIKI, rejecting insert)', () => {
 })
 
 /**
+ * OpenProject #1937: `runJob()`'s catch branch used to log a job's failure as two bare strings, with
+ * no way to trace which job (or attempt) a given log line was about. This asserts both failure log
+ * calls in that branch now carry `{ jobId, task, attempt }` as a sibling context argument, not folded
+ * into the message string. `error` and `warn` share one mock here (task #1993's log-level split
+ * routes an exhausted-retries failure to `error`, not `warn`) since this test's own concern is the
+ * context payload, not which level a given retry count picks.
+ */
+describe('runJob failure logging (fake WIKI)', () => {
+  let previousWiki: any
+  let failureMock: ReturnType<typeof mock.fn>
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    failureMock = mock.fn((..._args: any[]) => {})
+    ;(globalThis as any).WIKI = {
+      INSTANCE_ID: 'test-instance',
+      config: { scheduler: { retryBackoff: 0 } },
+      // -> `notifier.send()` (module scope in scheduler.ts) reads `WIKI.scheduler.pubsubClient` on
+      //    every send; `null` is a valid, silently-discarded target (`helpers/pubsub.ts`), so this
+      //    exercises the catch branch with no real LISTEN/NOTIFY client needed.
+      scheduler: { pubsubClient: null },
+      logger: { info: () => {}, warn: failureMock, error: failureMock },
+      // -> Only the `jobHistory` write in the catch branch's own recording step; letting this
+      //    succeed keeps the assertion focused on the two failure-logging calls instead of also
+      //    picking up the branch's own "could not record the failure" fallback warn.
+      db: {
+        update: (_table: any) => ({
+          set: (_values: any) => ({
+            where: async () => ({})
+          })
+        })
+      }
+    }
+    scheduler.tasks = {
+      boom: async () => {
+        throw new Error('task exploded')
+      }
+    }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('both failure log calls carry { jobId, task, attempt } as sibling context, not concatenated in', async () => {
+    failureMock.mock.resetCalls()
+    // -> retries === maxRetries: no reschedule branch, so this stays free of the Temporal/db.insert
+    //    path that `attempt` here doesn't need. This also means retries are exhausted, so both calls
+    //    log at `error` (task #1993) — `failureMock` above is registered for both levels.
+    const job = {
+      id: 'job-1',
+      task: 'boom',
+      payload: {},
+      useWorker: false,
+      retries: 2,
+      maxRetries: 2
+    }
+
+    await scheduler.runJob(job)
+
+    assert.equal(failureMock.mock.callCount(), 2)
+    const expectedContext = { jobId: 'job-1', task: 'boom', attempt: 3 }
+    const [firstCall, secondCall] = failureMock.mock.calls
+
+    assert.match(firstCall!.arguments[0] as string, /Failed to complete job job-1: boom/)
+    assert.deepEqual(firstCall!.arguments[1], expectedContext)
+
+    assert.ok(secondCall!.arguments[0] instanceof Error)
+    assert.deepEqual(secondCall!.arguments[1], expectedContext)
+  })
+})
+
+/**
  * Task 704 (a): `executeOnWorker`'s two timeout ceilings, verified against a REAL poolifier worker
  * thread rather than a mock of one — see `test/fixtures/schedulerCrashWorker.ts` for why a worker
  * thread's own `process.exit()` is the faithful in-process equivalent of `kill -9`-ing it.
