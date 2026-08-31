@@ -16,7 +16,15 @@ import mdGithubAlerts from './modules/github-alerts'
 import mdGlossary from './modules/markdown-it-glossary'
 import twemoji from '@twemoji/api'
 
-import hljs from 'highlight.js'
+// -> `lib/common`, not the `highlight.js` root: the root registers every language the package ships
+//    (~190, several hundred kB gzipped) into this renderer's chunk regardless of whether any page on
+//    the wiki ever fences one of them. `lib/common` registers ~36 of the most commonly written
+//    languages instead -- `EditorCodeBlockMenu.vue` imports the SAME module, since hljs is a
+//    module-singleton registry: importing anything narrower or wider here than there would silently
+//    split what the fence-language picker offers from what this renderer can actually highlight. A
+//    fence naming a language outside that set still renders -- see the `getLanguage` guard below --
+//    just without highlighting, the same as it always has for a typo'd or unknown language.
+import hljs from 'highlight.js/lib/common'
 import katex from 'katex'
 
 import { escape } from 'es-toolkit/string'

@@ -539,6 +539,40 @@ describe('MarkdownRenderer - glossary terms (OpenProject #870)', () => {
 })
 
 /**
+ * OpenProject #1901: both root hljs call sites (this renderer and `EditorCodeBlockMenu.vue`) moved
+ * from importing the `highlight.js` package root -- which registers every grammar the package ships,
+ * ~190 of them -- to `highlight.js/lib/common`, a ~36-language subset. Trimming cannot break
+ * rendering: the `highlight()` option above already guards with `hljs.getLanguage(lang)` before
+ * calling `hljs.highlight()`, falling back to escaped plain text for anything hljs does not know --
+ * previously only reachable via a typo'd or genuinely unknown language, now also reachable via a
+ * language that is real but was never bundled into `lib/common`.
+ */
+describe('MarkdownRenderer -- highlight.js/lib/common language set (OpenProject #1901)', () => {
+  it('highlights a fenced block in a language retained by lib/common', () => {
+    const md = new MarkdownRenderer({})
+    const html = md.render('```python\nimport os\n```')
+
+    expect(html).toContain('language-python')
+    // -> hljs's own span markup, proof the block was actually run through the highlighter and not
+    //    just escaped
+    expect(html).toContain('class="hljs-keyword"')
+    expect(html).toContain('>import<')
+  })
+
+  it('falls through to escaped, unhighlighted text for a language present in the full package but not in lib/common', () => {
+    const md = new MarkdownRenderer({})
+    // -> Haskell ships with the full `highlight.js` package but is not one of lib/common's ~36
+    //    languages -- exactly the class of fence this trim newly affects
+    const html = md.render('```haskell\nmain = putStrLn "<hi>"\n```')
+
+    expect(html).toContain('language-haskell')
+    expect(html).not.toContain('class="hljs-')
+    // -> Still escaped like any other unhighlighted fence, not raw-interpolated
+    expect(html).toContain('&lt;hi&gt;')
+  })
+})
+
+/**
  * `lineCount > 1 && 'line-numbers'` interpolated the boolean `false` itself into the class attribute
  * for any single-line fence, since `&&` short-circuits to its left operand rather than an empty
  * string. Since this render is both the live preview AND what gets saved to the page, that literal
