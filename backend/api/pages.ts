@@ -1906,6 +1906,195 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * BULK ACTION (OpenProject #1882)
+   *
+   * The row-selection/bulk-actions half of the admin page inventory: delete, re-render or retag a
+   * set of pages in one request. Each id is checked and acted on independently — a page the caller
+   * may not act on is reported as `skipped` rather than failing the whole batch, which is the
+   * opposite of `POST …/classification-conflicts/resolve` just above (that route `forbidden()`s the
+   * entire request on the first denied page). Both are correct for what each one is: the
+   * classification-conflicts flow is a single all-or-nothing bump an admin already knows they may
+   * make on every listed descendant, while a bulk action here starts from an arbitrary, admin-picked
+   * selection that may well mix pages the actor can and cannot act on — the whole point of reporting
+   * per-page outcomes instead of refusing outright.
+   *
+   * Retag is add/remove-RELATIVE per page, not a blanket overwrite: a mixed selection can carry
+   * different existing tag sets, so "add x, remove y" is applied against each page's own tags rather
+   * than a client-supplied full list clobbering whatever else a page already carried.
+   */
+  app.post<{
+    Params: { siteId: string }
+    Body: {
+      pageIds: string[]
+      action: 'delete' | 'render' | 'retag'
+      addTags?: string[]
+      removeTags?: string[]
+    }
+  }>(
+    '/sites/:siteId/pages/bulk',
+    {
+      // -> No route-level `permissions`: page-rule permissions, checked per page below.
+      // -> Only the `render` action drives Puppeteer; the same throttle the single-page render route
+      //    uses, since a bulk request can still queue many browser renders from one call.
+      preHandler: async (req, reply) => {
+        if ((req.body as { action?: string } | undefined)?.action === 'render') {
+          await limitRenders(req, reply)
+        }
+      },
+      schema: {
+        summary: 'Delete, re-render or retag a set of pages',
+        description:
+          "For the admin page inventory's row selection. Every id is looked up and permission-checked on its own — `delete:pages` for `delete`, `write:pages` for `render`/`retag` — so a page the caller may not act on is reported back as `skipped` rather than refusing the whole request. An id that does not exist on this site comes back `notFound`; an action that threw while running (e.g. re-rendering a page this instance cannot render) comes back `error` with its message. `retag` needs at least one of `addTags`/`removeTags`, applied against each page's own existing tags rather than replacing them outright.",
+        tags: ['Pages'],
+        params: siteIdParam,
+        body: {
+          type: 'object',
+          required: ['pageIds', 'action'],
+          properties: {
+            pageIds: {
+              type: 'array',
+              items: { type: 'string', format: 'uuid' },
+              minItems: 1,
+              maxItems: 500
+            },
+            action: {
+              type: 'string',
+              enum: ['delete', 'render', 'retag']
+            },
+            addTags: {
+              type: 'array',
+              items: { type: 'string', maxLength: 255 },
+              maxItems: 100,
+              description: '`retag` only: tags to add to every page that is not skipped.'
+            },
+            removeTags: {
+              type: 'array',
+              items: { type: 'string', maxLength: 255 },
+              maxItems: 100,
+              description: '`retag` only: tags to remove from every page that is not skipped.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Every id, with what happened to it',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              action: { type: 'string' },
+              results: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    path: { type: ['string', 'null'] },
+                    status: {
+                      type: 'string',
+                      enum: ['done', 'skipped', 'notFound', 'error']
+                    },
+                    message: { type: 'string' }
+                  }
+                }
+              },
+              counts: {
+                type: 'object',
+                description: 'How many ids landed in each `status`, keyed the same way.',
+                additionalProperties: { type: 'integer' }
+              }
+            }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('A bulk page action requires a logged in user.')
+      }
+      const { action } = req.body
+      const addTags = (req.body.addTags ?? []).map((t) => t.trim()).filter(Boolean)
+      const removeTags = (req.body.removeTags ?? []).map((t) => t.trim()).filter(Boolean)
+      if (action === 'retag' && addTags.length < 1 && removeTags.length < 1) {
+        return reply.badRequest('Provide at least one tag to add or remove.')
+      }
+      // -> De-duplicated, same reasoning as the classification-conflicts-resolve route just above: a
+      //    repeated id would otherwise be looked up, permission-checked and acted on once per
+      //    occurrence instead of once per page.
+      const pageIds = [...new Set(req.body.pageIds)]
+      // -> ONE batched select instead of a per-id `getPage` loop -- the same `getPagesByIds` the
+      //    classification-conflicts-resolve route already uses, projecting only what `mayOnPage`
+      //    (and, for `retag`, the page's own current tags) actually needs.
+      const pageMap = await WIKI.models.pages.getPagesByIds(req.params.siteId, pageIds)
+      const permission = action === 'delete' ? 'delete:pages' : 'write:pages'
+      const results: {
+        id: string
+        path: string | null
+        status: 'done' | 'skipped' | 'notFound' | 'error'
+        message?: string
+      }[] = []
+      for (const pageId of pageIds) {
+        const target = pageMap.get(pageId)
+        if (!target) {
+          results.push({ id: pageId, path: null, status: 'notFound' })
+          continue
+        }
+        if (!mayOnPage(req, permission, req.params.siteId, target)) {
+          results.push({
+            id: pageId,
+            path: target.path,
+            status: 'skipped',
+            message: 'Not permitted.'
+          })
+          continue
+        }
+        try {
+          if (action === 'delete') {
+            const deleted = await WIKI.models.pages.deletePage(req.params.siteId, pageId, actor)
+            results.push({
+              id: pageId,
+              path: target.path,
+              status: deleted ? 'done' : 'notFound'
+            })
+          } else if (action === 'render') {
+            const queued = await WIKI.models.pages.queueRerender(req.params.siteId, pageId, actor)
+            results.push({
+              id: pageId,
+              path: target.path,
+              status: queued ? 'done' : 'notFound'
+            })
+          } else {
+            const removeSet = new Set(removeTags)
+            const nextTags = [
+              ...new Set([...target.tags.filter((t) => !removeSet.has(t)), ...addTags])
+            ]
+            const updated = await WIKI.models.pages.updatePage(
+              req.params.siteId,
+              pageId,
+              { tags: nextTags },
+              actor
+            )
+            results.push({
+              id: pageId,
+              path: target.path,
+              status: updated ? 'done' : 'notFound'
+            })
+          }
+        } catch (err: any) {
+          results.push({ id: pageId, path: target.path, status: 'error', message: err.message })
+        }
+      }
+      const counts: Record<string, number> = {}
+      for (const result of results) {
+        counts[result.status] = (counts[result.status] ?? 0) + 1
+      }
+      return { ok: true, action, results, counts }
+    }
+  )
+
+  /**
    * EXPORT PAGE AS PDF
    */
   app.get<{ Params: { siteId: string; pageId: string } }>(
