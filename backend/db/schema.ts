@@ -1540,7 +1540,9 @@ export const tree = pgTable(
 
 // USER AVATARS ------------------------
 export const userAvatars = pgTable('userAvatars', {
-  id: uuid().primaryKey(),
+  id: uuid()
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
   data: bytea().notNull()
 })
 

@@ -86,6 +86,24 @@ describe('comments table', () => {
   })
 })
 
+describe('userAvatars table', () => {
+  const config = getTableConfig(schema.userAvatars)
+
+  it('is named userAvatars', () => {
+    assert.equal(config.name, 'userAvatars')
+  })
+
+  it('keys id as the primary key, doubling as the foreign key to users.id', () => {
+    const columns = Object.fromEntries(config.columns.map((col) => [col.name, col]))
+    assert.equal(columns.id!.primary, true)
+
+    const fk = config.foreignKeys.find((f) => f.reference().columns.some((c) => c.name === 'id'))
+    assert.ok(fk, 'expected a foreign key on id')
+    assert.equal(getTableName(fk!.reference().foreignTable), 'users')
+    assert.equal(fk!.onDelete, 'cascade')
+  })
+})
+
 /**
  * Guards `docs/site-scoping-audit.md` against drift: every table in `schema.ts` that has no
  * `siteId` column (the `sites` table itself aside) must be named somewhere in the audit doc. A

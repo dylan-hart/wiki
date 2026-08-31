@@ -8,6 +8,7 @@ import {
   assets as assetsTable,
   authentication as authenticationTable,
   pages as pagesTable,
+  userAvatars as userAvatarsTable,
   userKeys,
   users as usersTable
 } from '../db/schema.ts'
@@ -1644,5 +1645,57 @@ describe('users.reassignContent (DB-backed)', { skip: !hasTestDatabase() }, () =
     const result = await usersModel.reassignContent(freshUser!.id, targetUserId)
 
     assert.deepEqual(result, { pagesReassigned: 0, assetsReassigned: 0 })
+  })
+})
+
+/**
+ * `userAvatars.id` carries an `onDelete: 'cascade'` foreign key to `users.id` (see `db/schema.ts`) —
+ * an avatar dies with its user at the database layer, not merely through `deleteUser()` remembering
+ * to clean it up. Deleting the `users` row directly, bypassing `deleteUser()` entirely, is what
+ * actually exercises that the constraint (rather than app code) is what enforces it.
+ */
+describe('userAvatars cascades from users (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+
+  before(async () => {
+    fixtures = await setupTestDb()
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('removes the avatar when the users row is deleted directly, without calling deleteUser()', async () => {
+    const [avatarOwner] = await fixtures.db
+      .insert(usersTable)
+      .values({
+        email: 'avatar-owner@example.com',
+        name: 'Avatar Owner',
+        isActive: true,
+        isVerified: true
+      })
+      .returning({ id: usersTable.id })
+    const userId = avatarOwner!.id
+
+    // -> Inserted directly rather than via `setAvatar()`: this suite is about the FK's own
+    //    `onDelete: 'cascade'`, not the avatar-normalization path, so it needs no real image bytes.
+    await fixtures.db
+      .insert(userAvatarsTable)
+      .values({ id: userId, data: Buffer.from('avatar-bytes') })
+    const beforeDelete = await fixtures.db
+      .select()
+      .from(userAvatarsTable)
+      .where(eq(userAvatarsTable.id, userId))
+    assert.equal(beforeDelete.length, 1)
+
+    // -> Direct row delete, not `deleteUser()`: this is what proves the FK's own `onDelete: 'cascade'`
+    //    is doing the work, rather than an app-level call site that happens to also clear the avatar.
+    await fixtures.db.delete(usersTable).where(eq(usersTable.id, userId))
+
+    const afterDelete = await fixtures.db
+      .select()
+      .from(userAvatarsTable)
+      .where(eq(userAvatarsTable.id, userId))
+    assert.equal(afterDelete.length, 0)
   })
 })
