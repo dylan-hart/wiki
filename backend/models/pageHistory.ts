@@ -655,7 +655,6 @@ class PageHistory {
       tags: meta.tags ?? [],
       allowComments: config.allowComments,
       allowContributions: config.allowContributions,
-      allowRatings: config.allowRatings,
       showSidebar: config.showSidebar,
       showTags: config.showTags,
       showToc: config.showToc,

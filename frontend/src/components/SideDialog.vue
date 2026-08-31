@@ -57,8 +57,7 @@ const state = reactive({
   showTagsEditBtn: false,
   tagEditMode: false,
   tocExpanded: ['h1-0', 'h1-1'],
-  tocSelected: [],
-  currentRating: 3
+  tocSelected: []
 })
 </script>
 

@@ -23,7 +23,6 @@ export const usePageStore = defineStore('page', {
     alias: '',
     allowComments: false,
     allowContributions: true,
-    allowRatings: true,
     authorId: 0,
     authorName: '',
     /**
@@ -779,7 +778,6 @@ export const usePageStore = defineStore('page', {
             'alias',
             'allowComments',
             'allowContributions',
-            'allowRatings',
             'classification',
             'content',
             'description',

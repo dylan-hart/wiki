@@ -114,7 +114,7 @@ describe('site store: features.comments default', () => {
     const store = useSiteStore()
     store.applySiteInfo({
       pageExtensions: [],
-      features: { ratingsMode: 'stars' },
+      features: { search: true },
       auth: {},
       editors: {
         asciidoc: { isActive: false },
@@ -126,7 +126,7 @@ describe('site store: features.comments default', () => {
     })
 
     expect(store.features.comments).toBe(false)
-    expect(store.features.ratingsMode).toBe('stars')
+    expect(store.features.search).toBe(true)
   })
 })
 

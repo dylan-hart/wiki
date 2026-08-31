@@ -83,7 +83,6 @@ const FIXTURE_SITE = {
   features: {
     browse: true,
     comments: true,
-    ratingsMode: 'stars',
     profile: true,
     reasonForChange: 'optional',
     search: true,
@@ -295,7 +294,6 @@ describe('AdminGeneral save() field round-trip', () => {
       features: {
         browse: true,
         comments: true,
-        ratingsMode: 'stars',
         profile: true,
         reasonForChange: 'optional',
         search: true,
@@ -392,7 +390,6 @@ function siteResponse(hostname) {
     features: {
       browse: false,
       comments: false,
-      ratingsMode: 'off',
       profile: false,
       reasonForChange: 'required',
       search: false

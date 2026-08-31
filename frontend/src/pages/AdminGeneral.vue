@@ -229,24 +229,6 @@
             </w-item-section>
           </w-item>
           <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="star-half-empty" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.general.allowRatings`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.general.allowRatingsHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section class="flex-none">
-              <w-btn-toggle
-                v-model="state.config.features.ratingsMode"
-                push
-                glossy
-                no-caps
-                toggle-color="primary"
-                :aria-label="t(`admin.general.allowRatings`)"
-                :options="ratingsModes" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
           <w-item tag="label">
             <blueprint-icon icon="search" />
             <w-item-section>
@@ -636,8 +618,6 @@ function defaultConfig() {
       follow: false
     },
     features: {
-      ratings: false,
-      ratingsMode: 'off',
       comments: false,
       reasonForChange: 'required',
       profile: false
@@ -681,11 +661,6 @@ const contentLicenses = [
   { value: 'ccbync', text: t('common.license.ccbync') },
   { value: 'ccbyncsa', text: t('common.license.ccbyncsa') },
   { value: 'ccbyncnd', text: t('common.license.ccbyncnd') }
-]
-const ratingsModes = [
-  { value: 'off', label: t('admin.general.ratingsOff') },
-  { value: 'thumbs', label: t('admin.general.ratingsThumbs') },
-  { value: 'stars', label: t('admin.general.ratingsStars') }
 ]
 const reasonForChangeModes = [
   { value: 'off', label: t('admin.general.reasonForChangeOff') },
@@ -796,7 +771,6 @@ async function save() {
         features: {
           browse: state.config.features?.browse ?? false,
           comments: state.config.features?.comments ?? false,
-          ratingsMode: state.config.features?.ratingsMode ?? 'off',
           profile: state.config.features?.profile ?? false,
           reasonForChange: state.config.features?.reasonForChange ?? 'required',
           search: state.config.features?.search ?? false,
