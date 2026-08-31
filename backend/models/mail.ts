@@ -25,12 +25,22 @@ async function watchActionLabel(
 }
 
 /**
+ * Whether this action tells the recipient about the outcome of THEIR OWN edit suggestion, rather than
+ * about a page they are watching — see `models/approvals.ts#notifySubmissionAuthor`. The two kinds of
+ * mail need different footers: the ordinary "you are receiving this because you are watching this
+ * page" line would be false for a submission author who may never have watched the page at all.
+ */
+function isSuggestionDecision(action: PageWatchNotifiableAction): boolean {
+  return action === 'suggestApproved' || action === 'suggestDeclined'
+}
+
+/**
  * Escape the four HTML metacharacters, for values that land in a template's HTML body but did not
  * come from this file — a page title or a display name is content a wiki editor chose, not a
  * constant this module wrote, so it is escaped the same way `models/search.ts`'s own `escapeHtml`
  * treats a search highlight.
  */
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
@@ -223,7 +233,7 @@ class MailModel {
    * override setting exists for scheme/port (v1 scope decision, OpenProject #1023) — `https://` is
    * assumed, matching how every other Wiki.js 3.x site link is built.
    */
-  private resolveMailBaseURL(siteId?: string): string {
+  resolveMailBaseURL(siteId?: string): string {
     const hostname = siteId ? WIKI.sites[siteId]?.hostname : null
     if (hostname && hostname !== '*') {
       return `https://${hostname}`
@@ -524,7 +534,15 @@ class MailModel {
       baseURL,
       locale
     )
-    const footer = await WIKI.models.locales.resolveString(locale, 'mail.watchNotification.footer')
+    // -> A submission-decision notice (see `isSuggestionDecision`) is addressed directly at the
+    //    author, not resolved from `pageWatching.listWatchers()` -- the ordinary "you are watching
+    //    this page" footer would be false for them, so it gets its own locale string instead.
+    const footer = await WIKI.models.locales.resolveString(
+      locale,
+      isSuggestionDecision(action)
+        ? 'mail.watchNotification.footerSuggestion'
+        : 'mail.watchNotification.footer'
+    )
     await this.send({
       to,
       subject: await WIKI.models.locales.resolveString(locale, 'mail.watchNotification.subject', {

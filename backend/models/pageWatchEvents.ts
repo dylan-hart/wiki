@@ -2,8 +2,20 @@ import { and, asc, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
 import { pageWatchEvents as pageWatchEventsTable, pages as pagesTable } from '../db/schema.ts'
 import type { WatchNotifyMode } from './pageWatching.ts'
 
-/** The kinds of change a watcher can be notified about. Never `created` — see `notifyWatchers`. */
-export type PageWatchNotifiableAction = 'updated' | 'moved' | 'deleted'
+/**
+ * The kinds of change a watcher can be notified about. Never `created` — see `notifyWatchers`.
+ *
+ * `suggestApproved`/`suggestDeclined` are a different kind of recipient than the other three: they
+ * are addressed directly at a submission's author (see `models/approvals.ts#notifySubmissionAuthor`),
+ * bypassing `pageWatching.listWatchers()`/its preference filtering entirely, rather than resolved from
+ * who watches the page. Kept short — `action` is a `varchar(16)` column (`db/schema.ts`).
+ */
+export type PageWatchNotifiableAction =
+  | 'updated'
+  | 'moved'
+  | 'deleted'
+  | 'suggestApproved'
+  | 'suggestDeclined'
 
 /** One notification owed to one watcher, as `notifyPageWatchers` writes it. */
 export interface PendingWatchEvent {

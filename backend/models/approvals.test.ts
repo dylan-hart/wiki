@@ -12,6 +12,7 @@ import {
 import type { PageActor } from './pages.ts'
 import type { ApprovalPageRef } from './approvals.ts'
 import type { GroupRule, AccessActor } from './groups.ts'
+import { mail } from './mail.ts'
 
 /**
  * `approveSubmission` writes to the page and closes the suggestion out -- almost entirely SQL
@@ -1201,6 +1202,354 @@ describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase
     send.mock.restore()
   })
 })
+
+/**
+ * OpenProject #2134: the submission author is told the outcome on approve and decline, through the
+ * same `notifyPageWatchers` job path a logged-in author's watch preference would otherwise route an
+ * ordinary page-edit notice through, addressed directly at them (`skipIfWatching` is what stops
+ * approve from ALSO sending the generic "page updated" notice `updatePage()` queues for a watcher). A
+ * guest author has no account to address that job at, so their notification goes straight through
+ * `models/mail.ts` to the stored `guestEmail` instead.
+ */
+describe(
+  'approvals submission author notification (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let pagesModel: typeof import('./pages.ts').pages
+    let approvalsModel: typeof import('./approvals.ts').approvals
+    let actor: PageActor
+    let authorId: string
+    let reviewerBId: string
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ pages: pagesModel } = await import('./pages.ts'))
+      ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+      actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+
+      const [author] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'notify-author@example.com',
+          name: 'Notify Author',
+          isActive: true,
+          isVerified: true
+        })
+        .returning({ id: usersTable.id })
+      authorId = author!.id
+
+      const [reviewerB] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'notify-reviewer-b@example.com',
+          name: 'Notify Reviewer B',
+          isActive: true,
+          isVerified: true
+        })
+        .returning({ id: usersTable.id })
+      reviewerBId = reviewerB!.id
+
+      await approvalsModel.createRule(fixtures.siteId, {
+        name: 'notify covers everything',
+        isEnabled: true,
+        match: 'START',
+        path: '',
+        submitterGroups: [],
+        reviewerGroups: []
+      })
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    const originalSendPageWatchNotification = mail.sendPageWatchNotification.bind(mail)
+
+    beforeEach(() => {
+      // -> A stub installed by one test must not leak into the next.
+      mail.sendPageWatchNotification = originalSendPageWatchNotification
+      ;(WIKI.scheduler.addJob as unknown as { mock: { resetCalls: () => void } }).mock.resetCalls()
+    })
+
+    function pageRef(page: { id: string; path: string }): ApprovalPageRef {
+      return {
+        id: page.id,
+        path: page.path,
+        locale: 'en',
+        tags: [],
+        allowContributions: true,
+        classification: null
+      }
+    }
+
+    /** Every `notifyPageWatchers` job queued since the last reset, decoded from the stub scheduler. */
+    function queuedNotifyJobs(): { task: string; payload: any }[] {
+      const addJob = WIKI.scheduler.addJob as unknown as {
+        mock: { calls: { arguments: [{ task: string; payload: any }] }[] }
+      }
+      return addJob.mock.calls
+        .map((call) => call.arguments[0])
+        .filter((call) => call.task === 'notifyPageWatchers')
+    }
+
+    test('a finalizing approve queues a suggestApproved notification addressed to the author', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'notify-author/approve',
+          title: 'Approve Me',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        actor
+      )
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Suggested',
+        authorId
+      })
+
+      const result = await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested',
+        render: '<p>Suggested</p>',
+        actor
+      })
+      assert.equal(result.ok, true)
+      assert.equal((result as any).finalized, true)
+
+      const jobs = queuedNotifyJobs().filter((job) => job.payload.action === 'suggestApproved')
+      assert.equal(jobs.length, 1)
+      assert.deepEqual(jobs[0]!.payload.watchers, [{ userId: authorId, notifyMode: 'immediate' }])
+      assert.equal(jobs[0]!.payload.pageId, page.id)
+      assert.equal(jobs[0]!.payload.actorId, actor.id)
+    })
+
+    test('an approve does not double-notify an author who already watches the page', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'notify-author/approve-watching',
+          title: 'Approve Watching',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        actor
+      )
+      await WIKI.models.pageWatching.watch({
+        siteId: fixtures.siteId,
+        pageId: page.id,
+        userId: authorId
+      })
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Suggested',
+        authorId
+      })
+
+      await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested',
+        render: '<p>Suggested</p>',
+        actor
+      })
+
+      // -> `updatePage()`'s own generic notice still queues (action: 'updated') -- only the
+      //    submission-specific one must be skipped
+      const suggestJobs = queuedNotifyJobs().filter(
+        (job) => job.payload.action === 'suggestApproved'
+      )
+      assert.equal(suggestJobs.length, 0)
+      const updatedJobs = queuedNotifyJobs().filter((job) => job.payload.action === 'updated')
+      assert.equal(updatedJobs.length, 1)
+      assert.deepEqual(updatedJobs[0]!.payload.watchers, [
+        { userId: authorId, notifyMode: 'digest' }
+      ])
+    })
+
+    test('a decline always queues a suggestDeclined notification, even for an author who watches the page', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'notify-author/decline-watching',
+          title: 'Decline Watching',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        actor
+      )
+      await WIKI.models.pageWatching.watch({
+        siteId: fixtures.siteId,
+        pageId: page.id,
+        userId: authorId
+      })
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Suggested',
+        authorId
+      })
+
+      const declined = await approvalsModel.rejectSubmission(
+        fixtures.siteId,
+        submission.id,
+        null,
+        actor.id
+      )
+      assert.equal(declined, true)
+
+      const jobs = queuedNotifyJobs().filter((job) => job.payload.action === 'suggestDeclined')
+      assert.equal(jobs.length, 1)
+      assert.deepEqual(jobs[0]!.payload.watchers, [{ userId: authorId, notifyMode: 'immediate' }])
+    })
+
+    test('a partial approve, short of the threshold, does not notify the author yet', async () => {
+      await approvalsModel.createRule(fixtures.siteId, {
+        name: 'notify threshold two',
+        isEnabled: true,
+        match: 'START',
+        path: 'notify-author/partial',
+        submitterGroups: [],
+        reviewerGroups: [],
+        minApprovals: 2
+      })
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'notify-author/partial/page',
+          title: 'Partial',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        actor
+      )
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Suggested',
+        authorId
+      })
+
+      const firstApprove = await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested',
+        render: '<p>Suggested</p>',
+        actor
+      })
+      assert.equal((firstApprove as any).finalized, false)
+      assert.equal(
+        queuedNotifyJobs().filter((job) => job.payload.action === 'suggestApproved').length,
+        0,
+        'no notification yet -- the threshold has not been reached'
+      )
+
+      const secondApprove = await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested',
+        render: '<p>Suggested</p>',
+        actor: { id: reviewerBId, permissions: ['manage:system'], groupIds: [] }
+      })
+      assert.equal((secondApprove as any).finalized, true)
+      assert.equal(
+        queuedNotifyJobs().filter((job) => job.payload.action === 'suggestApproved').length,
+        1,
+        'the finalizing approve notifies'
+      )
+    })
+
+    test('an approve notifies a guest author directly by mail, not through the scheduler', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'notify-author/guest-approve',
+          title: 'Guest Approve',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        actor
+      )
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Suggested',
+        authorId: null,
+        guestName: 'A Guest',
+        guestEmail: 'guest-approve@example.com'
+      })
+
+      const send = mock.method(mail, 'sendPageWatchNotification', async () => {})
+
+      await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested',
+        render: '<p>Suggested</p>',
+        actor
+      })
+
+      assert.equal(send.mock.callCount(), 1)
+      const [args] = send.mock.calls[0]!.arguments as [any]
+      assert.equal(args.to, 'guest-approve@example.com')
+      assert.equal(args.action, 'suggestApproved')
+      assert.equal(
+        queuedNotifyJobs().filter((job) => job.payload.action === 'suggestApproved').length,
+        0,
+        'a guest has no account for the job to address'
+      )
+      send.mock.restore()
+    })
+
+    test('a decline notifies a guest author directly by mail, not through the scheduler', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'notify-author/guest-decline',
+          title: 'Guest Decline',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        actor
+      )
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Suggested',
+        authorId: null,
+        guestName: 'A Guest',
+        guestEmail: 'guest-decline@example.com'
+      })
+
+      const send = mock.method(mail, 'sendPageWatchNotification', async () => {})
+
+      const declined = await approvalsModel.rejectSubmission(
+        fixtures.siteId,
+        submission.id,
+        null,
+        actor.id
+      )
+      assert.equal(declined, true)
+
+      assert.equal(send.mock.callCount(), 1)
+      const [args] = send.mock.calls[0]!.arguments as [any]
+      assert.equal(args.to, 'guest-decline@example.com')
+      assert.equal(args.action, 'suggestDeclined')
+      send.mock.restore()
+    })
+  }
+)
 
 /**
  * `findSubmitRule`'s additive contract: when several enabled rules all let the same groups suggest
