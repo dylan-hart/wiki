@@ -4,6 +4,8 @@ import path from 'node:path'
 import { readFileSync } from 'node:fs'
 import fastify from 'fastify'
 import fastifyCors from '@fastify/cors'
+import fastifyCookie from '@fastify/cookie'
+import fastifySession from '@fastify/session'
 import { load } from 'js-yaml'
 import {
   corsOrigin,
@@ -12,12 +14,16 @@ import {
   needsSvgCsp,
   parseCspDirectives,
   SESSION_COOKIE_NAME,
+  SESSION_COOKIE_NAME_INSECURE,
+  sessionCookieName,
   shouldBlockCrossOriginApiRequest
 } from './security.ts'
 
 // -> corsOrigin()'s REGEX branch logs through the WIKI global on an invalid pattern; stub just
 //    enough of it, the same way rateLimit.test.ts does for its own WIKI-touching helpers.
-;(globalThis as any).WIKI = { logger: { warn: mock.fn() } }
+//    `config.security` is here for `sessionCookieName()` -- most describes never touch it, but it has
+//    to exist so a bare read doesn't throw.
+;(globalThis as any).WIKI = { logger: { warn: mock.fn() }, config: { security: {} } }
 
 /**
  * Unit tests for WP #2158/#2161 (part of #2154): `parseCspDirectives` used to accept any token as a
@@ -259,6 +265,100 @@ describe('corsOptions preflight (integration)', () => {
 describe('SESSION_COOKIE_NAME', () => {
   test('carries the __Host- prefix, since that is what makes it real', () => {
     assert.equal(SESSION_COOKIE_NAME, '__Host-wikiSession')
+  })
+})
+
+/**
+ * Regression coverage for the boot-order/cookie bug (OpenProject bug report, 2026-08-31): task 2109
+ * pinned the session cookie `Secure`/`__Host-` unconditionally on the assumption that a plain
+ * `http://localhost` dev instance still worked, since browsers treat loopback as a trustworthy origin.
+ * That assumption was wrong -- `@fastify/session`'s own `onSend` hook refuses to ever emit a
+ * `Secure`-flagged cookie unless it saw the connection itself as TLS (`request.protocol === 'https'`),
+ * which a bare, proxy-less HTTP server never is, loopback or not -- so login silently never set a
+ * cookie at all. `security.cookieSecure: false` is the fix; `sessionCookieName()` is what switches the
+ * name to match it (a `__Host-`-prefixed cookie without `Secure` is rejected outright by the browser,
+ * so the name has to drop the prefix too, not just the attribute).
+ */
+describe('sessionCookieName', () => {
+  test('defaults to the hardened __Host- name when security.cookieSecure is unset', () => {
+    ;(globalThis as any).WIKI.config.security = {}
+    assert.equal(sessionCookieName(), SESSION_COOKIE_NAME)
+  })
+
+  test('stays hardened when security.cookieSecure is explicitly true', () => {
+    ;(globalThis as any).WIKI.config.security = { cookieSecure: true }
+    assert.equal(sessionCookieName(), SESSION_COOKIE_NAME)
+  })
+
+  test('drops the __Host- prefix when security.cookieSecure is false', () => {
+    ;(globalThis as any).WIKI.config.security = { cookieSecure: false }
+    assert.equal(sessionCookieName(), SESSION_COOKIE_NAME_INSECURE)
+  })
+})
+
+/**
+ * Proves the actual mechanism, not just the config toggle: a real `@fastify/session` instance,
+ * registered exactly the way `index.ts` registers it (same cookie options, same `secure` wiring),
+ * driven with a real plain-HTTP request via `.inject()`. `secure: true` (the default, matching
+ * `security.cookieSecure` unset) reproduces the reported bug -- no `Set-Cookie` at all. `secure: false`
+ * (matching `security.cookieSecure: false`) is what actually fixes it.
+ */
+describe('session cookie emission over plain HTTP (integration)', () => {
+  async function buildApp(secure: boolean) {
+    const data = new Map<string, any>()
+    const app = fastify()
+    await app.register(fastifyCookie, { secret: 'a'.repeat(32), hook: 'onRequest' })
+    await app.register(fastifySession, {
+      secret: 'a'.repeat(32),
+      cookieName: secure ? SESSION_COOKIE_NAME : SESSION_COOKIE_NAME_INSECURE,
+      cookie: { httpOnly: true, maxAge: 60000, secure, sameSite: 'lax' },
+      saveUninitialized: false,
+      store: {
+        async get(id: string, clb: (err: any, result?: any) => void) {
+          clb(null, data.get(id))
+        },
+        async set(id: string, val: any, clb: (err: any, result?: any) => void) {
+          data.set(id, val)
+          clb(null)
+        },
+        async destroy(id: string, clb: (err: any, result?: any) => void) {
+          data.delete(id)
+          clb(null)
+        }
+      }
+    })
+    app.put('/login', async (req: any) => {
+      await req.session.regenerate()
+      req.session.authenticated = true
+      return { ok: true }
+    })
+    await app.ready()
+    return app
+  }
+
+  test('secure:true over plain HTTP never sets a cookie -- the reported bug', async () => {
+    const app = await buildApp(true)
+    try {
+      const res = await app.inject({ method: 'PUT', url: '/login' })
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.headers['set-cookie'], undefined)
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('secure:false over plain HTTP sets the cookie -- what security.cookieSecure:false fixes', async () => {
+    const app = await buildApp(false)
+    try {
+      const res = await app.inject({ method: 'PUT', url: '/login' })
+      assert.equal(res.statusCode, 200)
+      const setCookie = res.headers['set-cookie']
+      assert.ok(setCookie, 'expected a Set-Cookie header')
+      const cookieStr = Array.isArray(setCookie) ? setCookie[0] : setCookie
+      assert.ok(cookieStr.startsWith(`${SESSION_COOKIE_NAME_INSECURE}=`))
+    } finally {
+      await app.close()
+    }
   })
 })
 

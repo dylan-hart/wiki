@@ -3,7 +3,7 @@ import { normalizeHostname } from '../helpers/common.ts'
 import { limitAuthAttempts } from '../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
 import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
-import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
+import { sessionCookieName } from '../helpers/security.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
@@ -1338,8 +1338,12 @@ async function routes(app: FastifyInstance) {
       //    save hook with nothing to do. Name and options match the registration in `index.ts`: the
       //    `__Host-` prefix requires a clearing `Set-Cookie` to still carry `Secure; Path=/` (task
       //    2109 / WP 2105 §2) or the browser rejects the clear the same way it would a real one,
-      //    leaving the stale (now-orphaned) cookie sitting in the browser.
-      reply.clearCookie(SESSION_COOKIE_NAME, { path: '/', secure: true })
+      //    leaving the stale (now-orphaned) cookie sitting in the browser -- `security.cookieSecure:
+      //    false` drops both, so the clear has to match whichever is actually in effect.
+      reply.clearCookie(sessionCookieName(), {
+        path: '/',
+        secure: WIKI.config.security?.cookieSecure !== false
+      })
 
       if (user) {
         WIKI.models.flags.authDebug(
