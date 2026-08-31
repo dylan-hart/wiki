@@ -60,6 +60,36 @@ describe('publish workflow split (build.yml + release.yml)', () => {
     })
   })
 
+  describe('multi-arch publishing decision (OpenProject #1916) — both workflows agree', () => {
+    const buildRaw = fs.readFileSync(BUILD_YML, 'utf8')
+    const buildDoc: any = load(buildRaw)
+    const releaseRaw = fs.readFileSync(RELEASE_YML, 'utf8')
+    const releaseDoc: any = load(releaseRaw)
+
+    function platformsOf(doc: any): string {
+      const step = allSteps(doc).find((s) => /docker\/build-push-action/.test(s.uses ?? ''))
+      assert.ok(step, 'expected a docker/build-push-action step')
+      return step.with.platforms
+    }
+
+    test('build.yml and release.yml declare the same platforms: value', () => {
+      assert.equal(platformsOf(buildDoc), platformsOf(releaseDoc))
+    })
+
+    test('neither workflow leaves a commented-out platforms: line behind', () => {
+      assert.doesNotMatch(
+        buildRaw,
+        /^\s*#\s*platforms:/m,
+        'build.yml has a commented-out platforms: line'
+      )
+      assert.doesNotMatch(
+        releaseRaw,
+        /^\s*#\s*platforms:/m,
+        'release.yml has a commented-out platforms: line'
+      )
+    })
+  })
+
   describe('release.yml — gated release channel', () => {
     test('file exists', () => {
       assert.ok(fs.existsSync(RELEASE_YML), `expected ${RELEASE_YML} to exist`)
