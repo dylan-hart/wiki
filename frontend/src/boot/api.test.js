@@ -132,3 +132,21 @@ describe('initializeApi(): global session-expiry handling', () => {
     expect(returned).toBe(err)
   })
 })
+
+/*
+  Task 1758: the shared client used to override `throwHttpErrors` to `(statusNumber) => statusNumber
+  > 400`, resolving a 400 instead of rejecting it -- every caller that wanted a 400 treated as an
+  error (`AuthLoginPanel.vue`'s `login()`/`register()`/`changePwd()`/`resetPassword()` included) had
+  to inspect `resp.ok` itself. `ky.create` is mocked in this file (see header comment above), so the
+  real assertion reachable here is on the option actually handed to it -- `ky`'s own behavior for a
+  `throwHttpErrors: true` client is `ky`'s to guarantee, not this suite's.
+*/
+describe('initializeApi(): throwHttpErrors', () => {
+  it('passes throwHttpErrors: true to the shared ky client, rather than special-casing 400', () => {
+    initializeApi(stubRouter())
+
+    const options = createMock.mock.calls.at(-1)[0]
+
+    expect(options.throwHttpErrors).toBe(true)
+  })
+})
