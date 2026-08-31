@@ -2,11 +2,7 @@
   <w-page class="admin-classification">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon
-          class="admin-icon animated fadeInLeft"
-          name="la:layer-group"
-          size="48px"
-          color="primary" />
+        <w-icon name="img:/_assets/icons/fluent-tag.svg" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">

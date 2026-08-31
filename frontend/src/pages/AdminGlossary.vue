@@ -2,10 +2,9 @@
   <w-page>
     <div class="flex flex-wrap items-center p-4">
       <div class="flex-none">
-        <img
-          class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-find-and-replace-animated.svg"
-          alt="" />
+        <w-icon
+          name="img:/_assets/icons/fluent-find-and-replace-animated.svg"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.glossary.title') }}</h1>

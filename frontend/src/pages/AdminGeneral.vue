@@ -2,7 +2,7 @@
   <w-page class="admin-general">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-web.svg" alt="" />
+        <w-icon name="img:/_assets/icons/fluent-web.svg" class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.general.title') }}</h1>
