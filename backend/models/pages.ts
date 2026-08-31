@@ -1567,14 +1567,6 @@ class Pages {
     // -> A moved page's path is what every edge pointing at it is keyed by (`assembleGraph` matches
     //    relations/links against `row.path`), so a move can silently break edges in a stale bundle.
     invalidateGraphCache(siteId)
-    // -> A glossary term's cached canonical-page mapping (`models/glossary.ts`'s `getRawCachedTerms`)
-    //    caches the page's path, locale, classification and tags, so a canonical page's path or
-    //    locale changing has to drop it too, the same way a term CRUD does -- otherwise the cache
-    //    would keep resolving a link to where the page used to live (OpenProject #870). A
-    //    classification or tags change is `updatePage`'s to invalidate, not this one's.
-    if (moved.path !== previousPath || moved.locale !== previousLocale) {
-      WIKI.models.glossary.invalidateCache(siteId)
-    }
     // -> `previousLocale` alongside `previousPath` because a move can now change either: a consumer
     //    that has to find what the page used to be (the git target's own file for it, say) needs the
     //    whole of where it was, not half of it
