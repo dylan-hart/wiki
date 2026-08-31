@@ -6,6 +6,8 @@
     :disabled="isLink ? undefined : isDisabled || undefined"
     :aria-disabled="isLink && isDisabled ? 'true' : undefined"
     :aria-busy="loading || undefined"
+    :title="title"
+    :tabindex="tabindex"
     class="w-btn w-unstyled relative inline-flex flex-nowrap items-center justify-center gap-2 align-middle font-medium no-underline outline-offset-2 transition-[background-color,box-shadow,opacity,transform] select-none focus-visible:outline-2"
     :class="classes"
     :style="styles"
@@ -149,6 +151,20 @@ const props = defineProps({
   },
   target: {
     type: String,
+    default: null
+  },
+  /** Native tooltip. */
+  title: {
+    type: String,
+    default: null
+  },
+  /**
+   * Native `tabindex`, e.g. `-1` to remove an otherwise-focusable button from the tab order (a
+   * decorative preview control that isn't a real link, say) without also having to give it a fake
+   * accessible name.
+   */
+  tabindex: {
+    type: [String, Number],
     default: null
   }
 })

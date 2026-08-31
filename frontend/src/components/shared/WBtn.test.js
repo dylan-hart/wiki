@@ -124,3 +124,29 @@ describe('WBtn solid-button foreground contrast', () => {
     expect(wrapper.element.style.color).toBe('var(--color-accent)')
   })
 })
+
+// -> OpenProject #1805: title/tabindex are declared props (not left to $attrs fallthrough) so a
+//    call site's use of them is visible in the drift-check test, e.g. AdminGeneral.vue's inert
+//    logo preview button (`tabindex="-1"` alongside `aria-hidden="true"`, so it isn't a real link
+//    and shouldn't be reachable by tab) and HeaderSearch.vue's icon-only copy-link button
+//    (`:title` as the native tooltip, alongside a matching `:aria-label`).
+describe('WBtn native attribute props', () => {
+  it('renders a native title tooltip', () => {
+    const wrapper = mount(WBtn, { props: { label: 'Copy link', title: 'Copy link to clipboard' } })
+
+    expect(wrapper.attributes('title')).toBe('Copy link to clipboard')
+  })
+
+  it('renders an explicit tabindex, e.g. to remove an inert preview button from the tab order', () => {
+    const wrapper = mount(WBtn, { props: { label: 'Preview', tabindex: -1 } })
+
+    expect(wrapper.attributes('tabindex')).toBe('-1')
+  })
+
+  it('renders no title/tabindex attribute when neither is given', () => {
+    const wrapper = mount(WBtn, { props: { label: 'Save' } })
+
+    expect(wrapper.attributes('title')).toBeUndefined()
+    expect(wrapper.attributes('tabindex')).toBeUndefined()
+  })
+})
