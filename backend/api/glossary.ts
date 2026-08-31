@@ -19,6 +19,13 @@ interface GlossaryTermBody {
  * .../terms` is the one exception: it carries no route-level permission, the same way `api/tags.ts`
  * doesn't, because it is what the editor's own live preview and save-time render pull from to match
  * against — refusing it there would refuse rendering, not just the admin screen.
+ *
+ * The single-term create/update/delete routes below have no in-repo caller — the admin UI stages
+ * edits locally and applies them wholesale through `.../glossary/save` instead (see that route's own
+ * comment) — but they remain a legitimate programmatic surface for an API-key client to manage one
+ * term at a time. `models/glossary.ts`'s `createTerm`/`updateTerm`/`deleteTerm` now each record a
+ * `glossary_versions` snapshot in the same transaction as the write (OpenProject #1891), so a write
+ * through one of these routes is no longer invisible to a later "restore previous version".
  */
 async function routes(app: FastifyInstance) {
   /**
