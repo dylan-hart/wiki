@@ -985,6 +985,10 @@ class Tree {
 
     await this.countTowardsFolderAt(siteId, effectiveLocale, path, 1, db)
 
+    // -> A new folder can hold visible pages, either now or once populated, which changes what any
+    //    ancestor `auto`/`mixed` menu's cached tree walk would return (OpenProject #1825)
+    WIKI.models.navigation.invalidateCache(siteId)
+
     WIKI.logger.debug(`Created folder ${inserted[0].id} successfully.`)
     return inserted[0] as TreeRow
   }
@@ -1078,6 +1082,8 @@ class Tree {
         .set({ title, updatedAt: sql`now()` })
         .where(eq(treeTable.id, folder.id))
         .returning()
+      // -> The title alone feeds a generated menu item's label (OpenProject #1825)
+      WIKI.models.navigation.invalidateCache(folder.siteId)
       return updated[0] as TreeRow
     }
 
@@ -1181,6 +1187,10 @@ class Tree {
     if (movedPages.length > 0) {
       WIKI.models.glossary.invalidateCache(folder.siteId)
     }
+
+    // -> The renamed folder's own path segment, and its own title, both feed a generated menu item --
+    //    the segment through every descendant's `target` too (OpenProject #1825)
+    WIKI.models.navigation.invalidateCache(folder.siteId)
 
     WIKI.logger.debug(`Renamed folder ${folder.id} successfully.`)
     return updated[0] as TreeRow
@@ -1417,7 +1427,10 @@ class Tree {
     })
 
     // -> Any of them may have owned a sidebar menu keyed by its own id, the folder included
-    await WIKI.models.navigation.deleteNavForEntries([...deleted.map((n) => n.id), folder.id])
+    await WIKI.models.navigation.deleteNavForEntries(folder.siteId, [
+      ...deleted.map((n) => n.id),
+      folder.id
+    ])
 
     WIKI.logger.debug(`Deleted folder ${folder.id} and ${deleted.length} descendant(s).`)
 
@@ -1465,7 +1478,7 @@ class Tree {
      *  `pages` row update alongside it. */
     db?: WikiDbOrTx
   }): Promise<TreeRow> {
-    return this.addEntry({
+    const entry = await this.addEntry({
       id,
       type: 'page',
       parentId,
@@ -1481,6 +1494,11 @@ class Tree {
       onConflict: 'error',
       db
     })
+    // -> A new page can change whether an ancestor folder even has visible descendants, which any
+    //    ancestor `auto`/`mixed` menu's cached tree walk depends on (OpenProject #1825). Only here,
+    //    not in `addAsset`/`addEntry` -- an asset entry is never considered by `generateFromTree`.
+    WIKI.models.navigation.invalidateCache(siteId)
+    return entry
   }
 
   /**
@@ -1600,6 +1618,12 @@ class Tree {
     }
     await db.delete(treeTable).where(eq(treeTable.id, id))
     await this.countTowardsFolderAt(entry.siteId, entry.locale, entry.folderPath ?? '', -1, db)
+    // -> Removing any entry -- page or asset -- can change whether its (former) parent folder still
+    //    holds a visible page, which any ancestor `auto`/`mixed` menu's cached tree walk depends on
+    //    (OpenProject #1825). Unconditional rather than branching on `entry.type`: an asset delete
+    //    invalidates a cache that never depended on it, but that is harmless over-invalidation, not a
+    //    correctness gap worth a type check here.
+    WIKI.models.navigation.invalidateCache(entry.siteId)
     return true
   }
 

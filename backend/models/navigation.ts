@@ -95,6 +95,50 @@ function isVisibleTo(item: NavigationItem, userGroups: string[]): boolean {
 }
 
 /**
+ * The `WIKI.cache` key `getGeneratedTree` caches `generateFromTree`'s output under (OpenProject
+ * #1825) -- one per menu per locale per `accessKey` (see `actorAccessKey` below), scoped to the site
+ * so `invalidateCache` can drop a whole site's worth without touching another site's warm entries.
+ */
+function navCacheKey(siteId: string, navId: string, locale: string, accessKey: string): string {
+  return `nav:${siteId}:${navId}:${locale}:${accessKey}`
+}
+
+/**
+ * A stable string capturing exactly the parts of an `AccessActor` that `checkAccess(actor,
+ * 'read:pages', ...)` can vary its answer on -- what `generateFromTree`'s per-candidate `read:pages`
+ * filter (OpenProject #2155) actually reads off the actor it is given. Two actors that hash to the
+ * same key are guaranteed interchangeable for every `read:pages` decision `generateFromTree` makes,
+ * so caching its result under this key (OpenProject #1825) can never hand one actor a tree walk that
+ * was really filtered for a different one.
+ *
+ * `null` (an `unfiltered` read -- see `getNav`'s own `unfiltered` doc) gets its own fixed key: the
+ * walk it produces skips the `read:pages` check entirely, which no real actor's key could ever
+ * collide with by chance (every real key carries a `groupIds:`/`admin:` prefix this doesn't).
+ *
+ * In practice this buckets tightly: almost every anonymous visitor is the same guests actor with no
+ * scope, no classification allow-set and no site pin, so they all share one cache entry -- the
+ * caching win this feature exists for. A signed-in reader with their own groups gets their own
+ * entry, correctly, rather than being served (or serving) another actor's filtered view.
+ */
+function actorAccessKey(actor: AccessActor | null): string {
+  if (!actor) {
+    return 'unfiltered'
+  }
+  // -> Mirrors `Groups#checkAccess`'s own short-circuit: an actor holding `manage:system` skips the
+  //    rule engine entirely, so nothing else about it can change the answer.
+  if (actor.permissions.includes('manage:system')) {
+    return 'admin'
+  }
+  const groups = [...actor.groupIds].sort().join(',')
+  const scope = actor.scope ? [...actor.scope].sort().join(',') : ''
+  const classifications = actor.allowedClassifications
+    ? [...actor.allowedClassifications].sort().join(',')
+    : ''
+  const sitePin = actor.siteId ?? ''
+  return `groupIds:${groups}|scope:${scope}|class:${classifications}|site:${sitePin}`
+}
+
+/**
  * Marks a `generateFromTree` result (and every nested child of it) as `generated`, recursively.
  *
  * What lets an `auto`/`mixed` editor (Task 464's `NavItemEditor.vue`) tell a tree-walk item apart from
@@ -208,6 +252,15 @@ export function sanitizeNavItemTargets(items: NavigationItem[]): NavigationItem[
  */
 class Navigation {
   /**
+   * Every `getGeneratedTree` cache key issued for a site, so `invalidateCache` can drop them all
+   * without asking `WIKI.cache` to enumerate its own keys -- the shared `LRUCache` holds entries for
+   * other models too, and the test-only stub in `test/mocks.ts` has no `keys()` at all. In-memory and
+   * per-instance, same as `WIKI.cache` itself: nothing here needs to survive a restart or be visible
+   * to another instance in an HA deployment.
+   */
+  private cacheKeysBySite = new Map<string, Set<string>>()
+
+  /**
    * The resolved items of one menu — hand-authored, tree-generated, or both, depending on the row's
    * `mode`.
    *
@@ -279,7 +332,13 @@ class Navigation {
     } else {
       const { rootFolderPath, locale } = await this.resolveGeneratorRoot(row.siteId, id, row.locale)
       const generated = markGenerated(
-        await this.generateFromTree(row.siteId, rootFolderPath, locale, unfiltered ? null : actor)
+        await this.getGeneratedTree(
+          row.siteId,
+          id,
+          rootFolderPath,
+          locale,
+          unfiltered ? null : actor
+        )
       )
       if (row.mode === 'auto') {
         combined = generated
@@ -415,13 +474,18 @@ class Navigation {
    * otherwise leave its menu behind with nothing able to reach it. A site-wide menu is identified by
    * `(siteId, locale)` rather than by belonging to a tree entry, so it is not at risk here.
    *
+   * @param siteId Site the removed entries belonged to — scopes the generated-tree cache eviction
+   *               (OpenProject #1825) this triggers; not used to filter the delete itself, which
+   *               already trusts the caller-supplied ids the same way it did before this parameter
+   *               existed.
    * @param ids Tree entry ids being removed
    */
-  async deleteNavForEntries(ids: string[]): Promise<void> {
+  async deleteNavForEntries(siteId: string, ids: string[]): Promise<void> {
     if (ids.length < 1) {
       return
     }
     await WIKI.db.delete(navigationTable).where(inArray(navigationTable.id, ids))
+    this.invalidateCache(siteId)
   }
 
   /**
@@ -462,6 +526,72 @@ class Navigation {
       ...row,
       folderPath: decodeTreePath(row.folderPath ?? '') ?? ''
     }))
+  }
+
+  /**
+   * `generateFromTree`'s result, cached under `WIKI.cache` (OpenProject #1825) -- the actual expensive
+   * part of resolving an `auto`/`mixed` menu (one query per folder level, each carrying a correlated
+   * `EXISTS`; F folders means F+1 queries with nothing cached). Cached BEFORE `getNav`'s `userGroups`
+   * visibility pass, deliberately: `visibilityGroups` filtering only ever narrows the row's own
+   * hand-authored `items`, never the generated portion this caches, so it is safe to apply after a
+   * cache hit the same way it always ran after a fresh walk.
+   *
+   * The `read:pages` filter (OpenProject #2155) `generateFromTree` runs per candidate is a different
+   * story -- ITS answer genuinely varies by actor, so the cache key folds in `actorAccessKey(actor)`
+   * rather than being actor-blind: two actors that key the same (in practice, almost every anonymous
+   * visitor) share one warm entry, and one that keys differently gets, and can only ever get, its own
+   * -- never another actor's filtered walk. Caching `combined` (post-merge, for a `mixed` menu) or
+   * anything after the `userGroups` filter would still leak a `visibilityGroups`-restricted stored
+   * item between viewers regardless of the key, so caching only the generated portion, before that
+   * filter runs, stays load-bearing.
+   *
+   * @param actor Threaded straight through to `generateFromTree` -- `null` for an `unfiltered` read.
+   */
+  private async getGeneratedTree(
+    siteId: string,
+    navId: string,
+    rootFolderPath: string,
+    locale: string,
+    actor: AccessActor | null
+  ): Promise<NavigationItem[]> {
+    const key = navCacheKey(siteId, navId, locale, actorAccessKey(actor))
+    if (WIKI.cache.has(key)) {
+      return WIKI.cache.get(key) as NavigationItem[]
+    }
+    const generated = await this.generateFromTree(siteId, rootFolderPath, locale, actor)
+    WIKI.cache.set(key, generated)
+    let keys = this.cacheKeysBySite.get(siteId)
+    if (!keys) {
+      keys = new Set()
+      this.cacheKeysBySite.set(siteId, keys)
+    }
+    keys.add(key)
+    return generated
+  }
+
+  /**
+   * Drops every cached generated-tree entry for a site — every `auto`/`mixed` menu's walk, not just
+   * one `navId`. A single write can change what more than one menu's walk would return: a folder or
+   * page anywhere in the tree feeds every ancestor menu whose root sits above it (each level's
+   * `holdsVisiblePages` `EXISTS` is itself sensitive to what changed below it), not only the menu
+   * keyed to the entry that changed directly -- so this trades precision for correctness rather than
+   * trying to compute exactly which `navId`s a given write touched.
+   *
+   * Public because the cache this guards is fed from write paths outside this model —
+   * `models/tree.ts`'s folder/page create/rename/delete paths and `models/pages.ts`'s
+   * publish/icon/title changes call this too, the same cross-model shape
+   * `models/glossary.ts#invalidateCache` already establishes for `deletePage`/`deleteOrphaned`
+   * (OpenProject #870).
+   */
+  invalidateCache(siteId: string): void {
+    const keys = this.cacheKeysBySite.get(siteId)
+    if (!keys) {
+      return
+    }
+    for (const key of keys) {
+      WIKI.cache.delete(key)
+    }
+    this.cacheKeysBySite.delete(siteId)
   }
 
   /**
@@ -675,6 +805,7 @@ class Navigation {
       .insert(navigationTable)
       .values({ id: navId, siteId, items })
       .onConflictDoUpdate({ target: navigationTable.id, set: { items } })
+    this.invalidateCache(siteId)
   }
 
   /**
@@ -979,6 +1110,12 @@ class Navigation {
           )
       `)
     }
+
+    // -> Whatever changed above -- items, menuMode, or just the entry's own cascade mode -- can alter
+    //    what a generated menu's tree walk returns (a `navigationMode` flip changes whether
+    //    `generateFromTree` treats this entry as a boundary, hidden, or an ordinary walked node), so
+    //    every cached menu for the site is dropped rather than trying to name just the affected ones
+    this.invalidateCache(siteId)
 
     return { navigationMode: mode, navigationId: navId, ...(menuMode && { mode: menuMode }) }
   }
