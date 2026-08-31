@@ -160,12 +160,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       contributors: {
         $ref: 'GraphContributorCounts#',
         description:
-          "Unique-contributor counts from this page's edit history (OpenProject #1141), the source for the graph's edit-volume node sizing."
+          "Unique-contributor counts from this page's edit history (OpenProject #1141), the source for the graph's edit-volume node sizing. Omitted entirely unless the request carries `?sizing=` (OpenProject #1863)."
       },
       pageviews: {
         $ref: 'GraphPageviewCounts#',
         description:
-          "Unique-visitor counts from this page's pageview log (OpenProject #1140), the source for the graph's page-visit-volume node sizing. Zeroed while pageview tracking is disabled (`WIKI.config.pageviews.isEnabled`), same as for a page with no pageviews logged."
+          "Unique-visitor counts from this page's pageview log (OpenProject #1140), the source for the graph's page-visit-volume node sizing. Zeroed while pageview tracking is disabled (`WIKI.config.pageviews.isEnabled`), same as for a page with no pageviews logged. Omitted entirely unless the request carries `?sizing=` (OpenProject #1863)."
       }
     }
   })

@@ -352,6 +352,57 @@ describe('assembleGraph', () => {
 
     assert.deepEqual(result.nodes[0]!.pageviews, ZERO_PAGEVIEWS)
   })
+
+  // -> OpenProject #1863: `contributors`/`pageviews` dominate the per-node payload and most readers
+  //    of the default view never look at them, so they're gated behind `includeSizing` (the route's
+  //    `?sizing=` querystring, `Boolean`-cast) -- omitted as KEYS, not merely zeroed, when unwanted.
+  describe('includeSizing gate', () => {
+    test('omits both contributors and pageviews keys entirely when includeSizing is false', () => {
+      const rows = [makeRow({ path: 'a' })]
+
+      const result = assembleGraph(rows, () => true, undefined, undefined, undefined, false)
+
+      assert.equal('contributors' in result.nodes[0]!, false)
+      assert.equal('pageviews' in result.nodes[0]!, false)
+    })
+
+    test('includes both contributors and pageviews when includeSizing is true, regardless of which sizing mode they came from', () => {
+      const rows = [makeRow({ path: 'a', id: 'page-a' })]
+      const contributors = { editor: 2, mcp: 0, all: 2, total: { editor: 2, mcp: 0, all: 2 } }
+      const pageviews = {
+        last30d: {
+          browser: 1,
+          api: 0,
+          mcp: 0,
+          all: 1,
+          total: { browser: 1, api: 0, mcp: 0, all: 1 }
+        },
+        last6mo: ZERO_PAGEVIEW_WINDOW,
+        last2yr: ZERO_PAGEVIEW_WINDOW
+      }
+
+      const result = assembleGraph(
+        rows,
+        () => true,
+        undefined,
+        () => contributors,
+        () => pageviews,
+        true
+      )
+
+      assert.deepEqual(result.nodes[0]!.contributors, contributors)
+      assert.deepEqual(result.nodes[0]!.pageviews, pageviews)
+    })
+
+    test('defaults to including sizing data when includeSizing is not passed at all (backward compatible)', () => {
+      const rows = [makeRow({ path: 'a' })]
+
+      const result = assembleGraph(rows, () => true)
+
+      assert.ok('contributors' in result.nodes[0]!)
+      assert.ok('pageviews' in result.nodes[0]!)
+    })
+  })
 })
 
 /**

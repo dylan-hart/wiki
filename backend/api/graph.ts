@@ -35,16 +35,19 @@ export interface GraphNode {
    *  id no longer resolves to a configured level. */
   classification: string | null
   /** Unique-contributor counts from this page's edit history (OpenProject #1141), the source for
-   *  the graph's edit-volume node sizing. Always present, zeroed rather than omitted for a page
-   *  with no history to look up. */
-  contributors: PageHistoryContributorCounts
+   *  the graph's edit-volume node sizing. Omitted entirely (OpenProject #1863) unless the request
+   *  carries `?sizing=` -- these, together with `pageviews` below, dominate the per-node payload
+   *  and most readers never look at them. Present and zeroed (not omitted) for a page with no
+   *  history to look up, whenever sizing data was asked for at all. */
+  contributors?: PageHistoryContributorCounts
   /** Unique-visitor counts from this page's pageview log (OpenProject #1140), the source for the
    *  graph's page-visit-volume node sizing -- split by trailing window and client type so the
    *  frontend's window selector and client-type checkboxes both work client-side against this one
-   *  fetched payload. Always present, zeroed rather than omitted for a page with no pageviews
-   *  logged (including while `WIKI.config.pageviews.isEnabled` is off, in which case there is
-   *  nothing to log in the first place). */
-  pageviews: PageviewCountsForGraph
+   *  fetched payload. Omitted entirely (OpenProject #1863) unless the request carries `?sizing=`,
+   *  same gating as `contributors` above. Present and zeroed (not omitted) for a page with no
+   *  pageviews logged (including while `WIKI.config.pageviews.isEnabled` is off, in which case
+   *  there is nothing to log in the first place), whenever sizing data was asked for at all. */
+  pageviews?: PageviewCountsForGraph
 }
 
 /** One edge — an authored relation or an extracted internal link, always between two visible nodes.
@@ -87,6 +90,13 @@ export function folderOf(path: string): string {
  *
  * `pageviewsFor` resolves a page id to its page-visit-volume counts (OpenProject #1140), same
  * testability reasoning and same all-zero-default shape as `contributorsFor`.
+ *
+ * `includeSizing` (OpenProject #1863) gates whether `contributors`/`pageviews` are attached to each
+ * node at all -- both together, not independently, since `Graph.vue`'s sizing-mode toggle switches
+ * client-side with no refetch and needs both dimensions already on hand either way. Defaults to
+ * `true` so an existing caller that doesn't care about the gate (every pure-unit test that predates
+ * #1863) keeps seeing the same all-present shape it always has; the route below passes the real
+ * `Boolean(req.query.sizing)` explicitly.
  */
 export function assembleGraph(
   rows: GraphPageRow[],
@@ -98,7 +108,8 @@ export function assembleGraph(
     all: 0,
     total: { editor: 0, mcp: 0, all: 0 }
   }),
-  pageviewsFor: (pageId: string) => PageviewCountsForGraph = zeroPageviewCountsForGraph
+  pageviewsFor: (pageId: string) => PageviewCountsForGraph = zeroPageviewCountsForGraph,
+  includeSizing = true
 ): Graph {
   const visible = rows.filter(canRead)
   // -> A relation/link target is a bare path, resolved within the target's own locale (translations
@@ -118,8 +129,9 @@ export function assembleGraph(
     tags: row.tags,
     folder: folderOf(row.path),
     classification: classificationName(row.classification),
-    contributors: contributorsFor(row.id),
-    pageviews: pageviewsFor(row.id)
+    ...(includeSizing
+      ? { contributors: contributorsFor(row.id), pageviews: pageviewsFor(row.id) }
+      : {})
   }))
 
   const edges: GraphEdge[] = []
@@ -154,6 +166,23 @@ const siteIdParam = {
   type: 'object',
   properties: { siteId: { type: 'string', format: 'uuid' } },
   required: ['siteId']
+}
+
+/** OpenProject #1863: opt-in to each node's `contributors`/`pageviews` count objects, which
+ *  dominate the per-node payload and which most readers of the default view never look at.
+ *  `Graph.vue` sends its currently-active "Size by" mode as the value, but only presence is
+ *  checked here -- see `assembleGraph`'s `includeSizing` doc comment for why both objects always
+ *  come back together regardless of which mode the value names. */
+const graphQuerystring = {
+  type: 'object',
+  properties: {
+    sizing: {
+      type: 'string',
+      enum: ['edits', 'visits'],
+      description:
+        "When present, every node also carries its `contributors` and `pageviews` count objects (omitted by default to keep the default view's payload lean). The value should match the caller's active sizing mode, but presence alone -- not the specific value -- decides whether sizing data comes back."
+    }
+  }
 }
 
 /**
@@ -198,7 +227,7 @@ async function routes(app: FastifyInstance) {
   /**
    * GET GRAPH
    */
-  app.get<{ Params: { siteId: string } }>(
+  app.get<{ Params: { siteId: string }; Querystring: { sizing?: string } }>(
     '/sites/:siteId/graph',
     {
       schema: {
@@ -207,6 +236,7 @@ async function routes(app: FastifyInstance) {
           "Every page the caller may read on this site, across all locales, as nodes -- plus the relation and internal-link edges between pages that are both visible. Fetched once; every drill-down filter and re-cluster after that (OpenProject #874/#875) runs client-side against this response, per #848's design. The underlying data is cached per site for a short TTL (OpenProject #2269); a cold cache is only rebuilt for a signed-in caller.",
         tags: ['Pages'],
         params: siteIdParam,
+        querystring: graphQuerystring,
         response: {
           200: { $ref: 'Graph#' },
           401: { $ref: 'ApiError#' }
@@ -243,7 +273,8 @@ async function routes(app: FastifyInstance) {
             all: 0,
             total: { editor: 0, mcp: 0, all: 0 }
           },
-        (pageId) => data.pageviewCounts.get(pageId) ?? zeroPageviewCountsForGraph()
+        (pageId) => data.pageviewCounts.get(pageId) ?? zeroPageviewCountsForGraph(),
+        Boolean(req.query.sizing)
       )
     }
   )
