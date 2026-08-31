@@ -12,7 +12,12 @@ import semver from 'semver'
 import { relations } from '../db/relations.ts'
 import { flags } from '../models/flags.ts'
 import { createDeferred } from '../helpers/common.ts'
-import { connectListener, createNotifier, type ListenerHandle } from '../helpers/pubsub.ts'
+import {
+  connectListener,
+  createListenerPool,
+  createNotifier,
+  type ListenerHandle
+} from '../helpers/pubsub.ts'
 import maintenance from './maintenance.ts'
 // import migrationSource from '../db/migrator-source.js'
 
@@ -174,6 +179,13 @@ export function resolvePoolSizeOptions(
  */
 export default {
   pool: null as Pool | null,
+  /**
+   * Dedicated pool the three permanently-held LISTEN/NOTIFY clients (event bus, scheduler,
+   * collaborative editing) check out from -- never the main query pool `pool` above, so holding
+   * them for the process lifetime never eats into `WIKI.config.pool.max`. Built once in `init()`, by
+   * `helpers/pubsub.ts`'s `createListenerPool` -- see its doc comment for the sizing rationale.
+   */
+  listenerPool: null as Pool | null,
   pubsubClient: null as PoolClient | null,
   listenerHandle: null as ListenerHandle | null,
   config: null as PoolConfig | null,
@@ -290,6 +302,16 @@ export default {
       )
     })
 
+    // -> Worker mode never opens a LISTEN/NOTIFY client (see `subscribeToNotifications`'s only
+    //    caller, `index.ts`'s `postBoot()`, which never runs in a worker thread), so a worker's
+    //    `init()` has no use for this pool -- skip building it there.
+    if (!workerMode) {
+      this.listenerPool = createListenerPool({
+        ...this.config,
+        options: `-c search_path=${WIKI.config.db.schema}`
+      })
+    }
+
     const db = createDb(this.pool)
 
     // Connect
@@ -402,7 +424,7 @@ export default {
     //    on a dropped connection it re-connects and re-LISTENs on its own, rather than throwing on
     //    an unhandled 'error' and taking the process down with it.
     this.listenerHandle = await connectListener({
-      pool: this.pool!,
+      pool: this.listenerPool!,
       applicationName: connectionAppName,
       channels: ['wiki'],
       label: 'event bus',

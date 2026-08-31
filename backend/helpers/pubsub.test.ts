@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { after, before, beforeEach, describe, test } from 'node:test'
-import { connectListener, createNotifier } from './pubsub.ts'
+import { connectListener, createListenerPool, createNotifier } from './pubsub.ts'
 
 /**
  * Regression coverage for `connectListener` (task 703): none of the three dedicated LISTEN/NOTIFY
@@ -229,6 +229,63 @@ describe('connectListener', () => {
     client.emit('error', new Error('late error after shutdown'))
     await new Promise((resolve) => setTimeout(resolve, 10))
     assert.equal(pool.connectCalls, connectCallsBeforeLateError)
+  })
+
+  test('checks out from whichever pool it is handed, and never from a separate pool also in scope (task 1887)', async () => {
+    // -> Stands in for `WIKI.dbManager.listenerPool`, the dedicated pool `createListenerPool` builds.
+    const listenerPool = new FakePool()
+    const client = new FakeClient()
+    listenerPool.queueClient(client)
+
+    // -> Stands in for `WIKI.dbManager.pool`, the main query pool -- `connectOnce` must never touch
+    //    this one, which is the whole point of task 1887 moving the listeners off it.
+    const queryPool = new FakePool()
+
+    let stored: FakeClient | null = null
+    const handle = await connectListener({
+      pool: listenerPool as any,
+      applicationName: 'Wiki.js - test:EVENTS',
+      channels: ['wiki'],
+      label: 'test listener',
+      onNotification: () => {},
+      getClient: () => stored as any,
+      setClient: (c) => {
+        stored = c as any
+      }
+    })
+
+    assert.equal(stored, client)
+    assert.equal(listenerPool.connectCalls, 1)
+    assert.equal(queryPool.connectCalls, 0)
+
+    await handle.close()
+  })
+})
+
+/**
+ * `createListenerPool` (task 1887): the dedicated pool the three permanently-held LISTEN/NOTIFY
+ * clients share, sized so they never eat into the main query pool's configured `max`. Constructing a
+ * `pg.Pool` never opens a socket by itself -- only `.connect()` does, which none of these tests call
+ * -- so this is safe to exercise as a real `Pool` rather than a fake, and `.options` is where
+ * node-postgres stores back exactly what the constructor was handed.
+ */
+describe('createListenerPool', () => {
+  test('sizes the pool for exactly the three permanent listeners, with no idle minimum', () => {
+    const pool = createListenerPool({ host: 'db.example.com', database: 'wiki' })
+    assert.equal(pool.options.max, 3)
+    assert.equal(pool.options.min, 0)
+    assert.equal(pool.options.host, 'db.example.com')
+    assert.equal(pool.options.database, 'wiki')
+  })
+
+  test('defaults connectionTimeoutMillis to 5s so a saturated pool fails fast', () => {
+    const pool = createListenerPool({ host: 'db.example.com' })
+    assert.equal(pool.options.connectionTimeoutMillis, 5000)
+  })
+
+  test('preserves an explicit connectionTimeoutMillis from the input config instead of overriding it', () => {
+    const pool = createListenerPool({ host: 'db.example.com', connectionTimeoutMillis: 1234 })
+    assert.equal(pool.options.connectionTimeoutMillis, 1234)
   })
 })
 

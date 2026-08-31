@@ -1,5 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises'
-import type { Notification, Pool, PoolClient } from 'pg'
+import { Pool, type Notification, type PoolClient, type PoolConfig } from 'pg'
 
 /**
  * A `pg_notify` sender for one LISTEN/NOTIFY client.
@@ -63,6 +63,53 @@ export function createNotifier(client: () => PoolClient | null, label: string): 
   }
 }
 
+/**
+ * The number of permanently-held LISTEN/NOTIFY clients this codebase opens: the event bus
+ * (`core/db.ts`), the scheduler and collaborative editing, all named in `connectListener`'s own doc
+ * comment above. `createListenerPool`'s `max` matches this exactly, not a padded guess -- see its
+ * own doc comment for why.
+ */
+const LISTENER_COUNT = 3
+
+/**
+ * Build the dedicated connection pool the three permanently-held LISTEN/NOTIFY clients check out
+ * from (task 1887, part of epic 1878).
+ *
+ * They used to `pool.connect()` straight out of the main query pool and hold that client for the
+ * process lifetime, one each -- so the effective ceiling for application queries was
+ * `WIKI.config.pool.max - 3`, not the configured `max` an operator reads it as. None of the three
+ * ever runs an application query, so they do not belong in that pool at all: this gives them a pool
+ * of their own, sized for exactly the load they put on it.
+ *
+ * `max: LISTENER_COUNT` (3) rather than some padded number -- every caller of `connectListener` in
+ * this codebase holds its client for the process lifetime and reconnects in place on drop (see
+ * `connectListener`'s own doc comment), so there is never a fourth concurrent checkout to make room
+ * for. `min: 0` because idle listener slots between boot and the first `connectListener` call cost a
+ * live server-side connection for nothing -- unlike the query pool, nothing here benefits from a
+ * warm minimum. `connectionTimeoutMillis` defaults to 5s so a saturated pool fails fast rather than
+ * hanging forever, the same reasoning `core/db.ts`'s own `max`/`connectionTimeoutMillis` work (task
+ * 1883) applies to the query pool -- but always applied here, since this pool has no `config.yml`
+ * knob of its own to be overridden by.
+ *
+ * Takes the same connection config the query pool is built from (host/user/password/database or
+ * `connectionString`, plus SSL) rather than assembling its own: `core/db.ts`'s `init()` already
+ * resolves that (env `DATABASE_URL` vs. `WIKI.config.db.*`, SSL cert loading) before constructing
+ * its own pool, and duplicating that logic here would be two places that can drift apart on how a
+ * database is reached.
+ *
+ * Called once, by `core/db.ts`'s `init()`, and the result stored as `WIKI.dbManager.listenerPool`
+ * for the event bus, the scheduler and collaborative editing to all share -- one small pool for the
+ * three of them, not three pools of one.
+ */
+export function createListenerPool(config: PoolConfig): Pool {
+  return new Pool({
+    ...config,
+    min: 0,
+    max: LISTENER_COUNT,
+    connectionTimeoutMillis: config.connectionTimeoutMillis ?? 5000
+  })
+}
+
 /** A live, reconnecting LISTEN/NOTIFY client, as returned by {@link connectListener}. */
 export interface ListenerHandle {
   /**
@@ -73,7 +120,11 @@ export interface ListenerHandle {
 }
 
 export interface ListenerOptions {
-  /** Pool to (re)connect a dedicated client from. */
+  /**
+   * Pool to (re)connect a dedicated client from -- the shared `WIKI.dbManager.listenerPool` built by
+   * {@link createListenerPool}, never the main query pool. See `createListenerPool`'s doc comment
+   * for why the two must not be the same pool.
+   */
   pool: Pool
   /** `application_name` set on every (re)connection, so `pg_stat_activity` / AdminCluster can name it. */
   applicationName: string
