@@ -720,14 +720,90 @@ async function saveChangesCommit(closeAfter = false) {
       })
     }
   } catch (err) {
-    notify({
-      type: 'negative',
-      message: 'Failed to save page changes.',
-      caption: err.message
-    })
+    // -> A 409 already means `resolveSaveConflict()` below is putting the resolution dialog up (via
+    //    the `saveConflict` watch) -- a generic toast on top of it would be redundant noise for
+    //    something that is not a dead end. Anything else genuinely failed and is reported as before.
+    if (err.message !== 'ERR_SAVE_CONFLICT') {
+      notify({
+        type: 'negative',
+        message: 'Failed to save page changes.',
+        caption: err.message
+      })
+    }
   }
   loading.hide()
 }
+
+/**
+ * Puts up the resolution dialog once `pageStore.pageSave()` has flagged a save the server refused
+ * because somebody else saved first (`editorStore.saveConflict`, the page snapshot the 409 came back
+ * with -- see `stores/page.js`). Lives here rather than in any one `Editor*.vue`: every editor's Save
+ * button already routes through `saveChangesCommit()` above, so this is what makes the dialog
+ * reachable from all of them instead of only whichever editor happened to watch for it (OpenProject
+ * #1747 hoisted this out of `EditorMarkdown.vue`, which had it first only because Markdown was the
+ * first editor built, not because a conflict is a Markdown-specific concern).
+ *
+ * Offers two ways out: adopt the server's version wholesale, or re-issue the save with the server's
+ * `updatedAt` as the new baseline -- an informed overwrite, now that this author has been told there
+ * was something to overwrite, rather than the blind one `expectedUpdatedAt` exists to prevent. Either
+ * choice recovers this author's edit one way or another, so a 409 is never a dead end (OpenProject
+ * #838, upstream requarks/wiki #2256). Nothing here is lost if the overwrite's own `pageSave()` hits a
+ * second conflict either: the 409 handler in `stores/page.js` sets `editorStore.saveConflict` again,
+ * which re-triggers the `watch` below and puts this same dialog back up with the newer snapshot.
+ *
+ * Only `pageStore`/`editorStore` state is touched here, deliberately: this file has no reference to
+ * whichever editor component is actually mounted, so a "discard" cannot reach into its live view the
+ * way `EditorMarkdown.vue`'s own version once could (calling `editor.setValue()` on its local Monaco
+ * instance and re-rendering its preview pane). The page's stored content -- what the next save would
+ * actually send -- is corrected either way; what can lag a beat behind it is that one editor's own
+ * on-screen copy, until its next edit or a remount.
+ */
+function resolveSaveConflict(snapshot) {
+  dialog({
+    component: defineAsyncComponent(() => import('./PageSaveConflictDialog.vue')),
+    componentProps: { authorName: snapshot.authorName }
+  })
+    .onOk(async (action) => {
+      if (action === 'discard') {
+        pageStore.$patch({
+          title: snapshot.title,
+          content: snapshot.content,
+          contentLoaded: true,
+          updatedAt: snapshot.updatedAt
+        })
+        // -> Adopting the server's copy leaves nothing of this author's pending; see `hasPendingChanges`
+        const now = Temporal.Now.instant()
+        editorStore.$patch({ lastChangeTimestamp: now, lastSaveTimestamp: now })
+      } else if (action === 'overwrite') {
+        pageStore.updatedAt = snapshot.updatedAt
+        try {
+          await pageStore.pageSave()
+          notify({
+            type: 'positive',
+            message: t('editor.collab.saveConflict.saveSuccess')
+          })
+        } catch (err) {
+          notify({
+            type: 'negative',
+            message: t('editor.collab.saveConflict.saveFailed'),
+            caption: err.message
+          })
+        }
+      }
+    })
+    .onDismiss(() => {
+      editorStore.saveConflict = null
+    })
+}
+
+watch(
+  () => editorStore.saveConflict,
+  (snapshot) => {
+    if (snapshot) {
+      resolveSaveConflict(snapshot)
+    }
+  }
+)
 
 async function createPage() {
   // Handle home page creation flow
