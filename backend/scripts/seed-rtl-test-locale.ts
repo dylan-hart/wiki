@@ -1,28 +1,40 @@
 /**
- * One-off seed for a synthetic RTL locale, for validating feature 413 ("RTL support end-to-end")
- * against a real right-to-left locale end to end.
+ * One-off seed for two synthetic locales, for validating feature 413 ("RTL support end-to-end") and
+ * WP #1662 (the content-vs-interface locale split) end to end.
  *
- * There is no real RTL locale available anywhere in this fork: `locales/metadata.js` is
+ * There is no real second locale available anywhere in this fork: `locales/metadata.js` is
  * Localazy-generated output covering only de/en/fr/pt-BR/ru/zh (see its own header comment), and
- * only `locales/en.json` exists on disk. Getting real Arabic or Hebrew strings requires enabling
- * those languages on the Localazy project and re-running the download -- an external/ops dependency
- * outside this feature's engineering scope (see `docs/variances.md`).
+ * only `locales/en.json` exists on disk. Getting real strings for any other language requires
+ * enabling it on the Localazy project and re-running the download -- an external/ops dependency
+ * outside either feature's engineering scope (see `docs/variances.md`).
  *
- * This script inserts a hand-translated stand-in directly into the `locales` table instead: enough
- * real Arabic strings across the namespaces the reading view, editor toolbars and admin chrome
- * actually read from (`common.*`, `editor.markup.*`, `admin.*`, `auth.*`, `welcome.*`) to exercise
- * the whole rendering path with `isRTL: true` genuinely in effect, per `models/locales.ts`'s
- * `getLocales()`/`getStrings()`. Deliberately NOT wired into `metadata.js`/`refreshFromDisk()`: that
- * pipeline is Localazy's real-locale path, and `refreshFromDisk()` only ever touches codes present in
- * `metadata.js`'s `languages` list, so this row is invisible to it and never gets overwritten by a
- * normal boot.
+ * This script inserts two hand-translated stand-ins directly into the `locales` table instead:
+ *
+ *   - `RTL_TEST_LOCALE` (`ar`, `isRTL: true`) -- enough real Arabic strings across the namespaces the
+ *     reading view, editor toolbars and admin chrome actually read from (`common.*`,
+ *     `editor.markup.*`, `admin.*`, `auth.*`, `welcome.*`) to exercise the whole rendering path with
+ *     `isRTL: true` genuinely in effect, per `models/locales.ts`'s `getLocales()`/`getStrings()`.
+ *   - `LTR_TEST_LOCALE` (`es`, `isRTL: false`) -- a second, non-right-to-left locale, so
+ *     `e2e/tests/rtl.spec.js` can assert `<html lang>` follows a page's own content locale even when
+ *     that locale isn't RTL (WP #1655's point that the `lang` half is wrong on *any* translated page,
+ *     not only an RTL one). `es` is deliberately not one of the six languages above: those already
+ *     have Localazy-hosted resources and could plausibly get a real `locales/fr.json`-style file
+ *     landing on disk at any time, which would make `refreshFromDisk()` silently overwrite this row
+ *     the next time it runs -- see below.
+ *
+ * Neither row is wired into `metadata.js`/`refreshFromDisk()`: that pipeline is Localazy's
+ * real-locale path, and `refreshFromDisk()` only ever loads a code that has a matching
+ * `locales/<code>.json` file present on disk (skipping every other code in `metadata.js`'s
+ * `languages` list with a warning) -- since neither `ar.json` nor `es.json` exists there today,
+ * both rows are invisible to it and never get overwritten by a normal boot.
  *
  * Two ways to run it:
- *   - `import { seedRtlTestLocale, RTL_TEST_LOCALE } from './seed-rtl-test-locale.ts'` from a script
- *     or test that already has a Drizzle `db` handle (e.g. `test/db.ts`'s `setupTestDb()`).
+ *   - `import { seedRtlTestLocale, RTL_TEST_LOCALE }` (or the `Ltr`-prefixed equivalents) from
+ *     `'./seed-rtl-test-locale.ts'`, from a script or test that already has a Drizzle `db` handle
+ *     (e.g. `test/db.ts`'s `setupTestDb()`).
  *   - `node backend/scripts/seed-rtl-test-locale.ts` (from the repo root, or anywhere -- it builds
- *     its own connection from `DATABASE_URL` and does not depend on `WIKI` or `cwd`), which upserts
- *     into whichever database `DATABASE_URL` names and exits.
+ *     its own connections from `DATABASE_URL` and does not depend on `WIKI` or `cwd`), which upserts
+ *     both rows into whichever database `DATABASE_URL` names and exits.
  */
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
@@ -140,14 +152,58 @@ export async function seedRtlTestLocale(db: WikiDb): Promise<void> {
     })
 }
 
+/** The synthetic non-RTL locale's own code -- see the file header for why `es` was picked. */
+export const LTR_TEST_LOCALE_CODE = 'es'
+
 /**
- * Builds its own throwaway connection from `DATABASE_URL`, seeds, and closes it again -- the whole
- * "I have no `db` handle of my own" case. Used by the CLI entry point below, and by
- * `e2e/tests/rtl.spec.js`: the e2e workspace has no `pg`/`drizzle-orm` of its own (see that spec's
- * header comment), so it calls this rather than building a connection itself, and everything this
- * function imports resolves against `backend/`'s `node_modules` regardless of which workspace the
- * caller lives in -- Node resolves bare specifiers from the *importing file's own* location, not the
- * process's cwd.
+ * Hand-translated Spanish strings, keyed exactly like `locales/en.json`. Only what
+ * `e2e/tests/rtl.spec.js`'s content-vs-interface-locale cases actually read -- unlike
+ * `RTL_TEST_LOCALE_STRINGS`, this locale is never switched to via `LocaleSelectorMenu.vue` or
+ * checked for translated chrome, so it does not need the same namespace breadth.
+ */
+export const LTR_TEST_LOCALE_STRINGS: Record<string, string> = {
+  'common.sidebar.browse': 'Navegar',
+  'common.actions.save': 'Guardar',
+  'admin.adminArea': 'Área de administración'
+}
+
+/** The full row this script upserts for the non-RTL fixture -- see `RTL_TEST_LOCALE` above. */
+export const LTR_TEST_LOCALE = {
+  code: LTR_TEST_LOCALE_CODE,
+  name: 'Spanish (LTR Test)',
+  nativeName: 'Español (prueba)',
+  language: 'es',
+  region: '',
+  script: '',
+  isRTL: false,
+  strings: LTR_TEST_LOCALE_STRINGS
+} as const
+
+/** Same upsert shape as `seedRtlTestLocale`, for `LTR_TEST_LOCALE`. */
+export async function seedLtrTestLocale(db: WikiDb): Promise<void> {
+  await db
+    .insert(localesTable)
+    .values(LTR_TEST_LOCALE)
+    .onConflictDoUpdate({
+      target: localesTable.code,
+      set: {
+        name: LTR_TEST_LOCALE.name,
+        nativeName: LTR_TEST_LOCALE.nativeName,
+        isRTL: LTR_TEST_LOCALE.isRTL,
+        strings: LTR_TEST_LOCALE.strings,
+        updatedAt: sql`now()`
+      }
+    })
+}
+
+/**
+ * Builds a throwaway connection from `DATABASE_URL`, runs `seed` against it, and closes it again --
+ * the whole "I have no `db` handle of my own" case, shared by both `runSeed*TestLocale` functions
+ * below. Used by the CLI entry point below, and by `e2e/tests/rtl.spec.js`: the e2e workspace has no
+ * `pg`/`drizzle-orm` of its own (see that spec's header comment), so it calls these rather than
+ * building a connection itself, and everything this function imports resolves against `backend/`'s
+ * `node_modules` regardless of which workspace the caller lives in -- Node resolves bare specifiers
+ * from the *importing file's own* location, not the process's cwd.
  *
  * The connection's `search_path` is set to `DB_SCHEMA` (default `'wiki'`, matching `base.yml`'s own
  * default and `core/db.ts`'s `-c search_path=...` pool option) rather than left to whatever the
@@ -157,7 +213,7 @@ export async function seedRtlTestLocale(db: WikiDb): Promise<void> {
  *
  * @throws If `DATABASE_URL` is unset.
  */
-export async function runSeedRtlTestLocale(): Promise<void> {
+async function withSeedDb(seed: (db: WikiDb) => Promise<void>): Promise<void> {
   if (!process.env.DATABASE_URL) {
     throw new Error(
       'DATABASE_URL is not set. Point it at the database to seed, e.g.:\n\n' +
@@ -173,23 +229,36 @@ export async function runSeedRtlTestLocale(): Promise<void> {
   })
   try {
     const db = drizzle({ client: pool, relations }) as WikiDb
-    await seedRtlTestLocale(db)
+    await seed(db)
   } finally {
     await pool.end()
   }
 }
 
+/** @throws If `DATABASE_URL` is unset -- see `withSeedDb`. */
+export async function runSeedRtlTestLocale(): Promise<void> {
+  await withSeedDb(seedRtlTestLocale)
+}
+
+/** @throws If `DATABASE_URL` is unset -- see `withSeedDb`. */
+export async function runSeedLtrTestLocale(): Promise<void> {
+  await withSeedDb(seedLtrTestLocale)
+}
+
 /**
  * CLI entry point: guarded so importing this module (from a test, or from the e2e suite) never opens
- * a connection as a side effect -- only running the file directly does.
+ * a connection as a side effect -- only running the file directly does. Seeds both fixtures, each
+ * over its own connection (`withSeedDb` opens and closes one per call) run concurrently.
  */
 if (import.meta.main) {
-  runSeedRtlTestLocale()
+  Promise.all([runSeedRtlTestLocale(), runSeedLtrTestLocale()])
     .then(() => {
-      console.log(`Seeded RTL test locale '${RTL_TEST_LOCALE_CODE}' [ OK ]`)
+      console.log(
+        `Seeded RTL test locale '${RTL_TEST_LOCALE_CODE}' and LTR test locale '${LTR_TEST_LOCALE_CODE}' [ OK ]`
+      )
     })
     .catch((err: any) => {
-      console.error('Failed to seed RTL test locale:', err.message)
+      console.error('Failed to seed test locales:', err.message)
       process.exitCode = 1
     })
 }

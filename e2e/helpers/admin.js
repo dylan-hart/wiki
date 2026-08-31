@@ -64,11 +64,20 @@ export async function expectGuestShell(page) {
  * which origin `page` is currently showing, which would silently create the page back on the
  * default site instead of the one this call is meant to be exercising.
  *
+ * `locale`, when given, creates the page under that content locale instead of the site's default
+ * (`pages/Index.vue`'s `/_create` route reads it straight off `?locale=`, per `stores/page.js`'s
+ * `pageCreate`) -- for `rtl.spec.js`'s content-vs-interface-locale cases, which need a page whose
+ * own locale differs from the interface locale rather than one at the site's primary. The page's
+ * real URL comes out locale-prefixed whenever that locale isn't the site's primary
+ * (`localizedPagePath` in `helpers/pagePaths.js`, which `pageStore.editorExitPath` — where this
+ * redirects to on save — already uses), so the final URL assertion below expects that prefix too.
+ *
  * @param {import('@playwright/test').Page} page
- * @param {{ path: string, title: string, body: string, origin?: string }} args
+ * @param {{ path: string, title: string, body: string, origin?: string, locale?: string }} args
  */
-export async function createAndPublishPage(page, { path, title, body, origin = '' }) {
-  await page.goto(`${origin}/_create/markdown?path=${path}`)
+export async function createAndPublishPage(page, { path, title, body, origin = '', locale }) {
+  const localeQuery = locale ? `&locale=${locale}` : ''
+  await page.goto(`${origin}/_create/markdown?path=${path}${localeQuery}`)
 
   // -> The page title: a `contenteditable="plaintext-only"` span (`PageHeader.vue`), not an
   //    <input> -- but one with `aria-label="Title"`, which is what gives a contenteditable region
@@ -111,5 +120,6 @@ export async function createAndPublishPage(page, { path, title, body, origin = '
 
   // -> `pageSave` replaces the route with the page's real path once the create request resolves
   //    (`stores/page.js`), so this is the save completing, not a fixed wait.
-  await expect(page).toHaveURL(new RegExp(`/${path}$`))
+  const expectedPath = locale ? `${locale}/${path}` : path
+  await expect(page).toHaveURL(new RegExp(`/${expectedPath}$`))
 }
