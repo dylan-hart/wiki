@@ -2697,6 +2697,130 @@ describe('approvals retain resolved submissions (DB-backed)', { skip: !hasTestDa
     const secondRow = await rowFor(second.id)
     assert.equal(secondRow!.status, 'open')
   })
+
+  /*
+    OpenProject #2137: the return leg -- what `getResolvedSubmission`/`pageViewerState` hand back once
+    a reviewer has acted, since `hasOpenSuggestion` alone only ever says a suggestion is gone, never
+    what happened to it.
+  */
+
+  test('getResolvedSubmission: null while nothing of this author’s has been resolved yet', async () => {
+    const page = await makePage('approvals/resolved/none-yet', 'Original content')
+    await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    assert.equal(await approvalsModel.getResolvedSubmission(page.id, fixtures.userId), null)
+  })
+
+  test('getResolvedSubmission: a declined row carries its status and reason', async () => {
+    const page = await makePage('approvals/resolved/declined', 'Original content')
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+    await approvalsModel.rejectSubmission(
+      fixtures.siteId,
+      submission.id,
+      'Overlaps with an existing section',
+      actor.id
+    )
+
+    const resolved = await approvalsModel.getResolvedSubmission(page.id, fixtures.userId)
+    assert.ok(resolved)
+    assert.equal(resolved!.status, 'declined')
+    assert.equal(resolved!.reason, 'Overlaps with an existing section')
+  })
+
+  test('getResolvedSubmission: an approved row carries its status with a null reason', async () => {
+    const page = await makePage('approvals/resolved/approved', 'Original content')
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+    await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Suggested content',
+      render: '<p>Suggested content</p>',
+      actor
+    })
+
+    const resolved = await approvalsModel.getResolvedSubmission(page.id, fixtures.userId)
+    assert.ok(resolved)
+    assert.equal(resolved!.status, 'approved')
+    assert.equal(resolved!.reason, null)
+  })
+
+  test('getResolvedSubmission: null for a guest, who has no account to look one up by', async () => {
+    const page = await makePage('approvals/resolved/guest', 'Original content')
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: null,
+      guestName: 'A Reader',
+      guestEmail: 'reader@example.com'
+    })
+    await approvalsModel.rejectSubmission(fixtures.siteId, submission.id, 'Not needed', actor.id)
+
+    assert.equal(await approvalsModel.getResolvedSubmission(page.id, null), null)
+  })
+
+  test('pageViewerState surfaces resolvedSubmission for the author of a declined suggestion', async () => {
+    const page = await makePage('approvals/resolved/viewer-state', 'Original content')
+    // -> The describe block's own rule (`before()` above) has `submitterGroups: []`, which
+    //    `findSubmitRule` never matches -- a rule that actually names this actor's group as a
+    //    submitter is what makes `pageViewerState` look up `resolvedSubmission` at all (same gate as
+    //    `hasOpenSuggestion`), scoped to this test's own page so the site-wide rule above is untouched.
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'submitter rule for viewer-state test',
+      isEnabled: true,
+      match: 'START',
+      path: 'approvals/resolved/viewer-state',
+      submitterGroups: [fixtures.groupId],
+      reviewerGroups: [fixtures.groupId]
+    })
+
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+    await approvalsModel.rejectSubmission(
+      fixtures.siteId,
+      submission.id,
+      'Try again later',
+      actor.id
+    )
+
+    const req = {
+      session: {
+        authenticated: true,
+        user: { id: fixtures.userId },
+        groups: [fixtures.groupId],
+        permissions: []
+      }
+    }
+    const state = await approvalsModel.pageViewerState(req, fixtures.siteId, pageRef(page))
+    assert.equal(state.hasOpenSuggestion, false)
+    assert.ok(state.resolvedSubmission)
+    assert.equal(state.resolvedSubmission!.status, 'declined')
+    assert.equal(state.resolvedSubmission!.reason, 'Try again later')
+  })
 })
 
 /**

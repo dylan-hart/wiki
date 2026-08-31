@@ -358,6 +358,36 @@
         </w-btn-group>
       </template>
     </div>
+    <!-- SUGGESTION OUTCOME -->
+    <!--
+      The return leg `hasOpenSuggestion` alone never gave: that flag only ever goes false once a
+      reviewer acts, telling its author nothing about what became of it. `w-full` on a flex-wrap row
+      puts this on its own line below the icon/title/actions above, whichever of them wrapped.
+
+      Gated on `!hasOpenSuggestion` -- once this reader has a newer suggestion open on the page, the
+      outcome of the one before it is no longer what they are here to see.
+
+      Literal colour classes, like the stale-page banner in `InboxReview.vue`: WBanner has no `color`
+      prop, so one would be silently dropped.
+    -->
+    <w-banner
+      v-if="!pageStore.hasOpenSuggestion && pageStore.resolvedSubmission"
+      class="w-full mx-4 mb-2 flex-none"
+      :class="
+        pageStore.resolvedSubmission.status === `approved`
+          ? `bg-positive text-white`
+          : `bg-negative text-white`
+      ">
+      {{
+        pageStore.resolvedSubmission.status === `approved`
+          ? t(`common.page.suggestionResolvedApproved`)
+          : t(`common.page.suggestionResolvedDeclined`)
+      }}
+      <div v-if="pageStore.resolvedSubmission.reason" class="mt-1">
+        <strong>{{ t(`common.page.suggestionResolvedReasonLabel`) }}</strong>
+        {{ pageStore.resolvedSubmission.reason }}
+      </div>
+    </w-banner>
   </div>
 </template>
 
