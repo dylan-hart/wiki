@@ -515,6 +515,83 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * OpenProject #1693: audit of `deleteFolder` for the same missing side-effect gap #1692 fixed on
+   * `renameFolder`. Unlike `renameFolder`, `deleteFolder` itself does no per-page I/O at all — its
+   * caller (`api/tree.ts`'s DELETE-folder route) always follows it with
+   * `pages.deleteOrphaned(siteId, removed.pages, actor)`, and `deleteOrphaned` already fires the full
+   * per-page side-effect set `deletePage` fires for a single page: `search.deleted` and
+   * `storage.dispatch('page:delete')` once per descendant page, and `glossary.invalidateCache` once
+   * for the whole batch. This is the investigation's evidence, locked down the same way #1692's test
+   * locks down `renameFolder`: by driving the two calls together, exactly as the real route does, and
+   * asserting each side effect fires for the correct descendant pages.
+   */
+  describe('deleteFolder + deleteOrphaned fire descendant page delete side effects (OpenProject #1693)', () => {
+    test('fires search.deleted + storage.dispatch per descendant page, and glossary.invalidateCache once', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'removable',
+        title: 'Removable',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const pageOne = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'removable/one', title: 'One', locale: 'en' }),
+        actor
+      )
+      const pageTwo = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'removable/two', title: 'Two', locale: 'en' }),
+        actor
+      )
+
+      const searchModel = (globalThis as any).WIKI.models.search
+      const storageModel = (globalThis as any).WIKI.models.storage
+      const glossaryModel = (globalThis as any).WIKI.models.glossary
+      const searchCalls: any[] = []
+      const storageCalls: any[] = []
+      const glossaryCalls: string[] = []
+      searchModel.deleted = async (siteId: string, pageId: string) => {
+        searchCalls.push({ siteId, id: pageId })
+      }
+      storageModel.dispatch = async (event: string, data: any) => {
+        storageCalls.push({ event, ...data })
+        return 0
+      }
+      glossaryModel.invalidateCache = (siteId: string) => {
+        glossaryCalls.push(siteId)
+      }
+
+      try {
+        const removed = await treeModel.deleteFolder(folder.id, fixtures.siteId)
+        await pagesModel.deleteOrphaned(fixtures.siteId, removed.pages, actor)
+
+        assert.deepEqual(new Set(searchCalls.map((c) => c.id)), new Set([pageOne.id, pageTwo.id]))
+        for (const call of searchCalls) {
+          assert.equal(call.siteId, fixtures.siteId)
+        }
+
+        assert.equal(storageCalls.length, 2)
+        assert.deepEqual(new Set(storageCalls.map((c) => c.id)), new Set([pageOne.id, pageTwo.id]))
+        for (const call of storageCalls) {
+          assert.equal(call.event, 'page:delete')
+          assert.equal(call.siteId, fixtures.siteId)
+          assert.equal(call.locale, 'en')
+        }
+        const oneDispatched = storageCalls.find((c) => c.id === pageOne.id)!
+        assert.equal(oneDispatched.path, 'removable/one')
+        const twoDispatched = storageCalls.find((c) => c.id === pageTwo.id)!
+        assert.equal(twoDispatched.path, 'removable/two')
+
+        assert.deepEqual(glossaryCalls, [fixtures.siteId])
+      } finally {
+        delete searchModel.deleted
+        delete storageModel.dispatch
+        delete glossaryModel.invalidateCache
+      }
+    })
+  })
+
+  /**
    * OpenProject #1128: `getTree()`/`browse()`/`listPages()` used to carry no classification at all —
    * the caller (`api/tree.ts`'s permission filter) had nothing to check a CLASSIFICATION rule
    * against and always passed a hardcoded `null`. Each now joins `pages.classification` in directly,
