@@ -296,6 +296,7 @@ describe('mcp/http', () => {
       'get_page',
       'list_navigation',
       'list_sites',
+      'render_diagram',
       'search_pages',
       'update_page'
     ])
