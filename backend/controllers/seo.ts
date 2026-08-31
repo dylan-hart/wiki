@@ -1,10 +1,19 @@
 import type { FastifyInstance } from 'fastify'
+import { chunk } from 'es-toolkit/array'
 import {
   requestOrigin,
   localizedPagePath,
   guardSiteEnabled,
   type LocaleRoutingConfig
 } from '../helpers/common.ts'
+
+/**
+ * sitemaps.org's own per-file cap: at most 50,000 `<url>` entries (or 50 MB, whichever comes first —
+ * this codebase has never had a page count anywhere near dense enough for the byte cap to bind first).
+ * Also, conveniently, the same service's cap on how many `<sitemap>` children a single sitemap index
+ * may list, which is why one constant covers both branches below.
+ */
+const SITEMAP_URL_LIMIT = 50_000
 
 /** The two flags a site's SEO settings hold, as read off `site.config`. */
 interface RobotsConfig {
@@ -108,6 +117,50 @@ export function buildSitemapXml(
 }
 
 /**
+ * `/sitemap.xml`'s content once a site's page count exceeds `SITEMAP_URL_LIMIT` — sitemaps.org's own
+ * index format, one `<sitemap>` per paginated child sitemap. Each `loc` arrives already fully formed
+ * (the route builds `${baseUrl}/sitemap.xml?page=N` for each chunk), so this stays as pure a
+ * string-assembly function as `buildSitemapXml` above, with no pagination logic of its own.
+ */
+export function buildSitemapIndexXml(childUrls: string[]): string {
+  const entries = childUrls
+    .map((url) => `  <sitemap>\n    <loc>${escapeXml(url)}</loc>\n  </sitemap>`)
+    .join('\n')
+  const body = entries ? `\n${entries}\n` : '\n'
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${body}</sitemapindex>\n`
+}
+
+/**
+ * Everything `/sitemap.xml` decides based on page count and the `?page=` it was asked for — pulled out
+ * of the route itself so it is exercised as a pure function rather than only through a live request,
+ * matching this file's own reasoning at the top for why `buildRobotsTxt`/`buildSitemapXml` are pure
+ * too. At or under `SITEMAP_URL_LIMIT` this is the flat `<urlset>` a site emits today, unconditionally
+ * — an out-of-range `page` for a site that never needed pagination just gets the same flat sitemap
+ * back, same as if `page` had been omitted, rather than a 404 for a query string that turned out not
+ * to matter. Past the limit, no `page` asks for the `<sitemapindex>` over the paginated children,
+ * and a `page` outside `[1, chunk count]` is a 404 rather than silently serving something.
+ */
+export function paginateSitemap(
+  baseUrl: string,
+  pages: SitemapPage[],
+  locales: LocaleRoutingConfig | null | undefined,
+  page: number | undefined
+): { xml: string } | { notFound: true } {
+  if (pages.length <= SITEMAP_URL_LIMIT) {
+    return { xml: buildSitemapXml(baseUrl, pages, locales) }
+  }
+  const chunks = chunk(pages, SITEMAP_URL_LIMIT)
+  if (page === undefined) {
+    const childUrls = chunks.map((_, index) => `${baseUrl}/sitemap.xml?page=${index + 1}`)
+    return { xml: buildSitemapIndexXml(childUrls) }
+  }
+  if (!Number.isInteger(page) || page < 1 || page > chunks.length) {
+    return { notFound: true }
+  }
+  return { xml: buildSitemapXml(baseUrl, chunks[page - 1]!, locales) }
+}
+
+/**
  * `/robots.txt` and `/sitemap.xml`, per site.
  *
  * Registered at the root, with no prefix: these are conventional root-level file paths, not part of
@@ -135,7 +188,7 @@ async function routes(app: FastifyInstance) {
     return reply.type('text/plain; charset=utf-8').send(buildRobotsTxt(site.config, sitemapUrl))
   })
 
-  app.get('/sitemap.xml', async (req, reply) => {
+  app.get<{ Querystring: { page?: string } }>('/sitemap.xml', async (req, reply) => {
     const site = await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
     if (!site || !site.config?.sitemap) {
       return reply.notFound()
@@ -148,9 +201,18 @@ async function routes(app: FastifyInstance) {
 
     const pages = await WIKI.models.pages.listPagesForSitemap(site.id)
     const baseUrl = requestOrigin(req.protocol, req.hostname)
-    return reply
-      .type('application/xml; charset=utf-8')
-      .send(buildSitemapXml(baseUrl, pages, site.config?.locales))
+    // -> Past the per-file cap, this route doubles as a sitemap index over `SITEMAP_URL_LIMIT`-sized
+    //    child sitemaps, addressed by a `?page=` query string rather than a new root-level filename
+    //    (`/sitemap-1.xml`) — `.xml` is a page extension on a default site (see `RESERVED_ROOT_FILES`
+    //    in `index.ts`), so any root path but the one literal `sitemap.xml` already reserved there
+    //    would be redirected away by the extension-stripping hook before ever reaching a route
+    //    registered here. See `paginateSitemap` for the full decision.
+    const page = req.query.page === undefined ? undefined : Number.parseInt(req.query.page, 10)
+    const result = paginateSitemap(baseUrl, pages, site.config?.locales, page)
+    if ('notFound' in result) {
+      return reply.notFound()
+    }
+    return reply.type('application/xml; charset=utf-8').send(result.xml)
   })
 }
 

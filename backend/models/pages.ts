@@ -49,6 +49,15 @@ export function getEditorForContentType(contentType: string): string {
  */
 const REDIRECT_EDITOR = 'redirect'
 
+/**
+ * Hard ceiling on `listPagesForSitemap`'s read. Independent of, and much larger than, the
+ * sitemaps.org 50,000-URL-per-file cap `controllers/seo.ts` paginates its result around — that one
+ * decides how many child sitemaps a large site's page count is split into; this one exists purely so
+ * the query itself can never scan an unbounded table (`security/09-dos-resource.md` finding 5,
+ * OpenProject #1857). Sized well past any realistic installation so ordinary sites never notice it.
+ */
+const SITEMAP_QUERY_CAP = 500_000
+
 /** A page path is what ends up in a URL, so it is held to what reads and routes cleanly. */
 const rePagePath = /^[a-zA-Z0-9-_/]*$/
 const reAlias = /^[a-zA-Z0-9-_]*$/
@@ -1767,6 +1776,12 @@ class Pages {
    * against the guests group's rules with `helpers/pageRules.ts`'s own `read:pages` logic — the same
    * check a real anonymous request would get from `checkAccess` — rather than assuming "published and
    * browsable" already means "public".
+   *
+   * Capped at `SITEMAP_QUERY_CAP` so the query itself can never scan an unbounded table — a distinct
+   * concern from sitemaps.org's own 50,000-URL-per-file limit, which `controllers/seo.ts` paginates
+   * around on the (already-capped) result of this call. Ordered by path so that a page's translations
+   * (same path, several locale rows) land next to each other, keeping a multi-locale hreflang cluster
+   * out of two different paginated child sitemaps in the common case.
    */
   async listPagesForSitemap(
     siteId: string
@@ -1787,6 +1802,8 @@ class Pages {
           eq(pagesTable.isBrowsable, true)
         )
       )
+      .orderBy(pagesTable.path)
+      .limit(SITEMAP_QUERY_CAP)
 
     const guestRules = WIKI.models.groups.rulesForGroups([WIKI.data.systemIds.guestsGroupId])
     return rows

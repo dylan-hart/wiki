@@ -1,6 +1,7 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildRobotsTxt, buildSitemapXml } from './seo.ts'
+import { buildRobotsTxt, buildSitemapXml, buildSitemapIndexXml, paginateSitemap } from './seo.ts'
+import type { SitemapPage } from './seo.ts'
 
 /**
  * Pure content-generation logic only — no `WIKI` global, no database, no Fastify instance. Everything
@@ -142,5 +143,107 @@ describe('buildSitemapXml', () => {
     // a page with no translations carries no alternate links
     assert.doesNotMatch(xml, /<xhtml:link[^>]*href="[^"]*\/solo"/)
     assert.match(xml, /xmlns:xhtml="http:\/\/www\.w3\.org\/1999\/xhtml"/)
+  })
+})
+
+describe('buildSitemapIndexXml', () => {
+  test('an empty child list still produces a valid, empty sitemapindex', () => {
+    const xml = buildSitemapIndexXml([])
+    assert.equal(
+      xml,
+      '<?xml version="1.0" encoding="UTF-8"?>\n' +
+        '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n</sitemapindex>\n'
+    )
+  })
+
+  test('one <sitemap><loc> per child URL, in order', () => {
+    const xml = buildSitemapIndexXml([
+      'https://wiki.example.com/sitemap.xml?page=1',
+      'https://wiki.example.com/sitemap.xml?page=2'
+    ])
+    const first = xml.indexOf('<loc>https://wiki.example.com/sitemap.xml?page=1</loc>')
+    const second = xml.indexOf('<loc>https://wiki.example.com/sitemap.xml?page=2</loc>')
+    assert.ok(first >= 0 && second >= 0)
+    assert.ok(first < second)
+  })
+
+  test('escapes XML-significant characters in a child URL', () => {
+    const xml = buildSitemapIndexXml(['https://wiki.example.com/sitemap.xml?page=1&x=y'])
+    assert.ok(xml.includes('page=1&amp;x=y'))
+    assert.ok(!xml.includes('page=1&x=y'))
+  })
+})
+
+describe('paginateSitemap', () => {
+  const makePages = (count: number): SitemapPage[] =>
+    Array.from({ length: count }, (_, i) => ({
+      path: `page-${String(i).padStart(6, '0')}`,
+      locale: 'en',
+      updatedAt: new Date('2026-01-01T00:00:00Z')
+    }))
+
+  test('a site under the cap emits the same single flat sitemap it does today, regardless of page', () => {
+    const pages = makePages(3)
+    const noPage = paginateSitemap('https://wiki.example.com', pages, null, undefined)
+    const withPage = paginateSitemap('https://wiki.example.com', pages, null, 1)
+    assert.ok('xml' in noPage && 'xml' in withPage)
+    assert.match((noPage as { xml: string }).xml, /<urlset/)
+    assert.doesNotMatch((noPage as { xml: string }).xml, /<sitemapindex/)
+    // -> An out-of-range page for a site that never needed pagination isn't a 404: the query string
+    //    just didn't matter
+    const outOfRangePage = paginateSitemap('https://wiki.example.com', pages, null, 99)
+    assert.ok('xml' in outOfRangePage)
+    assert.equal((outOfRangePage as { xml: string }).xml, (noPage as { xml: string }).xml)
+  })
+
+  test('a site past the cap emits a sitemap index whose children stay under the cap and resolve to real page URLs', () => {
+    const total = 50_000 + 1234
+    const pages = makePages(total)
+    const index = paginateSitemap('https://wiki.example.com', pages, null, undefined)
+    assert.ok('xml' in index)
+    const indexXml = (index as { xml: string }).xml
+    assert.match(indexXml, /<sitemapindex/)
+    const childUrls = [...indexXml.matchAll(/<loc>(.*?)<\/loc>/g)].map((m) => m[1])
+    // -> 51,234 pages split 50,000-at-a-time is two children: one full, one partial
+    assert.equal(childUrls.length, 2)
+    assert.equal(childUrls[0], 'https://wiki.example.com/sitemap.xml?page=1')
+    assert.equal(childUrls[1], 'https://wiki.example.com/sitemap.xml?page=2')
+
+    const seenLocs = new Set<string>()
+    let sawFirstPage = false
+    let sawLastPage = false
+    childUrls.forEach((url, i) => {
+      const pageNumber = i + 1
+      const child = paginateSitemap('https://wiki.example.com', pages, null, pageNumber)
+      assert.ok('xml' in child)
+      const childXml = (child as { xml: string }).xml
+      assert.doesNotMatch(childXml, /<sitemapindex/)
+      const urlCount = (childXml.match(/<url>/g) ?? []).length
+      assert.ok(urlCount > 0 && urlCount <= 50_000, `child ${pageNumber} has ${urlCount} urls`)
+      for (const loc of childXml.matchAll(/<loc>(.*?)<\/loc>/g)) {
+        assert.ok(!seenLocs.has(loc[1]!), `duplicate <loc> across children: ${loc[1]}`)
+        seenLocs.add(loc[1]!)
+      }
+      if (childXml.includes('<loc>https://wiki.example.com/page-000000</loc>')) sawFirstPage = true
+      const lastPath = String(total - 1).padStart(6, '0')
+      if (childXml.includes(`<loc>https://wiki.example.com/page-${lastPath}</loc>`)) {
+        sawLastPage = true
+      }
+    })
+    // -> Every real page path shows up exactly once across the whole paginated set, none dropped by
+    //    the split
+    assert.equal(seenLocs.size, total)
+    assert.ok(sawFirstPage && sawLastPage)
+
+    // -> A page number outside [1, chunk count] is a 404, unlike the under-cap case above
+    assert.deepEqual(paginateSitemap('https://wiki.example.com', pages, null, 0), {
+      notFound: true
+    })
+    assert.deepEqual(paginateSitemap('https://wiki.example.com', pages, null, 3), {
+      notFound: true
+    })
+    assert.deepEqual(paginateSitemap('https://wiki.example.com', pages, null, Number.NaN), {
+      notFound: true
+    })
   })
 })
