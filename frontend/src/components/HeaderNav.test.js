@@ -165,7 +165,7 @@ describe('HeaderNav "Create New Page" icon (OpenProject #2074)', () => {
     userStore.permissions = ['write:pages']
     await wrapper.vm.$nextTick()
 
-    const createButton = wrapper.find('[aria-label="Create New Page"]')
+    const createButton = wrapper.find('[aria-label="common.header.createNewPage"]')
     expect(createButton.exists()).toBe(true)
     expect(createButton.find('[data-icon="la:plus"]').exists()).toBe(true)
     expect(wrapper.find('[data-icon="la:plus-circle"]').exists()).toBe(false)
