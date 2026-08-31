@@ -1457,3 +1457,99 @@ stays on `@twemoji/api` 17.0.2 with an explicit `overrides` entry pinning `@twem
 artwork, separately pinned to upstream tag v17.0.3) despite the version-number mismatch looking like
 drift. Revisit once a `@twemoji/parser` release ships that restores the ten shortcodes' matching —
 until then, do not bump `@twemoji/api` past 17.0.2 in an automated currency pass.
+
+## Page ratings dropped — thumbs/stars widgets and the `ratings`/`ratingsMode` config removed (OpenProject #1890, Epic #1885)
+
+**Date:** 2026-08-31
+**Feature:** Epic #1885 — "Decide the fate of page ratings and Page Data Templates, and delete the
+`features.ratings` legacy shim"
+**Decision:** Cut. Page ratings do not ship in 3.x. The `ratingsMode` admin select
+(`AdminGeneral.vue:240`), the `allowRatings` per-page toggle (`PagePropertiesDialog.vue:286`), the
+stars/thumbs widgets (`Index.vue:310-328`, `SideDialog.vue`), and the `ratingScore`/`ratingCount`
+columns on `pages` are all removed by this epic's carry-out children rather than completed.
+
+**Why this is a deviation:** 2.5.x shipped a working ratings feature (thumbs or 1-5 stars per page,
+aggregated and displayed). A straight port would carry it forward; this fork does not.
+
+**Reasoning:**
+
+1. **Nothing here currently works, and completing it is real, not incidental, work.** The admin
+   toggle and the per-page toggle are both fully wired — an administrator can turn ratings on today —
+   but every consuming surface is dead: the thumbs buttons have no `@click`, no `v-model`, and no
+   `aria-label`; the stars widget binds a component-local `currentRating` hardcoded to `3` that is
+   never posted anywhere and resets on navigation; there is no ratings API route; and
+   `backend/db/schema.ts`'s `ratingCount` column is typed `timestamp`, not `integer`, so it cannot
+   even hold a count without a schema change. Shipping this for real means a new
+   permission-checked write endpoint (a rating is a write against a page the caller can `read:pages`)
+   plus a migration retyping `ratingCount` — not a bugfix to existing behavior.
+2. **No design for preventing duplicate votes exists, and building one is more than a column fix.**
+   Neither the 2.5.x source nor anything in this repo's history tracks a rating against a
+   voter — `ratingScore`/`ratingCount` are page-level aggregates only. Shipping a fair rating
+   feature (one vote per reader, changeable, not replayable by refresh) needs its own per-user
+   tracking table, which is new design, not something this epic's audit finding scoped or budgeted.
+3. **No confirmed demand distinct from what already exists.** The wiki already has a real, working
+   comments system for reader engagement/feedback signal on a page. Nothing in the open OpenProject
+   backlog or `WIKI3_ASSESSMENT.md`'s unbacklogged-ideas list asks for ratings specifically, and nobody
+   has reported the current half-built toggles as a gap they need closed versus simply broken.
+
+**Scope:** applies to both ratings modes (`thumbs` and `stars`) — the audit finding was the same
+non-functional state for each, and neither is kept over the other. The `features.ratings` legacy
+alias at `backend/api/sites.ts:746-748` is deleted unconditionally as part of the same epic, separate
+from this in/out call, per Epic #1885's own instruction not to leave `config.features.ratings` behind
+under any outcome.
+
+**Reversible if:** a real product need for reader-facing ratings surfaces later — this cut removes a
+non-functional prototype, not a decision that ratings can never be useful; a future implementation
+would need to design the endpoint, the anti-duplicate-vote tracking, and the schema from scratch
+either way, so nothing here is lost by cutting now versus finishing later.
+
+**Evidence trail:** OpenProject #1885 (epic), #1890 (this decision), `docs/audit-2026-08-24/ux-consistency.md`
+§11, `docs/audit-2026-08-24/product-value.md` §13, `docs/audit-2026-08-24/accessibility-i18n.md` §18,
+`docs/audit-2026-08-24/correctness-data-schema.md` §10, `docs/audit-2026-08-24/correctness-frontend-state.md` §13.
+
+## Page Data / Page Data Templates dropped — dialogs and store slot removed (OpenProject #1890, Epic #1885)
+
+**Date:** 2026-08-31
+**Feature:** Epic #1885 — "Decide the fate of page ratings and Page Data Templates, and delete the
+`features.ratings` legacy shim"
+**Decision:** Cut. `PageDataDialog.vue`, `PageDataTemplateDialog.vue`, the `siteStore.pageDataTemplates`
+Pinia slot, and the `PageActionsCol.vue` entry point that opens them are removed by this epic's
+carry-out child rather than completed or exposed.
+
+**Why this is a deviation:** roughly 1,400 lines across the two dialogs already exist and describe
+real UI (custom per-page fields plus reusable templates for them) that a straight "finish what's
+there" reading would complete; this fork removes it instead.
+
+**Reasoning:**
+
+1. **Nothing here is wired to anything.** `PageDataDialog.vue` (148 lines) has no `v-model` on any of
+   its three fixed inputs and no save action of any kind. `PageDataTemplateDialog.vue` (561 lines)
+   writes into `siteStore.pageDataTemplates` (`stores/site.js:119`), a plain Pinia array with zero
+   backend references — nothing persists it, nothing reads it back on reload. The entry point at
+   `PageActionsCol.vue:31-41` is gated by both `v-if="flagsStore.experimental"` _and_ a bare
+   `disable`, so it has been unreachable even with the experimental flag turned on.
+2. **The existing code is not a stepping-stone toward the one real product idea in this space.**
+   `WIKI3_ASSESSMENT.md` idea #1 ("Structured page fields + saved views") is the actual product
+   context named on OpenProject #1890 — but its own build note describes a materially different
+   design: a `jsonb` fields column on `pages` (mirroring `sites.config`), a separate `page_views`
+   table for saved queries, one admin editor, and one reader-facing render mode over a matching set of
+   pages. `PageDataDialog`'s three fixed inputs and `PageDataTemplateDialog`'s standalone
+   template-picker are a different, narrower shape that doesn't extend into that design. Keeping the
+   current dialogs around "for later" would mean maintaining dead code against a design nothing has
+   committed to building.
+3. **Idea #1 itself is not yet approved scope.** It sits in `WIKI3_ASSESSMENT.md`'s "not yet on
+   anyone's backlog" list, not as an OpenProject Epic or Feature. Building toward it now, through
+   these dialogs or otherwise, is out of proportion to what this audit finding asked — that pass
+   found and disposed of already-existing dead code, it did not greenlight new feature work.
+
+**Scope:** both dialogs, the store slot, and the disabled entry point — all one inert surface, cut
+together rather than partially.
+
+**Reversible if:** idea #1 is promoted to a real OpenProject Epic later — at that point it should be
+built against its own build note's design (jsonb fields + `page_views`), not by resurrecting these
+dialogs, since they were never wired to persistence in the first place and don't match that design's
+shape.
+
+**Evidence trail:** OpenProject #1885 (epic), #1890 (this decision), `docs/audit-2026-08-24/ux-consistency.md`
+§11, `docs/audit-2026-08-24/product-value.md` §13, `docs/audit-2026-08-24/correctness-frontend-state.md`
+§13, `WIKI3_ASSESSMENT.md` idea #1.
