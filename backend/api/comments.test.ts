@@ -314,6 +314,16 @@ describe('page-scoped comment routes', () => {
 
   const created: any[] = []
 
+  // -> `limitGuestComments` (OpenProject #2256): allowed by default so every pre-existing POST test
+  //    keeps passing; a dedicated test below overrides this to exercise the 429 path.
+  let rateLimitVerdict = { allowed: true, hits: 1, retryAfter: 0 }
+  const rateLimitConsumeCalls: { key: string; policy: any }[] = []
+
+  async function consumeRateLimit(key: string, policy: any) {
+    rateLimitConsumeCalls.push({ key, policy })
+    return rateLimitVerdict
+  }
+
   async function getPage({ id }: { id?: string }) {
     return id ? (pagesById[id] ?? null) : null
   }
@@ -372,6 +382,8 @@ describe('page-scoped comment routes', () => {
       // -> OpenProject #935: the site-level `features.comments` flag POST now checks, defaulted on
       //    so every pre-existing test in this describe keeps passing unchanged.
       sites: { [SITE_ID]: { id: SITE_ID, config: { features: { comments: true } } } },
+      // -> `limitGuestComments` (OpenProject #2256) logs a debug line when it refuses a request.
+      logger: { debug: () => {} },
       models: {
         pages: { getPage },
         groups: { actorForRequest, checkAccess, groupIdsForRequest: () => [] },
@@ -383,7 +395,8 @@ describe('page-scoped comment routes', () => {
           update: updateComment,
           delete: deleteComment
         },
-        hooks: { emit }
+        hooks: { emit },
+        rateLimits: { consume: consumeRateLimit }
       }
     }
 
@@ -420,6 +433,8 @@ describe('page-scoped comment routes', () => {
     updatedIds.length = 0
     deletedIds.length = 0
     emittedEvents.length = 0
+    rateLimitVerdict = { allowed: true, hits: 1, retryAfter: 0 }
+    rateLimitConsumeCalls.length = 0
   })
 
   test('GET list: 404 when the page does not exist', async () => {
@@ -527,6 +542,53 @@ describe('page-scoped comment routes', () => {
     assert.equal(created[0].guestName, 'Casey')
     assert.equal(created[0].guestEmail, 'casey@example.com')
     assert.equal(created[0].guestIp, '203.0.113.7')
+  })
+
+  test('POST create: consumes the guest rate-limit bucket keyed by req.ip (OpenProject #2256)', async () => {
+    await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+      headers: { 'x-test-permissions': 'read:pages,write:comments' },
+      remoteAddress: '203.0.113.7',
+      payload: {
+        content: 'Hello from a guest',
+        guestName: 'Casey',
+        guestEmail: 'casey@example.com'
+      }
+    })
+    assert.equal(rateLimitConsumeCalls.length, 1)
+    assert.equal(rateLimitConsumeCalls[0].key, 'comment-guest:203.0.113.7')
+  })
+
+  test('POST create: 429 when the guest rate limit is exhausted, and the comment is not stored', async () => {
+    rateLimitVerdict = { allowed: false, hits: 6, retryAfter: 120 }
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+      headers: { 'x-test-permissions': 'read:pages,write:comments' },
+      remoteAddress: '203.0.113.7',
+      payload: {
+        content: 'Hello from a guest',
+        guestName: 'Casey',
+        guestEmail: 'casey@example.com'
+      }
+    })
+    assert.equal(res.statusCode, 429)
+    assert.equal(res.headers['retry-after'], '120')
+    assert.equal(created.length, 0)
+  })
+
+  test('POST create: an authenticated post is not subject to the guest rate limit', async () => {
+    rateLimitVerdict = { allowed: false, hits: 6, retryAfter: 120 }
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+      headers: { 'x-test-user-id': 'user-1', 'x-test-permissions': 'read:pages,write:comments' },
+      payload: { content: 'Hello from an account' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(rateLimitConsumeCalls.length, 0)
+    assert.equal(created.length, 1)
   })
 
   test('POST create: 400 when an authenticated request includes guestName/guestEmail', async () => {
