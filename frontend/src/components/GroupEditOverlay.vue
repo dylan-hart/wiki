@@ -258,7 +258,6 @@
                         <w-chip
                           square
                           dense
-                          :tabindex="scope.tabindex"
                           :color="getRuleModeBgColor(rule.mode)"
                           text-color="white">
                           <span class="text-caption">{{ scope.opt.title }}</span>
@@ -435,7 +434,6 @@
                       <w-input
                         v-else
                         class="mt-2"
-                        standout
                         :model-value="rule.path"
                         @update:model-value="onRulePathInput(rule, $event)"
                         dense
@@ -528,7 +526,6 @@
               :loading="state.isLoadingUsers">
               <template #no-data>
                 <w-banner
-                  rounded
                   :class="dark.isActive ? `bg-negative text-white` : `bg-grey-4 text-grey-9`"
                   >{{ t('admin.groups.usersNone') }}</w-banner
                 >

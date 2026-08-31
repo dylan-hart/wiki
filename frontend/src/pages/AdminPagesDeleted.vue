@@ -44,9 +44,7 @@
               every deletion has already been recovered or written over by an unrelated new page at the
               same path, which is what quietly drops a row off this list on its own.
             -->
-            <w-banner
-              rounded
-              :class="dark.isActive ? `bg-dark-3 text-grey-4` : `bg-grey-2 text-grey-8`">
+            <w-banner :class="dark.isActive ? `bg-dark-3 text-grey-4` : `bg-grey-2 text-grey-8`">
               {{ t('history.recovery.none') }}
             </w-banner>
           </template>

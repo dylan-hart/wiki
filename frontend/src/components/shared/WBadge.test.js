@@ -33,4 +33,12 @@ describe('WBadge', () => {
       ])
     )
   })
+
+  // -> OpenProject #1805: title is a declared prop (not left to $attrs fallthrough), e.g.
+  //    ProfileAuth.vue's 2FA-active badge, which pairs it with an icon-only label.
+  it('renders a native title tooltip', () => {
+    const wrapper = mount(WBadge, { props: { label: 1, title: '2FA is active' } })
+
+    expect(wrapper.attributes('title')).toBe('2FA is active')
+  })
 })

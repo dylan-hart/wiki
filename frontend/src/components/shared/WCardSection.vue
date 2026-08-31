@@ -1,5 +1,8 @@
 <template>
-  <div class="w-card-section" :class="horizontal ? 'flex flex-nowrap items-center' : 'p-4'">
+  <div
+    :id="id"
+    class="w-card-section"
+    :class="horizontal ? 'flex flex-nowrap items-center' : 'p-4'">
     <slot />
   </div>
 </template>
@@ -9,6 +12,11 @@
  * A band within a `WCard`. Provides the standard padding and nothing else.
  */
 defineProps({
+  /** Native `id`, e.g. for a caller that scrolls a specific section into view by id. */
+  id: {
+    type: String,
+    default: null
+  },
   /**
    * Row layout, for sections that sit side by side.
    *
