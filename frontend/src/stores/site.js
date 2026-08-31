@@ -124,7 +124,6 @@ export const useSiteStore = defineStore('site', {
       collaborativeEditing: false,
       comments: false,
       profile: false,
-      ratingsMode: 'off',
       reasonForChange: 'required',
       search: false,
       showOtherGroups: false

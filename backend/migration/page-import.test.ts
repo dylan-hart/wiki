@@ -128,7 +128,6 @@ class FakePagesModel implements PagesWriteModel {
       render: input.render ?? '',
       allowComments: true,
       allowContributions: true,
-      allowRatings: true,
       showSidebar: true,
       showTags: true,
       showToc: true,

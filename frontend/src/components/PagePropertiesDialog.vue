@@ -229,12 +229,6 @@
               dense
               :label="t(`editor.props.allowContributions`)" />
           </div>
-          <div>
-            <w-toggle
-              v-model="pageStore.allowRatings"
-              dense
-              :label="t(`editor.props.allowRatings`)" />
-          </div>
         </w-form>
       </w-card-section>
       <w-card-section class="pb-6" id="refCardTags">

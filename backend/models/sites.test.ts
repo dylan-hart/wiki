@@ -101,7 +101,6 @@ describe('sites.createSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.deepEqual(config.features, {
       browse: true,
       collaborativeEditing: true,
-      ratingsMode: 'off',
       comments: false,
       profile: true,
       reasonForChange: 'optional',

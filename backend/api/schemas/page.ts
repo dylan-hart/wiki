@@ -169,7 +169,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       allowComments: { type: 'boolean' },
       allowContributions: { type: 'boolean' },
-      allowRatings: { type: 'boolean' },
       showSidebar: { type: 'boolean' },
       showTags: { type: 'boolean' },
       showToc: { type: 'boolean' },
@@ -258,7 +257,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description: 'How many comments this page has, replies included.'
       },
       allowContributions: { type: 'boolean' },
-      allowRatings: { type: 'boolean' },
       showSidebar: { type: 'boolean' },
       showTags: { type: 'boolean' },
       showToc: { type: 'boolean' },

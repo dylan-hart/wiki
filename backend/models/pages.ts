@@ -101,7 +101,6 @@ export interface UnlockPageRef {
 const CONFIG_FIELDS = [
   'allowComments',
   'allowContributions',
-  'allowRatings',
   'showSidebar',
   'showTags',
   'showToc',
@@ -148,7 +147,6 @@ export interface Page {
   content?: string
   allowComments: boolean
   allowContributions: boolean
-  allowRatings: boolean
   showSidebar: boolean
   showTags: boolean
   showToc: boolean
@@ -197,7 +195,6 @@ export interface PageInput {
   classification?: string
   allowComments?: boolean
   allowContributions?: boolean
-  allowRatings?: boolean
   showSidebar?: boolean
   showTags?: boolean
   showToc?: boolean
@@ -447,7 +444,6 @@ class Pages {
         : {}),
       allowComments: config.allowComments ?? true,
       allowContributions: config.allowContributions ?? true,
-      allowRatings: config.allowRatings ?? true,
       showSidebar: config.showSidebar ?? true,
       showTags: config.showTags ?? true,
       showToc: config.showToc ?? true,
@@ -2294,7 +2290,6 @@ class Pages {
     return {
       allowComments: input.allowComments ?? existing.allowComments ?? true,
       allowContributions: input.allowContributions ?? existing.allowContributions ?? true,
-      allowRatings: input.allowRatings ?? existing.allowRatings ?? true,
       showSidebar: input.showSidebar ?? existing.showSidebar ?? true,
       showTags: input.showTags ?? existing.showTags ?? true,
       showToc: input.showToc ?? existing.showToc ?? true,

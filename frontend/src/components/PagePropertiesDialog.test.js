@@ -42,7 +42,6 @@ const i18n = createI18n({
           social: 'Social',
           allowComments: 'Allow Comments',
           allowContributions: 'Allow Contributions',
-          allowRatings: 'Allow Ratings',
           tags: 'Tags',
           tagsPlaceholder: '',
           classification: 'Classification',
