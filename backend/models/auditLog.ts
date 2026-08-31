@@ -86,7 +86,10 @@ export const AUDIT_TARGET_TYPES = [
   //   (that's `mcp.sessionOpened`'s `apiKey` target) -- naming the page is what makes the log entry
   //   answer "what did the agent write", not just "an agent wrote something".
   'page',
-  'glossaryTerm'
+  'glossaryTerm',
+  // -> #2229: the target of a `system.*`/`auth.*`/`auditLog.*` event -- there is no row to point at,
+  //   so `targetId` for these stays '' and `targetLabel` names the setting/module changed instead.
+  'system'
 ] as const
 
 export type AuditTargetType = (typeof AUDIT_TARGET_TYPES)[number]
