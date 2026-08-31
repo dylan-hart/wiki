@@ -65,6 +65,7 @@
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import * as monaco from 'monaco-editor'
+import { isTimeoutError } from 'ky'
 
 import { confirm, dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
@@ -81,6 +82,17 @@ import { apiErrorMessage } from '@/helpers/apiError'
  * straight to `sites/:siteId/glossary/import`, which replaces the ENTIRE live glossary immediately
  * (no staging through "Save Glossary") -- the confirm() below exists for exactly that reason.
  */
+
+/**
+ * How long the client gives the import request, in milliseconds -- past `ky`'s own 10s default.
+ *
+ * There's no file conversion here (this dialog only ever sends already-parsed JSON), but
+ * `models/glossary.ts`'s `importTerms` resolves every term's `path` to a page with its own database
+ * lookup, one at a time rather than batched -- a large glossary (hundreds or thousands of terms,
+ * plausible for a real wiki's export) can add up past ky's default well before the request itself has
+ * failed.
+ */
+const GLOSSARY_IMPORT_TIMEOUT = 60 * 1000
 
 // PROPS
 
@@ -179,6 +191,7 @@ function submit() {
     state.importing = true
     try {
       await API_CLIENT.post(`sites/${props.siteId}/glossary/import`, {
+        timeout: GLOSSARY_IMPORT_TIMEOUT,
         json: data
       }).json()
       notify({
@@ -187,11 +200,24 @@ function submit() {
       })
       onDialogOK()
     } catch (err) {
-      notify({
-        type: 'negative',
-        message: t('admin.glossary.importFailed'),
-        caption: apiErrorMessage(err)
-      })
+      // -> A client-side `TimeoutError` while the server is still genuinely working through a large
+      //    term list must not read like a real failure -- the whole-glossary replace has already
+      //    started (or finished) server-side, and retrying blind risks nothing new but is confusing.
+      //    Same distinction `AdminExtensions.vue`'s `install()` draws for `INSTALL_TIMEOUT`.
+      if (isTimeoutError(err)) {
+        notify({
+          type: 'negative',
+          message: t('admin.glossary.importTimedOut'),
+          caption: t('admin.glossary.importTimedOutHint'),
+          timeout: 0
+        })
+      } else {
+        notify({
+          type: 'negative',
+          message: t('admin.glossary.importFailed'),
+          caption: apiErrorMessage(err)
+        })
+      }
     }
     state.importing = false
   })
