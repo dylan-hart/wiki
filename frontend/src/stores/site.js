@@ -116,7 +116,6 @@ export const useSiteStore = defineStore('site', {
     searchLastQuery: '',
     searchIsLoading: false,
     printView: false,
-    pageDataTemplates: [],
     showSideNav: true,
     showSidebar: true,
     overlay: null,
