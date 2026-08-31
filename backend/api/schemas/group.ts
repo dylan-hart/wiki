@@ -109,6 +109,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   groupRuleSchema['then'] = {
     properties: {
       path: {
+        type: 'string',
         pattern: '^[^A-Z]*$'
       }
     }

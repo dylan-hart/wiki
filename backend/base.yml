@@ -181,6 +181,16 @@ defaults:
       # Whether the daily updateLocales scheduled job is allowed to pull the latest strings from
       # requarks/wiki-locales. Set to false to disable automatic locale syncing.
       locales: true
+    # Settings when running in dev mode only -- read directly off WIKI.config.dev by core/db.ts
+    # (dropSchema, logQueries) and by frontend/vite.config.js (port, hmrClientPort) for its dev-server
+    # proxy target. Declared here so config.sample.yml's `dev:` block (which every dev checkout ships)
+    # has a schema counterpart -- without one, `warnUnknownConfigKeys()` flagged it as unrecognized on
+    # every single dev boot.
+    dev:
+      dropSchema: false
+      logQueries: false
+      port: 3001
+      hmrClientPort: 3001
 systemIds:
   localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588'
   guestsGroupId: '10000000-0000-4000-8000-000000000001'
