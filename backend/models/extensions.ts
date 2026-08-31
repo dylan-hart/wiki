@@ -121,6 +121,44 @@ async function moduleExists(specifier: string): Promise<boolean> {
 }
 
 /**
+ * What npm is asked to install for this extension: the bare specifier when the manifest already pins
+ * a version (Sharp, a declared optional dependency), or `specifier@installVersion` when it doesn't
+ * (Puppeteer — see `install()`'s doc comment for why). What is checked for afterwards, by
+ * `moduleExists()`, is the specifier on its own, since that's what lands in `node_modules` regardless
+ * of which form was requested.
+ */
+export function installRequest(definition: ExtensionDefinition): string {
+  const specifier = definition.detect.value
+  return definition.installVersion ? `${specifier}@${definition.installVersion}` : specifier
+}
+
+/**
+ * The exact npm argv `install()` passes to `execFile`, pulled out as its own pure function so
+ * OpenProject #2291's test can lock it down by asserting on this directly, without stubbing `execFile`
+ * or mocking the `node:child_process` module — Node refuses to let a test do that without the
+ * `--experimental-test-module-mocks` flag, which this project's `test` script does not set, and core
+ * module exports aren't reconfigurable without it. `models/import.ts`'s `buildPandocArgs`/`pandocCwd`
+ * (OpenProject #2191) hit the identical wall for the same class of problem — a spawned argv that is
+ * itself a security/policy boundary — and settled on the same fix.
+ *
+ * Every flag below has a paragraph justifying it in the doc comment on `install()`. Keep the two in
+ * lockstep: a flag added or removed here without updating that comment is exactly what the test this
+ * function exists for is meant to catch.
+ */
+export function buildInstallArgs(definition: ExtensionDefinition): string[] {
+  return [
+    'install',
+    '--no-save',
+    '--force',
+    '--include=optional',
+    '--no-ignore-scripts',
+    '--no-audit',
+    '--no-fund',
+    installRequest(definition)
+  ]
+}
+
+/**
  * Extensions model
  *
  * Optional third-party tooling that unlocks extra functionality — a Git binary, Pandoc, Sharp,
@@ -305,26 +343,13 @@ class Extensions {
       throw new Error(`${definition.title} is not an npm package, so it cannot be installed here.`)
     }
     const specifier = definition.detect.value
-    // -> What npm is asked for, which carries the pin; what is checked for afterwards is the package
-    //    name on its own, since that is what lands in `node_modules`
-    const request = definition.installVersion
-      ? `${specifier}@${definition.installVersion}`
-      : specifier
+    const request = installRequest(definition)
 
     WIKI.logger.info(`Installing extension ${definition.key} (npm package ${request})...`)
     try {
       const { stdout } = await execFileAsync(
         process.platform === 'win32' ? 'npm.cmd' : 'npm',
-        [
-          'install',
-          '--no-save',
-          '--force',
-          '--include=optional',
-          '--no-ignore-scripts',
-          '--no-audit',
-          '--no-fund',
-          request
-        ],
+        buildInstallArgs(definition),
         {
           cwd: WIKI.SERVERPATH,
           timeout: installTimeout,
