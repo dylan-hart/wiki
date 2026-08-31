@@ -1,6 +1,12 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ruleMatchesPage, resolvePageRule, rulesAllow, type RulePageRef } from './pageRules.ts'
+import {
+  ruleMatchesPage,
+  resolvePageRule,
+  rulesAllow,
+  clearPageRuleRegexCache,
+  type RulePageRef
+} from './pageRules.ts'
 import type { GroupRule, GroupRuleMatch } from '../models/groups.ts'
 import { GUEST_SCENARIO_RULES, GUEST_SCENARIO_CASES } from '../test/permissionScenario.ts'
 
@@ -87,6 +93,56 @@ describe('ruleMatchesPage', () => {
       const rule = makeRule({ match: 'REGEX', path: '(unclosed' })
       assert.doesNotThrow(() => ruleMatchesPage(rule, page()))
       assert.equal(ruleMatchesPage(rule, page()), false)
+    })
+
+    describe('compiled-pattern cache', () => {
+      test('matches identically across repeated calls served from the cache', () => {
+        const rule = makeRule({ match: 'REGEX', path: '^geography/.*/france$' })
+        // -> First call compiles and caches; subsequent calls must read the same result back
+        assert.equal(ruleMatchesPage(rule, page({ path: 'geography/countries/france' })), true)
+        assert.equal(ruleMatchesPage(rule, page({ path: 'geography/countries/france' })), true)
+        assert.equal(ruleMatchesPage(rule, page({ path: 'geography/countries/germany' })), false)
+        assert.equal(ruleMatchesPage(rule, page({ path: 'geography/countries/germany' })), false)
+      })
+
+      test('a distinct rule object with the same pattern text shares the cached compile', () => {
+        const ruleA = makeRule({ id: 'rule-a', match: 'REGEX', path: '^geography/' })
+        const ruleB = makeRule({ id: 'rule-b', match: 'REGEX', path: '^geography/' })
+        assert.equal(ruleMatchesPage(ruleA, page({ path: 'geography/countries/france' })), true)
+        assert.equal(ruleMatchesPage(ruleB, page({ path: 'geography/countries/france' })), true)
+      })
+
+      test('an invalid pattern still fails closed identically on every subsequent call', () => {
+        const rule = makeRule({ match: 'REGEX', path: '(unclosed' })
+        for (let i = 0; i < 3; i++) {
+          assert.doesNotThrow(() => ruleMatchesPage(rule, page()))
+          assert.equal(ruleMatchesPage(rule, page()), false)
+        }
+      })
+
+      test('clearing the cache recompiles a changed pattern rather than serving the stale result', () => {
+        const path = '^geography/.*/france$'
+        const rule = makeRule({ match: 'REGEX', path })
+        const target = page({ path: 'geography/countries/france' })
+
+        // -> Compile and cache the original pattern's result
+        assert.equal(ruleMatchesPage(rule, target), true)
+
+        // -> Simulate a rule reload (models/groups.ts#reloadCache) changing this pattern's text.
+        //    Mutating `rule.path` in place with the SAME object stands in for what a reload really
+        //    does -- replace the whole rule row with a freshly-parsed one -- while isolating the one
+        //    thing under test: that the cache is keyed on pattern text, not rule identity, so a
+        //    changed pattern is never served the previous pattern's cached compile.
+        clearPageRuleRegexCache()
+        rule.path = '^history/'
+        assert.equal(ruleMatchesPage(rule, target), false)
+
+        // -> Reverting cleanly proves the cache holds both patterns' results independently, not
+        //    just having permanently forgotten the first one
+        clearPageRuleRegexCache()
+        rule.path = path
+        assert.equal(ruleMatchesPage(rule, target), true)
+      })
     })
   })
 

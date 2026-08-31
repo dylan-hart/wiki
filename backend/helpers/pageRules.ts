@@ -123,6 +123,45 @@ const MATCH_PRIORITY: GroupRuleMatch[] = [
  */
 export const MODE_PRIORITY: GroupRuleMode[] = ['ALLOW', 'DENY', 'FORCEALLOW']
 
+/**
+ * Compiled REGEX rule patterns, keyed by the already-normalized path text a rule addresses.
+ *
+ * `ruleMatchesPage` sits on a hot path shared by every `rulesAllow` caller (the graph,
+ * `visibleTreeItems()`, the sitemap build, the admin comment path), and recompiling a REGEX
+ * pattern's `RegExp` on every single row it's tested against is pure waste: the compiled output
+ * depends only on the pattern text, not on which rule or page it's being asked about. `null` marks a
+ * pattern that failed to compile, so an invalid pattern is remembered as failing closed rather than
+ * re-thrown-and-caught on every subsequent row.
+ *
+ * Cleared by `clearPageRuleRegexCache()`, which `models/groups.ts#reloadCache()` calls on every
+ * reload (boot, a local group edit, and every other cluster instance's `reloadGroups` event) — the
+ * same invalidation path that already rebuilds the pooled rule rows themselves, so an edited pattern
+ * is recompiled promptly instead of the map growing forever across repeated edits.
+ */
+const compiledRegexCache = new Map<string, RegExp | null>()
+
+/** Drops every cached compiled REGEX pattern. Call whenever the underlying rules are reloaded. */
+export function clearPageRuleRegexCache(): void {
+  compiledRegexCache.clear()
+}
+
+/** The compiled pattern for this (already-normalized) path text, compiling and caching it on a miss. */
+function compiledRegexFor(normalizedPath: string): RegExp | null {
+  if (compiledRegexCache.has(normalizedPath)) {
+    return compiledRegexCache.get(normalizedPath)!
+  }
+  let compiled: RegExp | null
+  try {
+    compiled = new RegExp(normalizedPath)
+  } catch {
+    // -> A rule that cannot compile addresses nothing, rather than everything -- cached as such so
+    //    every subsequent row against this pattern fails closed without re-attempting compilation
+    compiled = null
+  }
+  compiledRegexCache.set(normalizedPath, compiled)
+  return compiled
+}
+
 /** Tags are written on a rule as a comma-separated list, in the field a path would otherwise use. */
 function ruleTags(rule: GroupRule): string[] {
   return rule.path
@@ -186,13 +225,10 @@ export function ruleMatchesPage(rule: GroupRule, page: RulePageRef): boolean {
       return pagePath === rulePath
     case 'END':
       return pagePath.endsWith(rulePath)
-    case 'REGEX':
-      try {
-        return new RegExp(rulePath).test(pagePath)
-      } catch {
-        // -> A rule that cannot compile addresses nothing, rather than everything
-        return false
-      }
+    case 'REGEX': {
+      const compiled = compiledRegexFor(rulePath)
+      return compiled ? compiled.test(pagePath) : false
+    }
     case 'TAG':
       return ruleTags(rule).some((tag) => pageTags.includes(tag))
     case 'TAGALL': {
