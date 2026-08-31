@@ -541,6 +541,131 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
 })
 
 /**
+ * OpenProject #1858: `rulesForGroups()` used to `flatMap` over `rulesCache` fresh on every call --
+ * `checkAccess`/`checkSiteAccess`/`mayHoldPermissionSomewhere` each call it at least once per request,
+ * often once per item when a caller filters a list. It now memoises the pooled array per group set,
+ * invalidated by `reloadCache()` (called both directly, by `broadcastReload()`, and indirectly, by the
+ * inbound `reloadGroups` event handler wired up in `subscribeToEvents()`).
+ */
+describe('groups.rulesForGroups memoisation (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let groupsModel: typeof import('./groups.ts').groups
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ groups: groupsModel } = await import('./groups.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  const rule = (overrides: Partial<GroupRule> = {}): GroupRule => ({
+    id: 'rule-1',
+    name: 'Test Rule',
+    roles: ['read:pages'],
+    match: 'START',
+    mode: 'ALLOW',
+    path: '',
+    locales: [],
+    sites: [],
+    ...overrides
+  })
+
+  async function setGroupRules(rules: GroupRule[]): Promise<void> {
+    await fixtures.db.update(groupsTable).set({ rules }).where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+  }
+
+  test('two calls for the same group set return the identical memoised array', async () => {
+    await setGroupRules([rule({ path: 'engineering' })])
+
+    const first = groupsModel.rulesForGroups([fixtures.groupId])
+    const second = groupsModel.rulesForGroups([fixtures.groupId])
+    assert.equal(first, second)
+  })
+
+  test("a different group set gets its own memo entry, not the first set's array", async () => {
+    const [secondGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({
+        name: 'Memo Test Second Group',
+        permissions: [],
+        rules: [rule({ path: 'marketing' })]
+      })
+      .returning({ id: groupsTable.id })
+    await setGroupRules([rule({ path: 'engineering' })])
+
+    const first = groupsModel.rulesForGroups([fixtures.groupId])
+    const other = groupsModel.rulesForGroups([secondGroup!.id])
+    assert.notEqual(first, other)
+    assert.deepEqual(
+      other.map((r) => r.path),
+      ['marketing']
+    )
+  })
+
+  test('the memo is order-independent for a given group set', async () => {
+    const [secondGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({
+        name: 'Memo Test Order Group',
+        permissions: [],
+        rules: [rule({ path: 'marketing' })]
+      })
+      .returning({ id: groupsTable.id })
+    await setGroupRules([rule({ path: 'engineering' })])
+
+    const ascending = groupsModel.rulesForGroups([fixtures.groupId, secondGroup!.id])
+    const descending = groupsModel.rulesForGroups([secondGroup!.id, fixtures.groupId])
+    assert.equal(ascending, descending)
+  })
+
+  test('reloadCache() drops the memo so a rule change is visible on the very next checkAccess', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages'] })])
+    const page = { path: 'anything', locale: 'en', siteId: null, classification: null, tags: [] }
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+
+    // -> Populate the memo entry for this group set
+    assert.equal(groupsModel.checkAccess(actor, 'read:pages', page), true)
+
+    // -> Change the underlying rule directly in the db, then reload -- without invalidation this
+    //    would keep answering from the stale memoised pool
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [rule({ path: '', roles: ['read:pages'], mode: 'DENY' })] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    assert.equal(groupsModel.checkAccess(actor, 'read:pages', page), false)
+  })
+
+  test('the inbound reloadGroups event handler also drops the memo, not just reloadCache() called directly', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages'] })])
+    const page = { path: 'anything', locale: 'en', siteId: null, classification: null, tags: [] }
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+
+    // -> Populate the memo entry
+    assert.equal(groupsModel.checkAccess(actor, 'read:pages', page), true)
+
+    // -> Change the row directly (bypassing broadcastReload), then drive the inbound handler exactly
+    //    the way another cluster instance's event would
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [rule({ path: '', roles: ['read:pages'], mode: 'DENY' })] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+
+    groupsModel.subscribeToEvents()
+    const onCalls = (WIKI.events.inbound.on as any).mock.calls
+    const handler = onCalls.find((c: any) => c.arguments[0] === 'reloadGroups')?.arguments[1]
+    assert.ok(handler, 'expected subscribeToEvents to register a reloadGroups handler')
+    await handler()
+
+    assert.equal(groupsModel.checkAccess(actor, 'read:pages', page), false)
+  })
+})
+
+/**
  * `groups.checkSiteAccess` is the site-scoped counterpart to `checkAccess` (see
  * `helpers/siteRules.ts`), reusing the same `rules` column and in-memory cache — so, like
  * `checkAccess` above, what belongs here is the wiring (cache reload, `manage:system` bypass,
