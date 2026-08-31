@@ -1218,6 +1218,125 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
+   * OpenProject #1897: `parentClassifications` batches the same immediate-parent lookup
+   * `parentClassification` does, over a whole set of `(locale, path)` pairs in one query. This
+   * proves the batched result matches the single-call result for each path in a mixed set --
+   * different parents, different locales, and a path with no classified ancestor at all -- not just
+   * that the query runs.
+   */
+  describe('parentClassifications batched lookup (OpenProject #1897)', () => {
+    let internalId: string
+    let restrictedId: string
+
+    before(async () => {
+      const { classificationLevels } = await import('./classificationLevels.ts')
+      const levels = classificationLevels.list()
+      internalId = levels.find((l) => l.name === 'Internal')!.id
+      restrictedId = levels.find((l) => l.name === 'Restricted')!.id
+    })
+
+    test('matches the per-call result across a mixed set of paths, including one with no classified ancestor', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch/parent-a', classification: restrictedId }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch/parent-a/child' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch/parent-b', classification: internalId }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch/parent-b/child' }),
+        actor
+      )
+      // -> No page actually exists at 'batch/no-parent' (an empty folder), so this child has no
+      //    classified ancestor at all.
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch/no-parent/child' }),
+        actor
+      )
+      // -> Root-level: no parent segment, resolved without ever touching the database.
+      await pagesModel.createPage(fixtures.siteId, pageInput({ path: 'batch/root-page' }), actor)
+
+      const inputs = [
+        { locale: 'en', path: 'batch/parent-a/child' },
+        { locale: 'en', path: 'batch/parent-b/child' },
+        { locale: 'en', path: 'batch/no-parent/child' },
+        { locale: 'en', path: 'batch/root-page' }
+      ]
+      const batched = await pagesModel.parentClassifications(fixtures.siteId, inputs)
+
+      for (const { locale, path } of inputs) {
+        const single = await pagesModel.parentClassification(fixtures.siteId, locale, path)
+        assert.equal(batched.get(path), single, `mismatch for ${path}`)
+      }
+      assert.equal(batched.get('batch/parent-a/child'), restrictedId)
+      assert.equal(batched.get('batch/parent-b/child'), internalId)
+      assert.equal(batched.get('batch/no-parent/child'), null)
+      assert.equal(batched.get('batch/root-page'), null)
+    })
+
+    test('the query is scoped per locale, not just per path -- a same-named parent path in another locale never leaks in', async () => {
+      // -> Same parent path in two locales with two DIFFERENT classifications, so a query that
+      //    matched `locale IN (...)` and `path IN (...)` independently (rather than as a real pair)
+      //    would risk picking up the wrong locale's row.
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch-locale/parent', locale: 'en', classification: restrictedId }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch-locale/parent', locale: 'fr', classification: internalId }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch-locale/parent/child', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'batch-locale/parent/child', locale: 'fr' }),
+        actor
+      )
+
+      // -> Each locale queried on its own, against the single-page method, so a distinct map key
+      //    per locale never masks a cross-locale mismatch the way batching both together under one
+      //    path-only key could.
+      const enBatched = await pagesModel.parentClassifications(fixtures.siteId, [
+        { locale: 'en', path: 'batch-locale/parent/child' }
+      ])
+      const enSingle = await pagesModel.parentClassification(
+        fixtures.siteId,
+        'en',
+        'batch-locale/parent/child'
+      )
+      assert.equal(enBatched.get('batch-locale/parent/child'), restrictedId)
+      assert.equal(enBatched.get('batch-locale/parent/child'), enSingle)
+
+      const frBatched = await pagesModel.parentClassifications(fixtures.siteId, [
+        { locale: 'fr', path: 'batch-locale/parent/child' }
+      ])
+      const frSingle = await pagesModel.parentClassification(
+        fixtures.siteId,
+        'fr',
+        'batch-locale/parent/child'
+      )
+      assert.equal(frBatched.get('batch-locale/parent/child'), internalId)
+      assert.equal(frBatched.get('batch-locale/parent/child'), frSingle)
+    })
+  })
+
+  /**
    * OpenProject #1081: "everything currently classified as X" -- `classificationReport()`'s per-level
    * counts and `listByClassification()`'s drill-down, both instance-wide by default and narrowable to
    * one site.

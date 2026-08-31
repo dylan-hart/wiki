@@ -645,22 +645,67 @@ class Pages {
     path: string,
     db: WikiDbOrTx = WIKI.db
   ): Promise<string | null> {
-    const parentPath = path.split('/').slice(0, -1).join('/')
-    if (!parentPath) {
-      return null
+    const result = await this.parentClassifications(siteId, [{ locale, path }], db)
+    return result.get(path) ?? null
+  }
+
+  /**
+   * Batched form of `parentClassification` -- the same immediate-parent floor lookup (see that
+   * method's doc comment for the floor invariant's own scope), resolved for a whole set of
+   * `(locale, path)` pairs in one query over the distinct ancestor paths rather than one call each.
+   *
+   * Returned as a map keyed by the input `path`. A path with no parent segment (root-level) never
+   * reaches the database at all. Public for the same reason `parentClassification` is:
+   * `api/pages.ts`'s classification-conflicts resolve route consumes this to avoid one query per
+   * submitted page id (OpenProject #1897).
+   */
+  async parentClassifications(
+    siteId: string,
+    pages: { locale: string; path: string }[],
+    db: WikiDbOrTx = WIKI.db
+  ): Promise<Map<string, string | null>> {
+    const result = new Map<string, string | null>()
+    const parentPathByPath = new Map<string, { locale: string; parentPath: string }>()
+    const locales = new Set<string>()
+    const parentPaths = new Set<string>()
+    for (const { locale, path } of pages) {
+      const parentPath = path.split('/').slice(0, -1).join('/')
+      if (!parentPath) {
+        result.set(path, null)
+        continue
+      }
+      parentPathByPath.set(path, { locale, parentPath })
+      locales.add(locale)
+      parentPaths.add(parentPath)
+    }
+    if (parentPathByPath.size === 0) {
+      return result
     }
     const rows = await db
-      .select({ classification: pagesTable.classification })
+      .select({
+        locale: pagesTable.locale,
+        path: pagesTable.path,
+        classification: pagesTable.classification
+      })
       .from(pagesTable)
       .where(
         and(
           eq(pagesTable.siteId, siteId),
-          eq(pagesTable.locale, locale),
-          eq(pagesTable.path, parentPath)
+          inArray(pagesTable.locale, [...locales]),
+          inArray(pagesTable.path, [...parentPaths])
         )
       )
-      .limit(1)
-    return rows[0]?.classification ?? null
+    const classificationByLocaleAndPath = new Map<string, string>()
+    for (const row of rows) {
+      classificationByLocaleAndPath.set(JSON.stringify([row.locale, row.path]), row.classification)
+    }
+    for (const [path, { locale, parentPath }] of parentPathByPath) {
+      result.set(
+        path,
+        classificationByLocaleAndPath.get(JSON.stringify([locale, parentPath])) ?? null
+      )
+    }
+    return result
   }
 
   /**
