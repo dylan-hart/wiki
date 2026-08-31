@@ -3,7 +3,8 @@ import { startCase } from 'es-toolkit/string'
 import crypto from 'node:crypto'
 import mime from 'mime'
 import fs from 'node:fs'
-import type { FastifyReply } from 'fastify'
+import fsp from 'node:fs/promises'
+import type { FastifyReply, FastifyRequest } from 'fastify'
 
 export interface Deferred<T = void> {
   resolve: (value: T) => void
@@ -158,6 +159,57 @@ export function requestOrigin(protocol: string, hostname: string): string {
   return `${protocol}://${hostname}`
 }
 
+/**
+ * Whether a WebSocket handshake's `Origin` header agrees with the host it was addressed to.
+ *
+ * A WebSocket handshake is not subject to the same-origin policy and is not preflighted, so CORS
+ * governs neither the handshake nor the frames that follow it — and unlike a form POST, the response
+ * is fully readable by whichever origin opened the socket. This is the `verifyClient` check on the
+ * single `@fastify/websocket` registration in `index.ts`, so every present and future `websocket:
+ * true` route (`controllers/terminal.ts`, `controllers/collab.ts`) inherits it, rather than each
+ * handler re-deriving its own gate — the permission checks those two already do are correct on their
+ * own terms, but neither one is a substitute for this: a permission check runs the handler's own
+ * logic against whatever session cookie the browser attached, and a foreign origin's page gets that
+ * cookie attached by the browser exactly as a same-origin one would.
+ *
+ * Mirrors `models/passkeys.ts#resolveOrigin`'s host-equality pattern, with one deliberate difference:
+ * that function treats a *missing* `Origin` as a legitimate non-browser API client and assumes the
+ * canonical origin, because a WebAuthn ceremony genuinely has such callers. A WebSocket handshake does
+ * not — every real one is a browser upgrade request, which always carries `Origin` — so here a missing
+ * header is rejected rather than assumed same-origin.
+ *
+ * @param origin The raw `Origin` header off the upgrade request, if the client sent one
+ * @param host The raw `Host` header off the upgrade request (what `req.host` reads)
+ * @param siteHostnames Every hostname a site on this instance answers to (`WIKI.sitesMappings`'
+ *   keys), so a handshake from one of the instance's own other sites is not rejected as foreign
+ */
+export function isSameOriginWebSocketHandshake(
+  origin: string | undefined,
+  host: string | undefined,
+  siteHostnames?: Iterable<string>
+): boolean {
+  if (!origin || !host) {
+    return false
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(origin)
+  } catch {
+    return false
+  }
+  if (parsed.host === host) {
+    return true
+  }
+  if (siteHostnames) {
+    for (const hostname of siteHostnames) {
+      if (parsed.hostname === hostname) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
 /** What a page/shell request's hostname resolved to, for the site-resolution hook in `index.ts`. */
 export type RequestSiteResolution =
   | { outcome: 'exempt' }
@@ -169,13 +221,22 @@ export type RequestSiteResolution =
  * Decide what a page/shell request's hostname resolves to, and whether the request should be let
  * through at all.
  *
- * Mirrors the SEO hook's precedence in `index.ts` exactly — `sitesMappings[hostname] ||
- * sitesMappings['*']` — so a request sees the same site the SEO hook already used to decide whether
- * to strip a page extension.
+ * Mirrors the SEO hook's precedence in `index.ts` exactly — `sitesMappings[normalizeHostname(hostname)]
+ * || sitesMappings['*']` — so a request sees the same site the SEO hook already used to decide
+ * whether to strip a page extension.
  *
  * `exemptSegments` is the caller's list of first path segments that must reach the app shell
  * regardless of what the hostname resolves to — the fix path for a disabled or unmatched site has to
  * survive the very thing it exists to correct.
+ *
+ * `hostname` is trusted as-is here — the refusal of a forwarded host that names a different site than
+ * the socket's own `Host` (task 2085, `docs/audit-2026-08-24/security/13-tenancy-isolation.md` §6)
+ * happens one layer up, in Fastify itself: `index.ts` passes `security.trustProxy` straight through
+ * as Fastify's own `trustProxy` option, and once that is a genuine address/CIDR spec rather than a
+ * bare `true`, Fastify's vendored `request.hostname` getter (`fastify/lib/request.js`) only reads
+ * `X-Forwarded-Host` from a peer address the spec covers, falling back to the raw `Host` header for
+ * everyone else. So by the time `hostname` reaches this function it has already been through that
+ * check — there is nothing left to compare it against.
  */
 export function resolveRequestSite({
   firstSegment,
@@ -193,7 +254,7 @@ export function resolveRequestSite({
   if (exemptSegments.has(firstSegment)) {
     return { outcome: 'exempt' }
   }
-  const siteId = sitesMappings[hostname] || sitesMappings['*']
+  const siteId = sitesMappings[normalizeHostname(hostname)] || sitesMappings['*']
   const site = siteId ? sites[siteId] : null
   if (!site) {
     return { outcome: 'not-found' }
@@ -230,6 +291,29 @@ export const SITE_DISABLED_MESSAGE = 'This wiki site is currently disabled.'
  *
  * Returns `true` once a reply has been sent, so the caller can `return` immediately after.
  */
+/**
+ * The one place a hostname is folded to the form `WIKI.sitesMappings` is keyed and looked up by
+ * (OpenProject #2127).
+ *
+ * DNS names are case-insensitive, but `models/sites.ts#reloadCache()` used to key
+ * `WIKI.sitesMappings` by `site.hostname` exactly as stored (already constrained to lowercase by
+ * the site create/update schemas — see `api/sites.ts`'s `^(\*|[a-z0-9.-]+)$` pattern — so the
+ * WRITE side was already fine) while every READ side indexed it with `req.hostname` exactly as
+ * Fastify's `hostname` getter delivers it — case preserved, only the port stripped. A `Host:
+ * Wiki.Example.Com` request for a site stored as `wiki.example.com` therefore matched nothing and
+ * fell through to the `*` catch-all, or to "not found" with none configured — an unauthenticated
+ * correctness/availability defect for any client or intermediary that preserves `Host` case (curl,
+ * some HTTP libraries, some proxies), not an escalation, since a mixed-case `Host` already landed
+ * on the same catch-all any unknown hostname reaches.
+ *
+ * Every lookup (and the write side, belt and braces) routes through this rather than each call
+ * site lowercasing for itself, so a future lookup added elsewhere cannot silently reintroduce the
+ * mismatch.
+ */
+export function normalizeHostname(hostname: string): string {
+  return hostname.toLowerCase()
+}
+
 export function guardSiteEnabled(
   site: { isEnabled?: boolean } | null | undefined,
   reply: FastifyReply
@@ -239,6 +323,42 @@ export function guardSiteEnabled(
     return true
   }
   return false
+}
+
+/**
+ * Fastify `preHandler`, registered once for the whole `/_api` tree in `api/index.ts`, that applies
+ * `guardSiteEnabled()` to every route whose path names `siteId` (OpenProject #1587/#1593).
+ *
+ * Before this existed, the guard was nine hand-applied call sites (`bootstrap.ts`, three in
+ * `pages.ts`, two in `assets.ts`, one in `graph.ts`, plus the three `controllers/` sites outside
+ * `/_api`), which is how a dozen-plus other `:siteId` routes across `pages.ts` (GET PAGE, UNLOCK,
+ * page history, the export routes), every read route in `tree.ts`, `assets.ts`'s upload/rename/
+ * delete, and everything in `comments.ts`/`navigation.ts`/`liveData.ts`/`glossary.ts` went on
+ * answering a disabled site's content indefinitely to a caller that already held its id. A single
+ * plugin-level hook closes all of them at once, and a route file added later needs no call of its
+ * own to be covered — it inherits this the moment it registers a route under `api/index.ts`.
+ *
+ * A plain, exported function rather than an inline `addHook` callback specifically so it can be
+ * exercised directly, with a synthetic `req`/`reply`, against every `:siteId` route this instance
+ * actually declares (`api/index.test.ts`) without booting a real HTTP server per route or hand-filling
+ * each one's querystring/body schema just to get a request past validation and into the hook chain.
+ *
+ * `req.params.siteId` reads as `undefined` on a route with no such param, which `guardSiteEnabled` is
+ * not even asked about — exactly "nothing to guard here", not a second 404. `bootstrap.ts`'s own
+ * `guardSiteEnabled` call is the one deliberate exception this preHandler does not subsume: that route
+ * resolves its site by hostname (`getSiteByHostname`), not a `:siteId` param, so nothing keyed off
+ * `req.params.siteId` would ever reach it — its call stays in place.
+ */
+export function siteEnabledPreHandler(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  done: (err?: Error) => void
+): void {
+  const siteId = (req.params as { siteId?: string } | undefined)?.siteId
+  if (siteId && guardSiteEnabled(WIKI.sites[siteId], reply)) {
+    return
+  }
+  done()
 }
 
 /**
@@ -415,18 +535,6 @@ export function generateHash(str: string): string {
   return crypto.createHash('sha1').update(str).digest('hex')
 }
 
-/**
- * Compare two secrets without leaking which character stopped the comparison.
- *
- * `===` on strings returns as soon as it finds a difference, and the time that takes is measurable
- * across enough attempts. Both sides are digested first because `timingSafeEqual` throws on operands
- * of different lengths — the digest is a fixed 32 bytes, so the length of the candidate says nothing.
- */
-export function timingSafeCompare(a: string, b: string): boolean {
-  const digest = (value: string) => crypto.createHash('sha256').update(value).digest()
-  return crypto.timingSafeEqual(digest(a), digest(b))
-}
-
 /** RFC 4122 UUID, versions 1-8, case-insensitive -- matches what the removed `uuid` package's own `validate()` accepted. */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -572,9 +680,33 @@ export function parseModuleProps(
   return result
 }
 
-export function replyWithFile(reply: FastifyReply, filePath: string): FastifyReply {
-  const stream = fs.createReadStream(filePath)
+/**
+ * A file's bytes only change when this codebase's own on-disk contents change (a redeploy — a new
+ * build, a new process), never in response to a request, so there is no per-instance revalidation
+ * problem to solve for it and a long `max-age` is safe: this is not hash-named content though, so it
+ * still needs a validator for the rare case a client does revalidate (a forced reload, or the
+ * `max-age` window elapsing) to pick up a redeploy's new bytes without a full re-download.
+ */
+const REPLY_WITH_FILE_CACHE = 'public, max-age=86400'
+
+export async function replyWithFile(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  filePath: string
+): Promise<FastifyReply> {
+  const stats = await fsp.stat(filePath)
+  // -> Weak because it's derived from size+mtime rather than the file's actual bytes — cheap to
+  //    compute (no read/hash of the file itself) and sufficient: the only thing that can change
+  //    these bytes is a redeploy, which always touches both.
+  const etag = `W/"${stats.size}-${stats.mtimeMs}"`
   reply.header('Content-Type', mime.getType(filePath))
+  reply.header('Cache-Control', REPLY_WITH_FILE_CACHE)
+  reply.header('ETag', etag)
+  reply.header('Last-Modified', stats.mtime.toUTCString())
+  if (req.headers['if-none-match'] === etag) {
+    return reply.code(304).send()
+  }
+  const stream = fs.createReadStream(filePath)
   return reply.send(stream)
 }
 

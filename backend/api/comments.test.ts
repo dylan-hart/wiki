@@ -65,6 +65,11 @@ describe('comment provider routes', () => {
     if (moduleKey === 'invalid') {
       throw new Error('Some Prop must be a string.')
     }
+    if (moduleKey === 'unselectable') {
+      throw new Error(
+        'Unselectable Provider cannot be activated: it has no server-side implementation and does not declare codeTemplate.'
+      )
+    }
     return { ...ALPHA_PROVIDER, module: moduleKey, config }
   }
 
@@ -146,6 +151,19 @@ describe('comment provider routes', () => {
     })
     assert.equal(res.statusCode, 400)
     assert.match(res.json().message, /must be a string/)
+  })
+
+  // -> OpenProject #1962: a module `models/commentProviders.ts#setActiveProvider` refuses as
+  //    non-selectable (no server-side implementation, no `codeTemplate`) must not become storable
+  //    just because it made it past this route's own site-existence check.
+  test('PUT .../comments/providers turns a non-selectable-module error into a 400', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/comments/providers`,
+      payload: { module: 'unselectable' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.match(res.json().message, /cannot be activated/i)
   })
 })
 
@@ -304,12 +322,17 @@ describe('page-scoped comment routes', () => {
     record.content = content
     record.updatedAt = new Date('2026-01-03T00:00:00.000Z')
     updatedIds.push(id)
+    await emitCommentHook('comment:edit', record, await resolveAuthorNameForTest(record))
     return record
   }
 
   async function deleteComment(id: string) {
+    const existing = commentsById[id]
     delete commentsById[id]
     deletedIds.push(id)
+    if (existing) {
+      await emitCommentHook('comment:delete', existing)
+    }
   }
 
   const created: any[] = []
@@ -355,6 +378,7 @@ describe('page-scoped comment routes', () => {
       updatedAt: new Date('2026-01-02T00:00:00.000Z')
     }
     created.push(record)
+    await emitCommentHook('comment:new', record, await resolveAuthorNameForTest(record))
     return record
   }
 
@@ -363,6 +387,54 @@ describe('page-scoped comment routes', () => {
   async function emit(event: string, siteId: string | null, data: Record<string, any> = {}) {
     emittedEvents.push({ event, siteId, data })
     return 1
+  }
+
+  /**
+   * Since OpenProject #1923, `create`/`update`/`delete` above stand in for `models/comments.ts`'s real
+   * methods — which now emit `comment:new`/`comment:edit`/`comment:delete` themselves (previously the
+   * route's own job). These two helpers mirror that model's private `resolveAuthorName`/`emitEvent` so
+   * the fakes keep matching real behavior, and the `emittedEvents` assertions below keep meaning what
+   * they always meant: the full request cycle results in the right webhook payload.
+   */
+  async function resolveAuthorNameForTest(comment: {
+    authorId: string | null
+    guestName: string | null
+  }): Promise<string> {
+    if (comment.authorId) {
+      const user = await getById(comment.authorId)
+      if (user) {
+        return user.name
+      }
+    }
+    return comment.guestName ?? ''
+  }
+
+  async function emitCommentHook(
+    event: 'comment:new' | 'comment:edit' | 'comment:delete',
+    comment: {
+      id: string
+      pageId: string
+      siteId: string
+      authorId: string | null
+      replyTo: string | null
+      content: string
+    },
+    authorName?: string
+  ): Promise<void> {
+    const base = {
+      id: comment.id,
+      pageId: comment.pageId,
+      siteId: comment.siteId,
+      authorId: comment.authorId,
+      isGuest: comment.authorId === null
+    }
+    await emit(
+      event,
+      comment.siteId,
+      event === 'comment:delete'
+        ? base
+        : { ...base, metadata: { authorName, replyTo: comment.replyTo }, content: comment.content }
+    )
   }
 
   let app: FastifyInstance
@@ -500,6 +572,17 @@ describe('page-scoped comment routes', () => {
       url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
       headers: { 'x-test-permissions': 'read:pages,write:comments' },
       payload: { content: 'Hello', guestName: 'Casey', guestEmail: 'not-an-email' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(created.length, 0)
+  })
+
+  test('POST create: 400 when content exceeds the schema maxLength (schema-level check, before the handler runs)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+      headers: { 'x-test-user-id': 'user-1', 'x-test-permissions': 'read:pages,write:comments' },
+      payload: { content: 'a'.repeat(32769) }
     })
     assert.equal(res.statusCode, 400)
     assert.equal(created.length, 0)
@@ -798,6 +881,31 @@ describe('page-scoped comment routes', () => {
     assert.equal(emittedEvents[0].data.siteId, SITE_ID)
     assert.equal(emittedEvents[0].data.authorId, 'author-1')
     assert.equal(emittedEvents[0].data.content, 'Updated content')
+  })
+
+  // -> WP 1691: PATCH's body schema is `CommentUpdateInput#`, not the POST-shaped `CommentInput#` --
+  //    a `replyTo` (or `guestName`/`guestEmail`) field in the body must 400 rather than be silently
+  //    ignored, since the handler only ever reads `content` off it.
+  test('PATCH: 400 when the body includes replyTo instead of silently ignoring it', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${EXISTING_COMMENT_ID}`,
+      headers: { 'x-test-user-id': 'author-1', 'x-test-permissions': 'read:pages,read:comments' },
+      payload: { content: 'Updated content', replyTo: EXISTING_COMMENT_ID }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.deepEqual(updatedIds, [])
+  })
+
+  test('PATCH: 400 when the body includes guestName instead of silently ignoring it', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${EXISTING_COMMENT_ID}`,
+      headers: { 'x-test-user-id': 'author-1', 'x-test-permissions': 'read:pages,read:comments' },
+      payload: { content: 'Updated content', guestName: 'Someone Else' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.deepEqual(updatedIds, [])
   })
 
   test('DELETE: 204 and actually removes the comment', async () => {

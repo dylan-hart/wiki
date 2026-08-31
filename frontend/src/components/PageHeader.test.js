@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -8,6 +10,21 @@ import PageHeader from './PageHeader.vue'
 import { usePageStore } from '@/stores/page'
 import { useDirection } from '@/composables/direction'
 import WMenu from '@/components/shared/WMenu.vue'
+
+/**
+ * Regression test for OpenProject #2000: `notImplemented()` showed a red toast with the untranslated
+ * literal 'Not implemented' and was never called from anywhere in this component -- dead code left
+ * over from an earlier stub. Reads the raw source rather than mounting, matching
+ * `EditorMarkdown.deadcode.test.js`'s reasoning: this asserts an identifier is simply gone, and also
+ * guards against it quietly being reintroduced.
+ */
+describe('PageHeader dead code', () => {
+  it('has no notImplemented() helper', () => {
+    const source = readFileSync(join(import.meta.dirname, 'PageHeader.vue'), 'utf-8')
+
+    expect(source).not.toMatch(/notImplemented/)
+  })
+})
 
 /**
  * Regression coverage for feature 413 ("RTL support end-to-end"), task 721: this row is a plain flex
@@ -36,6 +53,34 @@ async function mountHeader() {
     }
   })
 }
+
+/**
+ * OpenProject #1630/#1633: the title of every wiki page used to render into a plain
+ * `<div class="text-h4 page-header-title">` -- a heading NEITHER role nor level, so a screen
+ * reader's heading navigation (the H key / rotor) found nothing to land a reader on here. Fixed by
+ * changing the element only; the classes (and therefore the visuals) are unchanged. See the
+ * accessibility audit's heading-hierarchy pass (`docs/audit-2026-08-24/accessibility-i18n.md` §3).
+ */
+describe('PageHeader heading semantics', () => {
+  it('renders the page title as a real <h1>, carrying the same classes as before', async () => {
+    const wrapper = await mountHeader()
+
+    const heading = wrapper.find('h1.page-header-title')
+    expect(heading.exists()).toBe(true)
+    expect(heading.classes()).toContain('text-h4')
+    // -> No stray `<div class="text-h4 page-header-title">` left behind alongside it
+    expect(wrapper.find('div.page-header-title').exists()).toBe(false)
+  })
+
+  it('renders the resolved title text inside the <h1>', async () => {
+    const wrapper = await mountHeader()
+    usePageStore().$patch({ title: 'Getting Started' })
+    await wrapper.vm.$nextTick()
+
+    const titleEl = wrapper.find('h1.page-header-title')
+    expect(titleEl.text()).toBe('Getting Started')
+  })
+})
 
 describe('PageHeader RTL-safe spacing', () => {
   it('spaces the page icon from the title with a logical (inline-start) padding, not a physical one', async () => {

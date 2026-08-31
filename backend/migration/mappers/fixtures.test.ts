@@ -9,6 +9,7 @@ import {
   type SourceAuthenticationRow
 } from './authentication.ts'
 import { mapStorageRow, type SourceStorageRow } from './storage.ts'
+import { ensureTemporal } from '../../test/temporal.ts'
 
 /**
  * Task 768 — "Fixture tests and docs/variances.md entries for the confirmed gaps".
@@ -46,14 +47,7 @@ async function loadFixture<T>(name: string): Promise<T> {
 }
 
 before(async () => {
-  // -> Node 25 (this sandbox) has no native `Temporal` yet — Node 26 does, per this repo's engine
-  //    requirement. Polyfilled only when missing, so this is a no-op on a real Node 26 runtime — see
-  //    `models/storage.test.ts`'s own `before()`. `storage.ts`'s `convertSyncInterval` parses with
-  //    `Temporal.Duration.from()`, which the git fixture row below exercises.
-  if (typeof Temporal === 'undefined') {
-    const polyfill = await import('@js-temporal/polyfill')
-    ;(globalThis as any).Temporal = polyfill.Temporal
-  }
+  await ensureTemporal()
   ;(globalThis as any).WIKI = {
     SERVERPATH: path.join(import.meta.dirname, '..', '..'),
     data: {},
@@ -119,9 +113,11 @@ describe('fixture: 2.5x-settings.json -> mapSiteSettings', () => {
         // renamed AND polarity-inverted: source had both flags `true`
         disallowOpenRedirect: false,
         disallowIframe: false,
-        // moved tables: 2.x `uploads.*` -> 3.0 `settings.security.*`
+        // moved tables: 2.x `uploads.*` -> 3.0 `settings.security.*`. `uploads.maxFiles` in the
+        // fixture has no 3.0 destination (`security.uploadMaxFiles` was removed — dead key, never
+        // enforced anywhere; OpenProject #2174) and is dropped rather than mapped. `scanSVG` maps
+        // straight across, since `uploadScanSVG` is enforced in 3.0 (OpenProject #2170).
         uploadMaxFileSize: 200,
-        uploadMaxFiles: 20,
         uploadScanSVG: true,
         forceAssetDownload: false
       }
@@ -167,7 +163,8 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         module: 'local',
         isEnabled: true,
         displayName: 'Local Database',
-        registration: true,
+        selfRegistration: true,
+        autoProvision: true,
         allowedEmailRegex: '',
         autoEnrollGroups: [],
         config: { enforceTfa: false, emailValidation: true, allowForgotPassword: true }
@@ -183,7 +180,8 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         module: 'github',
         isEnabled: true,
         displayName: 'GitHub (Acme)',
-        registration: false,
+        selfRegistration: false,
+        autoProvision: false,
         allowedEmailRegex: '^[^@]+@(acme\\.com|acme\\.org)$',
         autoEnrollGroups: ['grp-uuid-1', 'grp-uuid-2'],
         config: {
@@ -215,7 +213,8 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         module: 'local',
         isEnabled: true,
         displayName: 'Local Database (2)',
-        registration: false,
+        selfRegistration: false,
+        autoProvision: false,
         allowedEmailRegex: '',
         autoEnrollGroups: [],
         config: { enforceTfa: false, emailValidation: true, allowForgotPassword: true }
@@ -231,7 +230,8 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         module: 'oidc',
         isEnabled: true,
         displayName: 'Beta SSO',
-        registration: true,
+        selfRegistration: true,
+        autoProvision: true,
         allowedEmailRegex: '',
         autoEnrollGroups: [],
         config: {
@@ -245,6 +245,7 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
           jwksURL: '',
           scopes: 'openid profile email',
           emailClaim: 'email',
+          allowUnverifiedEmail: false,
           displayNameClaim: 'name',
           logoutURL: '',
           // -> Not part of the 2.x source row at all (OpenProject #826 added these props after this

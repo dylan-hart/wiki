@@ -2,10 +2,10 @@
   <w-page class="admin-flags">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-plugin.svg" />
+        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-plugin.svg" alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.blocks.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.blocks.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.blocks.subtitle') }}
         </div>
@@ -125,9 +125,12 @@
             <!--
               Configure never renders for a custom block: a custom block has no manifest entry, so
               `getSiteBlocks()` (backend/models/blocks.ts) reports `configFields: []` for it, and this
-              guard hides the button rather than opening a form with nothing in it.
+              guard hides the button rather than opening a form with nothing in it. It also stays
+              hidden for a block whose only config field is `server` when that field already has its
+              own dedicated input above (block-kroki, block-plantuml) -- `configurableFields` is what
+              keeps the same setting from getting two separate editors.
             -->
-            <template v-if="block.configFields?.length > 0">
+            <template v-if="configurableFields(block).length > 0">
               <w-item-section side>
                 <w-btn
                   icon="la:cog"
@@ -194,8 +197,8 @@
               </w-item-label>
               <w-item-label caption class="flex flex-wrap items-center gap-1 mt-1">
                 <w-icon name="la:globe" size="14px" class="mr-1" />
-                <span v-if="credential.allowedDomains?.length" class="text-caption">
-                  {{ credential.allowedDomains.join(', ') }}
+                <span v-if="credential.allowedOrigins?.length" class="text-caption">
+                  {{ credential.allowedOrigins.join(', ') }}
                 </span>
                 <span v-else class="text-caption text-negative">{{
                   t('admin.blocks.credentialAllowedDomainsEmpty')
@@ -248,12 +251,18 @@
             }}
           </div>
           <w-space />
-          <w-btn icon="la:times" flat round dense @click="closeConfig" />
+          <w-btn
+            icon="la:times"
+            flat
+            round
+            dense
+            :aria-label="t(`common.actions.close`)"
+            @click="closeConfig" />
         </w-card-section>
         <w-card-section>
           <block-props-form
             v-if="state.configDialog.block"
-            :fields="state.configDialog.block.configFields"
+            :fields="configurableFields(state.configDialog.block)"
             :values="state.configDialog.values" />
         </w-card-section>
         <w-separator />
@@ -354,6 +363,19 @@ function serverProp(block) {
 }
 
 /**
+ * A block's admin-config fields that don't already have a dedicated control of their own.
+ *
+ * `server` is covered by the inline field above (`hasServerProp`) for block-kroki/block-plantuml, so
+ * the generic "Configure" dialog has nothing left to add for either -- today `server` is their only
+ * declared config field, so both simply never show the button (see WP #1745).
+ */
+function configurableFields(block) {
+  return (block?.configFields ?? []).filter(
+    (field) => !(field.name === 'server' && hasServerProp(block))
+  )
+}
+
+/**
  * Whether the "self-host your own server" note is worth showing at all -- only when this site
  * actually has a block whose "Server" field it would be explaining, so the note never appears on a
  * site with neither Kroki nor PlantUML enabled.
@@ -428,7 +450,9 @@ function deleteCredential(credential) {
     title: t('admin.blocks.credentialDelete'),
     message: t('admin.blocks.credentialDeleteConfirm', { name: credential.name }),
     cancel: true,
-    persistent: true
+    persistent: true,
+    color: 'negative',
+    okLabel: t('common.actions.delete')
   }).onOk(async () => {
     try {
       await API_CLIENT.delete(
@@ -472,7 +496,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.blocks.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.blocks.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     notify({
@@ -507,13 +531,15 @@ function deleteBlock(id) {
     title: t('admin.blocks.delete'),
     message: t('admin.blocks.deleteConfirm', { blockName: block?.name ?? '' }),
     cancel: true,
-    persistent: true
+    persistent: true,
+    color: 'negative',
+    okLabel: t('common.actions.delete')
   }).onOk(async () => {
     state.loading++
     try {
       const resp = await API_CLIENT.delete(`sites/${adminStore.currentSiteId}/blocks/${id}`)
       if (!resp?.ok) {
-        throw new Error((await resp.json())?.message || 'An unexpected error occured.')
+        throw new Error((await resp.json())?.message || t('common.error.unexpected'))
       }
       notify({
         type: 'positive',
@@ -540,7 +566,10 @@ function deleteBlock(id) {
  */
 function openConfig(block) {
   state.configDialog.block = block
-  state.configDialog.values = seedConfigValues(block)
+  state.configDialog.values = seedConfigValues({
+    ...block,
+    configFields: configurableFields(block)
+  })
   state.configDialog.open = true
 }
 
@@ -561,8 +590,8 @@ function saveConfig() {
 // MOUNTED
 
 onMounted(async () => {
-  loading.show()
   if (adminStore.currentSiteId) {
+    loading.show()
     await load()
   }
 })

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import { NotYetImplementedError } from './connector.ts'
 import {
   compareAgainstDryRunReports,
   compareEntityCounts,
   countDestinationEntities,
   countSourceEntities,
+  createDestinationCounter,
   formatVerifySummary,
   hashContent,
   ReservoirSampler,
@@ -15,6 +16,8 @@ import {
 import type { DestinationCounter, DestinationPageLookup } from './verify.ts'
 import type { SourceAssetFile, SourceConnector, SourceRecord } from './connector.ts'
 import type { PhaseReport } from './report.ts'
+import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { pages as pagesTable } from '../db/schema.ts'
 
 /** Every entity generator throws, matching both real connectors' current stub state — same pattern
  * `phases/phases.test.ts` uses. */
@@ -112,6 +115,75 @@ describe('countDestinationEntities', () => {
   })
 })
 
+describe('createDestinationCounter.tags', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+
+  before(async () => {
+    fixtures = await setupTestDb()
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  /** Minimal `.values()` object satisfying every NOT NULL column on `pages`, same shape
+   * `models/pages.test.ts`'s `rawPageRow` uses for a raw insert. */
+  function rawPageRow(overrides: { path: string; tags: string[] }) {
+    return {
+      siteId: fixtures.siteId,
+      locale: 'en',
+      path: overrides.path,
+      hash: `raw-hash-${overrides.path}`,
+      title: 'Raw Row',
+      editor: 'markdown',
+      contentType: 'markdown',
+      authorId: fixtures.userId,
+      creatorId: fixtures.userId,
+      ownerId: fixtures.userId,
+      classification: fixtures.classificationId,
+      tags: overrides.tags
+    }
+  }
+
+  test('counts DISTINCT tags unnested from pages.tags, not the dead tags table', async () => {
+    await fixtures.db
+      .insert(pagesTable)
+      .values(rawPageRow({ path: 'tag-probe/one', tags: ['a', 'b'] }))
+    await fixtures.db
+      .insert(pagesTable)
+      .values(rawPageRow({ path: 'tag-probe/two', tags: ['b', 'c'] }))
+
+    const counter = createDestinationCounter(fixtures.db)
+    const destinationCount = await counter.tags(fixtures.siteId)
+    assert.equal(destinationCount, 3)
+
+    const reconciled = compareEntityCounts(
+      {
+        users: 0,
+        groups: 0,
+        pages: 0,
+        pageHistory: 0,
+        tags: 3,
+        assets: 0,
+        navigation: 0
+      },
+      {
+        users: 0,
+        groups: 0,
+        pages: 0,
+        pageHistory: 0,
+        tags: destinationCount,
+        assets: 0,
+        navigation: 0
+      }
+    )
+    assert.deepEqual(
+      reconciled.find((entry) => entry.entity === 'tags'),
+      { entity: 'tags', sourceCount: 3, destinationCount: 3, status: 'match' }
+    )
+  })
+})
+
 describe('compareEntityCounts', () => {
   test('matches when source and destination agree', () => {
     const [result] = compareEntityCounts(
@@ -154,6 +226,42 @@ describe('compareEntityCounts', () => {
     assert.equal(users.status, 'source_not_implemented')
     assert.equal(users.sourceCount, null)
     assert.equal(users.destinationCount, 999)
+  })
+
+  test('groups: source reporting two system groups against a destination seeded with three matches', () => {
+    // 2.x skips two isSystem source groups (Administrators, Guests); 3.0 seeds three
+    // (Administrators, Users, Guests) — see task 1813 / EXPECTED_COUNT_DELTA's doc comment.
+    const results = compareEntityCounts(
+      { users: 0, groups: 2, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
+      { users: 0, groups: 3, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 }
+    )
+    const groups = results.find((r) => r.entity === 'groups')!
+    assert.equal(groups.status, 'match')
+    assert.equal(groups.sourceCount, 2)
+    assert.equal(groups.destinationCount, 3)
+  })
+
+  test('groups: a destination two groups off the expected +1 delta still reports mismatch', () => {
+    const results = compareEntityCounts(
+      { users: 0, groups: 2, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
+      { users: 0, groups: 5, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 }
+    )
+    const groups = results.find((r) => r.entity === 'groups')!
+    assert.equal(groups.status, 'mismatch')
+  })
+
+  test('users: matching behaviour is unchanged (expected delta stays 0)', () => {
+    const matching = compareEntityCounts(
+      { users: 5, groups: 2, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
+      { users: 5, groups: 3, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 }
+    )
+    assert.equal(matching.find((r) => r.entity === 'users')!.status, 'match')
+
+    const mismatching = compareEntityCounts(
+      { users: 5, groups: 2, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
+      { users: 4, groups: 3, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 }
+    )
+    assert.equal(mismatching.find((r) => r.entity === 'users')!.status, 'mismatch')
   })
 
   test('covers every VERIFY_ENTITIES entry exactly once', () => {
@@ -284,7 +392,7 @@ describe('runContentSpotCheck', () => {
       if (!(path in pagesByPath)) {
         return undefined
       }
-      return { render: pagesByPath[path] }
+      return { content: pagesByPath[path] }
     }
   }
 
@@ -296,43 +404,35 @@ describe('runContentSpotCheck', () => {
     assert.deepEqual(results, [{ path: '(all pages)', status: 'source_not_implemented' }])
   })
 
-  test('matches when source and destination render hash the same', async () => {
+  test('matches when source and destination content hash the same', async () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
-      yield { id: 1, path: 'en/home', localeCode: 'en', render: '<p>hello</p>' }
+      yield { id: 1, path: 'en/home', localeCode: 'en', content: '# hello' }
     }
     const connector = { ...stubConnector(), pages }
-    const results = await runContentSpotCheck(
-      connector,
-      fakeLookup({ 'en/home': '<p>hello</p>' }),
-      {
-        siteId: 'site-1',
-        paths: ['en/home']
-      }
-    )
+    const results = await runContentSpotCheck(connector, fakeLookup({ 'en/home': '# hello' }), {
+      siteId: 'site-1',
+      paths: ['en/home']
+    })
     assert.equal(results.length, 1)
     assert.equal(results[0].status, 'match')
     assert.equal(results[0].sourceHash, results[0].destinationHash)
   })
 
-  test('flags a mismatch when the rendered bodies differ (truncation/corruption)', async () => {
+  test('flags a mismatch when the stored bodies differ (truncation/corruption)', async () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
-      yield { id: 1, path: 'en/home', localeCode: 'en', render: '<p>hello world</p>' }
+      yield { id: 1, path: 'en/home', localeCode: 'en', content: '# hello world' }
     }
     const connector = { ...stubConnector(), pages }
-    const results = await runContentSpotCheck(
-      connector,
-      fakeLookup({ 'en/home': '<p>hello</p>' }),
-      {
-        siteId: 'site-1',
-        paths: ['en/home']
-      }
-    )
+    const results = await runContentSpotCheck(connector, fakeLookup({ 'en/home': '# hello' }), {
+      siteId: 'site-1',
+      paths: ['en/home']
+    })
     assert.equal(results[0].status, 'mismatch')
   })
 
   test('reports destination_missing when the destination has no such page', async () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
-      yield { id: 1, path: 'en/home', localeCode: 'en', render: '<p>hello</p>' }
+      yield { id: 1, path: 'en/home', localeCode: 'en', content: '# hello' }
     }
     const connector = { ...stubConnector(), pages }
     const results = await runContentSpotCheck(connector, fakeLookup({}), {
@@ -344,7 +444,7 @@ describe('runContentSpotCheck', () => {
 
   test('reports source_missing for an explicit path never found at the source', async () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
-      yield { id: 1, path: 'en/home', localeCode: 'en', render: '<p>hello</p>' }
+      yield { id: 1, path: 'en/home', localeCode: 'en', content: '# hello' }
     }
     const connector = { ...stubConnector(), pages }
     const results = await runContentSpotCheck(connector, fakeLookup({}), {
@@ -359,7 +459,7 @@ describe('runContentSpotCheck', () => {
   test('random-samples up to sampleSize pages when no explicit paths are given', async () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
       for (let i = 0; i < 50; i++) {
-        yield { id: i, path: `en/page-${i}`, localeCode: 'en', render: `body-${i}` }
+        yield { id: i, path: `en/page-${i}`, localeCode: 'en', content: `body-${i}` }
       }
     }
     const connector = { ...stubConnector(), pages }
@@ -379,7 +479,7 @@ describe('runContentSpotCheck', () => {
     // Defends against a spot-check that accidentally reads through more of SourceConnector than
     // pages() alone.
     async function* pages(): AsyncGenerator<SourceRecord> {
-      yield { id: 1, path: 'en/home', localeCode: 'en', render: 'x' }
+      yield { id: 1, path: 'en/home', localeCode: 'en', content: 'x' }
     }
     const connector: SourceConnector = { ...stubConnector(), pages }
     assert.throws(() => connector.assets() as AsyncIterable<SourceAssetFile>)
@@ -388,6 +488,38 @@ describe('runContentSpotCheck', () => {
       paths: ['en/home']
     })
     assert.equal(results[0].status, 'match')
+  })
+
+  test('normalizes an uppercase/underscored 2.x source path before the destination lookup', async () => {
+    // The source path is exactly what a real 2.x row would carry -- uppercase segments and an
+    // underscore -- while the destination is keyed the way `assignTreePaths`/`normalizeMigratedPath`
+    // actually wrote it on import: lowercased, underscores folded to hyphens. An unnormalized lookup
+    // would miss this row entirely and report `destination_missing`.
+    async function* pages(): AsyncGenerator<SourceRecord> {
+      yield { id: 1, path: 'Guide/Getting_Started', localeCode: 'en', content: '# intro' }
+    }
+    const connector = { ...stubConnector(), pages }
+    const results = await runContentSpotCheck(
+      connector,
+      fakeLookup({ 'guide/getting-started': '# intro' }),
+      { siteId: 'site-1', paths: ['Guide/Getting_Started'] }
+    )
+    assert.equal(results.length, 1)
+    assert.equal(results[0].path, 'Guide/Getting_Started') // reported path stays the raw source path
+    assert.equal(results[0].status, 'match')
+  })
+
+  test('reports destination_missing, not a crash, when a source path fails to normalize at all', async () => {
+    async function* pages(): AsyncGenerator<SourceRecord> {
+      yield { id: 1, path: '///', localeCode: 'en', content: '# unreachable' }
+    }
+    const connector = { ...stubConnector(), pages }
+    const results = await runContentSpotCheck(connector, fakeLookup({}), {
+      siteId: 'site-1',
+      paths: ['///']
+    })
+    assert.equal(results.length, 1)
+    assert.equal(results[0].status, 'destination_missing')
   })
 })
 

@@ -47,6 +47,7 @@ declare module 'fastify' {
       timeFormat?: string
       appearance?: string
       cvd?: string
+      locale?: string
     }
     /** Flattened, de-duplicated permissions of every group the user belongs to. */
     permissions?: string[]
@@ -72,6 +73,12 @@ declare module 'fastify' {
       state: string
       nonce: string
       codeVerifier: string
+      /**
+       * SAML only: the outbound `AuthnRequest`'s own `ID`, checked back against the identity
+       * provider's `InResponseTo` on the callback — see `AuthFlow.authnRequestId` in
+       * `models/authentication.ts`.
+       */
+      authnRequestId?: string
       /** Where to send the browser once it is logged in. */
       redirect: string
       /** When this flow was started, as an ISO instant, so that a stale one can be refused. */

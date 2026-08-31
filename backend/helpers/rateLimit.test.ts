@@ -3,7 +3,14 @@ import { after, afterEach, before, beforeEach, describe, mock, test } from 'node
 import fastify from 'fastify'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import fastifySensible from '@fastify/sensible'
-import { limitApiKey, limitApiRequests } from './rateLimit.ts'
+import {
+  activeBanMemo,
+  consumeAccountAuthAttempt,
+  limitApiKey,
+  limitApiRequests,
+  limitPublicRequests,
+  isPublicRateLimitedPath
+} from './rateLimit.ts'
 
 /**
  * `limitApiKey` is the global per-key limiter wired into the onRequest API-key-auth hook in
@@ -77,6 +84,9 @@ describe('limitApiKey', () => {
 
   beforeEach(() => {
     consumeCalls = []
+    // -> The ban memo is a module-level singleton shared across every test in this file; clearing it
+    //    here keeps a ban memoized by one test from leaking into the next test reusing the same key.
+    activeBanMemo.clear()
   })
 
   test('lets a request through and keys the counter by the api key id, not by ip', async () => {
@@ -136,6 +146,9 @@ describe('limitApiRequests', () => {
 
   beforeEach(() => {
     consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    // -> Same reasoning as `limitApiKey`'s `beforeEach` above: several tests below reuse the same
+    //    IP/key on purpose, so a ban memoized by one must not carry into the next.
+    activeBanMemo.clear()
     ;(globalThis as any).WIKI = {
       config: {
         security: {
@@ -361,5 +374,425 @@ describe('limitApiRequests', () => {
     const key = consume.mock.calls[0].arguments[0]
     assert.notEqual(key, `auth:203.0.113.9`)
     assert.equal(key, 'api:ip:203.0.113.9')
+  })
+})
+
+/**
+ * Unit tests for `consumeAccountAuthAttempt` (work package 2075(b)): the account-keyed brute-force
+ * counter `models/users.ts#login` and `#loginTFA` consume alongside `limitAuthAttempts`'s existing
+ * `req.ip`-keyed one. Its entire point is that it takes no `req.ip` at all — the bucket is keyed
+ * purely on the account identifier — so the "bounds guessing across differing req.ip values" part of
+ * the work package's done-when criteria is inherent to the function's signature, not something a test
+ * has to construct differing IPs to observe.
+ */
+describe('consumeAccountAuthAttempt', () => {
+  let consume: ReturnType<typeof mock.fn>
+
+  beforeEach(() => {
+    consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    ;(globalThis as any).WIKI = {
+      config: {
+        security: {
+          authRateLimitEnabled: true,
+          authRateLimitMax: 10,
+          authRateLimitWindow: '5m',
+          authRateLimitBan: '15m'
+        }
+      },
+      models: {
+        rateLimits: { consume }
+      }
+    }
+  })
+
+  afterEach(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('keys by the account identifier, namespaced apart from the IP-keyed auth: bucket', async () => {
+    await consumeAccountAuthAttempt('person@example.com')
+    assert.equal(consume.mock.calls.length, 1)
+    assert.equal(consume.mock.calls[0].arguments[0], 'auth:user:person@example.com')
+  })
+
+  test('normalizes the identifier (trims and lower-cases) so casing/whitespace do not split the bucket', async () => {
+    await consumeAccountAuthAttempt('  Person@Example.com  ')
+    assert.equal(consume.mock.calls[0].arguments[0], 'auth:user:person@example.com')
+  })
+
+  test('reads the configured policy from security.authRateLimit* settings', async () => {
+    ;(globalThis as any).WIKI.config.security = {
+      authRateLimitEnabled: true,
+      authRateLimitMax: 5,
+      authRateLimitWindow: '2m',
+      authRateLimitBan: '10m'
+    }
+    await consumeAccountAuthAttempt('person@example.com')
+    const policy = consume.mock.calls[0].arguments[1] as any
+    assert.equal(policy.max, 5)
+    assert.equal(policy.windowSeconds, 120)
+    assert.equal(policy.banSeconds, 600)
+  })
+
+  test('does nothing (always allowed, no consume call) while authRateLimitEnabled is false', async () => {
+    ;(globalThis as any).WIKI.config.security.authRateLimitEnabled = false
+    const verdict = await consumeAccountAuthAttempt('person@example.com')
+    assert.equal(verdict.allowed, true)
+    assert.equal(consume.mock.calls.length, 0)
+  })
+
+  test('repeated attempts against one account are refused once the policy limit is reached, regardless of what req.ip each attempt would have carried', async () => {
+    // -> A stateful stand-in for `WIKI.models.rateLimits.consume`, the same pattern
+    //    `limitApiRequests`'s "two different API keys get independent counters" test uses: a real
+    //    per-key counter rather than a fixed verdict, so this exercises the actual bound rather than
+    //    just asserting the key string.
+    const hits = new Map<string, number>()
+    consume.mock.mockImplementation(async (key: string, policy: any) => {
+      const n = (hits.get(key) ?? 0) + 1
+      hits.set(key, n)
+      return { allowed: n <= policy.max, hits: n, retryAfter: n <= policy.max ? 0 : 60 }
+    })
+    ;(globalThis as any).WIKI.config.security.authRateLimitMax = 3
+
+    // Three attempts against "victim@example.com" succeed (are allowed through); a fourth — even
+    // though nothing here ever passed an ip for any of them — is refused.
+    for (let i = 0; i < 3; i++) {
+      const verdict = await consumeAccountAuthAttempt('victim@example.com')
+      assert.equal(verdict.allowed, true)
+    }
+    const fourth = await consumeAccountAuthAttempt('victim@example.com')
+    assert.equal(fourth.allowed, false)
+  })
+
+  test("a second account's attempts are unaffected by the first account being exhausted", async () => {
+    const hits = new Map<string, number>()
+    consume.mock.mockImplementation(async (key: string, policy: any) => {
+      const n = (hits.get(key) ?? 0) + 1
+      hits.set(key, n)
+      return { allowed: n <= policy.max, hits: n, retryAfter: n <= policy.max ? 0 : 60 }
+    })
+    ;(globalThis as any).WIKI.config.security.authRateLimitMax = 1
+
+    const first = await consumeAccountAuthAttempt('victim@example.com')
+    assert.equal(first.allowed, true)
+    const second = await consumeAccountAuthAttempt('victim@example.com')
+    assert.equal(second.allowed, false)
+
+    const otherAccount = await consumeAccountAuthAttempt('someone-else@example.com')
+    assert.equal(otherAccount.allowed, true)
+  })
+})
+
+/**
+ * `isPublicRateLimitedPath` (OpenProject #2274): which root-mounted paths the new public-surface
+ * limiter hook applies to, matching the exact set `index.ts` registers with no prefix or under
+ * `/_files`, `/_site`, `/_icons`, `/_thumb`.
+ */
+describe('isPublicRateLimitedPath', () => {
+  test('matches the two bare root files exactly', () => {
+    assert.equal(isPublicRateLimitedPath('/sitemap.xml'), true)
+    assert.equal(isPublicRateLimitedPath('/robots.txt'), true)
+  })
+
+  test('matches a route under each prefixed public controller', () => {
+    assert.equal(isPublicRateLimitedPath('/_icons/mdi.json'), true)
+    assert.equal(isPublicRateLimitedPath('/_icons/mdi/account.svg'), true)
+    assert.equal(isPublicRateLimitedPath('/_files/some-asset.png'), true)
+    assert.equal(isPublicRateLimitedPath('/_thumb/some-page/thumb.png'), true)
+    assert.equal(isPublicRateLimitedPath('/_site/logo'), true)
+  })
+
+  test('does not match /_api/, an unrelated root path, or a bare prefix with nothing after it', () => {
+    assert.equal(isPublicRateLimitedPath('/_api/pages'), false)
+    assert.equal(isPublicRateLimitedPath('/'), false)
+    assert.equal(isPublicRateLimitedPath('/login'), false)
+    assert.equal(isPublicRateLimitedPath('/_icons'), false)
+  })
+})
+
+/**
+ * Unit tests for `limitPublicRequests` (OpenProject #2274): the root-mounted public-surface rate
+ * limit hook. Same `WIKI.models.rateLimits.consume` stubbing approach as `limitApiRequests` above —
+ * what this covers is the hook's own key-building, exemption and 429 shape, not the database-backed
+ * fixed-window logic in `models/rateLimits.ts`.
+ */
+describe('limitPublicRequests', () => {
+  function makeReply(): FastifyReply {
+    return {
+      header: mock.fn(),
+      tooManyRequests: mock.fn()
+    } as unknown as FastifyReply
+  }
+
+  function makeReq(overrides: Partial<FastifyRequest> = {}): FastifyRequest {
+    return {
+      method: 'GET',
+      url: '/sitemap.xml',
+      ip: '203.0.113.4',
+      session: undefined,
+      ...overrides
+    } as unknown as FastifyRequest
+  }
+
+  let consume: ReturnType<typeof mock.fn>
+
+  beforeEach(() => {
+    consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    ;(globalThis as any).WIKI = {
+      config: { security: { apiRateLimitEnabled: true } },
+      models: { rateLimits: { consume } },
+      logger: { debug: mock.fn() }
+    }
+  })
+
+  afterEach(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('keys by ip for an anonymous request', async () => {
+    await limitPublicRequests(makeReq(), makeReply())
+    assert.equal(consume.mock.calls.length, 1)
+    assert.equal(consume.mock.calls[0].arguments[0], 'public:ip:203.0.113.4')
+  })
+
+  test('keys by session user id when cookie-authenticated', async () => {
+    const req = makeReq({
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: ['read:pages'] } as any
+    })
+    await limitPublicRequests(req, makeReply())
+    assert.equal(consume.mock.calls[0].arguments[0], 'public:user:user-1')
+  })
+
+  test('never builds an api: key, so it can never share a bucket with limitApiRequests', async () => {
+    await limitPublicRequests(makeReq(), makeReply())
+    const key = consume.mock.calls[0].arguments[0] as string
+    assert.ok(key.startsWith('public:'))
+    assert.ok(!key.startsWith('api:'))
+  })
+
+  test('exempts a session carrying manage:system', async () => {
+    const req = makeReq({
+      session: {
+        authenticated: true,
+        user: { id: 'admin-1' },
+        permissions: ['manage:system']
+      } as any
+    })
+    await limitPublicRequests(req, makeReply())
+    assert.equal(consume.mock.calls.length, 0)
+  })
+
+  test('does nothing while apiRateLimitEnabled is false, the same shared toggle limitApiRequests uses', async () => {
+    ;(globalThis as any).WIKI.config.security.apiRateLimitEnabled = false
+    const reply = makeReply()
+    await limitPublicRequests(makeReq(), reply)
+    assert.equal(consume.mock.calls.length, 0)
+    assert.equal((reply.tooManyRequests as any).mock.calls.length, 0)
+  })
+
+  test('refuses with a 429 and Retry-After once the policy is exceeded', async () => {
+    consume.mock.mockImplementationOnce(async () => ({
+      allowed: false,
+      hits: 601,
+      retryAfter: 90
+    }))
+    const reply = makeReply()
+    await limitPublicRequests(makeReq(), reply)
+    assert.deepEqual((reply.header as any).mock.calls[0].arguments, ['Retry-After', '90'])
+    assert.equal((reply.tooManyRequests as any).mock.calls.length, 1)
+  })
+
+  test('an anonymous /_api/ caller and an anonymous public-route caller get independent counters', async () => {
+    // -> `limitApiRequests`'s policy is configurable (`apiRateLimitMax`), unlike
+    //    `limitPublicRequests`'s fixed `PUBLIC_DEFAULTS`, so exhausting the `/_api/` bucket with a
+    //    low configured max is the reliable way to drive one bucket to refusal in a handful of
+    //    calls without also needing to replicate the public policy's own fixed number here.
+    const hits = new Map<string, number>()
+    consume.mock.mockImplementation(async (key: string, policy: any) => {
+      const n = (hits.get(key) ?? 0) + 1
+      hits.set(key, n)
+      return { allowed: n <= policy.max, hits: n, retryAfter: n <= policy.max ? 0 : 60 }
+    })
+    ;(globalThis as any).WIKI.config.security = { apiRateLimitEnabled: true, apiRateLimitMax: 2 }
+
+    // Exhaust the /_api/ counter for this IP.
+    const apiReq = {
+      method: 'GET',
+      url: '/_api/pages',
+      ip: '203.0.113.4',
+      apiKey: null,
+      session: undefined
+    } as unknown as FastifyRequest
+    await limitApiRequests(apiReq, makeReply())
+    await limitApiRequests(apiReq, makeReply())
+    const replyApi3 = makeReply()
+    await limitApiRequests(apiReq, replyApi3)
+    assert.equal((replyApi3.tooManyRequests as any).mock.calls.length, 1)
+
+    // The same address hitting the public-route limiter is on its own counter and unaffected.
+    const replyPublic1 = makeReply()
+    await limitPublicRequests(makeReq(), replyPublic1)
+    assert.equal((replyPublic1.tooManyRequests as any).mock.calls.length, 0)
+  })
+})
+
+/**
+ * Task 2222: an in-process memo of active bans fronts every call `helpers/rateLimit.ts` makes to
+ * `WIKI.models.rateLimits.consume()`, so a request from a key already serving a ban is refused
+ * without a second database write. Exercised through `limitApiRequests` — the shared
+ * `consumeWithBanMemo` wrapper it (and `limitAuthAttempts`/`limitRenders`/`limitApiKey`) calls into
+ * is the thing actually under test here, not anything specific to this one hook.
+ */
+describe('rate-limit ban memo', () => {
+  function makeReply(): FastifyReply {
+    return {
+      header: mock.fn(),
+      tooManyRequests: mock.fn()
+    } as unknown as FastifyReply
+  }
+
+  function makeReq(overrides: Partial<FastifyRequest> = {}): FastifyRequest {
+    return {
+      method: 'GET',
+      url: '/_api/pages',
+      ip: '198.51.100.7',
+      apiKey: null,
+      session: undefined,
+      ...overrides
+    } as unknown as FastifyRequest
+  }
+
+  let consume: ReturnType<typeof mock.fn>
+
+  beforeEach(() => {
+    consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    activeBanMemo.clear()
+    ;(globalThis as any).WIKI = {
+      config: {
+        security: {
+          apiRateLimitEnabled: true,
+          apiRateLimitMax: 300,
+          apiRateLimitWindow: '5m',
+          apiRateLimitBan: '15m'
+        }
+      },
+      models: {
+        rateLimits: { consume }
+      },
+      logger: { debug: mock.fn() }
+    }
+  })
+
+  afterEach(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('a second request from an already-banned key is refused with no consume() call reaching the database', async () => {
+    consume.mock.mockImplementationOnce(async () => ({
+      allowed: false,
+      hits: 301,
+      retryAfter: 120
+    }))
+    const req = makeReq()
+
+    const reply1 = makeReply()
+    await limitApiRequests(req, reply1)
+    assert.equal(consume.mock.calls.length, 1)
+    assert.equal((reply1.tooManyRequests as any).mock.calls.length, 1)
+    assert.deepEqual((reply1.header as any).mock.calls[0].arguments, ['Retry-After', '120'])
+
+    // -> Same key, second request: refused straight out of the memo. `consume` must not be called
+    //    again — that is the database write this task exists to avoid.
+    const reply2 = makeReply()
+    await limitApiRequests(makeReq(), reply2)
+    assert.equal(consume.mock.calls.length, 1)
+    assert.equal((reply2.tooManyRequests as any).mock.calls.length, 1)
+  })
+
+  test('a permitted request always goes to SQL, even repeatedly, since a grant is never memoized', async () => {
+    consume.mock.mockImplementation(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    const req = makeReq()
+
+    await limitApiRequests(req, makeReply())
+    await limitApiRequests(makeReq(), makeReply())
+    await limitApiRequests(makeReq(), makeReply())
+
+    // -> Three allowed requests, three real consume() calls: nothing about an allowed verdict is
+    //    ever cached, matching `models/rateLimits.ts`'s shared-counter-across-instances requirement.
+    assert.equal(consume.mock.calls.length, 3)
+  })
+
+  /**
+   * `lru-cache` tracks TTL against `performance.now()`, not `Date.now()` (see `perf.js` in the
+   * package) — a portable-timestamp fallback exists only for environments with no `performance`
+   * global, which Node always has. `node:test`'s `mock.timers` fakes `Date` (and, if asked, the
+   * timer functions), but not `performance.now()`, so advancing a mocked `Date` does nothing to
+   * this cache's own clock. Faking `performance.now()` directly — via `mock.method`, which works
+   * because it's a writable, configurable prototype method — is what actually controls the memo's
+   * notion of elapsed time.
+   */
+  function withFakePerfNow(startMs: number) {
+    let now = startMs
+    const mocked = mock.method(performance, 'now', () => now)
+    return {
+      advance: (ms: number) => {
+        now += ms
+      },
+      restore: () => mocked.mock.restore()
+    }
+  }
+
+  test('a memoized ban expires exactly when its own retryAfter elapses', async () => {
+    const clock = withFakePerfNow(1_700_000_000_000)
+    try {
+      consume.mock.mockImplementationOnce(async () => ({
+        allowed: false,
+        hits: 301,
+        retryAfter: 5
+      }))
+      await limitApiRequests(makeReq(), makeReply())
+      assert.equal(consume.mock.calls.length, 1)
+
+      // Still within the 5s ban: refused from the memo, no second database call.
+      const replyStillBanned = makeReply()
+      await limitApiRequests(makeReq(), replyStillBanned)
+      assert.equal(consume.mock.calls.length, 1)
+      assert.equal((replyStillBanned.tooManyRequests as any).mock.calls.length, 1)
+
+      // Advance the clock past the ban's retryAfter.
+      clock.advance(5_001)
+      consume.mock.mockImplementationOnce(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+      const replyAfterExpiry = makeReply()
+      await limitApiRequests(makeReq(), replyAfterExpiry)
+
+      // -> The memo entry is gone, so this reaches the database again rather than staying refused
+      //    forever off the original, now-stale memo entry.
+      assert.equal(consume.mock.calls.length, 2)
+      assert.equal((replyAfterExpiry.tooManyRequests as any).mock.calls.length, 0)
+    } finally {
+      clock.restore()
+    }
+  })
+
+  test('retryAfter reported from the memo counts down rather than staying pinned at the original value', async () => {
+    const clock = withFakePerfNow(1_700_000_000_000)
+    try {
+      consume.mock.mockImplementationOnce(async () => ({
+        allowed: false,
+        hits: 301,
+        retryAfter: 10
+      }))
+      await limitApiRequests(makeReq(), makeReply())
+
+      clock.advance(4_000)
+      const reply = makeReply()
+      await limitApiRequests(makeReq(), reply)
+      // -> Still refused out of the memo (consume() not called again), but the reported Retry-After
+      //    reflects the ~6s actually left, not the original 10s the ban started with.
+      assert.equal(consume.mock.calls.length, 1)
+      assert.deepEqual((reply.header as any).mock.calls[0].arguments, ['Retry-After', '6'])
+    } finally {
+      clock.restore()
+    }
   })
 })

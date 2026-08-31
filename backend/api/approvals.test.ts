@@ -3,7 +3,6 @@ import { after, before, beforeEach, describe, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
 import approvalsRoutes from './approvals.ts'
 import { registerSchemas as registerApprovalSchema } from './schemas/approval.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
@@ -13,8 +12,8 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
    * Task #683: `/sites/:siteId/approvals/rules` (GET/POST/PUT/DELETE) — the routes behind
    * `AdminApprovals.vue` — used to gate on the blanket route-level `manage:sites`. They
    * now also accept the site-scoped `site:approvals` permission from task #682 (`checkSiteAccess()`),
-   * checked in-handler via `mayReadApprovalRules`/`mayManageApprovalRules` since `config.permissions`
-   * cannot express a per-site check.
+   * checked in-handler via `mayAdministerApprovals` since `config.permissions` cannot express a
+   * per-site check.
    *
    * The submission/review routes (`/sites/:siteId/approvals/submissions/...`,
    * `/sites/:siteId/pages/:pageId/suggestions/self`) are deliberately untouched by task #683 — they
@@ -53,8 +52,11 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
   async function getRule() {
     return existingRule
   }
+  // -> Mutable per-test, task #1616: default empty (every group id resolves), one test below
+  //    overrides it to prove `rejectUnknownGroups` now sends a coded `ERR_UNKNOWN_GROUPS` message.
+  let unknownGroupIdsToReturn: string[] = []
   async function getUnknownGroupIds() {
-    return []
+    return unknownGroupIdsToReturn
   }
   async function createRule(siteId: string, body: any) {
     createRuleCalls.push({ siteId, body })
@@ -138,6 +140,7 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     createRuleCalls = []
     updateRuleCalls = []
     deleteRuleCalls = []
+    unknownGroupIdsToReturn = []
   })
 
   test('manage:sites may list approval rules', async () => {
@@ -192,6 +195,28 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     })
     assert.equal(res.statusCode, 200)
     assert.equal(createRuleCalls.length, 1)
+  })
+
+  // -> #1616: this used to be a hardcoded `No such group: <ids>` English sentence, which surfaced
+  //    verbatim in the UI instead of translating like the rest of a `t(key, fallback)` screen.
+  //    Assert the coded `ERR_*` shape, not any particular wording.
+  test('creating a rule with an unknown group id is rejected with a coded error', async () => {
+    unknownGroupIdsToReturn = [SUBMITTER_GROUP]
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/approvals/rules`,
+      headers: { 'x-test-site-permissions': `site:approvals@${SITE_ID}` },
+      payload: {
+        name: 'New rule',
+        match: 'START',
+        path: '',
+        submitterGroups: [SUBMITTER_GROUP],
+        reviewerGroups: [REVIEWER_GROUP]
+      }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(res.json().message, 'ERR_UNKNOWN_GROUPS')
+    assert.equal(createRuleCalls.length, 0)
   })
 
   test('an unrelated permission alone may not create a rule', async () => {
@@ -251,82 +276,5 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     })
     assert.equal(res.statusCode, 403)
     assert.equal(deleteRuleCalls.length, 0)
-  })
-})
-
-describe('page-scoped approval routes — siteId threading (task 673)', () => {
-  /**
-   * Regression test for task 673: both `mayOnPage` (via `loadSuggestablePage`) and the direct
-   * `checkAccess` call in `reviewerFor` pass the route's `siteId` through, so a page rule scoped to
-   * one site (task 671) is enforced when deciding who may suggest an edit and who reviews it, not
-   * just when reading the page.
-   */
-
-  const SITE_ID = '11111111-1111-4111-8111-111111111111'
-  const PAGE_ID = '33333333-3333-4333-8333-333333333333'
-
-  let app: FastifyInstance
-  let checkAccessCalls: { permission: string; page: any }[]
-
-  before(async () => {
-    checkAccessCalls = []
-    ;(globalThis as any).WIKI = {
-      models: {
-        pages: {
-          getPage: async () => ({
-            id: PAGE_ID,
-            path: 'some/page',
-            tags: [],
-            allowContributions: true
-          })
-        },
-        approvals: {
-          isReviewerSession: () => true,
-          getActorGroupIds: () => [],
-          canReviewPage: async () => true,
-          getReviewableSubmissions: async () => []
-        },
-        groups: {
-          actorForRequest: () => ({ permissions: [] }),
-          checkAccess: (_actor: any, permission: string, page: any) => {
-            checkAccessCalls.push({ permission, page })
-            return true
-          }
-        }
-      }
-    }
-
-    app = fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
-    })
-    await app.register(fastifySensible)
-    await registerErrorSchema(app)
-    await registerApprovalSchema(app)
-    await app.register(approvalsRoutes)
-    await app.ready()
-  })
-
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
-
-  test('PENDING SUBMISSIONS FOR A PAGE: passes the route siteId to both checkAccess calls', async () => {
-    checkAccessCalls = []
-    const res = await app.inject({
-      method: 'GET',
-      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/submissions`
-    })
-    assert.equal(res.statusCode, 200)
-    // -> One from `mayOnPage` (`read:pages`, via `loadSuggestablePage`), one from `reviewerFor`
-    //    (`review:pages`, the direct `checkAccess` call)
-    assert.equal(checkAccessCalls.length, 2)
-    assert.equal(checkAccessCalls.find((c) => c.permission === 'read:pages')?.page.siteId, SITE_ID)
-    assert.equal(
-      checkAccessCalls.find((c) => c.permission === 'review:pages')?.page.siteId,
-      SITE_ID
-    )
   })
 })

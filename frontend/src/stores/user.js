@@ -6,6 +6,16 @@ import { useSiteStore } from './site'
 
 const pad = (value) => String(value).padStart(2, '0')
 
+// -> Built once rather than once per `formatDatePart()` call landing on the locale-default branch.
+//    `Intl.DateTimeFormat.format()` won't take a `Temporal.ZonedDateTime` directly (its own zone
+//    would conflict with a formatter that has none configured), so callers pass `.toPlainDateTime()`
+//    -- dropping the zone is fine here since it was already applied by `toUserZone()`.
+const localeDateFormat = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric'
+})
+
 /**
  * Render the date part of a moment the way the user asked for it.
  *
@@ -26,7 +36,7 @@ function formatDatePart(zoned, dateFormat) {
       return `${zoned.year}/${pad(zoned.month)}/${pad(zoned.day)}`
     default:
       // -> Numeric parts rather than `dateStyle: 'short'`, which abbreviates the year to two digits
-      return zoned.toLocaleString(undefined, { year: 'numeric', month: 'numeric', day: 'numeric' })
+      return localeDateFormat.format(zoned.toPlainDateTime())
   }
 }
 
@@ -52,17 +62,41 @@ function toUserZone(date, timezone) {
   }
 }
 
+/*
+  Four variants built once, keyed by `timeFormat` and whether seconds are shown, rather than one per
+  `formatTimePart()` call. `hourCycle` rather than `hour12: false`, which some locales render as
+  24:00 where they mean 00:00.
+*/
+const timeFormats = {
+  '12h': new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', hour12: true }),
+  '24h': new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }),
+  '12h-seconds': new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  }),
+  '24h-seconds': new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  })
+}
+
 /**
- * Render the time part. `hourCycle` rather than `hour12: false`, which some locales render as 24:00
- * where they mean 00:00.
+ * Render the time part -- see `localeDateFormat` above for why `.toPlainDateTime()`.
+ *
+ * @param seconds Append `:ss` — for a screen where sub-minute precision is the point (a webhook
+ *   delivery log, a scan report, a scheduler run), not the default for a reader's everyday timestamp.
  */
-function formatTimePart(zoned, timeFormat) {
-  return zoned.toLocaleString(
-    undefined,
-    timeFormat === '24h'
-      ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }
-      : { hour: 'numeric', minute: '2-digit', hour12: true }
-  )
+function formatTimePart(zoned, timeFormat, { seconds = false } = {}) {
+  const key = `${timeFormat === '24h' ? '24h' : '12h'}${seconds ? '-seconds' : ''}`
+  return timeFormats[key].format(zoned.toPlainDateTime())
 }
 
 export const useUserStore = defineStore('user', {
@@ -95,21 +129,12 @@ export const useUserStore = defineStore('user', {
     profileLoaded: false
   }),
   actions: {
-    async refreshProfile() {
-      try {
-        this.applyProfile(
-          await API_CLIENT.get('users/whoami', {
-            cache: 'no-store'
-          }).json()
-        )
-      } catch (err) {
-        console.warn(err)
-      }
-    },
     /**
      * Take in a session that arrived with something else — `bootstrap` hands it over with the site and
-     * the flags, which is how an app load asks who is logged in without a request of its own. Asking
-     * again is what `refreshProfile` above is for, once a login or a logout has changed the answer.
+     * the flags, which is how an app load asks who is logged in without a request of its own. A login
+     * instead re-answers this by reloading the app entirely: `AuthLoginPanel.vue` does a full
+     * `window.location.replace()` on success, so the next answer arrives the same way, through
+     * `bootstrap` calling this again on the fresh page load.
      */
     applyProfile(resp) {
       if (!resp?.authenticated) {
@@ -210,22 +235,32 @@ export const useUserStore = defineStore('user', {
       }
       return false
     },
+    /**
+     * Which page-scoped permissions the caller holds AT `path` — what gates edit/create/etc.
+     * controls for the currently-viewed page. See `userStore.pagePermissions` usage in `App.vue`
+     * (refreshed per route) and `Index.vue`'s `canCreatePage`.
+     *
+     * Clears first, synchronously, rather than only on success: while a fetch for a NEW path is in
+     * flight, `pagePermissions` reads as denied in the meantime — the safe direction for a
+     * permission check to be wrong in, unlike serving the PREVIOUS path's answer while this one is
+     * still loading would be. Mirrors the hardened `fetchSitePermissions` above.
+     */
     async fetchPagePermissions(path, locale) {
+      this.pagePermissions = []
       if (path.startsWith('/_')) {
-        this.pagePermissions = []
         return
       }
       const siteStore = useSiteStore()
       try {
-        this.pagePermissions = await API_CLIENT.post(
-          `sites/${siteStore.id}/pages/userPermissions`,
-          {
-            json: {
-              path,
-              ...(locale ? { locale } : {})
-            }
+        const permissions = await API_CLIENT.post(`sites/${siteStore.id}/pages/userPermissions`, {
+          json: {
+            path,
+            ...(locale ? { locale } : {})
           }
-        ).json()
+        }).json()
+        // -> Guards `.includes()` against a malformed/empty response the same way an absent one is
+        //    already guarded against above.
+        this.pagePermissions = Array.isArray(permissions) ? permissions : []
       } catch (err) {
         console.warn(`Failed to fetch page permissions at path ${path}!`)
       }
@@ -278,15 +313,32 @@ export const useUserStore = defineStore('user', {
      * @param date A `Temporal.Instant`, a `Date`, or a string one can be parsed from — what the API
      *             returns. Nullable columns like `lastLoginAt` are common, so nothing at all formats as
      *             an empty string rather than blowing up mid-render.
+     * @param seconds Include seconds in the time part — for a log-style timestamp (webhook delivery,
+     *             scheduler run, security scan) where sub-minute precision is the point, rather than an
+     *             everyday "last modified" line.
      */
-    formatDateTime(t, date) {
+    formatDateTime(t, date, { seconds = false } = {}) {
       if (!date) {
         return ''
       }
       const zoned = toUserZone(date, this.timezone)
       return t('common.datetime', {
         date: formatDatePart(zoned, this.dateFormat),
-        time: formatTimePart(zoned, this.timeFormat)
+        time: formatTimePart(zoned, this.timeFormat, { seconds })
+      })
+    },
+    /**
+     * Same as `formatDateTime`, with seconds shown -- for the couple of screens (job timing, webhook
+     * delivery attempts) where sub-minute precision is the point rather than incidental.
+     */
+    formatDateTimeWithSeconds(t, date) {
+      if (!date) {
+        return ''
+      }
+      const zoned = toUserZone(date, this.timezone)
+      return t('common.datetime', {
+        date: formatDatePart(zoned, this.dateFormat),
+        time: formatTimePart(zoned, this.timeFormat, { seconds: true })
       })
     },
     /**

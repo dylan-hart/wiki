@@ -2,7 +2,7 @@
   <div class="welcome">
     <div class="welcome-bg" />
     <div class="welcome-content">
-      <div class="welcome-logo"><img src="/_assets/logo-wikijs.svg" /></div>
+      <div class="welcome-logo"><img src="/_assets/logo-wikijs.svg" alt="" /></div>
       <div class="welcome-title">{{ t('welcome.title') }}</div>
       <div class="welcome-subtitle">{{ t('welcome.subtitle') }}</div>
       <div class="welcome-actions">
@@ -30,7 +30,7 @@
                 @click="createHomePage(`wysiwyg`)"
                 v-if="enabledEditors.includes(`wysiwyg`)">
                 <blueprint-icon icon="google-presentation" />
-                <w-item-section class="pr-2">Using the Visual Editor</w-item-section>
+                <w-item-section class="pr-2">{{ t('welcome.usingVisualEditor') }}</w-item-section>
                 <w-item-section side><w-icon name="mdi:chevron-right" /></w-item-section>
               </w-item>
               <w-item
@@ -38,7 +38,7 @@
                 @click="createHomePage(`markdown`)"
                 v-if="enabledEditors.includes(`markdown`)">
                 <blueprint-icon icon="markdown" />
-                <w-item-section class="pr-2">Using the Markdown Editor</w-item-section>
+                <w-item-section class="pr-2">{{ t('welcome.usingMarkdownEditor') }}</w-item-section>
                 <w-item-section side><w-icon name="mdi:chevron-right" /></w-item-section>
               </w-item>
               <w-item
@@ -46,7 +46,7 @@
                 @click="createHomePage(`asciidoc`)"
                 v-if="enabledEditors.includes(`asciidoc`)">
                 <blueprint-icon icon="asciidoc" />
-                <w-item-section class="pr-2">Using the AsciiDoc Editor</w-item-section>
+                <w-item-section class="pr-2">{{ t('welcome.usingAsciidocEditor') }}</w-item-section>
                 <w-item-section side><w-icon name="mdi:chevron-right" /></w-item-section>
               </w-item>
             </w-list>
@@ -156,7 +156,7 @@ async function createHomePage(editor) {
     siteStore.overlay = 'Welcome'
     notify({
       type: 'negative',
-      message: 'Failed to open the editor.',
+      message: t('welcome.editorOpenFailed'),
       caption: err.message
     })
   }

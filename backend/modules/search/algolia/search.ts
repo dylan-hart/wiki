@@ -26,6 +26,14 @@ export const MAX_INDEXING_BYTES = 10 * 2 ** 20 - Buffer.byteLength('[') - Buffer
 export const MAX_INDEXING_COUNT = 1000
 const COMMA_BYTES = Buffer.byteLength(',')
 
+/**
+ * Ceiling on how many of Algolia's own matches `query()` scans before deriving `totalHits` and the
+ * requested page from what survives `checkAccess()` (OpenProject #2156, mirroring `db/search.ts`'s
+ * own `SCAN_CAP`). Bounded rather than unbounded, since page-rule filtering cannot be expressed as
+ * an Algolia `filters` clause and has to run per-hit in this process.
+ */
+const SCAN_CAP = 500
+
 /** An Algolia record, as written by `pageToDocument` and read back by `query()`. */
 export interface AlgoliaPageDocument {
   objectID: string
@@ -374,13 +382,20 @@ export class AlgoliaSearchModule implements SearchModule {
     const { siteId, query = '', offset = 0, limit = 25, actor } = params
     const { client, indexName } = await this.getClient(siteId)
 
+    /*
+      OpenProject #2156 (mirroring #2151's fix to db/search.ts): fetches a bounded window from the
+      START of the result set (`offset: 0, length: SCAN_CAP`), not the caller's own `offset`/
+      `limit`, since page-rule filtering happens after the query and needs a wider window to fill a
+      page from once denied hits are dropped. `results` and `totalHits` are both then derived from
+      `visible` alone -- see `db/search.ts#query()`'s own comment for the full reasoning.
+    */
     const response = await client.searchSingleIndex<AlgoliaPageDocument>({
       indexName,
       searchParams: {
         query,
         filters: buildFilters(params),
-        offset,
-        length: limit
+        offset: 0,
+        length: SCAN_CAP
       }
     })
     const hits = response.hits ?? []
@@ -391,48 +406,65 @@ export class AlgoliaSearchModule implements SearchModule {
       rules, since which rule applies can depend on a regular expression or a page's tags that no
       Algolia `filters` clause could express.
     */
-    const visible = actor
-      ? hits.filter((hit) =>
-          WIKI.models.groups.checkAccess(actor, 'read:pages', {
-            path: hit.path,
-            locale: hit.locale,
-            siteId,
-            tags: hit.tags ?? [],
-            // -> Indexed at write time by `pageToDocument` (OpenProject #1125) -- a document written
-            //    before this field existed has none, which falls back to the same fail-closed `null`
-            //    treatment `helpers/pageRules.ts` documents for a genuinely unknown classification. A
-            //    full reindex (`rebuild()`) backfills every existing document with its real value.
-            classification: hit.classification ?? null
-          })
-        )
-      : hits
+    // -> Paired with its ORIGINAL position in `hits` before filtering, so relevancy (below) still
+    //    reflects Algolia's own overall ordering after a denied hit is dropped and after the
+    //    caller's own page is sliced out of the filtered set.
+    const visible = (
+      actor
+        ? hits
+            .map((hit, originalIndex) => ({ hit, originalIndex }))
+            .filter(({ hit }) =>
+              WIKI.models.groups.checkAccess(actor, 'read:pages', {
+                path: hit.path,
+                locale: hit.locale,
+                siteId,
+                tags: hit.tags ?? [],
+                // -> Indexed at write time by `pageToDocument` (OpenProject #1125) -- a document
+                //    written before this field existed has none, which falls back to the same
+                //    fail-closed `null` treatment `helpers/pageRules.ts` documents for a genuinely
+                //    unknown classification. A full reindex (`rebuild()`) backfills every existing
+                //    document with its real value.
+                classification: hit.classification ?? null
+              })
+            )
+        : hits.map((hit, originalIndex) => ({ hit, originalIndex }))
+    ) as {
+      hit: AlgoliaPageDocument
+      originalIndex: number
+    }[]
 
-    const results: SearchResult[] = visible.map((hit, index) => ({
-      id: hit.objectID,
-      path: hit.path,
-      locale: hit.locale,
-      title: hit.title,
-      description: hit.description || null,
-      icon: hit.icon ?? null,
-      tags: hit.tags ?? [],
-      updatedAt: hit.updatedAt,
-      // -> Algolia orders hits by its own relevance model already; this only preserves that relative
-      //    order as a number, since `SearchResult.relevancy` is not optional. There is no equivalent
-      //    of `db/search.ts`'s `ts_rank` score to report here.
-      relevancy: hits.length - index,
-      // -> 2.5.x parity: its `query()` returned no excerpt either. Adding one would mean Algolia
-      //    snippets (`attributesToSnippet`), which is a real feature but out of this module's scope --
-      //    and every protected page's `content` is never indexed in the first place (`pageToDocument`),
-      //    so there would be nothing to snippet from for those regardless.
-      highlight: null
-    }))
+    const results: SearchResult[] = visible
+      .slice(offset, offset + limit)
+      .map(({ hit, originalIndex }) => ({
+        id: hit.objectID,
+        path: hit.path,
+        locale: hit.locale,
+        title: hit.title,
+        description: hit.description || null,
+        icon: hit.icon ?? null,
+        tags: hit.tags ?? [],
+        updatedAt: hit.updatedAt,
+        // -> Algolia orders hits by its own relevance model already; this only preserves that relative
+        //    order as a number, since `SearchResult.relevancy` is not optional. There is no equivalent
+        //    of `db/search.ts`'s `ts_rank` score to report here.
+        relevancy: hits.length - originalIndex,
+        // -> 2.5.x parity: its `query()` returned no excerpt either. Adding one would mean Algolia
+        //    snippets (`attributesToSnippet`), which is a real feature but out of this module's scope --
+        //    and every protected page's `content` is never indexed in the first place (`pageToDocument`),
+        //    so there would be nothing to snippet from for those regardless.
+        highlight: null
+      }))
 
     return {
       results,
-      // -> Same reasoning as `db/search.ts`: Algolia's `nbHits` counts every match, including ones a
-      //    rule just removed from this page, so it is adjusted by exactly what filtering dropped from
-      //    this page rather than reported as-is.
-      totalHits: Math.max(0, (response.nbHits ?? 0) - hits.length + visible.length),
+      // -> OpenProject #2151/#2156: derived from `visible` alone -- the whole `SCAN_CAP` window,
+      //    filtered, before `offset`/`limit` slices this page's `results` out of it -- never
+      //    Algolia's own `nbHits`, and therefore never able to exceed what the actor can actually
+      //    read. See `db/search.ts#query()`'s comment for the exact/floor distinction.
+      totalHits: visible.length,
+      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
+      //    above actually dropped a row from this page, same signal `db/search.ts` uses.
+      totalHitsApproximate: hits.length !== visible.length,
       // -> No "did you mean" here: Algolia's own typo-tolerance already retries a query internally,
       //    which is a different mechanism from `db`'s pg_trgm-based post-hoc suggestion and not
       //    something this module surfaces as a distinct suggestion string.

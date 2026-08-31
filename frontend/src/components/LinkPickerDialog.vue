@@ -317,7 +317,7 @@ async function loadTree({ parentId = null, parentPath = null, initLoad = false }
     notify({
       type: 'negative',
       message: t('linkPicker.loadFailed'),
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   if (parentId) {

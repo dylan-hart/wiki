@@ -30,6 +30,7 @@
         rounded
         color="white"
         icon="la:question-circle"
+        :aria-label="t(`common.actions.viewDocs`)"
         :href="siteStore.docsBase + `/guide/page-properties`"
         target="_blank"
         type="a" />
@@ -40,11 +41,7 @@
         :aria-label="t(`common.actions.close`)"
         @click="siteStore.sideDialogShown = false" />
     </w-toolbar>
-    <w-scroll-area
-      ref="scrollArea"
-      :thumb-style="siteStore.scrollStyle.thumb"
-      :bar-style="siteStore.scrollStyle.bar"
-      style="height: calc(100% - 50px)">
+    <w-scroll-area ref="scrollArea" style="height: calc(100% - 50px)">
       <w-card-section id="refCardInfo">
         <div class="w-section-header">{{ t('editor.props.info') }}</div>
         <w-form class="gap-2">
@@ -103,6 +100,7 @@
               glossy
               no-caps
               toggle-color="primary"
+              :aria-label="t(`editor.props.publishState`)"
               :options="[
                 { label: t('editor.props.draft'), value: 'draft' },
                 { label: t('editor.props.published'), value: 'published' },
@@ -119,7 +117,7 @@
             <div class="text-caption">
               <em>{{ t('editor.props.dateRangeHint') }}</em>
             </div>
-            <w-date v-model="publishingRange" range flat bordered landscape minimal />
+            <w-date v-model="publishingRange" range bordered />
           </template>
         </w-form>
       </w-card-section>
@@ -144,10 +142,22 @@
               </w-chip>
             </w-item-section>
             <w-item-section side>
-              <w-btn icon="la:pen" dense flat padding="none" @click="editRelation(rel)" />
+              <w-btn
+                icon="la:pen"
+                dense
+                flat
+                padding="none"
+                :aria-label="t(`common.actions.edit`)"
+                @click="editRelation(rel)" />
             </w-item-section>
             <w-item-section side>
-              <w-btn icon="la:times" dense flat padding="none" @click="removeRelation(rel)" />
+              <w-btn
+                icon="la:times"
+                dense
+                flat
+                padding="none"
+                :aria-label="t(`common.actions.remove`)"
+                @click="removeRelation(rel)" />
             </w-item-section>
           </w-item>
         </w-list>
@@ -162,54 +172,6 @@
           <w-tooltip>{{ t('editor.props.relationAddHint') }}</w-tooltip>
         </w-btn>
       </w-card-section>
-      <!--
-        Gated on `write:scripts`/`write:styles` (OpenProject #1131), not just the `write:pages` this
-        whole panel is already behind: the backend drops an edit to a field the actor lacks the
-        specific permission for rather than refusing the save (`buildScripts()` in
-        `backend/models/pages.ts`), so a control offered without the matching permission would look
-        like it worked and silently no-op. The section itself, and its quick-access jump-rail entry
-        below, disappear together when neither permission is held -- nothing left in the section to
-        jump to otherwise.
-      -->
-      <w-card-section
-        class="alt-card"
-        id="refCardScripts"
-        v-if="userStore.can(`write:scripts`) || userStore.can(`write:styles`)">
-        <div class="w-section-header">{{ t('editor.props.scripts') }}</div>
-        <w-btn
-          v-if="userStore.can(`write:scripts`)"
-          class="w-full"
-          :label="t(`editor.props.jsLoad`)"
-          icon="la:js-square"
-          no-caps
-          unelevated
-          color="secondary"
-          @click="editScripts(`jsLoad`)">
-          <w-tooltip>{{ t('editor.props.jsLoadHint') }}</w-tooltip>
-        </w-btn>
-        <w-btn
-          v-if="userStore.can(`write:scripts`)"
-          class="w-full mt-2"
-          :label="t(`editor.props.jsUnload`)"
-          icon="la:js-square"
-          no-caps
-          unelevated
-          color="secondary"
-          @click="editScripts(`jsUnload`)">
-          <w-tooltip>{{ t('editor.props.jsUnloadHint') }}</w-tooltip>
-        </w-btn>
-        <w-btn
-          v-if="userStore.can(`write:styles`)"
-          class="w-full mt-2"
-          :label="t(`editor.props.styles`)"
-          icon="la:css3-alt"
-          no-caps
-          unelevated
-          color="secondary"
-          @click="editScripts(`styles`)">
-          <w-tooltip>{{ t('editor.props.stylesHint') }}</w-tooltip>
-        </w-btn>
-      </w-card-section>
       <w-card-section class="pb-6" id="refCardSidebar">
         <div class="w-section-header">{{ t('editor.props.sidebar') }}</div>
         <w-form class="gap-4 pt-2">
@@ -217,20 +179,14 @@
             <w-toggle
               v-model="pageStore.showSidebar"
               dense
-              :label="t(`editor.props.showSidebar`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.showSidebar`)" />
           </div>
           <div>
             <w-toggle
               v-if="pageStore.showSidebar"
               v-model="pageStore.showToc"
               dense
-              :label="t(`editor.props.showToc`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.showToc`)" />
           </div>
           <div v-if="pageStore.showSidebar && pageStore.showToc" style="padding-left: 40px">
             <div class="text-caption">
@@ -244,7 +200,8 @@
               color="primary"
               :left-label-value="`H` + pageStore.tocDepth.min"
               :right-label-value="`H` + pageStore.tocDepth.max"
-              snap
+              :aria-label-min="t('editor.props.tocMinMaxDepth')"
+              :aria-label-max="t('editor.props.tocMinMaxDepth')"
               label
               markers />
           </div>
@@ -253,10 +210,7 @@
               v-if="pageStore.showSidebar"
               v-model="pageStore.showTags"
               dense
-              :label="t(`editor.props.showTags`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.showTags`)" />
           </div>
         </w-form>
       </w-card-section>
@@ -267,28 +221,19 @@
             <w-toggle
               v-model="pageStore.allowComments"
               dense
-              :label="t(`editor.props.allowComments`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.allowComments`)" />
           </div>
           <div>
             <w-toggle
               v-model="pageStore.allowContributions"
               dense
-              :label="t(`editor.props.allowContributions`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.allowContributions`)" />
           </div>
           <div>
             <w-toggle
               v-model="pageStore.allowRatings"
               dense
-              :label="t(`editor.props.allowRatings`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="t(`editor.props.allowRatings`)" />
           </div>
         </w-form>
       </w-card-section>
@@ -322,33 +267,27 @@
             <w-toggle
               v-model="pageStore.isBrowsable"
               dense
-              :label="$t(`editor.props.showInTree`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="$t(`editor.props.showInTree`)" />
           </div>
           <div>
             <w-toggle
               v-model="pageStore.isSearchable"
               dense
-              :label="$t(`editor.props.isSearchable`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="$t(`editor.props.isSearchable`)" />
           </div>
           <div>
             <w-toggle
               v-model="state.requirePassword"
               @update:model-value="toggleRequirePassword"
               dense
-              :label="$t(`editor.props.requirePassword`)"
-              color="primary"
-              checked-icon="la:check"
-              unchecked-icon="la:times" />
+              :label="$t(`editor.props.requirePassword`)" />
           </div>
           <div v-if="state.requirePassword" style="padding-left: 40px">
             <!-- -> Masked, with WInput's own reveal toggle: this is a secret to hand out rather than
-                    one to remember, so the author has to be able to read back what they typed -->
+                    one to remember, so the author has to be able to read back what they typed.
+                    Always starts empty -- the server never hands an existing password back
+                    (OpenProject #2232), so there is nothing here to prefill even when the page
+                    already has one; leaving it blank on save just keeps that one as it is. -->
             <w-input
               ref="iptPagePassword"
               v-model="pageStore.password"
@@ -356,7 +295,11 @@
               revealable
               autocomplete="off"
               :label="t(`editor.props.password`)"
-              :hint="t(`editor.props.passwordHint`)"
+              :hint="
+                pageStore.hasPassword
+                  ? t(`editor.props.passwordKeepHint`)
+                  : t(`editor.props.passwordHint`)
+              "
               outlined
               dense />
           </div>
@@ -367,9 +310,6 @@
       <page-relation-dialog
         :edit-id="state.editRelationId"
         @close="state.showRelationDialog = false" />
-    </w-dialog>
-    <w-dialog v-model="state.showScriptsDialog">
-      <page-scripts-dialog :mode="state.pageScriptsMode" @close="state.showScriptsDialog = false" />
     </w-dialog>
   </w-card>
 </template>
@@ -385,7 +325,6 @@ import { useUserStore } from '@/stores/user'
 
 import IconPickerDialog from './IconPickerDialog.vue'
 import PageRelationDialog from './PageRelationDialog.vue'
-import PageScriptsDialog from './PageScriptsDialog.vue'
 import PageTags from './PageTags.vue'
 
 // STORES
@@ -403,10 +342,8 @@ const { t } = useI18n()
 
 const state = reactive({
   showRelationDialog: false,
-  showScriptsDialog: false,
   requirePassword: false,
   editRelationId: null,
-  pageScriptsMode: 'jsLoad',
   showQuickAccess: true,
   /**
    * The classification this page was loaded with, before anything in this panel touched it -- what
@@ -416,18 +353,10 @@ const state = reactive({
   originalClassification: pageStore.classification
 })
 
-/**
- * The `refCardScripts` entry is dropped when the reader holds neither `write:scripts` nor
- * `write:styles` (OpenProject #1131) -- that section itself doesn't render for them either, so a
- * jump-rail button that scrolled to nothing would be its own small bug.
- */
 const quickaccess = computed(() => [
   { key: 'refCardInfo', icon: 'la:info-circle', label: t('editor.props.info') },
   { key: 'refCardPublishState', icon: 'la:power-off', label: t('editor.props.publishState') },
   { key: 'refCardRelations', icon: 'la:link', label: t('editor.props.relations') },
-  ...(userStore.can(`write:scripts`) || userStore.can(`write:styles`)
-    ? [{ key: 'refCardScripts', icon: 'la:code', label: t('editor.props.scripts') }]
-    : []),
   { key: 'refCardSidebar', icon: 'la:ruler-vertical', label: t('editor.props.sidebar') },
   { key: 'refCardSocial', icon: 'la:comments', label: t('editor.props.social') },
   { key: 'refCardTags', icon: 'la:tags', label: t('editor.props.tags') },
@@ -492,10 +421,6 @@ const mayLowerClassification = computed(() => {
 
 // METHODS
 
-function editScripts(mode) {
-  state.pageScriptsMode = mode
-  state.showScriptsDialog = true
-}
 function newRelation() {
   state.editRelationId = null
   state.showRelationDialog = true
@@ -515,22 +440,28 @@ function jumpToSection(id) {
 /*
   Watched rather than read once in `onMounted` (OpenProject #1133): this panel can mount before
   `pageStore.pageLoad()` resolves, and a one-time read left `state.requirePassword` stuck at whatever
-  it saw at that moment even after the real password arrived. `immediate: true` still covers the
+  it saw at that moment even after the real answer arrived. `immediate: true` still covers the
   already-loaded case `onMounted` used to handle, so nothing here depends on load ordering any more.
-  `toggleRequirePassword` below also writes `pageStore.password`, but only ever to `''` while turning
-  the toggle off -- `state.requirePassword` is already `false` by then from the toggle's own
-  `v-model`, so this watcher re-deriving the same value is a no-op, not a fight over who owns it.
+  Watches `hasPassword` rather than `password` (OpenProject #2232): the server never hands the actual
+  password back, so `password` alone cannot tell "this page has one" from "the field is empty" --
+  `hasPassword` is the informational flag it sends instead. `toggleRequirePassword` below also writes
+  `pageStore.password`, but only ever to `''` while turning the toggle off -- `state.requirePassword`
+  is already `false` by then from the toggle's own `v-model`, so this watcher re-deriving the same
+  value is a no-op, not a fight over who owns it.
 */
 watch(
-  () => pageStore.password,
+  () => pageStore.hasPassword,
   (newValue) => {
-    state.requirePassword = newValue?.length > 0
+    state.requirePassword = Boolean(newValue)
   },
   { immediate: true }
 )
 
 function toggleRequirePassword(newValue) {
   if (newValue) {
+    // -> Undoes an accidental off-then-back-on before saving; see `pageStore.removePassword`'s own
+    //    doc comment for what turning the toggle off records instead.
+    pageStore.removePassword = false
     nextTick(() => {
       iptPagePassword.value.focus()
       iptPagePassword.value.$el.scrollIntoView({
@@ -539,6 +470,10 @@ function toggleRequirePassword(newValue) {
     })
   } else {
     pageStore.password = ''
+    // -> The explicit "take the password off" signal `pageSave` needs (OpenProject #2232): once the
+    //    server stopped echoing the password back, an empty `password` field alone is ambiguous
+    //    between "never touched" and "just cleared it".
+    pageStore.removePassword = true
   }
 }
 

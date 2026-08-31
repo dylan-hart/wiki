@@ -54,16 +54,45 @@ const DIAGRAM_BLOCKS: BlockDefinition[] = [
   }
 ]
 
+/*
+ * Two more fixtures, alongside the diagram blocks above: one whose declared prop is camelCase (the
+ * DOM -- and an author typing it, or Lit reflecting it -- only ever spells this lowercase), and a
+ * second block declaring no such prop at all, to prove `blockAllowances()` widening one tag's
+ * allow-list doesn't leak onto another's.
+ */
+const CAMEL_PROP_BLOCKS: BlockDefinition[] = [
+  {
+    block: 'checklist',
+    name: 'Checklist',
+    description: 'A checklist.',
+    icon: 'list-checks',
+    props: [{ name: 'runKey', type: 'string' }]
+  },
+  {
+    block: 'gallery',
+    name: 'Gallery',
+    description: 'An image gallery.',
+    icon: 'images',
+    props: [{ name: 'thumbnailSize', type: 'number' }]
+  }
+]
+
 let enabledBlocks = new Set<string>()
+
+/** Custom blocks (OpenProject #2132) -- the shape `models/blocks.ts#getCustomBlockDefinitions()` returns. */
+let customBlocks: { block: string; props: { name: string }[] }[] = []
 
 // -> A minimal stub rather than `test/db.ts`'s full `installTestWiki`: nothing under test here
 //    reaches the database, so the only real dependency is `WIKI.models.blocks` itself
 ;(global as any).WIKI = {
   models: {
     blocks: {
-      definitions: DIAGRAM_BLOCKS,
+      definitions: [...DIAGRAM_BLOCKS, ...CAMEL_PROP_BLOCKS],
       async getEnabledKeys(_siteId: string) {
         return enabledBlocks
+      },
+      async getCustomBlockDefinitions(_siteId: string) {
+        return customBlocks
       }
     }
   }
@@ -150,6 +179,64 @@ describe('rendering.postProcess: diagram block-vs-fence handoff', () => {
 
     assert.match(result.render, /<block-diagram theme="auto">/)
     assert.doesNotMatch(result.render, /onclick/)
+  })
+})
+
+/*
+ * `blockAllowances()` used to read only `WIKI.models.blocks.definitions` -- the compiled manifest,
+ * which a custom block (a `blocks` row with `isCustom: true`, uploaded through `api/blocks.ts`) has no
+ * entry in at all. That meant `block-<customTag>` never reached the sanitizer's allowlist and was
+ * silently stripped from every saved page, however the editor's own preview rendered it. OpenProject
+ * #2132 admits custom blocks from `getCustomBlockDefinitions()` (stubbed here as the mutable
+ * `customBlocks`, mirroring `enabledBlocks` above) the same way built-ins are admitted -- gated on
+ * being enabled, and with only the prop names the block's own upload declared.
+ */
+describe('rendering.postProcess: custom blocks admitted to blockAllowances (OpenProject #2132)', () => {
+  test("keeps a custom block's tag and declared prop, but strips an attribute it never declared", async () => {
+    enabledBlocks = new Set(['gallery-custom'])
+    customBlocks = [{ block: 'gallery-custom', props: [{ name: 'caption' }] }]
+    const html =
+      '<block-gallery-custom caption="Trip photos" onclick="alert(1)"><p>content</p></block-gallery-custom>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /<block-gallery-custom caption="Trip photos">/)
+    assert.doesNotMatch(result.render, /onclick/)
+  })
+
+  test('drops the element, but keeps its text content, when the custom block is not enabled for the site', async () => {
+    enabledBlocks = new Set() // -> nothing enabled, including the custom block below
+    customBlocks = [{ block: 'gallery-custom', props: [{ name: 'caption' }] }]
+    const html = '<block-gallery-custom caption="Trip photos">content</block-gallery-custom>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.doesNotMatch(result.render, /block-gallery-custom/)
+    // -> Same as any other disallowed tag: the element goes, the text inside it stays
+    assert.match(result.render, /content/)
+  })
+})
+
+describe('rendering.postProcess: lowercase spelling of a camelCase block prop (OpenProject #1707)', () => {
+  test('keeps a camelCase-declared prop written in its lowercase DOM spelling', async () => {
+    enabledBlocks = new Set(['checklist'])
+    const html = '<block-checklist runkey="daily"></block-checklist>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /<block-checklist runkey="daily">/)
+  })
+
+  test('still strips a prop declared on one block tag when written on a different block tag', async () => {
+    enabledBlocks = new Set(['checklist', 'gallery'])
+    // -> `runKey`/`runkey` is declared on block-checklist, not block-gallery -- widening
+    //    block-checklist's allow-list must not leak the attribute onto a sibling tag
+    const html = '<block-gallery runkey="daily"></block-gallery>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /^<block-gallery>/)
+    assert.doesNotMatch(result.render, /runkey/)
   })
 })
 
@@ -354,5 +441,278 @@ describe('rendering.sanitize -- KaTeX MathML from mhchem (\\ce{}/\\pu{})', () =>
     const clean = (rendering as any).sanitize(`<p>${math}</p>`, {}, new Set())
 
     assert.ok(clean.includes(math), 'the whole <math>…</math> survived sanitize() unchanged')
+  })
+})
+
+/**
+ * OpenProject #1360/#2180 (2026-08-24 security audit §3): `style` was in `BASE_ALLOWED_ATTRIBUTES`
+ * unconditionally, with no declaration-level filtering — `sanitizeHtml`'s `allowedStyles` was simply
+ * never passed, so any CSS survived verbatim on any element regardless of `write:styles`. An author
+ * without the permission could write `style="position:fixed;inset:0;z-index:999"` and cover the
+ * whole viewport from inside ordinary page content, since nothing about a scroll container's own
+ * ancestor chain clips a `position: fixed` box. `permissions: {}` throughout (no `styles: true`) is
+ * the author-without-`write:styles` case these tests are about.
+ */
+describe('rendering.sanitize -- allowedStyles (OpenProject #2180)', () => {
+  test('drops position:fixed, inset and z-index for an author without write:styles', () => {
+    const html = '<div style="position:fixed;inset:0;z-index:999;color:red;">x</div>'
+    const clean = (rendering as any).sanitize(html, {}, new Set())
+
+    assert.doesNotMatch(clean, /position:\s*fixed/)
+    assert.doesNotMatch(clean, /inset/)
+    assert.doesNotMatch(clean, /z-index/)
+    // -> Not a blanket style strip: an unrelated, harmless declaration on the very same attribute
+    //    survives, proving this is allowlist filtering rather than a `style`-attribute-wide gate.
+    assert.match(clean, /color:\s*red/)
+  })
+
+  test('drops position:absolute and position:sticky the same way as fixed', () => {
+    for (const value of ['absolute', 'sticky']) {
+      const clean = (rendering as any).sanitize(
+        `<div style="position:${value};">x</div>`,
+        {},
+        new Set()
+      )
+      assert.doesNotMatch(clean, new RegExp(`position:\\s*${value}`))
+    }
+  })
+
+  test('keeps position:relative, real KaTeX output (verified against katex.renderToString)', () => {
+    const clean = (rendering as any).sanitize(
+      '<span style="position:relative;">x</span>',
+      {},
+      new Set()
+    )
+    assert.match(clean, /position:\s*relative/)
+  })
+
+  test('drops transform, opacity, pointer-events and content', () => {
+    const html =
+      '<div style="transform:scale(2);opacity:0.5;pointer-events:none;content:\'x\';top:1em;">x</div>'
+    const clean = (rendering as any).sanitize(html, {}, new Set())
+
+    assert.doesNotMatch(clean, /transform/)
+    assert.doesNotMatch(clean, /opacity/)
+    assert.doesNotMatch(clean, /pointer-events/)
+    assert.doesNotMatch(clean, /content/)
+    // -> `top` alone (no `position: fixed`) is inert layout-wise and is real KaTeX output, so it
+    //    survives.
+    assert.match(clean, /top:\s*1em/)
+  })
+
+  test('keeps every declaration a real katex.renderToString({ output: "html" }) run emits', () => {
+    /*
+      Captured from a real KaTeX 0.16 `renderToString('\\frac{a}{b} + x^2 - \\sqrt{y}', { output:
+      'html' })` run (frontend/blocks dependency; not importable from backend, so the exact
+      declarations are reproduced here as a fixture) -- the same style the audit asked this task to
+      validate against, covering fractions, roots, exponents, and the negative-em offsets KaTeX
+      relies on throughout.
+    */
+    const declarations = [
+      'height:1.0404em;vertical-align:-0.345em;',
+      'height:0.6954em;',
+      'top:-2.655em;',
+      'height:3em;',
+      'border-bottom-width:0.04em;',
+      'top:-3.23em;',
+      'top:-3.394em;',
+      'height:0.345em;',
+      'margin-right:0.2222em;',
+      'height:0.8974em;vertical-align:-0.0833em;',
+      'height:0.8141em;',
+      'top:-3.063em;margin-right:0.05em;',
+      'height:2.7em;',
+      'height:1.04em;vertical-align:-0.3369em;',
+      'height:0.7031em;',
+      'top:-3em;',
+      'padding-left:0.833em;',
+      'margin-right:0.0359em;',
+      'top:-2.6631em;',
+      'min-width:0.853em;height:1.08em;'
+    ]
+    for (const style of declarations) {
+      const clean = (rendering as any).sanitize(`<span style="${style}">x</span>`, {}, new Set())
+      for (const decl of style.split(';').filter(Boolean)) {
+        const [prop, value] = decl.split(':')
+        assert.match(
+          clean,
+          new RegExp(`${prop}:\\s*${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+          `expected "${decl}" to survive sanitize() unchanged`
+        )
+      }
+    }
+  })
+
+  test('an author with write:styles is not filtered at all -- style="…" survives verbatim', () => {
+    const html = '<div style="position:fixed;inset:0;z-index:999;">x</div>'
+    const clean = (rendering as any).sanitize(html, { styles: true }, new Set())
+
+    assert.match(clean, /position:\s*fixed/)
+    assert.match(clean, /inset/)
+    assert.match(clean, /z-index/)
+  })
+})
+
+/*
+ * `postProcess` used to run `sanitize()` before `inlineIcons()`, so the last step that draws more
+ * markup into the document (an icon's SVG body, resolved from a third party) ran AFTER the only step
+ * that filtered what a page may contain -- `isSafeIconBody` (`models/icons.ts`) is a denylist over the
+ * icon's raw, still HTML-entity-encoded body at ingest time, and never sees what that decodes to once
+ * `iconSvg()`'s own `$(...)` call parses it straight into the live DOM, entity-decoding attribute
+ * values exactly like a browser would. OpenProject #2139 closes the gap with a second sanitize pass
+ * after `inlineIcons()`, against the identical options object the first pass used.
+ *
+ * `WIKI.models.icons` is stubbed only with what `inlineIcons()`/`iconSvg()` actually call --
+ * `parseRef`, `resolveIcons`, `renderInlineSvg` -- keyed off a `resolvedIcons` map this describe block
+ * populates per test, the same "minimal stub of the one real dependency" approach the file's own
+ * header comment already uses for `WIKI.models.blocks`.
+ */
+describe('rendering.postProcess: re-sanitizes after inlineIcons (OpenProject #2139)', () => {
+  const resolvedIcons = new Map<string, { body: string }>()
+
+  ;(global as any).WIKI.models.icons = {
+    parseRef(ref: string) {
+      const [prefix, name] = `${ref}`.split(':')
+      return prefix && name ? { prefix, name } : null
+    },
+    async resolveIcons(prefix: string, names: string[]) {
+      const icons: Record<string, { body: string }> = {}
+      for (const name of names) {
+        const found = resolvedIcons.get(`${prefix}:${name}`)
+        if (found) {
+          icons[name] = found
+        }
+      }
+      return { icons, notFound: names.filter((name) => !icons[name]) }
+    },
+    // -> A trimmed stand-in for the real `iconToSVG`/`iconToHTML`/`replaceIDs` pipeline: wraps the
+    //    icon's body in an <svg> exactly the way the real method does, without needing a real
+    //    IconifyIcon shape -- what's under test is `postProcess`'s two sanitize passes, not this
+    //    method's own rendering, which has no coverage gap of its own to fill here.
+    renderInlineSvg(icon: { body: string }) {
+      return `<svg viewBox="0 0 24 24">${icon.body}</svg>`
+    }
+  }
+
+  test('removes an entity-encoded javascript: href that only exists after inlineIcons, not before', async () => {
+    // -> `&#106;avascript:` is `javascript:` with its first letter as a numeric character reference --
+    //    `isSafeIconBody`'s denylist matches the literal string `javascript:`, so this passes ingest,
+    //    and only becomes a real `javascript:` value once something HTML-parses it (`iconSvg()`'s
+    //    `$(...)` call does exactly that, the same as a browser would).
+    resolvedIcons.set('mdi:trap', {
+      body: '<a href="&#106;avascript:alert(1)">click</a><circle cx="12" cy="12" r="10"></circle>'
+    })
+    const html = '<iconify-icon icon="mdi:trap"></iconify-icon>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.doesNotMatch(result.render, /javascript:/i)
+    assert.doesNotMatch(result.render, /\shref=/)
+    // -> The rest of the icon body, which is not itself dangerous, still comes through
+    assert.match(result.render, /<circle cx="12" cy="12" r="10">/)
+  })
+
+  test('still inlines an ordinary icon with its shape primitives and attributes intact', async () => {
+    resolvedIcons.set('mdi:plain', {
+      body: '<path d="M12 2L2 7l10 5 10-5-10-5z" fill="currentColor"></path>'
+    })
+    const html = '<iconify-icon icon="mdi:plain"></iconify-icon>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /<svg viewBox="0 0 24 24"[^>]*>/)
+    assert.match(result.render, /<path d="M12 2L2 7l10 5 10-5-10-5z" fill="currentColor">/)
+  })
+})
+
+/**
+ * OpenProject #2183: `sanitize()` now passes `allowedStyles` to `sanitize-html`, gating which inline
+ * `style` *declarations* survive (not just whether the attribute itself is present) on `write:styles`
+ * -- `position: fixed` with no clipping ancestor is what lets an author without the permission cover
+ * the viewport or hide content from readers while it stays in the source and search index.
+ */
+describe('rendering.sanitize -- allowedStyles gates inline CSS by write:styles (OpenProject #2183)', () => {
+  test('drops position/inset/z-index declarations for an author without write:styles, keeping an unrelated color declaration', () => {
+    const html = '<div style="position: fixed; inset: 0; z-index: 9999; color: red;">x</div>'
+
+    const clean = (rendering as any).sanitize(html, { scripts: false, styles: false }, new Set())
+
+    assert.doesNotMatch(clean, /position/)
+    assert.doesNotMatch(clean, /inset/)
+    assert.doesNotMatch(clean, /z-index/)
+    assert.match(clean, /color:\s*red/)
+  })
+
+  test('keeps position/inset/z-index declarations for an author with write:styles', () => {
+    const html = '<div style="position: fixed; inset: 0; z-index: 9999; color: red;">x</div>'
+
+    const clean = (rendering as any).sanitize(html, { scripts: false, styles: true }, new Set())
+
+    assert.match(clean, /position:\s*fixed/)
+    assert.match(clean, /inset:\s*0/)
+    assert.match(clean, /z-index:\s*9999/)
+    assert.match(clean, /color:\s*red/)
+  })
+
+  test('keeps the KaTeX-sized safe properties for an author without write:styles, so no formula loses its layout', () => {
+    // -> The shape KaTeX actually writes onto formula spans: sizing, fine positioning within a
+    //    relatively-positioned ancestor, and colour -- none of it needs `write:styles` to render.
+    const html =
+      '<span style="height: 0.8em; width: 1.2em; margin-right: 0.05em; ' +
+      'padding-left: 0.1em; top: -0.3em; left: 0.02em; vertical-align: -0.2em; ' +
+      'font-size: 1.2em; border-color: red; background-color: yellow; text-align: center;">x</span>'
+
+    const clean = (rendering as any).sanitize(html, { scripts: false, styles: false }, new Set())
+
+    for (const declaration of [
+      'height:0.8em',
+      'width:1.2em',
+      'margin-right:0.05em',
+      'padding-left:0.1em',
+      'top:-0.3em',
+      'left:0.02em',
+      'vertical-align:-0.2em',
+      'font-size:1.2em',
+      'border-color:red',
+      'background-color:yellow',
+      'text-align:center'
+    ]) {
+      assert.ok(clean.includes(declaration), `expected "${declaration}" to survive, got: ${clean}`)
+    }
+  })
+
+  test('drops the style attribute entirely once every declaration it carried is disallowed', () => {
+    const html = '<div style="position: fixed; transform: translateX(10px);">x</div>'
+
+    const clean = (rendering as any).sanitize(html, { scripts: false, styles: false }, new Set())
+
+    assert.doesNotMatch(clean, /style=/)
+  })
+})
+
+/*
+ * `resolveSiteOrigin` is what carries the site's real hostname into the headless renderer's context
+ * (OpenProject #1751), so `isExternalHref` in `frontend/src/renderers/markdown.js` classifies an
+ * absolute same-site link the same way whether it was just saved by the editor or re-rendered
+ * headlessly afterwards. Mirrors `models/mail.ts`'s `resolveMailBaseURL` -- same `https://<hostname>`
+ * assumption, same `*`-catch-all/unresolvable-siteId fallback.
+ */
+describe('rendering.resolveSiteOrigin (OpenProject #1751)', () => {
+  test('builds https://<hostname> for a real site', () => {
+    ;(global as any).WIKI.sites = { site1: { hostname: 'wiki.example.com' } }
+
+    assert.equal((rendering as any).resolveSiteOrigin('site1'), 'https://wiki.example.com')
+  })
+
+  test('returns undefined for the "*" catch-all site, which has no hostname of its own', () => {
+    ;(global as any).WIKI.sites = { site1: { hostname: '*' } }
+
+    assert.equal((rendering as any).resolveSiteOrigin('site1'), undefined)
+  })
+
+  test('returns undefined for a siteId with no cached site', () => {
+    ;(global as any).WIKI.sites = {}
+
+    assert.equal((rendering as any).resolveSiteOrigin('missing'), undefined)
   })
 })

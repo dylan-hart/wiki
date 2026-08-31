@@ -49,6 +49,14 @@ const PROTECTED_SEARCH_FIELDS = ['title', 'description']
 const HIGHLIGHT_FIELDS = 'content-1,description-1'
 
 /**
+ * Ceiling on how many of Azure's own matches `query()` scans (per half, when split) before deriving
+ * `totalHits` and the requested page from what survives `checkAccess()` (OpenProject #2156,
+ * mirroring `db/search.ts`'s own `SCAN_CAP`). Bounded rather than unbounded, since page-rule
+ * filtering cannot be expressed as an OData `$filter` and has to run per-row in this process.
+ */
+const SCAN_CAP = 500
+
+/**
  * The subset of `SearchIndexClient` this module actually calls.
  *
  * Narrowed on purpose rather than importing the SDK's own type: it is what lets a test build a fake
@@ -657,29 +665,33 @@ export class AzureSearchModule implements SearchModule {
       includeDrafts
     }
 
+    /*
+      OpenProject #2156 (mirroring #2151's fix to db/search.ts): both branches now always scan a
+      bounded window from the START of the result set (`SCAN_CAP`, `skip: 0`), never the caller's
+      own `offset`/`limit` -- page-rule filtering happens after the query and needs a wider window
+      to fill a page from once denied rows are dropped. `results` and `totalHits` are both then
+      derived from `visible` alone, sliced/counted AFTER filtering rather than before.
+    */
     let rows: AzureSearchRow[]
-    let totalHits: number
 
     if (hasQuery && hideProtectedContent) {
-      const split = await this.runProtectedSplitQuery(
+      rows = await this.runProtectedSplitQuery(
         client,
         searchText!,
         filterParams,
         azureOrderBy,
         orderBy,
-        orderByDirection,
-        offset,
-        limit
+        orderByDirection
       )
-      rows = split.rows
-      totalHits = split.totalHits
     } else {
       const result = await this.runQuery(client, searchText, {
         filter: buildFilter(filterParams),
         orderBy: azureOrderBy,
-        top: limit,
-        skip: offset,
-        includeTotalCount: true,
+        top: SCAN_CAP,
+        skip: 0,
+        // -> No count needed: `totalHits` below is derived purely from rows that survived
+        //    `checkAccess`, never from Azure's own pre-filter count.
+        includeTotalCount: false,
         queryType: 'simple',
         searchFields: hasQuery ? FULL_SEARCH_FIELDS : undefined,
         highlightFields: hasQuery ? HIGHLIGHT_FIELDS : undefined,
@@ -687,7 +699,6 @@ export class AzureSearchModule implements SearchModule {
         highlightPostTag: HL_STOP
       })
       rows = result.rows
-      totalHits = result.count
     }
 
     /*
@@ -711,7 +722,7 @@ export class AzureSearchModule implements SearchModule {
         )
       : rows
 
-    const results: SearchResult[] = visible.map((row) => ({
+    const results: SearchResult[] = visible.slice(offset, offset + limit).map((row) => ({
       id: row.document.id as string,
       path: row.document.path as string,
       locale: row.document.locale as string,
@@ -726,11 +737,13 @@ export class AzureSearchModule implements SearchModule {
 
     return {
       results,
-      // -> The count Azure reported for both halves of the query, less whatever the rules just
-      //    removed -- not exact when rows are dropped, same caveat the `db` engine's own comment
-      //    documents, but a total that ignored the filtering entirely would promise results that
-      //    don't exist.
-      totalHits: Math.max(0, totalHits - rows.length + visible.length),
+      // -> OpenProject #2151/#2156: derived from `visible` alone -- never a count Azure reported
+      //    before filtering, and therefore never able to exceed what the actor can actually read.
+      //    See `db/search.ts#query()`'s comment for the exact/floor distinction.
+      totalHits: visible.length,
+      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
+      //    above actually dropped a row from this page, same signal `db/search.ts` uses.
+      totalHitsApproximate: rows.length !== visible.length,
       // -> No "did you mean" here: Azure AI Search's own fuzzy/suggester features are a separate
       //    setup step (a suggester definition on the index) this module does not configure, and
       //    building one out of band is future scope, not this task's.
@@ -751,9 +764,13 @@ export class AzureSearchModule implements SearchModule {
    * give the `db` engine, split across two Azure queries because an external index has no per-row SQL
    * expression to fall back to.
    *
-   * Each half is fetched `offset + limit` deep (Azure's own ordering already puts the right rows in
-   * that range), then the two already-ordered lists are merged with the same comparator Azure's own
-   * `$orderby` would apply and sliced to the requested page locally.
+   * Each half is fetched `SCAN_CAP` deep (Azure's own ordering already puts the right rows first),
+   * then the two already-ordered lists are merged with the same comparator Azure's own `$orderby`
+   * would apply. Deliberately NOT sliced to the requested page here (OpenProject #2151/#2156): the
+   * caller (`query()`) still has to run every merged row through `checkAccess()` first, so slicing
+   * by the caller's raw `offset`/`limit` before that filtering ran was exactly the bug — a page-rule
+   * DENY several rows into the merge used to still count toward, and could still occupy a slot in,
+   * a page the caller asked for.
    */
   private async runProtectedSplitQuery(
     client: AzureSearchQueryClient,
@@ -761,18 +778,17 @@ export class AzureSearchModule implements SearchModule {
     filterParams: AzureSearchFilterParams,
     azureOrderBy: string[],
     orderBy: SearchOrderBy,
-    orderByDirection: 'asc' | 'desc',
-    offset: number,
-    limit: number
-  ): Promise<{ rows: AzureSearchRow[]; totalHits: number }> {
-    const fetchDepth = offset + limit
+    orderByDirection: 'asc' | 'desc'
+  ): Promise<AzureSearchRow[]> {
     const [publicResult, protectedResult] = await Promise.all([
       this.runQuery(client, searchText, {
         filter: buildFilter({ ...filterParams, hasPassword: false }),
         orderBy: azureOrderBy,
-        top: fetchDepth,
+        top: SCAN_CAP,
         skip: 0,
-        includeTotalCount: true,
+        // -> No count needed: the caller derives `totalHits` purely from rows that survived
+        //    `checkAccess`, never from Azure's own pre-filter count.
+        includeTotalCount: false,
         queryType: 'simple',
         searchFields: FULL_SEARCH_FIELDS,
         highlightFields: HIGHLIGHT_FIELDS,
@@ -782,21 +798,17 @@ export class AzureSearchModule implements SearchModule {
       this.runQuery(client, searchText, {
         filter: buildFilter({ ...filterParams, hasPassword: true }),
         orderBy: azureOrderBy,
-        top: fetchDepth,
+        top: SCAN_CAP,
         skip: 0,
-        includeTotalCount: true,
+        includeTotalCount: false,
         queryType: 'simple',
         searchFields: PROTECTED_SEARCH_FIELDS
         // -> No `highlightFields`: a protected page never shows an excerpt, matching the `db` engine.
       })
     ])
-    const merged = [...publicResult.rows, ...protectedResult.rows].sort((a, b) =>
+    return [...publicResult.rows, ...protectedResult.rows].sort((a, b) =>
       compareRows(a, b, orderBy, orderByDirection)
     )
-    return {
-      rows: merged.slice(offset, offset + limit),
-      totalHits: publicResult.count + protectedResult.count
-    }
   }
 
   /**

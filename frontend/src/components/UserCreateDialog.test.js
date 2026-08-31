@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import UserCreateDialog from './UserCreateDialog.vue'
+import { queue as notifyQueue } from '@/composables/notify'
 import { useAdminStore } from '@/stores/admin'
 
 /*
@@ -44,6 +45,64 @@ function mountDialog() {
   currentWrapper = mount(UserCreateDialog, { global: { plugins: [i18n] } })
   return currentWrapper
 }
+
+/**
+ * Regression coverage for OpenProject #2092: `create()` used to read `err.message` in its catch,
+ * which is ky's generic status-line text, not the server's actual reason -- and the `if (!resp?.ok)`
+ * guard meant to surface that reason never ran anyway, because `boot/api.js`'s ky instance throws an
+ * `HTTPError` (parsing the body into `err.data` before throwing) on any non-2xx response, well before
+ * `.json()` ever resolves into `resp`. So a duplicate-email 400 from `POST /users` --
+ * `new CustomError('userCreateDuplicateEmail', 'A user with this email already exists.')` -- reached
+ * the admin only as a bare status code. `create()` must read the body via `apiErrorMessage()` instead,
+ * with the dead `resp.ok` branch deleted rather than left unreachable behind it.
+ */
+function httpError(message) {
+  return Object.assign(new Error('Request failed with status code 400: POST /users'), {
+    name: 'HTTPError',
+    data: { message }
+  })
+}
+
+async function fillValidForm(wrapper) {
+  wrapper.vm.state.userName = 'Jane Doe'
+  wrapper.vm.state.userEmail = 'jane@example.com'
+  wrapper.vm.state.userPassword = 'a-strong-password'
+  wrapper.vm.state.userGroups = ['group-1']
+  await flushPromises()
+}
+
+describe('UserCreateDialog create() error handling', () => {
+  it("surfaces the server's duplicate-email sentence, not a bare status code", async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+    await fillValidForm(wrapper)
+
+    API_CLIENT.post.mockImplementationOnce(() => {
+      throw httpError('A user with this email already exists.')
+    })
+
+    await wrapper.vm.create()
+
+    expect(notifyQueue.at(-1)?.message).toBe('A user with this email already exists.')
+    expect(notifyQueue.at(-1)?.type).toBe('negative')
+    expect(wrapper.emitted('ok')).toBeUndefined()
+  })
+
+  it('creates successfully with no `resp.ok` check standing between a 2xx response and the toast', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+    await fillValidForm(wrapper)
+
+    // -> No `ok` field in the body at all -- proof that success no longer depends on the deleted
+    //    `resp.ok` guard, which ky's throw-on-non-2xx behavior made unreachable in the first place.
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve({ id: 'user-1' }) })
+
+    await wrapper.vm.create()
+
+    expect(notifyQueue.at(-1)?.type).toBe('positive')
+    expect(wrapper.emitted('ok')).toBeTruthy()
+  })
+})
 
 describe('UserCreateDialog send welcome email toggle', () => {
   it('renders both toggles enabled, with the from-site field hidden until turned on', async () => {

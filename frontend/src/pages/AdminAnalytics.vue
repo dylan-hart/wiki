@@ -2,10 +2,13 @@
   <w-page class="admin-analytics">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-bar-chart.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-bar-chart.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.analytics.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.analytics.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.analytics.subtitle') }}
         </div>
@@ -95,7 +98,7 @@
               <em>{{ t('admin.analytics.providerNoConfiguration') }}</em>
             </w-banner>
           </w-card-section>
-          <template v-for="(cfg, cfgKey, idx) in provider.config">
+          <template v-for="(cfg, cfgKey, idx) in provider.config" :key="cfgKey">
             <template v-if="configIfCheck(cfg.if)">
               <w-separator class="my-2" inset v-if="idx > 0" />
               <w-item v-if="cfg.type === `boolean`" tag="label">
@@ -320,7 +323,7 @@ async function save() {
       }
     }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

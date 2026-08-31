@@ -1,5 +1,5 @@
 <template>
-  <w-layout view="hHh lpR fFf" container>
+  <w-layout container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="img:/_assets/icons/fluent-rfid-tag.svg" left size="md" />
       <span>{{ t('editor.blockPicker.title') }}</span>
@@ -14,7 +14,7 @@
         :href="siteStore.docsBase + `/guide/blocks`"
         target="_blank"
         type="a" />
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
           push
           color="white"
@@ -63,7 +63,9 @@
                     <div class="text-body2">
                       <strong>{{ block.name }}</strong>
                     </div>
-                    <div class="text-caption opacity-70">{{ block.description }}</div>
+                    <div class="text-caption opacity-70">
+                      {{ blockText(block.block, 'description', block.description) }}
+                    </div>
                     <div class="text-caption font-robotomono mt-1 opacity-60">
                       &lt;block-{{ block.block }}&gt;
                     </div>
@@ -90,6 +92,7 @@
                 <div class="w-section-header">{{ state.selected.name }}</div>
                 <block-props-form
                   class="px-4 pt-4"
+                  :block="state.selected.block"
                   :fields="state.selected.props"
                   :values="state.values" />
                 <!-- -> The markup itself, since that is what lands in the page -->
@@ -110,6 +113,7 @@ import { computed, onMounted, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { notify } from '@/composables/notify'
+import { useBlockLocale } from '@/composables/blockLocale'
 import { blockMarkdown, blockPropsFilled, propDefault } from '@/helpers/blocks'
 
 import BlockPropsForm from '@/components/BlockPropsForm.vue'
@@ -135,6 +139,7 @@ const siteStore = useSiteStore()
 // I18N
 
 const { t } = useI18n()
+const { blockText } = useBlockLocale()
 
 // DATA
 

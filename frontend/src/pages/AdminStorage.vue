@@ -2,10 +2,13 @@
   <w-page class="admin-storage">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-ssd-animated.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-ssd-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.storage.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.storage.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.storage.subtitle') }}
         </div>
@@ -21,6 +24,7 @@
           :toggle-text-color="dark.isActive ? `black` : `white`"
           :text-color="dark.isActive ? `white` : `black`"
           :color="dark.isActive ? `dark-1` : `white`"
+          :aria-label="t(`admin.storage.title`)"
           :options="[
             { label: t('admin.storage.targets'), value: 'targets' },
             { label: t('admin.storage.deliveryPaths'), value: 'delivery' }
@@ -102,12 +106,10 @@
               <w-item>
                 <blueprint-icon class="self-start" icon="matches" :hue-rotate="140" />
                 <w-item-section>
-                  <w-item-label>Uninstall</w-item-label>
-                  <w-item-label caption
-                    >Delete the active configuration and start over the setup process.</w-item-label
-                  >
+                  <w-item-label>{{ t('admin.storage.uninstall') }}</w-item-label>
+                  <w-item-label caption>{{ t('admin.storage.destroyHint') }}</w-item-label>
                   <w-item-label class="text-red" caption>
-                    <strong>This action cannot be undone!</strong>
+                    <strong>{{ t('admin.storage.destroyWarn') }}</strong>
                   </w-item-label>
                 </w-item-section>
                 <w-item-section side>
@@ -437,29 +439,31 @@
                   >{{ t('admin.storage.noLiveSync') }}</w-banner
                 >
               </w-card-section>
-              <template v-if="state.target.isEnabled" v-for="(act, idx) in state.target.actions">
-                <w-separator class="my-2" inset v-if="idx > 0" />
-                <w-item>
-                  <blueprint-icon class="self-start" :icon="act.icon" :hue-rotate="45" />
-                  <w-item-section>
-                    <w-item-label>{{ act.label }}</w-item-label>
-                    <w-item-label caption>{{ act.hint }}</w-item-label>
-                    <w-item-label class="text-red" v-if="act.warn" caption>
-                      <strong>{{ act.warn }}</strong>
-                    </w-item-label>
-                  </w-item-section>
-                  <w-item-section side>
-                    <w-btn
-                      class="acrylic-btn"
-                      flat
-                      icon="la:arrow-circle-right"
-                      color="primary"
-                      @click="executeAction(act)"
-                      :label="t(`common.actions.proceed`)"
-                      :disable="state.runningAction"
-                      :loading="state.runningActionHandler === act.handler" />
-                  </w-item-section>
-                </w-item>
+              <template v-if="state.target.isEnabled">
+                <template v-for="(act, idx) in state.target.actions" :key="act.handler">
+                  <w-separator class="my-2" inset v-if="idx > 0" />
+                  <w-item>
+                    <blueprint-icon class="self-start" :icon="act.icon" :hue-rotate="45" />
+                    <w-item-section>
+                      <w-item-label>{{ act.label }}</w-item-label>
+                      <w-item-label caption>{{ act.hint }}</w-item-label>
+                      <w-item-label class="text-red" v-if="act.warn" caption>
+                        <strong>{{ act.warn }}</strong>
+                      </w-item-label>
+                    </w-item-section>
+                    <w-item-section side>
+                      <w-btn
+                        class="acrylic-btn"
+                        flat
+                        icon="la:arrow-circle-right"
+                        color="primary"
+                        @click="executeAction(act)"
+                        :label="t(`common.actions.proceed`)"
+                        :disable="state.runningAction"
+                        :loading="state.runningActionHandler === act.handler" />
+                    </w-item-section>
+                  </w-item>
+                </template>
               </template>
             </w-card>
           </div>
@@ -470,7 +474,10 @@
             <w-card class="rounded pb-4" style="width: 300px">
               <w-card-header>{{ state.target.title }}</w-card-header>
               <w-card-section>
-                <img class="w-full object-cover rounded" :src="state.target.banner" />
+                <img
+                  class="w-full object-cover rounded"
+                  :src="state.target.banner"
+                  :alt="state.target.title" />
                 <div class="text-body2 mt-4">{{ state.target.description }}</div>
               </w-card-section>
               <w-separator class="mb-2" inset />
@@ -531,7 +538,9 @@
                   <w-item-label class="text-grey">{{
                     t(`admin.storage.currentState`)
                   }}</w-item-label>
-                  <w-item-label class="text-positive">No issues detected.</w-item-label>
+                  <w-item-label class="text-positive">{{
+                    t('admin.storage.noIssues')
+                  }}</w-item-label>
                 </w-item-section>
               </w-item>
             </w-card>
@@ -859,8 +868,8 @@ const syncModeOptions = computed(() =>
 
 /** What the currently selected mode does, shown as the picker's caption. */
 const syncModeHint = computed(() => {
-  const key = SYNC_MODE_HINT_KEYS[state.target?.sync?.mode]
-  return key ? t(key) : ''
+  const mode = state.target?.sync?.mode
+  return SYNC_MODE_HINT_KEYS[mode] ? t(SYNC_MODE_HINT_KEYS[mode]) : ''
 })
 
 /** 'error' | 'never' | 'outOfDate' | 'synced' -- see `syncStatusKind` for the priority order. */
@@ -1019,7 +1028,7 @@ async function save({ silent = false } = {}) {
       json: { targets: state.targets.map(payloadFor) }
     }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     saveSuccess = true
     if (!silent) {
@@ -1078,7 +1087,7 @@ async function executeAction(act) {
         `sites/${adminStore.currentSiteId}/storage/targets/${state.selectedTarget}/actions/${act.handler}`
       ).json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       // -> A sync-shaped action (sync / syncUntracked / importAll) is queued on the scheduler by
       //    `api/storage.ts` rather than run inline -- this response confirms it was queued, not that
@@ -1120,7 +1129,9 @@ async function setupDestroy() {
     title: t('admin.storage.destroyConfirm'),
     message: t('admin.storage.destroyConfirmInfo'),
     cancel: true,
-    persistent: true
+    persistent: true,
+    color: 'negative',
+    okLabel: t('common.actions.delete')
   }).onOk(async () => {
     loading.show({
       message: t('admin.storage.destroyingSetup')
@@ -1131,7 +1142,7 @@ async function setupDestroy() {
         `sites/${adminStore.currentSiteId}/storage/targets/${state.selectedTarget}/setup`
       ).json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       state.target.setup.state = 'notconfigured'
       // -> A provider-backed setup handler may need a moment to settle before it can be started over

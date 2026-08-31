@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createI18n } from 'vue-i18n'
 
 import WSelect from './WSelect.vue'
 
@@ -253,6 +254,32 @@ describe('WSelect', () => {
 
       expect(wrapper.vm.validate('a')).toBe(true)
     })
+
+    it('announces the message from a live region, and the error text replaces the hint in that same node', async () => {
+      const wrapper = mount(WSelect, {
+        props: {
+          modelValue: null,
+          options: ['a'],
+          hint: 'Pick one',
+          rules: [isRequired],
+          ariaLabel: 'Pick one'
+        }
+      })
+
+      const messageEl = wrapper.find('.min-h-5')
+      expect(messageEl.attributes('aria-live')).toBe('polite')
+      expect(messageEl.attributes('aria-atomic')).toBe('true')
+      expect(messageEl.text()).toBe('Pick one')
+
+      wrapper.vm.validate()
+      await wrapper.vm.$nextTick()
+
+      // -> Same node, not a second one -- see the matching WInput test for why that matters
+      expect(wrapper.findAll('.min-h-5')).toHaveLength(1)
+      const messageElAfter = wrapper.find('.min-h-5')
+      expect(messageElAfter.attributes('aria-live')).toBe('polite')
+      expect(messageElAfter.text()).toBe('Required')
+    })
   })
 
   it('shows an asterisk beside the label when required', () => {
@@ -261,5 +288,137 @@ describe('WSelect', () => {
     })
 
     expect(wrapper.text()).toContain('*')
+  })
+
+  describe('i18n', () => {
+    it('resolves the empty-state label from the dictionary when noOptionsLabel is not overridden', async () => {
+      const i18n = createI18n({
+        legacy: false,
+        locale: 'en',
+        messages: { en: { 'common.select.noOptions': 'Keine Optionen' } }
+      })
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: [], ariaLabel: 'Pick one' },
+        global: { plugins: [i18n] },
+        attachTo: document.body
+      })
+
+      await control(wrapper).trigger('click')
+
+      expect(document.body.textContent).toContain('Keine Optionen')
+    })
+
+    it('still prefers an explicit noOptionsLabel prop over the dictionary', async () => {
+      const i18n = createI18n({
+        legacy: false,
+        locale: 'en',
+        messages: { en: { 'common.select.noOptions': 'Keine Optionen' } }
+      })
+      const wrapper = mount(WSelect, {
+        props: {
+          modelValue: null,
+          options: [],
+          ariaLabel: 'Pick one',
+          noOptionsLabel: 'Nothing here'
+        },
+        global: { plugins: [i18n] },
+        attachTo: document.body
+      })
+
+      await control(wrapper).trigger('click')
+
+      expect(document.body.textContent).toContain('Nothing here')
+      expect(document.body.textContent).not.toContain('Keine Optionen')
+    })
+  })
+
+  describe('autofocus', () => {
+    it('focuses the real control (the button) on mount when set', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one', autofocus: true },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).toBe(control(wrapper).element)
+      wrapper.unmount()
+    })
+
+    it('focuses the filter input, not the button, for the useInput variant', () => {
+      const wrapper = mount(WSelect, {
+        props: {
+          modelValue: null,
+          options: ['a'],
+          ariaLabel: 'Pick one',
+          useInput: true,
+          autofocus: true
+        },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).toBe(wrapper.find('input').element)
+      wrapper.unmount()
+    })
+
+    it('leaves focus alone when unset', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one' },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).not.toBe(control(wrapper).element)
+      wrapper.unmount()
+    })
+  })
+
+  describe('attribute forwarding', () => {
+    it('forwards a plain attribute like name to the real control (the button) rather than the wrapper', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one' },
+        attrs: { name: 'group' }
+      })
+
+      expect(control(wrapper).attributes('name')).toBe('group')
+      expect(wrapper.element.getAttribute('name')).toBeNull()
+    })
+
+    it('forwards a plain attribute to the filter input, for the useInput variant', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one', useInput: true },
+        attrs: { name: 'group' }
+      })
+
+      expect(wrapper.find('input').attributes('name')).toBe('group')
+      expect(wrapper.element.getAttribute('name')).toBeNull()
+    })
+  })
+
+  describe('validation message live region', () => {
+    it('carries aria-live and aria-atomic whenever the message area is shown', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one', hint: 'Helper text' }
+      })
+
+      const message = wrapper.find('.text-caption')
+      expect(message.attributes('aria-live')).toBe('polite')
+      expect(message.attributes('aria-atomic')).toBe('true')
+    })
+  })
+
+  describe('accessible name', () => {
+    it('sets aria-label on the control when no label is passed', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one' }
+      })
+
+      expect(control(wrapper).attributes('aria-label')).toBe('Pick one')
+    })
+
+    it('does not set aria-label on the control once a label is passed', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], label: 'Group', ariaLabel: 'Pick one' }
+      })
+
+      expect(control(wrapper).attributes('aria-label')).toBeUndefined()
+    })
   })
 })

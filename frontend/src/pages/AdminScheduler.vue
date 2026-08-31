@@ -2,10 +2,13 @@
   <w-page class="admin-terminal">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-bot-animated.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-bot-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.scheduler.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.scheduler.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.scheduler.subtitle') }}
         </div>
@@ -21,6 +24,7 @@
           :toggle-text-color="dark.isActive ? `black` : `white`"
           :text-color="dark.isActive ? `white` : `black`"
           :color="dark.isActive ? `dark-1` : `white`"
+          :aria-label="t(`admin.scheduler.title`)"
           :options="[
             { label: t('admin.scheduler.schedule'), value: 'scheduled' },
             { label: t('admin.scheduler.upcoming'), value: 'upcoming' },
@@ -54,27 +58,26 @@
     <w-separator inset />
     <div class="p-4 gap-4">
       <template v-if="state.displayMode === `scheduled`">
-        <w-card
-          class="rounded"
-          v-if="state.scheduledJobs.length < 1 && state.loading < 1"
-          flat
-          :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
-          <w-card-section class="items-center" horizontal>
-            <w-card-section class="flex-none pr-0">
-              <w-icon name="la:info-circle" size="sm" />
-            </w-card-section>
-            <w-card-section class="text-caption">{{
-              t('admin.scheduler.scheduledNone')
-            }}</w-card-section>
-          </w-card-section>
-        </w-card>
-        <w-card v-else>
+        <w-card>
           <w-table
             :rows="state.scheduledJobs"
             :columns="scheduledJobsHeaders"
             row-key="id"
             flat
             :loading="state.loading > 0">
+            <template #no-data>
+              <w-card-section
+                class="items-center rounded"
+                horizontal
+                :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
+                <w-card-section class="flex-none pr-0">
+                  <w-icon name="la:info-circle" size="sm" />
+                </w-card-section>
+                <w-card-section class="text-caption">{{
+                  t('admin.scheduler.scheduledNone')
+                }}</w-card-section>
+              </w-card-section>
+            </template>
             <template v-slot:body-cell-id="props">
               <w-td :props="props">
                 <!--
@@ -115,7 +118,9 @@
               <w-td :props="props">
                 <span>{{ props.value }}</span>
                 <div>
-                  <small class="text-grey">{{ humanizeDate(props.row.createdAt) }}</small>
+                  <small class="text-grey">{{
+                    humanizeDateWithSeconds(t, props.row.createdAt)
+                  }}</small>
                 </div>
               </w-td>
             </template>
@@ -123,7 +128,9 @@
               <w-td :props="props">
                 <span>{{ props.value }}</span>
                 <div>
-                  <small class="text-grey">{{ humanizeDate(props.row.updatedAt) }}</small>
+                  <small class="text-grey">{{
+                    humanizeDateWithSeconds(t, props.row.updatedAt)
+                  }}</small>
                 </div>
               </w-td>
             </template>
@@ -146,27 +153,26 @@
         </w-card>
       </template>
       <template v-else-if="state.displayMode === `upcoming`">
-        <w-card
-          class="rounded"
-          v-if="state.upcomingJobs.length < 1 && state.loading < 1"
-          flat
-          :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
-          <w-card-section class="items-center" horizontal>
-            <w-card-section class="flex-none pr-0">
-              <w-icon name="la:info-circle" size="sm" />
-            </w-card-section>
-            <w-card-section class="text-caption">{{
-              t('admin.scheduler.upcomingNone')
-            }}</w-card-section>
-          </w-card-section>
-        </w-card>
-        <w-card v-else>
+        <w-card>
           <w-table
             :rows="state.upcomingJobs"
             :columns="upcomingJobsHeaders"
             row-key="id"
             flat
             :loading="state.loading > 0">
+            <template #no-data>
+              <w-card-section
+                class="items-center rounded"
+                horizontal
+                :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
+                <w-card-section class="flex-none pr-0">
+                  <w-icon name="la:info-circle" size="sm" />
+                </w-card-section>
+                <w-card-section class="text-caption">{{
+                  t('admin.scheduler.upcomingNone')
+                }}</w-card-section>
+              </w-card-section>
+            </template>
             <template v-slot:body-cell-id="props">
               <w-td :props="props"><w-icon name="la:clock" color="primary" size="sm" /></w-td>
             </template>
@@ -182,7 +188,9 @@
               <w-td :props="props">
                 <span>{{ props.value }}</span>
                 <div>
-                  <small class="text-grey">{{ humanizeDate(props.row.waitUntil) }}</small>
+                  <small class="text-grey">{{
+                    humanizeDateWithSeconds(t, props.row.waitUntil)
+                  }}</small>
                 </div>
               </w-td>
             </template>
@@ -226,7 +234,7 @@
                   icon="la:window-close"
                   color="negative"
                   @click="cancelJob(props.row.id)">
-                  <w-tooltip anchor="center left" self="center right">{{
+                  <w-tooltip labels anchor="center left" self="center right">{{
                     t('admin.scheduler.cancelJob')
                   }}</w-tooltip>
                 </w-btn>
@@ -236,27 +244,26 @@
         </w-card>
       </template>
       <template v-else>
-        <w-card
-          class="rounded"
-          v-if="state.jobs.length < 1 && state.loading < 1"
-          flat
-          :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
-          <w-card-section class="items-center" horizontal>
-            <w-card-section class="flex-none pr-0">
-              <w-icon name="la:info-circle" size="sm" />
-            </w-card-section>
-            <w-card-section class="text-caption">{{
-              t('admin.scheduler.' + state.displayMode + 'None')
-            }}</w-card-section>
-          </w-card-section>
-        </w-card>
-        <w-card v-else>
+        <w-card>
           <w-table
             :rows="state.jobs"
             :columns="jobsHeaders"
             row-key="id"
             flat
             :loading="state.loading > 0">
+            <template #no-data>
+              <w-card-section
+                class="items-center rounded"
+                horizontal
+                :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
+                <w-card-section class="flex-none pr-0">
+                  <w-icon name="la:info-circle" size="sm" />
+                </w-card-section>
+                <w-card-section class="text-caption">{{
+                  t('admin.scheduler.' + state.displayMode + 'None')
+                }}</w-card-section>
+              </w-card-section>
+            </template>
             <template v-slot:body-cell-id="props">
               <w-td :props="props">
                 <w-avatar
@@ -282,12 +289,10 @@
                   rounded />
                 <w-circular-progress
                   v-else-if="props.row.state === `active`"
-                  indeterminate
                   size="sm"
                   :thickness="0.4"
                   color="blue"
-                  track-color="blue-1"
-                  center-color="blue-2" />
+                  track-color="blue-1" />
               </w-td>
             </template>
             <template v-slot:body-cell-task="props">
@@ -309,7 +314,9 @@
                     </template>
                   </i18n-t>
                   <div>
-                    <small class="text-grey">{{ humanizeDate(props.row.completedAt) }}</small>
+                    <small class="text-grey">{{
+                      humanizeDateWithSeconds(t, props.row.completedAt)
+                    }}</small>
                   </div>
                 </template>
                 <template v-else-if="props.value === `active`">
@@ -351,7 +358,9 @@
               <w-td :props="props">
                 <span>{{ props.value }}</span>
                 <div>
-                  <small class="text-grey">{{ humanizeDate(props.row.startedAt) }}</small>
+                  <small class="text-grey">{{
+                    humanizeDateWithSeconds(t, props.row.startedAt)
+                  }}</small>
                 </div>
                 <div>
                   <i18n-t class="text-grey" keypath="admin.scheduler.createdBy" tag="small">
@@ -410,7 +419,7 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 
 import { apiErrorMessage } from '@/helpers/apiError'
-import { humanizeDuration, relativeDate } from '@/helpers/datetime'
+import { humanizeDateWithSeconds, humanizeDuration, relativeDate } from '@/helpers/datetime'
 
 import { useSiteStore } from '@/stores/site'
 
@@ -626,22 +635,6 @@ watch(
 
 // METHODS
 
-/** Absolute, and with seconds: for a job, the timing IS the thing being read. */
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZoneName: 'short'
-  })
-}
-
 async function load() {
   state.loading++
   try {
@@ -675,7 +668,7 @@ async function runNow(entry) {
   try {
     const resp = await API_CLIENT.post(`scheduler/schedule/${entry.id}/run`).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     // -> Nothing on this tab changes: the job it queued shows up under upcoming, then in the history
     notify({
@@ -697,7 +690,7 @@ async function cancelJob(jobId) {
   try {
     const resp = await API_CLIENT.delete(`scheduler/upcoming/${jobId}`)
     if (!resp?.ok) {
-      throw new Error((await resp.json())?.message || 'An unexpected error occured.')
+      throw new Error((await resp.json())?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',
@@ -720,7 +713,7 @@ async function retryJob(jobId) {
   try {
     const resp = await API_CLIENT.post(`scheduler/jobs/${jobId}/retry`).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

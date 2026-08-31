@@ -9,9 +9,9 @@
           color="primary" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">
+        <h1 class="text-h5 text-primary animated fadeInLeft">
           {{ t('admin.classification.title') }}
-        </div>
+        </h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.classification.subtitle') }}
         </div>
@@ -42,6 +42,7 @@
           icon="la:plus"
           :label="t(`admin.classification.new`)"
           color="primary"
+          :loading="state.isLoading"
           @click="createLevel" />
       </div>
     </div>
@@ -76,10 +77,11 @@
               <w-item-section>
                 <w-input
                   v-if="state.editingId === level.id"
+                  :ref="(el) => (renameInput = el)"
                   v-model="state.editingName"
                   dense
                   outlined
-                  autofocus
+                  :aria-label="t('common.field.name')"
                   @keyup.enter="commitRename(level)"
                   @blur="commitRename(level)" />
                 <template v-else>
@@ -117,7 +119,6 @@
       <div class="col-span-12 lg:col-span-4">
         <w-banner
           class="mb-4"
-          rounded
           :class="dark.isActive ? `bg-dark-4 text-white` : `bg-blue-1 text-dark`">
           {{ t('admin.classification.hint') }}
         </w-banner>
@@ -134,7 +135,7 @@
               v-for="row of state.report"
               :key="row.levelId"
               clickable
-              :disable="row.count === 0"
+              :disabled="row.count === 0"
               @click="openReport(row)">
               <w-item-section>
                 <w-item-label>{{ row.name }}</w-item-label>
@@ -158,7 +159,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { defineAsyncComponent, onMounted, reactive } from 'vue'
+import { defineAsyncComponent, nextTick, onMounted, reactive } from 'vue'
 
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
@@ -196,6 +197,14 @@ const state = reactive({
   editingName: ''
 })
 
+/**
+ * The active rename field's `w-input` instance, set by the callback `:ref` in the template -- there
+ * is at most one at a time (`state.editingId` is a single id, not a set), so a plain variable rather
+ * than a ref-per-row map is enough. Not a Vue `ref()`: nothing reads it reactively, it only exists to
+ * be imperatively `.focus()`-ed once `startRename` puts it on screen.
+ */
+let renameInput = null
+
 // METHODS
 
 async function load() {
@@ -218,6 +227,9 @@ async function load() {
 }
 
 function openReport(row) {
+  if (row.count === 0) {
+    return
+  }
   dialog({
     component: defineAsyncComponent(
       () => import('../components/ClassificationReportDrillDialog.vue')
@@ -230,12 +242,17 @@ function openReport(row) {
 }
 
 async function createLevel() {
+  if (state.isLoading) {
+    return
+  }
+  state.isLoading = true
   try {
     await API_CLIENT.post('classification-levels', {
-      json: { name: t('admin.classification.newDefaultName'), sortOrder: state.levels.length }
+      json: { name: t('admin.classification.newDefaultName') }
     }).json()
     await load()
   } catch (err) {
+    state.isLoading = false
     notify({
       type: 'negative',
       message: t('admin.classification.createFailed'),
@@ -244,9 +261,18 @@ async function createLevel() {
   }
 }
 
+/*
+  Focusing here is safe from the "don't scroll a keyboard user out from under themselves" concern the
+  task calls out: this swaps the field in at the exact spot the rename button the reader just clicked
+  already sits, inside a list that was already on screen -- there is nowhere new for the browser to
+  scroll to.
+*/
 function startRename(level) {
   state.editingId = level.id
   state.editingName = level.name
+  nextTick(() => {
+    renameInput?.focus()
+  })
 }
 
 async function commitRename(level) {
@@ -297,7 +323,11 @@ async function move(idx, dir) {
 function deleteLevel(level) {
   confirm({
     title: t('admin.classification.deleteTitle'),
-    message: t('admin.classification.deleteConfirm', { name: level.name })
+    message: t('admin.classification.deleteConfirm', { name: level.name }),
+    persistent: true,
+    cancel: true,
+    color: 'negative',
+    okLabel: t('common.actions.delete')
   }).onOk(async () => {
     try {
       await API_CLIENT.delete(`classification-levels/${level.id}`).json()

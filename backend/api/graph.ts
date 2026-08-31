@@ -5,6 +5,11 @@ import type { PageviewCountsForGraph } from '../models/pageviews.ts'
 import { zeroPageviewCountsForGraph } from '../models/pageviews.ts'
 import { mayOnPage } from './pages.ts'
 import { guardSiteEnabled } from '../helpers/common.ts'
+import {
+  getCachedGraphData,
+  setCachedGraphData,
+  type GraphCacheData
+} from '../helpers/graphCache.ts'
 
 // -> Re-exported so `graph.test.ts` (OpenProject #884) can import the fixture row shape from the
 //    same module it imports `assembleGraph`/`folderOf` from, without a second import line pointing
@@ -13,6 +18,11 @@ export type { GraphPageRow }
 
 /** One node in the knowledge graph (OpenProject #872) — a page the requester may read. */
 export interface GraphNode {
+  /** Composite `${locale}:${path}` id (OpenProject #1621/#1626) -- translations share a `path` by
+   *  design (`docs/decisions/locale-translation-linking.md`, "Same-path-by-convention"), so `path`
+   *  alone cannot uniquely identify a node once a site has more than one locale. Edges are keyed on
+   *  this, not on `path`. */
+  id: string
   path: string
   locale: string
   title: string
@@ -37,7 +47,8 @@ export interface GraphNode {
   pageviews: PageviewCountsForGraph
 }
 
-/** One edge — an authored relation or an extracted internal link, always between two visible nodes. */
+/** One edge — an authored relation or an extracted internal link, always between two visible nodes.
+ *  `source`/`target` are `GraphNode.id` composite ids (OpenProject #1626), not bare paths. */
 export interface GraphEdge {
   source: string
   target: string
@@ -90,9 +101,16 @@ export function assembleGraph(
   pageviewsFor: (pageId: string) => PageviewCountsForGraph = zeroPageviewCountsForGraph
 ): Graph {
   const visible = rows.filter(canRead)
-  const visiblePaths = new Set(visible.map((row) => row.path))
+  // -> A relation/link target is a bare path, resolved within the target's own locale (translations
+  //    share a path by design -- `docs/decisions/locale-translation-linking.md`), so it must be
+  //    paired with the *source* row's locale, not looked up as a path on its own, or an `en` page's
+  //    link would count as visible when only a `fr`-locale page occupies that path (OpenProject
+  //    #1621/#1626).
+  const nodeId = (locale: string, path: string) => `${locale}:${path}`
+  const visibleIds = new Set(visible.map((row) => nodeId(row.locale, row.path)))
 
   const nodes: GraphNode[] = visible.map((row) => ({
+    id: nodeId(row.locale, row.path),
     path: row.path,
     locale: row.locale,
     title: row.title,
@@ -106,19 +124,25 @@ export function assembleGraph(
 
   const edges: GraphEdge[] = []
   for (const row of visible) {
+    const sourceId = nodeId(row.locale, row.path)
     for (const relation of row.relations) {
-      if (visiblePaths.has(relation.target)) {
+      // -> A relation's `target` is a bare path with no locale of its own -- it can only ever mean
+      //    "the page at this path in the SAME locale as the page carrying the relation" (translations
+      //    are separate rows, each with its own relations), so it resolves against `row.locale`.
+      const targetId = nodeId(row.locale, relation.target)
+      if (visibleIds.has(targetId)) {
         edges.push({
-          source: row.path,
-          target: relation.target,
+          source: sourceId,
+          target: targetId,
           type: 'relation',
           label: relation.label
         })
       }
     }
     for (const target of row.links) {
-      if (visiblePaths.has(target)) {
-        edges.push({ source: row.path, target, type: 'link' })
+      const targetId = nodeId(row.locale, target)
+      if (visibleIds.has(targetId)) {
+        edges.push({ source: sourceId, target: targetId, type: 'link' })
       }
     }
   }
@@ -130,6 +154,38 @@ const siteIdParam = {
   type: 'object',
   properties: { siteId: { type: 'string', format: 'uuid' } },
   required: ['siteId']
+}
+
+/**
+ * The graph bundle for a site -- from the cache when warm, or rebuilt (and cached) on a cold one.
+ *
+ * A cold rebuild is refused with `null` for a caller with no session (OpenProject #2269), matching
+ * the reasoning `docs/variances.md:709` applies to `POST /_api/diagrams/render`: the three underlying
+ * queries scale with the whole site's page/history/pageview row counts, so an anonymous caller must
+ * not be able to force that cost on demand by simply outracing the TTL or hitting a just-invalidated
+ * cache. A signed-in caller needs no specific permission to trigger it -- the same "logged in is
+ * enough" shape `/profile` and `/diagrams/render` use -- since the rebuilt bundle is unfiltered raw
+ * data (fetched with `publicOnly: false`) and every response is narrowed to the actual caller both by
+ * `read:pages` permission (`assembleGraph`'s `canRead`) AND, for a caller with no session, by
+ * publication state (OpenProject #1587 §2 / #1612 -- see the route handler below), regardless of who
+ * happened to warm the cache.
+ */
+async function loadGraphData(siteId: string, mayRebuild: boolean): Promise<GraphCacheData | null> {
+  const cached = getCachedGraphData(siteId)
+  if (cached) {
+    return cached
+  }
+  if (!mayRebuild) {
+    return null
+  }
+  const [rows, contributorCounts, pageviewCounts] = await Promise.all([
+    WIKI.models.pages.listAllForGraph(siteId),
+    WIKI.models.pageHistory.contributorCountsForGraph(siteId),
+    WIKI.models.pageviews.countsForGraph(siteId)
+  ])
+  const data: GraphCacheData = { rows, contributorCounts, pageviewCounts }
+  setCachedGraphData(siteId, data)
+  return data
 }
 
 /**
@@ -148,11 +204,12 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "The site's knowledge graph",
         description:
-          "Every page the caller may read on this site, across all locales, as nodes -- plus the relation and internal-link edges between pages that are both visible. Fetched once; every drill-down filter and re-cluster after that (OpenProject #874/#875) runs client-side against this response, per #848's design.",
+          "Every page the caller may read on this site, across all locales, as nodes -- plus the relation and internal-link edges between pages that are both visible. Fetched once; every drill-down filter and re-cluster after that (OpenProject #874/#875) runs client-side against this response, per #848's design. The underlying data is cached per site for a short TTL (OpenProject #2269); a cold cache is only rebuilt for a signed-in caller.",
         tags: ['Pages'],
         params: siteIdParam,
         response: {
-          200: { $ref: 'Graph#' }
+          200: { $ref: 'Graph#' },
+          401: { $ref: 'ApiError#' }
         }
       }
     },
@@ -160,23 +217,33 @@ async function routes(app: FastifyInstance) {
       if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
         return
       }
-      const [rows, contributorCounts, pageviewCounts] = await Promise.all([
-        WIKI.models.pages.listAllForGraph(req.params.siteId),
-        WIKI.models.pageHistory.contributorCountsForGraph(req.params.siteId),
-        WIKI.models.pageviews.countsForGraph(req.params.siteId)
-      ])
+      const authenticated = req.session?.authenticated === true
+      const data = await loadGraphData(req.params.siteId, authenticated)
+      if (!data) {
+        return reply.unauthorized(
+          'Sign in to load the knowledge graph the first time; it stays cached for everyone after that.'
+        )
+      }
+      // -> The cached bundle is fetched once with `publicOnly: false` (`loadGraphData` above) and
+      //    shared across every caller, so a session-less caller's publication-state exclusion
+      //    (OpenProject #1587 §2 / #1612 -- a draft or scheduled page must never reach an anonymous
+      //    reader) has to be re-applied here per request rather than at the SQL layer, on top of --
+      //    not instead of -- `assembleGraph`'s own `read:pages` permission narrowing below.
+      const rows = authenticated
+        ? data.rows
+        : data.rows.filter((row) => row.publishState === 'published')
       return assembleGraph(
         rows,
         (row) => mayOnPage(req, 'read:pages', req.params.siteId, row),
         (id) => WIKI.models.classificationLevels.byId(id)?.name ?? null,
         (pageId) =>
-          contributorCounts.get(pageId) ?? {
+          data.contributorCounts.get(pageId) ?? {
             editor: 0,
             mcp: 0,
             all: 0,
             total: { editor: 0, mcp: 0, all: 0 }
           },
-        (pageId) => pageviewCounts.get(pageId) ?? zeroPageviewCountsForGraph()
+        (pageId) => data.pageviewCounts.get(pageId) ?? zeroPageviewCountsForGraph()
       )
     }
   )

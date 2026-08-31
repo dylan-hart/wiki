@@ -1,5 +1,5 @@
 <template>
-  <w-layout view="hHh lpR fFf" container>
+  <w-layout container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="img:/_assets/icons/fluent-people.svg" left size="md" />
       <div>
@@ -7,7 +7,7 @@
         <div class="text-caption">{{ state.group.name }}</div>
       </div>
       <w-space />
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
           push
           color="grey-6"
@@ -157,7 +157,7 @@
                   <w-item-section>
                     <w-item-label>{{ t(`common.field.createdOn`) }}</w-item-label>
                     <w-item-label>
-                      <strong>{{ humanizeDate(state.group.createdAt) }}</strong>
+                      <strong>{{ humanizeDate(t, state.group.createdAt) }}</strong>
                     </w-item-label>
                   </w-item-section>
                 </w-item>
@@ -167,7 +167,7 @@
                   <w-item-section>
                     <w-item-label>{{ t(`common.field.lastUpdated`) }}</w-item-label>
                     <w-item-label>
-                      <strong>{{ humanizeDate(state.group.updatedAt) }}</strong>
+                      <strong>{{ humanizeDate(t, state.group.updatedAt) }}</strong>
                     </w-item-label>
                   </w-item-section>
                 </w-item>
@@ -187,19 +187,11 @@
           <w-space />
           <w-btn
             class="acrylic-btn mr-2"
-            icon="la:question-circle"
-            flat
-            color="grey"
-            type="a"
-            :href="siteStore.docsBase + `/admin/permissions#rules`"
-            target="_blank" />
-          <w-btn
-            class="acrylic-btn mr-2"
             flat
             color="indigo"
             icon="la:file-export"
             @click="exportRules">
-            <w-tooltip>{{ t('admin.groups.exportRules') }}</w-tooltip>
+            <w-tooltip labels>{{ t('admin.groups.exportRules') }}</w-tooltip>
           </w-btn>
           <w-btn
             class="acrylic-btn mr-2"
@@ -208,21 +200,20 @@
             icon="la:file-import"
             v-if="canManage"
             @click="importRules">
-            <w-tooltip>{{ t('admin.groups.importRules') }}</w-tooltip>
+            <w-tooltip labels>{{ t('admin.groups.importRules') }}</w-tooltip>
           </w-btn>
           <w-btn
             v-if="canManage"
             unelevated
             color="primary"
             icon="la:plus"
-            label="New Rule"
+            :label="t('admin.groups.newRule')"
             @click="newRule" />
         </w-toolbar>
         <w-separator />
         <div class="p-4">
           <w-banner
             v-if="!state.group.rules || state.group.rules.length < 1"
-            rounded
             :class="dark.isActive ? `bg-negative text-white` : `bg-grey-4 text-grey-9`"
             >{{ t('admin.groups.rulesNone') }}</w-banner
           >
@@ -262,8 +253,7 @@
                       option-label="title"
                       options-dense
                       multiple
-                      use-chips
-                      stack-label>
+                      use-chips>
                       <template #selected-item="scope">
                         <w-chip
                           square
@@ -280,9 +270,6 @@
                             <w-toggle
                               :model-value="selected"
                               @update:model-value="toggleOption(opt)"
-                              color="primary"
-                              checked-icon="la:check"
-                              unchecked-icon="la:times"
                               :aria-label="opt.label" />
                           </w-item-section>
                           <!-- q-item-section(side, style='flex-basis: 150px;') -->
@@ -307,6 +294,7 @@
                       padding="sm sm"
                       size="md"
                       v-if="canManage"
+                      :aria-label="t(`common.actions.delete`)"
                       @click="deleteRule(rule.id)" />
                   </w-card-section>
                   <w-card-section horizontal>
@@ -324,7 +312,6 @@
                         option-value="id"
                         option-label="title"
                         multiple
-                        behavior="dialog"
                         :display-value="
                           t(`admin.groups.selectedSites`, rule.sites.length, {
                             count: rule.sites.length
@@ -339,9 +326,6 @@
                               <w-toggle
                                 :model-value="selected"
                                 @update:model-value="toggleOption(opt)"
-                                color="primary"
-                                checked-icon="la:check"
-                                unchecked-icon="la:times"
                                 :aria-label="opt.label" />
                             </w-item-section>
                           </w-item>
@@ -359,7 +343,6 @@
                         option-value="code"
                         option-label="name"
                         multiple
-                        behavior="dialog"
                         :display-value="
                           t(
                             `admin.groups.selectedLocales`,
@@ -381,9 +364,6 @@
                               <w-toggle
                                 :model-value="selected"
                                 @update:model-value="toggleOption(opt)"
-                                color="primary"
-                                checked-icon="la:check"
-                                unchecked-icon="la:times"
                                 :aria-label="opt.name" />
                             </w-item-section>
                           </w-item>
@@ -431,7 +411,6 @@
                         option-value="id"
                         option-label="name"
                         multiple
-                        behavior="dialog"
                         :display-value="
                           t(
                             `admin.groups.selectedClassifications`,
@@ -448,9 +427,6 @@
                               <w-toggle
                                 :model-value="selected"
                                 @update:model-value="toggleOption(opt)"
-                                color="primary"
-                                checked-icon="la:check"
-                                unchecked-icon="la:times"
                                 :aria-label="opt.name" />
                             </w-item-section>
                           </w-item>
@@ -460,7 +436,8 @@
                         v-else
                         class="mt-2"
                         standout
-                        v-model="rule.path"
+                        :model-value="rule.path"
+                        @update:model-value="onRulePathInput(rule, $event)"
                         dense
                         :prefix="[`START`, `REGEX`, `EXACT`].includes(rule.match) ? `/` : null"
                         :suffix="rule.match === `REGEX` ? `/` : null"
@@ -483,16 +460,6 @@
               <w-card class="shadow-1 pb-2">
                 <w-card-header>
                   {{ t(`admin.groups.permissions`) }}
-                  <template #action>
-                    <w-btn
-                      class="acrylic-btn"
-                      icon="la:question-circle"
-                      flat
-                      color="grey"
-                      type="a"
-                      :href="siteStore.docsBase + `/admin/permissions#system-permissions`"
-                      target="_blank" />
-                  </template>
                 </w-card-header>
                 <template v-for="(perm, idx) of permissions" :key="perm.permission">
                   <w-item tag="label">
@@ -507,9 +474,6 @@
                       <w-toggle
                         v-model="state.group.permissions"
                         :val="perm.permission"
-                        color="primary"
-                        checked-icon="la:check"
-                        unchecked-icon="la:times"
                         :disable="isSystemPermissionLocked(perm.permission)"
                         :aria-label="t(`admin.general.allowComments`)" />
                     </w-item-section>
@@ -528,14 +492,6 @@
         <w-toolbar :class="dark.isActive ? `bg-dark-3 text-white` : `bg-white text-dark`">
           <div class="text-subtitle1">{{ t('admin.groups.users') }}</div>
           <w-space />
-          <w-btn
-            class="acrylic-btn mr-2"
-            icon="la:question-circle"
-            flat
-            color="grey"
-            type="a"
-            :href="siteStore.docsBase + `/admin/groups#users`"
-            target="_blank" />
           <w-input
             class="denser fill-outline mr-2"
             outlined
@@ -549,6 +505,7 @@
             icon="la:redo-alt"
             flat
             color="secondary"
+            :aria-label="t(`common.actions.refresh`)"
             @click="refreshUsers" />
           <w-btn
             class="mr-1"
@@ -561,12 +518,6 @@
         </w-toolbar>
         <w-separator />
         <div class="p-4">
-          <w-banner
-            v-if="!state.users || state.users.length < 1"
-            rounded
-            :class="dark.isActive ? `bg-negative text-white` : `bg-grey-4 text-grey-9`"
-            >{{ t('admin.groups.usersNone') }}</w-banner
-          >
           <w-card class="shadow-1">
             <w-table
               :rows="state.users"
@@ -575,6 +526,13 @@
               flat
               hide-header
               :loading="state.isLoadingUsers">
+              <template #no-data>
+                <w-banner
+                  rounded
+                  :class="dark.isActive ? `bg-negative text-white` : `bg-grey-4 text-grey-9`"
+                  >{{ t('admin.groups.usersNone') }}</w-banner
+                >
+              </template>
               <template #body-cell-id="props">
                 <w-td :props="props"><w-icon name="la:user" color="primary" size="sm" /></w-td>
               </template>
@@ -596,7 +554,7 @@
                 <w-td :props="props">
                   <i18n-t class="text-caption" keypath="admin.users.createdAt" tag="div">
                     <template #date
-                      ><strong>{{ humanizeDate(props.value) }}</strong></template
+                      ><strong>{{ humanizeDate(t, props.value) }}</strong></template
                     >
                   </i18n-t>
                   <i18n-t
@@ -605,7 +563,7 @@
                     keypath="admin.users.lastLoginAt"
                     tag="div">
                     <template #date>
-                      <strong>{{ humanizeDate(props.row.lastLoginAt) }}</strong>
+                      <strong>{{ humanizeDate(t, props.row.lastLoginAt) }}</strong>
                     </template>
                   </i18n-t>
                 </w-td>
@@ -663,13 +621,13 @@ import { useDark } from '@/composables/dark'
 import { notify } from '@/composables/notify'
 
 import { useAdminStore } from '@/stores/admin'
-import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 import { v4 as uuid } from 'uuid'
 import { fileOpen, fileSave } from 'browser-fs-access'
 import UserSearchDialog from '@/components/UserSearchDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 
 // COMPOSABLES
 
@@ -678,7 +636,6 @@ const dark = useDark()
 // STORES
 
 const adminStore = useAdminStore()
-const siteStore = useSiteStore()
 const userStore = useUserStore()
 
 // ROUTER
@@ -761,78 +718,31 @@ const usersHeaders = [
   }
 ]
 
-const permissions = [
-  {
-    permission: 'access:admin',
-    hint: 'Can access the administration area.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'read:users',
-    hint: 'Can view users, but not create or modify them.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:users',
-    hint: 'Can create / manage users (but not users with manage:system permissions)',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'read:groups',
-    hint: 'Can view groups and their permissions, but not create or modify them.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:groups',
-    hint: 'Can create / manage groups and assign permissions (but not manage:system) / page rules',
-    warning: true,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:navigation',
-    hint: 'Can manage site navigation',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:theme',
-    hint: 'Can modify site theme settings',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:sites',
-    hint: 'Can create / manage sites',
-    warning: true,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:glossary',
-    hint: 'Can create / manage the glossary (terms, aliases, versions)',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:system',
-    hint: 'Can manage and access everything. Root administrator.',
-    warning: true,
-    restrictedForSystem: true,
-    disabled: true
-  }
+/*
+  Structural data only -- no English text. `title:`/`hint:` are resolved from
+  `admin.groups.permissions.<permission>.title` / `.hint` in the `permissions` computed below, where
+  `t()` is available; a plain module-scope array can only ever hold a literal, not a reactive
+  translation, so it stays purely structural here.
+*/
+const PERMISSIONS_DATA = [
+  { permission: 'access:admin', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'read:users', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:users', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'read:groups', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:groups', warning: true, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:navigation', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:theme', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:sites', warning: true, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:glossary', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:system', warning: true, restrictedForSystem: true, disabled: true }
 ]
+
+const permissions = computed(() =>
+  PERMISSIONS_DATA.map((perm) => ({
+    ...perm,
+    hint: t(`admin.groups.permissions.${perm.permission}.hint`)
+  }))
+)
 
 /**
  * The subset of `rules` below that the guests group may be granted. Mirrors `GUEST_ROLES` in
@@ -847,208 +757,66 @@ const GUEST_ROLES = [
   'write:comments'
 ]
 
-const rules = [
-  {
-    permission: 'read:pages',
-    title: 'Read Pages',
-    hint: 'Can view and search pages.',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'write:pages',
-    title: 'Write Pages',
-    hint: 'Can create and edit pages.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'review:pages',
-    title: 'Review Pages',
-    hint: 'Can review and approve edits submitted by users.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:pages',
-    title: 'Manage Pages',
-    hint: 'Can move existing pages to other locations the user has write access to.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'delete:pages',
-    title: 'Delete Pages',
-    hint: 'Can delete existing pages.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'write:styles',
-    title: 'Use CSS',
-    hint: 'Can insert CSS styles in pages.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'write:scripts',
-    title: 'Use JavaScript',
-    hint: 'Can insert JavaScript in pages.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'read:source',
-    title: 'View Page Source',
-    hint: 'Can view pages source.',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'read:history',
-    title: 'View Page History',
-    hint: 'Can view previous versions of pages.',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'read:assets',
-    title: 'View Assets',
-    hint: 'Can view / use assets (such as images and files) in pages.',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'write:assets',
-    title: 'Upload Assets',
-    hint: 'Can upload new assets (such as images and files).',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:assets',
-    title: 'Manage Assets',
-    hint: 'Can edit and delete existing assets (such as images and files).',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'read:comments',
-    title: 'Read Comments',
-    hint: 'Can view page comments.',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'write:comments',
-    title: 'Write Comments',
-    hint: 'Can post new comments on pages.',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'manage:comments',
-    title: 'Manage Comments',
-    hint: 'Can edit and delete existing page comments.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  /*
-    Task #684: the eight `site:*` site-admin permissions (see `backend/helpers/siteRules.ts`'s
-    `SITE_PERMISSIONS`, the closed vocabulary this list must stay in step with -- do not add to
-    one without the other). Each governs one settings surface behind `/_admin/:siteid/...` -- see
-    `docs/decisions/delegated-per-site-administration.md` §3 for the one-per-surface reasoning.
+/*
+  Structural data only -- no English text. `title:`/`hint:` are resolved from
+  `admin.groups.permissions.<permission>.title` / `.hint` in the `rules` computed below, where `t()`
+  is available; a plain module-scope array can only ever hold a literal, not a reactive translation,
+  so it stays purely structural here.
 
-    Deliberately in the SAME catalog as the page permissions above, not a second list or a second
-    UI: a rule already has a sites picker ("Applies to..." below), which for one of these means
-    exactly what it already means for a page permission -- empty is every site, populated is only
-    those. The `path` / `match` / `locales` fields alongside it are simply not read for these (see
-    `helpers/siteRules.ts`'s own doc comment) and can be left at whatever a new rule defaults to.
+  Task #684: the eight `site:*` site-admin permissions (see `backend/helpers/siteRules.ts`'s
+  `SITE_PERMISSIONS`, the closed vocabulary this list must stay in step with -- do not add to
+  one without the other). Each governs one settings surface behind `/_admin/:siteid/...` -- see
+  `docs/decisions/delegated-per-site-administration.md` §3 for the one-per-surface reasoning.
 
-    None of these are in `GUEST_ROLES` above, so `ruleOptions` already keeps them off the guests
-    group's picker -- and `models/groups.ts` enforces that server-side regardless of what this
-    screen offers.
-  */
+  Deliberately in the SAME catalog as the page permissions above, not a second list or a second
+  UI: a rule already has a sites picker ("Applies to..." below), which for one of these means
+  exactly what it already means for a page permission -- empty is every site, populated is only
+  those. The `path` / `match` / `locales` fields alongside it are simply not read for these (see
+  `helpers/siteRules.ts`'s own doc comment) and can be left at whatever a new rule defaults to.
+
+  None of these are in `GUEST_ROLES` above, so `ruleOptions` already keeps them off the guests
+  group's picker -- and `models/groups.ts` enforces that server-side regardless of what this
+  screen offers.
+*/
+const RULES_DATA = [
+  { permission: 'read:pages', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'write:pages', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'review:pages', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:pages', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'delete:pages', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'write:styles', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'write:scripts', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'read:source', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'read:history', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'read:assets', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'write:assets', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:assets', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'read:comments', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'write:comments', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'manage:comments', warning: false, restrictedForSystem: true, disabled: false },
   {
-    permission: 'site:general',
-    title: 'Site: General Settings',
-    hint: 'Can manage general site settings (title, description, features, robots, sitemap, uploads, etc.), and the site logo / favicon.',
+    permission: 'manage:classification',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
-  {
-    permission: 'site:theme',
-    title: 'Site: Theme',
-    hint: "Can manage the site's theme and appearance.",
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:navigation',
-    title: 'Site: Navigation',
-    hint: "Can manage the site's navigation menus.",
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:blocks',
-    title: 'Site: Blocks',
-    hint: "Can enable, disable or delete the site's blocks.",
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:approvals',
-    title: 'Site: Approval Rules',
-    hint: "Can view and manage the site's approval rules for suggested edits.",
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:login',
-    title: 'Site: Login & Authentication',
-    hint: "Can manage the site's authentication strategies and login background image.",
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:locale',
-    title: 'Site: Locale',
-    hint: "Can manage the site's active locales.",
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:editors',
-    title: 'Site: Editors',
-    hint: 'Can manage which content editors are enabled for the site.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  }
+  { permission: 'site:general', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:theme', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:navigation', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:blocks', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:approvals', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:login', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:locale', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:editors', warning: false, restrictedForSystem: true, disabled: false }
 ]
+
+const rules = computed(() =>
+  RULES_DATA.map((rule) => ({
+    ...rule,
+    title: t(`admin.groups.permissions.${rule.permission}.title`),
+    hint: t(`admin.groups.permissions.${rule.permission}.hint`)
+  }))
+)
 
 // VALIDATION RULES
 
@@ -1095,7 +863,9 @@ const isGuestGroup = computed(() => {
  * group edited through the API as well; this keeps the screen from offering what would be dropped.
  */
 const ruleOptions = computed(() =>
-  isGuestGroup.value ? rules.filter((rule) => GUEST_ROLES.includes(rule.permission)) : rules
+  isGuestGroup.value
+    ? rules.value.filter((rule) => GUEST_ROLES.includes(rule.permission))
+    : rules.value
 )
 
 // WATCHERS
@@ -1117,18 +887,16 @@ function checkRoute() {
   }
 }
 
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
+/**
+ * START/END/EXACT compare `path` directly against a page path, which is always stored lowercased
+ * (`backend/helpers/common.ts#normalizePagePath`) -- so typing any uppercase character there would
+ * save a rule that can never match (silently, for a DENY -- OpenProject #2182). Lowercase as the
+ * administrator types rather than only rejecting on save: TAG/TAGALL read `path` as a comma list
+ * (already lowercased at match time) and REGEX as a pattern that may deliberately use a character
+ * class like `[A-Z]`, so neither is folded here.
+ */
+function onRulePathInput(rule, value) {
+  rule.path = ['START', 'END', 'EXACT'].includes(rule.match) ? value.toLowerCase() : value
 }
 
 function getRuleModeColor(mode) {
@@ -1193,7 +961,7 @@ async function fetchGroup() {
   try {
     const resp = await API_CLIENT.get(`groups/${adminStore.overlayOpts.id}`).json()
     if (!resp?.id) {
-      throw new Error('An unexpected error occured while fetching group details.')
+      throw new Error(t('common.error.unexpected'))
     }
     state.group = resp
     state.usersTotal = state.group.userCount ?? 0
@@ -1221,7 +989,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.groups.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.groups.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     notify({
@@ -1232,7 +1000,7 @@ async function save() {
     // -> ky throws above 400 with the reason in the body, which is where the server explains itself
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   state.isLoading = false
@@ -1281,7 +1049,7 @@ async function importRules() {
     const rulesRaw = await blob.text()
     const rules = JSON.parse(rulesRaw)
     if (!Array.isArray(rules) || rules.length < 1) {
-      throw new Error('Invalid Rules Format')
+      throw new Error(t('admin.groups.importInvalidFormat'))
     }
     confirm({
       title: t('admin.groups.importModeTitle'),
@@ -1294,6 +1062,7 @@ async function importRules() {
           { label: t('admin.groups.importModeAdd'), value: 'add' }
         ]
       },
+      cancel: true,
       persistent: true
     }).onOk((choice) => {
       if (choice === 'replace') {
@@ -1343,7 +1112,7 @@ async function refreshUsers() {
       }
     }).json()
     if (!Array.isArray(resp?.users)) {
-      throw new Error('An unexpected error occured while fetching group users.')
+      throw new Error(t('common.error.unexpected'))
     }
     state.usersTotal = resp.total ?? 0
     state.users = resp.users
@@ -1373,7 +1142,7 @@ function assignUser() {
       try {
         const resp = await API_CLIENT.post(`groups/${state.group.id}/users/${usr.id}`).json()
         if (!resp?.ok) {
-          throw new Error(resp?.message || 'An unexpected error occured.')
+          throw new Error(resp?.message || t('common.error.unexpected'))
         }
         assigned++
       } catch (err) {
@@ -1400,13 +1169,15 @@ async function unassignUser(user) {
     title: t('admin.groups.unassignUser'),
     message: t('admin.groups.unassignUserConfirm', { userName: user.name }),
     cancel: true,
-    persistent: true
+    persistent: true,
+    color: 'negative',
+    okLabel: t('common.actions.delete')
   }).onOk(async () => {
     state.isLoadingUsers = true
     try {
       const resp = await API_CLIENT.delete(`groups/${state.group.id}/users/${user.id}`)
       if (!resp?.ok) {
-        throw new Error((await resp.json())?.message || 'An unexpected error occured.')
+        throw new Error((await resp.json())?.message || t('common.error.unexpected'))
       }
       notify({
         type: 'positive',

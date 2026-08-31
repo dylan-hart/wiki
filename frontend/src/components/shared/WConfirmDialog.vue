@@ -1,5 +1,9 @@
 <template>
-  <w-dialog v-model="dialogVisible" :persistent="persistent" @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    :persistent="persistent"
+    :aria-label="title || null"
+    @hide="onDialogHide">
     <w-card style="min-width: 380px; max-width: 480px">
       <w-card-section class="card-header">
         <span>{{ title }}</span>

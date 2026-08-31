@@ -3,7 +3,12 @@
     <w-toolbar class="bg-primary text-white">
       <div class="text-subtitle2">{{ t('editor.pageData.manageTemplates') }}</div>
       <w-space />
-      <w-btn icon="la:times" dense flat @click="$emit('close')" />
+      <w-btn
+        icon="la:times"
+        dense
+        flat
+        :aria-label="t(`common.actions.close`)"
+        @click="$emit('close')" />
     </w-toolbar>
     <w-card-section class="page-datatmpl-selector">
       <div class="flex gap-4">
@@ -44,7 +49,7 @@
         <div class="px-4">
           <sortable
             ref="miscListRef"
-            class="q-list rounded"
+            class="rounded"
             :list="inventoryMisc"
             :options="paletteSortableOptions"
             @start="state.dragStarted = true"
@@ -66,7 +71,7 @@
         <div class="px-4 pb-4">
           <sortable
             ref="kvListRef"
-            class="q-list rounded"
+            class="rounded"
             :list="inventoryKV"
             :options="paletteSortableOptions"
             @start="state.dragStarted = true"
@@ -86,11 +91,7 @@
         </div>
       </div>
       <div class="min-w-0 flex-1 page-datatmpl-content">
-        <w-scroll-area
-          ref="scrollArea"
-          :thumb-style="siteStore.thumbStyle"
-          :bar-style="siteStore.barStyle"
-          style="height: 100%">
+        <w-scroll-area ref="scrollArea" style="height: 100%">
           <div class="min-w-0 flex-1 page-datatmpl-meta px-4 py-4 flex gap-4">
             <w-input
               class="min-w-0 flex-1"
@@ -125,7 +126,7 @@
                 <em>{{ t('editor.pageData.dragDropHint') }}</em>
               </div>
               <sortable
-                class="q-list rounded"
+                class="rounded"
                 :list="state.tmpl.data"
                 :options="fieldListSortableOptions"
                 @end="state.dragStarted = false"

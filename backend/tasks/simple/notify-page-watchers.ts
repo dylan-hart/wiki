@@ -43,6 +43,15 @@ export interface NotifyPageWatchersPayload {
  * job would retry the whole payload, including the `recordMany` call already covered by the `try` below
  * — re-running that on a mail-only failure would insert duplicate pending rows for every watcher, not
  * just the one whose send failed.
+ *
+ * OpenProject #2173: `read:pages` is re-checked once more here, right before the immediate-send loop
+ * — a scheduler backlog can put real time between `notifyWatchers`'s own synchronous check (at page-
+ * change time) and this job actually running. Checked with `WIKI.models.pageWatchEvents.filterReadable`
+ * (shared with the in-app inbox's read-time re-check and the digest job's own send-time one) against
+ * the live page where one still exists, falling back to this payload's own `pagePath`/`pageLocale` for
+ * a `deleted` action, whose page row is already gone by the time this runs. Only gates the immediate
+ * send: a `digest`-mode watcher's row is left exactly as recorded either way, since the digest job
+ * re-checks it again itself at its own, later send time.
  */
 export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
   if (!payload || payload.watchers.length < 1) {
@@ -96,6 +105,15 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
     if (!eventId) {
       continue
     }
+    // -> OpenProject #2173: re-checked once more, right before the send -- see this file's own doc
+    //    comment above. A single-item batch: `filterReadable` is keyed to one user's events, and each
+    //    watcher here is a different user.
+    const readable = await WIKI.models.pageWatchEvents.filterReadable(watcher.userId, [
+      { pageId, pagePath, pageLocale, siteId }
+    ])
+    if (readable.length < 1) {
+      continue
+    }
     try {
       const recipient = await WIKI.models.users.getById(watcher.userId)
       if (!recipient?.email) {
@@ -110,7 +128,8 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
         page: { title: pageTitle, path: pagePath, locale: pageLocale },
         action,
         changedFields,
-        actorName
+        actorName,
+        locale: (recipient.prefs as Record<string, any> | undefined)?.locale
       })
       await WIKI.models.pageWatchEvents.markDelivered(eventId)
     } catch (err: any) {

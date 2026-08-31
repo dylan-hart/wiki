@@ -1,6 +1,6 @@
 <template>
   <w-page class="py-4">
-    <div class="w-section-header">{{ t('profile.myInfo') }}</div>
+    <h1 class="w-section-header">{{ t('profile.myInfo') }}</h1>
     <w-item v-if="!canEdit">
       <w-item-section>
         <w-card class="bg-negative rounded text-white" flat>
@@ -99,7 +99,7 @@
           :readonly="!canEdit" />
       </w-item-section>
     </w-item>
-    <div class="w-section-header mt-6">{{ t('profile.preferences') }}</div>
+    <h2 class="w-section-header mt-6">{{ t('profile.preferences') }}</h2>
     <w-item>
       <blueprint-icon icon="timezone" />
       <w-item-section>
@@ -181,7 +181,7 @@
           :aria-label="t(`profile.appearance`)" />
       </w-item-section>
     </w-item>
-    <div class="w-section-header mt-6">{{ t('profile.accessibility') }}</div>
+    <h2 class="w-section-header mt-6">{{ t('profile.accessibility') }}</h2>
     <w-item>
       <blueprint-icon icon="visualy-impaired" />
       <w-item-section>
@@ -220,11 +220,13 @@ import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { computed, onMounted, reactive } from 'vue'
 
+import { useCommonStore } from '@/stores/common'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 // STORES
 
+const commonStore = useCommonStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
@@ -324,7 +326,10 @@ async function save() {
     message: t('profile.saving')
   })
   try {
-    // -> The email is displayed read-only and cannot be changed here, so it is left out entirely
+    // -> The email is displayed read-only and cannot be changed here, so it is left out entirely.
+    //    `locale` has no field of its own on this screen -- it is whatever the app's own locale
+    //    switcher (`LocaleSelectorMenu`) currently has the interface set to, persisted here so
+    //    downstream per-user mail can address this user in it.
     const resp = await API_CLIENT.put('users/profile', {
       json: {
         name: state.config.name,
@@ -335,11 +340,14 @@ async function save() {
         dateFormat: state.config.dateFormat,
         timeFormat: state.config.timeFormat,
         appearance: state.config.appearance,
-        cvd: state.config.cvd
+        cvd: state.config.cvd,
+        // -> No dedicated form control: `LocaleSelectorMenu` already owns picking the UI language,
+        //    so saving the profile records whatever that's currently set to as the mail preference.
+        locale: commonStore.locale
       }
     }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     if (resp.profile) {
       applyProfile(resp.profile)

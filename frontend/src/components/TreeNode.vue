@@ -14,11 +14,8 @@
       <!-- RIGHT-CLICK MENU -->
       <w-menu
         v-if="contextActionList.length > 0"
-        touch-position
         context-menu
         auto-close
-        transition-show="jump-down"
-        transition-hide="jump-up"
         @before-show="state.isContextMenuShown = true"
         @before-hide="state.isContextMenuShown = false">
         <w-card class="p-2">
@@ -147,7 +144,7 @@ async function toggleNode(isCurrent = false) {
         emitLazyLoad(props.node.id, isCurrent, { done: resolve, fail: reject })
       }),
       new Promise((resolve, reject) => {
-        setTimeout(() => reject(new Error('Async tree loading timeout')), 30000)
+        setTimeout(() => reject(new Error('ERR_TREE_LOAD_TIMEOUT')), 30000)
       })
     ])
     loaded[props.node.id] = true

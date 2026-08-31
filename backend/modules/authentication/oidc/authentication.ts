@@ -15,6 +15,13 @@ function asStringArray(value: unknown): string[] {
  * including the `mapGroups`/`groupsClaim` behavior every OIDC preset inherits — can be asserted
  * directly, with no network or ID-token verification involved: everything upstream of this is
  * `openid-client` itself, already covered by its own test suite.
+ *
+ * `email_verified` is honoured the way `google/authentication.ts` already does: an account here is
+ * matched by email address, so an address the provider itself has not verified says nothing about who
+ * holds the mailbox. Every OIDC preset (auth0, okta, microsoft, keycloak, gitlab, twitch, slack) routes
+ * through this same function, so the check applies to all of them with no per-preset code. Only a
+ * claim that is explicitly `false` refuses the login -- a provider that omits the claim entirely (many
+ * do) is not assumed unverified, since there is nothing to contradict.
  */
 export function mapOidcProfile(
   conf: Record<string, any>,
@@ -24,6 +31,10 @@ export function mapOidcProfile(
   const email = info[conf.emailClaim || 'email']
   if (!email || typeof email !== 'string') {
     throw new Error('ERR_NO_EMAIL_FROM_PROVIDER')
+  }
+  const emailVerified = info.email_verified
+  if (emailVerified === false && conf.allowUnverifiedEmail !== true) {
+    throw new Error('ERR_EMAIL_NOT_VERIFIED')
   }
   return {
     id: subject,

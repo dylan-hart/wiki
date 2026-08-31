@@ -6,7 +6,6 @@ import {
   CustomError,
   decodeTreePath,
   encodeTreePath,
-  generateHash,
   generatePathHash,
   normalizePagePath
 } from '../helpers/common.ts'
@@ -115,6 +114,48 @@ export interface DeletedEntry {
   folderPath: string
   fileName: string
   locale: string
+}
+
+/**
+ * A descendant page, as returned by `listDescendants` for a caller to authorize before it mutates
+ * (OpenProject #2098).
+ */
+export interface DescendantPage {
+  id: string
+  /** Slash-separated path of the page. */
+  path: string
+  locale: string
+  tags: string[]
+  /** Classification level id (OpenProject #1079), joined from `pages` -- `tree` carries none of its
+   *  own (the same gap as OpenProject #1128). */
+  classification: string | null
+}
+
+/**
+ * A descendant asset, as returned by `listDescendants` for a caller to authorize before it mutates
+ * (OpenProject #2098).
+ */
+export interface DescendantAsset {
+  id: string
+  /** Slash-separated path of the asset, built from its tree row's `folderPath`/`fileName` -- what an
+   *  asset `read:assets`/`manage:assets` ref is built from. */
+  path: string
+  /** Slash-separated, without the file name. Empty at the site root -- what `mayOnAsset` (`api/assets.ts`)
+   *  takes alongside `fileName` to build the same ref, rather than the combined `path` above. */
+  folderPath: string
+  fileName: string
+  locale: string
+}
+
+/**
+ * One page `refreshDescendantPaths` repathed, for the caller to fire the move side effects
+ * `pages.ts#recordMoveSideEffects` fires for a direct `movePage` (search index, storage dispatch) --
+ * see `renameFolder`. `page` is the full post-update row, matching what `search.renamed` expects.
+ */
+export interface MovedDescendantPage {
+  page: typeof pagesTable.$inferSelect
+  previousPath: string
+  previousLocale: string
 }
 
 /** A raw `tree` row, as the model passes it around internally. */
@@ -266,6 +307,13 @@ class Tree {
    * @param locale Required — every listing is scoped to exactly one locale. A caller with no locale
    *               opinion of its own (an HTTP request that left the query param off) resolves one
    *               before calling in, rather than this method merging every locale together.
+   * @param publicOnly Hide, from a page-type entry only, exactly what `pageIsVisible` hides from an
+   *                   anonymous reader — a draft/scheduled page, or one marked `isBrowsable: false` —
+   *                   so BROWSE THE TREE (OpenProject #1587 §2) cannot enumerate them to a guest
+   *                   session holding `read:pages`, the one thing `visibleTreeItems`' page-RULE
+   *                   filter in `api/tree.ts` never checked. `false` (an authenticated caller, and
+   *                   every other current caller of this method) keeps every entry, same as before
+   *                   this parameter existed — a folder or asset entry is never affected either way.
    */
   async getTree({
     siteId,
@@ -280,7 +328,8 @@ class Tree {
     orderByDirection = 'asc',
     depth = 0,
     includeAncestors = false,
-    includeRootFolders = false
+    includeRootFolders = false,
+    publicOnly = false
   }: {
     siteId: string
     parentId?: string | null
@@ -295,6 +344,8 @@ class Tree {
     depth?: number
     includeAncestors?: boolean
     includeRootFolders?: boolean
+    /** Restrict page rows to what a reader with no session may see. See `pageIsVisible`. */
+    publicOnly?: boolean
   }): Promise<TreeItem[]> {
     if (offset < 0) {
       throw new CustomError('treeInvalidOffset', 'The offset cannot be negative.')
@@ -309,7 +360,7 @@ class Tree {
     // -> Resolve what to list into the ltree path its children carry
     let path = ''
     if (parentId) {
-      const parent = await this.getFolderById(parentId)
+      const parent = await this.getFolderById(parentId, siteId)
       if (parent) {
         path = childPathOf(parent)
       }
@@ -350,6 +401,14 @@ class Tree {
       // -> `sql.param`, because a bare array in a template is read as a parameter *list* — the
       //    comma-separated form `inArray` needs — and `@>` wants one array-typed parameter
       conditions.push(sql`${treeTable.tags} @> ${sql.param(tags)}`)
+    }
+    if (publicOnly) {
+      // -> `pagesTable` is left-joined in below purely for a page row's `classification`, so a
+      //    folder or asset row carries every `pagesTable` column as null -- applying
+      //    `pageIsVisible` unguarded would filter those out too, along with the page rows it is
+      //    actually meant to hide. Restricting the predicate to `type = 'page'` rows is what
+      //    keeps folders and assets listed exactly as before.
+      conditions.push(or(ne(treeTable.type, 'page'), and(...pageIsVisible(pagesTable, true))))
     }
 
     const direction = orderByDirection === 'desc' ? desc : asc
@@ -611,13 +670,22 @@ class Tree {
   }
 
   /**
-   * A single folder by ID, or null if the ID is not a folder
+   * A single folder by ID, or null if the ID is not a folder OR belongs to a different site
+   * (OpenProject #2127/#2131) — `siteId` is required, with no optional-argument fallback, so a
+   * caller can no longer look a folder up by id alone and forget to check whose site it belongs
+   * to. The folder-create handler in `api/tree.ts` used to do exactly that with a caller-supplied
+   * `parentId`, leaking another site's folder path and locale to whoever already held
+   * `manage:pages` on their OWN site.
    */
-  async getFolderById(id: string, db: WikiDbOrTx = WIKI.db): Promise<TreeRow | null> {
+  async getFolderById(
+    id: string,
+    siteId: string,
+    db: WikiDbOrTx = WIKI.db
+  ): Promise<TreeRow | null> {
     const results = await db
       .select()
       .from(treeTable)
-      .where(and(eq(treeTable.id, id), eq(treeTable.type, 'folder')))
+      .where(and(eq(treeTable.id, id), eq(treeTable.siteId, siteId), eq(treeTable.type, 'folder')))
       .limit(1)
     return (results[0] as TreeRow) ?? null
   }
@@ -690,7 +758,9 @@ class Tree {
     id?: string | null
     path?: string | null
     locale?: string
-    siteId?: string
+    // -> Required (OpenProject #2127), not just for the path branch below: the id branch now
+    //    scopes `getFolderById()` by it too, both callers already pass it.
+    siteId: string
     createIfMissing?: boolean
     /** Runs against this instead of the ambient `WIKI.db` — a batch import passes its own
      *  transaction here so a folder it has to create is rolled back along with everything else in
@@ -698,7 +768,7 @@ class Tree {
     db?: WikiDbOrTx
   }): Promise<TreeRow> {
     if (id) {
-      const folder = await this.getFolderById(id, db)
+      const folder = await this.getFolderById(id, siteId, db)
       if (!folder) {
         throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
       }
@@ -711,7 +781,7 @@ class Tree {
       .from(treeTable)
       .where(
         and(
-          eq(treeTable.siteId, siteId!),
+          eq(treeTable.siteId, siteId),
           eq(treeTable.locale, locale!),
           eq(treeTable.folderPath, folderPath),
           eq(treeTable.fileName, fileName),
@@ -730,7 +800,7 @@ class Tree {
       pathName: fileName,
       title: fileName,
       locale: locale!,
-      siteId: siteId!,
+      siteId,
       db
     })
   }
@@ -777,7 +847,7 @@ class Tree {
     let path = encodeTreePath(parentPath)
     let effectiveLocale = locale
     if (parentId) {
-      const parent = await this.getFolderById(parentId, db)
+      const parent = await this.getFolderById(parentId, siteId, db)
       if (!parent) {
         throw new CustomError('treeInvalidParent', 'The parent folder does not exist.', 404)
       }
@@ -860,16 +930,12 @@ class Tree {
         WIKI.logger.debug(
           `Creating missing parent folder ${ancestor.fileName} at path /${decodeTreePath(ancestor.folderPath)}...`
         )
-        const ancestorFullPath = ancestor.folderPath
-          ? `${decodeTreePath(ancestor.folderPath)}/${ancestor.fileName}`
-          : ancestor.fileName
         try {
           await db.insert(treeTable).values({
             folderPath: ancestor.folderPath,
             fileName: ancestor.fileName,
             type: 'folder',
             title: ancestor.fileName,
-            hash: generateHash(ancestorFullPath),
             locale: effectiveLocale,
             siteId,
             meta: { children: 0 }
@@ -890,7 +956,6 @@ class Tree {
       }
     }
 
-    const fullPath = path ? `${decodeTreePath(path)}/${name}` : name
     let inserted
     try {
       inserted = await db
@@ -900,7 +965,6 @@ class Tree {
           fileName: name,
           type: 'folder',
           title,
-          hash: generateHash(fullPath),
           locale: effectiveLocale,
           siteId,
           meta: { children: 0 }
@@ -926,21 +990,72 @@ class Tree {
   }
 
   /**
+   * List every page under a folder, at any depth, with what authorizing the whole subtree needs:
+   * its current path, tags and classification (OpenProject #2102).
+   *
+   * Unbounded, like `refreshDescendantPaths` below and unlike `getTree()`'s `MAX_DEPTH`-capped
+   * listing: a permission check that stopped ten levels down would leave everything past that depth
+   * unchecked, which is exactly the kind of gap this exists to close for a rename (or delete) that
+   * cascades to every descendant regardless of how deep it goes.
+   */
+  async listDescendantPages(
+    folderId: string,
+    siteId: string
+  ): Promise<{ path: string; tags: string[]; classification: string | null }[]> {
+    const folder = await this.getFolderById(folderId, siteId)
+    if (!folder) {
+      throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
+    }
+    const path = childPathOf(folder)
+
+    const rows = await WIKI.db
+      .select({
+        folderPath: treeTable.folderPath,
+        fileName: treeTable.fileName,
+        tags: treeTable.tags,
+        classification: pagesTable.classification
+      })
+      .from(treeTable)
+      .innerJoin(pagesTable, eq(pagesTable.id, treeTable.id))
+      .where(
+        and(
+          eq(treeTable.siteId, folder.siteId),
+          eq(treeTable.locale, folder.locale),
+          eq(treeTable.type, 'page'),
+          sql`${treeTable.folderPath} <@ ${path}::ltree`
+        )
+      )
+
+    return rows.map((row) => {
+      const rowFolderPath = decodeTreePath(row.folderPath ?? '') ?? ''
+      return {
+        path: rowFolderPath ? `${rowFolderPath}/${row.fileName}` : row.fileName,
+        tags: row.tags ?? [],
+        classification: row.classification
+      }
+    })
+  }
+
+  /**
    * Rename a folder, moving everything under it along with it.
    *
+   * @param siteId Required (OpenProject #2127) so this model method is itself closed to a foreign
+   *               `folderId`, rather than relying solely on the API handler's own separate check.
    * @param pathName The new path segment, normalized as on the way in. Unchanged from the current
    *                 one when only the title differs, which leaves every descendant's path untouched.
    */
   async renameFolder({
     folderId,
+    siteId,
     pathName,
     title
   }: {
     folderId: string
+    siteId: string
     pathName: string
     title: string
   }): Promise<TreeRow> {
-    const folder = await this.getFolderById(folderId)
+    const folder = await this.getFolderById(folderId, siteId)
     if (!folder) {
       throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
     }
@@ -1008,6 +1123,10 @@ class Tree {
 
     WIKI.logger.debug(`Renaming folder ${folder.id} from ${oldPath} to ${newPath}...`)
 
+    // -> Populated inside the transaction below, fired after it resolves -- see
+    //    `fireDescendantMoveSideEffects`'s own comment for why history/watchers stay out of this.
+    let movedPages: MovedDescendantPage[] = []
+
     // -> Everything below is one logical move: partway through would leave some descendants renamed
     //    and others not, or a folder row moved but its descendants' paths unrefreshed
     const updated = await WIKI.db.transaction(async (tx) => {
@@ -1037,14 +1156,13 @@ class Tree {
           )
         )
 
-      const fullPath = folder.folderPath ? `${decodeTreePath(folder.folderPath)}/${name}` : name
       const renamed = await tx
         .update(treeTable)
-        .set({ fileName: name, title, hash: generateHash(fullPath), updatedAt: sql`now()` })
+        .set({ fileName: name, title, updatedAt: sql`now()` })
         .where(eq(treeTable.id, folder.id))
         .returning()
 
-      await this.refreshDescendantPaths(folder.siteId, folder.locale, newPath, tx)
+      movedPages = await this.refreshDescendantPaths(folder.siteId, folder.locale, newPath, tx)
 
       return renamed
     })
@@ -1053,36 +1171,49 @@ class Tree {
     //    themselves changed for the file cache to notice
     WIKI.models.assets.forgetAllPaths()
 
+    // -> Fired after the transaction resolves, never inside `tx` -- `movePage`'s own boundary (writes
+    //    inside, I/O outside) is the reference. One `search.renamed`/`storage.dispatch` per descendant
+    //    page, but `glossary.invalidateCache` only once for the whole batch (see
+    //    `fireDescendantMoveSideEffects`).
+    for (const moved of movedPages) {
+      await this.fireDescendantMoveSideEffects(folder.siteId, moved)
+    }
+    if (movedPages.length > 0) {
+      WIKI.models.glossary.invalidateCache(folder.siteId)
+    }
+
     WIKI.logger.debug(`Renamed folder ${folder.id} successfully.`)
     return updated[0] as TreeRow
   }
 
   /**
-   * Rewrite where everything at or below a folder now sits.
+   * Rewrite every page's stored path after a folder move.
    *
-   * Two rows carry a path and both have to be redone. The tree's own `hash` is how an entry is found
-   * by its path, so leaving it would make every page and asset under the folder unreachable by URL.
-   * A page then keeps a second copy of its path on `pages` -- the `path` itself and the `hash` a
-   * reader's request is actually resolved through -- so leaving that would move the page in the tree
-   * while still serving it from where it used to be, and nothing at all from where it now is.
+   * A page keeps a second copy of its path on `pages` -- the `path` itself and the `hash` a reader's
+   * request is actually resolved through -- so leaving it after a folder move would keep serving the
+   * page from where it used to sit, not where it now is. The tree row itself needs no further work
+   * here: the bulk ltree `UPDATE` just above the caller of this method already rewrote every
+   * descendant's `folderPath`, folders and assets included, and neither of those has a path of its
+   * own beyond that.
    *
-   * An asset has no path of its own: its tree row is the only thing that places it, and moving that
-   * row is the whole job.
+   * `generatePathHash` does not exist in postgres, so each page's hash is recomputed here, row by
+   * row. What is deliberately not touched is `updatedAt`: the folder moved, the pages under it did
+   * not change, and marking a few hundred of them as freshly edited would say otherwise.
    *
-   * The two hashes are not the same function and neither exists in postgres, so each row is rewritten
-   * from here. What is deliberately not touched is `updatedAt`: the folder moved, the pages under it
-   * did not change, and marking a few hundred of them as freshly edited would say otherwise.
+   * @returns Every page this call repathed -- its full post-update row plus where it used to live, for
+   *          `renameFolder` to fire the move side effects (search reindex, storage dispatch) once the
+   *          transaction this runs inside has committed. A folder or asset row carries no side effect
+   *          of its own here, so only pages are returned.
    */
   private async refreshDescendantPaths(
     siteId: string,
     locale: string,
     path: string,
     db: WikiDbOrTx = WIKI.db
-  ): Promise<void> {
+  ): Promise<MovedDescendantPage[]> {
     const rows = await db
       .select({
         id: treeTable.id,
-        type: treeTable.type,
         folderPath: treeTable.folderPath,
         fileName: treeTable.fileName
       })
@@ -1091,42 +1222,162 @@ class Tree {
         and(
           eq(treeTable.siteId, siteId),
           eq(treeTable.locale, locale),
+          eq(treeTable.type, 'page'),
           sql`${treeTable.folderPath} <@ ${path}::ltree`
         )
       )
 
-    let pageCount = 0
+    // -> Read before anything below overwrites it: `pages.path` is a second, independent copy of
+    //    where the page sits (see the class comment above), and this is the only place its
+    //    pre-rename value is still around to read. Every row here is already a page (the select
+    //    above filters on it), so no per-row type check is needed.
+    const pageIds = rows.map((row) => row.id)
+    const previousPaths = new Map<string, string>()
+    if (pageIds.length > 0) {
+      const previousRows = await db
+        .select({ id: pagesTable.id, path: pagesTable.path })
+        .from(pagesTable)
+        .where(inArray(pagesTable.id, pageIds))
+      for (const row of previousRows) {
+        previousPaths.set(row.id, row.path)
+      }
+    }
+
+    const movedPages: MovedDescendantPage[] = []
     for (const row of rows) {
       const folderPath = decodeTreePath(row.folderPath ?? '')
       const fullPath = folderPath ? `${folderPath}/${row.fileName}` : row.fileName
-      await db
-        .update(treeTable)
-        .set({ hash: generateHash(fullPath) })
-        .where(eq(treeTable.id, row.id))
-      if (row.type === 'page') {
-        await db
-          .update(pagesTable)
-          .set({ path: fullPath, hash: generatePathHash(fullPath) })
-          .where(eq(pagesTable.id, row.id))
-        pageCount++
+      const [updated] = await db
+        .update(pagesTable)
+        .set({ path: fullPath, hash: generatePathHash(fullPath) })
+        .where(eq(pagesTable.id, row.id))
+        .returning()
+      const previousPath = previousPaths.get(row.id)
+      if (updated && previousPath !== undefined) {
+        movedPages.push({ page: updated, previousPath, previousLocale: locale })
       }
     }
     if (rows.length > 0) {
-      WIKI.logger.debug(
-        `Refreshed the path of ${rows.length} moved entrie(s), ${pageCount} of them page(s).`
-      )
+      WIKI.logger.debug(`Refreshed the path of ${rows.length} moved page(s).`)
     }
+    return movedPages
+  }
+
+  /**
+   * The move side effects one descendant page owes once `renameFolder`'s transaction has committed --
+   * the same reindex/dispatch pair `pages.ts#recordMoveSideEffects` fires for a direct `movePage`.
+   * History and watcher notifications are deliberately not fired here: both need a real authoring
+   * actor, and `renameFolder` (a folder-level operation with no such actor today) has none to give
+   * them. `glossary.invalidateCache` is likewise not fired here -- it is per-site, not per-page, so
+   * `renameFolder` fires it once for the whole batch instead of once per descendant.
+   */
+  private async fireDescendantMoveSideEffects(
+    siteId: string,
+    { page, previousPath, previousLocale }: MovedDescendantPage
+  ): Promise<void> {
+    await WIKI.models.search.renamed(siteId, page, previousPath, previousLocale)
+    await WIKI.models.storage.dispatch('page:rename', {
+      id: page.id,
+      path: page.path,
+      previousPath,
+      locale: page.locale,
+      previousLocale,
+      siteId
+    })
+  }
+
+  /**
+   * List every page and asset at or below a folder, without mutating anything.
+   *
+   * The same set `deleteFolder` deletes and `renameFolder` moves under it -- `<@` is "at or below",
+   * scoped by `siteId` and the folder's own `locale` the same way (bug #932) -- so `deleteFolder` and
+   * `renameFolder`'s callers (`api/tree.ts`'s DELETE/PATCH folder handlers) can authorize every
+   * descendant before committing to the mutation (OpenProject #2098, #2100). Each descendant page
+   * carries its real `tags` and `classification` (joined from `pages`, since `tree` carries no
+   * classification column of its own -- the same root cause as OpenProject #1128); each descendant
+   * asset carries both its combined `path` and the separate `folderPath`/`fileName` pair `mayOnAsset`
+   * (`api/assets.ts`) builds its own ref from.
+   *
+   * @param folderId UUID of the folder whose descendants to list.
+   * @param siteId The site the folder must belong to (OpenProject #2131) -- passed straight to
+   *               `getFolderById`.
+   * @param db Runs against this instead of the ambient `WIKI.db`, so a caller can authorize inside the
+   *           same transaction that will go on to mutate.
+   */
+  async listDescendants(
+    folderId: string,
+    siteId: string,
+    db: WikiDbOrTx = WIKI.db
+  ): Promise<{ pages: DescendantPage[]; assets: DescendantAsset[] }> {
+    const folder = await this.getFolderById(folderId, siteId, db)
+    if (!folder) {
+      throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
+    }
+    const path = childPathOf(folder)
+
+    const rows = await db
+      .select({
+        id: treeTable.id,
+        type: treeTable.type,
+        folderPath: treeTable.folderPath,
+        fileName: treeTable.fileName,
+        locale: treeTable.locale,
+        tags: treeTable.tags,
+        // -> Only a `page`-type row's id ever matches `pagesTable.id`; a folder or asset row leaves
+        //    this null, the same "no classification" treatment `getTree()` (OpenProject #1128) gives.
+        classification: pagesTable.classification
+      })
+      .from(treeTable)
+      .leftJoin(pagesTable, eq(pagesTable.id, treeTable.id))
+      .where(
+        and(
+          eq(treeTable.siteId, folder.siteId),
+          eq(treeTable.locale, folder.locale),
+          sql`${treeTable.folderPath} <@ ${path}::ltree`
+        )
+      )
+
+    const pages: DescendantPage[] = []
+    const assets: DescendantAsset[] = []
+    for (const row of rows) {
+      const folderPath = decodeTreePath(row.folderPath ?? '') ?? ''
+      const fullPath = folderPath ? `${folderPath}/${row.fileName}` : row.fileName
+      if (row.type === 'page') {
+        pages.push({
+          id: row.id,
+          path: fullPath,
+          locale: row.locale,
+          tags: row.tags ?? [],
+          classification: row.classification ?? null
+        })
+      } else if (row.type === 'asset') {
+        assets.push({
+          id: row.id,
+          path: fullPath,
+          folderPath,
+          fileName: row.fileName,
+          locale: row.locale
+        })
+      }
+    }
+
+    return { pages, assets }
   }
 
   /**
    * Delete a folder and everything under it.
    *
+   * @param siteId Required (OpenProject #2127) so this model method is itself closed to a foreign
+   *               `folderId`, rather than relying solely on the API handler's own separate check.
    * @returns The deleted pages and assets, for the caller to clean up after. Where each one sat comes
    *          back with it: the tree row is the only record of that, and it is gone by then — but what
    *          was deleted is exactly what a webhook subscriber is owed.
    */
-  async deleteFolder(folderId: string): Promise<{ pages: DeletedEntry[]; assets: DeletedEntry[] }> {
-    const folder = await this.getFolderById(folderId)
+  async deleteFolder(
+    folderId: string,
+    siteId: string
+  ): Promise<{ pages: DeletedEntry[]; assets: DeletedEntry[] }> {
+    const folder = await this.getFolderById(folderId, siteId)
     if (!folder) {
       throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
     }
@@ -1225,10 +1476,6 @@ class Tree {
       siteId,
       tags,
       meta,
-      // -> Pages inherit their locale's site-wide navigation until something says otherwise. Resolved
-      //    to that menu's own row id -- never the site id, since the site-wide menu is locale-scoped
-      //    and identified by (siteId, locale) rather than by id.
-      navigationId: await WIKI.models.navigation.ensureSiteNav(siteId, locale),
       // -> A page's file name is its URL, chosen deliberately by whoever wrote it, so a clash is
       //    something to report rather than something to work around
       onConflict: 'error',
@@ -1331,14 +1578,11 @@ class Tree {
       }
     }
 
-    const folderPath = decodeTreePath(entry.folderPath ?? '')
-    const fullPath = folderPath ? `${folderPath}/${fileName}` : fileName
     const updated = await WIKI.db
       .update(treeTable)
       .set({
         fileName,
         title: title ?? entry.title,
-        hash: generateHash(fullPath),
         updatedAt: sql`now()`
       })
       .where(eq(treeTable.id, entry.id))
@@ -1373,7 +1617,6 @@ class Tree {
     siteId,
     tags,
     meta,
-    navigationId,
     onConflict,
     db = WIKI.db
   }: {
@@ -1387,7 +1630,6 @@ class Tree {
     siteId: string
     tags: string[]
     meta: Record<string, any>
-    navigationId?: string
     onConflict: 'error' | 'suffix'
     db?: WikiDbOrTx
   }): Promise<TreeRow> {
@@ -1403,6 +1645,12 @@ class Tree {
           })
         : null
     const path = folder ? childPathOf(folder) : ''
+
+    // -> A page inherits the nearest ancestor folder's override/hide menu, falling back to the
+    //    locale's site-wide menu when nothing above it says otherwise (`ancestorNavId`). An asset
+    //    has no sidebar of its own, so it gets no `navigationId` at all.
+    const navigationId =
+      type === 'page' ? await WIKI.models.navigation.ancestorNavId(siteId, locale, path) : null
 
     const name = await this.resolveName({ siteId, locale, path, type, fileName, onConflict, db })
     const fullPath = path ? `${decodeTreePath(path)}/${name}` : name
@@ -1421,7 +1669,6 @@ class Tree {
           // -> A title that was only ever the file name follows it when the name had to change, so that
           //    two uploads of `photo.png` do not both show up called `photo.png`
           title: title === fileName ? name : title,
-          hash: generateHash(fullPath),
           locale,
           siteId,
           tags,
@@ -1450,9 +1697,9 @@ class Tree {
   /**
    * Settle on a file name that nothing in the folder is already using.
    *
-   * Two entries with the same name in the same folder would share a path, and therefore a hash — the
-   * second one would shadow the first everywhere it is looked up by URL. An upload takes the next free
-   * `name-1.ext`, the way a file manager is expected to; anything else says so instead.
+   * Two entries with the same name in the same folder would share a path — the second one would
+   * shadow the first everywhere it is looked up by URL. An upload takes the next free `name-1.ext`,
+   * the way a file manager is expected to; anything else says so instead.
    *
    * A page is the exception: a page and the folder of the pages below it are *meant* to share a name,
    * which is what `/guide` being both a page and the way into `/guide/…` is. Nothing shadows anything

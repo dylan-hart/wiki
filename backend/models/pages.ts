@@ -1,19 +1,29 @@
-import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
+import bcrypt from 'bcryptjs'
+import { and, desc, eq, inArray, ne, or, sql } from 'drizzle-orm'
 import { pages as pagesTable, tree as treeTable, users as usersTable } from '../db/schema.ts'
 import {
   CustomError,
   defaultLocale,
   generatePathHash,
-  normalizePagePath,
-  timingSafeCompare
+  normalizePagePath
 } from '../helpers/common.ts'
 import { rulesAllow } from '../helpers/pageRules.ts'
+import { invalidateGraphCache } from '../helpers/graphCache.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import type { PageHistoryVia } from './pageHistory.ts'
 import type { RenderPermissions, TocNode } from './rendering.ts'
+import { pageIsVisible } from './tree.ts'
 import type { DeletedEntry } from './tree.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
 import type { WikiDbOrTx, WikiTx } from '../core/db.ts'
+
+/**
+ * Cost factor `bcrypt` hashes a page's password at — the same one `models/users.ts` hashes account
+ * passwords and recovery codes with (OpenProject #2232). `pages.password` stores this hash, never the
+ * cleartext: `unlockPage()` checks a guess against it with `bcrypt.compare`, the same shape a login
+ * check uses.
+ */
+const pagePasswordBcryptRounds = 12
 
 /** What each editor produces, which is what the content column holds. */
 const EDITOR_CONTENT_TYPES: Record<string, string> = {
@@ -52,6 +62,19 @@ const REDIRECT_EDITOR = 'redirect'
 /** A page path is what ends up in a URL, so it is held to what reads and routes cleanly. */
 const rePagePath = /^[a-zA-Z0-9-_/]*$/
 const reAlias = /^[a-zA-Z0-9-_]*$/
+
+/**
+ * How long `/sitemap.xml`'s already-guest-filtered page list stays cached per site (OpenProject
+ * #2267). `listPagesForSitemap` is a whole-table scan plus a per-row page-rule evaluation, and the
+ * route carries no rate limiting of its own — a few minutes keeps a crawl loop from repeating that
+ * work on every request without making a fresh publish invisible for long.
+ */
+export const SITEMAP_CACHE_TTL_MS = 5 * 60 * 1000
+
+/** `WIKI.cache` key for a site's cached sitemap page list. */
+function sitemapCacheKey(siteId: string): string {
+  return `sitemap:${siteId}`
+}
 
 /**
  * What `getPage`'s `unlocked`/`withPassword` callbacks are handed: enough of the row to ask
@@ -94,11 +117,15 @@ export interface Page {
   isBrowsable: boolean
   isSearchable: boolean
   /**
-   * The page's password, if it has one. Present only for a requester who may edit the page — see
-   * `getPage`'s `withPassword`. Absent, rather than null, for everyone else: a reader cannot tell a
-   * page with no password from one whose password was withheld, and does not need to.
+   * Whether the page has a password set. Present only for a requester who may edit the page — see
+   * `getPage`'s `withPassword`. Absent, rather than false, for everyone else: a reader cannot tell a
+   * page with no password from one whose password status was withheld, and does not need to.
+   *
+   * Never the password itself, nor its stored verifier: `pages.password` holds a one-way `bcrypt`
+   * hash (OpenProject #2232), and this is deliberately the only thing derived from it that ever
+   * leaves this model — even the page's own editor cannot read a password back, only replace it.
    */
-  password?: string | null
+  hasPassword?: boolean
   /** Whether the body was withheld because the page is password protected. See `getPage`. */
   isLocked: boolean
   relations: any[]
@@ -117,9 +144,6 @@ export interface Page {
   showTags: boolean
   showToc: boolean
   tocDepth: { min: number; max: number }
-  scriptJsLoad: string
-  scriptJsUnload: string
-  scriptCss: string
   navigationId: string | null
   navigationMode: string
   authorId: string
@@ -147,6 +171,12 @@ export interface PageInput {
   publishEndDate?: string | null
   isBrowsable?: boolean
   isSearchable?: boolean
+  /**
+   * A new plaintext password to protect the page with, write-only (OpenProject #2232): `createPage`/
+   * `updatePage` hash it with `bcrypt` before it touches the database, and nothing ever hands the
+   * stored value back — see `Page.hasPassword`. `undefined` leaves the page's password untouched, an
+   * empty string removes it, and a non-empty string replaces it, hash and all.
+   */
   password?: string
   relations?: any[]
   tags?: string[]
@@ -163,9 +193,6 @@ export interface PageInput {
   showTags?: boolean
   showToc?: boolean
   tocDepth?: { min: number; max: number }
-  scriptJsLoad?: string
-  scriptJsUnload?: string
-  scriptCss?: string
   /**
    * Why this save is being made, as the editor's reason-for-change prompt collected it. Not a page
    * field: it belongs to the version this save produces, and is recorded on the history row.
@@ -210,6 +237,12 @@ export interface GraphPageRow {
     target: string
   }[]
   links: string[]
+  /** OpenProject #1587 §2 / #1612: lets a caller narrow an already-fetched bundle to
+   *  `publishState === 'published'` rows itself -- what the shared knowledge-graph cache
+   *  (`helpers/graphCache.ts`, OpenProject #2269) does for an anonymous reader, since the cached
+   *  bundle is fetched once with `publicOnly: false` and narrowed per-caller rather than re-queried
+   *  per request. */
+  publishState: 'draft' | 'published' | 'scheduled'
 }
 
 /**
@@ -226,6 +259,12 @@ export interface GraphPageRow {
  * into `checkAccess()`, so a scoped key's `write:scripts`/`write:styles` grant is narrowed the same
  * way `checkAccess()` narrows every other page-rule permission (OpenProject #930) — omitting it here
  * would leave `api/pages.ts`'s save path as the one caller still trusting `groupIds` unnarrowed.
+ *
+ * `siteId`, likewise, is the same key's site pin (`ApiKeyIdentity.siteId`, OpenProject #2189) —
+ * omitting it here is exactly what would have left a personal access token's `write:scripts`/
+ * `write:styles` grant reachable on a site other than the one it was pinned to, since
+ * `hasPermission()`'s `checkAccess()` call is the one page-rule decision in this file that never
+ * routes through `groups.actorForRequest()` (which already carries it).
  */
 export interface PageActor {
   id: string
@@ -234,6 +273,8 @@ export interface PageActor {
   /** Threaded through to `checkAccess()`'s `AccessActor` (OpenProject #930/#1205) — see that type. */
   scope?: string[] | null
   allowedClassifications?: string[] | null
+  /** Threaded through to `checkAccess()`'s `AccessActor.siteId` (OpenProject #2189) — see that type. */
+  siteId?: string | null
   /**
    * What actually made the save: the standard editor (undefined, the default) or an MCP tool call
    * (`mcp/auth.ts`'s `pageActorFor()` sets this to `'mcp'`). Threaded straight through to
@@ -352,8 +393,9 @@ class Pages {
    * @param locked Withhold the body — the source, the rendered HTML, the table of contents drawn from
    *               it, and the relation links written onto the page. The metadata stays: a reader
    *               looking at the lock screen is told what page they are being asked for a password to.
-   * @param withPassword Include the page's own password. Only for a requester who may edit the page,
-   *                     which is the one that has to be able to read it back and save it again.
+   * @param withPassword Include whether the page has a password set. Only for a requester who may
+   *                     edit the page — the value itself never comes back to anyone, this model
+   *                     included; see `Page.hasPassword`.
    * @param withContent Include the source. A redirection's comes back either way: its content is not
    *                    a body somebody wrote, it is where the page sends its reader — which every
    *                    reader is about to be shown by being taken there. Withholding it would leave
@@ -369,7 +411,6 @@ class Pages {
     }: { withContent?: boolean; withPassword?: boolean; locked?: boolean } = {}
   ): Page {
     const config = row.config ?? {}
-    const scripts = row.scripts ?? {}
     return {
       id: row.id,
       path: row.path,
@@ -386,7 +427,7 @@ class Pages {
       publishEndDate: row.publishEndDate,
       isBrowsable: row.isBrowsable,
       isSearchable: row.isSearchable,
-      ...(withPassword ? { password: row.password } : {}),
+      ...(withPassword ? { hasPassword: Boolean(row.password) } : {}),
       isLocked: locked,
       relations: locked ? [] : (row.relations ?? []),
       tags: row.tags ?? [],
@@ -402,9 +443,6 @@ class Pages {
       showTags: config.showTags ?? true,
       showToc: config.showToc ?? true,
       tocDepth: config.tocDepth ?? { min: 1, max: 2 },
-      scriptJsLoad: scripts.jsLoad ?? '',
-      scriptJsUnload: scripts.jsUnload ?? '',
-      scriptCss: scripts.css ?? '',
       navigationId: row.navigationId ?? null,
       navigationMode: row.navigationMode ?? 'inherit',
       authorId: row.authorId,
@@ -437,10 +475,10 @@ class Pages {
    *                 locale and tags once it is in hand — not just the id — because `unlockedFor` needs
    *                 them to ask `mayOnPage()` whether a page RULE bypasses the password, and the row is
    *                 the only place that has them when the caller only knew a path hash going in.
-   * @param withPassword Whether to include the password value, for whoever may edit the page — not for
-   *                     a reader who just entered it, who needs it no more after that. Also a function
-   *                     for the same reason as `unlocked`: which page it is, and therefore whether this
-   *                     requester may edit it, is only known once the row is in hand.
+   * @param withPassword Whether to include `hasPassword`, for whoever may edit the page — not for a
+   *                     reader who just entered it, who needs to know it no more after that. Also a
+   *                     function for the same reason as `unlocked`: which page it is, and therefore
+   *                     whether this requester may edit it, is only known once the row is in hand.
    */
   async getPage({
     siteId,
@@ -479,9 +517,46 @@ class Pages {
       return null
     }
 
+    // -> Narrowed to exactly what `toPage` reads (plus `password`, needed here for the `locked`
+    //    check below even when `withPassword` is off) -- not `{ page: pagesTable, ... }`, which
+    //    pulled every column including `content`, `searchContent`, the `ts` tsvector, `links` and
+    //    `historyData` on every page view and every permission pre-check (OpenProject #1834).
+    //    `content` is the one column whose presence a row's own data decides: a redirection has no
+    //    other payload (see `toPage`), so its content comes back even when `withContent` is off --
+    //    decided in SQL rather than after the fact, since the row's `editor` isn't known until the
+    //    query has already run.
     const results = await WIKI.db
       .select({
-        page: pagesTable,
+        id: pagesTable.id,
+        path: pagesTable.path,
+        hash: pagesTable.hash,
+        alias: pagesTable.alias,
+        title: pagesTable.title,
+        description: pagesTable.description,
+        icon: pagesTable.icon,
+        locale: pagesTable.locale,
+        editor: pagesTable.editor,
+        contentType: pagesTable.contentType,
+        publishState: pagesTable.publishState,
+        publishStartDate: pagesTable.publishStartDate,
+        publishEndDate: pagesTable.publishEndDate,
+        isBrowsable: pagesTable.isBrowsable,
+        isSearchable: pagesTable.isSearchable,
+        password: pagesTable.password,
+        relations: pagesTable.relations,
+        tags: pagesTable.tags,
+        toc: pagesTable.toc,
+        render: pagesTable.render,
+        content: withContent
+          ? pagesTable.content
+          : sql<
+              string | null
+            >`CASE WHEN ${pagesTable.editor} = ${REDIRECT_EDITOR} THEN ${pagesTable.content} ELSE NULL END`,
+        config: pagesTable.config,
+        authorId: pagesTable.authorId,
+        createdAt: pagesTable.createdAt,
+        updatedAt: pagesTable.updatedAt,
+        classification: pagesTable.classification,
         authorName: usersTable.name,
         navigationId: treeTable.navigationId,
         navigationMode: treeTable.navigationMode
@@ -497,28 +572,116 @@ class Pages {
       return null
     }
     const unlockRef: UnlockPageRef = {
-      id: row.page.id,
-      path: row.page.path,
-      locale: row.page.locale,
-      tags: row.page.tags,
-      classification: row.page.classification
+      id: row.id,
+      path: row.path,
+      locale: row.locale,
+      tags: row.tags,
+      classification: row.classification
     }
     const isUnlocked = typeof unlocked === 'function' ? unlocked(unlockRef) : unlocked
     const includePassword =
       typeof withPassword === 'function' ? withPassword(unlockRef) : withPassword
-    return this.toPage(
-      {
-        ...row.page,
-        authorName: row.authorName,
-        navigationId: row.navigationId,
-        navigationMode: row.navigationMode
-      },
-      {
-        withContent,
-        withPassword: includePassword,
-        locked: Boolean(row.page.password) && !isUnlocked
+    return this.toPage(row, {
+      withContent,
+      withPassword: includePassword,
+      locked: Boolean(row.password) && !isUnlocked
+    })
+  }
+
+  /**
+   * The permission-relevant projection of a set of pages, by id, all on this site — one query
+   * regardless of how many ids are asked for.
+   *
+   * Exists for a caller that needs to run `mayOnPage`/`pagePermissionsFor`-style checks over a batch
+   * (the classification-conflicts resolve route, OpenProject #1902) without paying for `getPage`'s
+   * full two-LEFT-JOIN select — `content`, `render`, `searchContent` and the tsvector — once per id.
+   *
+   * @returns A Map keyed by id, so a caller can tell an id that did not resolve (not on this site, or
+   *          not existing at all) apart from one that did via `Map#has`/`Map#get`, without re-deriving
+   *          that from array length the way filtering a `getPage` loop's results would.
+   */
+  async getPagesByIds(
+    siteId: string,
+    ids: string[]
+  ): Promise<
+    Map<
+      string,
+      { id: string; path: string; locale: string; tags: string[]; classification: string }
+    >
+  > {
+    if (ids.length < 1) {
+      return new Map()
+    }
+    const rows = await WIKI.db
+      .select({
+        id: pagesTable.id,
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        tags: pagesTable.tags,
+        classification: pagesTable.classification
+      })
+      .from(pagesTable)
+      .where(and(eq(pagesTable.siteId, siteId), inArray(pagesTable.id, ids)))
+    return new Map(rows.map((row) => [row.id, row]))
+  }
+
+  /**
+   * The immediate-parent classification floor for a set of `(locale, path)` pairs, in one query over
+   * their distinct parent paths — the batched form of `parentClassification`, for a caller checking
+   * the floor invariant against many targets at once (the classification-conflicts resolve route,
+   * OpenProject #1902).
+   *
+   * @returns A Map keyed by `${locale}\0${path}` (the ORIGINAL pair passed in, not the derived parent
+   *          path) so a caller looks up each of its own targets directly without re-deriving the
+   *          parent path itself. Every input pair gets an entry — `null` when `path` is root-level or
+   *          its parent has no page (an empty folder), the same "null means no floor" contract
+   *          `parentClassification` itself has.
+   */
+  async parentClassifications(
+    siteId: string,
+    entries: { locale: string; path: string }[]
+  ): Promise<Map<string, string | null>> {
+    const keyOf = (locale: string, path: string) => `${locale}\0${path}`
+    const result = new Map<string, string | null>()
+    const parentOf = new Map<string, { locale: string; parentPath: string }>()
+    for (const { locale, path } of entries) {
+      result.set(keyOf(locale, path), null)
+      const parentPath = path.split('/').slice(0, -1).join('/')
+      if (parentPath) {
+        parentOf.set(keyOf(locale, path), { locale, parentPath })
       }
+    }
+    if (parentOf.size < 1) {
+      return result
+    }
+    const distinctParents = new Map<string, { locale: string; parentPath: string }>()
+    for (const parent of parentOf.values()) {
+      distinctParents.set(keyOf(parent.locale, parent.parentPath), parent)
+    }
+    const rows = await WIKI.db
+      .select({
+        locale: pagesTable.locale,
+        path: pagesTable.path,
+        classification: pagesTable.classification
+      })
+      .from(pagesTable)
+      .where(
+        and(
+          eq(pagesTable.siteId, siteId),
+          or(
+            ...[...distinctParents.values()].map(({ locale, parentPath }) =>
+              and(eq(pagesTable.locale, locale), eq(pagesTable.path, parentPath))
+            )
+          )
+        )
+      )
+    const floorByParent = new Map(
+      rows.map((row) => [keyOf(row.locale, row.path), row.classification])
     )
+    for (const [entryKey, parent] of parentOf) {
+      result.set(entryKey, floorByParent.get(keyOf(parent.locale, parent.parentPath)) ?? null)
+    }
+    return result
   }
 
   /**
@@ -549,8 +712,16 @@ class Pages {
    * Every page on this site, with what the knowledge graph (OpenProject #872) needs to build
    * nodes and edges from — no content, no render, just enough for `api/graph.ts#assembleGraph`
    * to build and permission-filter the graph once.
+   *
+   * `publicOnly` applies `pageIsVisible` (`tree.ts`) the same way `tree.browse()`/`tree.listPages()`
+   * do, so an unauthenticated caller's graph never contains a draft or `isBrowsable: false` page
+   * (OpenProject #1587 §2, #1612) — `assembleGraph`'s `canRead` filter is a *permission* check, not a
+   * publication one, and was never going to catch either. The returned row also carries
+   * `publishState` directly, so a caller holding one shared, `publicOnly: false` bundle (the graph
+   * cache, OpenProject #2269) can still narrow it to published-only rows itself, per request, without
+   * re-querying.
    */
-  async listAllForGraph(siteId: string): Promise<GraphPageRow[]> {
+  async listAllForGraph(siteId: string, publicOnly = false): Promise<GraphPageRow[]> {
     return WIKI.db
       .select({
         id: pagesTable.id,
@@ -561,10 +732,13 @@ class Pages {
         tags: pagesTable.tags,
         classification: pagesTable.classification,
         relations: pagesTable.relations,
-        links: pagesTable.links
+        links: pagesTable.links,
+        publishState: pagesTable.publishState
       })
       .from(pagesTable)
-      .where(eq(pagesTable.siteId, siteId)) as Promise<GraphPageRow[]>
+      .where(
+        and(eq(pagesTable.siteId, siteId), ...pageIsVisible(pagesTable, publicOnly))
+      ) as Promise<GraphPageRow[]>
   }
 
   /**
@@ -613,7 +787,7 @@ class Pages {
       .where(eq(pagesTable.id, page.id))
       .limit(1)
     const expected = stored[0]?.password
-    if (!expected || !timingSafeCompare(password, expected)) {
+    if (!expected || !(await bcrypt.compare(password, expected))) {
       return null
     }
     // -> Unlocked, but still without the password itself: entering it is not the same as being able
@@ -735,6 +909,16 @@ class Pages {
    * chose to bring up to the new floor. No floor/permission checks here: the API route is the one
    * place that decides who may call this and validates the target level, the same layering
    * `updatePage`'s own caller (`api/pages.ts`) already follows for the declassification guardrail.
+   *
+   * `.returning()` gets the raw rows for free off the same write -- exactly what
+   * `WIKI.models.search.updated` wants (`SearchIndexablePage`, `updatePage`'s own comment above
+   * explains why), and without it every external search module keeps indexing the old
+   * classification, so a raise leaves those pages searchable at their prior, more open level (an
+   * external module decides `read:pages` visibility per-hit off the indexed copy -- see
+   * `modules/search/algolia/search.ts`). And since `pageClassification` is part of what
+   * `glossary.ts#getRawCachedTerms` caches per term, a batch that changes it needs the cache dropped
+   * too -- one call after the loop covers the whole batch, same as `deleteOrphaned`'s glossary
+   * invalidation.
    */
   async bulkSetClassification(
     siteId: string,
@@ -744,11 +928,18 @@ class Pages {
     if (ids.length < 1) {
       return 0
     }
-    const result = await WIKI.db
+    const rows = await WIKI.db
       .update(pagesTable)
       .set({ classification, updatedAt: sql`now()` })
       .where(and(eq(pagesTable.siteId, siteId), inArray(pagesTable.id, ids)))
-    return result.rowCount ?? 0
+      .returning()
+    for (const row of rows) {
+      await WIKI.models.search.updated(row)
+    }
+    if (rows.length > 0) {
+      WIKI.models.glossary.invalidateCache(siteId)
+    }
+    return rows.length
   }
 
   /**
@@ -822,6 +1013,19 @@ class Pages {
     //    not-yet-existing page fails closed rather than reaching for a value that describes the page
     //    it is about to become.
     const pageRef: RulePageRef = { path, locale, siteId, tags: input.tags, classification: null }
+
+    /*
+      A create with no render moves the source with nothing to show for it: refuse up front when
+      nothing here could ever produce one, rather than land a page whose render, search text and
+      outbound links never catch up to its content. `queueRerender()` (below, once the row exists)
+      is what actually fills them in. Mirrors `models/approvals.ts`'s own `ensureCanRender`/
+      `queueRerender` pairing (OpenProject #1716).
+    */
+    const hasRenderInput = input.render !== undefined
+    if (!hasRenderInput) {
+      await WIKI.models.rendering.ensureCanRender(editor)
+    }
+
     const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
       siteId,
       input.render ?? '',
@@ -855,7 +1059,9 @@ class Pages {
           //    doorway to the page the reader actually wanted, which is the one search should offer
           isSearchable: isRedirect ? false : (input.isSearchable ?? true),
           locale,
-          password: input.password || null,
+          password: input.password
+            ? await bcrypt.hash(input.password, pagePasswordBcryptRounds)
+            : null,
           path,
           publishState: input.publishState ?? 'published',
           publishStartDate: input.publishStartDate ? new Date(input.publishStartDate) : null,
@@ -864,7 +1070,6 @@ class Pages {
           links,
           render,
           searchContent: text,
-          scripts: this.buildScripts(input, actor, pageRef),
           siteId,
           tags: input.tags ?? [],
           title,
@@ -931,18 +1136,43 @@ class Pages {
       siteId,
       authorId: actor.id
     })
+    // -> A freshly created page defaults to published and browsable, so it can join the sitemap
+    //    immediately -- the cached list has to reflect that on the very next request.
+    this.invalidateSitemapCache(siteId)
+    // -> A brand new page is a brand new graph node (and possibly new edges, if its relations/links
+    //    point at existing pages) -- the cached graph bundle has to reflect it too.
+    invalidateGraphCache(siteId)
 
-    return (await this.getPage({ siteId, id: page.id })) as Page
+    const finalPage = (await this.getPage({ siteId, id: page.id })) as Page
+
+    if (!hasRenderInput) {
+      // -> Briefly blank rather than wrong: the browser is a queue away, and this is what actually
+      //    fills in `render`/`toc`/`searchContent`/`links` from the content just written.
+      //    `ensureCanRender()` was already confirmed above, before the write, so this enqueues
+      //    directly rather than going back through `queueRerender()`'s own copy of that check.
+      await this.enqueueRerender(siteId, finalPage, actor)
+    }
+
+    return finalPage
   }
 
   /**
    * Update a page. Only the fields present in the patch are touched.
+   *
+   * @param renderPermissions Overrides what `patch.render` is post-processed against, instead of
+   *   deriving it from `actor`. `approveSubmission` (`models/approvals.ts`) is the reason this
+   *   exists: `actor` there is the reviewer finalizing someone else's edit suggestion, and the HTML
+   *   being written is the submitter's, not the reviewer's -- resolving `write:scripts`/`write:styles`
+   *   from `actor` would let a reviewer's own grants launder a submitter's `<script>`/`style` past a
+   *   permission the submitter never held (OpenProject #1360/#2180, 2026-08-24 security audit §4).
+   *   Every other caller leaves this unset and gets the long-standing actor-derived behaviour.
    */
   async updatePage(
     siteId: string,
     id: string,
     patch: Partial<PageInput>,
-    actor: PageActor
+    actor: PageActor,
+    renderPermissions?: RenderPermissions
   ): Promise<Page | null> {
     const results = await WIKI.db
       .select()
@@ -1007,7 +1237,9 @@ class Pages {
       values.isSearchable = isRedirect ? false : patch.isSearchable
     }
     if (patch.password !== undefined) {
-      values.password = patch.password || null
+      values.password = patch.password
+        ? await bcrypt.hash(patch.password, pagePasswordBcryptRounds)
+        : null
     }
     if (patch.relations !== undefined) {
       values.relations = patch.relations
@@ -1047,12 +1279,28 @@ class Pages {
       classification: existing.classification
     }
 
-    // -> A render only means anything next to the content it came from, so the two move together
-    if (patch.render !== undefined) {
+    /*
+      New content with nothing to show for it: refuse up front when this instance could never produce
+      a render, so the caller gets an actionable error instead of a page whose HTML, search text and
+      outbound links stay pinned to the revision being replaced. Mirrors `models/approvals.ts`'s own
+      `ensureCanRender`/`queueRerender` pairing (OpenProject #1716).
+    */
+    const hasRenderInput = patch.render !== undefined
+    const needsRerenderQueue = patch.content !== undefined && !hasRenderInput
+    if (needsRerenderQueue) {
+      await WIKI.models.rendering.ensureCanRender(existing.editor)
+    }
+
+    // -> A render only means anything next to the content it came from, so the two move together --
+    //    the real one when this save carried one, or a blank placeholder (the same one a renderless
+    //    `createPage()` gives a brand new page) when it didn't, so nothing here goes on matching text
+    //    or outbound links the new content no longer has. `queueRerender()` below is what actually
+    //    catches `render`/`toc`/`searchContent`/`links` up to the real thing once its job drains.
+    if (hasRenderInput || needsRerenderQueue) {
       const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
         siteId,
-        patch.render,
-        {
+        patch.render ?? '',
+        renderPermissions ?? {
           scripts: hasPermission(actor, 'write:scripts', existingRef),
           styles: hasPermission(actor, 'write:styles', existingRef)
         },
@@ -1066,18 +1314,6 @@ class Pages {
 
     if (CONFIG_FIELDS.some((field) => patch[field] !== undefined)) {
       values.config = this.buildConfig(patch, siteId, existing.config as Record<string, any>)
-    }
-    if (
-      patch.scriptJsLoad !== undefined ||
-      patch.scriptJsUnload !== undefined ||
-      patch.scriptCss !== undefined
-    ) {
-      values.scripts = this.buildScripts(
-        patch,
-        actor,
-        existingRef,
-        existing.scripts as Record<string, any>
-      )
     }
 
     // -> The author is whoever last changed it; the creator and owner do not move
@@ -1113,23 +1349,40 @@ class Pages {
       id,
       'updated',
       actor.id,
-      { title: updated.title, path: updated.path, locale: updated.locale },
+      {
+        title: updated.title,
+        path: updated.path,
+        locale: updated.locale,
+        classification: updated.classification,
+        tags: updated.tags
+      },
       changedFields
     )
 
-    if (treeTitle !== null || patch.tags !== undefined) {
-      await WIKI.db
-        .update(treeTable)
-        .set({
-          ...(treeTitle !== null ? { title: treeTitle } : {}),
-          ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
-          meta: this.treeMeta(updated),
-          updatedAt: sql`now()`
-        })
-        .where(eq(treeTable.id, id))
-    }
+    // -> `meta` and `updatedAt` move on every save, not only when `title`/`tags` did -- otherwise a
+    //    description-only edit (handled above, touching nothing tree-side) leaves the tree row's
+    //    `meta` (which the file manager reads `description` out of) and sort-by-`updatedAt` ordering
+    //    stale. Matches `movePage` (:1223) and `createPage` (:896), which write `meta` unconditionally.
+    await WIKI.db
+      .update(treeTable)
+      .set({
+        ...(treeTitle !== null ? { title: treeTitle } : {}),
+        ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
+        meta: this.treeMeta(updated),
+        updatedAt: sql`now()`
+      })
+      .where(eq(treeTable.id, id))
 
     await WIKI.models.search.updated(rawUpdated)
+    // -> A glossary term's cached canonical-page mapping (`models/glossary.ts`'s `getRawCachedTerms`)
+    //    caches the page's classification and tags alongside its path/locale, and `getCachedTerms`
+    //    runs the actor's `read:pages` check against that cached copy -- so a classification or tags
+    //    change here has to drop it the same way a term CRUD does, or a reader keeps seeing a term
+    //    resolve to a page whose access just changed (OpenProject #1706). Path/locale are covered by
+    //    `movePage`, not here.
+    if (patch.classification !== undefined || patch.tags !== undefined) {
+      WIKI.models.glossary.invalidateCache(siteId)
+    }
     await WIKI.models.hooks.emit('page:edit', siteId, {
       id,
       path: updated.path,
@@ -1145,6 +1398,25 @@ class Pages {
       siteId,
       authorId: actor.id
     })
+    // -> Any of title/icon/tags/classification/relations/links can move in a plain edit, all of
+    //    which the graph's nodes or edges reflect -- unconditional, since there is no single field
+    //    this cache turns on.
+    invalidateGraphCache(siteId)
+
+    // -> Any of `publishState`, `isBrowsable`, `tags`, `classification` moving could change whether
+    //    this page belongs in the sitemap (`listPagesForSitemap`'s guest-rule filter reads all four),
+    //    and `updatedAt` (touched on every save) is its `<lastmod>` when it does -- invalidating
+    //    unconditionally, same as the graph cache above, is what keeps the cached list from ever
+    //    describing a page as it was rather than as it is now (OpenProject #2267).
+    this.invalidateSitemapCache(siteId)
+
+    if (needsRerenderQueue) {
+      // -> Briefly blank rather than wrong: the browser is a queue away, and this is what actually
+      //    fills `render`/`toc`/`searchContent`/`links` back in from the content just written.
+      //    `ensureCanRender()` was already confirmed above, before the write, so this enqueues
+      //    directly rather than going back through `queueRerender()`'s own copy of that check.
+      await this.enqueueRerender(siteId, updated, actor, renderPermissions)
+    }
 
     return updated
   }
@@ -1220,7 +1492,11 @@ class Pages {
       locale: destLocale,
       siteId,
       tags: current.tags,
-      meta: this.treeMeta({ ...current, path: newPath }),
+      // -> The freshly-updated raw row, not `current` (the pre-move snapshot): `current.authorId`
+      //    is stale the instant this transaction sets it to `actor.id` above (OpenProject #1703).
+      //    None of `treeMeta`'s other fields are touched by this update, so `rawMovedRows[0]` and
+      //    `current` agree on everything else.
+      meta: this.treeMeta(rawMovedRows[0]!),
       db: tx
     })
 
@@ -1262,14 +1538,27 @@ class Pages {
       previous.id,
       'moved',
       actor.id,
-      { title: moved.title, path: moved.path, locale: moved.locale },
+      {
+        title: moved.title,
+        path: moved.path,
+        locale: moved.locale,
+        classification: moved.classification,
+        tags: moved.tags
+      },
       changedFields
     )
     await WIKI.models.search.renamed(siteId, rawMoved, previous.path, previous.locale)
+    // -> A moved page's `<loc>` is built from its path and locale, so any move -- not only one that
+    //    also affects the glossary's canonical-page cache below -- has to drop the cached sitemap list.
+    this.invalidateSitemapCache(siteId)
+    // -> A moved page's path is what every edge pointing at it is keyed by (`assembleGraph` matches
+    //    relations/links against `row.path`), so a move can silently break edges in a stale bundle.
+    invalidateGraphCache(siteId)
     // -> A glossary term's cached canonical-page mapping (`models/glossary.ts`'s `getRawCachedTerms`)
-    //    caches the page's path/locale, so a canonical page's path or locale changing has to drop it
-    //    too, the same way a term CRUD does -- otherwise the cache would keep resolving a link to
-    //    where the page used to live (OpenProject #870).
+    //    caches the page's path, locale, classification and tags, so a canonical page's path or
+    //    locale changing has to drop it too, the same way a term CRUD does -- otherwise the cache
+    //    would keep resolving a link to where the page used to live (OpenProject #870). A
+    //    classification or tags change is `updatePage`'s to invalidate, not this one's.
     if (moved.path !== previous.path || moved.locale !== previous.locale) {
       WIKI.models.glossary.invalidateCache(siteId)
     }
@@ -1498,11 +1787,23 @@ class Pages {
     await this.notifyWatchers(siteId, id, 'deleted', actor.id, {
       title: page.title,
       path: page.path,
-      locale: page.locale
+      locale: page.locale,
+      classification: page.classification,
+      tags: page.tags
     })
 
-    await WIKI.db.delete(pagesTable).where(eq(pagesTable.id, id))
-    await WIKI.models.tree.deleteEntry(id)
+    // -> One transaction: there is no FK from `tree.id` to `pages.id` (only `siteId` is a foreign
+    //    key), so nothing at the database level removes the tree row when the page row goes. A
+    //    failure between two separate statements here would leave a tree entry pointing at a page
+    //    that no longer exists -- still rendering in the file manager, 404ing when opened, and
+    //    permanently blocking a future page at the same path via `tree_composite_page_idx`
+    //    (OpenProject #1739). Passing `tx` into `deleteEntry` is why its `db` parameter defaults to
+    //    `WIKI.db` but accepts a `tx`. `movePage` draws the same boundary for its own
+    //    delete-and-reinsert of the tree entry.
+    await WIKI.db.transaction(async (tx) => {
+      await tx.delete(pagesTable).where(eq(pagesTable.id, id))
+      await WIKI.models.tree.deleteEntry(id, tx)
+    })
     // -> A page that overrode the sidebar owns a menu keyed by its own id, which nothing could reach
     //    once the page is gone
     await WIKI.models.navigation.deleteNavForEntries([id])
@@ -1511,6 +1812,11 @@ class Pages {
     //    link needs the same drop or it would keep pointing at a page that no longer exists
     //    (OpenProject #870).
     WIKI.models.glossary.invalidateCache(siteId)
+    // -> Same reasoning as the glossary cache above: a deleted page must not linger in the cached
+    //    sitemap list.
+    this.invalidateSitemapCache(siteId)
+    // -> Nor in the cached graph bundle, as a node or as an edge target.
+    invalidateGraphCache(siteId)
 
     await WIKI.models.search.deleted(siteId, id)
     await WIKI.models.hooks.emit('page:delete', siteId, {
@@ -1550,6 +1856,27 @@ class Pages {
     if (entries.length < 1) {
       return
     }
+    // -> Same reasoning as `deletePage`'s own pre-delete read: `notifyWatchers()` needs each page's
+    //    classification/tags to re-check `read:pages` per watcher (OpenProject #2173), and `DeletedEntry`
+    //    carries neither (a folder deletion never loaded the page rows to begin with) — one bulk SELECT
+    //    for the whole batch, not one per entry, before the rows go.
+    const pageInfo = new Map(
+      (
+        await WIKI.db
+          .select({
+            id: pagesTable.id,
+            tags: pagesTable.tags,
+            classification: pagesTable.classification
+          })
+          .from(pagesTable)
+          .where(
+            inArray(
+              pagesTable.id,
+              entries.map((entry) => entry.id)
+            )
+          )
+      ).map((row) => [row.id, row])
+    )
     for (const entry of entries) {
       await WIKI.models.pageHistory.record({
         siteId,
@@ -1561,10 +1888,13 @@ class Pages {
       // -> Same ordering as `deletePage`, and for the same reason: still before the bulk delete below.
       //    `DeletedEntry` carries no title (a folder deletion never loaded the page rows to begin
       //    with), so the file name stands in for it, same as the path built for `page:delete` below.
+      const info = pageInfo.get(entry.id)
       await this.notifyWatchers(siteId, entry.id, 'deleted', actor.id, {
         title: entry.fileName,
         path: entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName,
-        locale: entry.locale
+        locale: entry.locale,
+        classification: info?.classification ?? null,
+        tags: info?.tags ?? []
       })
     }
     await WIKI.db.delete(pagesTable).where(
@@ -1576,6 +1906,10 @@ class Pages {
     // -> Same reasoning as `deletePage`: a glossary term canonically linked to any of these pages has
     //    a now-stale cached link (OpenProject #870). One call covers the whole batch.
     WIKI.models.glossary.invalidateCache(siteId)
+    // -> Same reasoning: any of these pages may have been in the cached sitemap list.
+    this.invalidateSitemapCache(siteId)
+    // -> ...and in the cached graph bundle.
+    invalidateGraphCache(siteId)
 
     // -> One per page, as deleting them one at a time would have sent: a subscriber mirroring the
     //    wiki has to hear about each page, not about the folder it happened to sit in
@@ -1612,27 +1946,51 @@ class Pages {
    * What the render may carry is settled here, while there is still an actor to ask, and travels with
    * the queued request.
    *
+   * @param renderPermissions Same override `updatePage` accepts, and for the same reason — see its
+   *   doc comment (OpenProject #2187). `approveSubmission`'s no-render fallback path reaches this
+   *   too, and must pass the identical submitter-derived permissions the direct `postProcess()`
+   *   branch used, or the queued re-render would launder the content back through the reviewer's
+   *   permissions anyway.
    * @returns False when there is no such page
    * @throws `renderUnsupportedEditor` for a page the server cannot render, or
    *         `renderPuppeteerMissing` when nothing here could drain the queue
    */
-  async queueRerender(siteId: string, id: string, actor: PageActor): Promise<boolean> {
+  async queueRerender(
+    siteId: string,
+    id: string,
+    actor: PageActor,
+    renderPermissions?: RenderPermissions
+  ): Promise<boolean> {
     const page = await this.getPage({ siteId, id })
     if (!page) {
       return false
     }
     await WIKI.models.rendering.ensureCanRender(page.editor)
+    await this.enqueueRerender(siteId, page, actor, renderPermissions)
+    return true
+  }
 
+  /**
+   * The actual enqueue `queueRerender()` performs once it has confirmed `ensureCanRender()` --
+   * factored out so `createPage()`/`updatePage()` can call it directly after their own up-front
+   * `ensureCanRender()` guard (OpenProject #1716), rather than going back through `queueRerender()`
+   * and paying for that same consult a second time for the write that just landed.
+   */
+  private async enqueueRerender(
+    siteId: string,
+    page: Page,
+    actor: PageActor,
+    renderPermissions?: RenderPermissions
+  ): Promise<void> {
     await WIKI.models.rendering.queuePage({
       siteId,
       pageId: page.id,
-      permissions: {
+      permissions: renderPermissions ?? {
         scripts: hasPermission(actor, 'write:scripts', { ...page, siteId }),
         styles: hasPermission(actor, 'write:styles', { ...page, siteId })
       },
       requestedById: actor.id
     })
-    return true
   }
 
   /**
@@ -1771,6 +2129,14 @@ class Pages {
   async listPagesForSitemap(
     siteId: string
   ): Promise<Array<{ path: string; locale: string; updatedAt: Date }>> {
+    const key = sitemapCacheKey(siteId)
+    const cached = WIKI.cache.get(key) as
+      | Array<{ path: string; locale: string; updatedAt: Date }>
+      | undefined
+    if (cached) {
+      return cached
+    }
+
     const rows = await WIKI.db
       .select({
         path: pagesTable.path,
@@ -1789,7 +2155,7 @@ class Pages {
       )
 
     const guestRules = WIKI.models.groups.rulesForGroups([WIKI.data.systemIds.guestsGroupId])
-    return rows
+    const result = rows
       .filter((row) =>
         rulesAllow(guestRules, 'read:pages', {
           path: row.path,
@@ -1800,6 +2166,19 @@ class Pages {
         })
       )
       .map(({ path, locale, updatedAt }) => ({ path, locale, updatedAt }))
+
+    WIKI.cache.set(key, result, { ttl: SITEMAP_CACHE_TTL_MS })
+    return result
+  }
+
+  /**
+   * Drop a site's cached sitemap page list, so the next `/sitemap.xml` request rebuilds it.
+   *
+   * Called wherever a page's publish/browsable state, path, locale or existence changes — a publish,
+   * an unpublish, a move or a delete — since any of those can add or remove a row from the list.
+   */
+  invalidateSitemapCache(siteId: string): void {
+    WIKI.cache.delete(sitemapCacheKey(siteId))
   }
 
   /**
@@ -1856,29 +2235,6 @@ class Pages {
   }
 
   /**
-   * Same for the per-page scripts — which only an author holding the matching permission may set.
-   *
-   * Silently dropped rather than refused, as with the rest of the sanitizing: an author pasting a
-   * page template that carries scripts should get their page, minus the scripts.
-   */
-  private buildScripts(
-    input: Partial<PageInput>,
-    actor: PageActor,
-    page: RulePageRef,
-    existing: Record<string, any> = {}
-  ): Record<string, any> {
-    const mayScript = hasPermission(actor, 'write:scripts', page)
-    const mayStyle = hasPermission(actor, 'write:styles', page)
-    return {
-      jsLoad: mayScript ? (input.scriptJsLoad ?? existing.jsLoad ?? '') : (existing.jsLoad ?? ''),
-      jsUnload: mayScript
-        ? (input.scriptJsUnload ?? existing.jsUnload ?? '')
-        : (existing.jsUnload ?? ''),
-      css: mayStyle ? (input.scriptCss ?? existing.css ?? '') : (existing.css ?? '')
-    }
-  }
-
-  /**
    * Queue pending watch notifications for a page change.
    *
    * Never called for `created`: nobody could have been watching a page before it existed, so a
@@ -1904,6 +2260,12 @@ class Pages {
    * A failure to queue is logged and swallowed rather than thrown: a watcher not being told about a
    * change is a real loss, but it must never be the reason the change itself fails to save.
    *
+   * `pageWatching.listWatchers()` re-checks `read:pages` per watcher against the page's own live row
+   * (joined internally, OpenProject #2173) — `read:pages` used to be checked once, at subscribe time,
+   * and never again, so a watcher whose access has since been revoked (a raised classification, a move
+   * into a restricted branch, an edited group rule) would otherwise still be queued a notification
+   * carrying the page's title and a working link.
+   *
    * @param changedFields What `movePage`/`updatePage` already computed for `pageHistory.record` —
    *   `['path']`/`['title']` for a move, whichever page fields for an edit. Always empty for a delete.
    */
@@ -1912,11 +2274,17 @@ class Pages {
     pageId: string,
     action: PageWatchNotifiableAction,
     actorId: string,
-    page: { title: string; path: string; locale: string },
+    page: {
+      title: string
+      path: string
+      locale: string
+      classification: string | null
+      tags?: string[]
+    },
     changedFields: string[] = []
   ): Promise<void> {
     try {
-      const watchers = await WIKI.models.pageWatching.listWatchers(pageId, actorId, action)
+      const watchers = await WIKI.models.pageWatching.listWatchers(siteId, pageId, actorId, action)
       if (watchers.length < 1) {
         return
       }
@@ -1941,16 +2309,35 @@ class Pages {
 
   /**
    * What a page's tree entry carries about it, so a folder listing needs no join.
+   *
+   * Deliberately narrower than `typeof pagesTable.$inferSelect` or the full `Page` interface: it
+   * names exactly the fields written below, so either a raw inserted/updated `pages` row
+   * (`createPage`, and `{ ...current, path: newPath }` in `moveOnePageInTx`) or the flattened `Page`
+   * shape `toPage()` produces (`updatePage`) satisfies it structurally. `creatorId`/`ownerId` used to
+   * be read here too, defaulting to `authorId` when absent -- but `Page` never carried either column,
+   * so every caller except `createPage` silently recorded the *acting* editor as creator/owner
+   * instead of leaving them alone. Nothing in this repo reads `meta.creatorId`/`meta.ownerId`
+   * (OpenProject #1703), so they are dropped rather than plumbed correctly through every caller.
    */
-  private treeMeta(page: any): Record<string, any> {
+  private treeMeta(
+    page: Pick<
+      Page,
+      | 'authorId'
+      | 'contentType'
+      | 'description'
+      | 'editor'
+      | 'isBrowsable'
+      | 'publishState'
+      | 'publishEndDate'
+      | 'publishStartDate'
+    >
+  ): Record<string, any> {
     return {
       authorId: page.authorId,
       contentType: page.contentType,
-      creatorId: page.creatorId ?? page.authorId,
       description: page.description ?? '',
       editor: page.editor,
       isBrowsable: page.isBrowsable,
-      ownerId: page.ownerId ?? page.authorId,
       publishState: page.publishState,
       publishEndDate: page.publishEndDate ?? null,
       publishStartDate: page.publishStartDate ?? null

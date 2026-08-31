@@ -6,21 +6,25 @@
     :class="siteStore.theme.sidebarPosition === `right` ? `sidebar-nav--flipped` : ``"
     :thumb-style="thumbStyle"
     :bar-style="barStyle">
-    <w-list class="sidebar-nav-list" clickable dense dark>
-      <template v-for="item of siteStore.nav.items" :key="item.id">
-        <w-item-label
-          class="sidebar-nav-header text-caption text-wordbreak-all"
-          v-if="item.type === `header`"
-          header
-          >{{ item.label }}</w-item-label
-        >
-        <!-- -> One nav item, plus its expansion behavior if it has children -- recursive, so a
-                folder nested any number of levels deep still draws its own contents rather than
-                only the first level under the sidebar root -->
-        <nav-sidebar-item v-else-if="item.type === `link`" :item="item" />
-        <w-separator v-else-if="item.type === `separator`" dark />
-      </template>
-    </w-list>
+    <!-- -> The primary navigation landmark: distinct from `PageToc`'s own `<nav>` so the two are
+            reachable and tellable apart from the landmarks rotor -->
+    <nav :aria-label="t(`common.sidebar.browse`)">
+      <w-list class="sidebar-nav-list" dense dark>
+        <template v-for="item of siteStore.nav.items" :key="item.id">
+          <w-item-label
+            class="sidebar-nav-header text-caption text-wordbreak-all"
+            v-if="item.type === `header`"
+            header
+            >{{ item.label }}</w-item-label
+          >
+          <!-- -> One nav item, plus its expansion behavior if it has children -- recursive, so a
+                  folder nested any number of levels deep still draws its own contents rather than
+                  only the first level under the sidebar root -->
+          <nav-sidebar-item v-else-if="item.type === `link`" :item="item" />
+          <w-separator v-else-if="item.type === `separator`" dark />
+        </template>
+      </w-list>
+    </nav>
   </w-scroll-area>
 </template>
 
@@ -41,21 +45,6 @@ const siteStore = useSiteStore()
 // I18N
 
 const { t } = useI18n()
-
-// DATA
-
-const thumbStyle = {
-  right: '2px',
-  borderRadius: '5px',
-  backgroundColor: '#FFF',
-  width: '5px',
-  opacity: 0.5
-}
-const barStyle = {
-  backgroundColor: '#000',
-  width: '9px',
-  opacity: 0.1
-}
 
 // WATCHERS
 

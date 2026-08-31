@@ -32,29 +32,41 @@ import collab from './core/collab.ts'
 import configSvc from './core/config.ts'
 import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
+import { registerUnhandledRejectionHandler, runBootPhaseOrExit } from './core/processGuards.ts'
 import scheduler from './core/scheduler.ts'
+import { apiKeySitePinHook } from './helpers/apiKeySite.ts'
 import { resolveAppShellLocale, templateAppShell } from './helpers/appShell.ts'
+import { assertValidAuthSecret } from './helpers/authSecret.ts'
+import { authSecretSigner } from './helpers/authSecretSigner.ts'
 import {
+  isSameOriginWebSocketHandshake,
   localePrefixRedirectTarget,
   localePrefixStripTarget,
+  normalizeHostname,
   resolveRequestSite,
   stripPageExtension
 } from './helpers/common.ts'
+import { sendNonApiError } from './helpers/errorHandler.ts'
 import { OPENAPI_SECURITY, OPENAPI_SECURITY_SCHEMES } from './helpers/openapi.ts'
-import { limitApiKey, limitApiRequests } from './helpers/rateLimit.ts'
-import { corsOptions, parseCspDirectives } from './helpers/security.ts'
+import {
+  limitApiKey,
+  limitApiRequests,
+  limitPublicRequests,
+  isPublicRateLimitedPath
+} from './helpers/rateLimit.ts'
+import {
+  corsOptions,
+  parseCspDirectives,
+  SESSION_COOKIE_NAME,
+  shouldBlockCrossOriginApiRequest
+} from './helpers/security.ts'
+import { withAdvisoryLock } from './helpers/advisoryLock.ts'
 
-// -> `Temporal` is not yet a real native global on any currently-shipping Node 26.x build (V8 has not
-//    landed it even behind `--harmony-temporal`, despite the flag existing) — every call site in this
-//    codebase assumes otherwise, per this repo's own CLAUDE.md. `@js-temporal/polyfill` is already a
-//    dependency for exactly this gap, but until now it was only ever installed inside individual test
-//    files' own local guards, never on the real boot path — so every real `node backend` start throws
-//    `ReferenceError: Temporal is not defined` the moment `WIKI.startedAt` below is assembled. Installed
-//    here, before anything else runs, once native support actually lands this becomes a no-op.
-if (typeof Temporal === 'undefined') {
-  const { Temporal: TemporalPolyfill } = await import('@js-temporal/polyfill')
-  ;(globalThis as any).Temporal = TemporalPolyfill
-}
+// `Temporal` has been a real native global since Node 26.0.0 (unflagged, per Node's own release notes)
+// — the `engines` floor this repo requires — so the real boot path needs no polyfill install here.
+// `@js-temporal/polyfill` stays a devDependency purely for unit tests that still run under an older
+// local Node (see e.g. `models/security.test.ts`'s own local guard); that has nothing to do with this
+// file.
 
 const nanoid = customAlphabet('1234567890abcdef', 10)
 
@@ -156,6 +168,23 @@ if (WIKI.IS_DEBUG) {
   })
 }
 
+// -> No handler existed anywhere in `backend/` before this: an unhandled rejection is Node's default
+//    "print a warning and keep running" outside of `--unhandled-rejections=strict`, which for this
+//    process means silently continuing in a state some in-flight operation already gave up on rather
+//    than the app crashing cleanly. `@gquittet/graceful-server`'s own `uncaughtException` handler
+//    already treats a *synchronous* throw as fatal (`stop({ value: 2 })`); this closes the same gap on
+//    the async side rather than leaving it to whichever rejection happens to be the one that finally
+//    corrupts something visibly.
+process.on('unhandledRejection', (reason) => {
+  if (WIKI.logger) {
+    WIKI.logger.error('Unhandled promise rejection:')
+    WIKI.logger.error(reason as any)
+  } else {
+    console.error('Unhandled promise rejection:', reason)
+  }
+  process.exit(1)
+})
+
 await WIKI.configSvc.init()
 
 // ----------------------------------------
@@ -163,6 +192,10 @@ await WIKI.configSvc.init()
 // ----------------------------------------
 
 WIKI.logger = logger.init()
+
+// -> Registered as early as `WIKI.logger` exists, so nothing between here and the end of boot can
+//    crash the process unlogged via a rejection nobody's `.catch` caught.
+registerUnhandledRejectionHandler(WIKI.logger, { debug: WIKI.IS_DEBUG })
 
 // ----------------------------------------
 // Init Server
@@ -179,21 +212,34 @@ WIKI.logger.info(`Running node.js ${process.version} [ OK ]`)
 // ----------------------------------------
 
 async function preBoot() {
-  WIKI.dbManager = (await import('./core/db.ts')).default
-  WIKI.db = await dbManager.init()
-  WIKI.models = (await import('./models/index.ts')).default
-
   try {
-    if (await WIKI.configSvc.loadFromDb()) {
-      WIKI.logger.info('Settings merged with DB successfully [ OK ]')
-    } else {
-      WIKI.logger.warn('No settings found in DB. Initializing with defaults...')
-      await WIKI.configSvc.initDbValues()
+    WIKI.dbManager = (await import('./core/db.ts')).default
+    WIKI.db = await dbManager.init()
+    WIKI.models = (await import('./models/index.ts')).default
 
-      if (!(await WIKI.configSvc.loadFromDb())) {
-        throw new Error('Settings table is empty! Could not initialize [ ERROR ]')
+    // -> The is-empty check and the first-run seed it can trigger are held under the same advisory
+    //    lock `dbManager.syncSchemas()` already takes around the migration itself ('wiki:migrate'),
+    //    as one atomic decision. Without this, two instances booting together against a fresh
+    //    database can interleave: `settings.init()` (the first thing `initDbValues()` does) is a
+    //    single-row PRIMARY KEY insert, so a genuinely concurrent seed collides there and the loser
+    //    exits below like today -- but a *second* instance's own `loadFromDb()` can land in the
+    //    window after the first has committed `settings.init()` but before it has finished
+    //    `sites`/`groups`/`users`/`jobs`/`icons` init, sees a settings row, and proceeds straight to
+    //    `postBoot()` reloading caches from a half-seeded database (zero sites, no groups) with no
+    //    error at all. Serializing the whole decision closes that: a second instance's check now
+    //    waits for the first's seed to fully finish (or fail) before running its own.
+    await withAdvisoryLock('wiki:migrate', async () => {
+      if (await WIKI.configSvc.loadFromDb()) {
+        WIKI.logger.info('Settings merged with DB successfully [ OK ]')
+      } else {
+        WIKI.logger.warn('No settings found in DB. Initializing with defaults...')
+        await WIKI.configSvc.initDbValues()
+
+        if (!(await WIKI.configSvc.loadFromDb())) {
+          throw new Error('Settings table is empty! Could not initialize [ ERROR ]')
+        }
       }
-    }
+    })
   } catch (err: any) {
     WIKI.logger.error('Database Initialization Error: ' + err.message)
     if (WIKI.IS_DEBUG) {
@@ -318,7 +364,19 @@ async function initHTTPServer() {
       level: 'error'
     },
     // -> `securityTrustProxy` was the 2.x name: the setting is `trustProxy`, so this read never
-    //    matched and the option was permanently off no matter what the admin area showed
+    //    matched and the option was permanently off no matter what the admin area showed.
+    //    `trustProxy` is boolean-or-string -- see `models/security.ts#validateTrustProxySpec` and
+    //    `api/schemas/security.ts` -- and Fastify's own `getTrustProxyFn` (`fastify/lib/request.js`)
+    //    is what turns a string into a compiled `proxy-addr` trust function, so it is passed through
+    //    verbatim rather than coerced. A trusted-proxy address/CIDR list (not the bare `true` this
+    //    admin toggle used to send) is what keeps `req.ip`/`req.hostname` from trusting
+    //    `X-Forwarded-For`/`X-Forwarded-Host` sent by an untrusted client -- see
+    //    `docs/tls-termination.md`. Every hostname-keyed site lookup (this hook's own
+    //    `resolveRequestSite` call below, the SEO hook and app-shell fallback further down,
+    //    `models/sites.ts#getSiteByHostname`, and the hostname reads in
+    //    `controllers/files.ts`/`seo.ts`/`site.ts` and `api/authentication.ts`) reads
+    //    `req.hostname`, so narrowing this one setting closes the cross-site `X-Forwarded-Host`
+    //    steering gap for all of them (task 2085).
     trustProxy: WIKI.config.security.trustProxy ?? false,
     routerOptions: {
       ignoreTrailingSlash: true
@@ -328,7 +386,29 @@ async function initHTTPServer() {
   WIKI.server = gracefulServer(app.server, {
     livenessEndpoint: '/_live',
     readinessEndpoint: '/_ready',
-    kubernetes: Boolean(process.env.KUBERNETES_SERVICE_HOST)
+    kubernetes: Boolean(process.env.KUBERNETES_SERVICE_HOST),
+    // -> The real shutdown routines, awaited (`Promise.allSettled`) before the server closes and the
+    //    process exits -- replacing the previous `SHUTTING_DOWN` handler below, which called two of
+    //    these directly and awaited neither, so the library's own 1000ms default `timeout` (below)
+    //    elapsed and forced the exit regardless of whether they had actually finished.
+    //    `scheduler.stop()` first clears `pollingRef`/`scheduledRef` so no new job is claimed once
+    //    shutdown begins, then drains and closes its own LISTEN client; `collab.shutdown()` closes
+    //    every editing socket with a going-away code so editors reconnect to whichever instance takes
+    //    over rather than sitting on a dead connection; `dbManager.unsubscribeFromNotifications()`
+    //    drains and closes the event bus's LISTEN client; the pool itself closes last, once nothing
+    //    above is still checking a connection out of it.
+    closePromises: [
+      () => WIKI.scheduler.stop(),
+      () => WIKI.collab.shutdown(),
+      () => WIKI.dbManager.unsubscribeFromNotifications(),
+      () => WIKI.dbManager.pool?.end() ?? Promise.resolve()
+    ],
+    // -> Above the library's 1000ms default, which gave an in-flight job, render, export or webhook
+    //    delivery essentially no drain window before being killed mid-work on every ordinary deploy,
+    //    restart or pod eviction (the cost `core/scheduler.ts#processJob`'s own doc comment describes
+    //    `reapStaleJobs` existing to clean up after). Comfortably inside a typical orchestrator's own
+    //    termination grace period (Kubernetes defaults to 30s) while still bounded.
+    timeout: 10000
   })
 
   app.register(fastifySensible)
@@ -341,8 +421,34 @@ async function initHTTPServer() {
 
     `maxPayload` bounds a single frame: these carry keystrokes and cursor positions, and the largest
     legitimate one is a client handing over a document it edited while offline.
+
+    `verifyClient` (task 2120 / WP 2105 §5) is the cross-origin gate for every current and future
+    `websocket: true` route: a WebSocket handshake is not subject to the same-origin policy and is
+    not preflighted, so CORS governs neither it nor the frames that follow — unlike a form POST, the
+    response is fully readable by whichever origin opened the socket, and each route's own
+    session/permission check runs against whatever cookie the browser attached regardless of which
+    page attached it. One `verifyClient` here closes that for both current routes
+    (`controllers/terminal.ts`, `controllers/collab.ts`) and any future one, rather than each handler
+    re-deriving its own origin check. See `helpers/common.ts#isSameOriginWebSocketHandshake` --
+    passed `WIKI.sitesMappings`' own hostnames too, so a handshake between two sites this same
+    instance actually serves is also accepted, not only a request whose Origin matches the exact Host
+    it landed on.
   */
-  app.register(fastifyWebsocket, { options: { maxPayload: 5242880 } })
+  app.register(fastifyWebsocket, {
+    options: {
+      maxPayload: 5242880,
+      verifyClient: (info: {
+        origin: string
+        secure: boolean
+        req: import('node:http').IncomingMessage
+      }) =>
+        isSameOriginWebSocketHandshake(
+          info.origin,
+          info.req.headers.host,
+          Object.keys(WIKI.sitesMappings)
+        )
+    }
+  })
 
   // ----------------------------------------
   // Handle graceful server shutdown
@@ -350,10 +456,8 @@ async function initHTTPServer() {
 
   WIKI.server.on(gracefulServer.SHUTTING_DOWN, () => {
     WIKI.logger.info('Shutting down HTTP Server... [ STOPPING ]')
-    WIKI.dbManager.unsubscribeFromNotifications()
-    // -> Closes every editing socket with a going-away code, so the editors reconnect to whichever
-    //    instance takes over rather than sitting on a dead connection
-    WIKI.collab.shutdown()
+    // -> The actual shutdown work happens in `closePromises` above, which the library awaits before
+    //    closing the server -- this handler is log-only now.
   })
 
   WIKI.server.on(gracefulServer.SHUTDOWN, (err: Error) => {
@@ -429,28 +533,54 @@ async function initHTTPServer() {
   // Sessions
   // ----------------------------------------
 
-  // FIXME: `WIKI.config.auth.secret` is read once, here, at plugin registration — not re-read per
-  // request the way `WIKI.config.auth.certs` is in `models/apiKeys.ts#verify`. That means
+  // Fail closed rather than silently register the session/cookie plugins with a missing or
+  // too-short secret -- see `helpers/authSecret.ts` for why this exists.
+  assertValidAuthSecret(WIKI.config.auth.secret)
+
+  // `authSecretSigner` (OpenProject #2172) hands both plugins an object that reads
+  // `WIKI.config.auth.secret` at call time instead of a value captured once here at registration, so
   // `models/sessions.ts#rotateSecret()` (verified under a real two-instance HA setup for task 589)
-  // only stops working cookies on an instance once that instance is later restarted; every other
-  // still-running instance keeps signing *new* cookies with the secret that was just invalidated, for
-  // as long as it stays up. If the secret was rotated because it leaked, that gap is the whole point
-  // of the action failing to close on a live instance. `WIKI.events.inbound` already carries
-  // `reloadConfig` to every instance the moment the row saves — the missing piece is handing
-  // @fastify/cookie / @fastify/session a secret they re-read (or re-registering the plugin) instead of
-  // one captured by value here, and there is no instance registry (see `core/maintenance.ts`'s file
-  // header) to prompt an operator to restart the others in the meantime.
+  // takes effect on a still-running instance immediately: this instance signs and verifies against the
+  // rotated secret starting with the very next request, and so does every other instance the moment
+  // `WIKI.events.inbound`'s `reloadConfig` (already fanned out by `saveToDb()`) reassigns its own
+  // `WIKI.config`. No restart, and no plugin re-registration, required.
   app.register(fastifyCookie, {
-    secret: WIKI.config.auth.secret,
+    secret: authSecretSigner,
     hook: 'onRequest'
   })
   app.register(fastifySession, {
-    secret: WIKI.config.auth.secret,
-    cookieName: 'wikiSession',
+    secret: authSecretSigner,
+    // -> task 2109: `__Host-`-prefixed and pinned explicit, not `secure: 'auto'` -- see
+    //    `SESSION_COOKIE_NAME`'s doc comment for why `cookiePrefix` (what the task's own text
+    //    suggested) cannot get there, and the two notes below for what pinning these two costs.
+    cookieName: SESSION_COOKIE_NAME,
     cookie: {
       httpOnly: true,
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      secure: 'auto'
+      /*
+        Unconditionally true, not 'auto' (task 2109 / WP 2105 §2): the `__Host-` name above is only
+        honoured by a browser when the `Set-Cookie` response itself carries `Secure` -- @fastify/
+        session's 'auto' resolves that to `false` on any request THIS instance sees as plain http
+        (`node_modules/@fastify/session/lib/cookie.js`), which includes both the dev server
+        (`npm run dev` serves :3000 over http, matching config.sample.yml's default) and a
+        genuinely-HTTPS deployment sitting behind a reverse proxy that isn't declared via
+        `trustProxy` -- see `models/security.ts#observeRequest`, which exists to catch exactly that
+        misconfiguration. In the trustProxy-off-but-really-HTTPS case, 'auto' would silently drop the
+        whole `__Host-` cookie rather than merely downgrade it, since a missing `Secure` fails the
+        prefix outright; forcing it `true` fixes that case unconditionally instead (the browser
+        judges Secure-cookie eligibility by what scheme IT used, not this instance's belief about
+        its own scheme), and still works in dev because Chromium/Firefox both treat `localhost` /
+        `127.0.0.1` as a trustworthy origin for the Secure attribute even over plain http. The one
+        real cost is a deployment with no TLS anywhere in the chain (not even a proxy) now fails
+        closed -- no session cookie at all, rather than an insecure one -- which is the point.
+      */
+      secure: true,
+      // -> Explicit, not left to 'auto' forcing it only on the non-https branch (task 2109 / WP
+      //    2105 §2): a correctly-deployed HTTPS instance was emitting `Secure` with NO `SameSite`
+      //    at all, which is exactly backwards for CSRF exposure. 'lax', never 'strict' -- the
+      //    OAuth/SAML provider callback is a cross-site top-level navigation back to this origin,
+      //    which 'strict' would refuse to attach the cookie to.
+      sameSite: 'lax'
     },
     saveUninitialized: false,
     store: {
@@ -628,6 +758,35 @@ async function initHTTPServer() {
   })
 
   // ----------------------------------------
+  // Same-Origin Check (task 2118 / WP 2105 §3)
+  // ----------------------------------------
+
+  /*
+    `SameSite=Lax` (above) does not cover a same-site-but-different-origin attacker -- a page on
+    sibling.wiki.example is "same-site" to wiki.example for cookie purposes, but not the wiki's own
+    origin, and Lax still attaches the cookie to a top-level form navigation either way. Nothing else
+    in this file inspects request provenance (see WP 2105's own grep for `csrf`/`sec-fetch`/
+    `x-requested-with` across the repo), so a state-changing `/_api/` request riding on the session
+    cookie alone -- no verified bearer token -- has to positively confirm it originated here. The
+    actual decision is `shouldBlockCrossOriginApiRequest()` in `helpers/security.ts` -- kept as a
+    plain function of the request rather than written inline here so it can be exercised directly in
+    a test with no Fastify instance, database, or route registration needed at all; this hook is
+    just the wiring.
+
+    After the API-key hook above, so `req.apiKey` is populated for the bearer exemption; before the
+    rate limiter, though the ordering between the two doesn't matter functionally.
+  */
+  app.addHook('onRequest', (req, reply, done) => {
+    if (shouldBlockCrossOriginApiRequest(req)) {
+      // -> Fails closed: a missing/foreign `Origin` (and no `Sec-Fetch-Site: same-origin`) is not
+      //    what a real browser sends on a state-changing cross-document request, so there is
+      //    nothing here to positively trust.
+      return reply.forbidden('Cross-origin request blocked')
+    }
+    done()
+  })
+
+  // ----------------------------------------
   // General API Rate Limit
   // ----------------------------------------
 
@@ -639,6 +798,23 @@ async function initHTTPServer() {
       return
     }
     return limitApiRequests(req, reply)
+  })
+
+  // ----------------------------------------
+  // Public Surface Rate Limit
+  // ----------------------------------------
+
+  app.addHook('onRequest', async (req, reply) => {
+    // -> The handful of root-mounted public controllers (`/sitemap.xml`, `/robots.txt`, `/_icons`,
+    //    `/_files`, `/_thumb`, `/_site`) carried no throttle of any kind before this hook (OpenProject
+    //    #2274) -- neither this one nor the `/_api/` limiter above ever saw them, since both are
+    //    scoped to `/_api/`. Accounted into its own `public:` bucket, entirely separate from
+    //    `/_api/`'s -- see `helpers/rateLimit.ts#limitPublicRequests`.
+    const path = req.url.split('?')[0] ?? req.url
+    if (!isPublicRateLimitedPath(path)) {
+      return
+    }
+    return limitPublicRequests(req, reply)
   })
 
   // ----------------------------------------
@@ -694,6 +870,17 @@ async function initHTTPServer() {
   })
 
   // ----------------------------------------
+  // API key site pin
+  // ----------------------------------------
+
+  // -> OpenProject #2189/#2194: a key/token pinned to one site (`apiKeys.siteId`) must not reach
+  //    another site's resources through the REST API. One global hook covering every
+  //    `/sites/:siteId/...` route rather than a call added to each of the 117+ of them individually —
+  //    see `helpers/apiKeySite.ts`'s own doc comment for the full reasoning and what this deliberately
+  //    does not cover (a hostname- or body-resolved site, which calls `enforceApiKeySite()` directly).
+  app.addHook('preHandler', apiKeySitePinHook)
+
+  // ----------------------------------------
   // SEO
   // ----------------------------------------
 
@@ -706,7 +893,7 @@ async function initHTTPServer() {
     if (isPageUrl(trimmed)) {
       // -> Straight off the site caches rather than through the model: this runs on every request, and
       //    both lookups are the ones `getSiteByHostname` would do, minus its optional reload
-      const siteId = WIKI.sitesMappings[req.hostname] || WIKI.sitesMappings['*']
+      const siteId = WIKI.sitesMappings[normalizeHostname(req.hostname)] || WIKI.sitesMappings['*']
       const siteConfig = WIKI.sites[siteId]?.config
       const withoutExtension = stripPageExtension(trimmed, siteConfig?.pageExtensions)
       if (withoutExtension) {
@@ -861,7 +1048,7 @@ async function initHTTPServer() {
       const shell = await readFile(appShellPath, 'utf8')
       // -> Same site resolution as the SEO hook above: straight off the caches, since this also
       //    runs on every request that reaches the shell.
-      const siteId = WIKI.sitesMappings[req.hostname] || WIKI.sitesMappings['*']
+      const siteId = WIKI.sitesMappings[normalizeHostname(req.hostname)] || WIKI.sitesMappings['*']
       const siteConfig = WIKI.sites[siteId]?.config
       const lang = resolveAppShellLocale(urlPath!, urlSearch, siteConfig?.locales)
       const locales = await WIKI.models.locales.getLocales()
@@ -905,7 +1092,7 @@ async function initHTTPServer() {
         })
       }
     } else {
-      reply.send(error)
+      sendNonApiError(error, reply)
     }
   })
 
@@ -917,7 +1104,17 @@ async function initHTTPServer() {
     WIKI.logger.info(`Starting HTTP Server on port ${WIKI.config.port} [ STARTING ]`)
     await app.listen({ port: WIKI.config.port, host: WIKI.config.bindIP })
     WIKI.logger.info('HTTP Server: [ RUNNING ]')
-    WIKI.server.setReady()
+    // -> `/_ready` is deliberately NOT flipped ready here: `app.listen()` only means the socket
+    //    accepts connections, not that a request can be served correctly. `WIKI.sites`/
+    //    `WIKI.sitesMappings` are still `{}` at this point (see the WIKI literal above), no auth
+    //    strategy is active yet, and the groups/locales/approvals/classification caches every
+    //    request path reads from are still empty -- all of that is filled in by `postBoot()`, which
+    //    runs after this function returns. Reporting ready here would let a rolling update or load
+    //    balancer route live traffic onto an instance that 302s every page to
+    //    `/_error/unknownsite` and fails every login. The instance is only marked ready once
+    //    `postBoot()` has actually populated those caches, at the bottom of this file. `/_live`
+    //    (bound by `gracefulServer` above, independent of that readiness flag) answers from here
+    //    onward regardless, so liveness probes still see the process as up throughout.
   } catch (err: any) {
     WIKI.logger.error(err)
     process.exit(1)
@@ -943,4 +1140,14 @@ async function initHTTPServer() {
 
 await preBoot()
 await initHTTPServer()
-await postBoot()
+
+await runBootPhaseOrExit(postBoot, 'Post-Boot Initialization Error', WIKI.logger, {
+  debug: WIKI.IS_DEBUG
+})
+
+// -> Not ready until postBoot() has resolved: everything that makes the instance able to answer a
+//    page request (site/group/locale/approval/classification caches, storage/search/comment sync,
+//    the scheduler, ...) happens there. Signalling ready any earlier — e.g. as the last statement of
+//    initHTTPServer(), right after the listener binds — means /_ready reports 200 while every page
+//    request would still resolve to not-found (OpenProject #2062).
+WIKI.server.setReady()

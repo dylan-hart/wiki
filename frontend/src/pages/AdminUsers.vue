@@ -2,10 +2,13 @@
   <w-page class="admin-groups">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-account.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-account.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.users.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.users.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.users.subtitle') }}
         </div>
@@ -16,6 +19,8 @@
           outlined
           v-model="state.search"
           dense
+          :placeholder="t('admin.users.searchUsers')"
+          :aria-label="t('admin.users.searchUsers')"
           :class="dark.isActive ? `bg-dark text-white` : `bg-white`">
           <template #prepend><w-icon class="opacity-50" name="la:search" size="20px" /></template>
         </w-input>
@@ -135,6 +140,9 @@
                   </w-tooltip>
                 </w-btn>
               </w-td>
+            </template>
+            <template #no-data>
+              {{ state.search ? t('admin.users.searchNoResults') : t('admin.users.emptyText') }}
             </template>
           </w-table>
         </w-card>

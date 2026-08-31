@@ -1,24 +1,26 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, mock, test } from 'node:test'
+import fsp from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import ajvFormats from 'ajv-formats'
 import systemRoutes from './system.ts'
+import { importModel } from '../models/siteImport.ts'
 import { registerSchemas as registerFlagsSchema } from './schemas/flags.ts'
 import { registerSchemas as registerSecuritySchema } from './schemas/security.ts'
 import { registerSchemas as registerExtensionSchema } from './schemas/extension.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { ensureTemporal } from '../test/temporal.ts'
+import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import configSvc from '../core/config.ts'
 
-// `getClusterNodes()` (in system.ts) calls `Temporal.Instant.from()` unconditionally on every row.
-// Node ships `Temporal` as a global from v26 -- but not every environment running this test has
-// that landed yet, and `@js-temporal/polyfill` (already pulled in transitively by drizzle-kit) is
-// a faithful ponyfill, so install it as the global only when it is genuinely missing. On a runtime
-// that already has native `Temporal` this import is inert.
-if (typeof Temporal === 'undefined') {
-  const { Temporal: TemporalPolyfill } = await import('@js-temporal/polyfill')
-  ;(globalThis as any).Temporal = TemporalPolyfill
-}
+// `getClusterNodes()` (in system.ts) calls `Temporal.Instant.from()` unconditionally on every row;
+// `ensureTemporal()` polyfills the global for real on this sandbox's Node, which lacks it natively --
+// see `test/temporal.ts` for why this is needed at all.
+await ensureTemporal()
 
 /**
  * Regression test for task 711 (Feature 411): the admin area used to expose this cluster-node
@@ -275,3 +277,235 @@ describe('GET /system/extensions/status', () => {
     assert.deepEqual(res.json(), { pandoc: true, puppeteer: false })
   })
 })
+
+/**
+ * Task 2213: `POST /import`'s content-type parser used to be `parseAs: 'buffer'`, materialising the
+ * whole archive as one in-memory `Buffer` before a single byte reached `<dataPath>/imports/`. It now
+ * has no `parseAs` at all, which is what hands the parser the raw request stream instead — this
+ * suite runs the real `systemRoutes` plugin with the real `importModel` (against a throwaway
+ * `dataPath`) rather than mocking either, so what it actually asserts is that the archive lands on
+ * disk at all, with the exact bytes sent, and that `req.body` resolves to that file's path rather
+ * than a `Buffer` — the architectural change this task made. Only `WIKI.models.sites.getSiteById` and
+ * `WIKI.scheduler.addJob` are mocked, since a real target site and a real job queue are their own
+ * suites' concerns.
+ */
+describe('POST /import (streamed upload)', () => {
+  let app: FastifyInstance
+  let dataPath: string
+  let currentSite: any
+  let getSiteById: ReturnType<typeof mock.fn>
+  let addJob: ReturnType<typeof mock.fn>
+
+  before(async () => {
+    dataPath = await fsp.mkdtemp(path.join(os.tmpdir(), 'wiki-import-route-test-'))
+
+    getSiteById = mock.fn(async () => currentSite)
+    addJob = mock.fn(async () => ({ id: 'job-1' }))
+
+    ;(globalThis as any).WIKI = {
+      ROOTPATH: process.cwd(),
+      config: { dataPath },
+      models: {
+        sites: { getSiteById },
+        import: importModel,
+        auditLog: { record: async () => {} }
+      },
+      scheduler: { addJob }
+    }
+
+    app = fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    app.addHook('onRequest', (req, _reply, done) => {
+      ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+      done()
+    })
+    await registerErrorSchema(app)
+    await registerFlagsSchema(app)
+    await registerSecuritySchema(app)
+    await registerExtensionSchema(app)
+    await app.register(systemRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    await fsp.rm(dataPath, { recursive: true, force: true })
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    currentSite = { id: 'site-1' }
+    getSiteById.mock.resetCalls()
+    addJob.mock.resetCalls()
+  })
+
+  test('streams the upload straight to disk and queues a job pointing at the saved path, not a Buffer', async () => {
+    const gzipHeader = Buffer.from([0x1f, 0x8b, 0x08, 0x00])
+    const body = Buffer.concat([gzipHeader, Buffer.from('a fake archive body, not a real tarball')])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/import?targetSiteId=00000000-0000-0000-0000-000000000001',
+      headers: { 'content-type': 'application/gzip' },
+      payload: body
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), {
+      ok: true,
+      message: 'Content import queued successfully.',
+      id: 'job-1'
+    })
+
+    assert.equal(addJob.mock.callCount(), 1)
+    const jobPayload = (addJob.mock.calls[0]!.arguments[0] as any).payload
+    // -> The content-type parser resolved `req.body` (what `addJob`'s payload carries as `filePath`)
+    //    to a string path on disk, never a `Buffer` -- proof the archive was streamed to
+    //    `<dataPath>/imports/` rather than held whole in the request thread's memory.
+    assert.equal(typeof jobPayload.filePath, 'string')
+    assert.match(jobPayload.filePath, /imports[/\\].+\.tar\.gz$/)
+    assert.deepEqual(await fsp.readFile(jobPayload.filePath), body)
+  })
+
+  test('rejects a body whose first bytes are not gzip, and never queues a job for it', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/import?targetSiteId=00000000-0000-0000-0000-000000000001',
+      headers: { 'content-type': 'application/gzip' },
+      payload: Buffer.from('not a gzip archive at all')
+    })
+
+    assert.equal(res.statusCode, 400)
+    assert.equal(addJob.mock.callCount(), 0)
+  })
+
+  test('deletes the saved upload when the target site does not exist, and never queues a job', async () => {
+    currentSite = null
+    const before = await fsp.readdir(path.join(dataPath, 'imports')).catch(() => [] as string[])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/import?targetSiteId=00000000-0000-0000-0000-000000000002',
+      headers: { 'content-type': 'application/gzip' },
+      payload: Buffer.from([0x1f, 0x8b, 0x08, 0x00])
+    })
+
+    assert.equal(res.statusCode, 404)
+    assert.equal(addJob.mock.callCount(), 0)
+
+    const after = await fsp.readdir(path.join(dataPath, 'imports'))
+    assert.equal(
+      after.length,
+      before.length,
+      'expected the upload to have been deleted since the target site does not exist'
+    )
+  })
+})
+
+/**
+ * OpenProject #2231: every write route in `system.ts` now records an audit entry. DB-backed rather
+ * than a stubbed `WIKI.models.auditLog` -- `PUT /security` and `POST /history/purge` are the two
+ * cases the task calls out by name, and what actually has to be verified is what lands in the real
+ * `auditLog` table (actor, changed keys, and -- the point of the task -- that no `auth`/`mail`
+ * secret value ever reaches `detail`), not just that `record()` was called with some argument.
+ * `WIKI.configSvc` is the real `core/config.ts` singleton (not part of `setupTestDb()`'s minimal
+ * `WIKI`): `Security#updateConfig` writes through it to the real `settings` table this fixture's
+ * migration created.
+ */
+describe(
+  'Write routes record an audit entry (DB-backed, #2231)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let app: FastifyInstance
+    let fixtures: TestFixtures
+    let auditLogModel: typeof import('../models/auditLog.ts').auditLog
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ auditLog: auditLogModel } = await import('../models/auditLog.ts'))
+      ;(globalThis as any).WIKI.configSvc = configSvc
+
+      app = fastify({
+        ajv: {
+          plugins: [[ajvFormats.default, {}] as any]
+        }
+      })
+      await app.register(fastifySensible)
+      app.addHook('onRequest', (req, _reply, done) => {
+        ;(req as any).session = {
+          authenticated: true,
+          user: { id: fixtures.userId, name: 'Fixture User' },
+          permissions: ['manage:system'],
+          destroy: async () => {}
+        }
+        done()
+      })
+      await registerErrorSchema(app)
+      await registerFlagsSchema(app)
+      await registerSecuritySchema(app)
+      await registerExtensionSchema(app)
+      await app.register(systemRoutes)
+      await app.ready()
+    })
+
+    after(async () => {
+      await app.close()
+      await teardownTestDb()
+    })
+
+    test('PUT /security leaves an audit row naming the actor and the changed keys, with no auth/mail secret in detail', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/security',
+        // -> `trustProxy`/`uploadScanSVG` are real `SECURITY_FIELDS`; `auth`/`mail` are not -- they
+        //    stand in for a caller trying to slip a secret-bearing blob through this route. The
+        //    schema has no `additionalProperties: false`, so these pass validation and reach the
+        //    handler; `Security#pickFields` is what has to drop them before `detail` is built.
+        payload: {
+          trustProxy: true,
+          uploadScanSVG: false,
+          auth: { secret: 'super-secret-session-key' },
+          mail: { host: 'smtp.example.com', auth: { user: 'bot', pass: 'hunter2' } }
+        }
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.json().ok, true)
+
+      const { entries } = await auditLogModel.list({ event: 'system.securityUpdated' })
+      assert.equal(entries.length, 1)
+      const entry = entries[0]!
+
+      assert.equal(entry.actor.id, fixtures.userId)
+      assert.equal(entry.actor.name, 'Fixture User')
+      assert.deepEqual(Object.keys(entry.detail).sort(), ['trustProxy', 'uploadScanSVG'])
+      assert.equal(entry.detail.trustProxy, true)
+      assert.equal(entry.detail.uploadScanSVG, false)
+
+      const serializedDetail = JSON.stringify(entry.detail)
+      assert.doesNotMatch(serializedDetail, /auth|mail|secret|hunter2/i)
+    })
+
+    test('POST /history/purge leaves an audit row naming the actor and the changed keys', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/history/purge',
+        payload: { olderThan: '24h' }
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.json().ok, true)
+
+      const { entries } = await auditLogModel.list({ event: 'system.pageHistoryPurged' })
+      assert.equal(entries.length, 1)
+      const entry = entries[0]!
+
+      assert.equal(entry.actor.id, fixtures.userId)
+      assert.deepEqual(Object.keys(entry.detail).sort(), ['count', 'olderThan'])
+      assert.equal(entry.detail.olderThan, '24h')
+      assert.equal(entry.detail.count, res.json().count)
+    })
+  }
+)

@@ -9,6 +9,7 @@
         <div class="auth-strategies mb-4">
           <w-btn
             v-for="str of formStrategies"
+            :key="str.id"
             :label="str.activeStrategy.displayName"
             :icon="`img:` + str.activeStrategy.strategy.icon"
             push
@@ -30,7 +31,6 @@
         <w-input
           ref="loginEmailIpt"
           v-model="state.username"
-          autofocus
           outlined
           :label="
             t(`auth.fields.` + (selectedStrategy.activeStrategy?.strategy?.usernameType ?? `email`))
@@ -105,7 +105,7 @@
         <w-separator class="my-4" />
         <w-btn
           class="acrylic-btn w-full mb-2"
-          v-if="selectedStrategy.activeStrategy.registration"
+          v-if="selectedStrategy.activeStrategy.selfRegistration"
           flat
           color="primary"
           :label="t(`auth.switchToRegister.link`)"
@@ -458,7 +458,7 @@ import { passwordStrengthScore } from '@/helpers/passwordStrength'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-import Cookies from 'js-cookie'
+import { isFollowableRedirectTarget } from '@/helpers/pageRedirect'
 import { browserSupportsWebAuthn, startAuthentication } from '@simplewebauthn/browser'
 import VOtpInput from 'vue3-otp-input'
 
@@ -643,7 +643,7 @@ function switchTo(screen) {
       break
     }
     default: {
-      throw new Error('Invalid Screen')
+      throw new Error('ERR_INVALID_SCREEN')
     }
   }
 }
@@ -662,19 +662,17 @@ async function fetchStrategies(showAll = false) {
  * Where a provider button goes: the backend builds the URL at the provider, because everything that
  * ties the answer back to this browser — `state`, `nonce`, the PKCE verifier — is generated there and
  * kept on the session.
+ *
+ * No `redirect` param is set here: this used to be read off a `loginRedirect` cookie, but nothing in
+ * this app ever wrote one (OpenProject #2208 §9 -- confirmed by grep, not assumed), so it was a dead
+ * read of a value that could only ever come from something else able to set a cookie on this wiki's
+ * registrable domain. The backend's own `GET /_api/auth/:strategyId/authorize` already defaults an
+ * absent `redirect` to `/`, and validates one that IS given (`helpers/redirectTarget.ts`) -- so
+ * dropping this rather than reintroducing a writer is the "where I was going" memory this component
+ * loses, not a regression in what a caller can still ask for explicitly via a query param of its own.
  */
 function authorizeUrl(str) {
   const params = new URLSearchParams({ siteId: siteStore.id })
-  /*
-    The same cookie a form login reads on its way out: whatever sent the reader to the login screen
-    left where they were going in it. The provider flow cannot come back through the code above — it
-    lands on the callback route, which redirects — so the destination travels with the request and is
-    handed back by the callback instead.
-  */
-  const loginRedirect = Cookies.get('loginRedirect')
-  if (loginRedirect) {
-    params.set('redirect', loginRedirect)
-  }
   return `/_api/auth/${str.id}/authorize?${params.toString()}`
 }
 
@@ -728,18 +726,17 @@ async function handleLoginResponse(resp) {
         message: t('auth.loginSuccess')
       })
       setTimeout(() => {
-        const loginRedirect = Cookies.get('loginRedirect')
-        if (loginRedirect === '/' && resp.redirect) {
-          Cookies.remove('loginRedirect')
-          window.location.replace(resp.redirect)
-        } else if (loginRedirect) {
-          Cookies.remove('loginRedirect')
-          window.location.replace(loginRedirect)
-        } else if (resp.redirect) {
-          window.location.replace(resp.redirect)
-        } else {
-          window.location.replace('/')
-        }
+        /*
+          `resp.redirect` is a group's `redirectOnLogin` (`models/users.ts`), validated server-side on
+          the way in (`api/groups.ts`) -- but checked again here, the same defence-in-depth reasoning
+          `api/authentication.ts#finishProviderLogin` applies server-side, against a row written before
+          that validation existed. `javascript:…` parses as a valid `URL` with no error, so this cannot
+          be a bare try/catch around `new URL()` -- it has to look at what scheme came back
+          (OpenProject #1360/#2208, 2026-08-24 security audit §2, §9).
+        */
+        window.location.replace(
+          resp.redirect && isFollowableRedirectTarget(resp.redirect) ? resp.redirect : '/'
+        )
       }, 1000)
       break
     }
@@ -747,7 +744,7 @@ async function handleLoginResponse(resp) {
       loading.hide()
       notify({
         type: 'negative',
-        message: 'Unexpected Authentication Response'
+        message: t('auth.errors.unexpectedResponse')
       })
     }
   }
@@ -1095,10 +1092,22 @@ async function finishSetupTFA() {
 // MOUNTED
 
 onMounted(async () => {
+  /*
+    Ahead of `fetchStrategies()`'s network round trip, not after it: `detectResetToken()` only reads
+    `window.location.pathname` and needs nothing it fetches, so running it first lets the caret land
+    on first paint rather than waiting on a response. Guarded on `state.screen` staying `login`
+    afterwards -- a reset-password link switches screens itself (and focuses its own field via
+    `switchTo()`), and this would otherwise steal focus right back.
+  */
+  detectResetToken()
+  if (state.screen === 'login') {
+    nextTick(() => {
+      loginEmailIpt.value?.focus()
+    })
+  }
   await fetchStrategies()
   reportRedirectLoginError()
   reportVerifiedSuccess()
-  detectResetToken()
 })
 
 /**

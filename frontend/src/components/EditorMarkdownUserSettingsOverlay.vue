@@ -1,5 +1,5 @@
 <template>
-  <w-layout view="hHh lpR fFf" container>
+  <w-layout container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="img:/_assets/icons/ultraviolet-markdown.svg" left size="md" />
       <span>{{ t('editor.settings.markdown') }}</span>
@@ -14,7 +14,7 @@
         :href="siteStore.docsBase + `/guide/editors/markdown`"
         target="_blank"
         type="a" />
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
           push
           color="grey-6"
@@ -60,9 +60,6 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.previewShown"
-                color="primary"
-                checked-icon="la:check"
-                unchecked-icon="la:times"
                 :aria-label="t(`editor.settings.markdownPreviewShown`)" />
             </w-item-section>
           </w-item>
@@ -154,7 +151,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to fetch Markdown editor settings.',
+      message: t('editor.settings.fetchFailed'),
       caption: err.message
     })
   }
@@ -178,7 +175,7 @@ async function save() {
       json: payload
     }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     editorStore.$patch({ userSettings: { ...editorStore.userSettings, markdown: payload } })
     notify({
@@ -190,7 +187,7 @@ async function save() {
     // -> ky throws above 400, with the reason in the body
     notify({
       type: 'negative',
-      message: 'Failed to save Markdown editor settings.',
+      message: t('editor.settings.saveFailed'),
       caption: apiErrorMessage(err)
     })
   }

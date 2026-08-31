@@ -14,9 +14,9 @@ props:
   tenantId:
     type: String
     title: Tenant ID
-    hint: A directory (tenant) ID or verified domain from the app registration's Overview page. Leave as "common" for a multi-tenant app that accepts any Microsoft account.
+    hint: Required. A directory (tenant) ID or verified domain from the app registration's Overview page. There is no multi-tenant ("common") option -- Microsoft's own OIDC library resolves the login's own tenant from the token itself rather than validating it against this value, so leaving it open would accept a token from any Microsoft tenant, not just this one.
     icon: building
-    default: common
+    required: true
     order: 1
   clientId:
     type: String
@@ -34,7 +34,7 @@ props:
   mapGroups:
     type: Boolean
     title: Map Groups
-    hint: Reconcile a user's wiki groups with the claim reported below on every login — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups).
+    hint: Reconcile a user's wiki groups with the claim reported below on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list; an empty allow-list means this changes no memberships at all).
     icon: user-groups
     default: false
     order: 4

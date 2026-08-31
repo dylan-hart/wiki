@@ -1,5 +1,7 @@
+import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
 import { guardSiteEnabled, isValidUuid, replyWithFile } from '../helpers/common.ts'
 import { svgMimeType } from '../helpers/images.ts'
+import { SVG_CSP } from '../helpers/security.ts'
 import crypto from 'node:crypto'
 import path from 'node:path'
 import type { SiteAssetKind } from '../models/sites.ts'
@@ -20,12 +22,13 @@ const SITE_ASSET_FALLBACKS: Record<SiteAssetKind, string> = {
  * version — so it is always revalidated, and the ETag turns that into an empty 304 rather than a
  * re-download.
  *
- * Only the uploaded branch below sends this (plus the ETag): the `replyWithFile` fallback further
- * down sends neither. That is intentional, not a gap this file forgot to close — the fallback's
- * bytes are a fixed path under this repo's own `assets/_assets/`, which only ever changes via a
- * redeploy (a new build, a new process), not a request an administrator can make against a running
- * instance the way an upload is. There is no per-instance revalidation problem to solve for content
- * that cannot change out from under a live process.
+ * Only the uploaded branch below sends this constant (plus its own strong sha1 ETag) — the
+ * `replyWithFile` fallback further down sends its own, longer-lived `Cache-Control` instead (see
+ * `helpers/common.ts`). That split is intentional, not an oversight: the fallback's bytes are a
+ * fixed path under this repo's own `assets/_assets/`, which only ever changes via a redeploy (a new
+ * build, a new process), not a request an administrator can make against a running instance the way
+ * an upload is — so it can be cached long instead of always-revalidated, while `replyWithFile` still
+ * gives it a validator for the rare revalidation (a forced reload, or the cache window elapsing).
  */
 const SITE_ASSET_CACHE = 'public, no-cache'
 
@@ -45,8 +48,10 @@ const SITE_ASSET_CACHE = 'public, no-cache'
  * else. (Verified manually against an uploaded SVG carrying a `<script>` payload in both Chrome and
  * Firefox: rendered via `<img src>` it never runs, matching the reasoning above regardless of this
  * header; opened directly in a new tab, this header's `sandbox` neutralizes it in both browsers.)
+ *
+ * `SVG_CSP` itself now lives in `helpers/security.ts`, shared with `controllers/files.ts` and
+ * `api/assets.ts`'s `/content` route so all three cannot drift apart (OpenProject #2157).
  */
-const SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 
 /**
  * _site Routes
@@ -65,6 +70,14 @@ async function routes(app: FastifyInstance) {
       }
       if (!site) {
         return reply.notFound('Site not found')
+      }
+      // -> This route resolves its own site independently of the `:siteId` path param the global
+      //    `apiKeySitePinHook` (`helpers/apiKeySite.ts`, registered in `index.ts`) reads -- the
+      //    literal param value here can be the sentinel `'current'` or a hostname, not necessarily
+      //    the real site id, so that hook deliberately leaves this prefix alone (OpenProject #2201).
+      //    Called with the resolved `site.id`, not `req.params.siteId`, for exactly that reason.
+      if (!enforceApiKeySite(req, reply, site.id)) {
+        return
       }
       // -> A disabled site's logo/favicon/login background is still identifying content: this is a
       //    logged-out request, so nothing downstream of here decides who may see it, only the hook
@@ -86,11 +99,12 @@ async function routes(app: FastifyInstance) {
         ? await WIKI.models.sites.getAsset(site.id, kind)
         : null
       if (!asset) {
-        // -> No SVG_CSP/ETag/Cache-Control here either, and for the same reason for each: this file's
-        //    bytes are picked by the codebase (`SITE_ASSET_FALLBACKS`), never by anything a request
-        //    can influence, so none of the risks those headers guard against — an admin-uploaded
-        //    payload, content changing under an unversioned URL — apply to it.
-        return replyWithFile(reply, path.join(WIKI.ROOTPATH, fallback))
+        // -> No SVG_CSP here: this file's bytes are picked by the codebase (`SITE_ASSET_FALLBACKS`),
+        //    never by anything a request can influence, so the admin-upload risk that header guards
+        //    against doesn't apply to it. Cache-Control/ETag/Last-Modified DO apply — `replyWithFile`
+        //    sends all three — since this is still a same-origin file every hard load would otherwise
+        //    re-download in full.
+        return replyWithFile(req, reply, path.join(WIKI.ROOTPATH, fallback))
       }
 
       const etag = `"${crypto.createHash('sha1').update(asset.data).digest('hex')}"`

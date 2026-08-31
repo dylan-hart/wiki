@@ -18,10 +18,7 @@ export interface HashDriftEntry {
  * `models/pages.ts#getPage` already joins the two tables on that equality — but nothing enforces it:
  * there is no FK either way (`pages.id` cannot reference a polymorphic `tree` row, and `tree.id`
  * covers folders and assets too), so a crash or a bug partway through a delete can leave one side
- * behind. `tree.hash` and `pages.hash` are not the same check: they are computed by two different
- * hash functions (`generateHash`/SHA1 for tree, `generatePathHash`/cyrb53 for pages) over strings
- * that are not even guaranteed to match, so comparing those values across the tables would flag
- * nearly everything as broken. The id is the real, if unenforced, link between the two.
+ * behind. The id is the real, if unenforced, link between the two.
  */
 export interface TreeDivergenceEntry {
   /** `orphanTreeEntry`: a tree page row with no page. `orphanPageRow`: a page with no tree entry. */

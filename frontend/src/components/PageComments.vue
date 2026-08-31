@@ -62,7 +62,7 @@
                   @click="startEdit(entry.comment)" />
                 <w-btn
                   class="page-comments-delete-toggle"
-                  icon="mdi:trash-can-outline"
+                  icon="la:trash"
                   flat
                   round
                   dense
@@ -98,8 +98,7 @@
                 :hint="t(`common.comments.markdownFormat`)"
                 :rules="editContentRules"
                 lazy-rules="ondemand"
-                :aria-label="t(`common.comments.fieldContent`)"
-                autofocus />
+                :aria-label="t(`common.comments.fieldContent`)" />
               <div class="page-comments-edit-actions mt-2 flex flex-wrap items-center gap-3">
                 <w-btn
                   unelevated
@@ -140,7 +139,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import CommentComposer from '@/components/CommentComposer.vue'
@@ -350,6 +349,14 @@ const editContentRules = [
 function startEdit(comment) {
   editDrafts.value[comment.id] = comment.content
   editingIds.value.add(comment.id)
+  /*
+    The textarea doesn't exist until this reactive update lands (it's `v-if`, swapping in for the
+    rendered body), so the `ref` callback -- `setEditInputRef` -- hasn't populated `editInputRefs` for
+    this id yet at this point in the same tick. `nextTick` waits for that render before looking it up.
+  */
+  nextTick(() => {
+    editInputRefs.get(comment.id)?.focus()
+  })
 }
 
 function cancelEdit(id) {
@@ -374,6 +381,11 @@ async function saveEdit(comment) {
       `sites/${siteStore.id}/pages/${pageStore.id}/comments/${comment.id}`,
       { json: { content: (editDrafts.value[comment.id] ?? '').trim() } }
     ).json()
+    // -> The API client does not throw for a 400, so a refusal comes back as a parsed error
+    //    envelope rather than a rejection: without this check it reads as a successful edit.
+    if (updated?.ok === false) {
+      throw new Error(updated.message || t(`common.error.generic.title`))
+    }
     comment.content = updated.content
     comment.render = updated.render
     comment.updatedAt = updated.updatedAt
@@ -426,7 +438,14 @@ function confirmDelete(comment) {
 
 async function deleteComment(comment) {
   try {
-    await API_CLIENT.delete(`sites/${siteStore.id}/pages/${pageStore.id}/comments/${comment.id}`)
+    const resp = await API_CLIENT.delete(
+      `sites/${siteStore.id}/pages/${pageStore.id}/comments/${comment.id}`
+    )
+    // -> The API client does not throw for a 400, so a refusal comes back as a response with
+    //    `ok: false` rather than a rejection: without this check it reads as a successful delete.
+    if (!resp?.ok) {
+      throw new Error((await resp.json())?.message || t(`common.error.generic.title`))
+    }
     comments.value = removeCommentFromTree(comments.value, comment.id)
     pageStore.commentsCount -= countCommentTree(comment)
     notify({ type: 'positive', message: t(`common.comments.deleteSuccess`) })

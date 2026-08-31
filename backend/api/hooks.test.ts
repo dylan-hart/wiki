@@ -11,6 +11,7 @@ import hooksRoutes from './hooks.ts'
 import { registerSchemas as registerHookSchema } from './schemas/hook.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { EMITTED_EVENTS, HOOK_EVENTS } from '../models/hooks.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 
 /**
  * Regression test for task 640: `GET /_api/hooks/events`'s Swagger `description` is a hand-written
@@ -78,7 +79,7 @@ test('GET /events Swagger description does not repeat known-stale claims', async
     assert.doesNotMatch(description, /pages, assets and comments are not implemented/i)
     // Comments are the one remaining gap the description is allowed to call out today (Feature 399
     // task 1 will close it) — but it must not claim comments are unimplemented, since they are wired
-    // via `api/comments.ts`'s `emitCommentEvent()`.
+    // via `models/comments.ts`'s `create`/`update`/`delete`.
     assert.doesNotMatch(description, /comments? (is|are) not (yet )?implemented/i)
   } finally {
     await app.close()
@@ -108,28 +109,12 @@ let serverUrl: string
 let lastRequestHeaders: http.IncomingHttpHeaders | null = null
 let lastRequestBody = ''
 let responseStatus = 200
-let previousTemporal: any
 let createHookCalls: any[]
 let updateHookCalls: any[]
 let existingHook: any
 
-/**
- * Minimal stand-in for the subset of `Temporal.Instant` the route touches (`Now.instant()`,
- * `.toString({ smallestUnit })`).
- *
- * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
- * v25.9.0, which doesn't expose it (same environment gap noted in `core/scheduler.test.ts` and tasks
- * 753/756/757/760/761 — not a spec deviation).
- */
-function installFakeTemporal(): void {
-  ;(globalThis as any).Temporal = {
-    Now: { instant: () => ({ toString: () => new Date().toISOString() }) }
-  }
-}
-
 before(async () => {
-  previousTemporal = (globalThis as any).Temporal
-  installFakeTemporal()
+  await ensureTemporal()
   ;(globalThis as any).WIKI = {
     version: 'test',
     INSTANCE_ID: 'test-instance',
@@ -189,7 +174,6 @@ after(async () => {
   await app.close()
   await new Promise<void>((resolve) => server.close(() => resolve()))
   delete (globalThis as any).WIKI
-  ;(globalThis as any).Temporal = previousTemporal
 })
 
 beforeEach(() => {
@@ -250,6 +234,26 @@ test('an invalid url is rejected with 400 before any request is attempted', asyn
     method: 'POST',
     url: '/test',
     payload: { url: 'not-a-url' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(lastRequestHeaders, null)
+})
+
+test('a url containing <, > or " is rejected with 400, matching the admin form (OpenProject #1940)', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/test',
+    payload: { url: 'https://example.com/<script>' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(lastRequestHeaders, null)
+})
+
+test('a url with a scheme that merely starts with "http" (httpfoo://) is rejected with 400 (OpenProject #1940)', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/test',
+    payload: { url: 'httpfoo://x' }
   })
   assert.equal(res.statusCode, 400)
   assert.equal(lastRequestHeaders, null)
@@ -337,4 +341,29 @@ test('update rejects a siteId that names no known site', async () => {
   })
   assert.equal(res.statusCode, 400)
   assert.equal(updateHookCalls.length, 0)
+})
+
+/**
+ * Task 1940: `invalidReason()`'s `body.url` check must reject everything
+ * `WebhookEditDialog.vue`'s `hookUrlValidation` rejects, and vice versa, so a webhook accepted by
+ * one side is never refused by the other.
+ */
+test('create rejects a URL containing disallowed characters, matching the admin form', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: { name: 'My Hook', events: ['page:create'], url: 'https://example.com/<script>' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createHookCalls.length, 0)
+})
+
+test('create rejects a URL with a non-http(s) protocol, matching the admin form', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: { name: 'My Hook', events: ['page:create'], url: 'httpfoo://x' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createHookCalls.length, 0)
 })

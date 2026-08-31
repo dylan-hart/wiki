@@ -32,16 +32,95 @@ let siteFeatures: Record<string, any> | null = null
 let userGroupsFixture: Array<{ id: string; name: string }> = []
 let nonMemberGroupsFixture: Array<{ id: string; name: string }> = []
 
+/**
+ * Fixtures for the OpenProject #1603 group-validation tests: `knownGroupsFixture` is what
+ * `WIKI.models.groups.getAllGroups()` answers, and the two call-log arrays let a test assert that an
+ * unknown group id short-circuits before either write path (`createUser` / `setUserGroups`) runs.
+ */
+const KNOWN_GROUP_ID = '55555555-5555-5555-5555-555555555555'
+const UNKNOWN_GROUP_ID = '66666666-6666-6666-6666-666666666666'
+const EXISTING_USER_ID = '77777777-7777-7777-7777-777777777777'
+let knownGroupsFixture: Array<{ id: string }> = [{ id: KNOWN_GROUP_ID }]
+let createUserCalls: Array<Record<string, any>> = []
+let setUserGroupsCalls: string[][] = []
+
+/**
+ * Mutable fixtures for `DELETE /:userId` (task 2283): each test sets these ahead of its own
+ * `app.inject`, then restores them in a `finally` -- same convention as the `/profile/groups`
+ * fixtures above.
+ */
+let deleteUserFixture: { id: string; email: string; isSystem: boolean } | null = null
+let deleteUserError: Error | null = null
+const deleteUserWarnCalls: any[] = []
+
 before(async () => {
   ;(globalThis as any).WIKI = {
+    config: {
+      auth: { rootAdminGroupId: '88888888-8888-8888-8888-888888888888' }
+    },
+    logger: {
+      warn: (err: any) => {
+        deleteUserWarnCalls.push(err)
+      }
+    },
     models: {
       users: {
         getUserGroups: async () => userGroupsFixture,
-        getNonMemberGroups: async () => nonMemberGroupsFixture
+        getNonMemberGroups: async () => nonMemberGroupsFixture,
+        getByEmail: async () => null,
+        createUser: async (input: Record<string, any>) => {
+          createUserCalls.push(input)
+          return 'new-user-id'
+        },
+        // -> Serves both the group-validation tests (which look up `EXISTING_USER_ID` and expect a
+        //    generic existing user back) and the `DELETE /:userId` tests (which set
+        //    `deleteUserFixture` ahead of the call and expect that exact object back).
+        getById: async (id: string) =>
+          deleteUserFixture ?? { id, email: 'existing@example.com', isSystem: false },
+        getUserGroupIds: async () => [],
+        updateUser: async () => {},
+        setUserGroups: async (_userId: string, groupIds: string[]) => {
+          setUserGroupsCalls.push(groupIds)
+        },
+        setUserAuthFlags: async () => {},
+        // -> `PUT /:userId` calls this instead of `updateUser`/`setUserGroups`/`setUserAuthFlags`
+        //    individually (OpenProject #1609's atomicity work) -- mirror that here so `groups` still
+        //    lands in `setUserGroupsCalls` the way these tests assert on.
+        applyUserUpdate: async (
+          _id: string,
+          { groups }: { patch?: Record<string, any>; groups?: string[]; authFlags?: unknown }
+        ) => {
+          if (groups !== undefined) {
+            setUserGroupsCalls.push(groups)
+          }
+        },
+        deleteUser: async () => {
+          if (deleteUserError) throw deleteUserError
+          return true
+        }
+      },
+      groups: {
+        getAllGroups: async () => knownGroupsFixture,
+        // -> Happy path for every test that doesn't care about the system-user guard: the caller
+        //    already holds `manage:system`, so `systemUserGuard` returns immediately.
+        holdsSystemPermission: () => true,
+        userHoldsSystemPermission: async () => false,
+        systemGroupIds: async () => [],
+        isUserInGroup: async () => false,
+        countUsersInGroup: async () => 0
+      },
+      mail: {
+        isConfigured: () => false
       },
       sites: {
         getSiteByHostname: async () =>
           siteFeatures ? { config: { features: siteFeatures } } : null
+      },
+      auditLog: {
+        record: async () => {}
+      },
+      sessions: {
+        clearSessionsFromUser: async () => {}
       }
     }
   }
@@ -57,6 +136,21 @@ before(async () => {
   app.addHook('onRequest', async (req) => {
     const raw = req.headers['x-test-session']
     ;(req as any).session = raw ? JSON.parse(raw as string) : undefined
+  })
+  // -> Mirrors `index.ts`'s real `setErrorHandler` so a `reply.badRequest()` (or any thrown
+  //    `CustomError`/`@fastify/sensible` error, e.g. the DELETE route's `reply.conflict()` /
+  //    `reply.notFound()`) serializes against the `ApiError#` response schema the same way it does in
+  //    the real app -- this harness registers no other error handler of its own.
+  app.setErrorHandler((error: any, _req, reply) => {
+    reply
+      .code(error.statusCode ?? 500)
+      .type('application/json')
+      .send({
+        ok: false,
+        error: error.name ?? 'Internal Server Error',
+        statusCode: error.statusCode ?? 500,
+        message: error.message ?? 'Internal Server error'
+      })
   })
 
   await registerErrorSchema(app)
@@ -212,5 +306,147 @@ test('GET /profile/groups: setting on, member of every group -> empty non-member
     siteFeatures = null
     userGroupsFixture = []
     nonMemberGroupsFixture = []
+  }
+})
+
+/**
+ * OpenProject #1603: `POST /users` and `PUT /users/:userId` must reject a group id that names no
+ * real group, rather than handing it to `setUserGroups` (`models/users.ts`) and having it silently
+ * dropped -- see that model method's own leniency comment for why the model layer stays lenient
+ * while these two route handlers do not.
+ */
+
+test('POST /: rejects an unknown group id, without creating the user', async () => {
+  createUserCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'Jane Doe',
+      email: 'jane@example.com',
+      password: 'a-long-password',
+      groups: [KNOWN_GROUP_ID, UNKNOWN_GROUP_ID]
+    }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createUserCalls.length, 0)
+})
+
+test('POST /: a fully-known group list is accepted', async () => {
+  createUserCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'Jane Doe',
+      email: 'jane@example.com',
+      password: 'a-long-password',
+      groups: [KNOWN_GROUP_ID]
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(createUserCalls.length, 1)
+})
+
+test('PUT /:userId: rejects an unknown group id, without changing membership', async () => {
+  setUserGroupsCalls = []
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${EXISTING_USER_ID}`,
+    payload: { groups: [UNKNOWN_GROUP_ID] }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(setUserGroupsCalls.length, 0)
+})
+
+test('PUT /:userId: a fully-known group list is accepted', async () => {
+  setUserGroupsCalls = []
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${EXISTING_USER_ID}`,
+    payload: { groups: [KNOWN_GROUP_ID] }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(setUserGroupsCalls, [[KNOWN_GROUP_ID]])
+})
+
+/**
+ * `DELETE /:userId` (task 2283): a `23503` foreign key violation on delete should name the actual
+ * blocking relation, read off the Postgres constraint name, rather than a hard-coded "pages or
+ * assets" guess -- and the reassign advice should only be offered where reassigning is the real
+ * remedy.
+ */
+
+const DELETE_ADMIN_SESSION = JSON.stringify({
+  authenticated: true,
+  user: { id: '22222222-2222-2222-2222-222222222222', name: 'Admin' }
+})
+
+const TARGET_USER = {
+  id: '11111111-1111-1111-1111-111111111111',
+  email: 'target@example.com',
+  isSystem: false
+}
+
+test('DELETE /:userId: unrecognized 23503 constraint falls back to the generic pages/assets message', async () => {
+  deleteUserFixture = TARGET_USER
+  deleteUserError = new Error('violates foreign key constraint')
+  ;(deleteUserError as any).cause = { code: '23503', constraint: 'some_other_table_fkey' }
+  try {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/${TARGET_USER.id}`,
+      headers: { 'x-test-session': DELETE_ADMIN_SESSION }
+    })
+    assert.equal(res.statusCode, 409)
+    assert.match(res.json().message, /Cannot delete a user who still owns pages or assets/)
+  } finally {
+    deleteUserFixture = null
+    deleteUserError = null
+  }
+})
+
+test('DELETE /:userId: pages_authorId constraint names authored pages and advises reassigning', async () => {
+  deleteUserFixture = TARGET_USER
+  deleteUserError = new Error('violates foreign key constraint')
+  ;(deleteUserError as any).cause = { code: '23503', constraint: 'pages_authorId_users_id_fkey' }
+  try {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/${TARGET_USER.id}`,
+      headers: { 'x-test-session': DELETE_ADMIN_SESSION }
+    })
+    assert.equal(res.statusCode, 409)
+    assert.equal(
+      res.json().message,
+      'Cannot delete a user who still has authored pages. Reassign them first.'
+    )
+  } finally {
+    deleteUserFixture = null
+    deleteUserError = null
+  }
+})
+
+test('DELETE /:userId: pageEditSubmissions_authorId constraint names the open suggestion, no reassign advice', async () => {
+  deleteUserFixture = TARGET_USER
+  deleteUserError = new Error('violates foreign key constraint')
+  ;(deleteUserError as any).cause = {
+    code: '23503',
+    constraint: 'pageEditSubmissions_authorId_users_id_fkey'
+  }
+  try {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/${TARGET_USER.id}`,
+      headers: { 'x-test-session': DELETE_ADMIN_SESSION }
+    })
+    assert.equal(res.statusCode, 409)
+    assert.equal(
+      res.json().message,
+      'Cannot delete a user who still has an open page edit suggestion. Approve or reject it first.'
+    )
+  } finally {
+    deleteUserFixture = null
+    deleteUserError = null
   }
 })

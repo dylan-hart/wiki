@@ -1,5 +1,7 @@
-import { INLINE_EXTS } from '../models/assets.ts'
+import { dispositionFor } from '../models/assets.ts'
+import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
 import { guardSiteEnabled } from '../helpers/common.ts'
+import { needsSvgCsp, SVG_CSP } from '../helpers/security.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -36,6 +38,12 @@ async function routes(app: FastifyInstance) {
     if (!site) {
       return reply.notFound('Site not found')
     }
+    // -> Resolved by `req.hostname` rather than a `:siteId` route param, so the params-only site-pin
+    //    hook (the sibling of this task, OpenProject #2194) never sees this route at all -- a
+    //    site-scoped key could otherwise read another site's files just by asking on its hostname.
+    if (!enforceApiKeySite(req, reply, site.id)) {
+      return
+    }
     // -> Resolved by hostname independently of the page/shell hook, so a disabled site's files stay
     //    reachable by direct URL until this stops them the same way
     if (guardSiteEnabled(site, reply)) {
@@ -44,6 +52,12 @@ async function routes(app: FastifyInstance) {
 
     const asset = await WIKI.models.assets.resolveAssetPath(site.id, req.params['*'] ?? '')
     // -> Not readable is answered as not there, so the URL cannot be used to probe for files
+    //
+    // -> Resolved by hostname, not a `:siteId` path param, so `apiKeySitePinHook`
+    //    (`helpers/apiKeySite.ts`) never sees this route -- but a site-pinned API key is refused
+    //    here anyway, one layer down: `actorForRequest()` carries the pin onto `checkAccess()`'s
+    //    actor, which refuses a `siteId` other than the pin before any rule is even consulted
+    //    (OpenProject #2189/#2199/#2201). No separate `enforceApiKeySite()` call needed.
     if (
       !asset ||
       !WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), 'read:assets', {
@@ -82,11 +96,17 @@ async function routes(app: FastifyInstance) {
       return reply.redirect(content.redirectUrl, 302)
     }
 
-    if (!INLINE_EXTS.has(asset.fileExt) && WIKI.config.security?.forceAssetDownload) {
+    if (dispositionFor(asset.fileExt)) {
       reply.header(
         'Content-Disposition',
         `attachment; filename="${encodeURIComponent(asset.fileName)}"`
       )
+    }
+    // -> Neutralizes an SVG or HTML/XHTML file opened as a document rather than embedded — see
+    //    `helpers/security.ts`'s `SVG_CSP` for the full reasoning; the same header
+    //    `controllers/site.ts` attaches to an admin-uploaded logo/favicon SVG
+    if (needsSvgCsp(asset.fileExt)) {
+      reply.header('Content-Security-Policy', SVG_CSP)
     }
     // -> Set by hand because the body may be a stream, which Fastify would otherwise send chunked —
     //    and a download with no length is a download with no progress bar

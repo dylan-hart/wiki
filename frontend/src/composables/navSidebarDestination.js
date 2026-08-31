@@ -3,6 +3,15 @@ import { useRouter, useRoute } from 'vue-router'
 import { routableHref } from '@/helpers/renderedContent'
 
 /**
+ * Schemes `destination()` will still hand out as a plain `href` once `routableHref` has declined an
+ * address (see below) -- `http:`/`https:` for an ordinary external link, `mailto:`/`tel:` because
+ * those are legitimate nav item destinations with no script-execution risk. Anything else --
+ * `javascript:` chief among them -- gets no `href` at all: Vue does not sanitize a dynamically bound
+ * one, and a `<w-item>` rendered from a nav item is exactly such a binding (OpenProject #2208 §3).
+ */
+const SAFE_TARGET_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:'])
+
+/**
  * Where a nav item points, and whether it is the page being read -- used by `NavSidebarItem.vue`,
  * which renders itself once per nesting level (OpenProject #814). Kept as a composable rather than
  * methods on that component so every recursive instance calls the same implementation instead of
@@ -36,10 +45,13 @@ export function useNavSidebarDestination() {
    *
    * Two typed-address cases worth calling out explicitly (task 466 verified both rather than assuming):
    *
-   *   - `mailto:` needs no special-casing here. `routableHref`'s protocol check (`/^https?:$/`) already
-   *     declines anything that is not http(s), so a `mailto:` address falls straight through to the plain
-   *     `href` branch below and the browser opens it with the reader's mail client, same as any other
-   *     link on the page.
+   *   - `mailto:` (and `tel:`) need no special-casing to keep working here, only `SAFE_TARGET_PROTOCOLS`
+   *     naming them: `routableHref`'s protocol check (`/^https?:$/`) already declines anything that is
+   *     not http(s), so either falls through to the plain `href` branch below, and — since its protocol
+   *     is on the allowlist — the browser opens it with the reader's mail client or dialer, same as any
+   *     other link on the page. An address whose protocol is NOT on the allowlist (`javascript:` above
+   *     all) reaches that same fallback and gets nothing: no `href` for Vue to bind (OpenProject
+   *     #1360/#2208, 2026-08-24 security audit §3).
    *   - A bare domain typed without a scheme -- `example.com` rather than `https://example.com` -- is NOT
    *     declined. `new URL('example.com', location.href)` resolves it as a same-origin PATH relative to
    *     whatever page is open, so `routableHref` hands it to the router, which then renders "page not
@@ -53,16 +65,22 @@ export function useNavSidebarDestination() {
   function destination(item) {
     const address = item.target ?? '/'
     const target = item.openInNewWindow ? '_blank' : undefined
-    let routable = null
+    let url = null
     try {
-      routable = routableHref(
-        { href: new URL(address, globalThis.location.href).href, target },
-        globalThis.location
-      )
+      url = new URL(address, globalThis.location.href)
     } catch {
-      // -> Not a URL at all: nothing to route to, so it goes out as the author wrote it
+      // -> Not a URL at all: nothing to route to, and nothing safe to bind as an <a href> either
+      return {}
     }
-    return routable ? { to: routable } : { href: address, target }
+    const routable = routableHref({ href: url.href, target }, globalThis.location)
+    if (routable) {
+      return { to: routable }
+    }
+    // -> An ordinary external link (or mailto:/tel:), or nothing: `address` is author-supplied, and
+    //    `javascript:` bound as a dynamic href is script this page would run on click -- mirrors
+    //    `Index.vue#relationLink`'s check for the same reason, widened for the two extra protocols a
+    //    nav item legitimately points at (OpenProject #1360/#2208, 2026-08-24 security audit §3).
+    return SAFE_TARGET_PROTOCOLS.has(url.protocol) ? { href: address, target } : {}
   }
 
   /**

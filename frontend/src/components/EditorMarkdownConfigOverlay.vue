@@ -1,5 +1,5 @@
 <template>
-  <w-layout view="hHh lpR fFf" container>
+  <w-layout container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="img:/_assets/icons/ultraviolet-markdown.svg" left size="md" />
       <span>{{ t(`admin.editors.markdownName`) }}</span>
@@ -14,7 +14,7 @@
         :href="siteStore.docsBase + `/admin/editors/markdown`"
         target="_blank"
         type="a" />
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
           push
           color="grey-6"
@@ -61,9 +61,6 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.allowHTML"
-                color="primary"
-                checked-icon="la:check"
-                unchecked-icon="la:times"
                 :aria-label="t(`admin.editors.markdown.allowHTML`)" />
             </w-item-section>
           </w-item>
@@ -77,9 +74,6 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.linkify"
-                color="primary"
-                checked-icon="la:check"
-                unchecked-icon="la:times"
                 :aria-label="t(`admin.editors.markdown.linkify`)" />
             </w-item-section>
           </w-item>
@@ -93,9 +87,6 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.lineBreaks"
-                color="primary"
-                checked-icon="la:check"
-                unchecked-icon="la:times"
                 :aria-label="t(`admin.editors.markdown.lineBreaks`)" />
             </w-item-section>
           </w-item>
@@ -108,13 +99,16 @@
             </w-item-section>
             <w-item-section side>
               <w-input
+                ref="tabWidthInput"
                 type="number"
                 min="1"
                 max="8"
                 style="width: 100px"
                 outlined
-                v-model="state.config.tabWidth"
+                v-model.number="state.config.tabWidth"
                 dense
+                :rules="tabWidthRules"
+                lazy-rules="ondemand"
                 :aria-label="t(`admin.editors.markdown.tabWidth`)" />
             </w-item-section>
           </w-item>
@@ -130,9 +124,6 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.multimdTable"
-                color="primary"
-                checked-icon="la:check"
-                unchecked-icon="la:times"
                 :aria-label="t(`admin.editors.markdown.multimdTable`)" />
             </w-item-section>
           </w-item>
@@ -146,9 +137,6 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.typographer"
-                color="primary"
-                checked-icon="la:check"
-                unchecked-icon="la:times"
                 :aria-label="t(`admin.editors.markdown.typographer`)" />
             </w-item-section>
           </w-item>
@@ -184,9 +172,6 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.underline"
-                color="primary"
-                checked-icon="la:check"
-                unchecked-icon="la:times"
                 :aria-label="t(`admin.editors.markdown.underline`)" />
             </w-item-section>
           </w-item>
@@ -201,7 +186,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 
 import { loading } from '@/composables/loading'
 import { notify } from '@/composables/notify'
@@ -261,6 +246,19 @@ const quoteStyles = [
   { value: 'swedish', label: 'Swedish' }
 ]
 
+const tabWidthInput = ref(null)
+
+/**
+ * `min`/`max` on the native control stop the spinner, not a pasted value -- and, unlike most numeric
+ * settings in this app, tab width is also stored with nothing enforcing its shape server-side:
+ * `backend/api/schemas/site.ts` types `editors.markdown.config` as `additionalProperties: true`, so
+ * a `0` or a pasted-in string genuinely persists.
+ */
+const tabWidthRules = [
+  (val) =>
+    (Number.isInteger(val) && val >= 1 && val <= 8) || t('admin.editors.markdown.tabWidthInvalid')
+]
+
 // METHODS
 
 function close() {
@@ -273,13 +271,13 @@ async function load() {
   try {
     const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
     if (!resp?.editors?.markdown?.config) {
-      throw new Error('Failed to fetch markdown editor configuration.')
+      throw new Error(t('admin.editors.markdown.fetchFailed'))
     }
     state.config = toMerged(defaultConfig(), resp.editors.markdown.config)
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to fetch markdown editor configuration.'
+      message: t('admin.editors.markdown.fetchFailed')
     })
   }
   loading.hide()
@@ -287,6 +285,9 @@ async function load() {
 }
 
 async function save() {
+  if (tabWidthInput.value && !tabWidthInput.value.validate()) {
+    return
+  }
   state.loading++
   try {
     // -> Only `config` is sent, so the editor's active state is left untouched by the merge
@@ -299,7 +300,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.editors.markdown.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.editors.markdown.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     notify({
@@ -311,7 +312,7 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to save Markdown editor config',
+      message: t('admin.editors.markdown.saveFailed'),
       caption: err.message
     })
   }

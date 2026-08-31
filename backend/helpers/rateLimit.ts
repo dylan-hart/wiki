@@ -1,6 +1,65 @@
+import { LRUCache } from 'lru-cache'
 import { durationToSeconds } from './common.ts'
 import type { FastifyReply, FastifyRequest } from 'fastify'
-import type { RateLimitPolicy } from '../models/rateLimits.ts'
+import type { RateLimitPolicy, RateLimitVerdict } from '../models/rateLimits.ts'
+/**
+ * In-process memo of currently-banned keys, so a request from a key that is already serving a ban
+ * can be refused without the round trip `WIKI.models.rateLimits.consume()` would otherwise make to
+ * Postgres for every single request — an UPDATE against the same hot row, on the pool every other
+ * request shares, purely to re-confirm a ban that was already established.
+ *
+ * Refusal-only, deliberately: only a *banned* verdict is ever written here, never an allowed one.
+ * `models/rateLimits.ts`'s header comment is explicit that the real counter has to stay a shared,
+ * database-backed one so two instances behind a load balancer agree on it — a grant-side cache would
+ * let one instance keep answering "allowed" out of a stale local memo after another instance's
+ * database write should have banned the key. A refusal can never go stale in the dangerous direction:
+ * the worst a missed refusal-memo does is one avoidable database write, not a bypassed ban, and the
+ * entry's TTL (set to the ban's own `retryAfter`) means it is never wrong for longer than the ban
+ * itself already runs.
+ *
+ * Shared by every caller of {@link consumeWithBanMemo} below — `limitAuthAttempts`, `limitApiRequests`,
+ * `limitRenders` and `limitApiKey` all key into the same instance rather than each keeping its own,
+ * since the underlying key strings are already namespaced (`auth:`, `api:`, `render:`, `apikey:`) and
+ * nothing is gained by splitting the memo four ways.
+ *
+ * Exported so `rateLimit.test.ts` can `.clear()` it between test cases that reuse the same IP/key
+ * across otherwise-independent tests; nothing else needs to reach in.
+ */
+export const activeBanMemo = new LRUCache<string, number>({
+  max: 5000,
+  // `ttlResolution` defaults to 1ms, debouncing repeated staleness checks onto one cached
+  // `perf.now()` reading within that window. Fine for most uses, but the reported `Retry-After`
+  // recomputed from `getRemainingTTL` below is worth keeping exact rather than off by up to a
+  // millisecond, and a rate-limit hook is never called often enough for the extra `perf.now()`
+  // calls this costs to matter.
+  ttlResolution: 0
+})
+
+/**
+ * `WIKI.models.rateLimits.consume()`, fronted by {@link activeBanMemo}.
+ *
+ * A key already in the memo is refused immediately, with `retryAfter` recomputed from the memo
+ * entry's own remaining TTL (so it counts down correctly across repeated refused requests, rather
+ * than reporting whatever `retryAfter` the ban started with) and `hits` carried over from the verdict
+ * that created the memo entry — accurate for the whole ban, since a banned key does not accumulate
+ * further hits.
+ *
+ * Otherwise this reaches the database exactly as before. A verdict that comes back banned is written
+ * into the memo, TTL'd to its own `retryAfter`; an allowed verdict is returned as-is and never
+ * memoized, so a permitted request always reaches SQL.
+ */
+async function consumeWithBanMemo(key: string, policy: RateLimitPolicy): Promise<RateLimitVerdict> {
+  const memoizedHits = activeBanMemo.get(key)
+  if (memoizedHits !== undefined) {
+    const retryAfter = Math.max(1, Math.ceil(activeBanMemo.getRemainingTTL(key) / 1000))
+    return { allowed: false, hits: memoizedHits, retryAfter }
+  }
+  const verdict = await WIKI.models.rateLimits.consume(key, policy)
+  if (!verdict.allowed && verdict.retryAfter > 0) {
+    activeBanMemo.set(key, verdict.hits, { ttl: verdict.retryAfter * 1000 })
+  }
+  return verdict
+}
 
 /**
  * Defaults for the limit on the authentication endpoints, used until an administrator saves their own
@@ -81,7 +140,7 @@ export async function limitAuthAttempts(req: FastifyRequest, reply: FastifyReply
   if (WIKI.config.security?.authRateLimitEnabled === false) {
     return
   }
-  const verdict = await WIKI.models.rateLimits.consume(`auth:${req.ip}`, authPolicy())
+  const verdict = await consumeWithBanMemo(`auth:${req.ip}`, authPolicy())
   if (verdict.allowed) {
     return
   }
@@ -97,6 +156,39 @@ export async function limitAuthAttempts(req: FastifyRequest, reply: FastifyReply
   return reply.tooManyRequests(
     `Too many attempts. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
   )
+}
+
+/**
+ * Bound credential guessing against one account, independently of the network identity the request
+ * arrives with.
+ *
+ * {@link limitAuthAttempts} above keys its counter on `req.ip` — exactly the value `security.trustProxy`
+ * governs (see `models/security.ts`). Behind a proxy that is misconfigured to trust `X-Forwarded-For`
+ * unconditionally, that header is client-written, so a guesser gets a fresh bucket on every attempt just
+ * by sending a different value; with `trustProxy` correctly off, every user behind the same address
+ * shares one bucket instead. This is a second, independent counter keyed on the account being guessed,
+ * so neither misconfiguration leaves credential guessing unbounded. It is a rate limit, not a lockout:
+ * locking the account out on a threshold keyed on something the *attacker* supplies (the identifier they
+ * typed) would hand them a denial-of-service against a real account for the price of a login attempt.
+ *
+ * Shares {@link authPolicy}'s configured max/window/ban with the IP-keyed limiter — one admin-facing
+ * "how many attempts" knob, not two to keep in sync — but counts into its own `auth:user:` key
+ * namespace, so neither counter can exhaust the other's budget.
+ *
+ * Consumed directly from `models/users.ts#login` and `#loginTFA`, not wired as a route hook the way
+ * {@link limitAuthAttempts} is: only those call sites know which account an attempt names, from the
+ * submitted username in `login()` or the continuation token's already-resolved user in `loginTFA()`.
+ *
+ * @param identifier The account being attempted against — an email address or username as submitted.
+ *   Normalized (trimmed, lower-cased) before keying, so `Admin@Example.com` and `admin@example.com`
+ *   share one bucket.
+ */
+export async function consumeAccountAuthAttempt(identifier: string): Promise<RateLimitVerdict> {
+  if (WIKI.config.security?.authRateLimitEnabled === false) {
+    return { allowed: true, hits: 0, retryAfter: 0 }
+  }
+  const key = `auth:user:${identifier.trim().toLowerCase()}`
+  return WIKI.models.rateLimits.consume(key, authPolicy())
 }
 
 /**
@@ -159,7 +251,7 @@ export async function limitApiRequests(req: FastifyRequest, reply: FastifyReply)
     : req.session?.authenticated
       ? `user:${req.session.user!.id}`
       : `ip:${req.ip}`
-  const verdict = await WIKI.models.rateLimits.consume(`api:${key}`, apiPolicy())
+  const verdict = await consumeWithBanMemo(`api:${key}`, apiPolicy())
   if (verdict.allowed) {
     return
   }
@@ -170,6 +262,72 @@ export async function limitApiRequests(req: FastifyRequest, reply: FastifyReply)
   return reply.tooManyRequests(
     `Too many requests. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
   )
+}
+
+/**
+ * Defaults for the root-mounted public surface's limit, used until an administrator saves their own
+ * and whenever a stored value is missing or unusable.
+ *
+ * These are the handful of routes registered outside `/_api/` that carried no throttle of any kind
+ * before this limiter existed (OpenProject #2274): `/sitemap.xml` and `/robots.txt`
+ * (`controllers/seo.ts`), `/_icons`, `/_files`, `/_thumb` and `/_site`. Looser again than
+ * {@link API_DEFAULTS}: none of these carry a session or an API key by default (a crawler, a plain
+ * `<img>` request, an Iconify-speaking client), the traffic they see is legitimately bursty — a
+ * page's whole icon batch, a folder of thumbnails — and the goal is only to stop a single client from
+ * running away, not to bound ordinary use the way the authenticated API surface is.
+ */
+const PUBLIC_DEFAULTS: RateLimitPolicy = {
+  max: 600,
+  windowSeconds: 300,
+  banSeconds: 900
+}
+
+/**
+ * Refuse a request to a root-mounted public route once its caller has made too many.
+ *
+ * Wired as a second, separately-accounted `onRequest` hook in `index.ts`, scoped to the handful of
+ * paths named above rather than to `/_api/*`. Shares {@link limitApiRequests}'s enable/disable
+ * switch (`security.apiRateLimitEnabled`) and its `manage:system` exemption, since both are facets of
+ * the same "is rate limiting on, and is this caller exempt from it" decision — but keys into its own
+ * `public:` bucket with its own, looser policy, so a burst against one surface never eats into the
+ * other's budget.
+ *
+ * No `req.apiKey` check: the API-key-auth hook only ever populates it for `/_api/*` requests, so a
+ * root-mounted public route never carries one to ask about.
+ */
+export async function limitPublicRequests(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (WIKI.config.security?.apiRateLimitEnabled === false) {
+    return
+  }
+  if (req.session?.permissions?.includes('manage:system')) {
+    return
+  }
+  const key = req.session?.authenticated ? `user:${req.session.user!.id}` : `ip:${req.ip}`
+  const verdict = await WIKI.models.rateLimits.consume(`public:${key}`, PUBLIC_DEFAULTS)
+  if (verdict.allowed) {
+    return
+  }
+  WIKI.logger.debug(
+    `Rate limit: refused ${req.method} ${req.url} from ${key}, ${verdict.retryAfter}s left of its ban.`
+  )
+  reply.header('Retry-After', String(verdict.retryAfter))
+  return reply.tooManyRequests(
+    `Too many requests. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
+  )
+}
+
+/**
+ * Whether a request path is one of the root-mounted public routes {@link limitPublicRequests} guards.
+ *
+ * Takes the path alone (query string already stripped by the caller), matching prefix-registered
+ * controllers (`/_icons`, `/_files`, `/_thumb`, `/_site`) by prefix and the two bare root files
+ * (`/sitemap.xml`, `/robots.txt`) exactly.
+ */
+export function isPublicRateLimitedPath(path: string): boolean {
+  if (path === '/sitemap.xml' || path === '/robots.txt') {
+    return true
+  }
+  return ['/_icons', '/_files', '/_thumb', '/_site'].some((prefix) => path.startsWith(`${prefix}/`))
 }
 
 /**
@@ -188,7 +346,7 @@ export async function limitRenders(req: FastifyRequest, reply: FastifyReply): Pr
   if (req.session?.permissions?.includes('manage:system')) {
     return
   }
-  const verdict = await WIKI.models.rateLimits.consume(
+  const verdict = await consumeWithBanMemo(
     `render:${req.session?.user?.id ?? req.ip}`,
     RENDER_LIMIT
   )
@@ -247,7 +405,7 @@ export async function limitApiKey(req: FastifyRequest, reply: FastifyReply): Pro
   if (!req.apiKey) {
     return
   }
-  const verdict = await WIKI.models.rateLimits.consume(`apikey:${req.apiKey.id}`, API_KEY_LIMIT)
+  const verdict = await consumeWithBanMemo(`apikey:${req.apiKey.id}`, API_KEY_LIMIT)
   if (verdict.allowed) {
     return
   }

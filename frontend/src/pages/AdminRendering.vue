@@ -4,12 +4,13 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-rich-text-converter.svg" />
+          src="/_assets/icons/fluent-rich-text-converter.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">
+        <h1 class="text-h5 text-primary animated fadeInLeft">
           {{ $t('admin.rendering.title') }}
-        </div>
+        </h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ $t('admin.rendering.subtitle') }}
         </div>
@@ -20,6 +21,7 @@
           icon="la:question-circle"
           flat
           color="grey"
+          :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/rendering`"
           target="_blank" />
         <w-btn
@@ -29,7 +31,7 @@
           color="secondary"
           :loading="state.loading > 0"
           @click="load">
-          <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
+          <w-tooltip labels>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
           unelevated

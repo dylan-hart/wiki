@@ -1,5 +1,13 @@
 <template>
   <teleport to="body">
+    <!--
+      -> `left-1/2 -translate-x-1/2` centers this stack on the viewport (OpenProject #1590's
+         physical-positioning triage): centering is symmetric, so it lands in the same place either
+         way, but `translate-x` is itself a physical transform that never mirrors under RTL -- so
+         `start-1/2` here, still paired with the SAME leftward translate, would pull the stack off
+         to one side instead of centering it. Left physical rather than "fixed" with logical, since
+         swapping only half the pair would be worse than swapping neither.
+    -->
     <div
       class="w-notifications fixed top-0 left-1/2 z-[9000] flex w-full max-w-md -translate-x-1/2 flex-col items-center gap-2 p-2 pointer-events-none">
       <transition-group name="w-notification">
@@ -8,13 +16,20 @@
           :key="n.id"
           role="alert"
           aria-live="polite"
-          class="w-notification pointer-events-auto relative flex w-full flex-nowrap items-center gap-3 rounded py-2 pr-2 pl-4 shadow-menu"
+          class="w-notification pointer-events-auto relative flex w-full flex-nowrap items-center gap-3 rounded py-2 pe-2 ps-4 shadow-menu"
           :class="n.classes">
           <w-icon :name="n.icon" size="sm" class="shrink-0" />
           <div class="min-w-0 flex-1 py-1">
             <div class="text-body2 break-words">{{ n.message }}</div>
             <div v-if="n.caption" class="text-caption break-words opacity-75">{{ n.caption }}</div>
           </div>
+          <button
+            v-if="n.action"
+            type="button"
+            class="w-unstyled shrink-0 cursor-pointer rounded px-1 py-1 text-body2 font-medium underline-offset-2 hover:underline"
+            @click="runAction(n)">
+            {{ n.action.label }}
+          </button>
           <button
             type="button"
             :aria-label="t('common.actions.close')"
@@ -27,11 +42,19 @@
             when its element merely re-renders, so a merged toast would otherwise keep running the
             original countdown, empty the bar, and then sit there for the remainder of its
             restarted timer with nothing left to show.
+
+            `start-0` (OpenProject #1590), not `left-0`: the bar's WIDTH keyframes from 100% to 0%
+            while this edge stays put, so whichever edge it is anchored to is the edge the bar
+            drains TOWARD as time runs out. `left-0` pinned that to the physical left always, which
+            reads as depleting toward the trailing edge under RTL instead of the reading-end one --
+            this is a spacing gutter's usual leading/trailing question, not a screen-position one,
+            so it belongs with the rest of this component's already-logical classes, not the
+            allowlist.
           -->
           <div
             v-if="n.timeout > 0"
             :key="`${n.id}-${n.count}`"
-            class="w-notification-progress absolute bottom-0 left-0 h-[3px] rounded-b bg-white/40"
+            class="w-notification-progress absolute bottom-0 start-0 h-[3px] rounded-b bg-white/40"
             :style="{ animationDuration: `${n.timeout}ms` }" />
           <!--
             How many times this notification has been raised while on screen. `aria-hidden`
@@ -69,6 +92,14 @@ import { dismiss, queue } from '@/composables/notify'
 // I18N
 
 const { t } = useI18n()
+
+/** Runs a notification's action (OpenProject #2073's undo-discard toast is the first caller), then
+ * dismisses it -- one click both acts and clears the toast, rather than leaving it to auto-dismiss
+ * or requiring a second click on the close button. */
+function runAction(n) {
+  n.action.onClick()
+  dismiss(n.id)
+}
 </script>
 
 <style scoped>

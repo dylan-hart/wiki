@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { tmpdir } from 'node:os'
 import { CustomError } from '../helpers/common.ts'
 import { parseFrontMatter } from '../helpers/pageSerialization.ts'
 
@@ -27,8 +28,67 @@ export const MAX_IMPORT_SIZE = 25 * 1024 * 1024
  */
 export const MAX_IMPORT_BATCH_FILES = 20
 
+/**
+ * The most total bytes a single batch import request may buffer across every file combined.
+ *
+ * `MAX_IMPORT_SIZE` bounds one file; `MAX_IMPORT_BATCH_FILES` bounds how many a batch may carry —
+ * but nothing bounded their product, so a full batch of maximum-size files meant ~500 MB of Node
+ * heap resident at once before `api/pages.ts`'s batch handler converted a single one of them
+ * (OpenProject #2204, audit `09-dos-resource.md` §10). Set to four times a single file's own limit:
+ * generous for an ordinary batch of real documents, while keeping the peak well under what the old,
+ * unbounded aggregate could reach. The batch handler also converts each file as soon as it finishes
+ * reading it rather than only after the whole batch has arrived, so in practice far fewer than
+ * `MAX_IMPORT_BATCH_FILES` worth of buffers are ever resident at the same instant — this ceiling is
+ * the hard backstop for whatever slips past that.
+ */
+export const MAX_IMPORT_BATCH_BYTES = MAX_IMPORT_SIZE * 4
+
 /** How much of pandoc's stderr is kept when reporting a failure, taken from the end where the error is. */
 const importErrorLength = 800
+
+/**
+ * How many pandoc conversions may run at once, across every request this instance is currently
+ * serving — not per request. `MAX_IMPORT_BATCH_FILES` already bounds how many conversions ONE
+ * request can trigger, but nothing bounded how many such requests run at the same time: a dozen
+ * concurrent batch imports could still fork ~240 pandoc children between them (OpenProject #2209,
+ * audit `09-dos-resource.md` §10). Gating here, in front of every caller of {@link Import.runPandoc}
+ * — the batch route and the single-file route both funnel through it — covers both in one place.
+ * `models/rendering.ts`'s single-browser render queue is the same idea taken to a stricter
+ * one-at-a-time ceiling; a pandoc process is far cheaper than a full browser, so a small concurrency
+ * window is the right trade here rather than a strict queue.
+ */
+export const MAX_CONCURRENT_PANDOC = 4
+
+/** How many pandoc conversions are running right now, across every caller. */
+let activePandocCount = 0
+
+/** Callers waiting for a slot, in arrival order. */
+const pandocQueue: Array<() => void> = []
+
+/** Wait for a pandoc slot, resolving immediately if the ceiling has not been reached. */
+function acquirePandocSlot(): Promise<void> {
+  if (activePandocCount < MAX_CONCURRENT_PANDOC) {
+    activePandocCount++
+    return Promise.resolve()
+  }
+  return new Promise((resolve) => {
+    pandocQueue.push(resolve)
+  })
+}
+
+/**
+ * Release a pandoc slot — handed straight to the next waiting caller when there is one, rather than
+ * decrementing and letting a fresh `acquirePandocSlot()` race a queued one for it. Called from a
+ * `finally`, so a failed or timed-out conversion frees its slot exactly like a successful one.
+ */
+function releasePandocSlot(): void {
+  const next = pandocQueue.shift()
+  if (next) {
+    next()
+    return
+  }
+  activePandocCount--
+}
 
 /**
  * Source formats that need Pandoc, as `-f` values pandoc understands.
@@ -49,6 +109,34 @@ export const PANDOC_IMPORT_FORMATS = [
 ] as const
 
 export type PandocImportFormat = (typeof PANDOC_IMPORT_FORMATS)[number]
+
+/**
+ * Build the argv `runPandoc` spawns, as its own pure function so a test can assert on the exact
+ * argument list without mocking `execFile` or the child_process module.
+ *
+ * `--sandbox` disables pandoc's own filesystem access — `rst` and `docbook` both implement
+ * file-inclusion directives (docutils `.. include::` / `:file:`, and LaTeX-style `\input`/`\include`)
+ * that pandoc would otherwise honor, reading whatever the uploaded file points at off disk and
+ * returning it in the converted Markdown. Every accepted format is fed on stdin and produced on
+ * stdout, so disabling it costs no real functionality. See OpenProject #2191.
+ */
+export function buildPandocArgs(format: PandocImportFormat): string[] {
+  return ['-f', format, '-t', 'gfm', '--wrap=none', '--sandbox']
+}
+
+/**
+ * Where `runPandoc` spawns pandoc from, as its own pure function for the same testability reason as
+ * {@link buildPandocArgs}.
+ *
+ * Pinned to the OS temp directory rather than left to inherit the backend's own working directory —
+ * the repo root, next to `config.yml`, since `index.ts` refuses to boot from anywhere else. Belt and
+ * braces alongside `--sandbox` above: a `cwd` with nothing sensitive in reach means even a future
+ * pandoc reader that resolves relative paths outside of `--sandbox`'s coverage has nothing to find.
+ * See OpenProject #2191.
+ */
+export function pandocCwd(): string {
+  return tmpdir()
+}
 
 /**
  * Every format this endpoint accepts: the Pandoc-backed formats above, plus `markdown` (OpenProject
@@ -218,20 +306,44 @@ class Import {
   }
 
   /**
-   * Shell out to pandoc, piping the file's bytes to stdin and reading Markdown back from stdout.
+   * Shell out to pandoc, piping the file's bytes to stdin and reading Markdown back from stdout —
+   * gated by the process-wide {@link MAX_CONCURRENT_PANDOC} ceiling so this instance never has more
+   * than that many pandoc children alive at once, no matter how many requests are calling this
+   * concurrently. The slot is released in a `finally`, so a rejected or timed-out conversion frees it
+   * exactly like a successful one.
+   */
+  protected async runPandoc(format: PandocImportFormat, data: Buffer): Promise<string> {
+    await acquirePandocSlot()
+    try {
+      return await this.execPandoc(format, data)
+    } finally {
+      releasePandocSlot()
+    }
+  }
+
+  /**
+   * The actual pandoc invocation, split out of {@link runPandoc} so the concurrency gate wraps it
+   * rather than being part of it — a test can mock this method alone to observe the gate's own
+   * behavior with the real ceiling in effect.
    *
    * `execFile`, never `exec`: `format` and the file's content are both user-controlled, and building
    * a shell command out of either would be injectable. Same pattern `models/extensions.ts`'s
    * `install()` uses for npm, for the same reason. A separate method (rather than inline in
    * `convertToMarkdown`) so a test can replace it without a real pandoc binary on the machine running
-   * the test.
+   * the test. The argv and `cwd` themselves come from {@link buildPandocArgs} / {@link pandocCwd} —
+   * see those for why `--sandbox` and a non-repo `cwd` matter here.
    */
-  protected runPandoc(format: PandocImportFormat, data: Buffer): Promise<string> {
+  protected execPandoc(format: PandocImportFormat, data: Buffer): Promise<string> {
     return new Promise((resolve, reject) => {
       const child = execFile(
         'pandoc',
-        ['-f', format, '-t', 'gfm', '--wrap=none'],
-        { timeout: IMPORT_TIMEOUT, maxBuffer: MAX_IMPORT_SIZE, windowsHide: true },
+        buildPandocArgs(format),
+        {
+          timeout: IMPORT_TIMEOUT,
+          maxBuffer: MAX_IMPORT_SIZE,
+          windowsHide: true,
+          cwd: pandocCwd()
+        },
         (err, stdout, stderr) => {
           if (err) {
             if (err.killed || err.signal) {

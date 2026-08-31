@@ -151,7 +151,11 @@ export function reconstructMenuItems(items, { menuMode } = {}) {
     }
     if (item.isNested) {
       if (out.length < 1 || out.at(-1)?.type !== 'link') {
-        throw new Error('One or more nested link items are not under a parent link!')
+        // -> A plain error code, not a translated string: this module is deliberately pure (see the
+        //    file header) so it stays testable with no app/i18n context. The two hosts that call
+        //    `reconstructMenuItems()` (`AdminNavEditDialog.vue`, `NavEditOverlay.vue`) translate this
+        //    specific code to `t('navEdit.nestedItemWithoutParent')` before showing it.
+        throw new Error('ERR_NESTED_LINK_WITHOUT_PARENT')
       }
       // -> `pinned` is a top-level-only placement, meaningless (and never set) on a nested item
       out[out.length - 1].children.push(cleanMenuItem(item, true))

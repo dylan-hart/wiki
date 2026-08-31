@@ -3,6 +3,8 @@
     <canvas
       ref="canvasRef"
       class="graph-view-canvas"
+      role="img"
+      :aria-label="graphAccessibleName"
       @click="onCanvasClick"
       @mousemove="onCanvasMouseMove" />
     <div
@@ -11,86 +13,74 @@
       :style="{ left: `${tooltipPos.x + 12}px`, top: `${tooltipPos.y + 12}px` }">
       {{ hoveredNode.title ?? hoveredNode.path }}
       <template v-if="sizeBy === 'edits' && !hoveredNode.synthetic">
-        · {{ contributorCountFor(hoveredNode) }} contributor{{
-          contributorCountFor(hoveredNode) === 1 ? '' : 's'
+        ·
+        {{
+          t(tooltipKeyFor(), contributorCountFor(hoveredNode), {
+            count: contributorCountFor(hoveredNode)
+          })
         }}
       </template>
       <template v-if="sizeBy === 'visits' && !hoveredNode.synthetic">
-        · {{ pageviewCountFor(hoveredNode) }} visit{{
-          pageviewCountFor(hoveredNode) === 1 ? '' : 's'
+        ·
+        {{
+          t(tooltipKeyFor(), pageviewCountFor(hoveredNode), {
+            count: pageviewCountFor(hoveredNode)
+          })
         }}
       </template>
     </div>
     <div class="graph-view-right-rail">
       <div class="graph-view-controls">
         <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">Group by</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.groupByLabel') }}</span>
           <w-btn-toggle
             v-model="groupBy"
             no-caps
-            aria-label="Group by"
-            :options="[
-              { label: 'Folder', value: 'folder' },
-              { label: 'Tag', value: 'tag' },
-              { label: 'Classification', value: 'classification' }
-            ]" />
+            :aria-label="t('graph.controls.groupByLabel')"
+            :options="groupByOptions" />
         </div>
         <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">Connect by</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.connectByLabel') }}</span>
           <w-btn-toggle
             v-model="edgeMode"
             no-caps
-            aria-label="Connect by"
-            :options="[
-              { label: 'Paths', value: 'paths' },
-              { label: 'Tags', value: 'tags' },
-              { label: 'Classification', value: 'classification' }
-            ]" />
+            :aria-label="t('graph.controls.connectByLabel')"
+            :options="edgeModeOptions" />
         </div>
         <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">Size by</span>
-          <w-btn-toggle v-model="sizeBy" no-caps aria-label="Size by" :options="sizeByOptions" />
+          <span class="graph-view-control-caption">{{ t('graph.controls.sizeByLabel') }}</span>
+          <w-btn-toggle
+            v-model="sizeBy"
+            no-caps
+            :aria-label="t('graph.controls.sizeByLabel')"
+            :options="sizeByOptions" />
         </div>
         <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">Count</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.countLabel') }}</span>
           <w-btn-toggle
             v-model="sizeCountMode"
             no-caps
-            aria-label="Unique or total"
-            :options="[
-              { label: 'Unique', value: 'unique' },
-              { label: 'Total', value: 'total' }
-            ]" />
+            :aria-label="t('graph.controls.countAriaLabel')"
+            :options="sizeCountModeOptions" />
         </div>
         <GraphClientTypeFilter
           v-if="sizeBy === 'edits'"
           v-model="contributorTypes"
-          label="Count edits by"
-          :options="[
-            { value: 'editor', label: 'Editor' },
-            { value: 'mcp', label: 'MCP' }
-          ]" />
+          :label="t('graph.controls.editsByLabel')"
+          :options="contributorTypeOptions" />
         <div v-if="sizeBy === 'visits'" class="graph-view-control-group">
-          <span class="graph-view-control-caption">Over</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.overLabel') }}</span>
           <w-btn-toggle
             v-model="pageviewsWindow"
             no-caps
-            aria-label="Time window"
-            :options="[
-              { label: '30 days', value: 'last30d' },
-              { label: '6 months', value: 'last6mo' },
-              { label: '2 years', value: 'last2yr' }
-            ]" />
+            :aria-label="t('graph.controls.overAriaLabel')"
+            :options="pageviewsWindowOptions" />
         </div>
         <GraphClientTypeFilter
           v-if="sizeBy === 'visits'"
           v-model="pageviewClientTypes"
-          label="Count visits by"
-          :options="[
-            { value: 'browser', label: 'Browser' },
-            { value: 'api', label: 'API' },
-            { value: 'mcp', label: 'MCP' }
-          ]" />
+          :label="t('graph.controls.visitsByLabel')"
+          :options="pageviewClientTypeOptions" />
       </div>
     </div>
     <div class="graph-view-filters">
@@ -111,7 +101,7 @@
         dense
         :label="t('graph.filters.folderDepth')" />
       <w-select
-        v-if="siteStore.locales.showMenu"
+        v-if="showLocaleFilter"
         v-model="activeFilters.locale"
         outlined
         dense
@@ -137,7 +127,16 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import {
+  computed,
+  markRaw,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  shallowRef,
+  watch
+} from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from 'd3-force'
@@ -153,7 +152,8 @@ import {
   buildPathHierarchyEdges,
   buildTagHubEdges,
   computeVisibleSubset,
-  deriveFilterOptions
+  deriveFilterOptions,
+  nodeId
 } from './graphFilters.js'
 import { clusterForce } from './graphForces.js'
 
@@ -171,16 +171,27 @@ const { t } = useI18n()
 const containerRef = ref(null)
 const canvasRef = ref(null)
 
-/** Raw payload from `GET sites/{siteId}/graph` -- see `backend/api/graph.ts#Graph`. */
-const nodes = ref([])
-const edges = ref([])
+/** Raw payload from `GET sites/{siteId}/graph` -- see `backend/api/graph.ts#Graph`.
+ *
+ *  `shallowRef` (not `ref`) plus `markRaw()` on every element (see `loadGraph()`/`applyFilters()`)
+ *  keeps these arrays and the node/edge objects inside them out of Vue's reactivity system
+ *  entirely (OpenProject #1837). Nothing renders off them reactively -- the graph is canvas-only --
+ *  but `forceSimulation`/`forceLink` write `x`/`y`/`vx`/`vy` on every node on every tick and
+ *  `forceCollide`/`forceManyBody` read node properties constantly inside their quadtrees; with a
+ *  plain `ref`, every one of those reads/writes goes through a reactive proxy's get/set traps for
+ *  data nothing ever subscribes to. Both assignment sites below (`loadGraph()`,
+ *  `applyFilters()`) reassign `.value` wholesale rather than mutating in place, so the two real
+ *  consumers -- `legendEntries` and `hoveredNode`, both plain reads -- still update correctly off a
+ *  shallow ref with no explicit `triggerRef()` needed. */
+const nodes = shallowRef([])
+const edges = shallowRef([])
 const isLoading = ref(true)
 const loadError = ref(null)
 
 /** The full, unfiltered graph as fetched -- kept separate from `nodes.value`/`edges.value`, which
  *  after Task 26 (#901) are the CURRENTLY VISIBLE subset the simulation actually runs on. */
-const allNodes = ref([])
-const allEdges = ref([])
+const allNodes = shallowRef([])
+const allEdges = shallowRef([])
 
 /** 'site' is deliberately not an option here -- see the spec's architecture note: a single loaded
  *  graph has exactly one site value, so grouping by it would be a no-op UI control. */
@@ -221,12 +232,44 @@ const pageviewsTrackingEnabled = ref(false)
  *  rather than a static template literal so 'visits' can be omitted while pageview tracking is
  *  disabled. No 'uniform' option any more (OpenProject #1270). */
 const sizeByOptions = computed(() => {
-  const options = [{ label: 'Edits', value: 'edits' }]
+  const options = [{ label: t('graph.controls.sizeByEdits'), value: 'edits' }]
   if (pageviewsTrackingEnabled.value) {
-    options.push({ label: 'Visits', value: 'visits' })
+    options.push({ label: t('graph.controls.sizeByVisits'), value: 'visits' })
   }
   return options
 })
+
+/** Static `w-btn-toggle`/`GraphClientTypeFilter` option lists for the rest of the control rail
+ *  (OpenProject #1690) -- computed, not module-level constants, so each label re-resolves through
+ *  `t()` if the active locale changes at runtime. */
+const groupByOptions = computed(() => [
+  { label: t('graph.controls.groupByFolder'), value: 'folder' },
+  { label: t('graph.controls.groupByTag'), value: 'tag' },
+  { label: t('graph.controls.groupByClassification'), value: 'classification' }
+])
+const edgeModeOptions = computed(() => [
+  { label: t('graph.controls.connectByPaths'), value: 'paths' },
+  { label: t('graph.controls.connectByTags'), value: 'tags' },
+  { label: t('graph.controls.connectByClassification'), value: 'classification' }
+])
+const sizeCountModeOptions = computed(() => [
+  { label: t('graph.controls.countUnique'), value: 'unique' },
+  { label: t('graph.controls.countTotal'), value: 'total' }
+])
+const contributorTypeOptions = computed(() => [
+  { value: 'editor', label: t('graph.controls.editsByEditor') },
+  { value: 'mcp', label: t('graph.controls.editsByMcp') }
+])
+const pageviewsWindowOptions = computed(() => [
+  { label: t('graph.controls.over30Days'), value: 'last30d' },
+  { label: t('graph.controls.over6Months'), value: 'last6mo' },
+  { label: t('graph.controls.over2Years'), value: 'last2yr' }
+])
+const pageviewClientTypeOptions = computed(() => [
+  { value: 'browser', label: t('graph.controls.visitsByBrowser') },
+  { value: 'api', label: t('graph.controls.visitsByApi') },
+  { value: 'mcp', label: t('graph.controls.visitsByMcp') }
+])
 
 /** Which of the pageview log's fixed trailing windows (OpenProject #1140/#1238) 'visits' sizing
  *  reads -- matches `backend/models/pageviews.ts#pageviewWindows`. Irrelevant while `sizeBy` isn't
@@ -266,6 +309,17 @@ const filterOptions = computed(() => deriveFilterOptions(allNodes.value))
 const tagOptions = computed(() => filterOptions.value.tags)
 const localeOptions = computed(() => filterOptions.value.locales)
 
+/** Whether the locale filter control is worth showing at all (OpenProject #2294): gated on both the
+ *  reader-facing locale-switcher setting AND there being more than one locale actually represented
+ *  among the loaded nodes -- `showMenu` alone says nothing about how many locales the site has, so a
+ *  single-locale site with the menu enabled would otherwise render a `w-select` whose one option is
+ *  always a no-op, the same class of dead control `groupBy` already avoids for site grouping (see
+ *  that const's own doc comment above). Derived from `localeOptions`, not site config, so the
+ *  control also disappears once the current filter set leaves only one locale represented. */
+const showLocaleFilter = computed(
+  () => siteStore.locales.showMenu && localeOptions.value.length > 1
+)
+
 function groupKeyFor(node) {
   if (groupBy.value === 'tag') {
     return node.tags?.[0] ?? '(untagged)'
@@ -275,6 +329,20 @@ function groupKeyFor(node) {
   }
   return node.folder || '(root)'
 }
+
+/** Accessible name for the canvas (OpenProject #1681) -- with no `role`/label at all, a screen
+ *  reader announces the graph as nothing, so this is the minimum text alternative: a live summary
+ *  of what's currently drawn. Reads `nodes.value`/`edges.value`/`groupBy` -- already-held reactive
+ *  state, no separate computation -- and excludes synthetic hub/root nodes (`applyFilters()`'s
+ *  `edgeMode`-driven stand-ins, never real pages) from the page count. `groupBy`'s own values
+ *  ('folder'/'tag'/'classification') already read as the words used here, so no separate label
+ *  lookup is needed; a real focusable text alternative (per-node links) is #1686's larger scope,
+ *  and moving this string into a `graph.*` i18n key is #1690's. */
+const graphAccessibleName = computed(() => {
+  const pageCount = nodes.value.filter((node) => !node.synthetic).length
+  const linkCount = edges.value.length
+  return `Knowledge graph: ${pageCount} page${pageCount === 1 ? '' : 's'}, ${linkCount} link${linkCount === 1 ? '' : 's'}, grouped by ${groupBy.value}`
+})
 
 /*
   The `dataviz` skill's validated 8-slot categorical theme (references/palette.md), light-surface
@@ -428,6 +496,20 @@ function pageviewCountFor(node) {
   return pageviewClientTypes.value.reduce((sum, type) => sum + (counts[type] ?? 0), 0)
 }
 
+/** The hover tooltip's i18n message key for `count`, per the active `sizeBy`/`sizeCountMode`
+ *  combination (OpenProject #2293). The noun must follow `sizeCountMode` as well as `sizeBy`:
+ *  'total' reads the raw, non-distinct row counts (an edit or visit tally), while 'unique' reads
+ *  the distinct-identity figures (a contributor or visitor tally) -- so "Edits + Total" and
+ *  "Visits + Unique" need a different noun than "Edits + Unique" and "Visits + Total" use, even
+ *  though all four share the same `sizeBy` pair. Each key carries its own singular/plural form
+ *  (`backend/locales/en.json`), so `count` itself is only threaded through by the caller. */
+function tooltipKeyFor() {
+  if (sizeBy.value === 'edits') {
+    return sizeCountMode.value === 'total' ? 'graph.tooltip.edits' : 'graph.tooltip.contributors'
+  }
+  return sizeCountMode.value === 'total' ? 'graph.tooltip.visits' : 'graph.tooltip.uniqueVisitors'
+}
+
 /** A node's drawn radius: synthetic nodes are always the fixed `3`; a real node scales with
  *  `contributorCountFor()` when `sizeBy` is 'edits', or `pageviewCountFor()` when it's 'visits' --
  *  the only two values `sizeBy` can hold now that 'uniform' is gone (OpenProject #1270). */
@@ -508,18 +590,24 @@ function drawNodes() {
 }
 
 /** Below this zoom level a label is unreadably small anyway; skipping the fillText calls entirely
- *  is also what keeps a dense graph's label layer from becoming visual noise. Lowered from the
- *  earlier `1.5` (OpenProject #1287/#1288) so labels persist roughly 4px of effective on-screen
- *  size longer before hiding: at the `10px` base font, `1.5` hid labels at 15px effective, `1.1`
- *  now hides them at 11px. */
+ *  is also what keeps a dense graph's label layer from becoming visual noise. Lowered from `1.1`
+ *  to `0.75` (OpenProject #2292, a follow-up to #1287/#1288) so labels persist further into a
+ *  zoomed-out view: at the `10px` base font, `1.1` hid labels at 11px effective -- still
+ *  comfortably readable -- while `0.75` now hides them at 7.5px effective. */
 const LABEL_BASE_FONT_PX = 10
-const LABEL_VISIBILITY_ZOOM_THRESHOLD = 1.1
+const LABEL_VISIBILITY_ZOOM_THRESHOLD = 0.75
 
 /** Caps how large a label ever draws on screen, regardless of zoom -- without this, the base font is
  *  drawn inside the canvas's `ctx.scale(k, k)` transform, so effective on-screen size is
  *  `LABEL_BASE_FONT_PX * k` uncapped, reaching 80px at the max zoom (`k = 8`, see `attachZoom()`'s
  *  `scaleExtent`). `24` reads as roughly what a label already looks like comfortably zoomed in. */
 const LABEL_MAX_EFFECTIVE_FONT_PX = 24
+
+/** Breathing room between a node's edge and the start of its label, on top of the node's own
+ *  drawn radius (`radiusFor()`) -- matches the gap the old fixed `8` offset left beyond the
+ *  smallest node (`MIN_CONTRIBUTOR_RADIUS`/`MIN_PAGEVIEW_RADIUS`, both `5`), but now scales with
+ *  the node so a label never overlaps a larger node's fill (OpenProject #2297). */
+const LABEL_GAP = 3
 
 function drawLabels() {
   const scale = zoomTransform.value?.k ?? 1
@@ -533,11 +621,18 @@ function drawLabels() {
     if (node.x === undefined) {
       continue
     }
-    ctx.fillText(node.title ?? node.path, node.x + 8, node.y + 3)
+    ctx.fillText(node.title ?? node.path, node.x + radiusFor(node) + LABEL_GAP, node.y + 3)
   }
 }
 
-function redraw() {
+/** Recomputes everything derived from node POSITION: rebuilds the hit-test quadtree over the
+ *  current `x`/`y`s and re-colors/re-hulls clusters via `recomputeClusters()`. Call whenever nodes
+ *  may have moved or the visible set may have changed -- a simulation tick, a resize, a sizing
+ *  change -- never for a pan/zoom alone, where no node's position changed, only the canvas
+ *  transform (OpenProject #1837; `recomputeClusters()`'s O(n log n) quadtree build plus per-group
+ *  `polygonHull` work used to run at pointer/wheel frequency for a picture whose geometry hadn't
+ *  changed). Always call `repaint()` afterward to actually draw the result. */
+function relayout() {
   nodeQuadtree = d3quadtree(
     nodes.value,
     (d) => d.x,
@@ -545,7 +640,12 @@ function redraw() {
   )
 
   recomputeClusters()
+}
 
+/** Paints the current layout to the canvas -- the `ctx` save/clear/transform/draw/restore sequence
+ *  only, no layout recomputation. Safe to call on every zoom/pan frame since it reads
+ *  `nodeQuadtree`/`clusters.value` as they last stood rather than rebuilding either. */
+function repaint() {
   if (!ctx) {
     return
   }
@@ -606,6 +706,14 @@ function onCanvasMouseMove(event) {
 }
 
 /*
+  `forceLink().id()` resolves against each node's composite `${locale}:${path}` id (OpenProject
+  #1621/#1629), not the bare `path` -- translations share a path by design
+  (`docs/decisions/locale-translation-linking.md`), so an `id`-of-`path` accessor would make
+  d3-force's `nodeById` map collapse an `en`/`fr` pair sharing a path down to whichever one it
+  processed last, with no error. `node.path` stays around on every node (real and synthetic alike)
+  as the display/navigation field -- `onCanvasClick`, the hover tooltip and `drawLabels()` all still
+  read it.
+
   `d3.forceLink`'s distance (60) and `d3.forceManyBody`'s charge strength (-120) are starting
   points, not verified-correct constants -- exploratory visual tuning happens once there's a real
   graph on screen (Task 13, #888), not here. `forceCollide`'s radius (`collideRadiusFor`, OpenProject
@@ -628,38 +736,60 @@ function startSimulation() {
     .force(
       'link',
       forceLink(edges.value)
-        .id((d) => d.path)
+        // -> Composite `${locale}:${path}` id (OpenProject #1621/#1629), not bare `path`: two locales'
+        //    translations of the same page share a `path` by design, and d3-force's `nodeById`
+        //    map (built from this accessor) would otherwise collapse them onto whichever node it
+        //    kept last -- N duplicate dots on top of each other, every edge attached to just one
+        //    of them. `graphFilters.js`'s edge builders key their `source`/`target` on the same
+        //    `nodeId()` helper, which is what keeps this accessor's output resolvable against
+        //    every edge actually fed into `edges.value` below.
+        .id((d) => nodeId(d))
         .distance(60)
     )
     .force('charge', forceManyBody().strength(-120))
     .force('collide', forceCollide(collideRadiusFor))
     .force('center', forceCenter(width / 2, height / 2))
     .force('cluster', clusterForce(groupKeyFor, 0.05))
-    .on('tick', redraw)
+    .on('tick', () => {
+      relayout()
+      repaint()
+    })
 }
 
 /*
   `16`px is a starting point sized against the `5`px node-dot radius in `drawNodes()` -- tune
-  visually so the hull clearly contains the dots without ballooning past neighboring clusters.
+  visually so the hull clearly contains the dots without ballooning past neighboring clusters. It's
+  a floor added on top of each node's own `radiusFor()` (OpenProject #2296), not the whole gap any
+  more -- see `padHull()` and `computeClusters()`'s circle case below, both of which used to pad by
+  this constant alone and let a large node (up to `MAX_CONTRIBUTOR_RADIUS`/`MAX_PAGEVIEW_RADIUS`,
+  22) poke through its own group tint.
 */
 const HULL_PADDING = 16
 
 /** Pads a hull outward from its own centroid so the fill visually contains the node dots rather
- *  than passing through their centers, per the spec's "Obsidian-style" sector requirement. */
+ *  than passing through their centers, per the spec's "Obsidian-style" sector requirement. Each
+ *  `point` is a `[x, y, node]` triple (see `computeClusters()`) so the offset can grow by that
+ *  vertex's own `radiusFor(node)` on top of the flat `padding` (OpenProject #2296) -- a large node
+ *  sitting on the hull boundary would otherwise poke through the tint by the difference between its
+ *  drawn radius and the flat padding. `polygonHull` (`d3-polygon`) returns references to the exact
+ *  input elements it hulled, so the third element survives intact into `points` here. */
 function padHull(points, padding) {
   const cx = points.reduce((sum, p) => sum + p[0], 0) / points.length
   const cy = points.reduce((sum, p) => sum + p[1], 0) / points.length
-  return points.map(([x, y]) => {
+  return points.map(([x, y, node]) => {
     const dx = x - cx
     const dy = y - cy
     const len = Math.hypot(dx, dy) || 1
-    return [x + (dx / len) * padding, y + (dy / len) * padding]
+    const vertexPadding = padding + (node ? radiusFor(node) : 0)
+    return [x + (dx / len) * vertexPadding, y + (dy / len) * vertexPadding]
   })
 }
 
 /** Populates `clusters.value` -- one entry per visible group with `hullPoints` (>=3 nodes) or a
  *  fallback `circle` (1-2 nodes, or a degenerate >=3-node group `polygonHull` can't hull, e.g.
- *  every point collinear). */
+ *  every point collinear). Both shapes are sized off each node's edge (its centre plus its own
+ *  `radiusFor()`), not just its centre (OpenProject #2296) -- `collideRadiusFor()` above already
+ *  adds `radiusFor(node)` to a constant the same way, and is the pattern this mirrors. */
 function computeClusters() {
   const byGroup = new Map()
   for (const node of nodes.value) {
@@ -676,7 +806,7 @@ function computeClusters() {
   for (const [key, groupNodes] of byGroup) {
     const color = colorForGroup(key)
     if (groupNodes.length >= 3) {
-      const hull = polygonHull(groupNodes.map((n) => [n.x, n.y]))
+      const hull = polygonHull(groupNodes.map((n) => [n.x, n.y, n]))
       if (hull) {
         result.push({ key, color, hullPoints: padHull(hull, HULL_PADDING) })
         continue
@@ -686,14 +816,22 @@ function computeClusters() {
     }
     const cx = groupNodes.reduce((s, n) => s + n.x, 0) / groupNodes.length
     const cy = groupNodes.reduce((s, n) => s + n.y, 0) / groupNodes.length
-    const maxDist = Math.max(...groupNodes.map((n) => Math.hypot(n.x - cx, n.y - cy)), 0)
+    // -> A `reduce`, not `Math.max(...groupNodes.map(...))` -- the spread form blows V8's ~100-125k
+    //    argument limit at large group sizes (OpenProject #1837, a latent hazard only; no group has
+    //    come close to that in practice). Sized off each node's edge (its centre plus its own
+    //    `radiusFor()`), not just its centre (OpenProject #2296) -- see the `computeClusters()` doc
+    //    comment above.
+    const maxDist = groupNodes.reduce(
+      (max, n) => Math.max(max, Math.hypot(n.x - cx, n.y - cy) + radiusFor(n)),
+      0
+    )
     result.push({ key, color, circle: { x: cx, y: cy, r: maxDist + HULL_PADDING } })
   }
   clusters.value = result
 }
 
 /** Single entry point Task 18's coloring and Task 20's hull computation both funnel through --
- *  called every tick (from `redraw()`) so hulls/colors stay in step with the live layout, and
+ *  called every tick (from `relayout()`) so hulls/colors stay in step with the live layout, and
  *  whenever the grouping dimension or the visible node set changes. */
 function recomputeClusters() {
   for (const node of nodes.value) {
@@ -713,7 +851,8 @@ function attachZoom() {
     .scaleExtent([0.1, 8])
     .on('zoom', (event) => {
       zoomTransform.value = event.transform
-      redraw()
+      // -> Only the canvas transform changed, no node moved -- repaint only (OpenProject #1837).
+      repaint()
     })
   selection.call(behavior)
   zoomTransform.value = zoomIdentity
@@ -724,8 +863,8 @@ async function loadGraph() {
   loadError.value = null
   try {
     const graph = await API_CLIENT.get(`sites/${siteStore.id}/graph`).json()
-    allNodes.value = graph.nodes ?? []
-    allEdges.value = graph.edges ?? []
+    allNodes.value = (graph.nodes ?? []).map((n) => markRaw(n))
+    allEdges.value = (graph.edges ?? []).map((e) => markRaw(e))
     applyFilters()
     sizeCanvas()
     startSimulation()
@@ -766,8 +905,14 @@ function applyFilters() {
       : edgeMode.value === 'classification'
         ? buildClassificationHubEdges(visibleNodes)
         : buildPathHierarchyEdges(visibleNodes)
-  nodes.value = [...visibleNodes, ...syntheticNodes]
-  edges.value = syntheticEdges
+  // -> `visibleNodes` are already-raw objects filtered from `allNodes.value` (markRaw'd in
+  //    `loadGraph()`); `syntheticNodes`/`syntheticEdges` are freshly built plain objects on every
+  //    call (see `graphFilters.js`) that have never passed through `markRaw()` yet. Mapping the
+  //    whole assembled array/list through it here is what keeps every node/edge the simulation
+  //    sees out of Vue's reactivity system, regardless of which builder produced it -- `markRaw()`
+  //    is a no-op on an object already marked, so re-marking the reused ones costs nothing.
+  nodes.value = [...visibleNodes, ...syntheticNodes].map((n) => markRaw(n))
+  edges.value = syntheticEdges.map((e) => markRaw(e))
 }
 
 watch(groupBy, () => {
@@ -783,7 +928,8 @@ watch(groupBy, () => {
 watch([sizeBy, sizeCountMode, contributorTypes, pageviewsWindow, pageviewClientTypes], () => {
   simulation?.force('collide', forceCollide(collideRadiusFor))
   simulation?.alpha(0.3).restart()
-  redraw()
+  relayout()
+  repaint()
 })
 
 /** OpenProject #1140's own scope decision: while pageview tracking is off, 'visits' sizing has no
@@ -793,6 +939,16 @@ watch([sizeBy, sizeCountMode, contributorTypes, pageviewsWindow, pageviewClientT
 watch(pageviewsTrackingEnabled, (enabled) => {
   if (!enabled && sizeBy.value === 'visits') {
     sizeBy.value = 'edits'
+  }
+})
+
+/** OpenProject #2294: once the locale filter control disappears (single locale left, either from the
+ *  outset or after tags/folder-depth narrow the visible set down to one), clear any value chosen on
+ *  it -- otherwise a locale picked before the narrowing keeps filtering the graph with no visible
+ *  control left to clear it from. */
+watch(showLocaleFilter, (visible) => {
+  if (!visible && activeFilters.locale !== null) {
+    activeFilters.locale = null
   }
 })
 
@@ -831,7 +987,8 @@ watch(edgeMode, () => {
 onMounted(() => {
   resizeObserver = new ResizeObserver(() => {
     sizeCanvas()
-    redraw()
+    relayout()
+    repaint()
   })
   resizeObserver.observe(containerRef.value)
   loadGraph()

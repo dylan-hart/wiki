@@ -55,8 +55,13 @@ describe('publish workflow split (build.yml + release.yml)', () => {
       assert.match(raw, /REL_VERSION=3\.0\.0-alpha\.\$GITHUB_RUN_NUMBER/)
     })
 
-    test('still pushes the floating alpha tag alongside the run-numbered one', () => {
-      assert.match(raw, /ghcr\.io\/requarks\/wiki:3\.0\.0-alpha\b/)
+    test('still pushes the floating alpha tag alongside the run-numbered one, under a namespace derived from the repository', () => {
+      assert.match(raw, /\$\{\{\s*env\.IMAGE_NAMESPACE\s*\}\}:3\.0\.0-alpha\b/)
+      assert.doesNotMatch(raw, /ghcr\.io\/requarks\/wiki/)
+    })
+
+    test('derives the GHCR namespace from github.repository rather than hard-coding an owner', () => {
+      assert.match(raw, /IMAGE_NAMESPACE:\s*ghcr\.io\/\$\{\{\s*github\.repository\s*\}\}/)
     })
   })
 
@@ -120,6 +125,11 @@ describe('publish workflow split (build.yml + release.yml)', () => {
       assert.doesNotMatch(JSON.stringify(dockerStep.with.tags), /3\.0\.0-alpha/)
     })
 
+    test('derives the GHCR namespace from github.repository rather than hard-coding an owner', () => {
+      assert.match(raw, /IMAGE_NAMESPACE:\s*ghcr\.io\/\$\{\{\s*github\.repository\s*\}\}/)
+      assert.doesNotMatch(raw, /ghcr\.io\/requarks\/wiki/)
+    })
+
     test('all hard-required quality gates run BEFORE the Docker publish step (fail closed)', () => {
       const dockerStepIndex = findStepIndex(steps, /docker\/build-push-action/)
       assert.ok(dockerStepIndex > 0, 'expected to find the docker publish step')
@@ -154,6 +164,47 @@ describe('publish workflow split (build.yml + release.yml)', () => {
     test('documents that the test-suite and migration checklist items are NOT CI-enforceable here', () => {
       assert.match(raw, /NOT CI-enforceable/i)
       assert.match(raw, /manual sign-off/i)
+    })
+
+    test('has actions:read permission for the build.yml run-history check', () => {
+      const perms = Object.values<any>(doc.jobs).find((job: any) => job.permissions)?.permissions
+      assert.equal(perms.actions, 'read')
+    })
+
+    test('guards on a successful build.yml run existing for the tagged commit, before every other gate', () => {
+      const guardIndex = findStepIndex(steps, /gh run list.*--workflow=build\.yml/s)
+      assert.ok(
+        guardIndex !== -1,
+        'expected a step asserting a build.yml run for this commit (task #1943)'
+      )
+
+      const dockerStepIndex = findStepIndex(steps, /docker\/build-push-action/)
+      assert.ok(guardIndex < dockerStepIndex, 'guard must run before the Docker publish step')
+
+      for (const [label, pattern] of gateChecks) {
+        const gateIndex = findStepIndex(steps, pattern)
+        assert.ok(
+          guardIndex < gateIndex,
+          `expected the build.yml-run guard (step ${guardIndex}) to run before gate "${label}" (step ${gateIndex})`
+        )
+      }
+
+      const guardStep = steps[guardIndex]
+      assert.match(
+        guardStep.run,
+        /--commit="\$GITHUB_SHA"/,
+        'expected the guard to check the exact tagged commit'
+      )
+      assert.match(
+        guardStep.run,
+        /--status=success/,
+        'expected the guard to require a successful run'
+      )
+      assert.match(
+        guardStep.run,
+        /exit 1/,
+        'expected the guard to fail the job when no run is found'
+      )
     })
   })
 })

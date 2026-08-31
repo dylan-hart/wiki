@@ -9,6 +9,7 @@ import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import siteRoutes from './site.ts'
 import { svgMimeType } from '../helpers/images.ts'
+import { SVG_CSP } from '../helpers/security.ts'
 
 describe('GET /_site/current/<resource> — hostname resolution', () => {
   /**
@@ -126,10 +127,12 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
   )
 
   /**
-   * Task 759 (the SVG CSP lockdown): the ETag/`If-None-Match`/304 branch, the `Content-Security-Policy`
-   * header being conditioned on `asset.mime === svgMimeType`, and the header asymmetry between the two
-   * response branches — an uploaded asset gets `ETag` + `Cache-Control`, the `replyWithFile` fallback
-   * branch (nobody has uploaded anything for this kind) gets neither.
+   * Task 759 (the SVG CSP lockdown) plus WP 1826 (cache headers/validator for the built-in
+   * fallbacks): the ETag/`If-None-Match`/304 branch, the `Content-Security-Policy` header being
+   * conditioned on `asset.mime === svgMimeType`, and both response branches' caching headers — an
+   * uploaded asset gets a strong sha1 `ETag` + `public, no-cache`; the `replyWithFile` fallback branch
+   * (nobody has uploaded anything for this kind) gets its own weak size/mtime `ETag`, a
+   * `Last-Modified`, and a long `public, max-age=86400` instead, with its own independent 304 path.
    *
    * Runs its own app + `WIKI` stub, saved/restored around the shared `globalThis.WIKI` the suite above
    * uses — same pattern `helpers/images.test.ts`'s Sharp-unavailable describe uses for the same reason:
@@ -225,10 +228,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
       })
 
       assert.equal(res.statusCode, 200)
-      assert.equal(
-        res.headers['content-security-policy'],
-        "default-src 'none'; style-src 'unsafe-inline'; sandbox"
-      )
+      assert.equal(res.headers['content-security-policy'], SVG_CSP)
       assert.equal(res.headers['cache-control'], 'public, no-cache')
       assert.ok(res.headers.etag)
     })
@@ -265,9 +265,8 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
     })
 
     test(
-      'the built-in fallback (nothing uploaded) is served with neither an ETag nor a Cache-Control ' +
-        'header — confirming the asymmetry with the uploaded branch is real, not an oversight this ' +
-        'suite failed to catch',
+      'the built-in fallback (nothing uploaded) is served with a Cache-Control, an ETag and a ' +
+        'Last-Modified header, but no SVG lockdown headers (those only guard admin-uploaded bytes)',
       async () => {
         SITE.config.assets = { logo: false }
         currentAsset = null
@@ -280,10 +279,57 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
 
         assert.equal(res.statusCode, 200)
         assert.match(res.body, /<svg/)
-        assert.equal(res.headers.etag, undefined)
-        assert.equal(res.headers['cache-control'], undefined)
+        assert.equal(res.headers['cache-control'], 'public, max-age=86400')
+        assert.ok(res.headers.etag, 'expected an ETag on the fallback response')
+        assert.ok(res.headers['last-modified'], 'expected a Last-Modified on the fallback response')
         assert.equal(res.headers['content-security-policy'], undefined)
         assert.equal(res.headers['x-content-type-options'], undefined)
+      }
+    )
+
+    test(
+      'a repeat request against the built-in fallback with a matching If-None-Match short-circuits ' +
+        'to an empty 304, keeping its Cache-Control/ETag on the response',
+      async () => {
+        SITE.config.assets = { logo: false }
+        currentAsset = null
+
+        const first = await localApp.inject({
+          method: 'GET',
+          url: '/current/logo',
+          headers: { host: SITE.hostname }
+        })
+        const etag = first.headers.etag as string
+        assert.ok(etag)
+
+        const second = await localApp.inject({
+          method: 'GET',
+          url: '/current/logo',
+          headers: { host: SITE.hostname, 'if-none-match': etag }
+        })
+
+        assert.equal(second.statusCode, 304)
+        assert.equal(second.body, '')
+        assert.equal(second.headers.etag, etag)
+        assert.equal(second.headers['cache-control'], 'public, max-age=86400')
+      }
+    )
+
+    test(
+      'a stale/mismatched If-None-Match against the built-in fallback still gets the full 200 ' +
+        'response, not a 304',
+      async () => {
+        SITE.config.assets = { logo: false }
+        currentAsset = null
+
+        const res = await localApp.inject({
+          method: 'GET',
+          url: '/current/logo',
+          headers: { host: SITE.hostname, 'if-none-match': 'W/"stale-from-a-previous-build"' }
+        })
+
+        assert.equal(res.statusCode, 200)
+        assert.match(res.body, /<svg/)
       }
     )
   })
@@ -368,5 +414,69 @@ describe('GET /_site/:siteId/<resource> — isEnabled guard (task 699)', () => {
     const res = await app.inject({ method: 'GET', url: `/${ENABLED_SITE_ID}/logo` })
     assert.equal(res.statusCode, 200)
     assert.equal(res.body, 'fake-logo-bytes')
+  })
+})
+
+describe('GET /_site/:siteId/<resource> — enforceApiKeySite (OpenProject #2201)', () => {
+  /**
+   * `:siteId` here can be `current`, a hostname, or a real UUID (see `site.ts`), never lifted straight
+   * off the URL the way a params-only site-pin hook expects -- so this route calls
+   * `enforceApiKeySite()` itself once it has resolved the real site behind whichever form was given.
+   */
+
+  const SITE_A = {
+    id: '11111111-4111-4111-8111-111111111111',
+    hostname: 'sitea.example.com',
+    isEnabled: true,
+    config: { assets: { logo: true } }
+  }
+  const SITE_B = {
+    id: '22222222-4222-4222-8222-222222222222',
+    hostname: 'siteb.example.com',
+    isEnabled: true,
+    config: { assets: { logo: true } }
+  }
+  const sites: Record<string, any> = { [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B }
+
+  async function getSiteById({ id }: { id: string }) {
+    return sites[id] ?? null
+  }
+
+  async function getAsset(_siteId: string, _kind: string) {
+    return { data: Buffer.from('logo-bytes'), mime: 'image/webp' }
+  }
+
+  let app: FastifyInstance
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      ROOTPATH: process.cwd(),
+      models: {
+        sites: { getSiteById, getSiteByHostname: async () => null, getAsset }
+      }
+    }
+    app = fastify()
+    await app.register(fastifySensible)
+    app.addHook('onRequest', (req, _reply, done) => {
+      ;(req as any).apiKey = { id: 'key-1', permissions: [], siteId: SITE_A.id }
+      done()
+    })
+    await app.register(siteRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('refuses 403 when a key pinned to site A requests site B by UUID', async () => {
+    const res = await app.inject({ method: 'GET', url: `/${SITE_B.id}/logo` })
+    assert.equal(res.statusCode, 403)
+  })
+
+  test('lets a key pinned to site A through when it requests site A by UUID', async () => {
+    const res = await app.inject({ method: 'GET', url: `/${SITE_A.id}/logo` })
+    assert.equal(res.statusCode, 200)
   })
 })

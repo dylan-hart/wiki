@@ -38,9 +38,10 @@ async function withDbSearchExtras(
  * folded it into the `db` engine's own per-engine config: it is a plain boolean prop on `db`'s
  * `definition.yml`, so it is read and written through the engine-picker routes below like any other
  * engine's config, and this route no longer mentions it. `dictOverrides` could not follow — see
- * `SearchEngine.dictOverrides` in `models/search.ts` — so it keeps this route, and the `db` entry of
- * the engine-picker list below also carries its current value (plus `availableDictionaries`) so the
- * admin area's `db`-specific panel needs no second round trip to render it.
+ * `SearchEngine.dictOverrides` in `models/search.ts` — so it keeps the PATCH below to write it; the
+ * caller-less bare `GET .../search` was deleted (task #1871), since the `db` entry of the
+ * engine-picker list below already carries `dictOverrides`' current value (plus `availableDictionaries`)
+ * so the admin area's `db`-specific panel needs no second round trip to render it.
  *
  * The engine-picker routes below (task #570) are different: a non-default engine's config can hold
  * credentials the same way a storage target's can (an API key, an index name pointing at private
@@ -50,65 +51,6 @@ async function withDbSearchExtras(
  * `api/storage.ts`'s action route uses.
  */
 async function routes(app: FastifyInstance) {
-  /**
-   * GET SITE SEARCH CONFIGURATION
-   */
-  app.get<{ Params: { siteId: string } }>(
-    '/sites/:siteId/search',
-    {
-      config: {
-        permissions: ['manage:sites']
-      },
-      schema: {
-        summary: 'Get the search configuration of a site',
-        description:
-          'Search is postgres full-text. `availableDictionaries` lists the text search configurations this database has, which is what a locale may be mapped to.',
-        tags: ['Search'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
-        response: {
-          200: {
-            description: 'Search configuration',
-            type: 'object',
-            properties: {
-              dictOverrides: {
-                type: 'object',
-                description:
-                  'Locale code to postgres dictionary, e.g. `{ "en": "english" }`. Overrides the built-in mapping.',
-                additionalProperties: { type: 'string' }
-              },
-              availableDictionaries: {
-                type: 'array',
-                description: 'Dictionary names this postgres installation knows.',
-                items: { type: 'string' }
-              }
-            }
-          },
-          401: { $ref: 'ApiError#' },
-          403: { $ref: 'ApiError#' }
-        }
-      }
-    },
-    async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-      return {
-        ...WIKI.models.search.getConfig(req.params.siteId),
-        availableDictionaries: await WIKI.models.search.getAvailableDictionaries()
-      }
-    }
-  )
-
   /**
    * UPDATE SITE SEARCH CONFIGURATION
    */
@@ -177,12 +119,10 @@ async function routes(app: FastifyInstance) {
       const available = await WIKI.models.search.getAvailableDictionaries()
       for (const [locale, dictionary] of Object.entries(req.body.dictOverrides)) {
         if (!/^[a-z]{2,3}(?:[-_][A-Za-z]{2,4})?$/.test(locale)) {
-          return reply.badRequest(`"${locale}" is not a valid locale code.`)
+          return reply.badRequest('ERR_INVALID_LOCALE_CODE')
         }
         if (!available.includes(dictionary)) {
-          return reply.badRequest(
-            `"${dictionary}" is not a text search dictionary in this database.`
-          )
+          return reply.badRequest('ERR_INVALID_SEARCH_DICTIONARY')
         }
       }
 

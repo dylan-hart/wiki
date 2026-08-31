@@ -12,11 +12,16 @@ export interface MailMessage {
   text: string
 }
 
-/** Verb form of each notifiable action, for the summary phrasing (e.g. `edited: title, content`). */
-const WATCH_ACTION_LABELS: Record<PageWatchNotifiableAction, string> = {
-  updated: 'edited',
-  moved: 'moved',
-  deleted: 'deleted'
+/**
+ * Verb form of each notifiable action, for the summary phrasing (e.g. `edited: title, content`),
+ * resolved from `mail.watchAction.*` for the recipient's locale (`en` fallback) via
+ * `WIKI.models.locales.resolveString`.
+ */
+async function watchActionLabel(
+  action: PageWatchNotifiableAction,
+  locale?: string | null
+): Promise<string> {
+  return WIKI.models.locales.resolveString(locale, `mail.watchAction.${action}`)
 }
 
 /**
@@ -82,13 +87,18 @@ export function classifyMailError(err: any): 'connection' | 'tls' | 'auth' | 'se
  *
  * Builds a single `nodemailer` SMTP transporter from `WIKI.config.mail` (CRUD'd by `api/mail.ts`)
  * and exposes a generic `send()` plus the transactional templates this feature needs: verify-email,
- * forgot-password (the reset-*request* email, with the actual reset link), password-reset-confirmed
- * (the after-the-fact notice once a reset completes — a distinct email from the request one above),
- * test-email (the admin "Send Test Email" action), and the page-watch notification. Templates are
- * plain inline HTML/text pairs — building a DB-backed, admin-editable template system is explicitly
- * out of scope here. `MailTemplateEditorOverlay.vue` and the `admin.mail.templates` admin-area
- * section are unwired UI for that unbuilt system, gated behind `flagStore.experimental` on the
- * frontend; there is no `db/schema.ts` table to back them, and none is added by this change.
+ * registration-collision (the non-enumerating notice `register()` sends the real owner instead of
+ * throwing `ERR_EMAIL_ALREADY_EXISTS`), forgot-password (the reset-*request* email, with the actual
+ * reset link), password-reset-confirmed (the after-the-fact notice once a reset completes — a
+ * distinct email from the request one above), test-email (the admin "Send Test Email" action), and
+ * the page-watch notification. Every subject and body is a `mail.*` key in `backend/locales/en.json`,
+ * resolved through `WIKI.models.locales.resolveString`/`resolvePluralString` against a `locale` each
+ * send method accepts (typically the recipient's `users.prefs.locale`, `en` as the fallback —
+ * OpenProject #1611/#1623) — building a DB-backed, admin-editable template system is a separate,
+ * larger scope this deliberately stays out of. `MailTemplateEditorOverlay.vue` and the
+ * `admin.mail.templates` admin-area section are unwired UI for that unbuilt system, gated behind
+ * `flagStore.experimental` on the frontend; there is no `db/schema.ts` table to back them, and none
+ * is added by this change.
  *
  * `getTransporter()` re-reads `WIKI.config.mail` on every call (it is called once per `send()`) and
  * rebuilds the transporter whenever the resulting options differ from the last build, compared by a
@@ -224,22 +234,29 @@ class MailModel {
   /**
    * Email verification link, sent on self-registration when the local strategy's `emailValidation`
    * setting is on. Links at `/auth/verify/:token`, consumed by the public verify route.
+   *
+   * @param locale The recipient's `users.prefs.locale`, if known — falls back to `en` when unset or
+   *   not installed (see `models/locales.ts#resolveString`). A brand-new self-registering user has
+   *   no saved preference yet, so callers on that path pass nothing.
    */
   async sendVerifyEmail({
     to,
     name,
-    token
+    token,
+    locale
   }: {
     to: string
     name: string
     token: string
+    locale?: string | null
   }): Promise<void> {
     const link = this.buildLink(`/auth/verify/${token}`)
+    const params = { name, link }
     await this.send({
       to,
-      subject: 'Verify your email address',
-      text: `Hi ${name},\n\nPlease verify your email address to activate your account:\n${link}\n\nIf you did not request this, you can safely ignore this email.`,
-      html: `<p>Hi ${name},</p><p>Please verify your email address to activate your account:</p><p><a href="${link}">${link}</a></p><p>If you did not request this, you can safely ignore this email.</p>`
+      subject: await WIKI.models.locales.resolveString(locale, 'mail.verifyEmail.subject'),
+      text: await WIKI.models.locales.resolveString(locale, 'mail.verifyEmail.text', params),
+      html: await WIKI.models.locales.resolveString(locale, 'mail.verifyEmail.html', params)
     })
   }
 
@@ -252,25 +269,42 @@ class MailModel {
    * The "24 hours" in the copy below must be kept in sync with the token TTL set by
    * `models/users.ts#generateToken` — there is no shared constant, since that TTL is a single flat
    * value applied to every token kind, not something specific to `resetPwd` alone.
+   *
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
    */
   async sendForgotPassword({
     to,
     name,
-    token
+    token,
+    locale
   }: {
     to: string
     name: string
     token: string
+    locale?: string | null
   }): Promise<void> {
     const link = this.buildLink(`/login/reset-password/${token}`)
     const cfg = WIKI.config.mail ?? {}
-    const signatureText = cfg.senderName ? `\n\n— ${cfg.senderName}` : ''
-    const signatureHtml = cfg.senderName ? `<p>— ${cfg.senderName}</p>` : ''
+    const params = { name, link }
+    const signatureText = cfg.senderName
+      ? await WIKI.models.locales.resolveString(locale, 'mail.signature.text', {
+          name: cfg.senderName
+        })
+      : ''
+    const signatureHtml = cfg.senderName
+      ? await WIKI.models.locales.resolveString(locale, 'mail.signature.html', {
+          name: cfg.senderName
+        })
+      : ''
     await this.send({
       to,
-      subject: 'Reset your password',
-      text: `Hi ${name},\n\nA password reset was requested for your account. Use the link below to choose a new password. This link will expire in 24 hours.\n${link}\n\nIf you did not request this, you can safely ignore this email — your password will not change.${signatureText}`,
-      html: `<p>Hi ${name},</p><p>A password reset was requested for your account. Use the link below to choose a new password. This link will expire in 24 hours.</p><p><a href="${link}">${link}</a></p><p>If you did not request this, you can safely ignore this email — your password will not change.</p>${signatureHtml}`
+      subject: await WIKI.models.locales.resolveString(locale, 'mail.forgotPassword.subject'),
+      text:
+        (await WIKI.models.locales.resolveString(locale, 'mail.forgotPassword.text', params)) +
+        signatureText,
+      html:
+        (await WIKI.models.locales.resolveString(locale, 'mail.forgotPassword.html', params)) +
+        signatureHtml
     })
   }
 
@@ -285,38 +319,87 @@ class MailModel {
    * @param siteId The site to link at (`sendWelcomeEmailFromSiteId` on the create-user request) —
    *   see {@link resolveMailBaseURL}. Falls back to `WIKI.config.mail.defaultBaseURL` when omitted
    *   or unresolvable, same as every other siteId-scoped send.
+   * @param locale A brand-new user has no `users.prefs.locale` of their own yet (they have never
+   *   logged in) — unlike every other template here, there is no recipient preference to thread, so
+   *   this always resolves in `en` unless a future caller has some other locale to suggest.
    */
   async sendWelcomeEmail({
     to,
     name,
     token,
-    siteId
+    siteId,
+    locale
   }: {
     to: string
     name: string
     token: string
     siteId?: string
+    locale?: string | null
   }): Promise<void> {
     const link = this.buildLink(`/login/reset-password/${token}`, this.resolveMailBaseURL(siteId))
+    const params = { name, link }
     await this.send({
       to,
-      subject: 'Welcome — set up your account',
-      text: `Hi ${name},\n\nAn account has been created for you. Use the link below to set your password and log in. This link will expire in 24 hours.\n${link}\n\nIf you were not expecting this, contact your wiki administrator.`,
-      html: `<p>Hi ${name},</p><p>An account has been created for you. Use the link below to set your password and log in. This link will expire in 24 hours.</p><p><a href="${link}">${link}</a></p><p>If you were not expecting this, contact your wiki administrator.</p>`
+      subject: await WIKI.models.locales.resolveString(locale, 'mail.welcomeEmail.subject'),
+      text: await WIKI.models.locales.resolveString(locale, 'mail.welcomeEmail.text', params),
+      html: await WIKI.models.locales.resolveString(locale, 'mail.welcomeEmail.html', params)
     })
   }
 
   /**
    * Notice sent after a password reset completes, so the account owner has a record of it even if
    * they weren't the one who did it.
+   *
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
    */
-  async sendPasswordResetConfirmed({ to, name }: { to: string; name: string }): Promise<void> {
+  async sendPasswordResetConfirmed({
+    to,
+    name,
+    locale
+  }: {
+    to: string
+    name: string
+    locale?: string | null
+  }): Promise<void> {
     const link = this.buildLink('/login')
+    const params = { name, link }
     await this.send({
       to,
-      subject: 'Your password has been changed',
-      text: `Hi ${name},\n\nThis is a confirmation that the password for your account was just changed.\n\nIf you did not make this change, contact your wiki administrator immediately.\n\n${link}`,
-      html: `<p>Hi ${name},</p><p>This is a confirmation that the password for your account was just changed.</p><p>If you did not make this change, contact your wiki administrator immediately.</p><p><a href="${link}">${link}</a></p>`
+      subject: await WIKI.models.locales.resolveString(locale, 'mail.passwordChanged.subject'),
+      text: await WIKI.models.locales.resolveString(locale, 'mail.passwordChanged.text', params),
+      html: await WIKI.models.locales.resolveString(locale, 'mail.passwordChanged.html', params)
+    })
+  }
+
+  /**
+   * Notice sent to an address's real, already-verified owner when someone else attempts to register
+   * a new account with it. `models/users.ts#register()` sends this -- and answers the attempt itself
+   * with the same generic `{ nextAction: 'verify' }` a genuinely new registration gets -- instead of
+   * throwing `ERR_EMAIL_ALREADY_EXISTS`, which is what would otherwise let an unauthenticated caller
+   * confirm whether a given address already has an account here.
+   *
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
+   */
+  async sendRegistrationAttemptNotice({
+    to,
+    name,
+    locale
+  }: {
+    to: string
+    name: string
+    locale?: string | null
+  }): Promise<void> {
+    const link = this.buildLink('/login')
+    const params = { name, link }
+    await this.send({
+      to,
+      subject: await WIKI.models.locales.resolveString(locale, 'mail.registrationAttempt.subject'),
+      text: await WIKI.models.locales.resolveString(
+        locale,
+        'mail.registrationAttempt.text',
+        params
+      ),
+      html: await WIKI.models.locales.resolveString(locale, 'mail.registrationAttempt.html', params)
     })
   }
 
@@ -325,20 +408,28 @@ class MailModel {
    * settings can actually reach an inbox. Includes the instance's `defaultBaseURL` so the recipient
    * can also confirm that setting is correct — the same value {@link buildLink} stitches onto every
    * other template's links — rather than just proving SMTP connectivity in isolation.
+   *
+   * @param locale The requesting admin's own `users.prefs.locale`, if known — there is no separate
+   *   "recipient" here (the `to` address is whatever the admin typed into the send-test-email
+   *   dialog), so the sender's own preference is what's threaded through.
    */
-  async sendTestEmail({ to }: { to: string }): Promise<void> {
+  async sendTestEmail({ to, locale }: { to: string; locale?: string | null }): Promise<void> {
     const baseURL = WIKI.config.mail?.defaultBaseURL
     const baseURLText = baseURL
-      ? `It is currently configured with the base URL: ${baseURL}`
-      : 'No default base URL is set yet — links in other emails (password reset, email verification) will be relative until one is configured under Mail Configuration.'
+      ? await WIKI.models.locales.resolveString(locale, 'mail.testEmail.baseURLConfigured.text', {
+          url: baseURL
+        })
+      : await WIKI.models.locales.resolveString(locale, 'mail.testEmail.baseURLMissing')
     const baseURLHtml = baseURL
-      ? `It is currently configured with the base URL: <a href="${baseURL}">${baseURL}</a>`
-      : 'No default base URL is set yet — links in other emails (password reset, email verification) will be relative until one is configured under Mail Configuration.'
+      ? await WIKI.models.locales.resolveString(locale, 'mail.testEmail.baseURLConfigured.html', {
+          url: baseURL
+        })
+      : await WIKI.models.locales.resolveString(locale, 'mail.testEmail.baseURLMissing')
     await this.send({
       to,
-      subject: 'Wiki.js Test Email',
-      text: `This is a test email sent from your Wiki.js instance to confirm your SMTP configuration is working.\n\n${baseURLText}`,
-      html: `<p>This is a test email sent from your Wiki.js instance to confirm your SMTP configuration is working.</p><p>${baseURLHtml}</p>`
+      subject: await WIKI.models.locales.resolveString(locale, 'mail.testEmail.subject'),
+      text: await WIKI.models.locales.resolveString(locale, 'mail.testEmail.text', { baseURLText }),
+      html: await WIKI.models.locales.resolveString(locale, 'mail.testEmail.html', { baseURLHtml })
     })
   }
 
@@ -366,23 +457,36 @@ class MailModel {
    * @param baseURL The link's host, resolved by the caller via {@link resolveMailBaseURL} for the
    *   same reason as `locales` — once per send, from the one `siteId` every item in a send shares.
    */
-  private renderWatchEventLine(
+  private async renderWatchEventLine(
     { page, action, changedFields, actorName }: WatchEventItem,
     locales: LocaleRoutingConfig | null | undefined,
-    baseURL: string
-  ): {
+    baseURL: string,
+    locale?: string | null
+  ): Promise<{
     text: string
     html: string
-  } {
-    const label = WATCH_ACTION_LABELS[action]
+  }> {
+    const label = await watchActionLabel(action, locale)
     const summary = changedFields.length > 0 ? `${label}: ${changedFields.join(', ')}` : label
     const link = this.buildLink(localizedPagePath(page.path, page.locale, locales), baseURL)
     const safeTitle = escapeHtml(page.title)
     const safeActor = escapeHtml(actorName)
     const safeSummary = escapeHtml(summary)
     return {
-      text: `${actorName} ${label} "${page.title}" (${summary}) — ${link}`,
-      html: `${safeActor} ${label} <strong>${safeTitle}</strong> (${safeSummary}) — <a href="${link}">${link}</a>`
+      text: await WIKI.models.locales.resolveString(locale, 'mail.watchEventLine.text', {
+        actor: actorName,
+        label,
+        title: page.title,
+        summary,
+        link
+      }),
+      html: await WIKI.models.locales.resolveString(locale, 'mail.watchEventLine.html', {
+        actor: safeActor,
+        label,
+        title: safeTitle,
+        summary: safeSummary,
+        link
+      })
     }
   }
 
@@ -391,6 +495,8 @@ class MailModel {
    * watcher whose preference is `immediate` (see `models/pageWatching.ts#WatchNotifyMode`). One email
    * per change per watcher — `sendPageWatchDigest` is what batches several changes into one message
    * for a `digest`-mode watcher instead, built from the same `renderWatchEventLine` content.
+   *
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}.
    */
   async sendPageWatchNotification({
     to,
@@ -398,7 +504,8 @@ class MailModel {
     page,
     action,
     changedFields,
-    actorName
+    actorName,
+    locale
   }: {
     to: string
     siteId: string
@@ -406,20 +513,26 @@ class MailModel {
     action: PageWatchNotifiableAction
     changedFields: string[]
     actorName: string
+    locale?: string | null
   }): Promise<void> {
     const locales = WIKI.sites[siteId]?.config?.locales
     const baseURL = this.resolveMailBaseURL(siteId)
-    const label = WATCH_ACTION_LABELS[action]
-    const line = this.renderWatchEventLine(
+    const label = await watchActionLabel(action, locale)
+    const line = await this.renderWatchEventLine(
       { page, action, changedFields, actorName },
       locales,
-      baseURL
+      baseURL,
+      locale
     )
+    const footer = await WIKI.models.locales.resolveString(locale, 'mail.watchNotification.footer')
     await this.send({
       to,
-      subject: `Page ${label}: ${page.title}`,
-      text: `${line.text}\n\nYou are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox.`,
-      html: `<p>${line.html}</p><p>You are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox.</p>`
+      subject: await WIKI.models.locales.resolveString(locale, 'mail.watchNotification.subject', {
+        label,
+        title: page.title
+      }),
+      text: `${line.text}\n\n${footer}`,
+      html: `<p>${line.html}</p><p>${footer}</p>`
     })
   }
 
@@ -435,28 +548,41 @@ class MailModel {
    * @param items At least one — the caller (the digest job) is what turns "no pending events this
    *   cycle" into skipping the send entirely, not this method turning an empty list into an empty
    *   email. Order is preserved as given (the caller's own chronological order).
+   * @param locale The recipient's `users.prefs.locale`, if known — see {@link sendVerifyEmail}. The
+   *   digest subject is a plural message (`models/locales.ts#resolvePluralString`) rather than the
+   *   `${count === 1 ? '' : 's'}` concatenation this replaced, which cannot be correct in every
+   *   language `backend/locales/metadata.js` ships (`ar`, `pl`, `ru`, ...).
    */
   async sendPageWatchDigest({
     to,
     siteId,
-    items
+    items,
+    locale
   }: {
     to: string
     siteId: string
     items: WatchEventItem[]
+    locale?: string | null
   }): Promise<void> {
     const locales = WIKI.sites[siteId]?.config?.locales
     const baseURL = this.resolveMailBaseURL(siteId)
-    const lines = items.map((item) => this.renderWatchEventLine(item, locales, baseURL))
+    const lines = await Promise.all(
+      items.map((item) => this.renderWatchEventLine(item, locales, baseURL, locale))
+    )
     const count = items.length
-    const subject = `${count} update${count === 1 ? '' : 's'} on pages you're watching`
+    const subject = await WIKI.models.locales.resolvePluralString(
+      locale,
+      'mail.watchDigest.subject',
+      count
+    )
+    const footer = await WIKI.models.locales.resolveString(locale, 'mail.watchDigest.footer')
     const text = lines.map((line) => `- ${line.text}`).join('\n')
     const html = `<ul>${lines.map((line) => `<li>${line.html}</li>`).join('')}</ul>`
     await this.send({
       to,
       subject,
-      text: `${text}\n\nYou are receiving this digest because you are watching these pages. Manage your watched pages, and switch to immediate notifications, from your profile's Inbox.`,
-      html: `${html}<p>You are receiving this digest because you are watching these pages. Manage your watched pages, and switch to immediate notifications, from your profile's Inbox.</p>`
+      text: `${text}\n\n${footer}`,
+      html: `${html}<p>${footer}</p>`
     })
   }
 }

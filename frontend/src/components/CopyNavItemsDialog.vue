@@ -15,12 +15,7 @@
           <w-item-label>{{ t('navEdit.copyFromOtherSite') }}</w-item-label>
         </w-item-section>
         <w-item-section avatar>
-          <w-toggle
-            v-model="state.otherSite"
-            color="primary"
-            checked-icon="la:check"
-            unchecked-icon="la:times"
-            :aria-label="t('navEdit.copyFromOtherSite')" />
+          <w-toggle v-model="state.otherSite" :aria-label="t('navEdit.copyFromOtherSite')" />
         </w-item-section>
       </w-item>
       <w-item v-if="state.otherSite">
@@ -191,7 +186,7 @@ async function loadCrossSiteLocales(siteId) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   state.isFetching = false

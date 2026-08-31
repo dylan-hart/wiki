@@ -1,0 +1,2 @@
+DROP INDEX "pageviews_pageId_viewedAt_idx";--> statement-breakpoint
+CREATE INDEX "pageviews_siteId_pageId_clientType_viewedAt_visitorHash_idx" ON "pageviews" ("siteId","pageId","clientType","viewedAt","visitorHash");

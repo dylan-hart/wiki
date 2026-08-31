@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit'
 import { unsafeSVG } from 'lit/directives/unsafe-svg.js'
 import { fetchIcon, iconImageUrl } from '../shared/icons.js'
 import { DarkMode } from '../shared/theme.js'
+import { getSiteId, getSiteLocales, getCurrentPage } from '../shared/site.js'
 
 /**
  * An attribute that means "off" when it says so.
@@ -370,25 +371,41 @@ export class BlockIndexElement extends LitElement {
   async connectedCallback() {
     super.connectedCallback()
     try {
-      // -> The app's own HTTP client, so a signed-in reader's token comes along and the listing is
-      //    the one they would get anywhere else. Only pages they may open come back.
-      const pages = await API_CLIENT.get(`sites/${WIKI_STATE.site.id}/tree/pages`, {
-        searchParams: {
-          locale: WIKI_STATE.page.locale,
-          path: this.path,
-          limit: this.limit,
-          orderBy: this.orderBy,
-          orderByDirection: this.orderByDirection,
-          depth: this.depth,
-          tags: this.tags
-        }
-      }).json()
-      // -> `WIKI_STATE.site` is the live site store (not a plain snapshot), so its `locales` state --
-      //    `primary`/`forcePrefix`/`active` -- is already here to read; a block cannot import the
-      //    frontend's own `localizedPagePath` helper (separate workspace), so the same rule it applies
-      //    is composed locally instead.
-      const locales = WIKI_STATE.site?.locales
-      const pageLocale = WIKI_STATE.page?.locale
+      // -> A page reader's request needs no site id or session threaded down to it -- see
+      //    `../shared/site.js`'s header for the convention. `fetch` carries the session cookie the
+      //    same as `API_CLIENT` did, same-origin, so a signed-in reader's listing is still the one
+      //    they would get anywhere else -- only pages they may open come back.
+      const [siteId, locales, current] = await Promise.all([
+        getSiteId(),
+        getSiteLocales(),
+        getCurrentPage()
+      ])
+      if (!siteId) {
+        throw new Error('Could not determine the current site.')
+      }
+      const params = new URLSearchParams({
+        limit: this.limit,
+        orderBy: this.orderBy,
+        orderByDirection: this.orderByDirection,
+        depth: this.depth
+      })
+      if (current.locale) {
+        params.set('locale', current.locale)
+      }
+      if (this.path) {
+        params.set('path', this.path)
+      }
+      if (this.tags) {
+        params.set('tags', this.tags)
+      }
+      const resp = await fetch(`/_api/sites/${siteId}/tree/pages?${params}`)
+      if (!resp.ok) {
+        throw new Error(`Request failed (${resp.status}).`)
+      }
+      const pages = await resp.json()
+      // -> A block cannot import the frontend's own `localizedPagePath` helper (a separate,
+      //    unrelated-at-build-time workspace), so the same rule it applies is composed locally instead.
+      const pageLocale = current.locale
       const prefix =
         locales?.active?.length > 1 &&
         pageLocale &&
@@ -470,8 +487,14 @@ export class BlockIndexElement extends LitElement {
        inside the anchor, and asking the element it was bound to is what makes that unnecessary.
   */
   _navigate(e) {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+      return
+    }
+    if (!globalThis.WIKI_ROUTER) {
+      return
+    }
     e.preventDefault()
-    WIKI_ROUTER.push(e.currentTarget.getAttribute('href'))
+    globalThis.WIKI_ROUTER.push(e.currentTarget.getAttribute('href'))
   }
 
   // createRenderRoot() {

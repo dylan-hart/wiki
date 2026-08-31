@@ -145,6 +145,43 @@ describe('user store: fetchPagePermissions() (bug #949, task 995)', () => {
     expect(API_CLIENT.post).not.toHaveBeenCalled()
     expect(store.pagePermissions).toEqual([])
   })
+
+  it('clears rather than throws when the request fails', async () => {
+    const store = useUserStore()
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    store.pagePermissions = ['write:pages']
+    API_CLIENT.post.mockImplementationOnce(() => {
+      throw new Error('network down')
+    })
+
+    await store.fetchPagePermissions('some/page')
+
+    expect(store.pagePermissions).toEqual([])
+  })
+
+  it('fails closed while a fetch for a new path is still in flight', async () => {
+    const store = useUserStore()
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve(['write:pages']) })
+    await store.fetchPagePermissions('some/page')
+    expect(store.pagePermissions).toEqual(['write:pages'])
+
+    // -> A fetch for a different path starts, and has not resolved yet
+    let resolveFetch
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => new Promise((resolve) => (resolveFetch = resolve))
+    })
+    const pending = store.fetchPagePermissions('other/page')
+
+    // -> Already cleared synchronously, before the response has arrived
+    expect(store.pagePermissions).toEqual([])
+
+    resolveFetch(['read:pages'])
+    await pending
+    expect(store.pagePermissions).toEqual(['read:pages'])
+  })
 })
 
 describe('user store: applyProfile() / setToGuest()', () => {
@@ -312,5 +349,126 @@ describe('user store: formatDate()', () => {
     const store = useUserStore()
 
     expect(store.formatDate(null)).toBe('')
+  })
+
+  // -> No stored pattern falls back to the locale-default branch, which OpenProject #1881 hoisted its
+  //    `Intl.DateTimeFormat` out of the per-call path -- this is the branch that formatter backs.
+  it('falls back to the locale-default numeric pattern when no dateFormat is stored', () => {
+    const store = useUserStore()
+    store.dateFormat = ''
+    store.timezone = 'UTC'
+
+    expect(store.formatDate('2026-03-04T12:00:00Z')).toBe('3/4/2026')
+  })
+})
+
+// -> OpenProject #1881: formatTimePart's two `Intl.DateTimeFormat` instances were hoisted to module
+//    scope, keyed by timeFormat -- exercised here through formatDateTime() (formatTimePart itself
+//    isn't exported) so both the 12h and 24h branches keep rendering identical output.
+describe('user store: formatDateTime() time-of-day branches', () => {
+  const t = (key, params) => `${params.date} at ${params.time}`
+
+  it('renders the time in 12h format', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '12h'
+    store.timezone = 'UTC'
+
+    expect(store.formatDateTime(t, '2026-03-04T15:30:00Z')).toBe('2026-03-04 at 3:30 PM')
+  })
+
+  it('renders the time in 24h format', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '24h'
+    store.timezone = 'UTC'
+
+    expect(store.formatDateTime(t, '2026-03-04T15:30:00Z')).toBe('2026-03-04 at 15:30')
+  })
+
+  // -> Guards the hoist itself: the shared formatter instances must not carry state between calls.
+  it('produces identical output across repeated calls against the shared formatters', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '12h'
+    store.timezone = 'UTC'
+
+    const first = store.formatDateTime(t, '2026-03-04T15:30:00Z')
+    const second = store.formatDateTime(t, '2026-03-04T15:30:00Z')
+    expect(second).toBe(first)
+  })
+})
+
+/*
+  OpenProject #1595: 16 admin/inbox/profile screens hand-rolled their own `toLocaleString()`
+  timestamp formatter (called with an explicit `undefined` locale), which ignored both the stored
+  timezone (the OS zone won instead) and locale (the browser's won instead). All of them are now a
+  drop-in call to formatDateTime() -- three of them (a webhook delivery log, a scheduler run, a
+  security scan report) additionally need seconds, since there the timing itself is the thing being
+  read.
+*/
+describe('user store: formatDateTime()', () => {
+  const t = (key, params) => `${params.date} at ${params.time}`
+
+  it('honours the stored timezone rather than the OS zone', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '24h'
+    store.timezone = 'Pacific/Auckland' // -> UTC+13 in March, nowhere near the test runner's own zone
+
+    expect(store.formatDateTime(t, '2026-03-04T12:00:00Z')).toBe('2026-03-05 at 01:00')
+  })
+
+  it('omits seconds by default', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '24h'
+    store.timezone = 'UTC'
+
+    expect(store.formatDateTime(t, '2026-03-04T12:00:30Z')).toBe('2026-03-04 at 12:00')
+  })
+
+  it('includes seconds when asked, in both the 24h and 12h time formats', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timezone = 'UTC'
+
+    store.timeFormat = '24h'
+    expect(store.formatDateTime(t, '2026-03-04T12:00:30Z', { seconds: true })).toBe(
+      '2026-03-04 at 12:00:30'
+    )
+
+    store.timeFormat = '12h'
+    expect(store.formatDateTime(t, '2026-03-04T12:00:30Z', { seconds: true })).toBe(
+      '2026-03-04 at 12:00:30 PM'
+    )
+  })
+
+  it('returns an empty string for a nullish date rather than throwing', () => {
+    const store = useUserStore()
+
+    expect(store.formatDateTime(t, null)).toBe('')
+  })
+})
+
+describe('user store: formatDateTimeWithSeconds()', () => {
+  const fakeT = (key, params) => `${params.date} at ${params.time}`
+
+  it('renders the same moment as formatDateTime, with a seconds field added', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '24h'
+    store.timezone = 'UTC'
+
+    expect(store.formatDateTime(fakeT, '2026-03-04T12:34:56Z')).toBe('2026-03-04 at 12:34')
+    expect(store.formatDateTimeWithSeconds(fakeT, '2026-03-04T12:34:56Z')).toBe(
+      '2026-03-04 at 12:34:56'
+    )
+  })
+
+  it('returns an empty string for a nullish date rather than throwing', () => {
+    const store = useUserStore()
+
+    expect(store.formatDateTimeWithSeconds(fakeT, null)).toBe('')
   })
 })

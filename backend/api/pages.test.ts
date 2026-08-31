@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, describe, it, mock, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, it, mock, test } from 'node:test'
 import Fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
@@ -12,10 +12,11 @@ import { registerSchemas as registerApprovalSchemas } from './schemas/approval.t
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
 import pagesRoutes, { mayOnPage, pagePermissionsFor } from './pages.ts'
-import { MAX_IMPORT_SIZE } from '../models/import.ts'
+import { MAX_IMPORT_BATCH_BYTES, MAX_IMPORT_SIZE } from '../models/import.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
-import { CustomError } from '../helpers/common.ts'
+import { CustomError, siteEnabledPreHandler } from '../helpers/common.ts'
 import type { GroupRule } from '../models/groups.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 
 /**
  * Task 601: `GET /sites/:siteId/pages/:pageIdOrHash` — the page-read route — must carry a real
@@ -131,12 +132,16 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — commentsCount', () => {
 })
 
 /**
- * Route-wiring proof for `enforceApiKeySite` (`helpers/apiKeySite.ts`), on the two routes it was
- * wired into as this task's representative surface: `GET /sites/:siteId/pages/:pageIdOrHash` and
- * `POST /sites/:siteId/pages`. The helper's own behavior (null vs. matching vs. mismatched siteId) is
- * unit-tested in `helpers/apiKeySite.test.ts`; this file only proves it is actually reached first in
- * real route handlers, ahead of any model call — real route registration, real schemas, real
- * `@fastify/sensible` `reply.forbidden()`.
+ * Route-wiring proof for `apiKeySitePinHook` (`helpers/apiKeySite.ts`), on two representative routes:
+ * `GET /_api/sites/:siteId/pages/:pageIdOrHash` and `POST /_api/sites/:siteId/pages`. OpenProject
+ * #2194 moved enforcement off these two routes' own per-route `enforceApiKeySite()` calls (deleted)
+ * onto the global hook `index.ts` registers alongside the permissions hook — this file registers that
+ * same hook directly (not `index.ts` itself, which boots a real database connection) under the same
+ * `/_api` prefix it checks, so the routes are exercised exactly as they are wired in production. The
+ * hook's own behavior (null vs. matching vs. mismatched siteId, and the URL-prefix scoping) is
+ * unit-tested in isolation in `helpers/apiKeySite.test.ts`; this file only proves it is actually
+ * reached first for these two real route handlers, ahead of any model call — real route registration,
+ * real schemas, real `@fastify/sensible` `reply.forbidden()`.
  *
  * `req.apiKey` is attached by a fixture `onRequest` hook that reads it off an `x-test-api-key` test
  * header, the same shape `models/apiKeys.ts#verify()` produces at runtime — nothing about the routes
@@ -146,7 +151,7 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — commentsCount', () => {
  * falls through to the ordinary "page does not exist" 404 — which needs no `Page#` response payload —
  * rather than requiring a full page object satisfying that schema just to prove the gate was passed.
  */
-describe('pages API — enforceApiKeySite site-scoping', () => {
+describe('pages API — apiKeySitePinHook site-scoping', () => {
   const SITE_A = '11111111-1111-4111-8111-111111111111'
   const SITE_B = '22222222-2222-4222-8222-222222222222'
   const PAGE_HASH = 'ab'.repeat(16)
@@ -178,6 +183,8 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
       sites: {}
     }
 
+    const { apiKeySitePinHook } = await import('../helpers/apiKeySite.ts')
+
     app = Fastify()
     await app.register(fastifySensible)
     // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
@@ -201,11 +208,16 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
         ;(req as any).session = JSON.parse(rawSession)
       }
     })
+    // -> Same stage the real hook runs at in `index.ts` (`preHandler`, beside the permissions hook).
+    app.addHook('preHandler', apiKeySitePinHook)
     await registerApprovalSchemas(app)
     await registerSchemas(app)
     await registerErrorSchema(app)
     await registerPageImportSchema(app)
-    await app.register(pagesRoutes)
+    // -> `/_api` prefix, matching `api/index.ts`'s real registration -- the hook only checks
+    //    `/_api/sites/...` (see its own doc comment), so mounting bare would silently exercise
+    //    nothing.
+    await app.register(pagesRoutes, { prefix: '/_api' })
     await app.ready()
   })
 
@@ -226,7 +238,7 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
   test('GET page: refuses with 403 before touching the model when the key is scoped to a different site', async () => {
     const res = await app.inject({
       method: 'GET',
-      url: `/sites/${SITE_A}/pages/${PAGE_HASH}`,
+      url: `/_api/sites/${SITE_A}/pages/${PAGE_HASH}`,
       headers: apiKeyHeader(SITE_B)
     })
     assert.equal(res.statusCode, 403)
@@ -236,7 +248,7 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
   test('GET page: reaches the model when the key is scoped to the matching site', async () => {
     const res = await app.inject({
       method: 'GET',
-      url: `/sites/${SITE_A}/pages/${PAGE_HASH}`,
+      url: `/_api/sites/${SITE_A}/pages/${PAGE_HASH}`,
       headers: apiKeyHeader(SITE_A)
     })
     assert.equal(res.statusCode, 404) // -> past the gate, into the ordinary "page not found" path
@@ -246,7 +258,7 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
   test('GET page: reaches the model when the key is unscoped (siteId: null)', async () => {
     const res = await app.inject({
       method: 'GET',
-      url: `/sites/${SITE_A}/pages/${PAGE_HASH}`,
+      url: `/_api/sites/${SITE_A}/pages/${PAGE_HASH}`,
       headers: apiKeyHeader(null)
     })
     assert.equal(res.statusCode, 404)
@@ -256,7 +268,7 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
   test('CREATE page: refuses with 403 before touching the model when the key is scoped to a different site', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: `/sites/${SITE_A}/pages`,
+      url: `/_api/sites/${SITE_A}/pages`,
       headers: apiKeyHeader(SITE_B),
       payload: { path: 'test-page', title: 'Test', editor: 'markdown', content: 'hello' }
     })
@@ -267,7 +279,7 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
   test('CREATE page: passes the gate and reaches the model when the key is scoped to the matching site', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: `/sites/${SITE_A}/pages`,
+      url: `/_api/sites/${SITE_A}/pages`,
       headers: {
         ...apiKeyHeader(SITE_A),
         'x-test-session': JSON.stringify({
@@ -285,7 +297,7 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
   test('CREATE page: refused by the ordinary unauthenticated check, not the site gate, when the key is unscoped and there is no session', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: `/sites/${SITE_A}/pages`,
+      url: `/_api/sites/${SITE_A}/pages`,
       headers: apiKeyHeader(null),
       payload: { path: 'test-page', title: 'Test', editor: 'markdown', content: 'hello' }
     })
@@ -296,33 +308,6 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
 })
 
 describe('pages API — concurrent-edit safety and search rule-permission audit', () => {
-  let previousTemporal: any
-  let previousToTemporalInstant: any
-
-  /**
-   * Minimal stand-in for the subset of `Temporal` the route under test calls: `Temporal.Instant.from()`
-   * plus `.epochMilliseconds` for the concurrency check, and `Date#toTemporalInstant().toString({
-   * smallestUnit })` for the collab-save notification the handler already sends.
-   *
-   * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
-   * older and doesn't expose it (same environment gap noted in `core/scheduler.test.ts` — not a spec
-   * deviation). Installed only when genuinely missing, so a real Node 26 run exercises the native API.
-   */
-  function installFakeTemporal(): void {
-    ;(globalThis as any).Temporal = {
-      Instant: {
-        from: (iso: string) => ({ epochMilliseconds: Date.parse(iso) })
-      }
-    }
-    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-      const epochMilliseconds = this.getTime()
-      return {
-        epochMilliseconds,
-        toString: () => new Date(epochMilliseconds).toISOString()
-      }
-    }
-  }
-
   /**
    * Regression test for the optimistic-concurrency check on `PATCH /sites/:siteId/pages/:pageId`
    * (task 542): the handler already fetches the current row before calling `updatePage()` for the
@@ -371,12 +356,12 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
   }
 
   before(async () => {
-    previousTemporal = (globalThis as any).Temporal
-    previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
-    if (typeof previousTemporal === 'undefined') {
-      installFakeTemporal()
-    }
+    await ensureTemporal()
     ;(globalThis as any).WIKI = {
+      // -> `recordPageview()`'s isEnabled gate (OpenProject #2251) reads this; on, matching this
+      //    fixture's pre-existing unconditional pageview stub, since pageviews are not what this
+      //    describe block is testing.
+      config: { pageviews: { isEnabled: true } },
       models: {
         pages: {
           getPage: async () => currentPage(),
@@ -461,8 +446,6 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
   after(async () => {
     await app.close()
     delete (globalThis as any).WIKI
-    ;(globalThis as any).Temporal = previousTemporal
-    ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
   })
 
   beforeEach(() => {
@@ -726,9 +709,6 @@ describe('pages API — response schema completeness (task 602)', () => {
     showTags: true,
     showToc: true,
     tocDepth: { min: 1, max: 2 },
-    scriptJsLoad: '',
-    scriptJsUnload: '',
-    scriptCss: '',
     navigationId: null,
     navigationMode: 'default',
     authorId: '22222222-2222-2222-2222-222222222222',
@@ -853,6 +833,26 @@ describe('pages API — response schema completeness (task 602)', () => {
     assert.deepEqual(body.toc[0], { key: 'h-intro', label: 'Intro', level: 1, children: [] })
   })
 
+  /**
+   * OpenProject #2232: `pages.password` now stores a one-way `bcrypt` verifier, and the point of
+   * that is defeated if the API still hands the value back to whoever may edit the page. The `Page`
+   * response schema has no `password` property any more — only `hasPassword` — so even a model that
+   * (bug, or a future regression re-adding the field) put a raw `password` on the object would be
+   * stripped by response serialization before it ever reached a client. This proves the whole path.
+   */
+  test('GET single page never returns a password field, even if the model handed one back', async () => {
+    mayOnPageResult = true
+    getPageResult = { ...samplePage, password: 'should-never-be-sent', hasPassword: true }
+    const res = await app.inject({
+      method: 'GET',
+      url: '/sites/33333333-3333-3333-3333-333333333333/pages/abc123'
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.password, undefined)
+    assert.equal(body.hasPassword, true)
+  })
+
   test('GET single page: 404 when the page does not exist, matching ApiError', async () => {
     getPageResult = null
     const res = await app.inject({
@@ -933,9 +933,6 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
       showTags: true,
       showToc: true,
       tocDepth: { min: 1, max: 2 },
-      scriptJsLoad: '',
-      scriptJsUnload: '',
-      scriptCss: '',
       navigationId: null,
       navigationMode: 'default',
       authorId: AUTHOR_ID,
@@ -963,6 +960,10 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
 
   before(async () => {
     ;(globalThis as any).WIKI = {
+      // -> `recordPageview()`'s isEnabled gate (OpenProject #2251) reads this; on, matching this
+      //    fixture's pre-existing unconditional pageview stub, since pageviews are not what this
+      //    describe block is testing.
+      config: { pageviews: { isEnabled: true } },
       models: {
         pages: { getPage },
         groups: { actorForRequest, checkAccess, groupIdsForRequest: () => [] },
@@ -1072,6 +1073,167 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
       headers: sessionHeader([])
     })
     assert.equal(res.statusCode, 403)
+  })
+})
+
+/**
+ * Regression test for OpenProject #2251: `recordPageview()` in `pages.ts` used to write
+ * `req.session.pageViewed = true` for every anonymous browser read unconditionally -- deliberately,
+ * to defeat `saveUninitialized: false` so a returning anonymous reader is not miscounted as new --
+ * *before* calling `WIKI.models.pageviews.record()`, whose own `isEnabled` guard lives in
+ * `models/pageviews.ts`. That meant disabling pageview tracking still minted a session (and the
+ * `Set-Cookie` + permanent `sessions` row that comes with it) for every anonymous page read; only the
+ * `pageviews` insert itself stopped.
+ *
+ * This suite has no real `@fastify/session` plugin registered (see the other describes' own doc
+ * comments for why), so it cannot observe an actual `Set-Cookie` header. What it CAN observe -- and
+ * what is the exact mechanism that decides whether `@fastify/session` would emit one -- is whether
+ * the route touches the session object at all: a session `@fastify/session` never sees written to
+ * stays uninitialized and is never persisted or cookied. The `onRequest` hook below always attaches
+ * an empty `session` object up front, mirroring what the real plugin lazily provides to every
+ * request (including an anonymous one) before any handler runs.
+ */
+describe('GET /sites/:siteId/pages/:pageIdOrHash — pageview session write respects isEnabled (OpenProject #2251)', () => {
+  const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const PAGE_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+  const PAGE_HASH = 'deadbeef'
+
+  async function getPage() {
+    return {
+      id: PAGE_ID,
+      path: 'foo',
+      hash: PAGE_HASH,
+      alias: null,
+      title: 'Foo',
+      description: null,
+      icon: null,
+      locale: 'en',
+      editor: 'markdown',
+      contentType: 'markdown',
+      publishState: 'published',
+      publishStartDate: null,
+      publishEndDate: null,
+      isBrowsable: true,
+      isSearchable: true,
+      isLocked: false,
+      relations: [],
+      tags: [],
+      toc: [],
+      render: '<p>Hello</p>',
+      allowComments: false,
+      allowContributions: false,
+      allowRatings: false,
+      showSidebar: true,
+      showTags: true,
+      showToc: true,
+      tocDepth: { min: 1, max: 2 },
+      navigationId: null,
+      navigationMode: 'default',
+      authorId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      authorName: 'Test Author',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+  }
+
+  // -> Every anonymous reader is granted `read:pages` -- what is under test here is the pageview
+  //    session write, not page-rule resolution (covered by `helpers/pageRules.test.ts`).
+  function actorForRequest() {
+    return { permissions: [] as string[], pagePermissions: ['read:pages'] }
+  }
+
+  function checkAccess(
+    actor: { permissions: string[]; pagePermissions: string[] },
+    permission: string
+  ): boolean {
+    return actor.pagePermissions.includes(permission)
+  }
+
+  let app: FastifyInstance
+  let recordMock: ReturnType<typeof mock.fn>
+  let capturedSession: { pageViewed?: boolean } | undefined
+
+  beforeEach(async () => {
+    recordMock = mock.fn(async () => {})
+    capturedSession = undefined
+    ;(globalThis as any).WIKI = {
+      config: { pageviews: { isEnabled: false } },
+      models: {
+        pages: { getPage },
+        groups: { actorForRequest, checkAccess, groupIdsForRequest: () => [] },
+        approvals: {
+          pageViewerState: async () => ({
+            canSuggestEdits: false,
+            hasOpenSuggestion: false,
+            canReview: false,
+            pendingSubmissions: []
+          })
+        },
+        pageWatching: { isWatching: async () => false },
+        comments: { countForPage: async () => 0 },
+        pageviews: { record: recordMock }
+      },
+      sites: {}
+    }
+
+    app = Fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    app.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerErrorSchema(app)
+    await registerSchemas(app)
+    await registerApprovalSchemas(app)
+    // -> Mirrors what the real `@fastify/session` plugin does for every request, anonymous or not: it
+    //    hands the handler an empty, un-persisted session object up front. Whether that object ends up
+    //    written to (and therefore cookied and stored) is exactly what this suite asserts on.
+    app.addHook('onRequest', async (req) => {
+      ;(req as any).session = {}
+    })
+    // -> Captured post-handler so the test can assert on the exact object the route wrote to,
+    //    without needing a real `@fastify/session` plugin to serialize/cookie it.
+    app.addHook('onResponse', async (req) => {
+      capturedSession = (req as any).session
+    })
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  afterEach(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('pageviews disabled: anonymous read never writes to the session and never records', async () => {
+    ;(globalThis as any).WIKI.config.pageviews.isEnabled = false
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_HASH}`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(capturedSession?.pageViewed, undefined)
+    assert.equal(recordMock.mock.callCount(), 0)
+  })
+
+  test('pageviews enabled: anonymous read writes pageViewed onto the session and records', async () => {
+    ;(globalThis as any).WIKI.config.pageviews.isEnabled = true
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_HASH}`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(capturedSession?.pageViewed, true)
+    assert.equal(recordMock.mock.callCount(), 1)
   })
 })
 
@@ -1648,6 +1810,36 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
       assert.equal((call.arguments[0] as { format: string }).format, 'markdown')
     }
   })
+
+  /**
+   * OpenProject #2204: the aggregate ceiling that backstops the whole batch, distinct from the
+   * per-file `MAX_IMPORT_SIZE` regression test above — five files, each right at (not over) the
+   * per-file limit so none is individually truncated, whose sum is still well past
+   * `MAX_IMPORT_BATCH_BYTES` (four times a single file's own limit). The whole request must be
+   * refused rather than converting the files that fit before the ceiling was crossed.
+   */
+  test('a batch exceeding the aggregate byte ceiling is refused, not partially converted', async () => {
+    const perFile = 'x'.repeat(MAX_IMPORT_SIZE)
+    const { payload, contentType } = await buildMultipartPayload(
+      Array.from({ length: 5 }, (_, i) => ({
+        fileName: `file-${i}.mediawiki`,
+        content: perFile
+      }))
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+
+    assert.equal(res.statusCode, 400)
+    const body = res.json()
+    assert.match(body.message, /aggregate limit/)
+    assert.match(body.message, new RegExp(`${Math.round(MAX_IMPORT_BATCH_BYTES / 1024 / 1024)} MB`))
+    assert.equal(convertToMarkdown.mock.callCount(), 0, 'no file should be converted once refused')
+  })
 })
 
 /**
@@ -1788,22 +1980,39 @@ describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page r
   })
 })
 
-describe('pages API — isEnabled guard (task 699)', () => {
+describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)', () => {
   /**
-   * Regression test for task 699: the siteId-scoped page READ routes trust a `siteId` the client
-   * already has cached, so a client that fetched one before its site was disabled could otherwise keep
-   * reading indefinitely — none of these are reached through the page/shell hook in `index.ts` (task
-   * 695), which only ever sees a hostname-addressed navigation, not an already-cached siteId.
+   * Regression coverage for the disabled-site guard on `pages.ts`'s own site-scoped routes. Originally
+   * (task 699) this guard was hand-applied inside three handlers — LIST, SEARCH and INCLUDE — and this
+   * describe block registered `pagesRoutes` on its own to prove exactly those three. OpenProject
+   * #1587/#1593 deleted all three hand-applied calls: the guard is now `siteEnabledPreHandler`
+   * (`helpers/common.ts`), one `preHandler` `api/index.ts` registers on its guarded content-route
+   * subtree, before any content route file (`pages.ts` is one of them; `sites.ts`, site administration
+   * rather than content, deliberately is not — see `index.ts`'s own doc comment), so a route in
+   * `pages.ts` no longer guards itself at all. Registering that same real preHandler here (not a
+   * re-implementation of it — see the import) before `pagesRoutes`, exactly as `index.ts` orders it, is
+   * what makes this describe block still a meaningful test of `pages.ts`'s routes rather than of the
+   * preHandler itself (which `index.test.ts` already covers directly, across every `:siteId` route in
+   * every `api/` file, discovered structurally rather than named one by one).
    *
-   * Covers the three routes task 699 names: LIST, SEARCH and INCLUDE. Asserts the same 403-vs-404-ish
-   * contract as the other entry points in this task — here there is no "site not found" branch to
-   * contrast with (`guardSiteEnabled` deliberately leaves an unknown siteId to whatever the route
-   * already did with one, see its doc comment), so this only proves the disabled case answers 403 and
-   * an enabled site is unaffected.
+   * Widened past the original three routes (of which LIST was deleted by OpenProject #1986 as a
+   * permanently-empty stub with no caller — SEARCH and INCLUDE are what remain of the original
+   * three here) to the rest of `pages.ts`'s previously-*unguarded* surface named in the audit this
+   * task closes (`docs/audit-2026-08-24/correctness-api-routes.md` §1): GET PAGE, page history, a
+   * single history version, and export. (`UNLOCK` is covered structurally in `index.test.ts`'s
+   * route-surface scan instead of here, since it carries its own `onRequest` rate-limit hook ahead
+   * of this preHandler, which would need its own stub setup to exercise safely.) Every case below
+   * asserts a disabled site is refused before the handler runs — a stubbed model method's call
+   * count staying at 0 is the proof of that, the same technique the original three cases already
+   * used. The enabled-site pass-through case is kept only for the original three, which already had
+   * inexpensive stubs for it; the newly-added routes would need considerably more model scaffolding
+   * to reach 200 that adds nothing to what this task is actually regression-testing.
    */
 
   const ENABLED_SITE_ID = '11111111-1111-4111-8111-111111111111'
   const DISABLED_SITE_ID = '22222222-2222-4222-8222-222222222222'
+  const PAGE_ID = '33333333-3333-4333-8333-333333333333'
+  const VERSION_ID = '44444444-4444-4444-8444-444444444444'
 
   const sites: Record<string, any> = {
     [ENABLED_SITE_ID]: { id: ENABLED_SITE_ID, isEnabled: true },
@@ -1812,6 +2021,7 @@ describe('pages API — isEnabled guard (task 699)', () => {
 
   let searchPagesCalls = 0
   let getPageCalls = 0
+  let pageHistoryCalls = 0
 
   let app: FastifyInstance
 
@@ -1828,6 +2038,16 @@ describe('pages API — isEnabled guard (task 699)', () => {
         pages: {
           getPage: async () => {
             getPageCalls++
+            return null
+          }
+        },
+        pageHistory: {
+          getHistory: async () => {
+            pageHistoryCalls++
+            return { history: [], total: 0 }
+          },
+          getVersion: async () => {
+            pageHistoryCalls++
             return null
           }
         },
@@ -1856,6 +2076,10 @@ describe('pages API — isEnabled guard (task 699)', () => {
         message: error.message
       })
     })
+    // -> Mirrors `api/index.ts`'s own registration order: the guard is a plugin-level hook, added
+    //    before the route file it covers is registered — `pages.ts` no longer calls
+    //    `guardSiteEnabled` itself (OpenProject #1593).
+    app.addHook('preHandler', siteEnabledPreHandler)
     await registerApprovalSchemas(app)
     await registerSchemas(app)
     await registerErrorSchema(app)
@@ -1867,18 +2091,6 @@ describe('pages API — isEnabled guard (task 699)', () => {
   after(async () => {
     await app.close()
     delete (globalThis as any).WIKI
-  })
-
-  test('LIST: answers 403 for a disabled site', async () => {
-    const res = await app.inject({ method: 'GET', url: `/sites/${DISABLED_SITE_ID}/pages` })
-    assert.equal(res.statusCode, 403)
-    assert.match(res.json().message, /disabled/i)
-  })
-
-  test('LIST: an enabled site still answers its (currently always-empty) list', async () => {
-    const res = await app.inject({ method: 'GET', url: `/sites/${ENABLED_SITE_ID}/pages` })
-    assert.equal(res.statusCode, 200)
-    assert.deepEqual(res.json(), [])
   })
 
   test('SEARCH: answers 403 for a disabled site, without ever calling searchPages', async () => {
@@ -1920,6 +2132,57 @@ describe('pages API — isEnabled guard (task 699)', () => {
     // -> 404 because getPage is stubbed to return null, but the guard let the request get there
     assert.equal(res.statusCode, 404)
     assert.equal(getPageCalls, 1)
+  })
+
+  /*
+    GET PAGE and PAGE HISTORY carried no `guardSiteEnabled` call at all before OpenProject #1587/
+    #1593 -- neither was reachable through this describe's original three-route scope. Both now
+    answer 403 through the shared preHandler wired above, with no route-specific stub required: the
+    preHandler runs before the handler ever touches `WIKI.models`.
+  */
+
+  test('GET PAGE: answers 403 for a disabled site, without ever calling getPage', async () => {
+    getPageCalls = 0
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${DISABLED_SITE_ID}/pages/abc123`
+    })
+    assert.equal(res.statusCode, 403)
+    assert.match(res.json().message, /disabled/i)
+    assert.equal(getPageCalls, 0)
+  })
+
+  test('PAGE HISTORY: answers 403 for a disabled site, without ever calling getHistory', async () => {
+    pageHistoryCalls = 0
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${DISABLED_SITE_ID}/pages/${PAGE_ID}/history`
+    })
+    assert.equal(res.statusCode, 403)
+    assert.match(res.json().message, /disabled/i)
+    assert.equal(pageHistoryCalls, 0)
+  })
+
+  test('PAGE HISTORY VERSION: answers 403 for a disabled site, without ever calling getVersion', async () => {
+    pageHistoryCalls = 0
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${DISABLED_SITE_ID}/pages/${PAGE_ID}/history/${VERSION_ID}`
+    })
+    assert.equal(res.statusCode, 403)
+    assert.match(res.json().message, /disabled/i)
+    assert.equal(pageHistoryCalls, 0)
+  })
+
+  test('EXPORT: answers 403 for a disabled site, without ever calling getPage', async () => {
+    getPageCalls = 0
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${DISABLED_SITE_ID}/pages/${PAGE_ID}/export?format=html`
+    })
+    assert.equal(res.statusCode, 403)
+    assert.match(res.json().message, /disabled/i)
+    assert.equal(getPageCalls, 0)
   })
 
   /**
@@ -2134,8 +2397,26 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
 
   test('GET /sites/:siteId/pages/deleted only includes rows the actor may read the history of', async () => {
     listRecoverableResult = [
-      { id: 'v1', path: 'visible', locale: 'en', title: 'Visible', action: 'deleted' },
-      { id: 'v2', path: 'hidden', locale: 'en', title: 'Hidden', action: 'deleted' }
+      {
+        id: 'v1',
+        path: 'visible',
+        locale: 'en',
+        title: 'Visible',
+        action: 'deleted',
+        tags: [],
+        classification: null,
+        author: { id: 'u1', name: 'Author One' }
+      },
+      {
+        id: 'v2',
+        path: 'hidden',
+        locale: 'en',
+        title: 'Hidden',
+        action: 'deleted',
+        tags: [],
+        classification: null,
+        author: { id: 'u2', name: 'Author Two' }
+      }
     ]
     checkAccessImpl = (_actor, permission, page) =>
       permission === 'read:history' && page.path === 'visible'
@@ -2149,6 +2430,135 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     const body = res.json()
     assert.equal(body.length, 1)
     assert.equal(body[0].path, 'visible')
+    // -> No authorEmail anywhere in the response (OpenProject #2168)
+    assert.equal(body[0].author.email, undefined)
+    assert.ok(!JSON.stringify(body).includes('email'))
+  })
+
+  test("GET /sites/:siteId/pages/deleted checks read:history with the version's own tags/classification (OpenProject #2168)", async () => {
+    listRecoverableResult = [
+      {
+        id: 'v1',
+        path: 'classified',
+        locale: 'en',
+        title: 'Classified',
+        action: 'deleted',
+        tags: ['secret'],
+        classification: 'restricted-level-id',
+        author: { id: 'u1', name: 'Author One' }
+      }
+    ]
+    const seenChecks: any[] = []
+    checkAccessImpl = (_actor, permission, page) => {
+      if (permission === 'read:history') {
+        seenChecks.push(page)
+      }
+      return false
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/deleted`
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().length, 0)
+    assert.deepEqual(seenChecks, [
+      {
+        path: 'classified',
+        locale: 'en',
+        tags: ['secret'],
+        classification: 'restricted-level-id',
+        siteId: SITE_ID
+      }
+    ])
+  })
+
+  test('GET /sites/:siteId/pages/deleted never carries authorEmail, even for a row the actor may read', async () => {
+    listRecoverableResult = [
+      {
+        id: 'v1',
+        path: 'visible',
+        locale: 'en',
+        title: 'Visible',
+        action: 'deleted',
+        author: { id: 'u2', name: 'Someone' },
+        tags: [],
+        classification: null
+      }
+    ]
+    checkAccessImpl = () => true
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/deleted`
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.length, 1)
+    assert.equal(body[0].author.email, undefined)
+  })
+
+  test('GET /sites/:siteId/pages/deleted narrows by a TAG-scoped DENY rule', async () => {
+    // -> Real rule-matching engine, mirroring the `allowPublic`/`denyConfidential` pair in the
+    //    `GET .../pages/alias/:alias` TAG suite above: both TAG, so only the ALLOW-vs-DENY mode
+    //    tiebreak decides — reachable only because `tags` is now threaded into `mayOnPage` here.
+    const rules: GroupRule[] = [
+      {
+        id: 'allow-public',
+        name: 'Allow public',
+        roles: ['read:history'],
+        match: 'TAG',
+        mode: 'ALLOW',
+        path: 'public',
+        locales: [],
+        sites: []
+      },
+      {
+        id: 'deny-secret',
+        name: 'Deny secret',
+        roles: ['read:history'],
+        match: 'TAG',
+        mode: 'DENY',
+        path: 'secret',
+        locales: [],
+        sites: []
+      }
+    ]
+    checkAccessImpl = (_actor, permission, page) => {
+      const rule = resolvePageRule(rules, permission, {
+        path: page.path,
+        locale: page.locale,
+        siteId: SITE_ID,
+        classification: page.classification ?? null,
+        tags: page.tags ?? []
+      })
+      return rule ? rule.mode !== 'DENY' : false
+    }
+    listRecoverableResult = [
+      { id: 'v1', path: 'open', locale: 'en', title: 'Open', action: 'deleted', tags: ['public'] },
+      {
+        id: 'v2',
+        path: 'closed',
+        locale: 'en',
+        title: 'Closed',
+        action: 'deleted',
+        // -> Tagged BOTH: matches the broad ALLOW too, so this actually exercises the DENY tiebreak
+        //    rather than just "no rule matched at all".
+        tags: ['public', 'secret']
+      }
+    ]
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/deleted`
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.length, 1)
+    assert.equal(body[0].path, 'open')
   })
 
   test('POST recover requires a logged in user', async () => {
@@ -2176,13 +2586,30 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   test('POST recover checks write:pages against the target path, not the original', async () => {
-    getDeletedVersionResult = { path: 'original', locale: 'en', title: 'T', content: 'c', meta: {} }
+    getDeletedVersionResult = {
+      path: 'original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      meta: {},
+      tags: [],
+      classification: null
+    }
     const seenTargets: any[] = []
     checkAccessImpl = (_actor, permission, page) => {
+      // -> The source-side read:pages/read:source check (OpenProject #2168) runs first, against
+      //    the version's OWN path -- granted here so this test can reach the write:pages check it
+      //    actually exercises, against the TARGET path.
+      if (permission === 'read:pages' || permission === 'read:source') {
+        return true
+      }
       if (permission === 'write:pages') {
         seenTargets.push(page)
+        return false
       }
-      return false
+      // -> The source-side read:pages/read:source check runs first (OpenProject #2168) -- allowed
+      //    here so the write:pages check below is what this test is actually exercising
+      return permission === 'read:pages' || permission === 'read:source'
     }
 
     const res = await app.inject({
@@ -2196,6 +2623,125 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     assert.deepEqual(seenTargets, [
       { path: 'overridden', locale: 'fr', classification: null, siteId: SITE_ID }
     ])
+  })
+
+  test('POST recover refuses when the caller cannot read the deleted path, even though they can write the destination (OpenProject #2168)', async () => {
+    getDeletedVersionResult = {
+      path: 'secret-original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      meta: {},
+      tags: ['confidential'],
+      classification: 'restricted-level-id'
+    }
+    // -> Holds write:pages everywhere but no read:pages/read:source anywhere -- e.g. a caller who
+    //    only ever held `read:history` at this path, per the vulnerability this route-level check
+    //    closes (OpenProject #2168).
+    checkAccessImpl = (_actor, permission) => permission === 'write:pages'
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/deleted/${VERSION_ID}/recover`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' } }),
+      payload: {}
+    })
+
+    assert.equal(res.statusCode, 403)
+    const body = res.json()
+    assert.match(body.message, /not allowed to read/)
+  })
+
+  test('POST recover checks read:pages/read:source against the SOURCE path even when the target is overridden', async () => {
+    getDeletedVersionResult = {
+      path: 'secret-original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      meta: { tags: ['confidential'], classification: 'restricted-level-id' },
+      tags: ['confidential'],
+      classification: 'restricted-level-id'
+    }
+    const seenSourceChecks: any[] = []
+    checkAccessImpl = (_actor, permission, page) => {
+      if (permission === 'read:pages' || permission === 'read:source') {
+        seenSourceChecks.push({ permission, page })
+        // -> Denied at the source, regardless of the destination
+        return false
+      }
+      // -> Freely allowed to write the (different) destination -- proves the refusal below is really
+      //    about the source, not a blanket deny
+      return permission === 'write:pages'
+    }
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/deleted/${VERSION_ID}/recover`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' } }),
+      payload: { path: 'somewhere-else', locale: 'en' }
+    })
+
+    assert.equal(res.statusCode, 403)
+    // -> Checked against the version's OWN path/tags/classification, not the override target
+    assert.ok(
+      seenSourceChecks.some(
+        (c) =>
+          c.page.path === 'secret-original' &&
+          c.page.classification === 'restricted-level-id' &&
+          c.permission === 'read:pages'
+      )
+    )
+  })
+
+  test('POST recover succeeds when the caller can read the deleted path and write the destination', async () => {
+    getDeletedVersionResult = {
+      path: 'original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      meta: {},
+      tags: [],
+      classification: null
+    }
+    checkAccessImpl = () => true
+    recoverDeletedPageImpl = async () => ({ id: 'p1', path: 'original', locale: 'en', title: 'T' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/deleted/${VERSION_ID}/recover`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' } }),
+      payload: {}
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().ok, true)
+  })
+
+  test('GET /sites/:siteId/pages/deleted carries no authorEmail on any row (OpenProject #2168)', async () => {
+    listRecoverableResult = [
+      {
+        id: 'v1',
+        path: 'visible',
+        locale: 'en',
+        title: 'Visible',
+        action: 'deleted',
+        tags: [],
+        classification: null,
+        author: { id: 'u1', name: 'Someone' }
+      }
+    ]
+    checkAccessImpl = () => true
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/deleted`
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.length, 1)
+    assert.equal(body[0].author.email, undefined)
+    assert.equal('authorEmail' in body[0], false)
   })
 
   test('POST recover recreates the page and returns it', async () => {
@@ -2870,5 +3416,116 @@ describe('POST /sites/:siteId/pages/userPermissions — locale (bug #949, task 9
 
     assert.equal(res.statusCode, 200)
     assert.ok(!res.json().includes('write:pages'))
+  })
+})
+
+/**
+ * Route-level test for `GET /sites/:siteId/pages/:pageId/export/pdf` — OpenProject #2258/#2262.
+ *
+ * Settles the anonymous-access question the audit flagged as an accident: exporting a page as PDF
+ * drives a headless browser exactly like the page re-render route above it in `api/pages.ts`, and
+ * `POST /diagrams/render` beside it — both of which already refuse an anonymous caller. This route
+ * now does too, before it ever reaches `WIKI.models.pdfExport.exportPdf()`, regardless of whether the
+ * page itself is one an anonymous reader could otherwise see. `WIKI.models.pdfExport` is stubbed
+ * rather than driving a real browser — the export model's own behavior has its own coverage in
+ * `models/pdfExport.test.ts`; what this checks is the route's own gate.
+ */
+describe('GET /sites/:siteId/pages/:pageId/export/pdf — anonymous access (OpenProject #2258/#2262)', () => {
+  const SITE_ID = '55555555-5555-5555-5555-555555555555'
+  const PAGE_ID = '66666666-6666-6666-6666-666666666666'
+
+  let app: FastifyInstance
+  let exportPdfCalls: any[]
+
+  function withSession(session: Record<string, any>) {
+    return { 'x-test-session': JSON.stringify(session) }
+  }
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      config: { port: 3000 },
+      logger: { debug: () => {} },
+      models: {
+        rateLimits: {
+          consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
+        },
+        groups: {
+          actorForRequest: (req: any) => ({
+            id: req.session?.user?.id ?? null,
+            permissions: req.session?.permissions ?? [],
+            groups: req.session?.groups ?? []
+          }),
+          checkAccess: () => true,
+          groupIdsForRequest: () => []
+        },
+        pages: {
+          getPage: async () => ({
+            id: PAGE_ID,
+            path: 'some/page',
+            locale: 'en',
+            isLocked: false
+          })
+        },
+        pdfExport: {
+          exportPdf: async (request: any) => {
+            exportPdfCalls.push(request)
+            return Buffer.from('%PDF-fake')
+          }
+        }
+      }
+    }
+
+    app = Fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
+    await app.register(fastifySensible)
+    app.decorateRequest('session', null as any)
+    app.addHook('onRequest', async (req) => {
+      const raw = req.headers['x-test-session']
+      ;(req as any).session = typeof raw === 'string' ? JSON.parse(raw) : {}
+    })
+    app.setErrorHandler((error: any, _req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerErrorSchema(app)
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    exportPdfCalls = []
+  })
+
+  test('refuses an anonymous request before ever launching Puppeteer', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export/pdf`
+    })
+
+    assert.equal(res.statusCode, 401)
+    assert.equal(exportPdfCalls.length, 0)
+  })
+
+  test('exports for a logged-in session', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export/pdf`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' }, permissions: [] })
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(exportPdfCalls.length, 1)
+    assert.equal(exportPdfCalls[0].path, 'some/page')
   })
 })

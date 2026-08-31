@@ -17,7 +17,11 @@ function buildDiscordConfig(conf: Record<string, any>): Record<string, any> {
     //    which is null for a user who never set one) is always present.
     userIdClaim: 'id',
     emailClaim: 'email',
-    displayNameClaim: 'username'
+    displayNameClaim: 'username',
+    // -> Discord's user object carries its own sibling `verified` boolean alongside `email` --
+    //    naming it here is what makes `OAuth2Authentication.mapProfile()` actually read it, rather
+    //    than fetching it and discarding it as before.
+    emailVerifiedClaim: 'verified'
   }
 }
 

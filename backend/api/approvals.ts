@@ -63,7 +63,7 @@ function reviewerFor(
   page?: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
 ): ReviewerScope {
   if (!isReviewerSession(req)) {
-    return { groupIds: [], reviewsAll: false }
+    return { groupIds: [], reviewsAll: false, actor: WIKI.models.groups.actorForRequest(req) }
   }
   const actor = WIKI.models.groups.actorForRequest(req)
   return {
@@ -81,7 +81,11 @@ function reviewerFor(
     // -> Undefined for a guest: `isReviewerSession` above already sent them home with an empty scope,
     //    but a guest could not have approved anything anyway, so `hasApproved` reading `false` for them
     //    is right either way.
-    viewerId: actorFrom(req)?.id
+    viewerId: actorFrom(req)?.id,
+    // -> OpenProject #2160: the same actor `reviewsAll` above already resolved, threaded through so
+    //    `getReviewableSubmissions`/`getSubmissionForReview` can re-check `read:pages`/`read:source`
+    //    against the real page rather than trusting approval-rule membership alone.
+    actor
   }
 }
 
@@ -91,21 +95,16 @@ function isReviewerSession(req: FastifyRequest): boolean {
 }
 
 /**
- * Whether this caller may read this site's approval rules — i.e. reach `AdminApprovals.vue` for it.
+ * Whether this caller may read or manage this site's approval rules — i.e. reach
+ * `AdminApprovals.vue` for it, in either direction.
  *
- * `manage:sites` keeps working exactly as before delegation existed; `site:approvals`
- * (see `helpers/siteRules.ts`) is the new, narrower alternative a rule can grant per site.
+ * One function for both, not a read/manage pair: `helpers/siteRules.ts` carries exactly one
+ * `site:approvals` entry, so there is no narrower grant a "read" version could use that a "manage"
+ * version couldn't — every route in this file promises the same grant either way. `manage:sites`
+ * keeps working exactly as before delegation existed; `site:approvals` (see `helpers/siteRules.ts`)
+ * is the narrower alternative a rule can grant per site.
  */
-function mayReadApprovalRules(req: FastifyRequest, siteId: string): boolean {
-  const actor = WIKI.models.groups.actorForRequest(req)
-  return (
-    actor.permissions.includes('manage:sites') ||
-    WIKI.models.groups.checkSiteAccess(actor, 'site:approvals', siteId)
-  )
-}
-
-/** Whether this caller may create, change or delete this site's approval rules. */
-function mayManageApprovalRules(req: FastifyRequest, siteId: string): boolean {
+function mayAdministerApprovals(req: FastifyRequest, siteId: string): boolean {
   const actor = WIKI.models.groups.actorForRequest(req)
   return (
     actor.permissions.includes('manage:sites') ||
@@ -199,7 +198,7 @@ async function rejectUnknownGroups(
     groupIds.flatMap((ids) => ids ?? [])
   )
   if (unknown.length > 0) {
-    reply.badRequest(`No such group: ${unknown.join(', ')}`)
+    reply.badRequest('ERR_UNKNOWN_GROUPS')
     return true
   }
   return false
@@ -217,7 +216,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: who may read this comes from `checkSiteAccess()`, which that
-        hook cannot call — see `mayReadApprovalRules`.
+        hook cannot call — see `mayAdministerApprovals`.
       */
       schema: {
         summary: 'List the approval rules of a site',
@@ -251,7 +250,7 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
-      if (!mayReadApprovalRules(req, req.params.siteId)) {
+      if (!mayAdministerApprovals(req, req.params.siteId)) {
         return reply.forbidden()
       }
       return WIKI.models.approvals.getRules(req.params.siteId)
@@ -266,7 +265,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: who may write this comes from `checkSiteAccess()`, which that
-        hook cannot call — see `mayManageApprovalRules`.
+        hook cannot call — see `mayAdministerApprovals`.
       */
       schema: {
         summary: 'Create an approval rule',
@@ -310,7 +309,7 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
-      if (!mayManageApprovalRules(req, req.params.siteId)) {
+      if (!mayAdministerApprovals(req, req.params.siteId)) {
         return reply.forbidden()
       }
 
@@ -345,7 +344,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the POST above — see
-        `mayManageApprovalRules`.
+        `mayAdministerApprovals`.
       */
       schema: {
         summary: 'Update an approval rule',
@@ -384,7 +383,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!mayManageApprovalRules(req, req.params.siteId)) {
+      if (!mayAdministerApprovals(req, req.params.siteId)) {
         return reply.forbidden()
       }
       const current = await WIKI.models.approvals.getRule(req.params.siteId, req.params.ruleId)
@@ -436,7 +435,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the POST above — see
-        `mayManageApprovalRules`.
+        `mayAdministerApprovals`.
       */
       schema: {
         summary: 'Delete an approval rule',
@@ -468,7 +467,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!mayManageApprovalRules(req, req.params.siteId)) {
+      if (!mayAdministerApprovals(req, req.params.siteId)) {
         return reply.forbidden()
       }
       if (!(await WIKI.models.approvals.deleteRule(req.params.siteId, req.params.ruleId))) {
@@ -509,6 +508,7 @@ async function routes(app: FastifyInstance) {
       reply.preventCache()
       return WIKI.models.approvals.getReviewableSubmissions(
         req.params.siteId,
+        WIKI.models.groups.actorForRequest(req),
         reviewerFor(req, req.params.siteId)
       )
     }
@@ -544,6 +544,7 @@ async function routes(app: FastifyInstance) {
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
+        WIKI.models.groups.actorForRequest(req),
         reviewerFor(req, req.params.siteId)
       )
       if (!submission) {
@@ -606,6 +607,7 @@ async function routes(app: FastifyInstance) {
             }
           },
           401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
           404: { $ref: 'ApiError#' }
         }
       }
@@ -618,6 +620,7 @@ async function routes(app: FastifyInstance) {
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
+        WIKI.models.groups.actorForRequest(req),
         reviewerFor(req, req.params.siteId)
       )
       if (!submission) {
@@ -641,6 +644,11 @@ async function routes(app: FastifyInstance) {
             'This page has changed since you loaded this suggestion. Reload it and reconcile the changes before approving.'
           )
         }
+        // -> OpenProject #2165: the reviewer queue and `write:pages` disagreeing -- being one of
+        //    this page's approval-rule reviewers is not the same grant as being allowed to write it.
+        if (applied.reason === 'forbidden') {
+          return reply.forbidden('You do not have permission to write this page.')
+        }
         return reply.notFound('This edit suggestion does not exist.')
       }
       return {
@@ -658,12 +666,16 @@ async function routes(app: FastifyInstance) {
   /**
    * REJECT A SUGGESTION
    */
-  app.post<{ Params: { siteId: string; submissionId: string } }>(
+  app.post<{
+    Params: { siteId: string; submissionId: string }
+    Body: { reason?: string }
+  }>(
     '/sites/:siteId/approvals/submissions/:submissionId/reject',
     {
       schema: {
         summary: 'Decline an edit suggestion',
-        description: 'Discards the suggestion. The page is left exactly as it is.',
+        description:
+          'Retains the suggestion rather than deleting it, so it can be shown back to its author. The page is left exactly as it is.',
         tags: ['Approvals'],
         params: {
           type: 'object',
@@ -672,6 +684,15 @@ async function routes(app: FastifyInstance) {
             submissionId: { type: 'string', format: 'uuid' }
           },
           required: ['siteId', 'submissionId']
+        },
+        body: {
+          type: 'object',
+          properties: {
+            reason: {
+              type: 'string',
+              description: 'Optional note on why this was declined, shown back to its author.'
+            }
+          }
         },
         response: {
           200: {
@@ -687,96 +708,28 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized()
+      }
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
+        WIKI.models.groups.actorForRequest(req),
         reviewerFor(req, req.params.siteId)
       )
       if (!submission) {
         return reply.notFound('This edit suggestion does not exist.')
       }
-      await WIKI.models.approvals.rejectSubmission(req.params.siteId, req.params.submissionId)
+      await WIKI.models.approvals.rejectSubmission(
+        req.params.siteId,
+        req.params.submissionId,
+        req.body?.reason?.trim() || null,
+        actor.id
+      )
       return {
         ok: true,
         message: 'Edit suggestion declined.'
-      }
-    }
-  )
-
-  /**
-   * PENDING SUBMISSIONS FOR A PAGE
-   */
-  app.get<{ Params: { siteId: string; pageId: string } }>(
-    '/sites/:siteId/pages/:pageId/submissions',
-    {
-      /*
-        No route-level `permissions`: those are page permissions, granted by a group's rules rather
-        than group-wide. `canReview` below is the real answer, and an ineligible caller gets `false`
-        rather than a refusal — the button simply does not appear.
-      */
-      schema: {
-        summary: "Edit suggestions waiting on a page, for that page's reviewers",
-        description:
-          'What the review button on a page view is drawn from. `canReview` says whether this caller reviews this page at all — an enabled rule covers it and either names one of their groups or they hold `review:pages` or `manage:system` — and is what decides whether the button is shown; `submissions` is what is waiting, oldest first, and is empty for everybody else.\n\nA reviewer with an empty queue still gets `canReview: true`: the button belongs to the page, not to whatever happens to be pending on it.',
-        tags: ['Approvals'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' },
-            pageId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId', 'pageId']
-        },
-        response: {
-          200: {
-            description: 'Whether the caller reviews this page, and what is waiting on it',
-            type: 'object',
-            properties: {
-              canReview: { type: 'boolean' },
-              submissions: {
-                type: 'array',
-                items: { $ref: 'PageEditSubmission#' }
-              }
-            }
-          },
-          404: { $ref: 'ApiError#' }
-        }
-      }
-    },
-    async (req, reply) => {
-      reply.preventCache()
-      /*
-        Answered before the page is even looked up. Every reader loading any page asks this, so the
-        one case that can be settled from the session alone is settled there: a guest reviews nothing,
-        and the wiki has no reason to read a page and a rule set to say so again on every page view.
-      */
-      if (!isReviewerSession(req)) {
-        return { canReview: false, submissions: [] }
-      }
-      const page = await loadSuggestablePage(req, req.params.siteId, req.params.pageId)
-      if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-
-      const scope = reviewerFor(req, req.params.siteId, {
-        path: page.path,
-        locale: page.locale,
-        tags: page.tags ?? []
-      })
-      const canReview = await WIKI.models.approvals.canReviewPage(
-        req.params.siteId,
-        { path: page.path, tags: page.tags ?? [] },
-        scope
-      )
-      if (!canReview) {
-        return { canReview: false, submissions: [] }
-      }
-      return {
-        canReview: true,
-        submissions: await WIKI.models.approvals.getReviewableSubmissions(req.params.siteId, {
-          ...scope,
-          pageId: req.params.pageId
-        })
       }
     }
   )

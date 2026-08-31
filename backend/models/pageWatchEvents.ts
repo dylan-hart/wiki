@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
-import { pageWatchEvents as pageWatchEventsTable } from '../db/schema.ts'
+import { pageWatchEvents as pageWatchEventsTable, pages as pagesTable } from '../db/schema.ts'
 import type { WatchNotifyMode } from './pageWatching.ts'
 
 /** The kinds of change a watcher can be notified about. Never `created` — see `notifyWatchers`. */
@@ -165,15 +165,26 @@ class PageWatchEvents {
    * site. Capped at `INBOX_LIST_LIMIT` rather than paginated — a genuinely unbounded backlog of unread
    * notifications is not a case this first cut needs to handle gracefully, and the badge this feeds
    * (`unreadCount`) is a separate, un-capped query anyway.
+   *
+   * OpenProject #2173: re-checks `read:pages` at READ time, not just when the event was recorded — a
+   * user can lose access to a page between a change happening (when `notifyWatchers`'s own
+   * `read:pages` check already ran) and opening their inbox days later. Checked against the LIVE page
+   * where one still exists (`pagesTable`, joined by `pageId`) — a page's rules can change in either
+   * direction after the event was recorded, and the live row is the more correct answer either way —
+   * falling back to the event's own stored `pagePath`/`pageLocale` snapshot with no tags/classification
+   * for a `deleted` event, whose page row is gone. A row that fails the check is dropped from the
+   * list, not surfaced as anything — the same "missing, not 403" shape `listForUser` uses elsewhere in
+   * this feature (`pageWatching.ts`).
    */
   async listForUser(userId: string, siteId: string): Promise<InboxNotification[]> {
-    return WIKI.db
+    const rows = await WIKI.db
       .select({
         id: pageWatchEventsTable.id,
         pageId: pageWatchEventsTable.pageId,
         pageTitle: pageWatchEventsTable.pageTitle,
         pagePath: pageWatchEventsTable.pagePath,
         pageLocale: pageWatchEventsTable.pageLocale,
+        siteId: pageWatchEventsTable.siteId,
         action: pageWatchEventsTable.action,
         changedFields: pageWatchEventsTable.changedFields,
         actorId: pageWatchEventsTable.actorId,
@@ -188,7 +199,56 @@ class PageWatchEvents {
         )
       )
       .orderBy(desc(pageWatchEventsTable.createdAt))
-      .limit(INBOX_LIST_LIMIT) as Promise<InboxNotification[]>
+      .limit(INBOX_LIST_LIMIT)
+    return (await this.filterReadable(userId, rows)) as InboxNotification[]
+  }
+
+  /**
+   * Filters a batch of one user's events down to the ones they may still read `read:pages` on, RIGHT
+   * NOW — the re-check `listForUser` above (read time) and `tasks/simple/send-watch-digests.ts` (send
+   * time) share, OpenProject #2173.
+   *
+   * Checked against the LIVE page where one still exists (`pagesTable`, batched by `pageId` rather
+   * than once per event) — a page's rules can change in either direction after an event was recorded,
+   * and the live row is the more correct answer either way — falling back to each event's own stored
+   * `pagePath`/`pageLocale` snapshot, with no tags/classification to narrow against, for an event
+   * about a page that has since been deleted (most commonly the `deleted` event itself).
+   *
+   * Exported (not private) so `tasks/simple/send-watch-digests.ts` can apply the identical check
+   * before actually sending a batched digest — the daily-scheduled send-time counterpart to this
+   * read-time gate, and the one place a `PendingDigestEvent` can sit unread for the longest between
+   * being recorded and being acted on.
+   */
+  async filterReadable<
+    T extends { pageId: string; pagePath: string; pageLocale: string; siteId: string }
+  >(userId: string, events: T[]): Promise<T[]> {
+    if (events.length < 1) {
+      return []
+    }
+    const pageIds = [...new Set(events.map((event) => event.pageId))]
+    const liveRows = await WIKI.db
+      .select({
+        id: pagesTable.id,
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        tags: pagesTable.tags,
+        classification: pagesTable.classification
+      })
+      .from(pagesTable)
+      .where(inArray(pagesTable.id, pageIds))
+    const livePages = new Map(liveRows.map((row) => [row.id, row]))
+
+    const actor = await WIKI.models.groups.actorForUserId(userId)
+    return events.filter((event) => {
+      const live = livePages.get(event.pageId)
+      return WIKI.models.groups.checkAccess(actor, 'read:pages', {
+        path: live?.path ?? event.pagePath,
+        siteId: event.siteId,
+        locale: live?.locale ?? event.pageLocale,
+        tags: live?.tags ?? [],
+        classification: live?.classification ?? null
+      })
+    })
   }
 
   /**

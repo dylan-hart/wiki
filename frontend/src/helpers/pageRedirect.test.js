@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   emptyRedirect,
   isFollowable,
+  isFollowableRedirectTarget,
   parseRedirect,
   resolveRedirectTarget,
   serializeRedirect
@@ -76,6 +77,57 @@ describe('isFollowable', () => {
 describe('emptyRedirect', () => {
   it('is not followable', () => {
     expect(isFollowable(emptyRedirect())).toBe(false)
+  })
+})
+
+/**
+ * OpenProject #1360/#2208 (2026-08-24 security audit §2, §9): the login/logout `window.location
+ * .replace()` sinks in `AuthLoginPanel.vue` and `App.vue` check a single string that could be
+ * either a page or a URL redirect, so it needs `isFollowable`'s kind-agnostic twin rather than
+ * `isFollowable` itself.
+ */
+describe('isFollowableRedirectTarget', () => {
+  it('accepts a rooted path', () => {
+    expect(isFollowableRedirectTarget('/dashboard')).toBe(true)
+  })
+
+  it('accepts a complete https:// URL', () => {
+    expect(isFollowableRedirectTarget('https://example.com/x')).toBe(true)
+  })
+
+  it('accepts a complete http:// URL', () => {
+    expect(isFollowableRedirectTarget('http://example.com/x')).toBe(true)
+  })
+
+  it('refuses a scheme-relative //host target', () => {
+    expect(isFollowableRedirectTarget('//attacker.example')).toBe(false)
+  })
+
+  it('refuses a backslash-leading /\\host target', () => {
+    expect(isFollowableRedirectTarget('/\\attacker.example')).toBe(false)
+  })
+
+  it('refuses javascript:', () => {
+    expect(isFollowableRedirectTarget('javascript:alert(1)')).toBe(false)
+  })
+
+  it('refuses an obfuscated javascript: URL using a newline comment', () => {
+    expect(isFollowableRedirectTarget('javascript://%0aalert(1)')).toBe(false)
+  })
+
+  it('refuses data:', () => {
+    expect(isFollowableRedirectTarget('data:text/html,<script>alert(1)</script>')).toBe(false)
+  })
+
+  it('refuses an empty, whitespace-only, undefined or null value', () => {
+    expect(isFollowableRedirectTarget('')).toBe(false)
+    expect(isFollowableRedirectTarget('   ')).toBe(false)
+    expect(isFollowableRedirectTarget(undefined)).toBe(false)
+    expect(isFollowableRedirectTarget(null)).toBe(false)
+  })
+
+  it('refuses a relative (non-rooted) path', () => {
+    expect(isFollowableRedirectTarget('dashboard')).toBe(false)
   })
 })
 

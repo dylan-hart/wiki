@@ -4,10 +4,11 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-inspection-animated.svg" />
+          src="/_assets/icons/fluent-inspection-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.approval.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.approval.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.approval.subtitle') }}
         </div>
@@ -49,7 +50,6 @@
       -->
       <w-banner
         v-if="state.rules.length < 1 && state.loading < 1"
-        rounded
         :class="dark.isActive ? `bg-dark-3 text-grey-4` : `bg-grey-2 text-grey-8`">
         {{ t('admin.approval.noRules') }}
       </w-banner>
@@ -251,7 +251,7 @@ async function setEnabled(rule, isEnabled) {
       { json: { isEnabled } }
     ).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     Object.assign(rule, resp.rule)
     notify({
@@ -306,7 +306,7 @@ function deleteRule(rule) {
         `sites/${adminStore.currentSiteId}/approvals/rules/${rule.id}`
       )
       if (!resp?.ok) {
-        throw new Error((await resp.json())?.message || 'An unexpected error occured.')
+        throw new Error((await resp.json())?.message || t('common.error.unexpected'))
       }
       notify({
         type: 'positive',

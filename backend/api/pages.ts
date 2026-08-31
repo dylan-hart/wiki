@@ -3,6 +3,7 @@ import fastifyMultipart from '@fastify/multipart'
 import type { PageActor, PageInput } from '../models/pages.ts'
 import {
   detectImportFormat,
+  MAX_IMPORT_BATCH_BYTES,
   MAX_IMPORT_BATCH_FILES,
   MAX_IMPORT_SIZE,
   SUPPORTED_IMPORT_FORMATS
@@ -11,13 +12,12 @@ import { SEARCH_ORDER_BY, type SearchOrderBy } from '../models/search.ts'
 import {
   defaultLocale,
   generatePathHash,
-  guardSiteEnabled,
   isValidUuid,
   normalizePagePath
 } from '../helpers/common.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
 import { PAGE_PERMISSIONS } from '../helpers/permissions.ts'
-import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
+import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 
 /**
@@ -80,7 +80,8 @@ const pageIdParam = {
  * tokens existed to fill it with something real. `write:scripts`/`write:styles` are page-rule-scoped
  * (see CLAUDE.md's Permissions section), so `groupIds` travels along too — it is what
  * `models/pages.ts`'s `hasPermission()` resolves a page rule against, the same way `mayOnPage()` does
- * here.
+ * here. `siteId` travels along for the same reason (OpenProject #2189): a personal token pinned to
+ * one site must not gain a `write:scripts`/`write:styles` grant on another's page through this path.
  */
 export function actorFrom(req: FastifyRequest): PageActor | null {
   if (req.apiKey?.userId) {
@@ -89,7 +90,8 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
       permissions: req.apiKey.permissions,
       groupIds: req.apiKey.groupIds,
       scope: req.apiKey.scope,
-      allowedClassifications: req.apiKey.allowedClassifications
+      allowedClassifications: req.apiKey.allowedClassifications,
+      siteId: req.apiKey.siteId
     }
   }
   if (!req.session?.authenticated || !req.session.user?.id) {
@@ -120,6 +122,11 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
  * `POST .../unlock`'s own doc comment describes ("unlocking one is what first gives an anonymous reader
  * a session"). Setting `pageViewed` is what closes it here: without it, an anonymous reader with no
  * other reason to touch their session would look like a brand new visitor on every single view.
+ *
+ * That write is gated on the same `WIKI.config.pageviews.isEnabled` opt-out `record()` itself checks
+ * (OpenProject #2251): with tracking off there is no visitor identity worth preserving across requests,
+ * so forcing a session (and the `Set-Cookie` + permanent `sessions` row that comes with it) for every
+ * anonymous read would only defeat `saveUninitialized: false` for nothing in return.
  */
 function recordPageview(req: FastifyRequest, siteId: string, pageId: string): void {
   if (req.apiKey) {
@@ -131,7 +138,7 @@ function recordPageview(req: FastifyRequest, siteId: string, pageId: string): vo
     })
     return
   }
-  if (req.session) {
+  if (req.session && WIKI.config.pageviews?.isEnabled === true) {
     req.session.pageViewed = true
     void WIKI.models.pageviews.record({
       siteId,
@@ -239,6 +246,32 @@ async function recordClassificationChange(
     detail: { from, to },
     siteId
   })
+}
+
+/**
+ * Batched form of `recordClassificationChange`, for a caller that already knows every (from, to)
+ * pair up front and wants one INSERT instead of N — the classification-conflicts resolve route
+ * (OpenProject #1902), bumping many pages in one request. `from === to` entries are dropped rather
+ * than written, the same no-op `recordClassificationChange` documents.
+ */
+async function recordClassificationChanges(
+  req: FastifyRequest,
+  siteId: string,
+  changes: { page: { id: string; path: string }; from: string; to: string }[]
+): Promise<void> {
+  const actor = actorFromRequest(req)
+  const entries = changes
+    .filter(({ from, to }) => from !== to)
+    .map(({ page, from, to }) => ({
+      event: 'page.classificationChanged' as const,
+      actor,
+      targetType: 'page' as const,
+      targetId: page.id,
+      targetLabel: page.path,
+      detail: { from, to },
+      siteId
+    }))
+  await WIKI.models.auditLog.recordMany(entries)
 }
 
 /**
@@ -350,39 +383,6 @@ async function routes(app: FastifyInstance) {
   })
 
   /**
-   * LIST PAGES
-   */
-  app.get<{ Params: { siteId: string } }>(
-    '/sites/:siteId/pages',
-    {
-      /*
-        No route-level `permissions`: page permissions come from a group's RULES, and this would have
-        to filter per page against them. It has nothing to filter yet — see the description.
-      */
-      schema: {
-        summary: 'List all pages',
-        description:
-          'Not implemented yet — always answers with an empty list. Browse the tree instead, which is what the file manager and the navigation use, and which filters what it lists by the page rules.',
-        tags: ['Pages'],
-        params: siteIdParam,
-        response: {
-          200: {
-            description: 'List of pages',
-            type: 'array',
-            items: { $ref: 'Page#' }
-          }
-        }
-      }
-    },
-    async (req, reply) => {
-      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
-        return
-      }
-      return []
-    }
-  )
-
-  /**
    * SEARCH PAGES
    */
   app.get<{
@@ -490,7 +490,13 @@ async function routes(app: FastifyInstance) {
               },
               totalHits: {
                 type: 'integer',
-                description: 'How many pages match, ignoring `limit` and `offset`.'
+                description:
+                  "How many pages match and are visible to you, ignoring `limit` and `offset`. Counted only from rows you may actually read — a page you have no access to is never included, even at `limit=1`. Exact up to the search engine's own scan cap; beyond that cap it is a floor (at least this many), not a precise total."
+              },
+              totalHitsApproximate: {
+                type: 'boolean',
+                description:
+                  "`true` when `totalHits` is not exact: this searcher's page rules dropped one or more matching rows, so the real total they could ever see is a floor, not the number shown."
               },
               suggestion: {
                 type: ['string', 'null'],
@@ -502,19 +508,19 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
-        return
-      }
+    async (req) => {
       const actor = actorFrom(req)
       const accessActor = WIKI.models.groups.actorForRequest(req)
-      // -> "May write pages somewhere" and "may read a locked page's text anywhere" are the same
-      //    question here — both amount to holding `write:pages`/`manage:pages` via SOME rule, not the
-      //    (unrelated) group-wide permission list. See `mayHoldPermissionSomewhere()`'s own doc for why
-      //    DENY is ignored and why this can't be asked per page the way `mayOnPage()` is elsewhere.
+      // -> "May write pages somewhere on this site" and "may read a locked page's text anywhere on
+      //    this site" are the same question here — both amount to holding `write:pages`/
+      //    `manage:pages` via SOME rule scoped to this site, not the (unrelated) group-wide
+      //    permission list. See `mayHoldPermissionSomewhere()`'s own doc for why DENY is ignored,
+      //    why the site is threaded through (OpenProject #2146/#2162), and why this can't be asked
+      //    per page the way `mayOnPage()` is elsewhere.
       const maySeeEverything = WIKI.models.groups.mayHoldPermissionSomewhere(
         accessActor,
-        PAGE_PASSWORD_BYPASS_ROLES
+        PAGE_PASSWORD_BYPASS_ROLES,
+        req.params.siteId
       )
       return WIKI.models.search.query({
         siteId: req.params.siteId,
@@ -577,9 +583,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
-        return
-      }
       const actor = actorFrom(req)
       // -> The stored form of whatever the including page wrote, since that is what it is looked up
       //    by. The site root is the `home` page.
@@ -665,10 +668,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> A site-scoped key may not reach a site it isn't scoped to; see `helpers/apiKeySite.ts`.
-      if (!enforceApiKeySite(req, reply, req.params.siteId)) {
-        return reply
-      }
+      // -> A site-scoped key may not reach a site it isn't scoped to -- now enforced globally by
+      //    `apiKeySitePinHook` in `index.ts` for every `/sites/:siteId/...` route, this one
+      //    included; see `helpers/apiKeySite.ts`.
       const isId = isValidUuid(req.params.pageIdOrHash)
       const actor = actorFrom(req)
       // -> The source is what an editor loads, and editing is not something an anonymous reader does
@@ -863,10 +865,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> A site-scoped key may not reach a site it isn't scoped to; see `helpers/apiKeySite.ts`.
-      if (!enforceApiKeySite(req, reply, req.params.siteId)) {
-        return reply
-      }
+      // -> A site-scoped key may not reach a site it isn't scoped to -- now enforced globally by
+      //    `apiKeySitePinHook` in `index.ts` for every `/sites/:siteId/...` route, this one
+      //    included; see `helpers/apiKeySite.ts`.
       const actor = actorFrom(req)
       if (!actor) {
         return reply.unauthorized('Saving a page requires a logged in user.')
@@ -1001,7 +1002,7 @@ async function routes(app: FastifyInstance) {
       */
       schema: {
         summary: 'Convert several uploaded files to Markdown in one request',
-        description: `A \`multipart/form-data\` sibling of \`POST .../pages/import\` (OpenProject #849): several files in one request (field name \`files\`, repeated), each file's format autodetected from its own extension (OpenProject #1209; field name \`formats\`, repeated in the same order as \`files\`, overrides a single file's detection when non-empty). At most ${MAX_IMPORT_BATCH_FILES} files, each at most ${Math.round(MAX_IMPORT_SIZE / 1024 / 1024)} MB. The response carries one result per file, in the order they were sent — a bad file in the batch does not stop the rest from converting, so check each entry's own \`ok\`. Convert-only, exactly like the single-file endpoint: nothing is saved here, which is what lets the caller assign each result its own destination and review it before saving.\n\n\`format: 'markdown'\` (OpenProject #1092) is a pass-through and needs no Pandoc extension — every other format still does, and answers 503 without it. A file whose extension is not recognized fails only its own entry, same as any other per-file conversion failure. \`path\` is not written to, only checked: converting content requires \`write:pages\` on wherever the caller says they intend to save it.`,
+        description: `A \`multipart/form-data\` sibling of \`POST .../pages/import\` (OpenProject #849): several files in one request (field name \`files\`, repeated), each file's format autodetected from its own extension (OpenProject #1209; field name \`formats\`, repeated in the same order as \`files\`, overrides a single file's detection when non-empty). At most ${MAX_IMPORT_BATCH_FILES} files, each at most ${Math.round(MAX_IMPORT_SIZE / 1024 / 1024)} MB, and at most ${Math.round(MAX_IMPORT_BATCH_BYTES / 1024 / 1024)} MB combined (OpenProject #2204) — a batch over that aggregate ceiling is refused outright (400), not partially converted. The response carries one result per file, in the order they were sent — a bad file in the batch does not stop the rest from converting, so check each entry's own \`ok\`. Convert-only, exactly like the single-file endpoint: nothing is saved here, which is what lets the caller assign each result its own destination and review it before saving.\n\n\`format: 'markdown'\` (OpenProject #1092) is a pass-through and needs no Pandoc extension — every other format still does, and answers 503 without it. A file whose extension is not recognized fails only its own entry, same as any other per-file conversion failure. \`path\` is not written to, only checked: converting content requires \`write:pages\` on wherever the caller says they intend to save it.`,
         tags: ['Pages'],
         consumes: ['multipart/form-data'],
         params: siteIdParam,
@@ -1064,14 +1065,36 @@ async function routes(app: FastifyInstance) {
         oversize is checked via `file.truncated` after `toBuffer()` resolves, not by catching a
         throw — see the `throwFileSizeLimit: false` comment on the plugin registration above for why
         letting an oversized file throw here would still fail the whole batch anyway.
+
+        `MAX_IMPORT_BATCH_BYTES` bounds the total across every file combined (OpenProject #2204):
+        `fileSize`/`MAX_IMPORT_SIZE` above only cap ONE file, so nothing previously stopped
+        `MAX_IMPORT_BATCH_FILES` maximum-size files (~500 MB) from all being resident as `Buffer`s at
+        once. Tripping it discards whatever had been buffered so far and stops accepting more —
+        atomically refusing the whole request rather than converting the files that fit before the
+        ceiling was crossed, which is what keeps this a hard cap rather than a soft one an attacker
+        could still push past by spreading a large batch across many small file reads. The rest of
+        the body is still drained (each further file read and immediately discarded, never buffered)
+        rather than abandoned mid-stream, which would otherwise leave the connection holding
+        unconsumed bytes.
       */
       const uploads: (
         | { fileName: string; data: Buffer; formatOverride: string }
         | { fileName: string; error: string }
       )[] = []
+      let totalBytes = 0
+      let overBudget = false
       for await (const part of req.parts()) {
         if (part.type === 'file') {
           const data = await part.toBuffer()
+          if (overBudget) {
+            continue
+          }
+          totalBytes += data.length
+          if (totalBytes > MAX_IMPORT_BATCH_BYTES) {
+            overBudget = true
+            uploads.length = 0
+            continue
+          }
           if (part.file.truncated) {
             uploads.push({
               fileName: part.filename,
@@ -1084,6 +1107,7 @@ async function routes(app: FastifyInstance) {
         }
         const last = uploads.at(-1)
         if (
+          !overBudget &&
           part.fieldname === 'formats' &&
           last &&
           !('error' in last) &&
@@ -1091,6 +1115,11 @@ async function routes(app: FastifyInstance) {
         ) {
           last.formatOverride = part.value
         }
+      }
+      if (overBudget) {
+        return reply.badRequest(
+          `This batch is larger than the ${Math.round(MAX_IMPORT_BATCH_BYTES / 1024 / 1024)} MB aggregate limit for one import request.`
+        )
       }
       if (uploads.length < 1) {
         return reply.badRequest('No files were sent.')
@@ -1380,7 +1409,12 @@ async function routes(app: FastifyInstance) {
           type: 'object',
           required: ['pageIds', 'classification'],
           properties: {
-            pageIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
+            pageIds: {
+              type: 'array',
+              items: { type: 'string', format: 'uuid' },
+              minItems: 1,
+              maxItems: 500
+            },
             classification: { type: 'string', format: 'uuid' }
           }
         },
@@ -1402,12 +1436,31 @@ async function routes(app: FastifyInstance) {
       if (!WIKI.models.classificationLevels.byId(req.body.classification)) {
         return reply.badRequest('This classification level does not exist.')
       }
+      // -> De-duplicate before processing: a repeated id would otherwise be fetched, permission-checked
+      //    and audit-logged once per occurrence instead of once per page.
+      const pageIds = [...new Set(req.body.pageIds)]
+      // -> ONE batched select instead of a per-id `getPage` loop (OpenProject #1902): `getPage`'s
+      //    full two-LEFT-JOIN select pulls `content`, `render`, `searchContent` and the tsvector,
+      //    none of which `mayOnPage`/`meetsFloor` below need -- `getPagesByIds` projects only the
+      //    five columns that do.
+      const pageMap = await WIKI.models.pages.getPagesByIds(req.params.siteId, pageIds)
+      const missingId = pageIds.find((pageId) => !pageMap.has(pageId))
+      if (missingId) {
+        return reply.notFound('One of these pages does not exist.')
+      }
+      // -> Preserves `pageIds`' own (de-duplicated) order exactly the way the original per-id loop
+      //    iterated -- the per-page checks below still run one target at a time, in this same order,
+      //    and bail on the same first violation. Only the READS moved: what each check evaluates is
+      //    unchanged.
+      const orderedTargets = pageIds.map((pageId) => pageMap.get(pageId)!)
+      // -> ONE batched parent-classification lookup instead of one `parentClassification` call per
+      //    target, over the distinct (locale, parent path) pairs among them.
+      const floorByTarget = await WIKI.models.pages.parentClassifications(
+        req.params.siteId,
+        orderedTargets.map((target) => ({ locale: target.locale, path: target.path }))
+      )
       const targets: { id: string; path: string; classification: string }[] = []
-      for (const pageId of req.body.pageIds) {
-        const target = await WIKI.models.pages.getPage({ siteId: req.params.siteId, id: pageId })
-        if (!target) {
-          return reply.notFound('One of these pages does not exist.')
-        }
+      for (const target of orderedTargets) {
         if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
           return reply.forbidden('You are not allowed to edit one of these pages.')
         }
@@ -1428,11 +1481,7 @@ async function routes(app: FastifyInstance) {
         // -> Same floor invariant every other classification write enforces: this bulk write does
         //    not get to leave a page below its own immediate parent's floor just because it arrived
         //    through the resolve flow rather than a single PATCH.
-        const floorId = await WIKI.models.pages.parentClassification(
-          req.params.siteId,
-          target.locale,
-          target.path
-        )
+        const floorId = floorByTarget.get(`${target.locale}\0${target.path}`) ?? null
         if (
           floorId &&
           !WIKI.models.classificationLevels.meetsFloor(req.body.classification, floorId)
@@ -1445,18 +1494,19 @@ async function routes(app: FastifyInstance) {
       }
       const updated = await WIKI.models.pages.bulkSetClassification(
         req.params.siteId,
-        req.body.pageIds,
+        pageIds,
         req.body.classification
       )
-      for (const target of targets) {
-        await recordClassificationChange(
-          req,
-          req.params.siteId,
-          target,
-          target.classification,
-          req.body.classification
-        )
-      }
+      // -> ONE multi-row audit INSERT instead of one `record()` call per target.
+      await recordClassificationChanges(
+        req,
+        req.params.siteId,
+        targets.map((target) => ({
+          page: target,
+          from: target.classification,
+          to: req.body.classification
+        }))
+      )
       return { ok: true, updated }
     }
   )
@@ -1873,7 +1923,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Export a page as PDF',
         description:
-          "Drives Puppeteer against this instance's own live page view — not the stored render — so the PDF matches what a reader sees: theme, layout and block components (Mermaid diagrams, PlantUML, …) included, once their own async drawing has settled. Needs the Puppeteer extension, and answers 503 without it.\n\nNeeds `read:pages` ON THIS PAGE, on the same terms as reading it: a password-protected page answers only once the session has satisfied `POST …/unlock`, and an anonymous requester only ever exports a published page. The export runs as whoever asked for it — nothing more.",
+          "Drives Puppeteer against this instance's own live page view — not the stored render — so the PDF matches what a reader sees: theme, layout and block components (Mermaid diagrams, PlantUML, …) included, once their own async drawing has settled. Needs the Puppeteer extension, and answers 503 without it.\n\nNeeds `read:pages` ON THIS PAGE, on the same terms as reading it: a password-protected page answers only once the session has satisfied `POST …/unlock`. Requires a logged in user (session or personal access token) on top of that, the same rule the page re-render route above and `POST /diagrams/render` already apply to every other route that launches a headless browser — an anonymous request never reaches Puppeteer, however readable the page itself is (OpenProject #2258/#2262; see `docs/variances.md`). The export runs as whoever asked for it — nothing more.",
         tags: ['Pages'],
         params: pageIdParam,
         response: {
@@ -1884,11 +1934,18 @@ async function routes(app: FastifyInstance) {
                 schema: { type: 'string', format: 'binary' }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
     async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('Exporting a page as PDF requires a logged in user.')
+      }
       const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
       if (!page) {
         return reply.notFound('This page does not exist.')
@@ -1903,7 +1960,7 @@ async function routes(app: FastifyInstance) {
         path: page.path,
         // -> The raw, still-signed cookie value exactly as the browser sent it — see the AUTH comment
         //    on `PdfExport.exportPdf` for why forwarding it is safe and sufficient
-        sessionCookie: req.cookies?.wikiSession ?? null
+        sessionCookie: req.cookies?.[SESSION_COOKIE_NAME] ?? null
       })
 
       reply.header(
@@ -2143,21 +2200,24 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: that hook reads the group-wide list, and `read:history` is a
-        page permission granted by a rule. Checked per row below instead, against the path and locale
-        each deletion happened at — a caller sees only the deletions they could have read the history
-        of; the rest are left out rather than answered as a whole-list 403.
+        page permission granted by a rule. Checked per row below instead, against the path, locale,
+        tags and classification each deletion happened at — a caller sees only the deletions they
+        could have read the history of; the rest are left out rather than answered as a whole-list
+        403. `author.email` is never populated on these rows: `read:history` here is granted per row
+        by whatever the caller could read, not `read:users`/`manage:users`, so it must not double as
+        a way to learn another user's address.
       */
       schema: {
         summary: 'List recoverable deletions',
         description:
-          'One row per deleted path still recoverable: the most recent `deleted` version at a path with no live page there now. A path that was recovered, or reused by an unrelated new page, drops off this list on its own — there is no flag to set or clear.\n\nEach row needs `read:history` at the path and locale it was deleted from, granted by a group rule.',
+          'One row per deleted path still recoverable: the most recent `deleted` version at a path with no live page there now. A path that was recovered, or reused by an unrelated new page, drops off this list on its own — there is no flag to set or clear.\n\nEach row needs `read:history` at the path and locale it was deleted from, using the tags and classification the deleted version itself carried — so a TAG/TAGALL/CLASSIFICATION-scoped rule narrows this listing the same way it would a live page — granted by a group rule.',
         tags: ['Pages'],
         params: siteIdParam,
         response: {
           200: {
             description: 'Recoverable deletions, one row per path',
             type: 'array',
-            items: { $ref: 'PageHistoryEntry#' }
+            items: { $ref: 'RecoverablePageEntry#' }
           }
         }
       }
@@ -2165,7 +2225,12 @@ async function routes(app: FastifyInstance) {
     async (req) => {
       const rows = await WIKI.models.pageHistory.listRecoverable(req.params.siteId)
       return rows.filter((row) =>
-        mayOnPage(req, 'read:history', req.params.siteId, { path: row.path, locale: row.locale })
+        mayOnPage(req, 'read:history', req.params.siteId, {
+          path: row.path,
+          locale: row.locale,
+          tags: row.tags,
+          classification: row.classification
+        })
       )
     }
   )
@@ -2180,14 +2245,17 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/pages/deleted/:versionId/recover',
     {
       /*
-        No route-level `permissions`: that hook reads the group-wide list, and `write:pages` is a page
-        permission granted by a rule. Checked against the TARGET path below instead — the override
-        path/locale when given, otherwise the path/locale the version was deleted from.
+        No route-level `permissions`: that hook reads the group-wide list, and `write:pages`/
+        `read:pages`/`read:source` are page permissions granted by a rule. Checked in the handler
+        against TWO refs: the SOURCE path/locale the version was deleted from (must be readable, since
+        `recoverDeletedPage` rebuilds title, content, tags, relations and scripts from it) and the
+        TARGET path/locale — the override when given, otherwise the same source path/locale — which
+        must be writable.
       */
       schema: {
         summary: 'Recover a deleted page',
         description:
-          'Recreates the page from one specific deleted version, found by its history id rather than "the latest deletion at this path" — so a caller acting on a `GET …/pages/deleted` row recovers exactly the version it showed.\n\n`path` and/or `locale` in the body steer the recreated page around a conflict the plain restore would hit: a path a newer page has since taken answers `pageDuplicatePath` (409), and a locale the site no longer serves answers `pageInvalidLocale` (400) — both as the same JSON error shape every other page-creation failure uses, not a generic 500.',
+          'Recreates the page from one specific deleted version, found by its history id rather than "the latest deletion at this path" — so a caller acting on a `GET …/pages/deleted` row recovers exactly the version it showed.\n\nRequires `read:pages` and `read:source` at the path the version was deleted from — the version is rebuilding title, content, tags, relations and scripts, so recovering it must not hand those back to someone who could not have read them there — and `write:pages` at the target path (the override below, or the same deleted path when none is given).\n\n`path` and/or `locale` in the body steer the recreated page around a conflict the plain restore would hit: a path a newer page has since taken answers `pageDuplicatePath` (409), and a locale the site no longer serves answers `pageInvalidLocale` (400) — both as the same JSON error shape every other page-creation failure uses, not a generic 500.',
         tags: ['Pages'],
         params: {
           type: 'object',
@@ -2221,7 +2289,8 @@ async function routes(app: FastifyInstance) {
           }
         },
         response: {
-          200: { $ref: 'PageHistoryRecoverResponse#' }
+          200: { $ref: 'PageHistoryRecoverResponse#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -2236,6 +2305,27 @@ async function routes(app: FastifyInstance) {
       )
       if (!version) {
         return reply.notFound('No deleted version exists with this id.')
+      }
+      // -> OpenProject #2168: a source-side check, ahead of the destination one below. Holding
+      //    `write:pages` on where the page is going back to says nothing about being allowed to read
+      //    what it actually contained -- without this, a caller who was denied `read:pages`/
+      //    `read:source` at the path it was deleted from could still recover it into anywhere they
+      //    hold `write:pages`, reading and republishing source they were never allowed to read.
+      //    Checked against the version's OWN tags/classification, not the target's: what is being
+      //    read here is the deleted content itself, at the path/locale it actually lived at.
+      const source = {
+        path: version.path,
+        locale: version.locale,
+        tags: version.tags,
+        classification: version.classification
+      }
+      if (
+        !mayOnPage(req, 'read:pages', req.params.siteId, source) ||
+        !mayOnPage(req, 'read:source', req.params.siteId, source)
+      ) {
+        return reply.forbidden(
+          'You are not allowed to read the page this version was deleted from.'
+        )
       }
       const overrides = req.body ?? {}
       const target = {

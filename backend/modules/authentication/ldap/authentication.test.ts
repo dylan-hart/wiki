@@ -113,6 +113,51 @@ test('required config missing rejects as ERR_STRATEGY_MISCONFIGURED without cont
   assert.equal(clientFactoryCallCount, 0)
 })
 
+test('an empty-string password rejects as ERR_LOGIN_FAILED without ever contacting the directory', async () => {
+  const { factory, calls } = makeClientFactory({
+    bind: () => {
+      throw new Error('should not be called')
+    },
+    search: () => {
+      throw new Error('should not be called')
+    }
+  })
+  const countingFactory = (options: any) => {
+    clientFactoryCallCount++
+    return factory(options)
+  }
+  const mod = new LdapAuthentication('strategy-1', CONF, countingFactory)
+
+  await assert.rejects(mod.authenticate({ username: 'jdoe', password: '' }), /ERR_LOGIN_FAILED/)
+  // -> Not just "the verification bind never happened" -- no client (not even the admin one) was
+  //    ever created, and no bind of any kind was attempted with the resolved DN.
+  assert.equal(clientFactoryCallCount, 0)
+  assert.equal(calls.binds.length, 0)
+})
+
+test('an omitted (undefined) password rejects as ERR_LOGIN_FAILED without ever contacting the directory', async () => {
+  const { factory, calls } = makeClientFactory({
+    bind: () => {
+      throw new Error('should not be called')
+    },
+    search: () => {
+      throw new Error('should not be called')
+    }
+  })
+  const countingFactory = (options: any) => {
+    clientFactoryCallCount++
+    return factory(options)
+  }
+  const mod = new LdapAuthentication('strategy-1', CONF, countingFactory)
+
+  await assert.rejects(
+    mod.authenticate({ username: 'jdoe', password: undefined as any }),
+    /ERR_LOGIN_FAILED/
+  )
+  assert.equal(clientFactoryCallCount, 0)
+  assert.equal(calls.binds.length, 0)
+})
+
 test('admin bind failure surfaces as ERR_STRATEGY_MISCONFIGURED, not a generic login failure', async () => {
   const { factory } = makeClientFactory({
     bind: (dn) => (dn === CONF.bindDn ? new Error('InvalidCredentialsError') : true),

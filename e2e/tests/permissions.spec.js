@@ -48,24 +48,29 @@ test('a Users-group account can read a page but not write it, and is refused the
 
   // -> As the new user, in a session of its own.
   const userContext = await browser.newContext()
-  const userPage = await userContext.newPage()
-  await userPage.goto('/login')
-  await userPage.getByLabel('Email Address').fill(userEmail)
-  await userPage.getByLabel('Password').fill(userPassword)
-  await userPage.getByRole('button', { name: 'Log In', exact: true }).click()
-  await expect(userPage.locator('.account-avbtn')).toBeVisible()
+  try {
+    const userPage = await userContext.newPage()
+    await userPage.goto('/login')
+    await userPage.getByLabel('Email Address').fill(userEmail)
+    await userPage.getByLabel('Password').fill(userPassword)
+    await userPage.getByRole('button', { name: 'Log In', exact: true }).click()
+    await expect(userPage.locator('.account-avbtn')).toBeVisible()
 
-  // -> read:pages: the page opens and its content is visible.
-  await userPage.goto(`/${pagePath}`)
-  await expect(userPage.locator('.page-contents')).toContainText(pageBody)
+    // -> read:pages: the page opens and its content is visible.
+    await userPage.goto(`/${pagePath}`)
+    await expect(userPage.locator('.page-contents')).toContainText(pageBody)
 
-  // -> No write:pages anywhere for this account: the Edit action is not offered at all.
-  await expect(userPage.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0)
+    // -> No write:pages anywhere for this account: the Edit action is not offered at all.
+    await expect(userPage.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0)
 
-  // -> No access:admin (a GLOBAL permission the Users group was never given): the admin area
-  //    refuses the visit outright rather than quietly rendering nothing.
-  await userPage.goto('/_admin/users')
-  await expect(userPage).toHaveURL(/\/_error\/unauthorized$/)
-
-  await userContext.close()
+    // -> No access:admin (a GLOBAL permission the Users group was never given): the admin area
+    //    refuses the visit outright rather than quietly rendering nothing.
+    await userPage.goto('/_admin/users')
+    await expect(userPage).toHaveURL(/\/_error\/unauthorized$/)
+  } finally {
+    // -> Always close the second context, even when one of the expects above throws -- otherwise a
+    //    red run leaks it for the rest of this worker (`workers: 1`, `browser` fixture is
+    //    worker-scoped and only torn down at worker end).
+    await userContext.close()
+  }
 })

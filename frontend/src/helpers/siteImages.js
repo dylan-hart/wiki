@@ -1,3 +1,5 @@
+import { i18n } from '@/boot/i18n'
+
 /**
  * The images a site has of its own — its logo, its favicon and the backdrop of its login page.
  *
@@ -54,7 +56,7 @@ export async function uploadSiteImage(siteId, kind, file) {
     }
   }).json()
   if (!resp?.ok) {
-    throw new Error(resp?.message || 'An unexpected error occured.')
+    throw new Error(resp?.message || i18n.global.t('common.error.unexpected'))
   }
 }
 
@@ -64,6 +66,6 @@ export async function uploadSiteImage(siteId, kind, file) {
 export async function clearSiteImage(siteId, kind) {
   const resp = await API_CLIENT.delete(`sites/${siteId}/images/${kind}`).json()
   if (!resp?.ok) {
-    throw new Error(resp?.message || 'An unexpected error occured.')
+    throw new Error(resp?.message || i18n.global.t('common.error.unexpected'))
   }
 }

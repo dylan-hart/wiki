@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import { describe, it, test } from 'node:test'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -86,6 +86,79 @@ describe('comments table', () => {
   })
 })
 
+describe('tree table', () => {
+  const config = getTableConfig(schema.tree)
+
+  it('nulls navigationId on delete of the referenced navigation row (#1699)', () => {
+    const fk = config.foreignKeys.find((f) =>
+      f.reference().columns.some((c) => c.name === 'navigationId')
+    )
+    assert.ok(fk, 'expected a foreign key on navigationId')
+    assert.equal(getTableName(fk!.reference().foreignTable), 'navigation')
+    assert.equal(fk!.onDelete, 'set null')
+  })
+})
+
+/**
+ * OpenProject #2012 -- eight indexes were strict column prefixes of another non-partial btree
+ * index on the same table (or, for `userGroups`, of the table's own primary key), so they cost a
+ * write on every insert/update/delete for no lookup they uniquely served. Guards both that the
+ * redundant declarations stay gone and that the covering index each one leaned on is still there
+ * to actually cover the lookup.
+ */
+describe('prefix-redundant indexes (OpenProject #2012)', () => {
+  const indexNames = (table: PgTable) => getTableConfig(table).indexes.map((idx) => idx.config.name)
+
+  it('drops glossaryTerms_siteId_idx, keeping the covering composite index', () => {
+    const names = indexNames(schema.glossaryTerms)
+    assert.ok(!names.includes('glossaryTerms_siteId_idx'))
+    assert.ok(names.includes('glossaryTerms_composite_idx'))
+  })
+
+  it('drops glossaryVersions_siteId_idx, keeping the covering siteId+createdAt index', () => {
+    const names = indexNames(schema.glossaryVersions)
+    assert.ok(!names.includes('glossaryVersions_siteId_idx'))
+    assert.ok(names.includes('glossaryVersions_siteId_createdAt_idx'))
+  })
+
+  it('drops navigation_siteId_idx, keeping the covering siteId+locale index', () => {
+    const names = indexNames(schema.navigation)
+    assert.ok(!names.includes('navigation_siteId_idx'))
+    assert.ok(names.includes('navigation_siteId_locale_idx'))
+  })
+
+  it('drops pages_siteId_idx, keeping the covering siteId+locale+path and +hash indexes', () => {
+    const names = indexNames(schema.pages)
+    assert.ok(!names.includes('pages_siteId_idx'))
+    assert.ok(names.includes('pages_siteId_locale_path_idx'))
+    assert.ok(names.includes('pages_siteId_locale_hash_idx'))
+  })
+
+  it('drops tags_siteId_idx, keeping the covering composite index', () => {
+    const names = indexNames(schema.tags)
+    assert.ok(!names.includes('tags_siteId_idx'))
+    assert.ok(names.includes('tags_composite_idx'))
+  })
+
+  it('drops pageEditSubmissionApprovals_submissionId_idx, keeping the covering submission+reviewer index', () => {
+    const names = indexNames(schema.pageEditSubmissionApprovals)
+    assert.ok(!names.includes('pageEditSubmissionApprovals_submissionId_idx'))
+    assert.ok(names.includes('pageEditSubmissionApprovals_submission_reviewer_idx'))
+  })
+
+  it('drops userGroups_userId_idx and userGroups_composite_idx, keeping only groupId_idx plus the PK', () => {
+    const config = getTableConfig(schema.userGroups)
+    const names = config.indexes.map((idx) => idx.config.name)
+    assert.ok(!names.includes('userGroups_userId_idx'))
+    assert.ok(!names.includes('userGroups_composite_idx'))
+    assert.ok(names.includes('userGroups_groupId_idx'))
+
+    assert.equal(config.primaryKeys.length, 1)
+    const pkColumns = config.primaryKeys[0].columns.map((c) => c.name)
+    assert.deepEqual(pkColumns, ['userId', 'groupId'])
+  })
+})
+
 /**
  * Guards `docs/site-scoping-audit.md` against drift: every table in `schema.ts` that has no
  * `siteId` column (the `sites` table itself aside) must be named somewhere in the audit doc. A
@@ -109,6 +182,63 @@ function unscopedTableNames(): string[] {
   return names.sort()
 }
 
+/**
+ * Regression coverage for OpenProject #1984/#2012 -- eight index declarations that were a strict
+ * column prefix of another non-partial btree index on the same table, so they were paid for on
+ * every INSERT/UPDATE/DELETE for no lookup they uniquely served. Locks each drop in place, plus the
+ * one sibling index in each table that both replaces the dropped one AND must survive (dropping the
+ * wrong one of the pair would silently reintroduce the exact cost this cleanup removed).
+ */
+describe('prefix-redundant indexes (#2012)', () => {
+  function indexNames(table: PgTable): string[] {
+    return getTableConfig(table).indexes.map((idx) => idx.config.name ?? '')
+  }
+
+  test('pages has no standalone siteId index, but keeps the composite ones that cover it', () => {
+    const names = indexNames(schema.pages)
+    assert.equal(names.includes('pages_siteId_idx'), false)
+    assert.ok(names.includes('pages_siteId_locale_path_idx'))
+    assert.ok(names.includes('pages_siteId_locale_hash_idx'))
+  })
+
+  test('navigation has no standalone siteId index, but keeps the siteId+locale one', () => {
+    const names = indexNames(schema.navigation)
+    assert.equal(names.includes('navigation_siteId_idx'), false)
+    assert.ok(names.includes('navigation_siteId_locale_idx'))
+  })
+
+  test('glossaryTerms has no standalone siteId index, but keeps the composite one', () => {
+    const names = indexNames(schema.glossaryTerms)
+    assert.equal(names.includes('glossaryTerms_siteId_idx'), false)
+    assert.ok(names.includes('glossaryTerms_composite_idx'))
+  })
+
+  test('glossaryVersions has no standalone siteId index, but keeps the siteId+createdAt one', () => {
+    const names = indexNames(schema.glossaryVersions)
+    assert.equal(names.includes('glossaryVersions_siteId_idx'), false)
+    assert.ok(names.includes('glossaryVersions_siteId_createdAt_idx'))
+  })
+
+  test('tags has no standalone siteId index, but keeps the composite one', () => {
+    const names = indexNames(schema.tags)
+    assert.equal(names.includes('tags_siteId_idx'), false)
+    assert.ok(names.includes('tags_composite_idx'))
+  })
+
+  test('pageEditSubmissionApprovals has no standalone submissionId index, but keeps the composite one', () => {
+    const names = indexNames(schema.pageEditSubmissionApprovals)
+    assert.equal(names.includes('pageEditSubmissionApprovals_submissionId_idx'), false)
+    assert.ok(names.includes('pageEditSubmissionApprovals_submission_reviewer_idx'))
+  })
+
+  test('userGroups drops the two indexes redundant with its own primary key, keeping only groupId', () => {
+    const names = indexNames(schema.userGroups)
+    assert.equal(names.includes('userGroups_userId_idx'), false)
+    assert.equal(names.includes('userGroups_composite_idx'), false)
+    assert.ok(names.includes('userGroups_groupId_idx'))
+  })
+})
+
 describe('site-scoping-audit.md', () => {
   test('names every unscoped table in schema.ts', async () => {
     const doc = await readFile(AUDIT_DOC_PATH, 'utf8')
@@ -122,5 +252,236 @@ describe('site-scoping-audit.md', () => {
 
   test('the fixture list itself is non-empty, so a schema-introspection regression cannot pass vacuously', () => {
     assert.ok(unscopedTableNames().length > 0)
+  })
+})
+
+/**
+ * Postgres rejects `ALTER TABLE … ADD COLUMN x text NOT NULL` outright once the table holds any
+ * rows, so every such statement across `backend/db/migrations/*` needs a `DEFAULT` -- the pattern
+ * `20260821120434_main` (backfill then tighten) and `20260822152223_main` (seed then add-with-default)
+ * both follow. `20260817165130_main` is the sole recorded exception (OpenProject #1665, see
+ * docs/variances.md) -- its migration hash is already committed, so it is allow-listed rather than
+ * hand-edited. A new occurrence anywhere else should fail this test instead of a developer's boot.
+ */
+
+const MIGRATIONS_DIR = path.join(HERE, 'migrations')
+const ADD_COLUMN_NOT_NULL_NO_DEFAULT_ALLOWLIST = new Set(['20260817165130_main'])
+
+async function migrationFoldersWithNotNullNoDefault(): Promise<Map<string, string[]>> {
+  const offenders = new Map<string, string[]>()
+  const entries = await readdir(MIGRATIONS_DIR, { withFileTypes: true })
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const sqlPath = path.join(MIGRATIONS_DIR, entry.name, 'migration.sql')
+    let contents: string
+    try {
+      contents = await readFile(sqlPath, 'utf8')
+    } catch {
+      continue // not every folder necessarily has a migration.sql (none currently don't, but be safe)
+    }
+    const badLines = contents
+      .split('\n')
+      .filter((line) => /ADD COLUMN/.test(line) && /NOT NULL/.test(line) && !/DEFAULT/.test(line))
+    if (badLines.length > 0) offenders.set(entry.name, badLines)
+  }
+  return offenders
+}
+
+describe('migration.sql NOT NULL columns require a DEFAULT', () => {
+  test('no non-allow-listed migration adds a NOT NULL column with no DEFAULT', async () => {
+    const offenders = await migrationFoldersWithNotNullNoDefault()
+    const unexpected = [...offenders.keys()].filter(
+      (folder) => !ADD_COLUMN_NOT_NULL_NO_DEFAULT_ALLOWLIST.has(folder)
+    )
+    assert.deepEqual(
+      unexpected,
+      [],
+      `migration(s) add a NOT NULL column with no DEFAULT (rejected by Postgres on a non-empty ` +
+        `table): ${unexpected.join(', ')}. Backfill/seed first, then add the column with a matching ` +
+        `DEFAULT -- see 20260821120434_main / 20260822152223_main for the pattern.`
+    )
+  })
+
+  test('the allow-list itself still names a real migration folder that actually needs it', async () => {
+    const offenders = await migrationFoldersWithNotNullNoDefault()
+    for (const folder of ADD_COLUMN_NOT_NULL_NO_DEFAULT_ALLOWLIST) {
+      assert.ok(
+        offenders.has(folder),
+        `${folder} is allow-listed but no longer has a NOT NULL column with no DEFAULT -- remove it ` +
+          `from the allow-list and docs/variances.md`
+      )
+    }
+  })
+})
+
+/**
+ * OpenProject #1646: every `timestamp` column must be `timestamptz` (`withTimezone: true`).
+ * node-postgres decodes a naive `timestamp` (oid 1114) in the Node process's *local* timezone via
+ * `postgres-date`, while Drizzle writes a JS `Date` as `.toISOString()` (UTC) and `defaultNow()`
+ * compiles to the database server's own local `now()` — three clocks for one column type. A bare
+ * `timestamp()` reintroduces that split; this guards against one slipping back in.
+ */
+function timestampColumns(): { table: string; column: string; withTimezone: boolean }[] {
+  const found: { table: string; column: string; withTimezone: boolean }[] = []
+  for (const value of Object.values(schema)) {
+    if (!(value instanceof PgTable)) continue
+    const config = getTableConfig(value)
+    for (const column of config.columns) {
+      if (column.columnType !== 'PgTimestamp') continue
+      found.push({
+        table: config.name,
+        column: column.name,
+        withTimezone: (column as any).withTimezone === true
+      })
+    }
+  }
+  return found
+}
+
+describe('timestamp columns', () => {
+  test('every timestamp column is declared withTimezone: true', () => {
+    const offenders = timestampColumns().filter((c) => !c.withTimezone)
+    assert.deepEqual(
+      offenders,
+      [],
+      `columns missing withTimezone: true: ${offenders.map((c) => `${c.table}.${c.column}`).join(', ')}`
+    )
+  })
+
+  test('the fixture list itself is non-empty, so a schema-introspection regression cannot pass vacuously', () => {
+    assert.ok(timestampColumns().length > 0)
+  })
+})
+
+/**
+ * Guards against the redundancy OpenProject #1809 removed (eight indexes each a strict column
+ * prefix of another non-partial btree index on the same table -- write amplification and storage
+ * cost for an index Postgres will only ever use in place of the one that already covers it) coming
+ * back unnoticed. A *partial* index is exempt: `jobHistory_dispatchWebhook_hookId_idx` and
+ * `jobHistory_active_idx` are deliberately narrower-but-overlapping, scoped to disjoint `WHERE`
+ * conditions rather than one subsuming the other's rows, so "is a column prefix" doesn't mean
+ * "is redundant with" for those. Likewise an index using anything other than the default `btree`
+ * method (the `gin`/`gin_trgm_ops` indexes on `pages`) is exempt: a `gin` index answers a
+ * fundamentally different query shape than a `btree` prefix comparison assumes.
+ */
+
+type ComparableIndex = {
+  name: string
+  /** `null` once any index column isn't a plain named column (e.g. a `sql` expression) --
+   *  such an index is still eligible to be the REDUNDANT (shorter) one only if every column up to
+   *  its own length is plain, but can never be validly compared as a prefix source beyond that, so
+   *  it's simplest to just exclude it from the comparison pool entirely: expression-column indexes
+   *  in this schema (`glossaryTerms_composite_idx`, `pages_title_trgm_idx`) are exactly the
+   *  longer/covering side of any real redundancy anyway, never the shorter/redundant side. */
+  columns: string[] | null
+}
+
+function isStrictPrefix(shorter: string[], longer: string[]): boolean {
+  return shorter.length < longer.length && shorter.every((col, i) => col === longer[i])
+}
+
+function findPrefixRedundantIndexes(
+  indexes: ComparableIndex[]
+): Array<{ redundant: string; coveredBy: string }> {
+  const comparable = indexes.filter((idx) => idx.columns !== null) as Array<{
+    name: string
+    columns: string[]
+  }>
+  const findings: Array<{ redundant: string; coveredBy: string }> = []
+  for (const a of comparable) {
+    for (const b of comparable) {
+      if (a === b) continue
+      if (isStrictPrefix(a.columns, b.columns)) {
+        findings.push({ redundant: a.name, coveredBy: b.name })
+      }
+    }
+  }
+  return findings
+}
+
+describe('findPrefixRedundantIndexes (pure helper)', () => {
+  test('flags a single-column index that is a strict prefix of a composite one', () => {
+    const findings = findPrefixRedundantIndexes([
+      { name: 'a_siteId_idx', columns: ['siteId'] },
+      { name: 'a_siteId_locale_idx', columns: ['siteId', 'locale'] }
+    ])
+    assert.deepEqual(findings, [{ redundant: 'a_siteId_idx', coveredBy: 'a_siteId_locale_idx' }])
+  })
+
+  test('flags an exact duplicate (e.g. of a primary key index) as a prefix of itself-length pair', () => {
+    // Two indexes with IDENTICAL columns aren't a strict prefix of each other (`length <` fails both
+    // ways) -- a byte-for-byte duplicate like the old `userGroups_composite_idx`/PK pair is instead
+    // exactly a prefix of any composite index that extends past it. This case documents that an
+    // exact duplicate is caught only once one of the two column lists is genuinely longer.
+    const findings = findPrefixRedundantIndexes([
+      { name: 'pk_idx', columns: ['userId', 'groupId'] },
+      { name: 'composite_idx', columns: ['userId', 'groupId'] }
+    ])
+    assert.deepEqual(findings, [])
+  })
+
+  test('does not flag two indexes on unrelated leading columns', () => {
+    const findings = findPrefixRedundantIndexes([
+      { name: 'a_authorId_idx', columns: ['authorId'] },
+      { name: 'a_siteId_locale_idx', columns: ['siteId', 'locale'] }
+    ])
+    assert.deepEqual(findings, [])
+  })
+
+  test('does not flag an index with an expression column as the redundant side', () => {
+    const findings = findPrefixRedundantIndexes([
+      { name: 'a_siteId_idx', columns: ['siteId'] },
+      { name: 'a_composite_idx', columns: null }
+    ])
+    assert.deepEqual(findings, [])
+  })
+})
+
+describe('schema.ts index redundancy', () => {
+  function comparableIndexesByTable(): Map<string, ComparableIndex[]> {
+    const byTable = new Map<string, ComparableIndex[]>()
+    for (const value of Object.values(schema)) {
+      if (!(value instanceof PgTable)) continue
+      const config = getTableConfig(value)
+      const comparable: ComparableIndex[] = []
+      for (const idx of config.indexes) {
+        // Partial indexes and non-btree methods (gin, …) answer different query shapes than a
+        // plain column-prefix comparison assumes -- see the file-level comment above.
+        if (idx.config.where) continue
+        if (idx.config.method && idx.config.method !== 'btree') continue
+        const columns: string[] = []
+        let allPlain = true
+        for (const col of idx.config.columns) {
+          if (col && typeof (col as any).name === 'string') {
+            columns.push((col as any).name)
+          } else {
+            allPlain = false
+            break
+          }
+        }
+        comparable.push({ name: idx.config.name!, columns: allPlain ? columns : null })
+      }
+      byTable.set(config.name, comparable)
+    }
+    return byTable
+  }
+
+  test('no non-partial btree index on a table is a strict column prefix of another', () => {
+    const byTable = comparableIndexesByTable()
+    const findings: string[] = []
+    for (const [tableName, indexes] of byTable) {
+      for (const finding of findPrefixRedundantIndexes(indexes)) {
+        findings.push(
+          `${tableName}.${finding.redundant} is a column-prefix of ${tableName}.${finding.coveredBy}`
+        )
+      }
+    }
+    assert.deepEqual(findings, [], `redundant indexes found:\n${findings.join('\n')}`)
+  })
+
+  test('the fixture itself exercises more than one table, so this cannot pass vacuously', () => {
+    const byTable = comparableIndexesByTable()
+    const tablesWithMultipleIndexes = [...byTable.values()].filter((idxs) => idxs.length > 1)
+    assert.ok(tablesWithMultipleIndexes.length > 1)
   })
 })

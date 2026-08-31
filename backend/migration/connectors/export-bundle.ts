@@ -1,3 +1,4 @@
+import { createReadStream } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import zlib from 'node:zlib'
@@ -28,6 +29,148 @@ function collectTags(tags: unknown, seen: Map<string, SourceRecord>): void {
         const title = 'title' in entry ? ((entry as { title: unknown }).title ?? null) : null
         seen.set(tag, { tag, title })
       }
+    }
+  }
+}
+
+/**
+ * Incrementally parses a top-level JSON array of row objects as decoded text arrives in chunks,
+ * without ever holding more than the current in-flight object (plus a small unconsumed tail) in
+ * memory. `docs/migration/2.5x-export-bundle-format.md` documents every `.json.gz` entity file as one
+ * pretty-printed JSON array of row objects written by the exporter's own batch-fetch loop — this walks
+ * it at the `{`/`}`/`,` boundaries pretty-printing makes visible, tracking string/escape state so a
+ * brace or comma inside a quoted value is never mistaken for a structural one, and bracket depth so a
+ * nested array/object inside a row (e.g. `tags: [...]`) does not end the row early.
+ *
+ * Exported (beyond `readGzipJsonArray`'s own use of it) so its incremental-yield behavior — the actual
+ * mechanism `readGzipJsonArray` relies on to yield a row before the rest of the file has even been
+ * decompressed — has a direct, deterministic unit test independent of OS-level stream chunk sizing.
+ */
+export class JsonArrayStreamParser {
+  private readonly filePath: string
+  private buffer = ''
+  /** Absolute index into `buffer` of the next character to scan — persisted across `push()` calls so
+   * a chunk boundary landing mid-object never causes already-scanned characters to be rescanned (which
+   * would double-count their effect on `depth`/`inString`). */
+  private pos = 0
+  private sawOpenBracket = false
+  private sawCloseBracket = false
+  /** Index into `buffer` where the in-flight row object begins, or -1 between objects. */
+  private objectStart = -1
+  private depth = 0
+  private inString = false
+  private escapeNext = false
+
+  constructor(filePath: string) {
+    this.filePath = filePath
+  }
+
+  private notAnArrayError(): Error {
+    return new Error(
+      `"${this.filePath}" does not contain a JSON array, as every 2.5.x entity file does.`
+    )
+  }
+
+  /** Feeds one more chunk of decoded text, yielding every row object that completes as a result. */
+  *push(chunk: string): Generator<SourceRecord> {
+    this.buffer += chunk
+    let i = this.pos
+    while (i < this.buffer.length) {
+      const ch = this.buffer[i]
+
+      if (this.sawCloseBracket) {
+        // Trailing whitespace (or, in principle, other junk) after the array's own `]` — nothing left
+        // to parse. Advance past it rather than reinterpreting it as more array content.
+        i++
+        continue
+      }
+
+      if (this.objectStart === -1) {
+        // Between objects: whitespace, the opening `[`, a `,` separator, the closing `]`, or the `{`
+        // starting the next row object.
+        if (ch === ' ' || ch === '\n' || ch === '\r' || ch === '\t') {
+          i++
+          continue
+        }
+        if (!this.sawOpenBracket) {
+          if (ch !== '[') throw this.notAnArrayError()
+          this.sawOpenBracket = true
+          i++
+          continue
+        }
+        if (ch === ',') {
+          i++
+          continue
+        }
+        if (ch === ']') {
+          this.sawCloseBracket = true
+          i++
+          continue
+        }
+        if (ch === '{') {
+          this.objectStart = i
+          this.depth = 1
+          this.inString = false
+          this.escapeNext = false
+          i++
+          continue
+        }
+        throw this.notAnArrayError()
+      }
+
+      // Scanning inside a row object: track string/escape state so structural characters inside a
+      // quoted value are ignored, and bracket depth so a nested `{}`/`[]` doesn't end the row early.
+      if (this.inString) {
+        if (this.escapeNext) {
+          this.escapeNext = false
+        } else if (ch === '\\') {
+          this.escapeNext = true
+        } else if (ch === '"') {
+          this.inString = false
+        }
+        i++
+        continue
+      }
+      if (ch === '"') {
+        this.inString = true
+        i++
+        continue
+      }
+      if (ch === '{' || ch === '[') {
+        this.depth++
+        i++
+        continue
+      }
+      if (ch === '}' || ch === ']') {
+        this.depth--
+        i++
+        if (this.depth === 0) {
+          const objectText = this.buffer.slice(this.objectStart, i)
+          this.objectStart = -1
+          yield JSON.parse(objectText) as SourceRecord
+        }
+        continue
+      }
+      i++
+    }
+    // Keep only the unconsumed tail (a row object still mid-scan) for the next chunk — never the
+    // whole buffer seen so far — and re-anchor `pos` so the next push() resumes scanning right after
+    // what's already been scanned, rather than re-scanning it (which would double-count its effect on
+    // `depth`/`inString`).
+    if (this.objectStart === -1) {
+      this.buffer = ''
+      this.pos = 0
+    } else {
+      this.buffer = this.buffer.slice(this.objectStart)
+      this.pos = this.buffer.length
+      this.objectStart = 0
+    }
+  }
+
+  /** Call once the underlying stream has ended, to confirm the array actually closed. */
+  finish(): void {
+    if (!this.sawOpenBracket || !this.sawCloseBracket || this.objectStart !== -1) {
+      throw this.notAnArrayError()
     }
   }
 }
@@ -67,6 +210,19 @@ export class ExportBundleSourceConnector implements SourceConnector {
   private notes: string[] = []
   private detectedVersion: string | undefined
   private connected = false
+
+  /**
+   * Tags collected as a side effect of a `pages()`/`pageHistory()` walk reaching its end (each is
+   * `null` until then — see `tagsImpl()` below). `tagsImpl()` reuses these instead of re-reading and
+   * re-parsing `pages.json.gz`/`pages-history.json.gz`, which is the whole point: the content phase
+   * (`phases/content.ts`) already walks both entities before it ever calls `tags()`, so a second
+   * decompress-and-parse pass over the bundle's two largest files bought nothing. Populated only once
+   * the corresponding generator's loop actually finishes — a caller that abandons `pages()`/
+   * `pageHistory()` partway through (e.g. via an early `break`) leaves the field `null`, and `tagsImpl()`
+   * falls back to reading that file directly, exactly as it always did.
+   */
+  private tagsFromPages: Map<string, SourceRecord> | null = null
+  private tagsFromPageHistory: Map<string, SourceRecord> | null = null
 
   constructor(bundlePath: string) {
     this.bundlePath = bundlePath
@@ -186,14 +342,17 @@ export class ExportBundleSourceConnector implements SourceConnector {
   }
 
   /**
-   * Decompresses and parses one `.json.gz` entity file in one shot — `docs/migration/
-   * 2.5x-export-bundle-format.md` documents each such file as one pretty-printed JSON array written by
-   * the exporter's own batch-fetch loop, so there is no true streaming parse to do (the whole array
-   * already exists as one gzip member on disk); this keeps peak memory bounded to one entity file at a
-   * time rather than the whole bundle, mirroring what the exporter itself held before gzipping.
+   * Streams one `.json.gz` entity file: `createReadStream(filePath).pipe(zlib.createGunzip())`, fed
+   * chunk by chunk into a `JsonArrayStreamParser`, so a row is yielded as soon as its own closing `}`
+   * arrives rather than after the whole file has been read, decompressed and turned into one JS
+   * string. Peak memory is bounded to one row plus a small unconsumed tail, not the whole entity file
+   * — the old `fs.readFile` + `zlib.gunzipSync(...).toString('utf8')` + `JSON.parse` approach held the
+   * entire decompressed array in memory at once and threw once that string passed V8's ~512 MB
+   * ceiling, which a large `pages-history.json.gz` from a big source install can exceed.
    * Yields nothing, rather than throwing, when the file is absent — every export entity is
    * independently optional (a zero-row entity is skipped entirely, per the same doc), and a missing
-   * file is exactly that case, not an error.
+   * file is exactly that case, not an error. Throws the same "does not contain a JSON array" error a
+   * whole-file parse would, for a top-level value that isn't an array.
    */
   private async *readGzipJsonArray(filePath: string): AsyncGenerator<SourceRecord> {
     const exists = await fs
@@ -201,53 +360,107 @@ export class ExportBundleSourceConnector implements SourceConnector {
       .then(() => true)
       .catch(() => false)
     if (!exists) return
-    const compressed = await fs.readFile(filePath)
-    const decompressed = zlib.gunzipSync(compressed).toString('utf8')
-    const rows = JSON.parse(decompressed)
-    if (!Array.isArray(rows)) {
-      throw new Error(
-        `"${filePath}" does not contain a JSON array, as every 2.5.x entity file does.`
-      )
+
+    const parser = new JsonArrayStreamParser(filePath)
+    const decoder = new TextDecoder('utf-8')
+    const fileStream = createReadStream(filePath)
+    const gunzip = fileStream.pipe(zlib.createGunzip())
+    try {
+      for await (const chunk of gunzip as AsyncIterable<Buffer>) {
+        yield* parser.push(decoder.decode(chunk, { stream: true }))
+      }
+      yield* parser.push(decoder.decode())
+      parser.finish()
+    } finally {
+      gunzip.destroy()
+      fileStream.destroy()
     }
-    yield* rows as SourceRecord[]
+  }
+
+  /**
+   * Streams `pages.json.gz` while also collecting its rows' tags into `tagsFromPages` — so a `tags()`
+   * call that follows a full walk of this generator can reuse them instead of re-reading the file. The
+   * cache is only committed after the underlying generator runs out of rows; a caller that stops
+   * iterating early never sees `tagsFromPages` populated, and `tagsImpl()` reads the file itself in
+   * that case exactly as before.
+   */
+  private async *pagesImpl(): AsyncGenerator<SourceRecord> {
+    const seen = new Map<string, SourceRecord>()
+    for await (const row of this.readGzipJsonArray(
+      path.join(this.bundlePath, ENTITY_FILES.pages)
+    )) {
+      collectTags(row.tags, seen)
+      yield row
+    }
+    this.tagsFromPages = seen
+  }
+
+  /** `pageHistory()`'s counterpart to `pagesImpl()` above — see its docblock. */
+  private async *pageHistoryImpl(): AsyncGenerator<SourceRecord> {
+    const seen = new Map<string, SourceRecord>()
+    for await (const row of this.readGzipJsonArray(
+      path.join(this.bundlePath, ENTITY_FILES.pageHistory)
+    )) {
+      collectTags(row.tags, seen)
+      yield row
+    }
+    this.tagsFromPageHistory = seen
   }
 
   pages(): AsyncIterable<SourceRecord> {
     if (!this.connected) {
       throw new Error('pages() called before a successful connect().')
     }
-    return this.readGzipJsonArray(path.join(this.bundlePath, ENTITY_FILES.pages))
+    return this.pagesImpl()
   }
 
   pageHistory(): AsyncIterable<SourceRecord> {
     if (!this.connected) {
       throw new Error('pageHistory() called before a successful connect().')
     }
-    return this.readGzipJsonArray(path.join(this.bundlePath, ENTITY_FILES.pageHistory))
+    return this.pageHistoryImpl()
   }
 
   /**
    * There is no dedicated `tags.json`/`tags.json.gz` file in the export-bundle format at all (see
    * `ENTITY_FILES` above, and `2.5x-export-bundle-format.md`'s `pages`/`history` sections) — 2.x's
    * `tags`/`pageTags`/`pageHistoryTags` join is already denormalized inline as each page/history row's
-   * own `tags: [{tag, title}]`. This derives a deduplicated tag list the same way any other consumer
-   * of this generator would have to: by scanning `pages()` and `pageHistory()` and collecting every
-   * distinct tag string seen. Content-staging (Task 733's own `extractContentStaging`) does not
-   * actually need to call this — it reads `tags` straight off each page/history row — but the
-   * `SourceConnector` interface promises the generator, so it is implemented for real rather than left
-   * throwing for a table this connector kind genuinely has no separate file for.
+   * own `tags: [{tag, title}]`. This derives a deduplicated tag list from that denormalized data.
+   * Content-staging (Task 733's own `extractContentStaging`) does not actually need to call this — it
+   * reads `tags` straight off each page/history row — but the `SourceConnector` interface promises the
+   * generator, so it is implemented for real rather than left throwing for a table this connector kind
+   * genuinely has no separate file for.
+   *
+   * Reuses `tagsFromPages`/`tagsFromPageHistory` when a full `pages()`/`pageHistory()` walk already
+   * populated them (the phase that wires this in, `phases/content.ts`, always walks both before calling
+   * `tags()`) rather than decompressing and re-parsing `pages.json.gz`/`pages-history.json.gz` a second
+   * time — those are the two largest files in the bundle. A caller that goes straight to `tags()`
+   * without walking the other two generators first still gets a correct answer: each half falls back to
+   * reading its file directly when its cache is unset. Merge order matters — pages' entries (and their
+   * titles) win over history's for a tag seen in both, matching the un-cached scan's own "seen" ordering
+   * (pages read to completion, then history, only adding what wasn't already there).
    */
   private async *tagsImpl(): AsyncGenerator<SourceRecord> {
     const seen = new Map<string, SourceRecord>()
-    for await (const row of this.readGzipJsonArray(
-      path.join(this.bundlePath, ENTITY_FILES.pages)
-    )) {
-      collectTags(row.tags, seen)
+    if (this.tagsFromPages) {
+      for (const [tag, record] of this.tagsFromPages) seen.set(tag, record)
+    } else {
+      for await (const row of this.readGzipJsonArray(
+        path.join(this.bundlePath, ENTITY_FILES.pages)
+      )) {
+        collectTags(row.tags, seen)
+      }
     }
-    for await (const row of this.readGzipJsonArray(
-      path.join(this.bundlePath, ENTITY_FILES.pageHistory)
-    )) {
-      collectTags(row.tags, seen)
+    if (this.tagsFromPageHistory) {
+      for (const [tag, record] of this.tagsFromPageHistory) {
+        if (!seen.has(tag)) seen.set(tag, record)
+      }
+    } else {
+      for await (const row of this.readGzipJsonArray(
+        path.join(this.bundlePath, ENTITY_FILES.pageHistory)
+      )) {
+        collectTags(row.tags, seen)
+      }
     }
     yield* seen.values()
   }

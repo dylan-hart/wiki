@@ -112,7 +112,7 @@ async function commit() {
     if (props.required) {
       const isFormValid = await reasonForm.value.validate(true)
       if (!isFormValid) {
-        throw new Error('Form Invalid')
+        throw new Error('ERR_FORM_INVALID')
       }
     }
     onDialogOK({ reason: state.reason })

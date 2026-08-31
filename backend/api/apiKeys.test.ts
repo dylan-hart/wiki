@@ -19,7 +19,9 @@ import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 const GROUP_ID = '11111111-1111-4111-8111-111111111111'
 const SITE_ID = '22222222-2222-4222-8222-222222222222'
 const LEVEL_ID = '33333333-3333-4333-8333-333333333333'
+const EXISTING_KEY_ID = '44444444-4444-4444-8444-444444444444'
 let createKeyCalls: any[] = []
+let revokeKeyCalls: string[] = []
 
 let app: FastifyInstance
 
@@ -33,6 +35,13 @@ before(async () => {
         createKey: async (args: any) => {
           createKeyCalls.push(args)
           return { id: 'new-key-id', key: 'signed.jwt.token' }
+        },
+        getKeyById: async (id: string) =>
+          id === EXISTING_KEY_ID
+            ? { id: EXISTING_KEY_ID, name: 'Existing Key', isRevoked: false }
+            : null,
+        revokeKey: async (id: string) => {
+          revokeKeyCalls.push(id)
         }
       },
       classificationLevels: {
@@ -64,6 +73,16 @@ before(async () => {
       statusCode: error.statusCode ?? 500,
       message: error.message
     })
+  })
+  // -> Mirrors `index.ts`'s real `apiKey` decoration/hook, simplified to what these tests need: a
+  //    request carrying the `x-simulate-api-key` test header is treated as bearer-token-authenticated
+  //    (OpenProject #2190) — `manage:system`, so it would pass the real route-permission gate too, the
+  //    same as any admin-issued key that `preHandler` in `index.ts` resolves permissions from.
+  app.decorateRequest('apiKey', null)
+  app.addHook('onRequest', async (req) => {
+    if (req.headers['x-simulate-api-key']) {
+      ;(req as any).apiKey = { id: 'caller-key-id', permissions: ['manage:system'] }
+    }
   })
   await registerErrorSchema(app)
   await registerApiKeySchema(app)
@@ -265,4 +284,62 @@ test('creating a key records an apiKey.issued audit log entry, never the key val
   assert.equal(call.targetId, 'new-key-id')
   assert.equal(call.targetLabel, 'Test Key')
   assert.equal(JSON.stringify(call).includes('signed.jwt.token'), false)
+})
+
+/**
+ * OpenProject #2190: a bearer-token (API key) caller cannot mint or revoke a key, including itself --
+ * even with `manage:system`, which is enough to pass the route-permission gate `index.ts`'s
+ * `preHandler` applies from `req.apiKey.permissions`. Session-authenticated requests (no `req.apiKey`
+ * set, the shape every other test in this file already uses) are unaffected.
+ */
+test('POST / refuses a request carrying a verified req.apiKey, even with manage:system', async () => {
+  createKeyCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    headers: { 'x-simulate-api-key': '1' },
+    payload: {
+      name: 'Test Key',
+      expiration: '30d',
+      groups: [GROUP_ID]
+    }
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(createKeyCalls.length, 0)
+})
+
+test('POST / still succeeds for an equivalent session-authenticated (no req.apiKey) request', async () => {
+  createKeyCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'Test Key',
+      expiration: '30d',
+      groups: [GROUP_ID]
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(createKeyCalls.length, 1)
+})
+
+test('POST /:keyId/revoke refuses a request carrying a verified req.apiKey, even with manage:system', async () => {
+  revokeKeyCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: `/${EXISTING_KEY_ID}/revoke`,
+    headers: { 'x-simulate-api-key': '1' }
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(revokeKeyCalls.length, 0)
+})
+
+test('POST /:keyId/revoke still succeeds for an equivalent session-authenticated (no req.apiKey) request', async () => {
+  revokeKeyCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: `/${EXISTING_KEY_ID}/revoke`
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(revokeKeyCalls, [EXISTING_KEY_ID])
 })

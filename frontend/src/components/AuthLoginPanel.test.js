@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
@@ -18,7 +18,7 @@ const LOCAL_STRATEGY = {
   id: 'strat-1',
   activeStrategy: {
     displayName: 'Local',
-    registration: false,
+    selfRegistration: false,
     allowForgotPassword: false,
     strategy: {
       key: 'local',
@@ -133,7 +133,7 @@ describe('AuthLoginPanel recovery code toggle', () => {
 
 /**
  * `register()` used to be a dead `APOLLO_CLIENT.mutate(...)` call (there is no GraphQL server left --
- * see CLAUDE.md's "GraphQL is being removed") that also never sent `strategyId`, which the REST route
+ * see CLAUDE.md's "GraphQL was removed") that also never sent `strategyId`, which the REST route
  * requires. This covers the two shapes `POST sites/:siteId/auth/register` answers with: `nextAction:
  * 'verify'` (email validation on -- show the check-your-email screen rather than auto-logging in) and
  * any other `nextAction` (email validation off -- falls straight through to the same
@@ -145,7 +145,7 @@ const REGISTRATION_STRATEGY = {
   id: 'strategy-1',
   activeStrategy: {
     displayName: 'Local',
-    registration: true,
+    selfRegistration: true,
     allowForgotPassword: true,
     strategy: {
       key: 'local',
@@ -191,7 +191,8 @@ function mountAuthLoginPanel() {
   const wrapper = mount(AuthLoginPanel, {
     global: {
       plugins: [i18n]
-    }
+    },
+    attachTo: document.body
   })
 
   return { wrapper, siteStore }
@@ -200,6 +201,38 @@ function mountAuthLoginPanel() {
 beforeEach(() => {
   notifyQueue.splice(0, notifyQueue.length)
   window.history.replaceState(null, '', '/login')
+})
+
+/**
+ * OpenProject #1671: the username field's bare `autofocus` attribute never did anything -- `WInput.vue`
+ * exposes no such prop, so arriving at `/login` put the caret nowhere. `onMounted` now focuses it
+ * itself, ahead of the `fetchStrategies()` network round trip so it happens on first paint rather than
+ * after the response lands -- and only when the reset-password token check (`detectResetToken()`)
+ * leaves the screen on `login`, so a `/login/reset-password/:token` visit still gets its own field
+ * focused by `switchTo('reset')` instead, not this one stealing it back.
+ */
+describe('AuthLoginPanel focus on first paint', () => {
+  it('focuses the username field on first paint at /login, before strategies have loaded', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([REGISTRATION_STRATEGY]) })
+
+    const { wrapper } = mountAuthLoginPanel()
+    await wrapper.vm.$nextTick()
+
+    expect(document.activeElement).toBe(wrapper.find('input[autocomplete="email"]').element)
+  })
+
+  it('does not focus the login field when a reset-password token puts the reset screen up instead', async () => {
+    window.history.replaceState(null, '', '/login/reset-password/tok-abc')
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([REGISTRATION_STRATEGY]) })
+
+    const { wrapper } = mountAuthLoginPanel()
+    await vi.waitFor(() =>
+      expect(wrapper.text()).toContain('Choose a new password for your account:')
+    )
+
+    const pwdInputs = wrapper.findAll('input[autocomplete="new-password"]')
+    expect(document.activeElement).toBe(pwdInputs[0].element)
+  })
 })
 
 describe('AuthLoginPanel register', () => {
@@ -439,5 +472,93 @@ describe('AuthLoginPanel reset password', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.text()).not.toContain('Choose a new password for your account:')
+  })
+})
+
+/**
+ * OpenProject #1360/#2208 (2026-08-24 security audit §2): `resp.redirect` on a successful login is a
+ * group's `redirectOnLogin` (validated server-side, but checked again here as defence in depth
+ * against a row written before that validation existed). `javascript:…` parses as a valid `URL` with
+ * no error, so this cannot be a bare try/catch around `new URL()` — it has to look at what scheme
+ * came back.
+ */
+describe('AuthLoginPanel redirect handling (OpenProject #2208)', () => {
+  async function mountAndLogin(redirect) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([LOCAL_STRATEGY]) })
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const wrapper = mount(AuthLoginPanel, { global: { plugins: [i18n] } })
+    await flushPromises()
+
+    const inputs = wrapper.findAll('input')
+    await inputs[0].setValue('reader@example.com')
+    await inputs[1].setValue('correct horse battery staple')
+
+    API_CLIENT.put.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({ ok: true, nextAction: 'redirect', continuationToken: '', redirect })
+    })
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    return wrapper
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('refuses a javascript: redirect and falls back to /', async () => {
+    const replace = vi.spyOn(window.location, 'replace').mockImplementation(() => {})
+    await mountAndLogin('javascript:alert(1)')
+
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(replace).toHaveBeenCalledWith('/')
+  })
+
+  it('refuses a scheme-relative //host redirect the same way', async () => {
+    const replace = vi.spyOn(window.location, 'replace').mockImplementation(() => {})
+    await mountAndLogin('//attacker.example')
+
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(replace).toHaveBeenCalledWith('/')
+  })
+
+  it('follows a genuine rooted-path redirect', async () => {
+    const replace = vi.spyOn(window.location, 'replace').mockImplementation(() => {})
+    await mountAndLogin('/dashboard')
+
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(replace).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('follows a genuine https:// redirect', async () => {
+    const replace = vi.spyOn(window.location, 'replace').mockImplementation(() => {})
+    await mountAndLogin('https://idp.example.com/welcome')
+
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(replace).toHaveBeenCalledWith('https://idp.example.com/welcome')
+  })
+
+  it('falls back to / when the response carries no redirect at all', async () => {
+    const replace = vi.spyOn(window.location, 'replace').mockImplementation(() => {})
+    await mountAndLogin(undefined)
+
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(replace).toHaveBeenCalledWith('/')
   })
 })

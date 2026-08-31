@@ -25,6 +25,12 @@ before(async () => {
         sendTestEmail: (...args: any[]) => sendTestEmailMock(...args)
       }
     },
+    config: {
+      mail: {}
+    },
+    configSvc: {
+      saveToDb: mock.fn(async () => true)
+    },
     logger: {
       warn: mock.fn(),
       error: mock.fn(),
@@ -48,6 +54,8 @@ after(async () => {
 
 beforeEach(() => {
   sendTestEmailMock = mock.fn(async () => {})
+  WIKI.config.mail = {}
+  WIKI.configSvc.saveToDb = mock.fn(async () => true)
 })
 
 test('sends the test email and reports success', async () => {
@@ -185,4 +193,67 @@ test('answers 422 with a specific message when the recipient is rejected by the 
 
   assert.equal(res.statusCode, 422)
   assert.match(res.json().message, /recipient|rejected/i)
+})
+
+/**
+ * `GET /_api/mail/config` / `PUT /_api/mail/config` — the `dkimPrivateKey` masking round trip,
+ * matching the existing `pass` contract: a stored key comes back as the mask, and echoing the mask
+ * back on PUT must not overwrite the stored value.
+ */
+
+test('masks a stored dkimPrivateKey on GET, like pass', async () => {
+  WIKI.config.mail = {
+    pass: 'super-secret-password',
+    dkimPrivateKey: '-----BEGIN RSA PRIVATE KEY-----\nMII...\n-----END RSA PRIVATE KEY-----'
+  }
+
+  const res = await app.inject({ method: 'GET', url: '/mail/config' })
+
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.equal(body.pass, '********')
+  assert.equal(body.dkimPrivateKey, '********')
+})
+
+test('returns an empty dkimPrivateKey on GET when none is stored', async () => {
+  WIKI.config.mail = { pass: '' }
+
+  const res = await app.inject({ method: 'GET', url: '/mail/config' })
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().dkimPrivateKey, '')
+})
+
+test('echoing the dkimPrivateKey mask on PUT leaves the stored key byte-identical', async () => {
+  const originalKey = '-----BEGIN RSA PRIVATE KEY-----\nMII...\n-----END RSA PRIVATE KEY-----'
+  WIKI.config.mail = {
+    pass: 'super-secret-password',
+    dkimPrivateKey: originalKey
+  }
+
+  const res = await app.inject({
+    method: 'PUT',
+    url: '/mail/config',
+    payload: {
+      pass: '********',
+      dkimPrivateKey: '********'
+    }
+  })
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(WIKI.config.mail.pass, 'super-secret-password')
+  assert.equal(WIKI.config.mail.dkimPrivateKey, originalKey)
+})
+
+test('PUT with a new dkimPrivateKey overwrites the stored key', async () => {
+  WIKI.config.mail = { dkimPrivateKey: 'old-key' }
+
+  const res = await app.inject({
+    method: 'PUT',
+    url: '/mail/config',
+    payload: { dkimPrivateKey: 'new-key' }
+  })
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(WIKI.config.mail.dkimPrivateKey, 'new-key')
 })

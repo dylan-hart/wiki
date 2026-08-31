@@ -1,4 +1,27 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+/*
+ * OpenProject #1638: the invalid-URL / missing-URL messages resolve through `../shared/i18n.js`'s
+ * `I18n` reactive controller rather than a hardcoded literal. `I18n` itself has its own dedicated
+ * coverage (`shared/i18n.test.js` -- resolution, English fallback, param interpolation, the
+ * fallback-before-load timing); mocked here the same way `block-include`'s suite mocks
+ * `../shared/config.js`, so this suite proves the component *delegates* to the resolver (calls it
+ * with the right key/fallback/params, renders whatever it returns) without needing a real network
+ * round trip or fetch stub.
+ */
+const { i18nT, MockI18n } = vi.hoisted(() => {
+  // -> Mirrors the real controller's own pre-load behavior: the fallback, verbatim, until a test
+  //    overrides it to prove the rendered text really is whatever the resolver hands back.
+  const i18nT = vi.fn((_key, fallback) => fallback)
+  class MockI18n {
+    constructor(host) {
+      this.host = host
+      this.t = i18nT
+    }
+  }
+  return { i18nT, MockI18n }
+})
+vi.mock('../shared/i18n.js', () => ({ I18n: MockI18n }))
 
 import './component.js'
 
@@ -20,6 +43,40 @@ describe('block-youtube', () => {
   afterEach(() => {
     document.body.replaceChildren()
     document.body.className = ''
+    i18nT.mockClear()
+  })
+
+  describe('error text resolves through the shared i18n resolver, not a literal', () => {
+    it('asks the resolver for the invalid-URL key, with the URL as an interpolation param', async () => {
+      await mountYoutube({ url: 'https://example.com/not-a-video' })
+
+      expect(i18nT).toHaveBeenCalledWith(
+        'blocks.youtube.errors.invalidUrl',
+        'https://example.com/not-a-video is not the address of a YouTube video.',
+        { url: 'https://example.com/not-a-video' }
+      )
+    })
+
+    it('asks the resolver for the missing-URL key when no URL is given', async () => {
+      await mountYoutube({ url: '' })
+
+      expect(i18nT).toHaveBeenCalledWith(
+        'blocks.youtube.errors.missingUrl',
+        'This player needs the address of a YouTube video.'
+      )
+    })
+
+    it("renders whatever the resolver returns, not the component's own literal", async () => {
+      i18nT.mockReturnValueOnce("Ce n'est pas une adresse YouTube valide.")
+      const el = await mountYoutube({ url: 'https://example.com/not-a-video' })
+
+      expect(el.shadowRoot.querySelector('.error').textContent).toContain(
+        "Ce n'est pas une adresse YouTube valide."
+      )
+      expect(el.shadowRoot.querySelector('.error').textContent).not.toContain(
+        'is not the address of a YouTube video'
+      )
+    })
   })
 
   describe('videoId parsing (via the rendered embed src)', () => {

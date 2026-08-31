@@ -190,3 +190,27 @@ test('POST .../search/refresh re-reads definitions from disk and returns the ref
   assert.deepEqual(res.json(), [{ ...makeDbEngine(), dictOverrides, availableDictionaries }])
   assert.equal(refreshCalls, 1)
 })
+
+// -> #1616: these two messages used to be free-text English sentences, which surfaced verbatim in
+//    the UI instead of translating like the rest of a `t(key, fallback)` screen. Assert the coded
+//    `ERR_*` shape (`frontend/src/helpers/localization.js#localizeError` is what resolves it client
+//    side) rather than any particular English wording.
+test('PATCH .../search rejects a malformed locale code with a coded error', async () => {
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/sites/${SITE_ID}/search`,
+    payload: { dictOverrides: { 'not a locale': 'english' } }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.json().message, 'ERR_INVALID_LOCALE_CODE')
+})
+
+test('PATCH .../search rejects a dictionary the database does not have with a coded error', async () => {
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/sites/${SITE_ID}/search`,
+    payload: { dictOverrides: { en: 'not-a-real-dictionary' } }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.json().message, 'ERR_INVALID_SEARCH_DICTIONARY')
+})

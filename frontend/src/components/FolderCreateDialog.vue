@@ -23,7 +23,6 @@
               hide-bottom-space
               :label="t(`fileman.folderTitle`)"
               lazy-rules="ondemand"
-              autofocus
               @keyup:enter="create" />
           </w-item-section>
         </w-item>
@@ -92,7 +91,9 @@ defineEmits([...dialogComponentEmits])
 
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => iptTitle.value
+})
 
 // STORES
 
@@ -163,7 +164,7 @@ async function create() {
     }).json()
     // -> The API client does not throw on 400, so a refused name comes back as a parsed error
     if (resp?.ok === false) {
-      throw new Error(resp.message || 'An unexpected error occured.')
+      throw new Error(resp.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

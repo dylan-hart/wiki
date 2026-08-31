@@ -1,5 +1,8 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    :aria-label="t(`admin.users.changePassword`)"
+    @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-password-reset.svg" size="sm" class="mr-2" />
@@ -10,6 +13,7 @@
           <blueprint-icon icon="lock" />
           <w-item-section>
             <w-input
+              ref="currentPasswordIpt"
               v-model="state.currentPassword"
               outlined
               dense
@@ -18,8 +22,7 @@
               :rules="currentPasswordValidation"
               hide-bottom-space
               :label="t(`auth.changePwd.currentPassword`)"
-              lazy-rules="ondemand"
-              autofocus />
+              lazy-rules="ondemand" />
           </w-item-section>
         </w-item>
         <w-item>
@@ -36,8 +39,7 @@
               :rules="newPasswordValidation"
               hide-bottom-space
               :label="t(`auth.changePwd.newPassword`)"
-              lazy-rules="ondemand"
-              autofocus>
+              lazy-rules="ondemand">
               <template #append>
                 <div class="flex flex-nowrap items-center">
                   <w-badge :color="passwordStrength.color" :label="passwordStrength.label" />
@@ -63,8 +65,7 @@
               :rules="verifyPasswordValidation"
               hide-bottom-space
               :label="t(`auth.changePwd.newPasswordVerify`)"
-              lazy-rules="ondemand"
-              autofocus />
+              lazy-rules="ondemand" />
           </w-item-section>
         </w-item>
       </w-form>
@@ -90,7 +91,6 @@
 </template>
 
 <script setup>
-import { sampleSize } from 'es-toolkit/array'
 import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
@@ -98,6 +98,7 @@ import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { passwordStrengthScore } from '@/helpers/passwordStrength'
 import { localizeError } from '@/helpers/localization'
+import { randomPassword } from '@/helpers/randomPassword'
 import { computed, reactive, ref } from 'vue'
 
 // PROPS
@@ -115,7 +116,9 @@ defineEmits([...dialogComponentEmits])
 
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => currentPasswordIpt.value
+})
 
 // I18N
 
@@ -133,6 +136,7 @@ const state = reactive({
 // REFS
 
 const changeUserPwdForm = ref(null)
+const currentPasswordIpt = ref(null)
 const newPasswordIpt = ref(null)
 
 // COMPUTED
@@ -190,7 +194,7 @@ const verifyPasswordValidation = [
 
 function randomizePassword() {
   const pwdChars = 'abcdefghkmnpqrstuvwxyzABCDEFHJKLMNPQRSTUVWXYZ23456789_*=?#!()+'
-  state.newPassword = sampleSize([...pwdChars], 16).join('')
+  state.newPassword = randomPassword(16, pwdChars)
   // -> A password the user never typed has to be readable, or there is no way to record it anywhere
   newPasswordIpt.value.reveal()
 }
@@ -210,7 +214,7 @@ async function save() {
       }
     }).json()
     if (!resp?.ok) {
-      throw new Error(localizeError(resp?.message, t) || 'An unexpected error occured.')
+      throw new Error(localizeError(resp?.message, t) || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

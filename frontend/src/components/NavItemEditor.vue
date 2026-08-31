@@ -1,6 +1,6 @@
 <template>
   <w-drawer class="bg-dark-6" :model-value="true" :width="295" dark>
-    <w-scroll-area class="nav-edit" :thumb-style="thumbStyle" :bar-style="barStyle">
+    <w-scroll-area class="nav-edit">
       <!--
         The `q-list q-list--dense q-list--dark` this carried were the old framework's classes and
         nothing defines them any more, which is why the rows had drifted to full height: the density
@@ -126,9 +126,9 @@
               <w-item
                 clickable
                 @click="clearItems"
-                :disable="!state.items.some((item) => !item.generated)">
+                :disabled="!state.items.some((item) => !item.generated)">
                 <w-item-section side>
-                  <w-icon name="la:trash-alt" color="negative" />
+                  <w-icon name="la:trash" color="negative" />
                 </w-item-section>
                 <w-item-section>
                   <w-item-label>{{ t('navEdit.clearItems') }}</w-item-label>
@@ -210,6 +210,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`navEdit.visibility`)"
                 :options="visibilityOptions" />
             </w-item-section>
           </w-item>
@@ -235,7 +236,7 @@
           <w-btn
             class="acrylic-btn"
             flat
-            icon="la:trash-alt"
+            icon="la:trash"
             :label="t(`common.actions.delete`)"
             color="negative"
             padding="xs md"
@@ -318,9 +319,6 @@
               <w-item-section avatar>
                 <w-toggle
                   v-model="state.current.expandByDefault"
-                  color="primary"
-                  checked-icon="la:check"
-                  unchecked-icon="la:times"
                   :aria-label="t(`navEdit.expandByDefault`)" />
               </w-item-section>
             </w-item>
@@ -370,9 +368,6 @@
               <w-item-section avatar>
                 <w-toggle
                   v-model="state.current.openInNewWindow"
-                  color="primary"
-                  checked-icon="la:check"
-                  unchecked-icon="la:times"
                   :aria-label="t(`navEdit.openInNewWindow`)" />
               </w-item-section>
             </w-item>
@@ -391,6 +386,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`navEdit.visibility`)"
                 :options="visibilityOptions" />
             </w-item-section>
           </w-item>
@@ -437,7 +433,7 @@
           <w-btn
             class="acrylic-btn"
             flat
-            icon="la:trash-alt"
+            icon="la:trash"
             :label="t(`common.actions.delete`)"
             color="negative"
             padding="xs md"
@@ -469,6 +465,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`navEdit.visibility`)"
                 :options="visibilityOptions" />
             </w-item-section>
           </w-item>
@@ -494,7 +491,7 @@
           <w-btn
             class="acrylic-btn"
             flat
-            icon="la:trash-alt"
+            icon="la:trash"
             :label="t(`common.actions.delete`)"
             color="negative"
             padding="xs md"
@@ -689,19 +686,6 @@ const sortableOptions = computed(() => ({
  */
 const canCopyFrom = computed(() => state.copyLocales.length > 1 || state.copyOtherSites.length > 0)
 
-const thumbStyle = {
-  right: '2px',
-  borderRadius: '5px',
-  backgroundColor: '#FFF',
-  width: '5px',
-  opacity: 0.5
-}
-const barStyle = {
-  backgroundColor: '#000',
-  width: '9px',
-  opacity: 0.1
-}
-
 // METHODS
 
 function setItem(item) {
@@ -800,7 +784,7 @@ async function loadGroups() {
     notify({
       type: 'warning',
       message: t('navEdit.groupsFailed'),
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   state.loading--
@@ -820,7 +804,7 @@ async function loadMenuItems() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
     emit('load-error')
   }
@@ -903,7 +887,7 @@ async function copyFrom(sourceSiteId, sourceNavId) {
     }).json()
     // -> The API client does not throw on 400, so a refusal comes back as a parsed error
     if (resp?.ok === false) {
-      throw new Error(resp.message || 'An unexpected error occured.')
+      throw new Error(resp.message || t('common.error.unexpected'))
     }
     await loadMenuItems()
     // -> OpenProject #1012: this already persisted server-side, unlike the rest of this editor's
@@ -916,7 +900,7 @@ async function copyFrom(sourceSiteId, sourceNavId) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   state.loading--

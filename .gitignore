@@ -42,9 +42,8 @@ test-results/
 playwright-report/
 .scannerwork
 
-# Localization Resources
-/server/locales/*.json
-!/server/locales/en.json
+# Ephemeral agent/dev working notes, never committed
+/scratch/
 
 cloudflared.deb
 

@@ -1,5 +1,5 @@
 <template>
-  <w-layout view="hHh lpR fFf" container>
+  <w-layout container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="img:/_assets/icons/fluent-account.svg" left size="md" />
       <div>
@@ -7,7 +7,7 @@
         <div class="text-caption">{{ state.user.name }}</div>
       </div>
       <w-space />
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
           push
           color="grey-6"
@@ -212,6 +212,7 @@
                       glossy
                       no-caps
                       toggle-color="primary"
+                      :aria-label="t(`admin.users.timeFormat`)"
                       :options="[
                         { label: t('profile.timeFormat12h'), value: '12h' },
                         { label: t('profile.timeFormat24h'), value: '24h' }
@@ -232,6 +233,7 @@
                       glossy
                       no-caps
                       toggle-color="primary"
+                      :aria-label="t(`admin.users.appearance`)"
                       :options="[
                         { label: t('profile.appearanceDefault'), value: 'site' },
                         { label: t('profile.appearanceLight'), value: 'light' },
@@ -253,6 +255,7 @@
                       glossy
                       no-caps
                       toggle-color="primary"
+                      :aria-label="t(`profile.cvd`)"
                       :options="[
                         { value: 'none', label: t('profile.cvdNone') },
                         { value: 'protanopia', label: t('profile.cvdProtanopia') },
@@ -281,7 +284,7 @@
                   <w-item-section>
                     <w-item-label>{{ t(`common.field.createdOn`) }}</w-item-label>
                     <w-item-label>
-                      <strong>{{ formattedDate(state.user.createdAt) }}</strong>
+                      <strong>{{ humanizeDate(t, state.user.createdAt) }}</strong>
                     </w-item-label>
                   </w-item-section>
                 </w-item>
@@ -291,7 +294,7 @@
                   <w-item-section>
                     <w-item-label>{{ t(`common.field.lastUpdated`) }}</w-item-label>
                     <w-item-label>
-                      <strong>{{ formattedDate(state.user.updatedAt) }}</strong>
+                      <strong>{{ humanizeDate(t, state.user.updatedAt) }}</strong>
                     </w-item-label>
                   </w-item-section>
                 </w-item>
@@ -301,7 +304,7 @@
                   <w-item-section>
                     <w-item-label>{{ t(`admin.users.lastLoginAt`) }}</w-item-label>
                     <w-item-label>
-                      <strong>{{ formattedDate(state.user.lastLoginAt) }}</strong>
+                      <strong>{{ humanizeDate(t, state.user.lastLoginAt) }}</strong>
                     </w-item-label>
                   </w-item-section>
                 </w-item>
@@ -314,7 +317,6 @@
                     v-model="state.user.meta.notes"
                     type="textarea"
                     :aria-label="t(`admin.users.notes`)"
-                    input-style="min-height: 243px"
                     :hint="t(`admin.users.noteHint`)" />
                 </w-card-section>
               </w-card>
@@ -366,9 +368,6 @@
                   <w-item-section avatar>
                     <w-toggle
                       v-model="localAuth.mustChangePwd"
-                      color="primary"
-                      checked-icon="la:check"
-                      unchecked-icon="la:times"
                       :aria-label="t(`admin.users.mustChangePwd`)" />
                   </w-item-section>
                 </w-item>
@@ -382,9 +381,6 @@
                   <w-item-section avatar>
                     <w-toggle
                       v-model="localAuth.restrictLogin"
-                      color="primary"
-                      checked-icon="la:check"
-                      unchecked-icon="la:times"
                       :aria-label="t(`admin.users.pwdAuthRestrict`)" />
                   </w-item-section>
                 </w-item>
@@ -400,9 +396,6 @@
                   <w-item-section avatar>
                     <w-toggle
                       v-model="localAuth.isTfaRequired"
-                      color="primary"
-                      checked-icon="la:check"
-                      unchecked-icon="la:times"
                       :aria-label="t(`admin.users.tfaRequired`)" />
                   </w-item-section>
                 </w-item>
@@ -435,7 +428,6 @@
                 <w-card-section class="pt-0">
                   <w-banner
                     v-if="state.passkeys.length < 1"
-                    rounded
                     :class="dark.isActive ? `bg-negative text-white` : `bg-grey-2 text-grey-7`"
                     >{{ t('admin.users.passkeysEmpty') }}</w-banner
                   >
@@ -450,7 +442,7 @@
                         <strong>{{ pkey.name }}</strong>
                         <div class="text-caption">{{ pkey.siteHostname }}</div>
                         <div class="text-caption text-grey-7">
-                          {{ formattedDate(pkey.createdAt) }}
+                          {{ humanizeDate(t, pkey.createdAt) }}
                         </div>
                       </w-item-section>
                       <w-item-section side>
@@ -473,7 +465,6 @@
                 <w-card-header>{{ t('admin.users.linkedProviders') }}</w-card-header>
                 <w-card-section v-if="linkedAuthProviders.length < 1" class="pt-0">
                   <w-banner
-                    rounded
                     :class="dark.isActive ? `bg-negative text-white` : `bg-grey-2 text-grey-7`"
                     >{{ t('admin.users.noLinkedProviders') }}</w-banner
                   >
@@ -569,7 +560,11 @@
                       <w-icon class="mr-1" name="la:exclamation-triangle" size="20px" />
                       <span>{{ t('admin.users.invalidJSON') }}</span>
                     </w-badge>
-                    <w-badge class="py-1" v-else label="JSON" color="positive" />
+                    <w-badge
+                      class="py-1"
+                      v-else
+                      :label="t('admin.users.jsonBadgeLabel')"
+                      color="positive" />
                   </template>
                 </w-card-header>
                 <w-item>
@@ -578,7 +573,7 @@
                       v-model="metadata"
                       language="json"
                       :min-height="500"
-                      aria-label="Metadata (JSON)" />
+                      :aria-label="t('admin.users.metadataAriaLabel')" />
                   </w-item-section>
                 </w-item>
               </w-card>
@@ -716,6 +711,7 @@ import { useFlagsStore } from '@/stores/flags'
 import { useUserStore } from '@/stores/user'
 
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 
 import UserChangePwdDialog from './UserChangePwdDialog.vue'
 import UtilCodeEditor from './UtilCodeEditor.vue'
@@ -824,7 +820,7 @@ async function fetchUser() {
     ])
     state.groups = (groups ?? []).filter((g) => g.id !== '10000000-0000-4000-8000-000000000001')
     if (!user?.id) {
-      throw new Error('An unexpected error occured while fetching user details.')
+      throw new Error(t('common.error.unexpected'))
     }
     state.user = user
     if (canManage.value) {
@@ -847,7 +843,7 @@ async function fetchPasskeys() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured while fetching passkeys.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
 }
@@ -863,20 +859,6 @@ function checkRoute() {
   if (route.params.section === 'metadata') {
     state.metadataInvalidJSON = false
   }
-}
-
-function formattedDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
 }
 
 function assignGroup() {
@@ -931,7 +913,7 @@ async function save(patch, { silent, keepOpen } = { silent: false, keepOpen: fal
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.users.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.users.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     if (!silent) {
@@ -947,7 +929,7 @@ async function save(patch, { silent, keepOpen } = { silent: false, keepOpen: fal
     // -> ky throws above 400 with the reason in the body, which is where the server explains itself
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   loading.hide()

@@ -152,9 +152,10 @@ export interface ApiKeyIdentity {
   //    the `userId` column comment in `db/schema.ts`.
   userId: string | null
   // -> The site this key is pinned to, taken from the token's `site` claim, or null for
-  //    instance-wide (every site) — today's only behavior. Route handlers on a site-scoped path read
-  //    this to decide whether the key may act on the site the request names — see the `siteId` column
-  //    comment in `db/schema.ts` for why the enforcement itself is not here yet.
+  //    instance-wide (every site). Enforced by the global `apiKeySitePinHook`
+  //    (`helpers/apiKeySite.ts`, registered in `index.ts`) against every `/sites/:siteId/...`
+  //    route's own `:siteId`, and by `models/groups.ts`'s `AccessActor.siteId` inside
+  //    `checkAccess()`/`checkSiteAccess()` themselves (OpenProject #2189).
   siteId: string | null
 }
 
@@ -249,12 +250,13 @@ class ApiKeys {
 
     WIKI.config.auth = { ...previousAuth, certs: generateSigningCertificates() }
     // -> Propagates as `reloadConfig`, which is how the other instances pick up the new public key
-    //    rather than going on trusting tokens this one has just disowned. Unlike the session secret
-    //    (see the FIXME in `index.ts`), this needs no restart: `verify()` below reads
+    //    rather than going on trusting tokens this one has just disowned. `verify()` below reads
     //    `WIKI.config.auth.certs.public` fresh on every call rather than a value handed to a plugin at
-    //    boot, so `reloadConfig`'s `loadFromDb()` is enough on its own. Verified live across a real
-    //    two-instance setup for task 589 — a second instance picked up the new `generatedAt` within a
-    //    second of this call, with no restart.
+    //    boot, so `reloadConfig`'s `loadFromDb()` is enough on its own — no restart needed. The session
+    //    secret rotation in `models/sessions.ts#rotateSecret()` now works the same way
+    //    (`helpers/authSecretSigner.ts`, OpenProject #2172). Verified live across a real two-instance
+    //    setup for task 589 — a second instance picked up the new `generatedAt` within a second of this
+    //    call, with no restart.
     if (!(await WIKI.configSvc.saveToDb(['auth']))) {
       WIKI.config.auth = previousAuth
       return null

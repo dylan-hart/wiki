@@ -325,6 +325,30 @@ class CommentProviders {
   }
 
   /**
+   * The provider actually driving comment rendering for a site (OpenProject #1962).
+   *
+   * `setActiveProvider` below refuses to ever *store* a non-selectable module, but that alone does
+   * not make a stored `isEnabled` row permanently safe to trust: a module can lose its
+   * `codeTemplate`/implementation status on disk after a site already activated it -- most plausibly
+   * the parent epic here (#1950) marking Disqus/Commento/Artalk `isAvailable`/`codeTemplate` off
+   * without also touching every site that had already picked one of them. Whichever branch that
+   * parent takes, a site must not be left pointing at a provider the registry now refuses to select
+   * -- this falls back to the `default` provider instead, so a caller rendering comments (or the
+   * admin area explaining what is actually live) always gets back something that renders.
+   *
+   * Returns null only when the site has no `default` row to fall back to at all (a `syncSite()` that
+   * has never run for this site) -- a genuinely unconfigured site, not a dead end this method can fix.
+   */
+  async getActiveProvider(siteId: string): Promise<CommentProvider | null> {
+    const providers = await this.getSiteProviders(siteId)
+    const enabled = providers.find((p) => p.isEnabled)
+    if (enabled?.isSelectable) {
+      return enabled
+    }
+    return providers.find((p) => p.module === 'default') ?? null
+  }
+
+  /**
    * Merge incoming config values onto the ones already stored, keeping only what the module declares.
    *
    * Read-only props are never taken from the client: they are declarations of something the server
@@ -407,6 +431,15 @@ class CommentProviders {
     const definition = this.getDefinition(moduleKey)
     if (!definition) {
       return null
+    }
+    // -> A non-selectable module (no server-side implementation, and not declared as a client-side
+    //    `codeTemplate` embed) must never be stored as active in the first place -- see
+    //    `getActiveProvider` above for the read-side half of this, covering a module that becomes
+    //    non-selectable AFTER a site already activated it.
+    if (!this.isSelectable(definition)) {
+      throw new Error(
+        `${definition.title} cannot be activated: it has no server-side implementation and does not declare codeTemplate.`
+      )
     }
     const invalid = this.validateConfig(moduleKey, config)
     if (invalid) {

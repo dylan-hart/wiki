@@ -29,6 +29,15 @@ export const MAX_INDEXING_BYTES = 10 * 2 ** 20 - Buffer.byteLength('[') - Buffer
 export const MAX_INDEXING_COUNT = 1000
 const COMMA_BYTES = Buffer.byteLength(',')
 
+/**
+ * Ceiling on how many of Elasticsearch's own matches `query()` scans before deriving `totalHits`
+ * and the requested page from what survives `checkAccess()` (OpenProject #2156, mirroring
+ * `db/search.ts`'s own `SCAN_CAP` — see that module's `query()` for the full reasoning). Bounded
+ * rather than unbounded, since page-rule filtering cannot be expressed as an Elasticsearch query
+ * clause and has to run per-hit in this process.
+ */
+const SCAN_CAP = 500
+
 /** An Elasticsearch document, as written by `pageToDocument` and read back by `query()`. */
 export interface ElasticsearchPageDocument {
   siteId: string
@@ -400,10 +409,18 @@ export class ElasticsearchSearchModule implements SearchModule {
     const { siteId, offset = 0, limit = 25, actor } = params
     const { client, indexName } = await this.getClient(siteId)
 
+    /*
+      OpenProject #2156 (mirroring #2151's fix to db/search.ts): fetches a bounded window from the
+      START of the result set (`from: 0, size: SCAN_CAP`), not the caller's own `offset`/`size`,
+      since page-rule filtering happens after the query and needs a wider window to fill a page
+      from once denied hits are dropped. `results` and `totalHits` are both then derived from
+      `visible` alone -- see `db/search.ts#query()`'s own comment for the full reasoning; this is
+      the same fix, ported to Elasticsearch's `from`/`size` pagination.
+    */
     const response = await client.search<ElasticsearchPageDocument>({
       index: indexName,
-      from: offset,
-      size: limit,
+      from: 0,
+      size: SCAN_CAP,
       query: buildEsQuery(params) as any,
       _source: [
         'title',
@@ -440,7 +457,7 @@ export class ElasticsearchSearchModule implements SearchModule {
         )
       : hits
 
-    const results: SearchResult[] = visible.map((hit) => {
+    const results: SearchResult[] = visible.slice(offset, offset + limit).map((hit) => {
       const source = hit._source!
       return {
         id: hit._id!,
@@ -459,15 +476,16 @@ export class ElasticsearchSearchModule implements SearchModule {
       }
     })
 
-    const rawTotal = response.hits?.total
-    const totalCount = typeof rawTotal === 'number' ? rawTotal : (rawTotal?.value ?? 0)
-
     return {
       results,
-      // -> Same reasoning as `db/search.ts` and the Algolia module: Elasticsearch's own hit count
-      //    includes every match, including ones a rule just removed from this page, so it is adjusted
-      //    by exactly what filtering dropped from this page rather than reported as-is.
-      totalHits: Math.max(0, totalCount - hits.length + visible.length),
+      // -> OpenProject #2151/#2156: derived from `visible` alone -- never a count Elasticsearch
+      //    reported before filtering, and therefore never able to exceed what the actor can
+      //    actually read. Exact whenever the true match count is within SCAN_CAP; a floor beyond
+      //    that (see the `query()` comment above), never an overcount.
+      totalHits: visible.length,
+      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
+      //    above actually dropped a hit from this page, same signal `db/search.ts` uses.
+      totalHitsApproximate: hits.length !== visible.length,
       // -> No "did you mean" here: Elasticsearch's own fuzzy-suggestion features (a "suggest"
       //    context or a completion suggester) need dedicated index-side setup this module does not
       //    configure, unlike `db`'s pg_trgm similarity which needs nothing beyond the extension.

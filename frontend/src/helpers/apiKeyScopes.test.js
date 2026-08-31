@@ -3,47 +3,14 @@ import { describe, expect, it } from 'vitest'
 import { API_KEY_SCOPES, groupScopesByVerb } from './apiKeyScopes'
 
 /**
- * `backend/helpers/permissions.ts`'s `ALL_PERMISSIONS` (`GLOBAL_PERMISSIONS` + `PAGE_PERMISSIONS`),
- * as of OpenProject #1272 -- what `ApiKeyScopePermission` (`backend/api/schemas/apiKey.ts`) actually
- * validates a scope entry against. Not imported (a JS frontend cannot import the backend's TS
- * source across the workspace boundary; see CLAUDE.md's "Permissions" section on this being a fixed,
- * closed, deliberately-duplicated list) -- restated here so a future drift between the two shows up
- * as a failing test rather than a silently stale picker.
+ * The real cross-workspace check against `backend/helpers/permissions.ts`'s `ALL_PERMISSIONS`
+ * lives in `backend/helpers/permissions.test.ts` (OpenProject #1938), which reads this file as text
+ * rather than the reverse -- a JS frontend cannot import the backend's TS source across the
+ * workspace boundary, and a retyped snapshot here could drift from the backend list with a green
+ * test suite either way (which is exactly what happened: see OpenProject #1272). This file keeps
+ * only the assertions that are genuinely this list's own concern.
  */
-const BACKEND_ALL_PERMISSIONS = [
-  'access:admin',
-  'read:users',
-  'manage:users',
-  'read:groups',
-  'manage:groups',
-  'manage:navigation',
-  'manage:theme',
-  'manage:sites',
-  'manage:glossary',
-  'manage:system',
-  'read:pages',
-  'write:pages',
-  'review:pages',
-  'manage:pages',
-  'delete:pages',
-  'write:styles',
-  'write:scripts',
-  'read:source',
-  'read:history',
-  'read:assets',
-  'write:assets',
-  'manage:assets',
-  'read:comments',
-  'write:comments',
-  'manage:comments',
-  'manage:classification'
-]
-
 describe('API_KEY_SCOPES', () => {
-  it('matches the backend ALL_PERMISSIONS union exactly', () => {
-    expect([...API_KEY_SCOPES].sort()).toEqual([...BACKEND_ALL_PERMISSIONS].sort())
-  })
-
   it('includes the 4 scopes that were previously missing relative to the backend union (OpenProject #1272)', () => {
     expect(API_KEY_SCOPES).toEqual(
       expect.arrayContaining([

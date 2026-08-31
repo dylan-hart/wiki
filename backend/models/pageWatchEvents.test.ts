@@ -1,8 +1,14 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { users as usersTable } from '../db/schema.ts'
+import {
+  groups as groupsTable,
+  userGroups as userGroupsTable,
+  users as usersTable
+} from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
+import type { GroupRule } from './groups.ts'
 
 /**
  * Task 534: `listPendingForDigest` and `markManyDelivered`, the two new queries the digest job reads
@@ -195,6 +201,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
   let fixtures: TestFixtures
   let pageWatchEventsModel: typeof import('./pageWatchEvents.ts').pageWatchEvents
   let pagesModel: typeof import('./pages.ts').pages
+  let groupsModel: typeof import('./groups.ts').groups
   let actor: PageActor
   let pageId: string
   let siteId: string
@@ -205,6 +212,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
     siteId = fixtures.siteId
     ;({ pageWatchEvents: pageWatchEventsModel } = await import('./pageWatchEvents.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ groups: groupsModel } = await import('./groups.ts'))
     actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
 
     const page = await pagesModel.createPage(
@@ -226,6 +234,29 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
       .values({ hostname: 'other.example.com', isEnabled: true, config: {} })
       .returning({ id: sitesTable.id })
     otherSiteId = otherSite!.id
+
+    // -> Every `makeUser()` below is put in the fixture group, granted a blanket `read:pages` ALLOW
+    //    -- OpenProject #2173's read-time re-check in `listForUser` needs each of these ordinary
+    //    (non-`manage:system`) readers to actually hold `read:pages` on the fixture page, the same
+    //    way a real inbox reader would need to.
+    await fixtures.db
+      .update(groupsTable)
+      .set({
+        rules: [
+          {
+            id: 'inbox-read-everywhere',
+            name: 'Read everywhere',
+            roles: ['read:pages'],
+            match: 'START',
+            mode: 'ALLOW',
+            path: '',
+            locales: [],
+            sites: []
+          } satisfies GroupRule
+        ]
+      })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
   })
 
   after(async () => {
@@ -237,6 +268,9 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
       .insert(usersTable)
       .values({ email, name: email, isActive: true, isVerified: true })
       .returning({ id: usersTable.id })
+    await fixtures.db
+      .insert(userGroupsTable)
+      .values({ userId: user!.id, groupId: fixtures.groupId })
     return user!.id
   }
 
@@ -327,6 +361,88 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
     assert.equal(rows[0]!.action, 'moved')
     assert.equal(rows[0]!.pageTitle, 'Inbox Fixture')
     assert.equal(rows[0]!.actorId, actor.id)
+  })
+
+  test('listForUser drops a row once the user has lost read:pages on it, live (OpenProject #2173)', async () => {
+    const userId = await makeUser('inbox-revoked@example.com')
+    const [row] = await pageWatchEventsModel.recordMany([
+      {
+        siteId,
+        pageId,
+        pageTitle: 'Inbox Fixture',
+        pagePath: 'inbox-fixture',
+        pageLocale: 'en',
+        userId,
+        action: 'updated',
+        actorId: actor.id,
+        changedFields: ['title'],
+        notifyMode: 'digest'
+      }
+    ])
+
+    // -> Sanity: readable right after recording, same as any other unread row.
+    assert.ok(
+      (await pageWatchEventsModel.listForUser(userId, siteId)).some((r) => r.id === row!.id)
+    )
+
+    // -> Narrow the blanket ALLOW with a DENY on this specific page -- the permission change happens
+    //    AFTER the event was already recorded, which is exactly the gap #2173 closes: recording is not
+    //    re-checked at read time under the old code, only at subscribe time.
+    await fixtures.db
+      .update(groupsTable)
+      .set({
+        rules: [
+          {
+            id: 'inbox-read-everywhere',
+            name: 'Read everywhere',
+            roles: ['read:pages'],
+            match: 'START',
+            mode: 'ALLOW',
+            path: '',
+            locales: [],
+            sites: []
+          },
+          {
+            id: 'inbox-deny-this-page',
+            name: 'Deny this page specifically',
+            roles: ['read:pages'],
+            match: 'EXACT',
+            mode: 'DENY',
+            path: 'inbox-fixture',
+            locales: [],
+            sites: []
+          }
+        ] satisfies GroupRule[]
+      })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    try {
+      const rows = await pageWatchEventsModel.listForUser(userId, siteId)
+      assert.ok(
+        !rows.some((r) => r.id === row!.id),
+        'a notification about a page the user has since lost read:pages on must not appear in the inbox'
+      )
+    } finally {
+      await fixtures.db
+        .update(groupsTable)
+        .set({
+          rules: [
+            {
+              id: 'inbox-read-everywhere',
+              name: 'Read everywhere',
+              roles: ['read:pages'],
+              match: 'START',
+              mode: 'ALLOW',
+              path: '',
+              locales: [],
+              sites: []
+            } satisfies GroupRule
+          ]
+        })
+        .where(eq(groupsTable.id, fixtures.groupId))
+      await groupsModel.reloadCache()
+    }
   })
 
   test('markRead sets readAt and is idempotent', async () => {

@@ -4,10 +4,11 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-paint-roller-animated.svg" />
+          src="/_assets/icons/fluent-paint-roller-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.theme.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.theme.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.theme.subtitle') }}
         </div>
@@ -183,6 +184,7 @@
                   glossy
                   no-caps
                   toggle-color="primary"
+                  :aria-label="t(`admin.theme.contentWidth`)"
                   :options="widthOptions" />
               </w-item-section>
             </w-item>
@@ -201,6 +203,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`admin.theme.sidebarPosition`)"
                 :options="rightLeftOptions" />
             </w-item-section>
           </w-item>
@@ -218,6 +221,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`admin.theme.tocPosition`)"
                 :options="rightLeftOptions" />
             </w-item-section>
           </w-item>
@@ -404,8 +408,8 @@ function defaultConfig() {
     injectHead: '',
     injectBody: '',
     colorPrimary: '#1976D2',
-    colorSecondary: '#02C39A',
-    colorAccent: '#FF9800',
+    colorSecondary: '#018569',
+    colorAccent: '#E81221',
     colorHeader: '#000000',
     colorSidebar: '#1976D2',
     codeBlocksTheme: 'github-dark',
@@ -732,15 +736,14 @@ function cvdPreviewColor(cl) {
 
 /**
  * The foreground/background pair that actually matters for `cl`, or null when this color isn't
- * checked at all (only `primary`/`header`/`sidebar` are, per this task's scope -- `secondary` and
- * `accent` have no single fixed pairing to check against).
+ * checked at all.
  */
 function contrastPairFor(cl) {
   const base = state.config[`color` + startCase(cl)]
   if (!base) {
     return null
   }
-  if (cl === 'header' || cl === 'sidebar') {
+  if (cl === 'header' || cl === 'sidebar' || cl === 'secondary' || cl === 'accent') {
     return { fg: CHROME_TEXT_COLOR, bg: base }
   }
   if (cl === 'primary') {
@@ -762,8 +765,8 @@ function contrastWarningRatio(cl) {
 function resetColors() {
   state.config.dark = false
   state.config.colorPrimary = '#1976D2'
-  state.config.colorSecondary = '#02C39A'
-  state.config.colorAccent = '#FF9800'
+  state.config.colorSecondary = '#018569'
+  state.config.colorAccent = '#E81221'
   state.config.colorHeader = '#000'
   state.config.colorSidebar = '#1976D2'
 }
@@ -783,13 +786,13 @@ async function load() {
   try {
     const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
     if (!resp?.theme) {
-      throw new Error('Failed to fetch theme config.')
+      throw new Error(t('admin.theme.loadFailed'))
     }
     state.config = toMerged(defaultConfig(), resp.theme)
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to fetch site theme config'
+      message: t('admin.theme.loadFailed')
     })
   }
   loading.hide()
@@ -824,7 +827,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.theme.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.theme.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     if (adminStore.currentSiteId === siteStore.id) {
@@ -840,7 +843,7 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to save site theme config',
+      message: t('admin.theme.saveFailed'),
       caption: err.message
     })
   }

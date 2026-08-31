@@ -1,16 +1,33 @@
+import crypto from 'node:crypto'
 import { mergeWith, toMerged } from 'es-toolkit/object'
 import { keyBy } from 'es-toolkit/array'
 import {
+  apiKeys as apiKeysTable,
+  approvalRules as approvalRulesTable,
+  assets as assetsTable,
   blockCredentials as blockCredentialsTable,
   blocks as blocksTable,
+  commentProviders as commentProvidersTable,
   glossaryTerms as glossaryTermsTable,
+  glossaryVersions as glossaryVersionsTable,
+  migrationRecords as migrationRecordsTable,
   navigation as navigationTable,
+  pageHistory as pageHistoryTable,
+  pages as pagesTable,
+  pageWatchEvents as pageWatchEventsTable,
   siteAssets as siteAssetsTable,
   sites as sitesTable,
   storage as storageTable
 } from '../db/schema.ts'
 import { and, eq } from 'drizzle-orm'
-import { detectImageMime, detectSvg, normalizeImage, svgMimeType } from '../helpers/images.ts'
+import { CustomError, normalizeHostname } from '../helpers/common.ts'
+import {
+  detectImageMime,
+  detectSvg,
+  normalizeImage,
+  sanitizeSvg,
+  svgMimeType
+} from '../helpers/images.ts'
 import type { ImageNormalization } from '../helpers/images.ts'
 import type { SystemIds } from './types.ts'
 
@@ -39,6 +56,55 @@ const SITE_ASSET_NORMALIZATION: Record<SiteAssetKind, ImageNormalization> = {
 }
 
 /**
+ * Per-site editor defaults, seeded onto every site's config by both `createSite()` and `init()`
+ * (the first-run default site). Previously duplicated verbatim in both places.
+ */
+const DEFAULT_SITE_EDITORS = {
+  asciidoc: {
+    isActive: true,
+    config: {}
+  },
+  code: {
+    isActive: true,
+    config: {}
+  },
+  markdown: {
+    isActive: true,
+    config: {
+      allowHTML: true,
+      lineBreaks: true,
+      linkify: true,
+      multimdTable: true,
+      quotes: 'english',
+      tabWidth: 2,
+      typographer: false,
+      underline: true
+    }
+  },
+  wysiwyg: {
+    isActive: true,
+    config: {}
+  }
+}
+
+/**
+ * Default theme colours seeded for a site, shared by `createSite()`'s default config and `init()`'s
+ * first-run catch-all site so the two can never drift apart from each other. Must match the CSS
+ * defaults at `frontend/src/css/tailwind.css`'s `:root` block (`--q-secondary`, `--q-accent`) and
+ * `AdminTheme.vue`'s `resetColors()`/`defaultConfig()` -- all four are pinned to agree by
+ * `helpers/accessibility.test.js` (frontend) and this file's own `sites.test.ts`. Picked to clear
+ * 4.5:1 (WCAG AA) against white, the foreground a solid `WBtn` pairs a background this light or
+ * darker with.
+ */
+export const DEFAULT_THEME_COLORS = {
+  colorPrimary: '#1976D2',
+  colorSecondary: '#018569',
+  colorAccent: '#E81221',
+  colorHeader: '#000000',
+  colorSidebar: '#1976D2'
+}
+
+/**
  * Sites model
  */
 class Sites {
@@ -61,9 +127,10 @@ class Sites {
     if (forceReload) {
       await WIKI.models.sites.reloadCache()
     }
+    const normalizedHostname = normalizeHostname(hostname)
     const siteId = strict
-      ? WIKI.sitesMappings[hostname]
-      : WIKI.sitesMappings[hostname] || WIKI.sitesMappings['*']
+      ? WIKI.sitesMappings[normalizedHostname]
+      : WIKI.sitesMappings[normalizedHostname] || WIKI.sitesMappings['*']
     if (siteId) {
       return WIKI.sites[siteId]
     }
@@ -84,7 +151,10 @@ class Sites {
     WIKI.sites = keyBy(sites, (s) => s.id)
     WIKI.sitesMappings = {}
     for (const site of sites) {
-      WIKI.sitesMappings[site.hostname] = site.id
+      // -> Belt and braces: the write side is already lowercase by construction (site
+      //    create/update schemas constrain `hostname` to `^(\*|[a-z0-9.-]+)$`), but routing every
+      //    key through the same normalizer as every read keeps both sides provably in lockstep.
+      WIKI.sitesMappings[normalizeHostname(site.hostname)] = site.id
     }
     WIKI.logger.info(`Loaded ${sites.length} site configurations [ OK ]`)
   }
@@ -132,7 +202,6 @@ class Sites {
             features: {
               browse: true,
               collaborativeEditing: true,
-              ratings: false,
               ratingsMode: 'off',
               comments: false,
               profile: true,
@@ -170,11 +239,7 @@ class Sites {
             theme: {
               dark: false,
               codeBlocksTheme: 'github-dark',
-              colorPrimary: '#1976D2',
-              colorSecondary: '#02C39A',
-              colorAccent: '#FF9800',
-              colorHeader: '#000000',
-              colorSidebar: '#1976D2',
+              ...DEFAULT_THEME_COLORS,
               injectCSS: '',
               injectHead: '',
               injectBody: '',
@@ -185,33 +250,7 @@ class Sites {
               baseFont: 'roboto',
               contentFont: 'roboto'
             },
-            editors: {
-              asciidoc: {
-                isActive: true,
-                config: {}
-              },
-              code: {
-                isActive: true,
-                config: {}
-              },
-              markdown: {
-                isActive: true,
-                config: {
-                  allowHTML: true,
-                  lineBreaks: true,
-                  linkify: true,
-                  multimdTable: true,
-                  quotes: 'english',
-                  tabWidth: 2,
-                  typographer: false,
-                  underline: true
-                }
-              },
-              wysiwyg: {
-                isActive: true,
-                config: {}
-              }
-            },
+            editors: DEFAULT_SITE_EDITORS,
             uploads: {
               conflictBehavior: 'overwrite'
             },
@@ -349,15 +388,23 @@ class Sites {
    * @param data The uploaded image, already known to be one of the supported formats
    */
   async setAsset(siteId: string, kind: SiteAssetKind, data: Buffer): Promise<void> {
+    // -> Only reached when the flag is on: a disabled `security.uploadScanSVG` stores the bytes
+    //    exactly as uploaded, same as before this existed.
     const normalized = detectSvg(data)
-      ? data
+      ? WIKI.config.security?.uploadScanSVG
+        ? sanitizeSvg(data)
+        : data
       : ((await normalizeImage(data, SITE_ASSET_NORMALIZATION[kind])) ?? data)
+    // -> Kept in step with `data` on every write -- `hash` is NOT NULL with no default, and this is
+    //    the same sha1-hex digest `controllers/site.ts` computes from the blob for its ETag, so a
+    //    future hash-only reader agrees with what a full blob read would have produced.
+    const hash = crypto.createHash('sha1').update(normalized).digest('hex')
     await WIKI.db
       .insert(siteAssetsTable)
-      .values({ siteId, kind, data: normalized })
+      .values({ siteId, kind, data: normalized, hash })
       .onConflictDoUpdate({
         target: [siteAssetsTable.siteId, siteAssetsTable.kind],
-        set: { data: normalized }
+        set: { data: normalized, hash }
       })
     // -> Serving reads this flag off the cached site config before it looks for any bytes
     await WIKI.models.sites.updateSite(siteId, { config: { assets: { [kind]: true } } })
@@ -373,29 +420,106 @@ class Sites {
     await WIKI.models.sites.updateSite(siteId, { config: { assets: { [kind]: false } } })
   }
 
+  /**
+   * Delete a site and every row that belongs to it rather than to its content.
+   *
+   * Pages and assets are checked for up front, and the whole cleanup runs inside one transaction, so
+   * a refused delete (or one that hits an FK this method doesn't yet know about) destroys nothing —
+   * previously each of the statements below autocommitted on its own, so a delete that was ultimately
+   * refused by the final `sites` FK had already durably destroyed every site setting, block, storage
+   * target, glossary term and navigation menu it passed on the way there.
+   *
+   * Block, block-credential, storage, uploaded image, glossary term and navigation rows belong to the
+   * site rather than to its content, and their FK has no cascade, so they would otherwise block the
+   * delete — navigation includes one row per active locale's site-wide menu
+   * (`navigation.ensureSiteNav`'s row, addressed by its own `defaultRandom()` id, never `id ===
+   * siteId`) plus any per-page override/hide row still standing. `commentProviders` (seeded per site
+   * at creation and re-seeded at every boot), `pageHistory` (a `deleted` row is written before every
+   * page delete, so removing every page guarantees rows remain), `pageWatchEvents`, `glossaryVersions`,
+   * `approvalRules` and `migrationRecords` are the same story: none is content, none cascades, and
+   * nothing else ever deletes their rows. `apiKeys.siteId` is already nullable (OpenProject #2189 — a
+   * null `siteId` is an ordinary, intentional "instance-wide" key, the pre-#2189 default every key
+   * used to be), so a key scoped to this site is widened to instance-wide rather than destroyed: it is
+   * a credential an administrator issued and may still want to use, not a record of the site itself.
+   *
+   * Pages and assets deliberately still lack a cascade and are what the up-front check below refuses
+   * on — see the conflict handling in the route. `pageviews` and `tags` are derived data about the
+   * site rather than content, so their `siteId` FK cascades at the schema level instead (`db/schema.ts`
+   * — see `tags`'/`pageviews`' own column comments); a site that has only ever been viewed or tagged is
+   * not "still holding content", and both are removed for free by Postgres once the final `sites`
+   * delete below commits, with nothing to check or clean up here.
+   *
+   * @throws {CustomError} named `siteHasContent`, statusCode 409, when the site still has pages or
+   *   assets — thrown before anything is deleted.
+   */
   async deleteSite(id: string): Promise<boolean> {
+    // -> Pages and uploaded assets are the tables kept under a site's RESTRICT FK that this method
+    //    never clears itself (see the conflict handling in the route) -- counted up front, before
+    //    anything is touched, so a refused delete is refused cleanly rather than after the six
+    //    unconditional deletes below have already run. Checking here rather than only letting the
+    //    final delete's FK violation happen is what makes the refusal atomic: nothing this method does
+    //    can be observed to have happened when it returns/throws a refusal.
+    const [pageCount, assetCount] = await Promise.all([
+      WIKI.db.$count(pagesTable, eq(pagesTable.siteId, id)),
+      WIKI.db.$count(assetsTable, eq(assetsTable.siteId, id))
+    ])
+    if (pageCount + assetCount > 0) {
+      throw new CustomError(
+        'siteHasContent',
+        'Cannot delete a site that still holds content. Delete its pages and assets first.',
+        409
+      )
+    }
+
     // -> Block, block-credential, storage, uploaded image and glossary term rows belong to the site
     //    rather than to its content, and their FK has no cascade, so they would otherwise block the
     //    delete. Every navigation row this site owns — one per active locale's site-wide menu
     //    (`navigation.ensureSiteNav`'s row, addressed by its own `defaultRandom()` id, never `id ===
     //    siteId`) plus any per-page override/hide row still standing — is the same story and is
     //    cleaned up the same way, filtered by the `siteId` column the FK constraint actually checks.
-    //    Content tables (pages, assets, the page tree) deliberately still lack a cascade — see the
-    //    conflict handling in the route.
-    await WIKI.db.delete(blocksTable).where(eq(blocksTable.siteId, id))
-    await WIKI.db.delete(blockCredentialsTable).where(eq(blockCredentialsTable.siteId, id))
-    await WIKI.db.delete(storageTable).where(eq(storageTable.siteId, id))
-    await WIKI.db.delete(siteAssetsTable).where(eq(siteAssetsTable.siteId, id))
-    await WIKI.db.delete(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, id))
-    await WIKI.db.delete(navigationTable).where(eq(navigationTable.siteId, id))
+    //    Wrapped in a transaction (with the precheck above as the normal path, and this as a backstop
+    //    against a race where content is inserted between the count and here) so a FK violation on the
+    //    final delete rolls every one of these back instead of leaving the site's non-content settings
+    //    destroyed while the site row itself survives.
+    const deleted = await WIKI.db.transaction(async (tx) => {
+      await tx.delete(blocksTable).where(eq(blocksTable.siteId, id))
+      await tx.delete(blockCredentialsTable).where(eq(blockCredentialsTable.siteId, id))
+      await tx.delete(storageTable).where(eq(storageTable.siteId, id))
+      await tx.delete(siteAssetsTable).where(eq(siteAssetsTable.siteId, id))
+      await tx.delete(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, id))
+      await tx.delete(navigationTable).where(eq(navigationTable.siteId, id))
+      // -> None of the six below is content the delete route means to guard on (see the conflict
+      //    handling in the route): `commentProviders` is seeded per site at creation
+      //    (`createSite()`'s `commentProviders.syncSite()`) and again at every boot, so it blocks even
+      //    a brand-new, otherwise-empty site; `pageHistory` outlives every page it describes by design
+      //    (`pages.deletePage()` writes a `deleted` row *before* removing the page); `glossaryVersions`,
+      //    `pageWatchEvents`, `approvalRules` and `migrationRecords` are all derived/audit data about
+      //    the site rather than content, with no cascade and no other delete call site that would ever
+      //    clear them on their own. `tags` and `pageviews` are deliberately NOT cleared here either —
+      //    both cascade at the schema level (`db/schema.ts`), so Postgres removes them on its own once
+      //    the final `sites` delete below commits.
+      await tx.delete(commentProvidersTable).where(eq(commentProvidersTable.siteId, id))
+      await tx.delete(pageHistoryTable).where(eq(pageHistoryTable.siteId, id))
+      await tx.delete(glossaryVersionsTable).where(eq(glossaryVersionsTable.siteId, id))
+      await tx.delete(pageWatchEventsTable).where(eq(pageWatchEventsTable.siteId, id))
+      await tx.delete(approvalRulesTable).where(eq(approvalRulesTable.siteId, id))
+      await tx.delete(migrationRecordsTable).where(eq(migrationRecordsTable.siteId, id))
+      // -> `apiKeys.siteId` is already nullable — null means instance-wide, not "no site" — so a key
+      //    that was scoped to this site is widened to instance-wide rather than destroyed: it is a
+      //    credential an administrator issued and may still want to use, not a record of the site
+      //    itself.
+      await tx.update(apiKeysTable).set({ siteId: null }).where(eq(apiKeysTable.siteId, id))
 
-    const deletedResult = await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, id))
-    if ((deletedResult.rowCount ?? 0) < 1) {
-      return false
+      const deletedResult = await tx.delete(sitesTable).where(eq(sitesTable.id, id))
+      return (deletedResult.rowCount ?? 0) >= 1
+    })
+
+    if (deleted) {
+      // -> Outside the transaction, after commit: other instances should only be told to reload once
+      //    the delete is actually durable.
+      await WIKI.models.sites.broadcastReload()
     }
-
-    await WIKI.models.sites.broadcastReload()
-    return true
+    return deleted
   }
 
   async countSites() {
@@ -430,7 +554,6 @@ class Sites {
         features: {
           browse: true,
           collaborativeEditing: true,
-          ratings: false,
           ratingsMode: 'off',
           comments: false,
           profile: true,
@@ -464,41 +587,11 @@ class Sites {
           favicon: false,
           loginBg: false
         },
-        editors: {
-          asciidoc: {
-            isActive: true,
-            config: {}
-          },
-          code: {
-            isActive: true,
-            config: {}
-          },
-          markdown: {
-            isActive: true,
-            config: {
-              allowHTML: true,
-              lineBreaks: true,
-              linkify: true,
-              multimdTable: true,
-              quotes: 'english',
-              tabWidth: 2,
-              typographer: false,
-              underline: true
-            }
-          },
-          wysiwyg: {
-            isActive: true,
-            config: {}
-          }
-        },
+        editors: DEFAULT_SITE_EDITORS,
         theme: {
           dark: false,
           codeBlocksTheme: 'github-dark',
-          colorPrimary: '#1976D2',
-          colorSecondary: '#02C39A',
-          colorAccent: '#FF9800',
-          colorHeader: '#000000',
-          colorSidebar: '#1976D2',
+          ...DEFAULT_THEME_COLORS,
           injectCSS: '',
           injectHead: '',
           injectBody: '',

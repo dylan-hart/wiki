@@ -164,6 +164,19 @@ test('site:navigation on a DIFFERENT site may not set navigation here', async ()
   assert.equal(res.statusCode, 403)
 })
 
+test('PUT .../navigation/pages/:pageId rejects a javascript: item target with 400', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/sites/${SITE_ID}/navigation/pages/${PAGE_ID}`,
+    headers: { 'x-test-site-permissions': `site:navigation@${SITE_ID}` },
+    payload: {
+      mode: 'override',
+      items: [{ id: 'a', type: 'link', label: 'Bad', target: 'javascript:alert(1)' }]
+    }
+  })
+  assert.equal(res.statusCode, 400)
+})
+
 test('reading a menu in full requires manage:navigation or site:navigation on this site', async () => {
   const forbidden = await app.inject({
     method: 'GET',
@@ -188,6 +201,38 @@ test('a menu nested three levels deep reaches the response intact', async () => 
   assert.equal(res.statusCode, 200)
   const body = res.json()
   assert.equal(body[0].children[0].children[0].id, 'grandchild')
+})
+
+/**
+ * OpenProject #2155: `getNav()` now requires an `actor` so `generateFromTree()` can run every
+ * generated entry through `read:pages` — this pins that the route actually builds and passes one
+ * (via `WIKI.models.groups.actorForRequest(req)`), the same actor every other page-scoped check in
+ * this codebase is built from, rather than leaving the parameter to default away silently.
+ */
+test('GET .../navigation/:navId passes the request-resolved actor through to getNav', async () => {
+  const originalGetNav = (globalThis as any).WIKI.models.navigation.getNav
+  const calls: any[] = []
+  ;(globalThis as any).WIKI.models.navigation.getNav = async (
+    siteId: string,
+    navId: string,
+    opts: any
+  ) => {
+    calls.push(opts)
+    return DEEP_NAV_TREE
+  }
+  try {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/navigation/${PAGE_ID}`,
+      headers: { 'x-test-permissions': 'read:pages' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(calls.length, 1)
+    assert.ok(calls[0].actor, 'expected an actor to be passed to getNav()')
+    assert.deepEqual(calls[0].actor.permissions, ['read:pages'])
+  } finally {
+    ;(globalThis as any).WIKI.models.navigation.getNav = originalGetNav
+  }
 })
 
 /**
@@ -328,6 +373,58 @@ describe('site:navigation delegation on the six previously route-gated endpoints
       payload: { sourceSiteId: OTHER_SITE_ID, sourceNavId: NAV_ID, mode: 'replace' }
     })
     assert.equal(both.statusCode, 200)
+  })
+
+  /**
+   * OpenProject #2217: `target` was an unconstrained string, so a `site:navigation` holder could
+   * store `javascript:...` as an item's target -- it renders in the sidebar of every page of that
+   * site and runs in the wiki origin for any reader who clicks it. Checked recursively (including
+   * nested `children`), on both routes that accept `items` directly.
+   */
+  test('PUT .../navigation/:navId rejects a javascript: item target with 400', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/navigation/${NAV_ID}`,
+      headers: { 'x-test-site-permissions': `site:navigation@${SITE_ID}` },
+      payload: { items: [{ id: 'a', type: 'link', label: 'Bad', target: 'javascript:alert(1)' }] }
+    })
+    assert.equal(res.statusCode, 400)
+  })
+
+  test('PUT .../navigation/:navId rejects a javascript: target nested in children with 400', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/navigation/${NAV_ID}`,
+      headers: { 'x-test-site-permissions': `site:navigation@${SITE_ID}` },
+      payload: {
+        items: [
+          {
+            id: 'a',
+            type: 'link',
+            label: 'Parent',
+            target: '/parent',
+            children: [{ id: 'b', type: 'link', label: 'Bad', target: 'javascript:alert(1)' }]
+          }
+        ]
+      }
+    })
+    assert.equal(res.statusCode, 400)
+  })
+
+  test('PUT .../navigation/:navId still accepts a rooted path and an https:// URL', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/navigation/${NAV_ID}`,
+      headers: { 'x-test-site-permissions': `site:navigation@${SITE_ID}` },
+      payload: {
+        items: [
+          { id: 'a', type: 'link', label: 'Path', target: '/some/page' },
+          { id: 'b', type: 'link', label: 'URL', target: 'https://example.com' }
+        ]
+      }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().ok, true)
   })
 
   test('site:navigation on a DIFFERENT site grants none of the six', async () => {

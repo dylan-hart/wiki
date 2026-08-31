@@ -4,10 +4,11 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-find-and-replace-animated.svg" />
+          src="/_assets/icons/fluent-find-and-replace-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.glossary.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.glossary.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.glossary.subtitle') }}
         </div>
@@ -29,7 +30,7 @@
           flat
           color="indigo"
           @click="openVersionHistory">
-          <w-tooltip>{{ t('admin.glossary.versionHistory') }}</w-tooltip>
+          <w-tooltip labels>{{ t('admin.glossary.versionHistory') }}</w-tooltip>
         </w-btn>
         <w-btn
           class="acrylic-btn mr-2"
@@ -37,7 +38,7 @@
           flat
           color="indigo"
           @click="exportGlossary">
-          <w-tooltip>{{ t('common.actions.export') }}</w-tooltip>
+          <w-tooltip labels>{{ t('common.actions.export') }}</w-tooltip>
         </w-btn>
         <w-btn
           class="acrylic-btn mr-2"
@@ -45,7 +46,7 @@
           flat
           color="indigo"
           @click="openImportDialog">
-          <w-tooltip>{{ t('common.actions.import') }}</w-tooltip>
+          <w-tooltip labels>{{ t('common.actions.import') }}</w-tooltip>
         </w-btn>
         <w-btn
           v-if="isDirty"
@@ -76,7 +77,6 @@
     <div class="p-4">
       <w-banner
         v-if="state.terms.length < 1 && state.loading < 1"
-        rounded
         :class="dark.isActive ? `bg-dark-3 text-grey-4` : `bg-grey-2 text-grey-8`">
         {{ t('admin.glossary.noTerms') }}
       </w-banner>

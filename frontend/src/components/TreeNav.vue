@@ -72,7 +72,7 @@ const contextActions = {
     label: t('common.actions.moveTo') + '...'
   },
   del: {
-    icon: 'la:trash-alt',
+    icon: 'la:trash',
     iconColor: 'negative',
     label: t('common.actions.delete'),
     labelColor: 'negative'

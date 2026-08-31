@@ -180,6 +180,28 @@ describe('UserEditOverlay admin passkeys panel', () => {
     expect(wrapper.text()).not.toContain("Jane's Laptop")
   })
 
+  it('surfaces the server message and keeps the passkey listed on refusal', async () => {
+    const wrapper = await mountOverlay()
+    const notifyCountBefore = notifyQueue.length
+
+    API_CLIENT.delete.mockReturnValueOnce(
+      Promise.reject({ data: { message: 'This passkey was already removed.' } })
+    )
+
+    const revokeBtn = wrapper
+      .findAll('button')
+      .find((b) => b.attributes('aria-label') === 'common.actions.delete')
+    await revokeBtn.trigger('click')
+    await openDialogs[openDialogs.length - 1].handlers.ok[0]()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("Jane's Laptop")
+    expect(notifyQueue.length).toBe(notifyCountBefore + 1)
+    const lastNotification = notifyQueue[notifyQueue.length - 1]
+    expect(lastNotification.type).toBe('negative')
+    expect(lastNotification.caption).toBe('This passkey was already removed.')
+  })
+
   it('does not render the passkeys panel or its actions when the caller lacks manage:users', async () => {
     const wrapper = await mountOverlay({ canManage: false })
 
@@ -333,5 +355,80 @@ describe('UserEditOverlay operations panel send welcome email', () => {
     expect(proceedButton.attributes('disabled')).not.toBeUndefined()
 
     wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #1755: the overview panel's created/updated/last-login dates and the passkeys panel's
+ * creation date used a local `formattedDate()` hardcoded to the BROWSER's own timezone
+ * (`Temporal.Instant.prototype.toLocaleString` called with an explicit `undefined` locale),
+ * ignoring the user's stored
+ * `timezone`/`dateFormat`/`timeFormat` preferences entirely. Converted to the shared
+ * `helpers/datetime.js#humanizeDate`, which delegates to `userStore.formatDateTime`.
+ */
+describe('UserEditOverlay dates honour the stored profile timezone (OpenProject #1755)', () => {
+  async function mountOverviewWithTimezone(timezone) {
+    setActivePinia(createPinia())
+
+    const adminStore = useAdminStore()
+    adminStore.overlayOpts = { id: USER.id }
+
+    const userStore = useUserStore()
+    userStore.permissions = ['manage:users']
+    userStore.timezone = timezone
+    userStore.dateFormat = 'YYYY-MM-DD'
+    userStore.timeFormat = '24h'
+
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'groups') {
+        return { json: () => Promise.resolve([]) }
+      }
+      if (url === `users/${USER.id}`) {
+        return {
+          json: () =>
+            Promise.resolve({
+              ...USER,
+              createdAt: '2026-03-04T15:30:00.000Z',
+              updatedAt: '2026-03-04T15:30:00.000Z',
+              lastLoginAt: '2026-03-04T15:30:00.000Z'
+            })
+        }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/u/:section', component: { template: '<div />' } }]
+    })
+    router.push('/u/overview')
+    await router.isReady()
+
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: { en: { common: { datetime: '{date} at {time}' } } }
+    })
+
+    const wrapper = mount(UserEditOverlay, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { BlueprintIcon: true }
+      }
+    })
+    await flushPromises()
+
+    return wrapper
+  }
+
+  it('renders the same instant differently for two different stored timezones', async () => {
+    const wrapperUtc = await mountOverviewWithTimezone('UTC')
+    expect(wrapperUtc.text()).toContain('2026-03-04 at 15:30')
+    wrapperUtc.unmount()
+
+    const wrapperTokyo = await mountOverviewWithTimezone('Asia/Tokyo')
+    // -> Same instant, nine hours ahead -- proof the stored zone (not the sandbox's own) is honoured
+    expect(wrapperTokyo.text()).toContain('2026-03-05 at 00:30')
+    wrapperTokyo.unmount()
   })
 })

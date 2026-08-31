@@ -1,6 +1,32 @@
 import type { GroupRule, GroupRuleMatch, GroupRuleMode } from '../models/groups.ts'
 
 /**
+ * Compiled `REGEX` rule patterns, memoized by the rule's own path string.
+ *
+ * `ruleMatchesPage` runs once per (rule, page) pair -- `/sitemap.xml`'s guest-rule pass alone calls it
+ * once for every published, browsable page on the site, on every request. A `REGEX` rule's pattern is
+ * set once by an administrator and reused across every page it is checked against, so compiling it
+ * fresh each time was pure waste (OpenProject #2267). Unbounded: the key space is admin-authored rule
+ * paths, not user input, so it cannot grow without bound the way a per-request cache could.
+ */
+const compiledRegexCache = new Map<string, RegExp | null>()
+
+/** A rule pattern compiled to a `RegExp`, or `null` when it does not compile -- memoized either way. */
+function compileRulePattern(pattern: string): RegExp | null {
+  if (compiledRegexCache.has(pattern)) {
+    return compiledRegexCache.get(pattern)!
+  }
+  let compiled: RegExp | null
+  try {
+    compiled = new RegExp(pattern)
+  } catch {
+    compiled = null
+  }
+  compiledRegexCache.set(pattern, compiled)
+  return compiled
+}
+
+/**
  * How a page rule is matched against a page, and which rule wins when several match.
  *
  * ---------------------------------------------------------------------------------------------
@@ -131,7 +157,11 @@ function ruleTags(rule: GroupRule): string[] {
     .filter(Boolean)
 }
 
-/** Compared without leading slashes on either side, since neither is stored with one. */
+/**
+ * Compared without leading slashes on either side, since neither is stored with one. Case is left
+ * untouched here — REGEX must see the pattern and path exactly as written (see below), and
+ * START/EXACT/END fold case themselves via `pagePathLower`/`rulePathLower` in `ruleMatchesPage`.
+ */
 function normalizePath(value: string): string {
   return value.replace(/^\/+/, '')
 }
@@ -177,22 +207,35 @@ export function ruleMatchesPage(rule: GroupRule, page: RulePageRef): boolean {
 
   const pagePath = normalizePath(page.path)
   const rulePath = normalizePath(rule.path)
+  // -> Page paths are always stored lowercased (`normalizePagePath`), so START/EXACT/END compare
+  //    lowercased on both sides -- matching the case-insensitivity locale and tag comparisons
+  //    already have (OpenProject #2182). REGEX is deliberately excluded from this fold: it addresses
+  //    a pattern, not a literal path, and lowercasing it would silently rewrite an author's
+  //    intentional character class (`[A-Z]`).
+  const pagePathLower = pagePath.toLowerCase()
+  const rulePathLower = rulePath.toLowerCase()
   const pageTags = (page.tags ?? []).map((tag) => tag.toLowerCase())
 
   switch (rule.match) {
     case 'START':
-      return pagePath.startsWith(rulePath)
+      return pagePathLower.startsWith(rulePathLower)
     case 'EXACT':
-      return pagePath === rulePath
+      return pagePathLower === rulePathLower
     case 'END':
-      return pagePath.endsWith(rulePath)
-    case 'REGEX':
-      try {
-        return new RegExp(rulePath).test(pagePath)
-      } catch {
-        // -> A rule that cannot compile addresses nothing, rather than everything
-        return false
-      }
+      return pagePathLower.endsWith(rulePathLower)
+    case 'REGEX': {
+      // -> Deliberately left OUT of the case-insensitive fold applied to every other match kind
+      //    (OpenProject #2182): lowercasing the pattern, or forcing it case-insensitive with the `i`
+      //    flag, could silently change a character class an author wrote on purpose (`[A-Z]`).
+      //    `rulePath` only ever has its leading slash stripped (see `normalizePath`), so it carries
+      //    the pattern's own case sensitivity through unchanged; page paths are always stored
+      //    lowercase, so a pattern meant to match ordinary path segments already needs to be written
+      //    in lowercase regardless. Compiled through `compileRulePattern` so a rule that cannot
+      //    compile addresses nothing rather than everything, and so its compiled form is memoized
+      //    (OpenProject #2267) rather than rebuilt on every page this runs against.
+      const compiled = compileRulePattern(rulePath)
+      return compiled ? compiled.test(pagePath) : false
+    }
     case 'TAG':
       return ruleTags(rule).some((tag) => pageTags.includes(tag))
     case 'TAGALL': {

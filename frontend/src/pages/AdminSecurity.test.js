@@ -46,17 +46,18 @@ describe('AdminSecurity apiRateLimit* round-trip', () => {
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('system/security')
 
-    // -> `aria-label` lands on `WInput`'s root `<div>` via attr fallthrough, not the inner
-    //    `<input>` (WInput does not set `inheritAttrs: false`), so the real form control is one
-    //    level down.
-    const maxInput = wrapper.find('[aria-label="admin.security.apiRateLimitMax"] input')
+    // -> `WInput` sets `inheritAttrs: false` and binds `$attrs` explicitly onto the real
+    //    `<input>`/`<textarea>` (see its own file header comment), so `aria-label` lands on the
+    //    control itself, not on the wrapping `<div>` -- `input[aria-label=...]`, not
+    //    `[aria-label=...] input`.
+    const maxInput = wrapper.find('input[aria-label="admin.security.apiRateLimitMax"]')
     expect(maxInput.exists()).toBe(true)
     expect(maxInput.element.value).toBe('300')
 
-    const windowInput = wrapper.find('[aria-label="admin.security.apiRateLimitWindow"] input')
+    const windowInput = wrapper.find('input[aria-label="admin.security.apiRateLimitWindow"]')
     expect(windowInput.element.value).toBe('5m')
 
-    const banInput = wrapper.find('[aria-label="admin.security.apiRateLimitBan"] input')
+    const banInput = wrapper.find('input[aria-label="admin.security.apiRateLimitBan"]')
     expect(banInput.element.value).toBe('15m')
   })
 
@@ -77,8 +78,8 @@ describe('AdminSecurity apiRateLimit* round-trip', () => {
     const wrapper = mountSecurity()
     await flushPromises()
 
-    await wrapper.find('[aria-label="admin.security.apiRateLimitMax"] input').setValue('500')
-    await wrapper.find('[aria-label="admin.security.apiRateLimitBan"] input').setValue('30m')
+    await wrapper.find('input[aria-label="admin.security.apiRateLimitMax"]').setValue('500')
+    await wrapper.find('input[aria-label="admin.security.apiRateLimitBan"]').setValue('30m')
 
     const applyButton = wrapper
       .findAll('button')
@@ -275,15 +276,136 @@ describe('AdminSecurity insecure cookie risk warning', () => {
   })
 })
 
+/**
+ * Task 2080: `trustProxy` was widened from a plain boolean to also accept a `proxy-addr` address/
+ * CIDR list string, so the admin view now has a text field beside the existing toggle for entering
+ * that list -- following the same toggle + conditional-detail pattern as `enforceCsp`/
+ * `cspDirectives`, except here both controls edit the SAME underlying `state.config.trustProxy`
+ * field rather than two independent ones (see the `trustProxyEnabled`/`trustProxyAddresses`
+ * computed pair in the component).
+ */
+describe('AdminSecurity trustProxy controls', () => {
+  it('hides the trusted-proxy address field while the toggle is off', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ trustProxy: false, insecureCookieRiskAt: null })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.find('[aria-label="admin.security.trustProxyAddresses"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('shows the address field, empty, once the toggle is turned on with no prior list', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ trustProxy: false, insecureCookieRiskAt: null })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('button[aria-label="admin.security.trustProxy"]').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    const addressField = wrapper.find('input[aria-label="admin.security.trustProxyAddresses"]')
+    expect(addressField.exists()).toBe(true)
+    expect(addressField.element.value).toBe('')
+
+    wrapper.unmount()
+  })
+
+  it('loads an existing address list, shows the toggle on and the field pre-filled', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({ trustProxy: '10.0.0.0/8, 192.168.1.1', insecureCookieRiskAt: null })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const addressField = wrapper.find('input[aria-label="admin.security.trustProxyAddresses"]')
+    expect(addressField.exists()).toBe(true)
+    expect(addressField.element.value).toBe('10.0.0.0/8, 192.168.1.1')
+
+    wrapper.unmount()
+  })
+
+  it('saves the typed address list as the trustProxy string', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({ trustProxy: false, insecureCookieRiskAt: null, uploadMaxFileSize: 1024 })
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ trustProxy: '10.0.0.0/8', insecureCookieRiskAt: null })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('button[aria-label="admin.security.trustProxy"]').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    const addressField = wrapper.find('input[aria-label="admin.security.trustProxyAddresses"]')
+    await addressField.setValue('10.0.0.0/8')
+
+    await wrapper.vm.save()
+
+    const [, opts] = API_CLIENT.put.mock.calls[0]
+    expect(opts.json.trustProxy).toBe('10.0.0.0/8')
+
+    wrapper.unmount()
+  })
+
+  it('sends trustProxy: false when the toggle is turned off, even after typing a list', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({ trustProxy: false, insecureCookieRiskAt: null, uploadMaxFileSize: 1024 })
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ trustProxy: false, insecureCookieRiskAt: null })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const toggle = wrapper.find('button[aria-label="admin.security.trustProxy"]')
+    await toggle.trigger('click')
+    await wrapper.vm.$nextTick()
+    await wrapper
+      .find('input[aria-label="admin.security.trustProxyAddresses"]')
+      .setValue('10.0.0.0/8')
+    await toggle.trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('[aria-label="admin.security.trustProxyAddresses"]').exists()).toBe(false)
+
+    await wrapper.vm.save()
+
+    const [, opts] = API_CLIENT.put.mock.calls[0]
+    expect(opts.json.trustProxy).toBe(false)
+
+    wrapper.unmount()
+  })
+})
+
 describe('AdminSecurity uploads info banner (task 605)', () => {
   it('no longer claims uploading is unimplemented, now that an upload endpoint exists', () => {
     const wrapper = mountPage()
 
     // -> `messages: { en: {} }` means every `t()` call resolves to its own key literal (see
     //    `mountPage()`'s comment above), so this is a wiring check: the template must reference the
-    //    new key, not the removed one that said "uploading is not implemented".
-    expect(wrapper.text()).toContain('admin.security.uploadsPartiallyEnforced')
+    //    surviving key, not either removed one — `uploadsNotEnforced` said "uploading is not
+    //    implemented" (task 605), and `uploadsPartiallyEnforced` (OpenProject #1360/#2152,
+    //    2026-08-24 security audit) named the two toggles this WP deleted (`uploadMaxFiles`,
+    //    `uploadScanSVG`) as the "not enforced yet" part; with both gone, everything this card shows
+    //    is enforced, so the caveat itself was deleted rather than reworded.
+    expect(wrapper.text()).toContain('admin.security.uploadsInfo')
     expect(wrapper.text()).not.toContain('admin.security.uploadsNotEnforced')
+    expect(wrapper.text()).not.toContain('admin.security.uploadsPartiallyEnforced')
 
     wrapper.unmount()
   })

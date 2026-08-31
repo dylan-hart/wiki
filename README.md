@@ -30,6 +30,7 @@ The current stable release (2.x) is available at https://js.wiki
   - [Requirements](#requirements)
   - [Usage](#usage)
   - [Backend Development](#backend-development)
+  - [Backend Tests](#backend-tests)
   - [Frontend Development](#frontend-development)
   - [pgAdmin](#pgadmin)
 - [Generic Setup](#generic-setup)
@@ -82,11 +83,25 @@ This will launch the server and automatically restart upon modification of any s
 
 Only precompiled client assets are served in this mode. See the sections below on how to modify the frontend and run in SPA (Single Page Application) mode.
 
+### Backend Tests
+
+The `app` container's `DATABASE_URL` (set in `.devcontainer/docker-compose.yml`) points at the same
+`db` container the app itself connects to, using `config.sample.yml`'s own db defaults. This means:
+
+- `npm run test` in `backend/` runs the DB-backed suites (see this repo's `CLAUDE.md`, "Testing
+  (backend)" section) in addition to the pure-unit ones, instead of silently skipping them.
+- `npm run dev` / `npm run start` are unaffected, as long as `config.yml`'s `db:` block is left at
+  its default values.
+
+If you edit `config.yml`'s `db:` block to point somewhere else, `DATABASE_URL` still wins over it --
+`unset DATABASE_URL` in your own terminal first, since `core/db.ts` prefers `DATABASE_URL` outright
+over `WIKI.config.db.*` whenever it's set.
+
 ### Frontend Development
 
 > Make sure you are running `npm run dev` in the left-side terminal (Backend) first! Requests still need to be forwarded to the server, even in SPA mode!
 
-If you wish to modify any frontend content (under `/frontend`), you need to start the Quasar Dev Server in the right-side terminal (Frontend):
+If you wish to modify any frontend content (under `/frontend`), you need to start the Vite dev server in the right-side terminal (Frontend):
 
 ```sh
 npm run dev
@@ -100,7 +115,7 @@ Any change you make to the frontend will not be reflected on port 3000 until you
 
 A web version of pgAdmin (a PostgreSQL administration tool) is available at `http://localhost:8000`. Use the login `dev@js.wiki` / `123123` to login.
 
-The server **dev** should already be available under **Servers**. If that's not the case, add a new one with the following settings:
+Add a new server under **Servers** with the following settings:
 
 - Hostname: `db`
 - Port: `5432`
@@ -120,11 +135,13 @@ The server **dev** should already be available under **Servers**. If that's not 
 1. Clone the project
 1. Make a copy of `config.sample.yml` and rename it to `config.yml`
 1. Edit `config.yml` and fill in the database details. **You need an empty PostgreSQL database.**
-1. Run the following commands to install dependencies and generate the client assets:
+1. Install dependencies and build the client assets. `backend`, `frontend` and `blocks` are
+   independently-installed workspaces (each has its own `package.json`), and **both `frontend` and
+   `blocks` must be built** before the backend has anything to serve:
     ```sh
     cd backend
     npm install
-    cd ../ux
+    cd ../frontend
     npm install
     npm run build
     cd ../blocks
@@ -132,9 +149,9 @@ The server **dev** should already be available under **Servers**. If that's not 
     npm run build
     cd ..
     ```
-1. Run this command to start the server:
+1. Run this command, **from the repository root** (not from inside `backend/`), to start the server:
     ```sh
-    node server
+    node backend
     ```
 1. In your browser, navigate to `http://localhost:3000` *(or the IP/hostname of the server and the PORT you defined earlier.)*
 1. Login using the default administrator user:
@@ -142,3 +159,10 @@ The server **dev** should already be available under **Servers**. If that's not 
     - Password: `12345678`
 
 > **DO NOT** report bugs. This build is **VERY** buggy and **VERY** incomplete. Absolutely **NO** support is provided either.
+
+There is also an `e2e/` workspace holding the Playwright end-to-end suite, which drives a full build
+of the stack and requires its own `DATABASE_URL` — see [`CLAUDE.md`](CLAUDE.md#testing-e2e) for how
+to point it at a database.
+
+See [`CLAUDE.md`](CLAUDE.md) for the full workspace layout, conventions and commands, and
+[`docs/`](docs/) for deeper reference material (release process, migration, security).

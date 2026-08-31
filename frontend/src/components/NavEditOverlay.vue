@@ -1,5 +1,5 @@
 <template>
-  <w-layout view="hHh lpR fFf" container>
+  <w-layout container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="img:/_assets/icons/fluent-sidebar-menu.svg" left size="md" />
       <span>{{ t(`navEdit.editMenuItems`) }}</span>
@@ -28,7 +28,7 @@
         target="_blank">
         <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
       </w-btn>
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
           push
           color="white"
@@ -193,7 +193,7 @@ async function save() {
     }).json()
     // -> The API client does not throw on 400, so a refusal comes back as a parsed error
     if (resp?.ok === false) {
-      throw new Error(resp.message || 'An unexpected error occured.')
+      throw new Error(resp.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',
@@ -211,7 +211,13 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      // -> `reconstructMenuItems()` (`helpers/navigation.js`) throws a plain error code, not a
+      //    translated string, so it stays testable with no i18n context -- translate its one thrown
+      //    code here, at the display boundary, same as every other message shown to the user.
+      message:
+        err.message === 'ERR_NESTED_LINK_WITHOUT_PARENT'
+          ? t('navEdit.nestedItemWithoutParent')
+          : apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   loading.hide()

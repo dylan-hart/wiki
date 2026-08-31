@@ -4,10 +4,11 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-windsock-animated.svg" />
+          src="/_assets/icons/fluent-windsock-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.flags.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.flags.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.flags.subtitle') }}
         </div>
@@ -133,7 +134,7 @@
       </div>
       <div class="col-span-12 max-lg:hidden lg:col-span-5">
         <div class="p-4 text-center">
-          <img src="/_assets/illustrations/undraw_settings.svg" style="width: 80%" />
+          <img src="/_assets/illustrations/undraw_settings.svg" style="width: 80%" alt="" />
         </div>
       </div>
     </div>
@@ -211,7 +212,7 @@ async function save() {
       json: state.flags
     }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

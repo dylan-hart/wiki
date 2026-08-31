@@ -18,6 +18,39 @@ const selfDir = dirname(fileURLToPath(import.meta.url))
 const frontendRoot = dirname(selfDir)
 const tailwindEntry = join(frontendRoot, 'src', 'css', 'tailwind.css')
 
+/*
+ * Whether a real Chromium binary is actually installed, probed once here at module top level rather
+ * than in a `beforeAll` -- a caller's `describe(name, { skip: !browserAvailable }, ...)` builds its
+ * options object while the caller module is still running its own top-level code (i.e. while
+ * `describe()` calls are registering the suite, synchronously, top to bottom). A `beforeAll` hook's
+ * body doesn't run until the later run phase, so if the probe lived in one, `skip` would still see
+ * only its initial value and never actually skip. A top-level `await` here runs to completion before
+ * any importer's top-level code continues, which is what makes the result visible in time --
+ * `backend/migration/connectors/postgres.test.ts` does the same thing for a Postgres reachability
+ * probe, for the identical reason.
+ *
+ * `npm ci` installs the `playwright` library, not the browser binary -- CI installs it separately
+ * (`quality.yml`'s `npx playwright install --with-deps chromium` step), but a developer running
+ * `npm run test` after a plain `npm ci` has no Chromium on disk, and `chromium.launch()` throws
+ * `Executable doesn't exist`. Probing here, once, lets every real-browser suite skip cleanly instead
+ * of failing on an environment precondition.
+ */
+let chromiumAvailable = true
+{
+  let probeBrowser
+  try {
+    probeBrowser = await chromium.launch()
+  } catch {
+    chromiumAvailable = false
+  } finally {
+    await probeBrowser?.close()
+  }
+}
+
+export function hasChromium() {
+  return chromiumAvailable
+}
+
 /**
  * Real-browser CSS Grid layout measurement, for tests that need to know how many columns an
  * `auto-fit`/`minmax()` grid actually renders at a given width -- something neither `jsdom` nor

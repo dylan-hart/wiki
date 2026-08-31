@@ -228,6 +228,59 @@ describe('OAuth2Authentication', () => {
       )
     })
 
+    test('throws ERR_EMAIL_NOT_VERIFIED when the configured verification claim is present and false', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://provider.example/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 })
+        }
+        return new Response(
+          JSON.stringify({ id: 7, email: 'person@example.com', verified: false }),
+          { status: 200 }
+        )
+      })
+      const oauth2 = new OAuth2Authentication(
+        'strategy-1',
+        makeConf({ emailVerifiedClaim: 'verified' })
+      )
+      await assert.rejects(
+        oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' }),
+        /ERR_EMAIL_NOT_VERIFIED/
+      )
+    })
+
+    test('accepts the login when the configured verification claim is absent from userinfo', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://provider.example/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 })
+        }
+        return new Response(JSON.stringify({ id: 7, email: 'person@example.com' }), { status: 200 })
+      })
+      const oauth2 = new OAuth2Authentication(
+        'strategy-1',
+        makeConf({ emailVerifiedClaim: 'verified' })
+      )
+      const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.equal(profile.email, 'person@example.com')
+    })
+
+    test('accepts the login when no emailVerifiedClaim is configured at all, even if the response reports false', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://provider.example/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 })
+        }
+        return new Response(
+          JSON.stringify({ id: 7, email: 'person@example.com', verified: false }),
+          { status: 200 }
+        )
+      })
+      const oauth2 = new OAuth2Authentication('strategy-1', makeConf())
+      const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.equal(profile.email, 'person@example.com')
+    })
+
     test('throws ERR_NO_PROVIDER_ACCOUNT when the mapped id claim is absent from userinfo', async () => {
       fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
         const url = String(input)
@@ -294,6 +347,67 @@ describe('OAuth2Authentication', () => {
       const oauth2 = new OAuth2Authentication('strategy-1', makeConf({ mapGroups: true }))
       const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' })
       assert.deepEqual(profile.groups, [])
+    })
+
+    /**
+     * `emailVerifiedClaim` is unset for a bare OAuth2 config by default -- most providers speaking
+     * plain OAuth2 have no such field at all (see the class doc comment) -- so these exercise it only
+     * once it is named, the same way `discord/authentication.ts` names it as `verified`.
+     */
+    test('throws ERR_EMAIL_NOT_VERIFIED when the configured verification claim is explicitly false', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://provider.example/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 })
+        }
+        return new Response(
+          JSON.stringify({ id: 7, email: 'person@example.com', verified: false }),
+          { status: 200 }
+        )
+      })
+      const oauth2 = new OAuth2Authentication(
+        'strategy-1',
+        makeConf({ emailVerifiedClaim: 'verified' })
+      )
+      await assert.rejects(
+        oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' }),
+        /ERR_EMAIL_NOT_VERIFIED/
+      )
+    })
+
+    test('accepts the profile when the configured verification claim is absent from userinfo', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://provider.example/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 })
+        }
+        return new Response(JSON.stringify({ id: 7, email: 'person@example.com' }), { status: 200 })
+      })
+      const oauth2 = new OAuth2Authentication(
+        'strategy-1',
+        makeConf({ emailVerifiedClaim: 'verified' })
+      )
+      const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.equal(profile.email, 'person@example.com')
+    })
+
+    test('allowUnverifiedEmail re-permits an explicitly-false verification claim', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://provider.example/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 })
+        }
+        return new Response(
+          JSON.stringify({ id: 7, email: 'person@example.com', verified: false }),
+          { status: 200 }
+        )
+      })
+      const oauth2 = new OAuth2Authentication(
+        'strategy-1',
+        makeConf({ emailVerifiedClaim: 'verified', allowUnverifiedEmail: true })
+      )
+      const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.equal(profile.email, 'person@example.com')
     })
   })
 
@@ -412,10 +526,21 @@ describe('oauth2/definition.yml', () => {
     assert.equal(def.props.clientSecret.sensitive, true)
   })
 
+  test('declares an optional emailVerifiedClaim prop for honouring provider-reported email verification', () => {
+    assert.ok(def.props.emailVerifiedClaim, 'expected an emailVerifiedClaim prop')
+    assert.equal(def.props.emailVerifiedClaim.default, '')
+  })
+
   test('declares mapGroups/groupsClaim/groupsScope props for group-claim mapping (OpenProject #826)', () => {
     assert.ok(def.props.mapGroups, 'expected a mapGroups prop')
     assert.ok(def.props.groupsClaim, 'expected a groupsClaim prop')
     assert.ok(def.props.groupsScope, 'expected a groupsScope prop')
+  })
+
+  test('declares emailVerifiedClaim (unset by default) and allowUnverifiedEmail (off by default)', () => {
+    assert.ok(def.props.emailVerifiedClaim, 'expected an emailVerifiedClaim prop')
+    assert.ok(def.props.allowUnverifiedEmail, 'expected an allowUnverifiedEmail prop')
+    assert.equal(def.props.allowUnverifiedEmail.default, false)
   })
 
   test('drops the props this task calls out as unneeded: pictureClaim, useQueryStringForAccessToken, enableCSRFProtection', () => {

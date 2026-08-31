@@ -198,3 +198,42 @@ describe('editor store: addPendingAsset() Blob branch (OpenProject #952)', () =>
     expect(text).toBe('hello blob')
   })
 })
+
+/**
+ * OpenProject #2073: a save-conflict "Discard" choice must not make the author's own pending content
+ * unrecoverable. `discardedContent` is where `EditorMarkdown.vue` stashes it right before overwriting
+ * the editor with the server's snapshot, so the toast that follows can offer it straight back.
+ */
+describe('editor store: discardedContent (OpenProject #2073)', () => {
+  it('defaults to null, so no toast offers an undo with nothing behind it', () => {
+    const store = useEditorStore()
+
+    expect(store.discardedContent).toBeNull()
+  })
+
+  it("stashDiscardedContent() retains the author's previous content for undo", () => {
+    const store = useEditorStore()
+
+    store.stashDiscardedContent('My unsaved paragraph.')
+
+    expect(store.discardedContent).toBe('My unsaved paragraph.')
+  })
+
+  it('stashDiscardedContent() overwrites a prior stash -- only the latest discard is offered back', () => {
+    const store = useEditorStore()
+    store.stashDiscardedContent('First discard.')
+
+    store.stashDiscardedContent('Second discard.')
+
+    expect(store.discardedContent).toBe('Second discard.')
+  })
+
+  it('clearDiscardedContent() resets it to null once restored (or no longer offered)', () => {
+    const store = useEditorStore()
+    store.stashDiscardedContent('My unsaved paragraph.')
+
+    store.clearDiscardedContent()
+
+    expect(store.discardedContent).toBeNull()
+  })
+})

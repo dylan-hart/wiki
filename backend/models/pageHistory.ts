@@ -1,11 +1,12 @@
 import { isEqual } from 'es-toolkit/predicate'
-import { and, desc, eq, isNotNull, lt, notExists, sql } from 'drizzle-orm'
+import { and, desc, eq, lt, notExists, sql } from 'drizzle-orm'
 import {
   pageHistory as pageHistoryTable,
   pages as pagesTable,
   users as usersTable
 } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
+import { invalidateGraphCache } from '../helpers/graphCache.ts'
 import type { Page, PageActor, PageInput } from './pages.ts'
 
 /**
@@ -57,7 +58,7 @@ export type PurgeTimeframe = keyof typeof purgeTimeframes
  * being touched. The exclusions are either derived from the content (`render`, `toc`, `searchContent`,
  * `ts`), fixed for the page's whole life (`id`, `siteId`, `creatorId`, `createdAt`), or bookkeeping
  * that says nothing about the version (`hash`, `updatedAt`, `authorId`, `ratingScore`, `ratingCount`,
- * `historyData`, `isSearchableComputed`).
+ * `historyData`).
  */
 const EXCLUDED_FROM_META = new Set([
   'id',
@@ -74,7 +75,6 @@ const EXCLUDED_FROM_META = new Set([
   'ratingScore',
   'ratingCount',
   'historyData',
-  'isSearchableComputed',
   // -> Held in columns of their own
   'locale',
   'path',
@@ -98,8 +98,7 @@ const NOT_REPORTED_AS_CHANGED = new Set([
   'updatedAt',
   'ratingScore',
   'ratingCount',
-  'historyData',
-  'isSearchableComputed'
+  'historyData'
 ])
 
 /** Who a version is attributed to. Null once that account is gone; the version stays. */
@@ -129,6 +128,23 @@ export type PageHistoryEntry = {
 export type PageHistoryVersion = PageHistoryEntry & {
   content: string
   meta: Record<string, any>
+}
+
+/**
+ * A row of {@link Pages.listRecoverable} — deliberately NOT `PageHistoryEntry`, in two ways
+ * (OpenProject #2168): it carries `tags`/`classification` so the route can narrow the per-row
+ * `read:history` check with the same TAG/TAGALL/CLASSIFICATION rules any other read of the page
+ * would apply, not just a bare path/locale match; and its `author` carries no `email` at all, which
+ * `PageHistoryEntry.author` normally does for an ordinary (still-live-page) history timeline where
+ * `read:history` on the page already gates it. This listing exists precisely so a caller who does
+ * NOT hold `read:pages` at the deleted path can still discover that something recoverable is there
+ * -- handing back the deleting/creating author's email address on every row would leak PII to a
+ * reader `read:history` was never meant to give it to.
+ */
+export type RecoverablePageEntry = Omit<PageHistoryEntry, 'author'> & {
+  tags: string[]
+  classification: string | null
+  author: Omit<PageHistoryAuthor, 'email'>
 }
 
 /**
@@ -243,6 +259,11 @@ class PageHistory {
         })
         .returning({ id: pageHistoryTable.id })
 
+      // -> A new version changes `contributorCountsForGraph`'s edit-volume figures for this page --
+      //    the cached graph bundle (`helpers/graphCache.ts`) has to drop, not just `models/pages.ts`'s
+      //    own writes above.
+      invalidateGraphCache(siteId)
+
       return inserted[0]?.id ?? null
     } catch (err: any) {
       WIKI.logger.warn(`Failed to record page history for ${pageId}: ${err.message}`)
@@ -306,17 +327,15 @@ class PageHistory {
    * edits still count toward `pageHistory` rows existing, just not toward how many distinct people
    * they came from.
    *
-   * Two aggregate queries rather than one: `GROUP BY pageId, via` gives the `editor`/`mcp` split,
-   * but `COUNT(DISTINCT authorId)` does not distribute over that split -- someone who edited through
-   * both channels would count once in each bucket, and adding the two back together would count
-   * them twice. A second `GROUP BY pageId` alone gives the true site-wide-distinct `all` figure.
-   *
-   * A third query -- `total`, raw `count(*)` per page/via -- runs unfiltered by `authorId`,
-   * deliberately: a since-deleted author's edits are still real rows against the page (see the
-   * `authorId IS NOT NULL` note above), so an edit-volume total should count them, unlike the
-   * unique-contributor figures. Its `all` needs no fourth query the way the distinct `all` above
-   * does -- row counts carry no identity to double-count, so summing `editor` + `mcp` totals is
-   * already exact.
+   * One aggregate query, not three (OpenProject #2269): every figure below is a `FILTER`-qualified
+   * aggregate over a single `GROUP BY pageId` pass, rather than a separate `GROUP BY pageId, via`
+   * query for the per-`via` split plus a second `GROUP BY pageId` alone for the site-wide-distinct
+   * `all` figure plus a third for the unfiltered row-count `total`. `COUNT(DISTINCT authorId)`
+   * already excludes `NULL` on its own — standard SQL aggregate semantics, not something a `WHERE
+   * authorId IS NOT NULL` needs to do first — so `editor`/`mcp`/`all` need no such filter, while
+   * `total.*` deliberately counts every row regardless of `authorId`: a since-deleted account's
+   * edits are still real rows against the page, they just aren't attributable to a distinct person
+   * any more.
    *
    * @returns A map keyed by `pageId`. A page with no history at all (should not happen in practice --
    *          every page gets a `created` row -- but not a case worth throwing over) is simply absent;
@@ -325,68 +344,31 @@ class PageHistory {
   async contributorCountsForGraph(
     siteId: string
   ): Promise<Map<string, PageHistoryContributorCounts>> {
-    const distinctAuthor = sql<number>`count(distinct ${pageHistoryTable.authorId})::int`
-    const totalRows = sql<number>`count(*)::int`
+    const isEditor = sql`${pageHistoryTable.via} = 'editor'`
+    const isMcp = sql`${pageHistoryTable.via} = 'mcp'`
 
-    const [byVia, overall, totalByVia] = await Promise.all([
-      WIKI.db
-        .select({
-          pageId: pageHistoryTable.pageId,
-          via: pageHistoryTable.via,
-          count: distinctAuthor
-        })
-        .from(pageHistoryTable)
-        .where(and(eq(pageHistoryTable.siteId, siteId), isNotNull(pageHistoryTable.authorId)))
-        .groupBy(pageHistoryTable.pageId, pageHistoryTable.via),
-      WIKI.db
-        .select({ pageId: pageHistoryTable.pageId, count: distinctAuthor })
-        .from(pageHistoryTable)
-        .where(and(eq(pageHistoryTable.siteId, siteId), isNotNull(pageHistoryTable.authorId)))
-        .groupBy(pageHistoryTable.pageId),
-      WIKI.db
-        .select({ pageId: pageHistoryTable.pageId, via: pageHistoryTable.via, count: totalRows })
-        .from(pageHistoryTable)
-        .where(eq(pageHistoryTable.siteId, siteId))
-        .groupBy(pageHistoryTable.pageId, pageHistoryTable.via)
-    ])
+    const rows = await WIKI.db
+      .select({
+        pageId: pageHistoryTable.pageId,
+        editor: sql<number>`count(distinct ${pageHistoryTable.authorId}) filter (where ${isEditor})::int`,
+        mcp: sql<number>`count(distinct ${pageHistoryTable.authorId}) filter (where ${isMcp})::int`,
+        all: sql<number>`count(distinct ${pageHistoryTable.authorId})::int`,
+        totalEditor: sql<number>`count(*) filter (where ${isEditor})::int`,
+        totalMcp: sql<number>`count(*) filter (where ${isMcp})::int`,
+        totalAll: sql<number>`count(*)::int`
+      })
+      .from(pageHistoryTable)
+      .where(eq(pageHistoryTable.siteId, siteId))
+      .groupBy(pageHistoryTable.pageId)
 
     const result = new Map<string, PageHistoryContributorCounts>()
-    for (const row of overall) {
+    for (const row of rows) {
       result.set(row.pageId, {
-        editor: 0,
-        mcp: 0,
-        all: row.count,
-        total: { editor: 0, mcp: 0, all: 0 }
+        editor: row.editor,
+        mcp: row.mcp,
+        all: row.all,
+        total: { editor: row.totalEditor, mcp: row.totalMcp, all: row.totalAll }
       })
-    }
-    for (const row of byVia) {
-      const entry = result.get(row.pageId) ?? {
-        editor: 0,
-        mcp: 0,
-        all: 0,
-        total: { editor: 0, mcp: 0, all: 0 }
-      }
-      if (row.via === 'mcp') {
-        entry.mcp = row.count
-      } else {
-        entry.editor = row.count
-      }
-      result.set(row.pageId, entry)
-    }
-    for (const row of totalByVia) {
-      const entry = result.get(row.pageId) ?? {
-        editor: 0,
-        mcp: 0,
-        all: 0,
-        total: { editor: 0, mcp: 0, all: 0 }
-      }
-      if (row.via === 'mcp') {
-        entry.total.mcp = row.count
-      } else {
-        entry.total.editor = row.count
-      }
-      entry.total.all = entry.total.editor + entry.total.mcp
-      result.set(row.pageId, entry)
     }
     return result
   }
@@ -462,8 +444,16 @@ class PageHistory {
    * by an unrelated new page, is not something to offer recovery into — a live `pages` row at the
    * same `(siteId, locale, path)` excludes it via `NOT EXISTS`. Between the two, a path drops off this
    * list the moment it stops being an actual gap, with no flag to set or clear anywhere.
+   *
+   * Returns `RecoverablePageEntry`, not `PageHistoryEntry` (OpenProject #2168): `tags`/`classification`
+   * ride along -- lifted out of `meta` the same way `getDeletedVersion` does -- so the route can narrow
+   * its per-row `read:history` check with a TAG/TAGALL/CLASSIFICATION rule instead of the bare
+   * `{ path, locale }` ref it used to build, and `author.email` is dropped: unlike a single page's own
+   * history view (gated by `read:history` at that ONE page), this listing spans every deleted path on
+   * the site in one sweep, and handing back every deleter's email address across the whole site is a
+   * wider exposure than the entry needs to serve its purpose.
    */
-  async listRecoverable(siteId: string): Promise<PageHistoryEntry[]> {
+  async listRecoverable(siteId: string): Promise<RecoverablePageEntry[]> {
     const rows = await WIKI.db
       .selectDistinctOn([pageHistoryTable.locale, pageHistoryTable.path], {
         id: pageHistoryTable.id,
@@ -475,9 +465,9 @@ class PageHistory {
         locale: pageHistoryTable.locale,
         path: pageHistoryTable.path,
         title: pageHistoryTable.title,
+        meta: pageHistoryTable.meta,
         authorId: usersTable.id,
-        authorName: usersTable.name,
-        authorEmail: usersTable.email
+        authorName: usersTable.name
       })
       .from(pageHistoryTable)
       .leftJoin(usersTable, eq(usersTable.id, pageHistoryTable.authorId))
@@ -501,22 +491,26 @@ class PageHistory {
       )
       .orderBy(pageHistoryTable.locale, pageHistoryTable.path, desc(pageHistoryTable.versionDate))
 
-    return rows.map((row: any) => ({
-      id: row.id,
-      action: row.action,
-      via: row.via,
-      changedFields: row.changedFields ?? [],
-      reason: row.reason ?? '',
-      versionDate: row.versionDate,
-      locale: row.locale,
-      path: row.path,
-      title: row.title,
-      author: {
-        id: row.authorId ?? null,
-        name: row.authorName ?? '',
-        email: row.authorEmail ?? ''
+    return rows.map((row: any) => {
+      const meta = (row.meta ?? {}) as Record<string, any>
+      return {
+        id: row.id,
+        action: row.action,
+        via: row.via,
+        changedFields: row.changedFields ?? [],
+        reason: row.reason ?? '',
+        versionDate: row.versionDate,
+        locale: row.locale,
+        path: row.path,
+        title: row.title,
+        author: {
+          id: row.authorId ?? null,
+          name: row.authorName ?? ''
+        },
+        tags: (meta.tags ?? []) as string[],
+        classification: (meta.classification ?? null) as string | null
       }
-    }))
+    })
   }
 
   /**
@@ -524,8 +518,16 @@ class PageHistory {
    *
    * Exposed separately from `recoverDeletedPage` so a caller can inspect a version — its path and
    * locale, most usefully — before deciding whether to actually recover it. The REST route asks this
-   * first, to check `write:pages` against the *target* path ahead of the write, and to answer 404
-   * cleanly for an id that names no recoverable version.
+   * first, to check `read:pages`/`read:source` against the version's OWN path (OpenProject #2168 --
+   * recovering into a writable destination is not the same as being allowed to read what is being
+   * recovered) and `write:pages` against the *target* path ahead of the write, and to answer 404
+   * cleanly for an id that names no recoverable version. `tags`/`classification` are the version's
+   * own, as stored on the deletion, so that source-side check can be narrowed by a TAG/TAGALL/
+   * CLASSIFICATION rule the same way any other page-permission check is.
+   *
+   * `tags`/`classification` are pulled out of `meta` alongside the always-present fields, so a caller
+   * can build a full `RulePageRef` without reaching into `meta` itself — the same reasoning
+   * `recoverDeletedPage` below already applies to `tags` when rebuilding the page.
    *
    * @returns The version, or null when no `deleted` version exists at this id for this site.
    */
@@ -537,6 +539,15 @@ class PageHistory {
     locale: string
     title: string
     content: string
+    /**
+     * The version's own tags/classification (OpenProject #2168), lifted out of `meta` as named fields
+     * rather than left for the caller to reach in for -- neither is `EXCLUDED_FROM_META`, so both
+     * already travel with every version; this is what `api/pages.ts`'s recover route checks
+     * `read:pages`/`read:source` against at the SOURCE path, before its existing `write:pages` check
+     * against the destination.
+     */
+    tags: string[]
+    classification: string | null
     meta: Record<string, any>
   } | null> {
     const rows = await WIKI.db
@@ -561,12 +572,15 @@ class PageHistory {
     if (!row) {
       return null
     }
+    const meta = (row.meta ?? {}) as Record<string, any>
     return {
       path: row.path,
       locale: row.locale,
       title: row.title,
       content: row.content ?? '',
-      meta: (row.meta ?? {}) as Record<string, any>
+      tags: (meta.tags ?? []) as string[],
+      classification: (meta.classification ?? null) as string | null,
+      meta
     }
   }
 
@@ -583,6 +597,14 @@ class PageHistory {
    * exists for exactly the cases that check would reject unchanged — a path a newer page has since
    * taken, or a locale the site no longer has — so a caller can steer the recreated page around the
    * conflict instead of recovery being an all-or-nothing retry of the exact same input.
+   *
+   * Carries the classification the page held when it was deleted (OpenProject #1672), rather than
+   * letting `createPage` fall back to the destination's floor or the instance default -- a page
+   * classified `Restricted` and deleted must not come back `Public`. Also queues a re-render once the
+   * page exists, since a deleted version's row never stored the rendered HTML (only `EXCLUDED_FROM_META`
+   * fields are derived, and `render`/`toc`/`searchContent` are among them) -- left unqueued, the
+   * recovered page would render as a blank body until someone re-saved it or an admin re-rendered it by
+   * hand.
    *
    * @throws If no `deleted` version exists at this id for this site.
    */
@@ -603,8 +625,13 @@ class PageHistory {
 
     const meta = row.meta
     const config = (meta.config ?? {}) as Record<string, any>
-    const scripts = (meta.scripts ?? {}) as Record<string, any>
 
+    // -> `meta.password`, when present, is already a `bcrypt` verifier (OpenProject #2232) copied
+    //    verbatim off the deleted row's own `password` column -- not a plaintext to hash again. It is
+    //    deliberately left out of `input` below: `createPage()`'s `password` field is a fresh
+    //    plaintext that it hashes itself, and feeding it an already-hashed value would hash the hash,
+    //    silently locking the recovered page behind a password nobody can ever type. It is written
+    //    straight to the new row's `password` column instead, once the id exists to write it to.
     const input: PageInput = {
       path: overrides?.path ?? row.path,
       locale: overrides?.locale ?? row.locale,
@@ -614,12 +641,16 @@ class PageHistory {
       description: meta.description,
       icon: meta.icon,
       alias: meta.alias,
+      // -> The level the page held when it was deleted (OpenProject #1672). `resolveCreateClassification`
+      //    still validates it against the *destination* parent's floor -- `overrides.path` can move the
+      //    page under a stricter branch -- so a recovery that can no longer honor the original level
+      //    throws `classificationInvalid`/`classificationBelowFloor` instead of silently reopening it.
+      classification: meta.classification,
       publishState: meta.publishState,
       publishStartDate: meta.publishStartDate ?? null,
       publishEndDate: meta.publishEndDate ?? null,
       isBrowsable: meta.isBrowsable,
       isSearchable: meta.isSearchable,
-      password: meta.password ?? undefined,
       relations: meta.relations ?? [],
       tags: meta.tags ?? [],
       allowComments: config.allowComments,
@@ -628,13 +659,34 @@ class PageHistory {
       showSidebar: config.showSidebar,
       showTags: config.showTags,
       showToc: config.showToc,
-      tocDepth: config.tocDepth,
-      scriptJsLoad: scripts.jsLoad,
-      scriptJsUnload: scripts.jsUnload,
-      scriptCss: scripts.css
+      tocDepth: config.tocDepth
     }
 
-    return WIKI.models.pages.createPage(siteId, input, actor)
+    const page = await WIKI.models.pages.createPage(siteId, input, actor)
+    if (meta.password) {
+      await WIKI.db
+        .update(pagesTable)
+        .set({ password: meta.password })
+        .where(eq(pagesTable.id, page.id))
+    }
+
+    // -> Best effort, not a hard dependency: `queueRerender` calls `ensureCanRender` unconditionally and
+    //    throws `renderUnsupportedEditor`/`renderPuppeteerMissing` on an instance with no Puppeteer
+    //    extension, which must not turn a successful recovery into a 500 with the page already created.
+    //    Mirrors `migration/page-import.ts`'s try/catch/log/continue shape for the same call.
+    try {
+      await WIKI.models.pages.queueRerender(siteId, page.id, actor)
+    } catch (err: any) {
+      WIKI.logger.warn(
+        `Recovered page ${page.id} but failed to queue a re-render -- it will render blank until ` +
+          `re-saved or re-rendered manually: ${err.message}`
+      )
+    }
+
+    if (meta.password) {
+      return (await WIKI.models.pages.getPage({ siteId, id: page.id })) as Page
+    }
+    return page
   }
 
   /**
@@ -695,8 +747,8 @@ class PageHistory {
         Not `JSON.stringify` either, which was the same bug one level down. Postgres stores a `jsonb`
         column with its keys in its own order — by length, then bytewise — so `config` came back as
         `showToc, showTags, tocDepth, …` while `buildConfig` produces them in its own fixed order.
-        Two identical objects, two different strings, and `config` and `scripts` were therefore
-        reported as changed on every single save.
+        Two identical objects, two different strings, and `config` was therefore reported as changed
+        on every single save.
       */
       if (!isEqual(existing[key], value)) {
         changed.push(key)

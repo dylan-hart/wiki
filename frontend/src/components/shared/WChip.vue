@@ -21,7 +21,7 @@
       v-if="removable"
       type="button"
       class="w-unstyled shrink-0 cursor-pointer rounded-full opacity-70 hover:opacity-100"
-      :aria-label="removeLabel"
+      :aria-label="resolvedRemoveLabel"
       @click.stop="$emit('remove')">
       <w-icon name="mdi:close" />
     </button>
@@ -30,6 +30,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { useDictText } from '@/composables/i18nText'
 
 /**
  * Compact label for a tag, status or selected value.
@@ -73,14 +74,19 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Accessible name for the remove button. */
+  /** Accessible name for the remove button. Falls back to the `common.chip.remove` dictionary entry. */
   removeLabel: {
     type: String,
-    default: 'Remove'
+    default: null
   }
 })
 
 defineEmits(['click', 'remove'])
+
+const dictText = useDictText()
+const resolvedRemoveLabel = computed(
+  () => props.removeLabel ?? dictText('common.chip.remove', 'Remove')
+)
 
 const SIZES = { xs: '10px', sm: '12px', md: '14px', lg: '16px' }
 
@@ -125,7 +131,7 @@ const styles = computed(() => ({
   width: 1.25em;
   height: 1.25em;
   font-size: inherit;
-  margin-right: 0.45em;
+  margin-inline-end: 0.45em;
 }
 
 /* -> Which leaves the glyph to scale separately, at a little over two thirds of the circle */

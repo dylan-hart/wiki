@@ -1,6 +1,6 @@
 <template>
   <w-page class="py-4">
-    <div class="w-section-header">{{ t('profile.auth') }}</div>
+    <h1 class="w-section-header">{{ t('profile.auth') }}</h1>
     <div class="p-4">
       <div class="text-body2">{{ t('profile.authInfo') }}</div>
       <w-list class="mt-6" bordered separator>
@@ -126,7 +126,7 @@
       </w-list>
     </div>
 
-    <div class="w-section-header mt-4">{{ t('profile.passkeys') }}</div>
+    <h2 class="w-section-header mt-4">{{ t('profile.passkeys') }}</h2>
     <div class="p-4">
       <div class="text-body2">{{ t('profile.passkeysIntro') }}</div>
       <w-list v-if="state.passkeys?.length > 0" class="mt-6" bordered separator>
@@ -139,7 +139,7 @@
           <w-item-section>
             <strong>{{ pkey.name }}</strong>
             <div class="text-caption">{{ pkey.siteHostname }}</div>
-            <div class="text-caption text-grey-7">{{ humanizeDate(pkey.createdAt) }}</div>
+            <div class="text-caption text-grey-7">{{ humanizeDate(t, pkey.createdAt) }}</div>
           </w-item-section>
           <w-item-section side>
             <w-btn
@@ -176,6 +176,7 @@ import { confirm, dialog } from '@/composables/dialog'
 import { onMounted, reactive } from 'vue'
 import { browserSupportsWebAuthn, startRegistration } from '@simplewebauthn/browser'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 import { localizeError } from '@/helpers/localization'
 
 import ChangePwdDialog from '@/components/ChangePwdDialog.vue'
@@ -202,13 +203,6 @@ const state = reactive({
 })
 
 // METHODS
-
-function humanizeDate(val) {
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  })
-}
 
 async function fetchAuthMethods() {
   state.loading++

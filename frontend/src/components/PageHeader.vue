@@ -45,7 +45,7 @@
       than everything else in the row, so there is nothing to centre and this changes nothing.
     -->
     <div class="min-w-0 flex-1 flex flex-col justify-center p-2 sm:p-4">
-      <div class="text-h4 page-header-title">
+      <h1 class="text-h4 page-header-title">
         <span
           v-if="isEditing"
           ref="titleEl"
@@ -60,7 +60,7 @@
           @blur="onEditableBlur(`title`, $event)"
           @keydown.enter.prevent="$event.target.blur()" />
         <span v-else>{{ pageStore.title }}</span>
-      </div>
+      </h1>
       <div class="text-subtitle2 page-header-subtitle">
         <span
           v-if="isEditing"
@@ -133,9 +133,9 @@
           dense
           icon="la:print"
           color="grey"
-          aria-label="Print"
+          :aria-label="t('common.actions.print')"
           @click="printPage">
-          <w-tooltip>Print</w-tooltip>
+          <w-tooltip>{{ t('common.actions.print') }}</w-tooltip>
         </w-btn>
         <!--
           Only for whoever reviews this page: the server answers `canReview` from the approval rules
@@ -207,7 +207,7 @@
                   <w-item-label>
                     {{ submission.author.name || t('inbox.reviewUnknownAuthor') }}
                   </w-item-label>
-                  <w-item-label caption>{{ humanizeDate(submission.createdAt) }}</w-item-label>
+                  <w-item-label caption>{{ humanizeDate(t, submission.createdAt) }}</w-item-label>
                 </w-item-section>
                 <w-item-section side v-if="submission.isStale">
                   <w-badge color="warning" rounded>{{ t('inbox.reviewStale') }}</w-badge>
@@ -246,7 +246,7 @@
           :href="siteStore.docsBase + `/guide/editors/${editorStore.editor}`"
           target="_blank"
           type="a">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
+          <w-tooltip labels>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
       </template>
       <!--
@@ -330,7 +330,7 @@
           :aria-label="t(`editor.createPage`)"
           no-caps
           @click="createPage" />
-        <w-btn-group class="ms-2" v-else flat>
+        <w-btn-group class="ms-2" v-else>
           <w-btn
             class="acrylic-btn"
             flat
@@ -382,6 +382,7 @@ import { useUserStore } from '@/stores/user'
 import CollabPresence from '@/components/CollabPresence.vue'
 import IconPickerDialog from '@/components/IconPickerDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 import { directionalAnchor } from '@/helpers/directionalAnchor'
 import { shouldPrefixLocale } from '@/helpers/pagePaths'
 
@@ -637,9 +638,7 @@ async function discardChanges() {
       notify({
         type: 'positive',
         // -> Nothing was reverted in the suggest case: the page never changed, the draft did
-        message: wasSuggesting
-          ? t('common.page.suggestDiscarded')
-          : 'Page has been reverted to the last saved state.'
+        message: wasSuggesting ? t('common.page.suggestDiscarded') : t('common.page.revertSuccess')
       })
     }
   } catch (err) {
@@ -648,7 +647,7 @@ async function discardChanges() {
     editorStore.$patch({ isActive: false, editor: '', mode: 'edit' })
     notify({
       type: 'negative',
-      message: 'Failed to reload page state.'
+      message: t('common.page.reloadFailed')
     })
   }
   loading.hide()
@@ -681,7 +680,7 @@ async function saveChangesCommit(closeAfter = false) {
     const result = await pageStore.pageSave()
     notify({
       type: 'positive',
-      message: 'Page saved successfully.'
+      message: t('common.page.saveSuccess')
     })
     /*
       OpenProject #1080: raising this page's own classification does not cascade to its
@@ -722,7 +721,7 @@ async function saveChangesCommit(closeAfter = false) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to save page changes.',
+      message: t('common.page.saveFailed'),
       caption: err.message
     })
   }
@@ -740,7 +739,7 @@ async function createPage() {
       await pageStore.pageSave()
       notify({
         type: 'positive',
-        message: 'Homepage created successfully.'
+        message: t('common.page.homepageCreateSuccess')
       })
       editorStore.$patch({
         isActive: false
@@ -749,7 +748,7 @@ async function createPage() {
     } catch (err) {
       notify({
         type: 'negative',
-        message: 'Failed to create homepage.',
+        message: t('common.page.homepageCreateFailed'),
         caption: err.message
       })
     }
@@ -781,7 +780,7 @@ async function createPage() {
       await pageStore.pageSave()
       notify({
         type: 'positive',
-        message: 'Page created successfully.'
+        message: t('common.page.createSuccess')
       })
       editorStore.$patch({
         isActive: false
@@ -789,7 +788,7 @@ async function createPage() {
     } catch (err) {
       notify({
         type: 'negative',
-        message: 'Failed to create page.',
+        message: t('common.page.createFailed'),
         caption: err.message
       })
     }
@@ -896,13 +895,6 @@ function printPage() {
   window.print()
 }
 
-function humanizeDate(val) {
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  })
-}
-
 /**
  * Open one suggestion for review, remembering where it was opened from.
  *
@@ -937,13 +929,6 @@ async function toggleWatch() {
       caption: err.message
     })
   }
-}
-
-function notImplemented() {
-  notify({
-    type: 'negative',
-    message: 'Not implemented'
-  })
 }
 </script>
 

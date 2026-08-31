@@ -6,8 +6,10 @@ import {
   tree as treeTable
 } from '../db/schema.ts'
 import { CustomError, decodeTreePath, localizedPagePath } from '../helpers/common.ts'
+import { isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
 import { MAX_DEPTH, compareFoldersFirst, pageIsVisible } from './tree.ts'
 import type { TreeItemType } from './tree.ts'
+import type { AccessActor } from './groups.ts'
 
 export const NAVIGATION_MODES = [
   'inherit',
@@ -129,6 +131,69 @@ function cloneItemsWithFreshIds(items: NavigationItem[]): NavigationItem[] {
 }
 
 /**
+ * Protocols a navigation item's `target` may use, beyond a same-origin rooted path: `mailto:`/`tel:`
+ * are legitimate menu destinations with no script-execution risk, alongside plain `http:`/`https:`.
+ */
+const NAV_TARGET_PROTOCOLS = ['http:', 'https:', 'mailto:', 'tel:'] as const
+
+/**
+ * Whether one item's own `target` (its `children`, if any, are the caller's to recurse into
+ * separately) is safe to store. An empty/absent target is fine — a `header`/`separator` item, or a
+ * `link` nobody has pointed anywhere yet.
+ *
+ * Exported (alongside `assertValidNavItems`/`sanitizeNavItemTargets` below) purely so
+ * `navigation.test.ts` can exercise this validation directly as a pure unit test, rather than only
+ * indirectly through a DB-backed `setNavItems`/`copyNav` round trip -- see this repo's own testing
+ * convention for preferring a pure test over a database one wherever the thing under test does not
+ * actually require SQL orchestration to verify.
+ */
+export function isValidNavItemTarget(target: string | undefined): boolean {
+  if (target === undefined || target === '') {
+    return true
+  }
+  return isFollowableRedirectTarget(target, { allowedProtocols: NAV_TARGET_PROTOCOLS })
+}
+
+/**
+ * Refuse a menu whose items — at any depth — carry a `target` that is not `isValidNavItemTarget`.
+ * OpenProject #1360/#2208 §3, 2026-08-24 security audit: a `site:navigation` holder (a delegated,
+ * non-administrator permission) can otherwise store `javascript:...` as an item's target, which runs
+ * for any reader who clicks the sidebar entry it renders as. Called from every write path —
+ * `setNavItems` (the two `PUT` routes) and `copyNav` — so a poisoned source menu cannot be
+ * reintroduced onto a clean target through a copy either.
+ *
+ * @throws {CustomError} 400, naming the offending item, on the first invalid target found
+ */
+export function assertValidNavItems(items: NavigationItem[]): void {
+  for (const item of items) {
+    if (!isValidNavItemTarget(item.target)) {
+      throw new CustomError(
+        'navigationInvalidTarget',
+        `Navigation item "${item.id}" has an invalid target. Only a path on this wiki, or a complete http(s)/mailto/tel address, is allowed.`
+      )
+    }
+    if (item.children?.length) {
+      assertValidNavItems(item.children)
+    }
+  }
+}
+
+/**
+ * Recursively blank any `target` that fails `isValidNavItemTarget`, leaving the rest of the item (and
+ * its children) intact. Used by `copyNav` rather than `assertValidNavItems`'s hard refusal: the items
+ * it clones were written by `cloneItemsWithFreshIds` from whatever the source menu already holds,
+ * which may predate this validation existing at all — dropping just the poisoned target lets the copy
+ * still succeed instead of failing the whole operation over data this route did not itself accept.
+ */
+export function sanitizeNavItemTargets(items: NavigationItem[]): NavigationItem[] {
+  return items.map((item) => ({
+    ...item,
+    target: isValidNavItemTarget(item.target) ? item.target : '',
+    ...(item.children?.length ? { children: sanitizeNavItemTargets(item.children) } : {})
+  }))
+}
+
+/**
  * Navigation model
  *
  * A navigation menu is a row of `items` keyed by its own id: a tree entry that overrides the menu
@@ -152,27 +217,47 @@ class Navigation {
    * `Main Menu`/`Browse` toggle 2.5.x used, which is the source of real user confusion this feature
    * deliberately does not reproduce.
    *
-   * `unfiltered` only ever controls the visibility-group pass at the end — it never changes whether
-   * generation runs, so a `full=true` read of an `auto`/`mixed` menu is the generated preview an editor
-   * needs to show, not just whatever happens to be stored. Note for whoever builds `mixed` editing
-   * (task 464): that preview is not safe to read back verbatim and re-save through `setNavItems` — it
-   * contains generated items alongside the stored ones, and saving it as-is would freeze a snapshot of
-   * the generated items into the stored `items` column. The editor needs to keep the two apart itself
-   * (e.g. only ever writing back the subset it loaded as stored), not rely on this method to do it.
+   * `unfiltered` never changes whether generation runs, so a `full=true` read of an `auto`/`mixed`
+   * menu is the generated preview an editor needs to show, not just whatever happens to be stored.
+   * It DOES control two filtering passes now (OpenProject #2155, previously just the one): the
+   * visibility-group pass at the end, and (threaded into `generateFromTree`) the `read:pages` check
+   * every generated candidate is run through — both skipped under `unfiltered`, since the "full"
+   * preview an authorized editor asked for is meant to show the whole structure being edited,
+   * regardless of the caller's OWN page-level access, the same reasoning that already applied to
+   * visibility groups. Note for whoever builds `mixed` editing (task 464): that preview is not safe
+   * to read back verbatim and re-save through `setNavItems` — it contains generated items alongside
+   * the stored ones, and saving it as-is would freeze a snapshot of the generated items into the
+   * stored `items` column. The editor needs to keep the two apart itself (e.g. only ever writing
+   * back the subset it loaded as stored), not rely on this method to do it.
    *
    * @param siteId The site the menu is expected to belong to. Scopes the read the same way
    *               `setNavItems`/`copyNav`'s writes already do — a row belonging to another site
    *               answers as not-found rather than being handed back (OpenProject #941).
    * @param id Menu id — a tree entry id, or a site-wide menu's own row id (see `ensureSiteNav`)
+   * @param actor Who is reading (OpenProject #2155) — required, not optional: a `static` menu's
+   *              hand-authored items were never gated by page rules (they carry their own
+   *              `visibilityGroups`, checked below via `isVisibleTo`), but a generated (`auto`/
+   *              `mixed`) entry comes straight off the tree and has to be checked against
+   *              `read:pages` the same way `tree.browse()` would, or an anonymous visitor on a menu
+   *              switched to `auto`/`mixed` sees the title, path and icon of every published,
+   *              browsable page in the tree — including ones a path, tag or classification DENY
+   *              keeps them out of. An anonymous request is the guests actor, never an absence of
+   *              one — see CLAUDE.md's Permissions section.
    * @param userGroups Groups the viewer belongs to. Items limited to other groups are dropped, at both
    *                   levels, unless `unfiltered` is set.
    * @param unfiltered Return every item regardless of visibility, which is what editing one needs —
-   *                   an editor that could not see an item would drop it on the next save.
+   *                   an editor previewing an `auto`/`mixed` menu needs to see the full generated
+   *                   structure to edit it, the same reasoning `visibilityGroups` filtering already
+   *                   used here, so this also skips the per-entry `read:pages` check below.
    */
   async getNav(
     siteId: string,
     id: string,
-    { userGroups = [], unfiltered = false }: { userGroups?: string[]; unfiltered?: boolean } = {}
+    {
+      actor,
+      userGroups = [],
+      unfiltered = false
+    }: { actor: AccessActor; userGroups?: string[]; unfiltered?: boolean }
   ): Promise<NavigationItem[]> {
     const rows = await WIKI.db
       .select({
@@ -194,7 +279,7 @@ class Navigation {
     } else {
       const { rootFolderPath, locale } = await this.resolveGeneratorRoot(row.siteId, id, row.locale)
       const generated = markGenerated(
-        await this.generateFromTree(row.siteId, rootFolderPath, locale)
+        await this.generateFromTree(row.siteId, rootFolderPath, locale, unfiltered ? null : actor)
       )
       if (row.mode === 'auto') {
         combined = generated
@@ -232,13 +317,19 @@ class Navigation {
    * preselect the option that is actually stored rather than always defaulting to `static`. `static`
    * (the schema default) for a menu with no row yet, same fallback `getNav` uses.
    *
+   * @param siteId Required (OpenProject #2127/#2135), scoping the lookup the same way every
+   *               neighbouring method here (`getNav()`, `setNavItems()`, `copyNav()`) already does --
+   *               without it, a `site:navigation` delegate on one site could learn whether an
+   *               arbitrary navigation row on ANOTHER site is `static`/`auto`/`mixed`, since the
+   *               route's own authorization is checked against the site in the URL while this read
+   *               was not.
    * @param id Menu id -- a tree entry id, or a site id for the site-wide menu
    */
-  async getMode(id: string): Promise<NavigationSourceMode> {
+  async getMode(siteId: string, id: string): Promise<NavigationSourceMode> {
     const rows = await WIKI.db
       .select({ mode: navigationTable.mode })
       .from(navigationTable)
-      .where(eq(navigationTable.id, id))
+      .where(and(eq(navigationTable.id, id), eq(navigationTable.siteId, siteId)))
       .limit(1)
     return rows[0]?.mode ?? 'static'
   }
@@ -391,8 +482,22 @@ class Navigation {
    * (edited separately through the normal override/manual-items path), so the walk does not recurse
    * into it.
    *
+   * `actor` (OpenProject #2155): each candidate is also checked against `read:pages` — a page with its
+   * own tags/classification, a folder with neither (same treatment `api/tree.ts#mayOnFolder` gives a
+   * folder) — the same permission a direct tree browse or page read already enforces, which this walk
+   * had never asked before. A denied row is dropped outright rather than merely hidden from its own
+   * subtree, so a DENY over a branch hides the branch without ever querying below it — the recursive
+   * short-circuit `tree.ts` documents for the same rule. A non-boundary folder that recurses to zero
+   * remaining children (every descendant denied individually, even though `holdsVisiblePages` found at
+   * least one browsable/published page down there) is dropped too, mirroring that same dead-end rule
+   * for a folder left with nothing visible under it — `null` skips this entirely, which is what
+   * `getNav`'s `unfiltered` read passes, matching how that read already skips `visibilityGroups`
+   * filtering for the same "the editor needs to see the real generated structure" reason.
+   *
    * @param rootFolderPath Encoded ltree path of the folder whose contents this builds a menu from —
    *                        empty at the site root, exactly what `tree.browse()` calls `encodedPath`.
+   * @param actor Who is asking, or `null` to skip the `read:pages` check entirely (an `unfiltered`
+   *              read).
    * @param depth How many folder levels below `rootFolderPath` this call already is. Callers always
    *              start at 0; recursion stops past the same `MAX_DEPTH` `tree.ts` enforces elsewhere.
    */
@@ -400,6 +505,7 @@ class Navigation {
     siteId: string,
     rootFolderPath: string,
     locale: string,
+    actor: AccessActor | null,
     depth = 0
   ): Promise<NavigationItem[]> {
     if (depth > MAX_DEPTH) {
@@ -436,7 +542,12 @@ class Navigation {
         title: treeTable.title,
         icon: pagesTable.icon,
         navigationMode: treeTable.navigationMode,
-        holdsVisiblePages: sql<boolean>`${holdsVisiblePages}`.mapWith(Boolean)
+        holdsVisiblePages: sql<boolean>`${holdsVisiblePages}`.mapWith(Boolean),
+        // -> Only ever populated for a page row (the left-join's page-side columns), which is all
+        //    `read:pages`'s tag/classification axes ever need -- a folder carries neither of its own,
+        //    same treatment `api/tree.ts#mayOnFolder` gives it.
+        tags: pagesTable.tags,
+        classification: pagesTable.classification
       })
       .from(treeTable)
       .leftJoin(pagesTable, eq(pagesTable.id, treeTable.id))
@@ -462,6 +573,23 @@ class Navigation {
       // -> Dropped outright, and -- for the recursive `hide` -- everything below it along with it,
       //    since nothing below a row that was never added is ever walked
       .filter((row) => !(['hide', 'hideExact'] as NavigationMode[]).includes(row.navigationMode))
+      // -> OpenProject #2155: the `read:pages` gate itself. `null` (an `unfiltered` read) skips it
+      //    entirely, same as the `visibilityGroups` pass in `getNav` does for that read. A folder
+      //    carries no tags/classification of its own -- same treatment `api/tree.ts#mayOnFolder`
+      //    gives it -- so only a page row's real values narrow a TAG/TAGALL/CLASSIFICATION rule.
+      .filter((row) => {
+        if (!actor) {
+          return true
+        }
+        const path = parentPath ? `${parentPath}/${row.fileName}` : row.fileName
+        return WIKI.models.groups.checkAccess(actor, 'read:pages', {
+          path,
+          siteId,
+          locale,
+          tags: row.tags ?? [],
+          classification: row.classification ?? null
+        })
+      })
       .sort((a, b) =>
         compareFoldersFirst(
           { isFolder: a.type === 'folder', title: a.title },
@@ -469,18 +597,32 @@ class Navigation {
         )
       )
 
-    return Promise.all(
-      candidates.map(async (row): Promise<NavigationItem> => {
+    const built = await Promise.all(
+      candidates.map(async (row): Promise<NavigationItem | null> => {
+        // -> The `read:pages` check itself already ran in the `candidates` filter above, per
+        //    candidate -- this only needs the same path string again, for `target:` below.
+        const path = parentPath ? `${parentPath}/${row.fileName}` : row.fileName
+
         // -> Only a folder has descendants to walk; a page is always a leaf here regardless of its own
         //    mode, since `override`/`overrideExact` only matters where there is a subtree to stop at
+        const isFolder = row.type === 'folder'
         const isBoundary =
-          row.type === 'folder' &&
+          isFolder &&
           (['override', 'overrideExact'] as NavigationMode[]).includes(row.navigationMode)
         const childFolderPath = rootFolderPath ? `${rootFolderPath}.${row.fileName}` : row.fileName
         const children =
-          row.type === 'folder' && !isBoundary
-            ? await this.generateFromTree(siteId, childFolderPath, locale, depth + 1)
+          isFolder && !isBoundary
+            ? await this.generateFromTree(siteId, childFolderPath, locale, actor, depth + 1)
             : []
+
+        // -> A non-boundary folder that recursed to nothing is a dead end just like an empty folder
+        //    is at the SQL layer above (`holdsVisiblePages`) -- the difference is this one can only
+        //    happen once `actor` is filtering individual descendants out one by one, since
+        //    `holdsVisiblePages` already guarantees at least one browsable/published page exists
+        //    somewhere below. Drop it rather than emit a folder link with nowhere to go.
+        if (isFolder && !isBoundary && children.length === 0) {
+          return null
+        }
 
         return {
           id: row.id,
@@ -491,16 +633,14 @@ class Navigation {
           //    (`localizedPagePath`), matching how `NavItemEditor.vue`'s manual page-picker builds a
           //    link target, so a generated item and a hand-picked one render identically on the frontend
           ...(row.type === 'page' && {
-            target: localizedPagePath(
-              parentPath ? `${parentPath}/${row.fileName}` : row.fileName,
-              locale,
-              locales
-            )
+            target: localizedPagePath(path, locale, locales)
           }),
           ...(children.length > 0 && { children })
         }
       })
     )
+
+    return built.filter((item): item is NavigationItem => item !== null)
   }
 
   /**
@@ -518,6 +658,7 @@ class Navigation {
    *              this site
    */
   async setNavItems(siteId: string, navId: string, items: NavigationItem[]): Promise<void> {
+    assertValidNavItems(items)
     const existing = await WIKI.db
       .select({ id: navigationTable.id })
       .from(navigationTable)
@@ -549,9 +690,12 @@ class Navigation {
    * "copy from locale" merge behavior).
    *
    * `visibilityGroups` travels over unchanged — groups are instance-wide, so a group reference from
-   * the source site/locale is still valid on the target. Item `target` paths are copied unrewritten
-   * too: validating or repointing them against the destination locale/site is a known best-effort
-   * limitation, same as 2.5.x.
+   * the source site/locale is still valid on the target. A safe item `target` (a rooted path or a
+   * complete `http(s)`/`mailto`/`tel` target) is copied unrewritten: repointing it against the
+   * destination locale/site is a known best-effort limitation, same as 2.5.x. An UNSAFE one
+   * (`javascript:` and friends — see `isValidNavItemTarget` above) is stripped rather than carried
+   * over (OpenProject #1360/#2208/#2217), so a source menu poisoned before this validation existed,
+   * or one written straight to the database, cannot be reintroduced onto a clean target this way.
    *
    * @param sourceSiteId Site the source row belongs to — the same as `targetSiteId` for a same-site
    *                      "copy from locale", different for a cross-site copy
@@ -592,7 +736,9 @@ class Navigation {
       throw new CustomError('navCopyTargetNotFound', 'The target menu does not exist.', 404)
     }
 
-    const clonedItems = cloneItemsWithFreshIds((sourceRow.items ?? []) as NavigationItem[])
+    const clonedItems = sanitizeNavItemTargets(
+      cloneItemsWithFreshIds((sourceRow.items ?? []) as NavigationItem[])
+    )
     const items =
       mode === 'append'
         ? [...((targetRow.items ?? []) as NavigationItem[]), ...clonedItems]
@@ -619,16 +765,15 @@ class Navigation {
    * The menu a tree entry falls back to: the nearest ancestor that overrides or hides, or the
    * site-wide menu for its locale when nothing above it does either.
    *
+   * Public so `TreeModel#addEntry` can resolve a new or moved page's `navigationId` from its
+   * folder ancestry at insert time, rather than defaulting it to the site-wide menu.
+   *
    * @param siteId Site the entry belongs to, since paths are only unique within one
    * @param locale Locale the entry belongs to — an ancestor override in a different locale that
    *               happens to share the same path is not this entry's ancestor
    * @param folderPath Encoded ltree path of the folder holding the entry, empty at the site root
    */
-  private async ancestorNavId(
-    siteId: string,
-    locale: string,
-    folderPath: string
-  ): Promise<string | null> {
+  async ancestorNavId(siteId: string, locale: string, folderPath: string): Promise<string | null> {
     if (!folderPath) {
       return this.ensureSiteNav(siteId, locale)
     }
@@ -713,6 +858,10 @@ class Navigation {
 
     const ancestorId = await this.ancestorNavId(siteId, entry.locale, folderPath)
 
+    if (items) {
+      assertValidNavItems(items)
+    }
+
     if (items || menuMode) {
       /*
         Which menu the items (and/or menuMode) belong to is the mode's answer, not the entry's: a page
@@ -744,6 +893,22 @@ class Navigation {
           ...(menuMode && { mode: menuMode })
         })
         .onConflictDoUpdate({ target: navigationTable.id, set })
+    }
+
+    /*
+      `override`/`overrideExact` always point `tree.navigationId` at `ownNavId` below, whether or not
+      THIS call is also writing items -- the FK on `tree.navigationId` (db/migrations/
+      20260825202930_main) means that row has to actually exist first. The block above only creates
+      it when `items`/`menuMode` was given; a bare mode switch (an editor toggling a page to
+      `override` before ever touching its sidebar) reaches here with neither, so ensure the row on
+      its own. `onConflictDoNothing` is what keeps this a no-op once the row is real -- either from
+      the block above in this same call, or from an earlier one -- rather than clobbering its items.
+    */
+    if ((mode === 'override' || mode === 'overrideExact') && !(items || menuMode)) {
+      await WIKI.db
+        .insert(navigationTable)
+        .values({ id: ownNavId, siteId, items: [] })
+        .onConflictDoNothing()
     }
 
     // -> A mode that stops applying below this entry hands its descendants back to the ancestor

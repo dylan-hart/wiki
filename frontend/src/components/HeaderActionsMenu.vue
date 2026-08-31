@@ -5,7 +5,7 @@
     round
     dense
     icon="la:ellipsis-v"
-    aria-label="More Actions">
+    :aria-label="t('common.header.moreActions')">
     <w-menu ref="menu" class="translucent-menu" anchor="bottom right" self="top right">
       <!--
         Every row's icon takes its colour as a literal `text-*` class rather than through `WIcon`'s
@@ -24,7 +24,7 @@
           <w-item>
             <w-item-section avatar>
               <w-avatar v-if="userStore.hasAvatar" size="32px">
-                <img :src="`/_user/current/avatar`" />
+                <img :src="`/_user/current/avatar`" :alt="userStore.name" />
               </w-avatar>
               <w-icon v-else name="la:user-circle" />
             </w-item-section>
@@ -48,7 +48,7 @@
           <w-item-section avatar>
             <w-icon name="la:plus-circle" class="text-blue-4" />
           </w-item-section>
-          <w-item-section>Create New Page</w-item-section>
+          <w-item-section>{{ t('common.header.createNewPage') }}</w-item-section>
           <w-item-section side>
             <w-icon name="la:angle-right" />
           </w-item-section>
@@ -64,11 +64,16 @@
           <w-item-section avatar>
             <w-icon name="la:folder-open" class="text-positive" />
           </w-item-section>
-          <w-item-section>File Manager</w-item-section>
+          <w-item-section>{{ t('fileman.title') }}</w-item-section>
         </w-item>
-        <w-item v-if="userStore.authenticated" clickable to="/_inbox" @click="close">
+        <!--
+          OpenProject #2024: kept in step with the wide-viewport button's own destination and glyph
+          (`HeaderNav.vue`) -- `/_inbox/watching`, `la:bell` -- rather than the old `/_inbox` redirect
+          into the now-deleted Messages stub and its unrelated `mdi:inbox-full` icon.
+        -->
+        <w-item v-if="userStore.authenticated" clickable to="/_inbox/watching" @click="close">
           <w-item-section avatar>
-            <w-icon name="mdi:inbox-full" class="text-amber" />
+            <w-icon name="la:bell" class="text-amber" />
           </w-item-section>
           <w-item-section>{{ t('inbox.title') }}</w-item-section>
         </w-item>

@@ -2,12 +2,12 @@
   <w-page class="admin-extensions">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-module.svg" />
+        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-module.svg" alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">
+        <h1 class="text-h5 text-primary animated fadeInLeft">
           {{ t('admin.extensions.title') }}
-        </div>
+        </h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.extensions.subtitle') }}
         </div>
@@ -92,7 +92,7 @@
                       color="positive"
                       padding="xs sm"
                       v-if="ext.isInstalled">
-                      <w-tooltip anchor="center left" self="center right">{{
+                      <w-tooltip labels anchor="center left" self="center right">{{
                         t('admin.extensions.installed')
                       }}</w-tooltip>
                     </w-btn>
@@ -258,7 +258,7 @@ async function install(ext) {
       timeout: INSTALL_TIMEOUT
     }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     // -> A reinstall repairs the files on disk, but a server that already failed to load the module
     //    keeps failing until it restarts — so that answer is a warning, not a success

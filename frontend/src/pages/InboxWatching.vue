@@ -1,10 +1,11 @@
 <template>
   <w-page class="py-4">
     <!--
-      Notifications first, Watching second: this is the page the bell in `InboxLayout`'s sidebar
-      points at (task 535 reuses its `la:bell` icon rather than adding a second nav item), and what
-      that bell is FOR is unread notifications — the list of watched pages underneath is the source
-      those notifications come from, not the more urgent of the two.
+      Notifications first, Watching second: this is the page `InboxLayout`'s sidebar rail's first
+      entry ("Inbox") now points at directly (OpenProject #2000 repointed it here once the dead
+      `/_inbox/messages` stub it used to point at was deleted). What that entry is FOR is unread
+      notifications — the list of watched pages underneath is the source those notifications come
+      from, not the more urgent of the two.
     -->
     <div class="w-section-header">{{ t('inbox.notificationsTitle') }}</div>
     <div class="p-4">
@@ -12,7 +13,6 @@
       <w-banner
         v-if="state.notifications.length < 1 && state.loadingNotifications < 1"
         class="mt-6"
-        rounded
         :class="dark.isActive ? `bg-dark-4 text-grey-4` : `bg-grey-2 text-grey-8`">
         <div>{{ t('inbox.notificationsNone') }}</div>
       </w-banner>
@@ -36,7 +36,7 @@
                 siteStore.localeRouting
               )
             }}</w-item-label>
-            <w-item-label caption>{{ humanizeDate(notification.createdAt) }}</w-item-label>
+            <w-item-label caption>{{ humanizeDate(t, notification.createdAt) }}</w-item-label>
           </w-item-section>
           <w-item-section side>
             <!-- `@click.stop`, so marking read does not also follow the row to the page. -->
@@ -66,7 +66,6 @@
       <w-banner
         v-if="state.pages.length < 1 && state.loading < 1"
         class="mt-6"
-        rounded
         :class="dark.isActive ? `bg-dark-4 text-grey-4` : `bg-grey-2 text-grey-8`">
         <div>{{ t('inbox.watchingNone') }}</div>
         <div class="text-caption mt-1 opacity-70">{{ t('inbox.watchingHint') }}</div>
@@ -90,9 +89,9 @@
               localizedPagePath(page.path, page.locale, siteStore.localeRouting)
             }}</w-item-label>
             <w-item-label caption>
-              {{ t('inbox.watchingUpdated', { date: humanizeDate(page.updatedAt) }) }}
+              {{ t('inbox.watchingUpdated', { date: humanizeDate(t, page.updatedAt) }) }}
               &middot;
-              {{ t('inbox.watchingSince', { date: humanizeDate(page.watchedAt) }) }}
+              {{ t('inbox.watchingSince', { date: humanizeDate(t, page.watchedAt) }) }}
             </w-item-label>
           </w-item-section>
           <w-item-section side>
@@ -131,6 +130,7 @@ import { notify } from '@/composables/notify'
 import { DEFAULT_PAGE_ICON, usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
 // COMPOSABLES
@@ -176,17 +176,12 @@ onMounted(loadNotifications)
 
 // METHODS
 
-function humanizeDate(val) {
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  })
-}
-
 /** The one-line summary of a notification, phrased by its action — see `inbox.notificationAction*`. */
 function notificationLine(notification) {
-  const key = `inbox.notificationAction${notification.action[0].toUpperCase()}${notification.action.slice(1)}`
-  return t(key, { actor: notification.actorName, title: notification.pageTitle })
+  return t(
+    `inbox.notificationAction${notification.action[0].toUpperCase()}${notification.action.slice(1)}`,
+    { actor: notification.actorName, title: notification.pageTitle }
+  )
 }
 
 async function load() {

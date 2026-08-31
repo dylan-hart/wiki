@@ -4,10 +4,11 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-rest-api-animated.svg" />
+          src="/_assets/icons/fluent-rest-api-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.api.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.api.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.api.subtitle') }}
         </div>
@@ -145,11 +146,11 @@
                   t('admin.api.keySite', { site: siteName(key) })
                 }}</w-item-label>
                 <w-item-label caption>{{
-                  t('admin.api.createdOn', { date: humanizeDate(key.createdAt) })
+                  t('admin.api.createdOn', { date: humanizeDate(t, key.createdAt) })
                 }}</w-item-label>
                 <w-item-label caption>
                   <span :style="key.isRevoked ? `text-decoration: line-through;` : ``">{{
-                    t('admin.api.expiresOn', { date: humanizeDate(key.expiration) })
+                    t('admin.api.expiresOn', { date: humanizeDate(t, key.expiration) })
                   }}</span>
                 </w-item-label>
               </w-item-section>
@@ -210,6 +211,7 @@ import { useSiteStore } from '@/stores/site'
 import ApiKeyCreateDialog from '../components/ApiKeyCreateDialog.vue'
 import ApiKeyRevokeDialog from '../components/ApiKeyRevokeDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 
 // COMPOSABLES
 
@@ -247,20 +249,6 @@ const state = reactive({
 
 // METHODS
 
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
-}
-
 /** A key past its expiration still authenticates nothing, even though it was never revoked. */
 function isExpired(key) {
   return (
@@ -293,7 +281,7 @@ function stateHint(key) {
     return ''
   }
   return status === 'invalidated'
-    ? t('admin.api.invalidatedHint', { date: humanizeDate(state.certificatesGeneratedAt) })
+    ? t('admin.api.invalidatedHint', { date: humanizeDate(t, state.certificatesGeneratedAt) })
     : t(`admin.api.${status}Hint`)
 }
 

@@ -117,7 +117,8 @@ async function mountComments({
   const wrapper = mount(PageComments, {
     global: {
       plugins: [i18n]
-    }
+    },
+    attachTo: document.body
   })
   await flushPromises()
 
@@ -402,6 +403,66 @@ describe('PageComments', () => {
     })
   })
 
+  // -> The API client does not throw for exactly HTTP 400 (`boot/api.js`'s `throwHttpErrors`), so
+  //    a refusal on this route resolves with a parsed `{ ok: false, message }` envelope rather than
+  //    rejecting. Without an explicit check, the envelope's `undefined` fields would overwrite the
+  //    comment's real content and render.
+  it('shows the server message and leaves the comment content unchanged on a 400 refusal to save an edit', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([comment({ content: 'raw markdown, never rendered' })])
+    })
+    const { wrapper } = await mountComments({ canModerate: true })
+
+    await wrapper.find('.page-comments-edit-toggle').trigger('click')
+    const textarea = wrapper.find('textarea')
+    await textarea.setValue('edited content')
+
+    API_CLIENT.patch.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({ ok: false, error: 'Bad Request', statusCode: 400, message: 'Refused.' })
+    })
+    notifyQueue.splice(0, notifyQueue.length)
+    await findButton(wrapper, 'Update Comment').trigger('click')
+    await flushPromises()
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Unexpected Error',
+      caption: 'Refused.'
+    })
+    // -> Still in edit mode, with the raw content untouched -- not clobbered by the envelope's
+    //    undefined `content`/`render`.
+    expect(wrapper.find('textarea').exists()).toBe(true)
+    expect(wrapper.html()).not.toContain('<p>Hello there</p>')
+  })
+
+  // -> Same `throwHttpErrors` quirk as above, but this route never calls `.json()` on success --
+  //    it reads the raw `Response`, so the check is against `resp.ok` (the fetch API's own flag)
+  //    rather than a parsed envelope's `ok` field.
+  it('shows the server message and does not remove the comment on a 400 refusal to delete', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([comment({ id: 'root', authorName: 'Root Author' })])
+    })
+    const { wrapper, pageStore } = await mountComments({ canModerate: true, commentsCount: 1 })
+
+    await wrapper.find('.page-comments-delete-toggle').trigger('click')
+    API_CLIENT.delete.mockReturnValueOnce({
+      ok: false,
+      json: () => Promise.resolve({ ok: false, message: 'Refused.' })
+    })
+    notifyQueue.splice(0, notifyQueue.length)
+    closeDialog(openDialogs[0].id, true, true)
+    await flushPromises()
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'Unexpected Error',
+      caption: 'Refused.'
+    })
+    expect(wrapper.text()).toContain('Root Author')
+    expect(pageStore.commentsCount).toBe(1)
+  })
+
   it('cancels an edit without saving', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
     const { wrapper } = await mountComments({ canModerate: true })
@@ -432,7 +493,7 @@ describe('PageComments', () => {
       cancel: true
     })
 
-    API_CLIENT.delete.mockReturnValueOnce({ json: () => Promise.resolve(undefined) })
+    API_CLIENT.delete.mockReturnValueOnce({ ok: true })
     closeDialog(openDialogs[0].id, true, true)
     await flushPromises()
 
@@ -463,7 +524,7 @@ describe('PageComments', () => {
     expect(wrapper.findAll('.page-comments-item')).toHaveLength(3)
 
     await wrapper.find('.page-comments-delete-toggle').trigger('click')
-    API_CLIENT.delete.mockReturnValueOnce({ json: () => Promise.resolve(undefined) })
+    API_CLIENT.delete.mockReturnValueOnce({ ok: true })
     closeDialog(openDialogs[0].id, true, true)
     await flushPromises()
 
@@ -482,5 +543,24 @@ describe('PageComments', () => {
     expect(API_CLIENT.delete).not.toHaveBeenCalled()
     expect(wrapper.findAll('.page-comments-item')).toHaveLength(1)
     expect(pageStore.commentsCount).toBe(1)
+  })
+
+  /**
+   * OpenProject #1671: the edit textarea's bare `autofocus` attribute never did anything --
+   * `WInput.vue` exposes no such prop. `startEdit()` now focuses it itself, via the `focus()` method
+   * `WInput.vue` exposes, once the `nextTick` after `editingIds` gains the id lands the field in the
+   * DOM (it's a `v-if` swap inside this already-mounted component, not a fresh mount of its own).
+   */
+  it('focuses the edit textarea once it appears', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
+    const { wrapper } = await mountComments({ canModerate: true })
+
+    await wrapper.find('.page-comments-edit-toggle').trigger('click')
+    await flushPromises()
+
+    const editField = wrapper.find('textarea')
+    expect(editField.exists()).toBe(true)
+    expect(editField.attributes('autofocus')).toBeUndefined()
+    expect(document.activeElement).toBe(editField.element)
   })
 })

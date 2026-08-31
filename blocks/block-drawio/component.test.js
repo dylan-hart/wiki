@@ -297,6 +297,50 @@ describe('mxgraph.js', () => {
     expect(svg).not.toContain('onerror')
   })
 
+  /*
+    OpenProject #2143 / #1360 (2026-08-24 security audit): `cylinder` and `swimlane` each draw a
+    second, fill-less stroke and used to interpolate `strokeWidth` into that path/line's
+    `stroke-width="…"` attribute unescaped, unlike the identical value in `paintAttrs()` three lines
+    above it. A style value containing a `"` broke out of the attribute and planted a live event
+    handler on the generated element, which `unsafeSVG()` (`component.js`) then parses as real markup
+    in the block's shadow root — same-origin script execution for any author with `write:pages`, no
+    `write:scripts` required. The fix routes both shapes through the shared, `Number()`-coercing
+    `strokeAttrs()` helper `paintAttrs()` itself now uses, so an attribute-breaking value can never
+    reach the output at all rather than merely being escaped.
+  */
+  it('neutralizes an attribute-breaking strokeWidth on cylinder and swimlane, the two shapes that draw a second stroke', () => {
+    const malicious = `1" onmouseover="alert(1)`
+    const { svg } = drawioToSvg(`<mxGraphModel><root>
+      <mxCell id="0" />
+      <mxCell id="1" parent="0" />
+      <mxCell id="cyl" style="cylinder;strokeWidth=${malicious}" vertex="1" parent="1">
+        <mxGeometry x="0" y="0" width="60" height="60" as="geometry" />
+      </mxCell>
+      <mxCell id="sl" value="Pool" style="swimlane;strokeWidth=${malicious}" vertex="1" parent="1">
+        <mxGeometry x="0" y="80" width="60" height="60" as="geometry" />
+      </mxCell>
+    </root></mxGraphModel>`)
+    expect(svg).not.toContain('onmouseover')
+    expect(svg).not.toContain('alert(1)')
+    // -> Not merely absent: the coerced value actually rendered in its place, so this is the fallback
+    //    doing its job rather than the shape silently drawing no stroke at all.
+    expect(svg).toContain('stroke-width="1"')
+  })
+
+  it('still renders a legitimate numeric strokeWidth on cylinder and swimlane', () => {
+    const { svg } = drawioToSvg(`<mxGraphModel><root>
+      <mxCell id="0" />
+      <mxCell id="1" parent="0" />
+      <mxCell id="cyl" style="cylinder;strokeWidth=4" vertex="1" parent="1">
+        <mxGeometry x="0" y="0" width="60" height="60" as="geometry" />
+      </mxCell>
+      <mxCell id="sl" value="Pool" style="swimlane;strokeWidth=4" vertex="1" parent="1">
+        <mxGeometry x="0" y="80" width="60" height="60" as="geometry" />
+      </mxCell>
+    </root></mxGraphModel>`)
+    expect(svg).toContain('stroke-width="4"')
+  })
+
   it('escapes ampersands and quotes in a plain-text label rather than interpolating them raw', () => {
     const { svg } = drawioToSvg(`<mxGraphModel><root>
       <mxCell id="0" />
@@ -306,5 +350,49 @@ describe('mxgraph.js', () => {
       </mxCell>
     </root></mxGraphModel>`)
     expect(svg).toContain('AT&amp;T &quot;Special&quot;')
+  })
+
+  // -> A quote-breaking `strokeWidth` on a cylinder or swimlane cell used to escape into the
+  //    generated SVG's markup unescaped, unlike every other stroke attribute `paintAttrs()` already
+  //    covers. The style attribute below is XML-entity-encoded exactly as an author would write it in
+  //    the block's `<mxCell style="…">`; the DOM parser decodes it into a raw `"` + `<image onerror>`
+  //    string before `parseStyle()` ever sees it, which is the same shape the audit finding
+  //    reproduced under jsdom.
+  it('does not let a quote-breaking strokeWidth inject markup through the cylinder shape', () => {
+    const { svg } = drawioToSvg(`<mxGraphModel><root>
+      <mxCell id="0" />
+      <mxCell id="1" parent="0" />
+      <mxCell id="x" style="cylinder;strokeWidth=1&quot; /&gt;&lt;image href=&quot;x&quot; onerror=&quot;alert(1)&quot; /&gt;&lt;path d=&quot;" vertex="1" parent="1">
+        <mxGeometry x="0" y="0" width="60" height="60" as="geometry" />
+      </mxCell>
+    </root></mxGraphModel>`)
+    expect(svg).not.toContain('<image')
+    expect(svg).not.toContain('onerror')
+  })
+
+  it('does not let a quote-breaking strokeWidth inject markup through the swimlane shape', () => {
+    const { svg } = drawioToSvg(`<mxGraphModel><root>
+      <mxCell id="0" />
+      <mxCell id="1" parent="0" />
+      <mxCell id="x" style="swimlane;strokeWidth=1&quot; /&gt;&lt;image href=&quot;x&quot; onerror=&quot;alert(1)&quot; /&gt;&lt;line a=&quot;" vertex="1" parent="1">
+        <mxGeometry x="0" y="0" width="120" height="80" as="geometry" />
+      </mxCell>
+    </root></mxGraphModel>`)
+    expect(svg).not.toContain('<image')
+    expect(svg).not.toContain('onerror')
+  })
+
+  it('still renders a legitimate numeric strokeWidth on cylinder and swimlane shapes', () => {
+    const { svg } = drawioToSvg(`<mxGraphModel><root>
+      <mxCell id="0" />
+      <mxCell id="1" parent="0" />
+      <mxCell id="c" style="cylinder;strokeWidth=3;" vertex="1" parent="1">
+        <mxGeometry x="0" y="0" width="60" height="60" as="geometry" />
+      </mxCell>
+      <mxCell id="s" style="swimlane;strokeWidth=3;" vertex="1" parent="1">
+        <mxGeometry x="80" y="0" width="120" height="80" as="geometry" />
+      </mxCell>
+    </root></mxGraphModel>`)
+    expect(svg.match(/stroke-width="3"/g)).toHaveLength(4)
   })
 })

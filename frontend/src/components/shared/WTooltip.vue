@@ -9,6 +9,7 @@
     <transition name="w-tooltip">
       <div
         v-if="shown"
+        :id="tooltipId"
         ref="floatEl"
         role="tooltip"
         class="w-tooltip pointer-events-none fixed z-[7000] max-w-xs rounded bg-black/85 px-2 py-1 text-xs text-white shadow-menu"
@@ -20,7 +21,7 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, useId } from 'vue'
 import { anchoredPosition } from '@/composables/anchoredPosition'
 
 /**
@@ -29,6 +30,10 @@ import { anchoredPosition } from '@/composables/anchoredPosition'
  *   <w-btn icon="mdi:cog">
  *     <w-tooltip>Settings</w-tooltip>
  *   </w-btn>
+ *
+ * The trigger gains `aria-describedby` (or, with `labels`, `aria-labelledby`) pointing at the
+ * teleported panel while it is shown, so assistive tech associates the two despite the teleport
+ * putting them nowhere near each other in the DOM.
  */
 const props = defineProps({
   /** Anchor point on the trigger, e.g. `bottom middle`. */
@@ -50,16 +55,55 @@ const props = defineProps({
   delay: {
     type: Number,
     default: 250
+  },
+  /**
+   * The trigger has no accessible name of its own and the tooltip text IS that name (the
+   * icon-only button case) -- associate via `aria-labelledby` instead of `aria-describedby`.
+   */
+  labels: {
+    type: Boolean,
+    default: false
   }
 })
+
+const tooltipId = useId()
 
 const shown = ref(false)
 const floatEl = ref(null)
 const placeholderEl = ref(null)
+// -> `left`/`top` here are raw viewport pixels from `anchoredPosition()`'s own bounding-rect math
+//    (below), not a CSS gutter -- reviewed under OpenProject #1590's physical-positioning triage
+//    and left physical, same reasoning as `WMenu`'s identical pattern.
 const floatStyle = ref({ left: '0px', top: '0px' })
 
 let triggerEl = null
 let timer = null
+// The aria-* attribute currently applied to triggerEl (null when not associated), and whatever
+// value it held before -- so hiding restores a pre-existing attribute instead of clobbering it.
+let associatedAttr = null
+let previousAttrValue = null
+
+function associateTrigger() {
+  if (!triggerEl || associatedAttr) {
+    return
+  }
+  associatedAttr = props.labels ? 'aria-labelledby' : 'aria-describedby'
+  previousAttrValue = triggerEl.getAttribute(associatedAttr)
+  triggerEl.setAttribute(associatedAttr, tooltipId)
+}
+
+function disassociateTrigger() {
+  if (!triggerEl || !associatedAttr) {
+    return
+  }
+  if (previousAttrValue === null) {
+    triggerEl.removeAttribute(associatedAttr)
+  } else {
+    triggerEl.setAttribute(associatedAttr, previousAttrValue)
+  }
+  associatedAttr = null
+  previousAttrValue = null
+}
 
 async function reposition() {
   await nextTick()
@@ -78,6 +122,7 @@ function show() {
   clearTimeout(timer)
   timer = setTimeout(async () => {
     shown.value = true
+    associateTrigger()
     await reposition()
   }, props.delay)
 }
@@ -85,6 +130,7 @@ function show() {
 function hide() {
   clearTimeout(timer)
   shown.value = false
+  disassociateTrigger()
 }
 
 function onKeydown(ev) {
@@ -122,6 +168,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearTimeout(timer)
+  disassociateTrigger()
   if (triggerEl) {
     triggerEl.removeEventListener('mouseenter', show)
     triggerEl.removeEventListener('mouseleave', hide)

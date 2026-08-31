@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
+import { randomBytes } from 'node:crypto'
 import { Client } from 'pg'
 import { NotYetImplementedError } from '../connector.ts'
 import { PostgresSourceConnector } from './postgres.ts'
@@ -9,16 +10,64 @@ import { PostgresSourceConnector } from './postgres.ts'
  * connect/disconnect/describe lifecycle and the schema-introspection shape check. No row is ever
  * read — see the generator smoke test at the bottom.
  *
- * Needs a throwaway Postgres reachable at the env vars below (see the run instructions this task's
- * report cites: `docker run --rm -d --name wiki-test-db-712 -p 56071:5432 ...`). Skips itself with a
- * clear message if nothing answers there, rather than failing the whole suite in an environment with
- * no Docker.
+ * Connection parameters come from `DATABASE_URL` when set — the same single-source-of-truth every
+ * `setupTestDb()` suite already keys off via `hasTestDatabase()` (see `test/db.ts` and "Testing
+ * (backend)" in CLAUDE.md), which is what lets this file run for real in CI (`quality.yml` exports
+ * `DATABASE_URL` for its `postgres:18` service, but no `MIGRATION_TEST_PG_*` var). Absent that, it
+ * falls back to the standalone `MIGRATION_TEST_PG_*` vars, for a developer running just this file
+ * against its own throwaway container: `docker run --rm -d --name wiki-test-db-712 -p 56071:5432 -e
+ * POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:18`. Skips itself with a clear message
+ * if nothing usable is reachable either way, rather than failing the whole suite in an environment
+ * with neither Docker nor `DATABASE_URL`.
+ *
+ * -> Isolation, when driven off `DATABASE_URL`, is a private *database* per run, not a private
+ *    schema like every `setupTestDb()` suite uses. This suite's fixture tables (`pages`/`users`/
+ *    `groups`/...) exist to be probed by `PostgresSourceConnector#checkShape()`, which — correctly,
+ *    since a real 2.5.x install never used anything else — introspects
+ *    `information_schema.columns WHERE table_schema = 'public'` literally (see `postgres.ts`, whose
+ *    `PostgresSourceConfig` deliberately has no schema field, for the same reason). A same-database,
+ *    differently-named schema would be invisible to `checkShape()` no matter what the connection's
+ *    `search_path` says — `table_schema` reports a table's real catalog schema, not whatever
+ *    resolves first on the path — so it can't give this suite the isolation `setupTestDb()` gets
+ *    from it. A private database's own default `public` schema is the only namespace
+ *    `checkShape()` will ever look at, so a private database per run is what actually keeps two
+ *    concurrent invocations against the same `DATABASE_URL` from colliding.
  */
-const HOST = process.env.MIGRATION_TEST_PG_HOST ?? '127.0.0.1'
-const PORT = Number(process.env.MIGRATION_TEST_PG_PORT ?? 56071)
-const DATABASE = process.env.MIGRATION_TEST_PG_DB ?? 'postgres'
-const USER = process.env.MIGRATION_TEST_PG_USER ?? 'postgres'
-const PASSWORD = process.env.MIGRATION_TEST_PG_PASSWORD ?? 'postgres'
+interface ConnectionParams {
+  host: string
+  port: number
+  database: string
+  user: string
+  password: string
+}
+
+function baseConnectionParams(): ConnectionParams {
+  if (process.env.DATABASE_URL) {
+    const url = new URL(process.env.DATABASE_URL)
+    return {
+      host: url.hostname,
+      port: Number(url.port || 5432),
+      database: url.pathname.replace(/^\//, '') || 'postgres',
+      user: decodeURIComponent(url.username),
+      password: decodeURIComponent(url.password)
+    }
+  }
+  return {
+    host: process.env.MIGRATION_TEST_PG_HOST ?? '127.0.0.1',
+    port: Number(process.env.MIGRATION_TEST_PG_PORT ?? 56071),
+    database: process.env.MIGRATION_TEST_PG_DB ?? 'postgres',
+    user: process.env.MIGRATION_TEST_PG_USER ?? 'postgres',
+    password: process.env.MIGRATION_TEST_PG_PASSWORD ?? 'postgres'
+  }
+}
+
+const usingDatabaseUrl = Boolean(process.env.DATABASE_URL)
+const base = baseConnectionParams()
+
+const HOST = base.host
+const PORT = base.port
+const USER = base.user
+const PASSWORD = base.password
 
 // -> Deliberately a top-level `await`, not a `before()` hook: every `{ skip: !dbAvailable && '...' }`
 //    below is an options object built while this module's top-level code is still running — i.e.
@@ -26,9 +75,34 @@ const PASSWORD = process.env.MIGRATION_TEST_PG_PASSWORD ?? 'postgres'
 //    `before()` hook's body does not run until the run phase that follows, so if the probe lived in
 //    one, every `skip` option would still see `dbAvailable`'s initial value (`true`) and never
 //    actually skip. Top-level `await` runs to completion before any of the registration code below it
-//    executes, which is what makes the probe's result visible in time for `skip` to see it.
+//    executes, which is what makes the probe's result — and, on the `DATABASE_URL` path, the private
+//    database's final name — visible in time for `skip` and the fixture clients below to see it.
 let dbAvailable = true
-{
+let DATABASE = base.database
+let privateDatabaseName: string | null = null
+
+if (usingDatabaseUrl) {
+  // Connects to `base.database` (`DATABASE_URL`'s own database) purely to issue `CREATE DATABASE` —
+  // this suite's fixture tables never live there, only in the private database it creates below.
+  const maintenance = new Client({
+    host: HOST,
+    port: PORT,
+    database: base.database,
+    user: USER,
+    password: PASSWORD
+  })
+  try {
+    await maintenance.connect()
+    const candidate = `migration_test_${randomBytes(6).toString('hex')}`
+    await maintenance.query(`CREATE DATABASE "${candidate}"`)
+    privateDatabaseName = candidate
+    DATABASE = candidate
+  } catch {
+    dbAvailable = false
+  } finally {
+    await maintenance.end().catch(() => {})
+  }
+} else {
   const probe = new Client({
     host: HOST,
     port: PORT,
@@ -43,6 +117,29 @@ let dbAvailable = true
     dbAvailable = false
   }
 }
+
+// Drops the private database this run created, once every test below has closed its own connection
+// into it. A root-level `after()` hook (registered here, outside any `describe`) runs only once every
+// child `describe`'s own hooks have already unwound, so this never races a still-open connection —
+// and `WITH (FORCE)` (PostgreSQL 13+; this project requires 16+) is the backstop for the one anyway,
+// terminating any connection a failed assertion left behind rather than letting that leak block
+// cleanup and fail the whole suite's teardown.
+after(async () => {
+  if (!privateDatabaseName) return
+  const maintenance = new Client({
+    host: HOST,
+    port: PORT,
+    database: base.database,
+    user: USER,
+    password: PASSWORD
+  })
+  try {
+    await maintenance.connect()
+    await maintenance.query(`DROP DATABASE IF EXISTS "${privateDatabaseName}" WITH (FORCE)`)
+  } finally {
+    await maintenance.end().catch(() => {})
+  }
+})
 
 describe('PostgresSourceConnector', () => {
   test('rejects connecting to an unreachable host', async () => {
@@ -373,6 +470,51 @@ describe('PostgresSourceConnector', () => {
         const created = rows.find((r) => r.id === 101)!
         assert.deepEqual(created.tags, [])
         await connector.disconnect()
+      })
+
+      test('pageHistory() yields each row exactly once across a tie straddling the batch boundary (WP 1780)', async () => {
+        // pageHistory()'s ORDER BY is `ph."pageId", ph."versionDate", ph.id` -- the trailing `ph.id`
+        // is the fix under test. Without it, ties on (pageId, versionDate) are broken arbitrarily by
+        // Postgres and can differ between paginatedQuery()'s separate LIMIT/OFFSET statements, letting
+        // a tied row be yielded twice (or dropped) when the tie group straddles a batch boundary.
+        // PAGE_BATCH_SIZE is 10, so this seeds one page (id 5) with 11 revisions: 9 with distinct
+        // versionDates, then a tied pair (ids 309/310, same versionDate) landing exactly on rows 10
+        // and 11 of the final order -- the last row of batch 1 (OFFSET 0) and the first row of batch 2
+        // (OFFSET 10).
+        await admin.query(`
+          INSERT INTO "pageHistory" (id, "pageId", path, "localeCode", title, action, "versionDate", "authorId")
+          VALUES
+            (300, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.001Z', 10),
+            (301, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.002Z', 10),
+            (302, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.003Z', 10),
+            (303, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.004Z', 10),
+            (304, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.005Z', 10),
+            (305, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.006Z', 10),
+            (306, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.007Z', 10),
+            (307, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.008Z', 10),
+            (308, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.009Z', 10),
+            (309, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.010Z', 10),
+            (310, 5, 'tie', 'en', 'Tie', 'updated', '2020-02-01T00:00:00.010Z', 10)
+        `)
+
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.pageHistory())
+        await connector.disconnect()
+
+        // No duplicates and nothing dropped, across the whole table (not just the seeded tie group) --
+        // this is what paginatedQuery()'s totality precondition guarantees once the ORDER BY is total.
+        const ids = rows.map((r) => r.id as number)
+        assert.equal(new Set(ids).size, ids.length, 'pageHistory() yielded a duplicate row id')
+
+        const tieGroupIds = ids.filter((id) => id >= 300 && id <= 310).sort((a, b) => a - b)
+        assert.deepEqual(tieGroupIds, [300, 301, 302, 303, 304, 305, 306, 307, 308, 309, 310])
       })
 
       test('tags() yields the raw tags table', async () => {

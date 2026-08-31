@@ -8,6 +8,7 @@ import {
   type TestFixtures
 } from '../test/db.ts'
 import { generatePathHash } from '../helpers/common.ts'
+import { sites as sitesTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
@@ -70,7 +71,12 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    await treeModel.renameFolder({ folderId: en.id, pathName: 'guides', title: 'Guides' })
+    await treeModel.renameFolder({
+      folderId: en.id,
+      siteId: fixtures.siteId,
+      pathName: 'guides',
+      title: 'Guides'
+    })
 
     const frPage = await pagesModel.getPage({
       siteId: fixtures.siteId,
@@ -116,17 +122,17 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    const removed = await treeModel.deleteFolder(en.id)
+    const removed = await treeModel.deleteFolder(en.id, fixtures.siteId)
     await pagesModel.deleteOrphaned(fixtures.siteId, removed.pages, actor)
 
     const frPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: frPage.id })
     assert.ok(frPageAfter, 'the fr page must still exist')
-    const frFolderAfter = await treeModel.getFolderById(fr.id)
+    const frFolderAfter = await treeModel.getFolderById(fr.id, fixtures.siteId)
     assert.ok(frFolderAfter, 'the fr folder row must still exist')
 
     const enPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: enPage.id })
     assert.equal(enPageAfter, null, 'the en page must be gone')
-    const enFolderAfter = await treeModel.getFolderById(en.id)
+    const enFolderAfter = await treeModel.getFolderById(en.id, fixtures.siteId)
     assert.equal(enFolderAfter, null, 'the en folder row must be gone')
   })
 
@@ -150,8 +156,8 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    const enFolder = await treeModel.getFolderById(en.id)
-    const frFolder = await treeModel.getFolderById(fr.id)
+    const enFolder = await treeModel.getFolderById(en.id, fixtures.siteId)
+    const frFolder = await treeModel.getFolderById(fr.id, fixtures.siteId)
     assert.equal(enFolder!.meta.children, 1, "only the en folder's count should have moved")
     assert.equal(frFolder!.meta.children, 0, "the fr folder's count must be untouched")
   })
@@ -278,6 +284,38 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(child.fileName, 'fr')
   })
 
+  /**
+   * OpenProject #2131: `getFolderById()` used to select on `id` alone, so `createFolder({ parentId })`
+   * (and the `POST /sites/:siteId/tree/folders` route on top of it) would resolve a `parentId`
+   * belonging to a DIFFERENT site, deriving the new folder's ltree path and locale from a foreign row
+   * it had no business reading. `getFolderById()` now pairs `id` with `siteId`, so a foreign `parentId`
+   * simply never matches and the create is refused rather than leaking the other site's folder path or
+   * locale.
+   */
+  test('createFolder refuses a parentId belonging to another site', async () => {
+    const [otherSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({ hostname: 'other-createfolder.localhost', isEnabled: true, config: {} })
+      .returning({ id: sitesTable.id })
+    const foreignParent = await treeModel.createFolder({
+      pathName: 'foreign-secret',
+      title: 'Foreign Secret',
+      locale: 'en',
+      siteId: otherSite!.id
+    })
+
+    await assert.rejects(
+      treeModel.createFolder({
+        parentId: foreignParent.id,
+        pathName: 'child',
+        title: 'Child',
+        locale: 'en',
+        siteId: fixtures.siteId
+      }),
+      (err: any) => err.name === 'treeInvalidParent'
+    )
+  })
+
   test('renameFolder refuses renaming a root folder to an installed locale code', async () => {
     const folder = await treeModel.createFolder({
       pathName: 'renameable',
@@ -286,9 +324,194 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       siteId: fixtures.siteId
     })
     await assert.rejects(
-      treeModel.renameFolder({ folderId: folder.id, pathName: 'en', title: 'Renameable' }),
+      treeModel.renameFolder({
+        folderId: folder.id,
+        siteId: fixtures.siteId,
+        pathName: 'en',
+        title: 'Renameable'
+      }),
       (err: any) => err.name === 'treeReservedLocaleSegment'
     )
+  })
+
+  /**
+   * OpenProject #2131: `getFolderById()` used to filter on `id` + `type = 'folder'` only, never
+   * `siteId` — a folder-create `parentId` naming a folder in ANOTHER site resolved successfully, and
+   * `createFolder()` derived the new folder's ltree path (and locale) from that foreign row. Locked
+   * down at the model layer here: `createFolder()`'s own `getFolderById()` lookup is scoped, so a
+   * cross-tenant `parentId` is refused with `treeInvalidParent` — the same "parent does not exist"
+   * error a genuinely missing `parentId` gets, carrying no trace of the foreign folder's real path or
+   * locale.
+   */
+  test('createFolder refuses a parentId belonging to another site', async () => {
+    const [otherSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: 'other-tenant.localhost',
+        isEnabled: true,
+        config: { locales: { primary: 'en', active: ['en'] } }
+      })
+      .returning({ id: sitesTable.id })
+    const foreignParent = await treeModel.createFolder({
+      pathName: 'foreign-secret',
+      title: 'Foreign Secret',
+      locale: 'en',
+      siteId: otherSite.id
+    })
+
+    await assert.rejects(
+      treeModel.createFolder({
+        parentId: foreignParent.id,
+        pathName: 'intruder',
+        title: 'Intruder',
+        locale: 'en',
+        siteId: fixtures.siteId
+      }),
+      (err: any) => err.name === 'treeInvalidParent'
+    )
+  })
+
+  /**
+   * OpenProject #1692: `renameFolder`'s cascade (`refreshDescendantPaths`) used to rewrite
+   * `pages.path`/`pages.hash` for every descendant page and stop there — unlike `pages.ts#movePage`,
+   * which follows the same write with `recordMoveSideEffects` (search reindex, storage dispatch,
+   * glossary cache invalidation). These lock the fix: renaming a folder now fires those side effects
+   * for every descendant page, once each, with the correct old/new paths — and fires none of them for
+   * a title-only rename, which changes no page's path (the early return at `tree.ts:960-966`).
+   *
+   * Spies on `WIKI.models.search`/`storage`/`glossary` directly, the same pattern
+   * `models/pages.test.ts`'s search-dispatcher coverage uses: shadow the real singleton's method as an
+   * own property, restore it (`delete`) in `finally` so the next test sees the real implementation
+   * again.
+   */
+  describe('renameFolder fires descendant page move side effects (OpenProject #1692)', () => {
+    test('fires search.renamed + storage.dispatch per descendant page, and glossary.invalidateCache once', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'movable',
+        title: 'Movable',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const pageOne = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'movable/one', title: 'One', locale: 'en' }),
+        actor
+      )
+      const pageTwo = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'movable/two', title: 'Two', locale: 'en' }),
+        actor
+      )
+
+      const searchModel = (globalThis as any).WIKI.models.search
+      const storageModel = (globalThis as any).WIKI.models.storage
+      const glossaryModel = (globalThis as any).WIKI.models.glossary
+      const searchCalls: any[] = []
+      const storageCalls: any[] = []
+      const glossaryCalls: string[] = []
+      searchModel.renamed = async (
+        siteId: string,
+        page: any,
+        previousPath: string,
+        previousLocale: string
+      ) => {
+        searchCalls.push({ siteId, id: page.id, path: page.path, previousPath, previousLocale })
+      }
+      storageModel.dispatch = async (event: string, data: any) => {
+        storageCalls.push({ event, ...data })
+        return 0
+      }
+      glossaryModel.invalidateCache = (siteId: string) => {
+        glossaryCalls.push(siteId)
+      }
+
+      try {
+        await treeModel.renameFolder({
+          folderId: folder.id,
+          siteId: fixtures.siteId,
+          pathName: 'moved',
+          title: 'Movable'
+        })
+
+        assert.deepEqual(new Set(searchCalls.map((c) => c.id)), new Set([pageOne.id, pageTwo.id]))
+        for (const call of searchCalls) {
+          assert.equal(call.siteId, fixtures.siteId)
+          assert.equal(call.previousLocale, 'en')
+        }
+        const oneRenamed = searchCalls.find((c) => c.id === pageOne.id)!
+        assert.equal(oneRenamed.previousPath, 'movable/one')
+        assert.equal(oneRenamed.path, 'moved/one')
+        const twoRenamed = searchCalls.find((c) => c.id === pageTwo.id)!
+        assert.equal(twoRenamed.previousPath, 'movable/two')
+        assert.equal(twoRenamed.path, 'moved/two')
+
+        assert.equal(storageCalls.length, 2)
+        assert.deepEqual(new Set(storageCalls.map((c) => c.id)), new Set([pageOne.id, pageTwo.id]))
+        for (const call of storageCalls) {
+          assert.equal(call.event, 'page:rename')
+          assert.equal(call.siteId, fixtures.siteId)
+          assert.equal(call.locale, 'en')
+          assert.equal(call.previousLocale, 'en')
+        }
+        const oneDispatched = storageCalls.find((c) => c.id === pageOne.id)!
+        assert.equal(oneDispatched.previousPath, 'movable/one')
+        assert.equal(oneDispatched.path, 'moved/one')
+
+        assert.deepEqual(glossaryCalls, [fixtures.siteId])
+      } finally {
+        delete searchModel.renamed
+        delete storageModel.dispatch
+        delete glossaryModel.invalidateCache
+      }
+    })
+
+    test('fires none of the move side effects for a title-only rename', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'untouched',
+        title: 'Untouched',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'untouched/inside', title: 'Inside', locale: 'en' }),
+        actor
+      )
+
+      const searchModel = (globalThis as any).WIKI.models.search
+      const storageModel = (globalThis as any).WIKI.models.storage
+      const glossaryModel = (globalThis as any).WIKI.models.glossary
+      let searchCalled = false
+      let storageCalled = false
+      let glossaryCalled = false
+      searchModel.renamed = async () => {
+        searchCalled = true
+      }
+      storageModel.dispatch = async () => {
+        storageCalled = true
+        return 0
+      }
+      glossaryModel.invalidateCache = () => {
+        glossaryCalled = true
+      }
+
+      try {
+        await treeModel.renameFolder({
+          folderId: folder.id,
+          siteId: fixtures.siteId,
+          pathName: 'untouched',
+          title: 'Renamed Title Only'
+        })
+
+        assert.equal(searchCalled, false)
+        assert.equal(storageCalled, false)
+        assert.equal(glossaryCalled, false)
+      } finally {
+        delete searchModel.renamed
+        delete storageModel.dispatch
+        delete glossaryModel.invalidateCache
+      }
+    })
   })
 
   /**
@@ -373,6 +596,311 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
       assert.equal(pages.length, 1)
       assert.equal(pages[0]!.classification, fixtures.classificationId)
+    })
+  })
+
+  /**
+   * OpenProject #2098: `deleteFolder`/`renameFolder`'s callers need to authorize every descendant
+   * before committing to the cascade -- `listDescendants` resolves that same at-or-below set without
+   * mutating anything, carrying each page's real tags and classification (the same join #1128 added
+   * to the read-side listings above) plus each asset's path.
+   */
+  describe('listDescendants (OpenProject #2098)', () => {
+    test('lists every descendant at any depth, with real tags/classification, and mutates nothing', async () => {
+      const root = await treeModel.createFolder({
+        pathName: 'descendants-root',
+        title: 'Descendants Root',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const nested = await treeModel.createFolder({
+        parentId: root.id,
+        pathName: 'nested',
+        title: 'Nested',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const topPage = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'descendants-root/top',
+          title: 'Top',
+          locale: 'en',
+          tags: ['alpha', 'beta']
+        }),
+        actor
+      )
+      const deepPage = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'descendants-root/nested/deep',
+          title: 'Deep',
+          locale: 'en',
+          tags: ['gamma']
+        }),
+        actor
+      )
+      const asset = await treeModel.addAsset({
+        parentId: nested.id,
+        fileName: 'diagram.png',
+        title: 'diagram.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      const result = await treeModel.listDescendants(root.id, fixtures.siteId)
+
+      assert.equal(result.pages.length, 2, 'both pages at any depth should be returned')
+      const top = result.pages.find((p) => p.id === topPage.id)
+      const deep = result.pages.find((p) => p.id === deepPage.id)
+      assert.ok(top, 'the top-level page must be listed')
+      assert.ok(deep, 'the deeply-nested page must be listed')
+      assert.equal(top!.path, 'descendants-root/top')
+      assert.deepEqual(top!.tags.sort(), ['alpha', 'beta'])
+      assert.equal(top!.classification, fixtures.classificationId)
+      assert.equal(deep!.path, 'descendants-root/nested/deep')
+      assert.deepEqual(deep!.tags, ['gamma'])
+      assert.equal(deep!.classification, fixtures.classificationId)
+
+      assert.equal(result.assets.length, 1, 'the one asset at any depth should be returned')
+      assert.equal(result.assets[0]!.id, asset.id)
+      assert.equal(result.assets[0]!.path, 'descendants-root/nested/diagram.png')
+
+      // -> The folders themselves are never returned -- descendants only
+      const ids = [...result.pages, ...result.assets].map((e) => e.id)
+      assert.equal(ids.includes(root.id), false)
+      assert.equal(ids.includes(nested.id), false)
+
+      // -> Nothing was deleted or renamed by the call: every row this fixture created is still exactly
+      //    where it was.
+      const rootAfter = await treeModel.getFolderById(root.id, fixtures.siteId)
+      const nestedAfter = await treeModel.getFolderById(nested.id, fixtures.siteId)
+      const topPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: topPage.id })
+      const deepPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: deepPage.id })
+      const assetAfter = await treeModel.getById(asset.id)
+      assert.ok(rootAfter, 'the root folder must still exist')
+      assert.ok(nestedAfter, 'the nested folder must still exist')
+      assert.ok(topPageAfter, 'the top page must still exist')
+      assert.equal(topPageAfter!.path, 'descendants-root/top', 'the top page must not have moved')
+      assert.ok(deepPageAfter, 'the deep page must still exist')
+      assert.equal(
+        deepPageAfter!.path,
+        'descendants-root/nested/deep',
+        'the deep page must not have moved'
+      )
+      assert.ok(assetAfter, 'the asset must still exist')
+      assert.equal(assetAfter!.fileName, 'diagram.png', 'the asset must not have been renamed')
+    })
+
+    test('an empty folder answers with empty arrays rather than throwing', async () => {
+      const empty = await treeModel.createFolder({
+        pathName: 'empty-desc',
+        title: 'Empty',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const descendants = await treeModel.listDescendants(empty.id, fixtures.siteId)
+      assert.deepEqual(descendants, { pages: [], assets: [] })
+    })
+
+    test('throws for a folder id that does not exist', async () => {
+      await assert.rejects(
+        treeModel.listDescendants('00000000-0000-0000-0000-000000000000', fixtures.siteId),
+        (err: any) => err.name === 'treeInvalidFolder'
+      )
+    })
+
+    test('throws for a folder id belonging to a different site', async () => {
+      const [otherSite] = await WIKI.db
+        .insert(sitesTable)
+        .values({ hostname: `listdescendants-other-${Date.now()}.example.com`, config: {} })
+        .returning({ id: sitesTable.id })
+      const otherFolder = await treeModel.createFolder({
+        pathName: 'other-site-desc',
+        title: 'Other',
+        locale: 'en',
+        siteId: otherSite!.id
+      })
+      await assert.rejects(
+        treeModel.listDescendants(otherFolder.id, fixtures.siteId),
+        (err: any) => err.name === 'treeInvalidFolder'
+      )
+      // -> No site cleanup here: `otherFolder`'s tree row still references it (a bare site delete
+      //    would 23503 on the FK), and this test's whole schema is dropped by teardownTestDb()
+      //    regardless.
+    })
+  })
+
+  /**
+   * OpenProject #2127: `getFolderById()` used to select on `id` alone, so a caller holding a
+   * folder id from ANOTHER site (a real UUID, not a guess) got that folder's path/locale back —
+   * `POST /sites/:siteId/tree/folders` fed a `parentId` straight through it with no site check at
+   * all. `siteId` is now a required argument, filtered into the query, so a foreign id resolves to
+   * null exactly like an unknown one.
+   */
+  describe('getFolderById siteId scoping (OpenProject #2127)', () => {
+    test('does not resolve a folder belonging to a different site', async () => {
+      const [otherSite] = await WIKI.db
+        .insert(sitesTable)
+        .values({ hostname: `getfolderbyid-other-${Date.now()}.example.com`, config: {} })
+        .returning({ id: sitesTable.id })
+
+      const folder = await treeModel.createFolder({
+        pathName: 'other-site-folder',
+        title: 'Other Site Folder',
+        locale: 'en',
+        siteId: otherSite!.id
+      })
+
+      // -> Resolves fine when asked for with its OWN site
+      const resolved = await treeModel.getFolderById(folder.id, otherSite!.id)
+      assert.ok(resolved, 'expected the folder to resolve for its own site')
+
+      // -> Must not resolve when asked for with a DIFFERENT site, even though the id is real
+      const foreign = await treeModel.getFolderById(folder.id, fixtures.siteId)
+      assert.equal(foreign, null)
+
+      // -> No site cleanup here: `folder`'s tree row still references it (a bare site delete would
+      //    23503 on the FK), and this test's whole schema is dropped by teardownTestDb() regardless.
+    })
+  })
+
+  /**
+   * OpenProject #1587 §2 / task 1599: `getTree()` used to apply no visibility filter at all, unlike
+   * `browse()`/`listPages()` -- so BROWSE THE TREE (`GET /sites/:siteId/tree`, the only caller) could
+   * enumerate a draft, a scheduled-but-not-yet-live page, or an `isBrowsable: false` page to anyone
+   * holding `read:pages` via a rule, guests included (`visibleTreeItems`'s own filter checks that
+   * RULE, never publication state). `publicOnly` threads `pageIsVisible` into the query, but --
+   * unlike `browse()`/`listPages()` -- only actually applies it when `publicOnly` is true: an
+   * authenticated caller (the file manager's own use of this same method) must keep seeing every
+   * page, drafts and non-browsable ones included, which is what `publicOnly: false` (the default)
+   * preserves unchanged. A folder or asset entry is never affected either way -- the predicate is
+   * scoped to `type = 'page'` rows only.
+   */
+  describe('getTree publicOnly (OpenProject #1587 §2)', () => {
+    test('publicOnly hides a draft, a scheduled page, and a non-browsable page from a page-type entry, but not a folder', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'visibility',
+        title: 'Visibility',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'visibility/published',
+          title: 'Published',
+          locale: 'en',
+          publishState: 'published'
+        }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'visibility/draft',
+          title: 'Draft',
+          locale: 'en',
+          publishState: 'draft'
+        }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'visibility/scheduled',
+          title: 'Scheduled',
+          locale: 'en',
+          publishState: 'scheduled',
+          publishStartDate: new Date(Date.now() + 86400000).toISOString()
+        }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'visibility/hidden',
+          title: 'Hidden',
+          locale: 'en',
+          publishState: 'published',
+          isBrowsable: false
+        }),
+        actor
+      )
+
+      const publicItems = await treeModel.getTree({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentId: folder.id,
+        publicOnly: true
+      })
+      const publicTitles = publicItems.map((item) => item.title).sort()
+      assert.deepEqual(publicTitles, ['Published'])
+
+      const privateItems = await treeModel.getTree({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentId: folder.id,
+        publicOnly: false
+      })
+      const privateTitles = privateItems.map((item) => item.title).sort()
+      assert.deepEqual(privateTitles, ['Draft', 'Hidden', 'Published', 'Scheduled'])
+    })
+
+    test('publicOnly still lists a folder that holds only invisible pages', async () => {
+      await treeModel.createFolder({
+        pathName: 'only-drafts',
+        title: 'Only Drafts',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'only-drafts/inside',
+          title: 'Inside Draft',
+          locale: 'en',
+          publishState: 'draft'
+        }),
+        actor
+      )
+
+      const items = await treeModel.getTree({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        includeRootFolders: true,
+        publicOnly: true
+      })
+      assert.ok(
+        items.some((item) => item.type === 'folder' && item.title === 'Only Drafts'),
+        'the folder itself is not a page and must not be filtered out by publicOnly'
+      )
+    })
+
+    test('publicOnly defaults to false — an existing caller with no opinion keeps every entry', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'default-visibility',
+        title: 'Default Visibility',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'default-visibility/draft',
+          title: 'Draft By Default',
+          locale: 'en',
+          publishState: 'draft'
+        }),
+        actor
+      )
+
+      const items = await treeModel.getTree({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentId: folder.id
+      })
+      assert.ok(items.some((item) => item.title === 'Draft By Default'))
     })
   })
 })

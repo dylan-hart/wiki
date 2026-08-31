@@ -5,22 +5,24 @@
         <w-icon name="img:/_assets/icons/fluent-add-key.svg" size="sm" class="mr-2" />
         <span>{{ t(`profile.passkeysAdd`) }}</span>
       </w-card-section>
-      <div class="py-2">
+      <w-form ref="passkeyForm" class="py-2" @submit="save">
         <div class="text-body2 px-4 py-2">{{ t(`profile.passkeysNameHint`) }}</div>
         <w-item>
           <blueprint-icon icon="key" />
           <w-item-section>
             <w-input
+              ref="iptName"
               v-model="state.name"
               outlined
               dense
+              :rules="nameValidation"
               hide-bottom-space
               :label="t(`profile.passkeysName`)"
-              autofocus
+              lazy-rules="ondemand"
               @keyup:enter="save" />
           </w-item-section>
         </w-item>
-      </div>
+      </w-form>
       <w-card-actions class="card-actions">
         <w-space />
         <w-btn
@@ -45,16 +47,21 @@
 import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
-import { notify } from '@/composables/notify'
-import { reactive } from 'vue'
+import { reactive, ref } from 'vue'
 
 // EMITS
 
 defineEmits([...dialogComponentEmits])
 
+// REFS
+
+const iptName = ref(null)
+
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => iptName.value
+})
 
 // I18N
 
@@ -66,21 +73,24 @@ const state = reactive({
   name: ''
 })
 
+// REFS
+
+const passkeyForm = ref(null)
+
+// VALIDATION RULES
+
+const nameValidation = [
+  (val) => (val && val.trim().length > 0 && val.length <= 255) || t('profile.passkeysInvalidName')
+]
+
 // METHODS
 
 async function save() {
-  try {
-    if (!state.name || state.name.trim().length < 1 || state.name.length > 255) {
-      throw new Error(t('profile.passkeysInvalidName'))
-    }
-    onDialogOK({
-      name: state.name
-    })
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: err.message
-    })
+  if (!(await passkeyForm.value.validate(true))) {
+    return
   }
+  onDialogOK({
+    name: state.name
+  })
 }
 </script>

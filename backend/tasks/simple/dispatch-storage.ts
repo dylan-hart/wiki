@@ -68,6 +68,16 @@ export interface DispatchStoragePayload {
  * that race for every storage module. See that helper's doc for why this is a Postgres advisory lock
  * rather than an in-process one — cross-instance is exactly the case an in-process mutex can't cover.
  *
+ * `contentSync.recordSuccess`/`recordFailure` are deliberately called *after* `withLock` returns, not
+ * from inside its callback (OpenProject #2252). `withAdvisoryLock` checks a connection out of the pool
+ * for the whole callback's duration; a `recordSuccess`/`recordFailure` call still inside it needs a
+ * *second* connection while the callback is still holding the first. On a pool already at its
+ * configured `max` — several concurrent dispatches, each holding its own lock connection — that second
+ * `pool.connect()` has nothing to wait on but a connection none of those calls can ever free, since
+ * none of them can return without it: a deadlock, not a stall. The outcome (success, or the thrown
+ * error) is still captured from inside the callback; only the db-touching call recording it moves
+ * outside, so the lock connection is back in the pool before that write is even attempted.
+ *
  * @param deps Real models (and lock) by default; overridable so tests can exercise the branching here
  *             without a database or a loaded module. Each has its own default rather than one default
  *             for the whole object, so a test overriding only `storage`/`contentSync` still gets the
@@ -104,21 +114,30 @@ export async function task(
     return
   }
 
-  await withLock(`storage-target:${targetId}`, async () => {
-    try {
-      await mod[handler](target, data)
-      if (contentType && contentId) {
-        await contentSyncDep.recordSuccess({ contentType, contentId, targetId, direction: 'push' })
-      }
-    } catch (err: any) {
-      if (contentType && contentId) {
-        await contentSyncDep.recordFailure({ contentType, contentId, targetId, error: err.message })
-      }
-      WIKI.logger.warn(
-        `Failed to dispatch "${handler}" to storage target ${target.title}: ${err.message}`
-      )
-      // -> Rethrown so the job fails and the scheduler retries with its usual backoff
-      throw err
+  let caughtErr: any = null
+  try {
+    await withLock(`storage-target:${targetId}`, () => mod[handler](target, data))
+  } catch (err: any) {
+    caughtErr = err
+  }
+
+  if (caughtErr) {
+    if (contentType && contentId) {
+      await contentSyncDep.recordFailure({
+        contentType,
+        contentId,
+        targetId,
+        error: caughtErr.message
+      })
     }
-  })
+    WIKI.logger.warn(
+      `Failed to dispatch "${handler}" to storage target ${target.title}: ${caughtErr.message}`
+    )
+    // -> Rethrown so the job fails and the scheduler retries with its usual backoff
+    throw caughtErr
+  }
+
+  if (contentType && contentId) {
+    await contentSyncDep.recordSuccess({ contentType, contentId, targetId, direction: 'push' })
+  }
 }

@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit'
 import { unsafeSVG } from 'lit/directives/unsafe-svg.js'
 import { renderSVG } from 'uqr'
 import { DarkMode } from '../shared/theme.js'
+import { I18n } from '../shared/i18n.js'
 
 /**
  * Block QR Code
@@ -81,6 +82,24 @@ export class BlockQrCodeElement extends LitElement {
         overflow-wrap: anywhere;
       }
 
+      /*
+        Standard offscreen-clip technique: present to assistive tech and to a "select all" copy, absent
+        from the rendered layout. display: none would pull it out of the accessibility tree too, which
+        is the one thing this element exists to avoid -- role="img" below collapses the .qr subtree out
+        of the accessible-name computation, so this is the only place the encoded value is exposed.
+      */
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
       .error {
         color: var(--q-negative, #c10015);
         border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
@@ -113,7 +132,8 @@ export class BlockQrCodeElement extends LitElement {
 
       // Internal Properties
       _svg: { state: true },
-      _error: { state: true }
+      /** True once the value has proven too long to fit — the message itself is resolved in render(). */
+      _tooLong: { state: true }
     }
   }
 
@@ -123,9 +143,10 @@ export class BlockQrCodeElement extends LitElement {
     this.size = 180
     this.caption = ''
     this._svg = ''
-    this._error = ''
+    this._tooLong = false
     // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
+    this._i18n = new I18n(this)
   }
 
   /**
@@ -140,6 +161,19 @@ export class BlockQrCodeElement extends LitElement {
     return this.value?.trim() || `${window.location.origin}${window.location.pathname}`
   }
 
+  /**
+   * Whether the encoded value is a fetchable web address, worth exposing as a real, clickable link
+   * rather than plain text -- true for the common cases (an explicit URL, or the page-address
+   * fallback above), false for arbitrary encoded text (a phone number, a Wi-Fi payload, ...).
+   */
+  _encodedIsUrl(value) {
+    try {
+      return ['http:', 'https:'].includes(new URL(value).protocol)
+    } catch {
+      return false
+    }
+  }
+
   connectedCallback() {
     super.connectedCallback()
     try {
@@ -147,18 +181,32 @@ export class BlockQrCodeElement extends LitElement {
       this._svg = renderSVG(this._encoded(), { border: 1, pixelSize: 8 })
     } catch {
       // -> Every symbol size has a ceiling, and a long enough string clears the largest of them
-      this._error = 'This is too long to fit in a QR code.'
+      this._tooLong = true
     }
   }
 
   render() {
-    if (this._error) {
-      return html`<div class="error">${this._error}</div>`
+    if (this._tooLong) {
+      return html`<div class="error">
+        ${this._i18n.t('blocks.qr-code.errors.tooLong', 'This is too long to fit in a QR code.')}
+      </div>`
     }
     const size = `${Math.min(Math.max(Number(this.size) || 180, 80), 600)}px`
+    const encoded = this._encoded()
+    /*
+      role="img" + a short, fixed aria-label is deliberate over labelling the code with the encoded
+      value itself: `encoded` can be a multi-hundred-character URL, which would make for an unusable
+      accessible name. The actual value is exposed separately below instead -- as a real link when it
+      is one, so a screen-reader or keyboard user can also *use* it rather than just hear it read out.
+    */
     return html`
-      <div class="qr" style="--qr-size: ${size}">
+      <div class="qr" role="img" aria-label="QR code" style="--qr-size: ${size}">
         ${unsafeSVG(this._svg)}
+        ${
+          this._encodedIsUrl(encoded)
+            ? html`<a class="visually-hidden" href="${encoded}">${encoded}</a>`
+            : html`<span class="visually-hidden">${encoded}</span>`
+        }
         ${this.caption ? html`<div class="caption">${this.caption}</div>` : null}
       </div>
     `

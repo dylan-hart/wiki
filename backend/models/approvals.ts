@@ -10,6 +10,10 @@ import {
   userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
+import type { AccessActor } from './groups.ts'
+import { hasPermission } from './pages.ts'
+import type { RulePageRef } from '../helpers/pageRules.ts'
+import type { RenderPermissions } from './rendering.ts'
 
 /**
  * How a rule decides which pages it covers. The same set group page rules use, so an administrator
@@ -57,6 +61,16 @@ export interface ReviewerScope {
    * `canReviewPage` never need that answer; omit it and `hasApproved` reads `false` throughout.
    */
   viewerId?: string
+  /**
+   * `api/approvals.ts#reviewerFor` also resolves an `AccessActor` for its own `reviewsAll` check and
+   * carries it here for a caller's convenience, but `getReviewableSubmissions()`/
+   * `getSubmissionForReview()` -- the two methods that actually need one, to re-check `read:pages`/
+   * `read:source` against the real page (OpenProject #2160) -- take it as their own separate, required
+   * positional parameter instead of reading it off this field. `canReviewPage` does not read it either
+   * (a different question -- see its own doc comment). Optional and effectively unread by this model;
+   * kept only because `reviewerFor` already builds one, not because anything here consumes it.
+   */
+  actor?: AccessActor
 }
 
 /** Where a submission stands against its rule's minimum-approvals threshold. */
@@ -106,8 +120,13 @@ export interface ReviewableSubmission {
 export interface ReviewableSubmissionDetail extends ReviewableSubmission {
   /** What the suggestion proposes the page should say. */
   content: string
-  /** What it currently says, i.e. the other side of the diff. */
-  pageContent: string
+  /**
+   * What it currently says, i.e. the other side of the diff. Absent (OpenProject #2160), rather than
+   * an empty string, when the reviewer holds `read:pages` on the page (enough to see it in the queue
+   * at all) but not `read:source` there -- the queue entry and its metadata still come back so the
+   * reviewer can act on it, but the raw source itself does not.
+   */
+  pageContent?: string
   /** Unified diff against the page as it stood when the suggestion was made. */
   patch: string
 }
@@ -119,16 +138,32 @@ export interface ReviewableSubmissionDetail extends ReviewableSubmission {
  * `'stale'` is the one case that boolean could not express -- the page moved since the reviewer's
  * `baseHash` was taken, so nothing was written and the caller has to decide what to do about it,
  * rather than the write silently going ahead over whatever changed in between.
+ * `'forbidden'` is the finalizing approve reaching its threshold for a reviewer who does not hold
+ * `write:pages` on the target page -- approval-rule membership alone is not enough to write a page,
+ * since accepting a suggestion is still a write. The submission is left pending (not deleted) rather
+ * than partially applied; an approval already recorded towards the threshold by this call stays
+ * recorded, since the vote itself is harmless -- only the write is refused.
+ *
+ * `'forbidden'` (OpenProject #2160/#2165) is the reviewer-queue gate and page-rule permissions
+ * disagreeing: an approval rule made this reviewer one of the page's reviewers, but their own
+ * `write:pages` grant does not cover it (or covers it more narrowly than the rule's `reviewerGroups`
+ * implied) -- accepting a suggestion writes the page, and should never take less permission than a
+ * direct save does.
  *
  * `ok: true` no longer means the page was written: with a `minApprovals` above 1, one reviewer's
  * approve only records their sign-off towards the threshold. `finalized` says which happened --
  * `false` is "recorded, still waiting on more approvers", `true` is "threshold reached, page written,
  * submission closed out" -- and `approvalsCount`/`approvalsRequired` are what a caller shows for
  * either one.
+ *
+ * `'forbidden'` (OpenProject #2165) is the threshold-reached case refused for lack of `write:pages` on
+ * the target page -- the vote up to that point still stands (a lower-privilege act than the write
+ * itself), but the page is left untouched and the submission stays open rather than being partially
+ * applied.
  */
 export type ApproveSubmissionResult =
   | { ok: true; finalized: boolean; approvalsCount: number; approvalsRequired: number }
-  | { ok: false; reason: 'not-found' | 'stale' }
+  | { ok: false; reason: 'not-found' | 'stale' | 'forbidden' }
 
 /** An approval rule as the API exposes it. */
 export interface ApprovalRule {
@@ -512,6 +547,7 @@ class Approvals {
   }> {
     const actorId = req.session?.authenticated ? (req.session.user?.id ?? null) : null
     const groupIds = this.getActorGroupIds(req)
+    const actor = WIKI.models.groups.actorForRequest(req)
 
     const submitRule = await this.findSubmitRule(siteId, page, groupIds)
     /*
@@ -523,25 +559,22 @@ class Approvals {
       submitRule && actorId && (await this.getOwnSubmission(page.id, actorId))
     )
 
-    const reviewerScope = this.isReviewerSession(req)
+    const reviewerScope: ReviewerScope = this.isReviewerSession(req)
       ? {
           groupIds,
           reviewsAll:
             (req.session?.permissions ?? []).includes('manage:system') ||
-            WIKI.models.groups.checkAccess(
-              WIKI.models.groups.actorForRequest(req),
-              'review:pages',
-              {
-                path: page.path,
-                siteId,
-                locale: page.locale,
-                classification: page.classification,
-                tags: page.tags
-              }
-            ),
-          viewerId: actorId ?? undefined
+            WIKI.models.groups.checkAccess(actor, 'review:pages', {
+              path: page.path,
+              siteId,
+              locale: page.locale,
+              classification: page.classification,
+              tags: page.tags
+            }),
+          viewerId: actorId ?? undefined,
+          actor
         }
-      : { groupIds: [], reviewsAll: false }
+      : { groupIds: [], reviewsAll: false, actor }
     const canReview = await this.canReviewPage(siteId, page, reviewerScope)
 
     return {
@@ -549,7 +582,10 @@ class Approvals {
       hasOpenSuggestion,
       canReview,
       pendingSubmissions: canReview
-        ? await this.getReviewableSubmissions(siteId, { ...reviewerScope, pageId: page.id })
+        ? await this.getReviewableSubmissions(siteId, WIKI.models.groups.actorForRequest(req), {
+            ...reviewerScope,
+            pageId: page.id
+          })
         : []
     }
   }
@@ -576,7 +612,13 @@ class Approvals {
         updatedAt: submissionsTable.updatedAt
       })
       .from(submissionsTable)
-      .where(and(eq(submissionsTable.pageId, pageId), eq(submissionsTable.authorId, authorId)))
+      .where(
+        and(
+          eq(submissionsTable.pageId, pageId),
+          eq(submissionsTable.authorId, authorId),
+          eq(submissionsTable.status, 'open')
+        )
+      )
       .limit(1)
     return (rows[0] as PageEditSubmission) ?? null
   }
@@ -640,8 +682,9 @@ class Approvals {
           .values(values)
           .onConflictDoUpdate({
             target: [submissionsTable.pageId, submissionsTable.authorId],
-            // -> Matches the partial index, which only covers rows with an author
-            targetWhere: sql`"authorId" IS NOT NULL`,
+            // -> Matches the partial index: only an OPEN submission of this author's on this page
+            //    conflicts. A resolved one is left alone and this insert creates a fresh row instead.
+            targetWhere: sql`"authorId" IS NOT NULL AND "status" = 'open'`,
             set: {
               content: values.content,
               patch: values.patch,
@@ -836,20 +879,42 @@ class Approvals {
    * How many suggestions are waiting on a page. Counted for every reviewer, whoever wrote them.
    */
   async countSubmissions(pageId: string): Promise<number> {
-    return WIKI.db.$count(submissionsTable, eq(submissionsTable.pageId, pageId))
+    return WIKI.db.$count(
+      submissionsTable,
+      and(eq(submissionsTable.pageId, pageId), eq(submissionsTable.status, 'open'))
+    )
   }
 
   /**
    * Every suggestion waiting on this reviewer, oldest first.
    *
    * A suggestion is theirs to review when an enabled rule covers its page and names a group they are
-   * in — the same rules that let it be submitted, read from the other side. Someone holding
-   * `manage:system` sees the site's whole queue, as they do everywhere else.
+   * in — the same rules that let it be submitted, read from the other side — AND they hold `read:pages`
+   * on that page (OpenProject #2160): approval-rule membership alone used to be the entire gate, so a
+   * rule with `match: 'START', path: ''` handed its `reviewerGroups` every page on the site regardless
+   * of a path/tag/classification DENY, the page password gate, or `read:pages` being denied outright.
+   * Someone holding `manage:system` sees the site's whole queue, as they do everywhere else.
+   *
+   * Approval rules are page-blind to ordinary page permissions -- `matchesPage()` only knows START /
+   * END / REGEX / TAG / TAGALL, with no ALLOW/DENY and no classification axis of its own -- so a rule
+   * naming a reviewer's group is necessary but not sufficient. `actor` is intersected against every
+   * matched row with `read:pages`, the same permission and the same `checkAccess()` any other reader
+   * of a page would be held to; a rule with `match: 'START', path: ''` covering the whole site no
+   * longer hands its named groups every page on it regardless of what the page's own rules say
+   * (OpenProject #2160).
    *
    * Ordered oldest first because a queue is worked through in the order things arrived.
+   *
+   * OpenProject #2160: the approval-rule reviewer queue is a DIFFERENT permission axis from the
+   * ordinary page-rule engine -- being named in a rule's `reviewerGroups` says who reviews a page,
+   * not who may READ it. A reviewer whose group loses `read:pages` on a path (or is kept out of a
+   * classification tier) must not keep seeing that page's title, tags or content through the
+   * queue just because an approval rule still names them, so every row is additionally required to
+   * pass `checkAccess(actor, 'read:pages', ...)`.
    */
   async getReviewableSubmissions(
     siteId: string,
+    actor: AccessActor,
     { groupIds, reviewsAll = false, viewerId, pageId }: ReviewerScope & { pageId?: string }
   ): Promise<ReviewableSubmission[]> {
     if (!reviewsAll && groupIds.length < 1) {
@@ -876,6 +941,7 @@ class Approvals {
         pageTitle: pagesTable.title,
         pageLocale: pagesTable.locale,
         pageTags: pagesTable.tags,
+        pageClassification: pagesTable.classification,
         pageContent: pagesTable.content,
         authorId: usersTable.id,
         authorName: usersTable.name,
@@ -885,9 +951,15 @@ class Approvals {
       .innerJoin(pagesTable, eq(pagesTable.id, submissionsTable.pageId))
       .leftJoin(usersTable, eq(usersTable.id, submissionsTable.authorId))
       .where(
+        // -> Retained resolved rows are not reviewable a second time -- only what is still `open`
+        //    belongs in this queue.
         pageId
-          ? and(eq(submissionsTable.siteId, siteId), eq(submissionsTable.pageId, pageId))
-          : eq(submissionsTable.siteId, siteId)
+          ? and(
+              eq(submissionsTable.siteId, siteId),
+              eq(submissionsTable.pageId, pageId),
+              eq(submissionsTable.status, 'open')
+            )
+          : and(eq(submissionsTable.siteId, siteId), eq(submissionsTable.status, 'open'))
       )
       .orderBy(asc(submissionsTable.createdAt))
 
@@ -905,17 +977,31 @@ class Approvals {
       )
     )
 
+    // -> OpenProject #2160: intersect with the ordinary page-rule engine. Approval rules and page
+    //    rules are independent axes -- a reviewer named by the approval rule can still be denied
+    //    `read:pages` on the path, or excluded by a CLASSIFICATION rule, and either must remove the
+    //    row from the queue the same as it would from any other read of the page.
+    const readableRows = matchedRows.filter((row: any) =>
+      WIKI.models.groups.checkAccess(actor, 'read:pages', {
+        path: row.pagePath,
+        siteId,
+        locale: row.pageLocale,
+        tags: row.pageTags ?? [],
+        classification: row.pageClassification ?? null
+      })
+    )
+
     // -> Every enabled rule, not just the ones naming this reviewer's groups: the threshold a
     //    submission has to clear is the strictest rule covering the page, whoever it names as
     //    reviewers -- see `requiredApprovalsForPage`, whose logic is inlined here to share the one
     //    `getRules` read across every row instead of awaiting it per row.
     const allRules = await this.getRules(siteId)
     const approvalCounts = await this.approvalCountsFor(
-      matchedRows.map((row: any) => row.id),
+      readableRows.map((row: any) => row.id),
       viewerId
     )
 
-    return matchedRows.map((row: any) => {
+    return readableRows.map((row: any) => {
       const pageMatch = { path: row.pagePath, tags: row.pageTags ?? [] }
       let approvalsRequired = 1
       for (const rule of allRules) {
@@ -935,15 +1021,23 @@ class Approvals {
   /**
    * One submission, if it is this reviewer's to look at, with both sides of the diff.
    *
+   * `pageContent` (OpenProject #2160) additionally requires `read:source` on the page, on top of the
+   * `read:pages` the queue itself already requires to surface the entry at all: the current page body
+   * is exactly what a direct page view withholds without it, and a pending suggestion is not a way
+   * around that. Refused with a missing field, not a 403 -- the reviewer still needs the rest of this
+   * response (the diff's other side, `approvals`, …) to act on the queue entry even without seeing the
+   * page's current source.
+   *
    * @returns The submission, or null when it does not exist or is not theirs to review
    */
   async getSubmissionForReview(
     siteId: string,
     submissionId: string,
+    actor: AccessActor,
     { groupIds, reviewsAll = false, viewerId }: ReviewerScope
   ): Promise<ReviewableSubmissionDetail | null> {
     // -> Reuses the queue rather than re-deriving who may see what: one definition of reviewable
-    const reviewable = await this.getReviewableSubmissions(siteId, {
+    const reviewable = await this.getReviewableSubmissions(siteId, actor, {
       groupIds,
       reviewsAll,
       viewerId
@@ -956,7 +1050,11 @@ class Approvals {
       .select({
         content: submissionsTable.content,
         patch: submissionsTable.patch,
-        pageContent: pagesTable.content
+        pageContent: pagesTable.content,
+        pagePath: pagesTable.path,
+        pageLocale: pagesTable.locale,
+        pageTags: pagesTable.tags,
+        pageClassification: pagesTable.classification
       })
       .from(submissionsTable)
       .innerJoin(pagesTable, eq(pagesTable.id, submissionsTable.pageId))
@@ -967,10 +1065,18 @@ class Approvals {
       return null
     }
 
+    const maySeeSource = WIKI.models.groups.checkAccess(actor, 'read:source', {
+      path: detail.pagePath,
+      siteId,
+      locale: detail.pageLocale,
+      tags: detail.pageTags ?? [],
+      classification: detail.pageClassification ?? null
+    })
+
     return {
       ...reviewable.find((s) => s.id === submissionId)!,
       content: detail.content,
-      pageContent: detail.pageContent ?? '',
+      ...(maySeeSource && { pageContent: detail.pageContent ?? '' }),
       patch: detail.patch
     }
   }
@@ -1027,13 +1133,22 @@ class Approvals {
       .select({
         id: submissionsTable.id,
         pageId: submissionsTable.pageId,
-        baseHash: submissionsTable.baseHash
+        baseHash: submissionsTable.baseHash,
+        status: submissionsTable.status,
+        // -> Whose markup this is, for resolving submitter render permissions -- null for a guest
+        //    submission (`POST .../submissions` allows one; see that route)
+        authorId: submissionsTable.authorId
       })
       .from(submissionsTable)
       .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.siteId, siteId)))
       .limit(1)
     const submission = rows[0]
-    if (!submission) {
+    // -> A resolved row is retained rather than deleted (see the transaction below), so it is still
+    //    found by the query above -- but it is no longer something a caller can act on, the same as
+    //    if it were gone. Checked here, before the staleness comparison, because a resolved
+    //    submission's `baseHash` is stale by definition (the page moved when it was finalized) and
+    //    would otherwise report the wrong reason ('stale' instead of 'not-found').
+    if (!submission || submission.status !== 'open') {
       return { ok: false, reason: 'not-found' }
     }
 
@@ -1046,6 +1161,22 @@ class Approvals {
       return { ok: false, reason: 'not-found' }
     }
 
+    // -> OpenProject #2160/#2165: the approval-rule reviewer queue is a DIFFERENT permission axis
+    //    from the ordinary page-rule engine -- being named in a rule's `reviewerGroups` is not the
+    //    same thing as holding `write:pages` on the page a suggestion targets, and accepting one
+    //    writes the page exactly like a direct save does.
+    if (
+      !WIKI.models.groups.checkAccess(actor, 'write:pages', {
+        path: page.path,
+        siteId,
+        locale: page.locale,
+        tags: page.tags ?? [],
+        classification: page.classification ?? null
+      })
+    ) {
+      return { ok: false, reason: 'forbidden' }
+    }
+
     const currentHash = createHash('sha256')
       .update(page.content ?? '')
       .digest('hex')
@@ -1053,73 +1184,198 @@ class Approvals {
       return { ok: false, reason: 'stale' }
     }
 
-    await WIKI.db
-      .insert(submissionApprovalsTable)
-      .values({ submissionId, reviewerId: actor.id })
-      // -> Idempotent: this reviewer approving again (a double click, a retried request) must not
-      //    count as a second, different sign-off
-      .onConflictDoNothing({
-        target: [submissionApprovalsTable.submissionId, submissionApprovalsTable.reviewerId]
+    /*
+      Everything from the row lock through the finalisation decision runs on one transaction, so two
+      concurrent calls for the same submission cannot both read a threshold-satisfying count and both
+      enter the finalize branch. `for('update')` blocks a second transaction on this row until the
+      first commits; the second then re-reads and finds the row already gone if the first finalized,
+      returning not-found instead of also racing to write the page. `onConflictDoNothing` alone was
+      not enough -- it only suppresses a repeat vote *row* from the same reviewer, not the count both
+      requests go on to read.
+
+      `updatePage` stays out of this transaction on purpose: it does its own history/watcher/search/
+      hook/storage I/O and must not run while holding a row lock, per `deletePage`'s and
+      `setUserGroups`' transactions below applying the identical rule.
+    */
+    const decision = await WIKI.db.transaction(async (tx) => {
+      const lockedRows = await tx
+        .select({ id: submissionsTable.id, status: submissionsTable.status })
+        .from(submissionsTable)
+        .where(eq(submissionsTable.id, submissionId))
+        .for('update')
+      if (!lockedRows[0] || lockedRows[0].status !== 'open') {
+        // -> Already finalized by a concurrent call that reached this transaction first: the row is
+        //    retained (`status: 'approved'`/`'declined'`) rather than deleted, but is no longer open
+        //    for this call to act on.
+        return { ok: false as const, reason: 'not-found' as const }
+      }
+
+      await tx
+        .insert(submissionApprovalsTable)
+        .values({ submissionId, reviewerId: actor.id })
+        // -> Idempotent: this reviewer approving again (a double click, a retried request) must not
+        //    count as a second, different sign-off
+        .onConflictDoNothing({
+          target: [submissionApprovalsTable.submissionId, submissionApprovalsTable.reviewerId]
+        })
+
+      const approvalsRequired = await this.requiredApprovalsForPage(siteId, {
+        path: page.path,
+        tags: page.tags ?? []
       })
-
-    const approvalsRequired = await this.requiredApprovalsForPage(siteId, {
-      path: page.path,
-      tags: page.tags ?? []
-    })
-    const approvalsCount = await WIKI.db.$count(
-      submissionApprovalsTable,
-      eq(submissionApprovalsTable.submissionId, submissionId)
-    )
-
-    if (approvalsCount < approvalsRequired) {
-      WIKI.logger.debug(
-        `Recorded approval ${approvalsCount}/${approvalsRequired} for edit suggestion ${submissionId} ` +
-          `on page ${page.id}; waiting on more reviewers`
+      const approvalsCount = await tx.$count(
+        submissionApprovalsTable,
+        eq(submissionApprovalsTable.submissionId, submissionId)
       )
-      return { ok: true, finalized: false, approvalsCount, approvalsRequired }
+
+      if (approvalsCount < approvalsRequired) {
+        return { ok: true as const, finalized: false as const, approvalsCount, approvalsRequired }
+      }
+
+      // -> Commits the finalisation intent while the row lock is still held: marking the submission
+      //    resolved here is what a concurrent caller blocked on `for('update')` above sees (via the
+      //    `status !== 'open'` check above) the instant this transaction commits, rather than also
+      //    entering this branch. Marked resolved rather than deleted, so the author can be shown it
+      //    was approved and onto which page; `pageEditSubmissionApprovals`'s votes are no longer
+      //    cascaded away with the row, but they also no longer matter to anything -- `approvalCountsFor`
+      //    and `getReviewableSubmissions` only ever look at `open` submissions.
+      await tx
+        .update(submissionsTable)
+        .set({ status: 'approved', resolvedBy: actor.id, updatedAt: new Date() })
+        .where(eq(submissionsTable.id, submissionId))
+      return { ok: true as const, finalized: true as const, approvalsCount, approvalsRequired }
+    })
+
+    if (!decision.ok) {
+      return decision
+    }
+    if (!decision.finalized) {
+      WIKI.logger.debug(
+        `Recorded approval ${decision.approvalsCount}/${decision.approvalsRequired} for edit ` +
+          `suggestion ${submissionId} on page ${page.id}; waiting on more reviewers`
+      )
+      return decision
+    }
+
+    // -> Approval-rule membership (checked in `getSubmissionForReview`/`reviewerFor`, upstream of
+    //    this call) is what gates who may REVIEW a submission at all, not what it takes to WRITE a
+    //    page. Accepting a suggestion is still a write, so it takes the same `write:pages` a direct
+    //    save would -- otherwise a reviewer on a broad `match: 'START', path: ''` rule could push
+    //    arbitrary content to any page with a pending suggestion, bypassing `write:pages` and any
+    //    classification DENY. Refusing here leaves the submission pending rather than partially
+    //    applied: the approval already recorded above still counts, only the write is refused.
+    if (
+      !WIKI.models.groups.checkAccess(actor, 'write:pages', {
+        path: page.path,
+        locale: page.locale,
+        siteId,
+        classification: page.classification ?? null,
+        tags: page.tags ?? []
+      })
+    ) {
+      return { ok: false, reason: 'forbidden' }
     }
 
     /*
-      The render has to move with the content, or the page keeps serving HTML that no longer matches
-      its source. The markdown pipeline lives in the frontend, so the reviewer's browser produces it
-      the same way the editor does on any other save, and it arrives with the approval.
-
-      Falling back to the server-side renderer covers an API client that has no pipeline of its own.
-      That one needs the Puppeteer extension and says so before the content is written if it is
-      missing, rather than leaving a stale render on a page somebody just changed with no prospect of
-      it being corrected.
+      The markup being sanitized here is the SUBMITTER's, not the reviewer's -- `updatePage()` is
+      called with `actor: reviewer` below because the reviewer is who performed the write (page
+      history, `authorId`, notifications all still attribute to them), but sanitizing an edit
+      suggestion's HTML against the REVIEWER's `write:scripts`/`write:styles` would let a
+      lower-privileged (or, for a guest submission -- `api/approvals.ts`'s submit route explicitly
+      allows one -- unauthenticated) submitter's markup launder through a reviewer's grant, which is
+      a permission bypass neither side individually has: the reviewer never wrote the script, and the
+      submitter never held the permission (OpenProject #1360/#2180, 2026-08-24 security audit §4).
+      `resolveSubmitterRenderPermissions` returns neither permission for a guest submission
+      (`authorId` is null), which is treated the same as "holds nothing".
     */
-    if (!render) {
-      await WIKI.models.rendering.ensureCanRender(page.editor)
-    }
+    const submitterRenderPermissions = await this.resolveSubmitterRenderPermissions(
+      submission.authorId,
+      {
+        path: page.path,
+        locale: page.locale,
+        siteId,
+        tags: page.tags ?? [],
+        classification: page.classification
+      }
+    )
     await WIKI.models.pages.updatePage(
       siteId,
       page.id,
       { content, ...(render && { render }) },
-      actor
+      actor,
+      submitterRenderPermissions
     )
     if (!render) {
       // -> Briefly stale rather than wrong: the browser is a queue away, and a suggestion approved
       //    while it is busy waits its turn instead of starting a second one
-      await WIKI.models.pages.queueRerender(siteId, page.id, actor)
+      await WIKI.models.pages.queueRerender(siteId, page.id, actor, submitterRenderPermissions)
     }
-
-    // -> Cascades onto `pageEditSubmissionApprovals`, so the votes that got it here are cleaned up
-    //    with it rather than left to be swept separately
-    await WIKI.db.delete(submissionsTable).where(eq(submissionsTable.id, submissionId))
     WIKI.logger.debug(`Approved edit suggestion ${submissionId} onto page ${page.id}`)
-    return { ok: true, finalized: true, approvalsCount, approvalsRequired }
+    return decision
   }
 
   /**
-   * Decline a suggestion, which discards it. The page is untouched.
+   * What `write:scripts`/`write:styles` the SUBMITTER holds on this page -- not the reviewer.
    *
+   * `POST /sites/:siteId/pages/:pageId/submissions` only requires a matching submit rule, and
+   * explicitly allows a guest (no `authorId`) to raise a suggestion; the reviewer's own browser then
+   * renders that markdown and posts the resulting HTML to `approveSubmission`. Resolving these
+   * permissions from `actor` (the reviewer) the way an ordinary save does would let a reviewer who
+   * holds `write:scripts`/`write:styles` launder a submitter's `<script>`/inline `style` past a
+   * permission the submitter never had -- a confused-deputy path, since the reviewer could always
+   * have written the same markup themselves, but one that quietly turns a technical control into a
+   * human one for third-party content the reviewer only skimmed as a diff (`InboxReview.vue`).
+   *
+   * A guest submission gets neither permission, unconditionally -- there is no group to check.
+   */
+  private async resolveSubmitterRenderPermissions(
+    authorId: string | null,
+    pageRef: RulePageRef
+  ): Promise<RenderPermissions> {
+    if (!authorId) {
+      return { scripts: false, styles: false }
+    }
+    // -> Resolved fresh from the db, not from a session/API key -- the submitter has no request of
+    //    their own for the reviewer's `approveSubmission` call to read one from.
+    const submitterActor = { id: authorId, ...(await WIKI.models.groups.actorForUserId(authorId)) }
+    return {
+      scripts: hasPermission(submitterActor, 'write:scripts', pageRef),
+      styles: hasPermission(submitterActor, 'write:styles', pageRef)
+    }
+  }
+
+  /**
+   * Decline a suggestion. The page is untouched, and the submission is retained with `status:
+   * 'declined'` (rather than deleted) so it can be shown back to its author along with `reason`.
+   *
+   * @param reason The reviewer's optional note on why, shown to the author
+   * @param resolvedBy The reviewer declining it
    * @returns False when there is no such submission
    */
-  async rejectSubmission(siteId: string, submissionId: string): Promise<boolean> {
+  async rejectSubmission(
+    siteId: string,
+    submissionId: string,
+    reason: string | null,
+    resolvedBy: string
+  ): Promise<boolean> {
     const result = await WIKI.db
-      .delete(submissionsTable)
-      .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.siteId, siteId)))
+      .update(submissionsTable)
+      .set({
+        status: 'declined',
+        resolvedReason: reason,
+        resolvedBy,
+        updatedAt: new Date()
+      })
+      .where(
+        and(
+          eq(submissionsTable.id, submissionId),
+          eq(submissionsTable.siteId, siteId),
+          // -> Only an OPEN submission can be declined: this makes a repeat decline of an already
+          //    resolved row a no-op (`false`) rather than silently overwriting its reason/resolver a
+          //    second time.
+          eq(submissionsTable.status, 'open')
+        )
+      )
     return (result.rowCount ?? 0) > 0
   }
 

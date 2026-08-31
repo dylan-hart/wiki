@@ -1,5 +1,8 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    :aria-label="t(`admin.users.changePassword`)"
+    @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-password-reset.svg" size="sm" class="mr-2" />
@@ -10,14 +13,14 @@
           <blueprint-icon icon="password" />
           <w-item-section>
             <w-input
+              ref="iptPassword"
               v-model="state.userPassword"
               outlined
               dense
               :rules="userPasswordValidation"
               hide-bottom-space
               :label="t(`admin.users.password`)"
-              lazy-rules="ondemand"
-              autofocus>
+              lazy-rules="ondemand">
               <template #append>
                 <div class="flex flex-nowrap items-center">
                   <w-badge :color="passwordStrength.color" :label="passwordStrength.label" />
@@ -72,14 +75,13 @@
 </template>
 
 <script setup>
-import { sampleSize } from 'es-toolkit/array'
-
 import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { passwordStrengthScore } from '@/helpers/passwordStrength'
+import { randomPassword } from '@/helpers/randomPassword'
 import { computed, reactive, ref } from 'vue'
 
 // PROPS
@@ -97,7 +99,9 @@ defineEmits([...dialogComponentEmits])
 
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => iptPassword.value
+})
 
 // I18N
 
@@ -114,6 +118,7 @@ const state = reactive({
 // REFS
 
 const changeUserPwdForm = ref(null)
+const iptPassword = ref(null)
 
 // COMPUTED
 
@@ -165,7 +170,7 @@ const userPasswordValidation = [
 
 function randomizePassword() {
   const pwdChars = 'abcdefghkmnpqrstuvwxyzABCDEFHJKLMNPQRSTUVWXYZ23456789_*=?#!()+'
-  state.userPassword = sampleSize(pwdChars, 16).join('')
+  state.userPassword = randomPassword(16, pwdChars)
 }
 
 async function save() {
@@ -183,7 +188,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.users.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.users.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     notify({
@@ -197,7 +202,7 @@ async function save() {
     // -> ky throws above 400 with the reason in the body, which is where the server explains itself
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   state.isLoading = false

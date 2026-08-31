@@ -8,20 +8,33 @@ name: Release
 # the Docker push nor the GitHub Release creation happen on a red run.
 #
 # What this workflow deliberately does NOT check, and why that's not an oversight:
-#   - The backend/frontend/blocks/e2e test suites. `build.yml`'s `quality` job (`quality.yml`) runs
-#     the backend/frontend/blocks suites and its own `build` job runs the Playwright suite, both on
-#     every push to `scarlett`, including the commit a release tag points at (a release tag is
-#     pushed against a commit that has already gone through that pipeline) — re-running the full
-#     Postgres + Playwright suite a second time here would just be an expensive echo of a check that
-#     already happened, not an independent gate.
+#   - The backend/frontend/blocks/e2e test suites are not re-run here. `build.yml`'s `quality` job
+#     (`quality.yml`) runs the backend/frontend/blocks suites and its own `build` job runs the
+#     Playwright suite, both on every push to `scarlett` — re-running the full Postgres + Playwright
+#     suite a second time here would just be an expensive echo of a check that already happened, not
+#     an independent gate. What this workflow DOES check, as its very first step (before any other
+#     gate below), is that such a run actually exists and was green for the exact commit the tag
+#     points at: "Verify build.yml succeeded for this commit" runs
+#     `gh run list --workflow=build.yml --commit=$GITHUB_SHA --status=success` and fails the job
+#     closed if nothing comes back. That closes the gap `docs/versioning.md` itself calls out — a
+#     tag pushed against a release branch, or against a `scarlett` commit whose push run was
+#     cancelled or skipped, used to publish a Docker image and GitHub Release having only run this
+#     file's own typecheck/lint/format checks below, with nothing to verify the tagged commit was
+#     ever built and tested at all. The chosen fix is this existence-and-success check rather than
+#     re-invoking `quality.yml` via `uses:` here: it preserves the "don't run the same suite twice
+#     per commit" reasoning while turning the assumption into an enforced, fail-closed gate. This
+#     guard proves a green `build.yml` run exists for this SHA; it does not itself re-read which
+#     named steps passed within that run — docs/release-checklist.md item 2 is still the place a
+#     human confirms that level of detail.
 #   - Epic 13's migration tooling exercised against a real 2.5.x dataset. No CI runner has access to
 #     a real department's 2.5.x data, and faking it with a fixture would defeat the point of the
 #     check (docs/release-checklist.md, item 5, spells this out in full).
-# Both remain manual sign-off steps, performed by a named human and recorded in the release PR
-# description (docs/release-checklist.md, items 2 and 5) — they are NOT CI-enforceable here and this
-# workflow makes no attempt to assert them. A release manager who tags without having actually done
-# those manual steps has skipped the checklist, not tripped a gate that would have caught it; that
-# is a process/checklist enforcement problem, not something this YAML file can fix.
+# The migration sign-off above remains a manual sign-off step, performed by a named human and
+# recorded in the release PR description (docs/release-checklist.md, item 5) — it is NOT CI-enforceable
+# here and this workflow makes no attempt to assert it. A release manager who tags without having
+# actually done that manual step has skipped the checklist, not tripped a gate that would have
+# caught it; that remains a process/checklist enforcement problem for that one item, not something
+# this YAML file can fix.
 on:
   push:
     tags:
@@ -34,6 +47,13 @@ jobs:
     permissions:
       contents: write
       packages: write
+      actions: read
+
+    # docker/login-action authenticates as github.repository_owner using the run's GITHUB_TOKEN,
+    # whose packages:write scope only covers that owner's packages -- so the pushed tags must live
+    # under this repo's own namespace, not a hard-coded one that may belong to someone else.
+    env:
+      IMAGE_NAMESPACE: ghcr.io/${{ github.repository }}
 
     steps:
       - uses: actions/checkout@v7
@@ -42,6 +62,29 @@ jobs:
           # changelog generation need to see every commit and every prior vX.Y.Z tag, not just the
           # tag that was pushed.
           fetch-depth: 0
+
+      # --- Fail-closed guard: a build.yml run must exist for this exact commit ---------------
+      # See the header comment above for the full reasoning. This intentionally runs before
+      # anything else in the job, `actions/checkout` aside, so a tag pushed against a commit that
+      # never went through the continuous-alpha pipeline (a release branch, or a scarlett commit
+      # whose push run was cancelled/skipped) never reaches the quality gates, the Docker publish,
+      # or the GitHub Release below.
+      - name: Verify build.yml succeeded for this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RUN_COUNT="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow=build.yml \
+            --commit="$GITHUB_SHA" --status=success --json databaseId --jq 'length')"
+          if [ "$RUN_COUNT" -lt 1 ]; then
+            echo "::error::No successful build.yml run found for commit $GITHUB_SHA (tag $GITHUB_REF_NAME). \
+          This tag is not on a commit that has gone through the continuous alpha pipeline — it may be on a \
+          release branch, or the scarlett push run for this commit was skipped, cancelled, or never ran. \
+          Per docs/release-checklist.md item 2, do not release without a green build.yml run for this exact \
+          commit. Push this commit to scarlett (or otherwise get a successful build.yml run recorded against \
+          it) and retry."
+            exit 1
+          fi
+          echo "Found $RUN_COUNT successful build.yml run(s) for commit $GITHUB_SHA."
 
       - name: Setup Node.js environment
         uses: actions/setup-node@v7
@@ -88,6 +131,10 @@ jobs:
         working-directory: frontend
         run: npm run emoji:check
 
+      - name: Frontend Locales Check
+        working-directory: frontend
+        run: npm run locales:check
+
       - name: Frontend Lint
         working-directory: frontend
         run: npx oxlint --deny-warnings
@@ -121,13 +168,13 @@ jobs:
           fi
           echo "stable=$STABLE" >> "$GITHUB_OUTPUT"
 
-          # ghcr.io/requarks/wiki:<version> always; ghcr.io/requarks/wiki:latest only rewritten on
-          # a stable (non-prerelease) tag — an -rc.N/-alpha.N/-beta.N tag must never move :latest.
+          # $IMAGE_NAMESPACE:<version> always; $IMAGE_NAMESPACE:latest only rewritten on a stable
+          # (non-prerelease) tag — an -rc.N/-alpha.N/-beta.N tag must never move :latest.
           {
             echo "tags<<TAGS_EOF"
-            echo "ghcr.io/requarks/wiki:$VERSION"
+            echo "$IMAGE_NAMESPACE:$VERSION"
             if [ "$STABLE" = "true" ]; then
-              echo "ghcr.io/requarks/wiki:latest"
+              echo "$IMAGE_NAMESPACE:latest"
             fi
             echo "TAGS_EOF"
           } >> "$GITHUB_OUTPUT"

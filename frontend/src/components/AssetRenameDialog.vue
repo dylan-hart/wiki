@@ -5,15 +5,16 @@
         <w-icon name="img:/_assets/icons/fluent-rename.svg" size="sm" class="mr-2" />
         <span>{{ t(`fileman.assetRename`) }}</span>
       </w-card-section>
-      <w-form class="py-2" @submit="rename">
+      <w-form ref="renameAssetForm" class="py-2" @submit="rename">
         <w-item>
           <blueprint-icon icon="image" class="self-start" />
           <w-item-section>
             <w-input
+              ref="iptPath"
               v-model="state.path"
-              autofocus
               outlined
               dense
+              :rules="nameValidation"
               hide-bottom-space
               :label="t(`fileman.assetFileName`)"
               :hint="t(`fileman.assetFileNameHint`)"
@@ -49,7 +50,7 @@ import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
-import { onMounted, reactive } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
@@ -67,9 +68,15 @@ const props = defineProps({
 
 defineEmits([...dialogComponentEmits])
 
+// REFS
+
+const iptPath = ref(null)
+
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => iptPath.value
+})
 
 // STORES
 
@@ -86,14 +93,25 @@ const state = reactive({
   loading: false
 })
 
+// REFS
+
+const renameAssetForm = ref(null)
+
+// VALIDATION RULES
+
+const nameValidation = [
+  (val) => (val?.length >= 2 && val?.includes('.')) || t('fileman.renameAssetInvalid')
+]
+
 // METHODS
 
 async function rename() {
+  const isFormValid = await renameAssetForm.value.validate(true)
+  if (!isFormValid) {
+    return
+  }
   state.loading++
   try {
-    if (state.path?.length < 2 || !state.path?.includes('.')) {
-      throw new Error(t('fileman.renameAssetInvalid'))
-    }
     const resp = await API_CLIENT.patch(`sites/${siteStore.id}/assets/${props.assetId}`, {
       json: {
         fileName: state.path
@@ -101,7 +119,7 @@ async function rename() {
     }).json()
     // -> The API client does not throw on 400, so a refused name comes back as a parsed error
     if (resp?.ok === false) {
-      throw new Error(resp.message || 'An unexpected error occured.')
+      throw new Error(resp.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',
@@ -125,7 +143,7 @@ onMounted(async () => {
   try {
     const asset = await API_CLIENT.get(`sites/${siteStore.id}/assets/${props.assetId}`).json()
     if (asset?.id !== props.assetId) {
-      throw new Error('Failed to fetch asset data.')
+      throw new Error(t('fileman.fetchAssetDataFailed'))
     }
     state.path = asset.fileName
   } catch (err) {

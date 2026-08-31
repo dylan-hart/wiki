@@ -8,15 +8,19 @@ import ajvFormats from 'ajv-formats'
 import { registerSchemas } from './schemas/asset.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import routes, { mayOnAsset } from './assets.ts'
+import { siteEnabledPreHandler } from '../helpers/common.ts'
+import { SVG_CSP } from '../helpers/security.ts'
 
 describe('download route: byte-serving behavior', () => {
   /**
    * Exercises `/sites/:siteId/assets/:assetId/content` at the HTTP layer via `app.inject()`,
    * mirroring `controllers/files.test.ts` for the public route: `readContent()`'s own
    * streaming/directAccess branching is covered at the model level in `models/assets.test.ts`, so
-   * this proves only what this task changed at the route layer — that `Content-Disposition` and
-   * `X-Content-Type-Options` are set exactly the same way whichever kind of result `readContent()`
-   * hands back, and that a `redirectUrl` short-circuits to a 302 before any of them are touched.
+   * this proves only what this task changed at the route layer — that `Content-Disposition`,
+   * `X-Content-Type-Options` and (for an SVG- or HTML-typed asset) `Content-Security-Policy` are set
+   * exactly the same way whichever kind of result `readContent()` hands back, that the unified
+   * `dispositionFor()` predicate (OpenProject #2164) agrees with `/_files/`'s, and that a
+   * `redirectUrl` short-circuits to a 302 before any of them are touched.
    */
   const siteId = '11111111-1111-1111-1111-111111111111'
   const assetId = '22222222-2222-2222-2222-222222222222'
@@ -38,10 +42,16 @@ describe('download route: byte-serving behavior', () => {
 
   let readContentResult: any
   let readContentCalledWith: any
+  let resolvedAsset: any
 
-  async function buildApp() {
+  /**
+   * `security.forceAssetDownload: true` matches `base.yml`'s real default, same as
+   * `controllers/files.test.ts`'s own `buildApp` -- a test that wants realistic behavior needs it
+   * here too, since this stub bypasses the base.yml merge entirely.
+   */
+  async function buildApp(security: Record<string, unknown> = { forceAssetDownload: true }) {
     global.WIKI = {
-      config: {},
+      config: { security },
       sites: {
         [siteId]: { id: siteId, isEnabled: true }
       },
@@ -51,7 +61,7 @@ describe('download route: byte-serving behavior', () => {
           checkAccess: () => true
         },
         assets: {
-          getAsset: async () => asset,
+          getAsset: async () => resolvedAsset ?? asset,
           readContent: async (a: any, sId: string) => {
             readContentCalledWith = { a, sId }
             return readContentResult
@@ -133,15 +143,94 @@ describe('download route: byte-serving behavior', () => {
     assert.equal(res.statusCode, 404)
     await app.close()
   })
+
+  /**
+   * OpenProject #1360/#2152/#2164 (2026-08-24 security audit §3): this route's `Content-Disposition`
+   * predicate used to be inverted relative to `/_files/*`'s — `forceAssetDownload ||
+   * !INLINE_EXTS.has(ext)` forced every image to download whenever `forceAssetDownload` was on (the
+   * shipped default), and forced every non-image extension to download regardless of the setting.
+   * Both routes now call the one shared `models/assets.ts#dispositionFor` predicate.
+   */
+  test('never forces an inline (INLINE_EXTS) extension to download, even with forceAssetDownload on (dispositionFor, OpenProject #2164)', async () => {
+    resolvedAsset = { ...asset, fileName: 'photo.png', fileExt: 'png', mimeType: 'image/png' }
+    readContentResult = { body: Buffer.from('the bytes'), size: 9 }
+    const app = await buildApp({ forceAssetDownload: true })
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${siteId}/assets/${assetId}/content`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.headers['content-disposition'], undefined)
+    resolvedAsset = undefined
+    await app.close()
+  })
+
+  test('does not force a non-inline extension to download when forceAssetDownload is off, matching /_files/ (dispositionFor, OpenProject #2164)', async () => {
+    readContentResult = { body: Buffer.from('the bytes'), size: 9 }
+    const app = await buildApp({ forceAssetDownload: false })
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${siteId}/assets/${assetId}/content`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.headers['content-disposition'], undefined)
+    await app.close()
+  })
+
+  test('attaches SVG_CSP for an image/svg+xml asset, with and without forceAssetDownload (OpenProject #2157)', async () => {
+    resolvedAsset = { ...asset, fileName: 'diagram.svg', fileExt: 'svg', mimeType: 'image/svg+xml' }
+    readContentResult = { body: Buffer.from('<svg><script>alert(1)</script></svg>'), size: 37 }
+    for (const forceAssetDownload of [true, false]) {
+      const app = await buildApp({ forceAssetDownload })
+      const res = await app.inject({
+        method: 'GET',
+        url: `/sites/${siteId}/assets/${assetId}/content`
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.headers['content-security-policy'], SVG_CSP)
+      await app.close()
+    }
+    resolvedAsset = undefined
+  })
+
+  test('attaches SVG_CSP when the served asset is HTML-typed (OpenProject #2157)', async () => {
+    resolvedAsset = { ...asset, fileName: 'snippet.html', fileExt: 'html', mimeType: 'text/html' }
+    readContentResult = { body: Buffer.from('<script>evil()</script>'), size: 24 }
+    const app = await buildApp({ forceAssetDownload: false })
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${siteId}/assets/${assetId}/content`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.headers['content-security-policy'], SVG_CSP)
+    resolvedAsset = undefined
+    await app.close()
+  })
+
+  test('sets no Content-Security-Policy for an ordinary, non-active-document asset', async () => {
+    readContentResult = { body: Buffer.from('the bytes'), size: 9 }
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${siteId}/assets/${assetId}/content`
+    })
+    assert.equal(res.headers['content-security-policy'], undefined)
+    await app.close()
+  })
 })
 
-describe('disabled-site guard (task 699)', () => {
+describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
   /**
-   * Regression test for task 699: the siteId-scoped asset READ routes (`GET .../assets/:assetId` and
-   * `GET .../assets/:assetId/content`) trust a `siteId` the client already has cached, the same
-   * concern `pages.test.ts` covers for pages. Only the two GET (read) routes are gated —
-   * upload/rename/delete stay reachable so an administrator can keep cleaning up a disabled site's
-   * content, per the task.
+   * Regression test for task 699, widened by OpenProject #1587/#1593: originally only the two
+   * siteId-scoped asset READ routes (`GET .../assets/:assetId` and `GET .../assets/:assetId/content`)
+   * were gated, via a `guardSiteEnabled()` call hand-applied in each — upload/rename/delete were
+   * DELIBERATELY left reachable so an administrator could keep cleaning up a disabled site's content.
+   * The 2026-08-24 audit found that gap worth closing instead: `api/assets.ts:68/328/400` (upload,
+   * rename, delete) are named in OpenProject #1587 as part of the surface its shared preHandler
+   * (`siteEnabledPreHandler`, `helpers/common.ts`) now covers, same as every other `:siteId` route.
+   * `assets.ts` itself no longer calls `guardSiteEnabled` anywhere, so this suite wires the same
+   * preHandler onto its own standalone app below (mirroring how `api/index.ts` wires it in
+   * production).
    */
   const ENABLED_SITE_ID = '11111111-1111-4111-8111-111111111111'
   const DISABLED_SITE_ID = '22222222-2222-4222-8222-222222222222'
@@ -153,6 +242,9 @@ describe('disabled-site guard (task 699)', () => {
   }
 
   let getAssetCalls = 0
+  let uploadCalls = 0
+  let renameAssetCalls = 0
+  let deleteAssetCalls = 0
 
   let app: FastifyInstance
 
@@ -165,6 +257,18 @@ describe('disabled-site guard (task 699)', () => {
           getAsset: async () => {
             getAssetCalls++
             return null
+          },
+          upload: async () => {
+            uploadCalls++
+            return {}
+          },
+          renameAsset: async () => {
+            renameAssetCalls++
+            return {}
+          },
+          deleteAsset: async () => {
+            deleteAssetCalls++
+            return true
           }
         },
         groups: {
@@ -180,6 +284,10 @@ describe('disabled-site guard (task 699)', () => {
       }
     })
     await app.register(fastifySensible)
+    // -> Mirrors `api/index.ts`'s own registration order: the guard is a plugin-level hook, added
+    //    before the route file it covers is registered — `assets.ts` no longer calls
+    //    `guardSiteEnabled` itself (OpenProject #1593).
+    app.addHook('preHandler', siteEnabledPreHandler)
     // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/etc. is a thrown
     //    `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that shapes it
     //    into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
@@ -242,6 +350,49 @@ describe('disabled-site guard (task 699)', () => {
     })
     assert.equal(res.statusCode, 404)
     assert.equal(getAssetCalls, 1)
+  })
+
+  /*
+    UPLOAD/RENAME/DELETE carried no guard at all before OpenProject #1587/#1593 -- a disabled site's
+    file manager stayed fully writable to anyone still holding its siteId. All three now answer 403
+    through the shared preHandler wired above, before the handler ever touches `WIKI.models.assets`.
+  */
+
+  test('UPLOAD asset: answers 403 for a disabled site, without ever calling upload', async () => {
+    uploadCalls = 0
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${DISABLED_SITE_ID}/assets?fileName=photo.png`,
+      payload: Buffer.from('bytes'),
+      headers: { 'content-type': 'application/octet-stream' }
+    })
+    assert.equal(res.statusCode, 403)
+    assert.equal(uploadCalls, 0)
+  })
+
+  test('RENAME asset: answers 403 for a disabled site, without ever calling getAsset/renameAsset', async () => {
+    getAssetCalls = 0
+    renameAssetCalls = 0
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${DISABLED_SITE_ID}/assets/${ASSET_ID}`,
+      payload: { fileName: 'renamed.png' }
+    })
+    assert.equal(res.statusCode, 403)
+    assert.equal(getAssetCalls, 0)
+    assert.equal(renameAssetCalls, 0)
+  })
+
+  test('DELETE asset: answers 403 for a disabled site, without ever calling getAsset/deleteAsset', async () => {
+    getAssetCalls = 0
+    deleteAssetCalls = 0
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/sites/${DISABLED_SITE_ID}/assets/${ASSET_ID}`
+    })
+    assert.equal(res.statusCode, 403)
+    assert.equal(getAssetCalls, 0)
+    assert.equal(deleteAssetCalls, 0)
   })
 
   /**
@@ -402,9 +553,13 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
           }
         },
         tree: {
-          getFolderById: async (id: string) => {
+          // -> Echoes back a resolved-in-this-site folder for the given id (OpenProject #2127:
+          //    getFolderById is now siteId-scoped, and the upload route trusts its resolved `.id`
+          //    rather than the raw query param) -- a foreign/unknown id is exercised in its own
+          //    dedicated test below with a `null`-returning override.
+          getFolderById: async (id: string, _siteId: string) => {
             getFolderByIdCalls.push(id)
-            return null
+            return { id, folderPath: '', fileName: '' }
           },
           getFolder: async (opts: any) => {
             getFolderCalls.push(opts)
@@ -517,16 +672,111 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
     getFolderByIdCalls = []
     uploadCalls = []
     const explicitFolderId = '77777777-7777-4777-8777-777777777777'
+    const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
+    ;(globalThis as any).WIKI.models.tree.getFolderById = async (id: string) => {
+      getFolderByIdCalls.push(id)
+      return { id, siteId: SITE_ID, fileName: 'sub', folderPath: '', locale: 'en' }
+    }
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/assets?fileName=photo.png&folderId=${explicitFolderId}&parentPath=guides%2Fsetup`,
+        headers: { ...sessionHeader(), 'content-type': 'image/png' },
+        payload: Buffer.from([1, 2, 3])
+      })
+      assert.equal(res.statusCode, 200)
+      assert.deepEqual(getFolderByIdCalls, [explicitFolderId])
+      assert.equal(getFolderCalls.length, 0)
+      assert.equal(uploadCalls[0].folderId, explicitFolderId)
+    } finally {
+      ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
+    }
+  })
+
+  /**
+   * OpenProject #1666: the upload route looked `folderId` up by bare id with no site check, unlike
+   * CREATE/RENAME/DELETE FOLDER in `tree.ts` -- a `folderId` from another site let the permission
+   * check evaluate against the wrong (site-root) destination instead of refusing the request. Also
+   * covers the missing/nonexistent-id case, which fell through the same way.
+   */
+  test('rejects a `folderId` belonging to another site (404, no upload, permission check never runs against the wrong destination)', async () => {
+    getFolderByIdCalls = []
+    checkAccessCalls = []
+    uploadCalls = []
+    const FOREIGN_SITE_ID = '99999999-9999-4999-8999-999999999999'
+    const foreignFolderId = '88888888-8888-4888-8888-888888888888'
+    const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
+    ;(globalThis as any).WIKI.models.tree.getFolderById = async (id: string) => {
+      getFolderByIdCalls.push(id)
+      return { id, siteId: FOREIGN_SITE_ID, fileName: 'sub', folderPath: '', locale: 'en' }
+    }
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/assets?fileName=photo.png&folderId=${foreignFolderId}`,
+        headers: { ...sessionHeader(), 'content-type': 'image/png' },
+        payload: Buffer.from([1, 2, 3])
+      })
+      assert.equal(res.statusCode, 404)
+      assert.deepEqual(getFolderByIdCalls, [foreignFolderId])
+      assert.equal(checkAccessCalls.length, 0, 'must be refused before the permission check runs')
+      assert.equal(uploadCalls.length, 0)
+    } finally {
+      ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
+    }
+  })
+
+  test('rejects a nonexistent `folderId` (404, no upload)', async () => {
+    getFolderByIdCalls = []
+    checkAccessCalls = []
+    uploadCalls = []
+    const missingFolderId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    // -> Default mock from `before()` returns null for any id, standing in for "no such row"
     const res = await app.inject({
       method: 'POST',
-      url: `/sites/${SITE_ID}/assets?fileName=photo.png&folderId=${explicitFolderId}&parentPath=guides%2Fsetup`,
+      url: `/sites/${SITE_ID}/assets?fileName=photo.png&folderId=${missingFolderId}`,
       headers: { ...sessionHeader(), 'content-type': 'image/png' },
       payload: Buffer.from([1, 2, 3])
     })
-    assert.equal(res.statusCode, 200)
-    assert.deepEqual(getFolderByIdCalls, [explicitFolderId])
-    assert.equal(getFolderCalls.length, 0)
-    assert.equal(uploadCalls[0].folderId, explicitFolderId)
+    assert.equal(res.statusCode, 404)
+    assert.deepEqual(getFolderByIdCalls, [missingFolderId])
+    assert.equal(checkAccessCalls.length, 0)
+    assert.equal(uploadCalls.length, 0)
+  })
+
+  /**
+   * OpenProject #2127/#2131: `getFolderById()` is now scoped to the request's own site, so a
+   * `folderId` that resolves to nothing there (unknown, or belonging to another site) must not
+   * reach `upload()` as a parent -- previously the raw, unverified query param was passed straight
+   * through regardless of whether it resolved to anything at all.
+   */
+  test('a folderId that does not resolve in this site is never passed through to upload()', async () => {
+    getFolderCalls = []
+    getFolderByIdCalls = []
+    uploadCalls = []
+    checkAccessCalls = []
+    const foreignFolderId = '99999999-9999-4999-8999-999999999999'
+    const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
+    ;(globalThis as any).WIKI.models.tree.getFolderById = async (id: string) => {
+      getFolderByIdCalls.push(id)
+      return null
+    }
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/assets?fileName=photo.png&folderId=${foreignFolderId}`,
+        headers: { ...sessionHeader(), 'content-type': 'image/png' },
+        payload: Buffer.from([1, 2, 3])
+      })
+      assert.equal(res.statusCode, 200)
+      assert.deepEqual(getFolderByIdCalls, [foreignFolderId])
+      // -> Checked against the root, not the foreign folder's (nonexistent, from this site's view)
+      //    path -- the whole point of scoping the lookup
+      assert.equal(checkAccessCalls[0].path, 'photo.png')
+      assert.equal(uploadCalls[0].folderId, undefined)
+    } finally {
+      ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
+    }
   })
 
   test('a denied permission never resolves-or-creates the folder: no side effect from an unauthorized upload', async () => {

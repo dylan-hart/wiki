@@ -5,6 +5,35 @@ import crypto from 'node:crypto'
 import type { SystemIds } from './types.ts'
 
 /**
+ * The `security.cspDirectives`/`security.enforceCsp` values `Settings#init` seeds a fresh
+ * instance's DB row with (WP #2158/#2166, part of #2154).
+ *
+ * Pulled from `config`/`data` -- `WIKI.config`/`WIKI.data` at call time, i.e. `base.yml` already
+ * merged with any `config.yml` override, since `configSvc.init()` runs before `initDbValues()`
+ * ever does -- rather than hardcoded like every other field `Settings#init` seeds. Everywhere but a
+ * test config this resolves to exactly `base.yml`'s own default (`enforceCsp: false`, the literal
+ * `cspDirectives` string documented and tested there): the indirection exists solely so
+ * `e2e/config.e2e.yml` can seed `enforceCsp: true` for `e2e/tests/csp.spec.js` without ever
+ * touching what a real fresh install ships with. Exported and factored out of the literal `init()`
+ * once inserted here so it is a plain function to unit-test, rather than only reachable through a
+ * DB-backed `Settings#init` round trip.
+ *
+ * @param config `WIKI.config` -- `base.yml` merged with any `config.yml` override.
+ * @param data `WIKI.data` -- `base.yml`'s own parsed defaults, consulted only as the fallback for
+ * the case nothing upstream set either key at all.
+ */
+export function securityCspSeed(
+  config: { security?: { cspDirectives?: string; enforceCsp?: boolean } } | undefined,
+  data: { defaults?: { config?: { security?: { cspDirectives?: string } } } } | undefined
+): { cspDirectives: string; enforceCsp: boolean } {
+  return {
+    cspDirectives:
+      config?.security?.cspDirectives ?? data?.defaults?.config?.security?.cspDirectives ?? '',
+    enforceCsp: config?.security?.enforceCsp ?? false
+  }
+}
+
+/**
  * Settings model
  */
 class Settings {
@@ -83,22 +112,6 @@ class Settings {
         }
       },
       {
-        key: 'icons',
-        value: {
-          fa: {
-            isActive: true,
-            config: {
-              version: 6,
-              license: 'free',
-              token: ''
-            }
-          },
-          la: {
-            isActive: true
-          }
-        }
-      },
-      {
         key: 'mail',
         value: {
           senderName: '',
@@ -126,14 +139,12 @@ class Settings {
       {
         key: 'pageviews',
         value: {
-          isEnabled: true
-        }
-      },
-      {
-        key: 'search',
-        value: {
-          termHighlighting: true,
-          dictOverrides: {}
+          isEnabled: true,
+          // -> Keys `hashVisitor()`'s HMAC (`models/pageviews.ts`) -- generated fresh here, same as
+          //    `auth.secret` above, and deliberately its own independent value rather than reused
+          //    from it: the two protect different things (session cookies vs. pageview
+          //    pseudonymisation), and sharing one would mean rotating either also breaks the other.
+          hashKey: crypto.randomBytes(32).toString('hex')
         }
       },
       {
@@ -141,17 +152,17 @@ class Settings {
         value: {
           corsConfig: '',
           corsMode: 'OFF',
-          cspDirectives: '',
+          // -> See `securityCspSeed`'s own doc comment above for why these two fields, alone in
+          //    this block, are not hardcoded literals.
+          ...securityCspSeed(WIKI.config, WIKI.data),
           disallowIframe: true,
           disallowOpenRedirect: true,
-          enforceCsp: false,
           enforceHsts: false,
           enforceSameOriginReferrerPolicy: true,
           forceAssetDownload: true,
           hstsDuration: 0,
           trustProxy: false,
           uploadMaxFileSize: 10485760,
-          uploadMaxFiles: 20,
           uploadScanSVG: true
         }
       },

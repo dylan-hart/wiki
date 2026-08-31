@@ -159,6 +159,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       cvd: {
         type: 'string',
         description: 'Color vision deficiency to adjust the palette for.'
+      },
+      locale: {
+        type: 'string',
+        description:
+          'Locale code to address this user in outbound mail. Empty string means no preference recorded (falls back to `en`).'
       }
     }
   })
@@ -210,6 +215,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       cvd: {
         type: 'string',
         enum: ['none', 'protanopia', 'deuteranopia', 'tritanopia']
+      },
+      locale: {
+        type: 'string',
+        description:
+          'Locale code to address this user in outbound mail. Must be a locale installed on this instance, or an empty string to clear the preference.',
+        maxLength: 35
       }
     }
   })

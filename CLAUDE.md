@@ -62,7 +62,10 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
   `seo.ts` serves `robots.txt`/`sitemap.xml`; `terminal.ts` and `user.ts` round out the set.
 - `core/` — long-lived singletons: `config.ts` (yml + db-backed settings), `db.ts` (pg pool, Drizzle
   instance, migrations, LISTEN/NOTIFY pubsub), `logger.ts`, `scheduler.ts` (poolifier thread pool +
-  postgres-backed job queue).
+  postgres-backed job queue), `collab.ts` (the Yjs collaborative-editing sync/awareness protocol,
+  driven by `controllers/collab.ts`'s WebSocket upgrade), `maintenance.ts` (the admin utilities view's
+  cross-instance actions — clear cache, drop websockets — broadcast over the event bus so every
+  instance runs them, not just the one that received the route).
 - `db/` — `schema.ts` (all Drizzle table definitions), `relations.ts`, `migrations/` (generated).
 - `models/` — data-access classes over Drizzle, aggregated by `models/index.ts` and exposed as
   `WIKI.models.*`. Business logic belongs here, not in route handlers. `types.ts` holds the shared
@@ -97,18 +100,20 @@ initializers → mount. There is no UI framework: `src/components/shared/` is th
 (every component is `W*`, used in templates as `<w-btn>`, `<w-input>`, …), registered globally by
 `boot/components.js` and styled with Tailwind.
 
-- `src/boot/` — one-time app initializers: `api.js` (creates the `ky` client, exposed
-  as the `API_CLIENT` global), `components.js` (global components), `eventbus.js` (`EVENT_BUS` global,
-  mitt), `externals.js`, `i18n.js`, `iconify.js` (points Iconify at this instance's `/_icons`),
-  `monaco.js`, `temporal.js` (conditionally polyfills `Temporal`, awaited before anything else in
-  `main.js`).
+- `src/boot/` — one-time app initializers: `analytics.js` (injects each enabled analytics provider's
+  tracking snippet into `document.head` once the site store has loaded), `api.js` (creates the `ky`
+  client, exposed as the `API_CLIENT` global), `components.js` (global components), `eventbus.js`
+  (`EVENT_BUS` global, mitt), `externals.js`, `i18n.js`, `iconify.js` (points Iconify at this
+  instance's `/_icons`), `monaco.js`, `temporal.js` (conditionally polyfills `Temporal`, awaited
+  before anything else in `main.js`).
 - `src/router/` — `index.js` (router factory) and `routes.js` (the full route table; page components
   are lazily imported).
 - `src/layouts/` — `MainLayout`, `AdminLayout`, `AuthLayout`, `ProfileLayout`.
 - `src/pages/` — route-level views. `Admin*.vue` are the admin area, `Profile*.vue` the user profile.
 - `src/components/` — everything else: dialogs (`*Dialog.vue`), full-screen overlays
   (`*Overlay.vue`), editors (`Editor*.vue`), nav/tree components.
-- `src/stores/` — Pinia stores (`site`, `user`, `page`, `editor`, `admin`, `common`, `flags`).
+- `src/stores/` — Pinia stores (`site`, `user`, `page`, `editor`, `admin`, `common`, `flags`,
+  `collab` — who else is editing the open page, the reactive face of `composables/collab.js`).
   `stores/index.js` creates the pinia instance and injects `router` into every store.
 - `src/renderers/` — page content rendering pipeline: `markdown.js` plus `modules/` (katex, kroki,
   plantuml, markdown-it plugins).
@@ -137,6 +142,23 @@ Blocks style themselves off `:host` and read the theme colors via CSS custom pro
 (`var(--q-primary)` — the `--q-` prefix is historical; the properties are declared in
 `css/tailwind.css` and rewritten at runtime for per-site theming).
 
+**A block reaches the API and learns its site id through `blocks/shared/site.js`'s `getSiteId()`
+plus a bare `fetch` against the public, hostname-routed surface — never `globalThis.API_CLIENT` /
+`globalThis.WIKI_STATE`.** Those two globals only exist inside the SPA shell (see
+`frontend/src/boot/api.js`); a block sitting in transcluded content, a future standalone embed, or
+anywhere else the SPA never booted has no access to them, while a public `fetch` (`getSiteId()`
+itself, or `shared/config.js`'s `fetchSite()`) works everywhere a block can be placed — the reason
+`getSiteId()`'s header gives for choosing it. `block-checklist`, `block-index` and `block-include`
+predate this decision and still read the SPA globals directly; converting them is separate,
+tracked work, not license to add a fourth block that does the same. The one gap the public API
+doesn't cover is a permission check with no public equivalent — `block-checklist`'s
+`WIKI_STATE.user.can('write:pages')` gate. Until a public, anonymous-safe permissions endpoint
+exists, a block that genuinely needs one keeps reading `globalThis.WIKI_STATE?.user?.can?.(...)`
+directly (optional-chained, since the global may be absent), treating an absent or `false` read as
+"not permitted" and hiding or disabling the gated control — so the block still renders outside the
+SPA shell, just without that one affordance, rather than throwing. See `blocks/shared/site.js`'s
+header for the fuller rationale.
+
 **Dark mode goes through `blocks/shared/theme.js`, never `:host-context()`.** The app's source of
 truth is the `body--dark` class on `<body>`, which CSS in a shadow root cannot see; `:host-context()`
 is the selector for exactly that and is what every block used to use, but only Chromium ever shipped
@@ -147,6 +169,32 @@ controller keeps that attribute in step, sharing one MutationObserver across eve
 A block that must *act* on the change rather than restyle for it passes `onChange`, or reads
 `.isDark` — `block-diagram` redraws mermaid in its own dark theme, `block-map` resolves a per-block
 `theme` prop that can pin a map light on a dark page.
+
+**Reaching the API and learning the site id goes through `blocks/shared/site.js`, never
+`globalThis.API_CLIENT` / `globalThis.WIKI_STATE`.** A block sitting in page content has no siteId
+of its own and no page store threaded down to it — those SPA globals
+(`frontend/src/boot/externals.js`) exist only inside the app shell, so a block reading them cannot
+run in a context that mounts blocks without it (the page-level pre-rendering `docs/variances.md`
+describes as a future task, concretely). The one convention every block uses instead (OpenProject
+#1969):
+
+- **Site id**: `getSiteId()`, plus plain `fetch` for the actual request. Both read off the same
+  public, hostname-routed `GET /_api/sites/current` `getBlockConfig` (`shared/config.js`) already
+  uses, cached per page load the same way. `fetch` carries the session cookie same-origin exactly
+  as `API_CLIENT` did, so a signed-in reader's request is still the one they'd get anywhere else —
+  the server's own page-rule checks decide what comes back, not anything the client claims.
+- **Current page locale/path**: `getCurrentPage()`, read off `location.pathname` against the site's
+  active locale codes (`getSiteLocales()`) rather than a page store — the one thing a block CAN know
+  about its own page without asking the server, since the reader is looking at it.
+- **This reader's own page-rule permissions on the current page** (what `WIKI_STATE.user.can(...)`
+  used to answer, e.g. `block-checklist`'s "may I check this off"): `getCurrentPageAccess()`, which
+  resolves the page id AND `viewer.permissions` off `GET /_api/sites/:siteId/pages/:hash` — the same
+  publicly-readable, per-page-rule-checked route the page view itself loads a page through. There is
+  no public, group-wide permission route to call instead; a permission with no page-rule shape at all
+  has no convention here yet and needs one written down before landing.
+
+`block-index`, `block-include` and `block-checklist` are the reference conversions (`block-live-data`
+and `block-map` were the first two blocks onto the site id half, before the rest of this existed).
 
 ## Commands
 
@@ -221,7 +269,8 @@ updated by hand if the files they point at are ever renamed:
 - `models/search.ts` → `import('../modules/search/${key}/search.ts')`, plus the `search.ts`
   presence check in `hasImplementation()` that gates it
 
-`scheduler.ts` reads `tasks/simple/` filenames with `/\.[jt]s$/`, so task files are extension-agnostic.
+`scheduler.ts` matches `tasks/simple/` filenames against `/^[^.]+\.[jt]s$/`, so `.ts` and `.js` are
+both accepted but any other dotted filename (a stray `.test.ts`, a `.d.ts`) is rejected outright.
 
 `worker.ts` builds its own minimal `WIKI` (config + logger + lazy `ensureDb()`), but the shared
 declaration types it as the full object — so worker-only code can reference members that do not
@@ -241,12 +290,16 @@ Conventions established during the conversion, worth following in new code:
   wouldn't silently change runtime behavior. All four bugs that convention originally flagged
   (`sites.ts`'s `req.querystring.strict`, `config.ts`'s `Promise.trim()`, and two in
   `scheduler.ts`'s `addScheduled()`/`addJob()`) have since been fixed, and their `FIXME:` comments
-  removed with them. One `FIXME:` remains, unrelated to the TS conversion — `index.ts`'s note by the
+  removed with them. A fifth `FIXME:`, unrelated to the TS conversion — `index.ts`'s note by the
   session/cookie plugin registration, on `WIKI.config.auth.secret` being captured by value instead of
-  re-read per request, so a live secret rotation (`models/sessions.ts#rotateSecret()`) does not
+  re-read per request, so a live secret rotation (`models/sessions.ts#rotateSecret()`) did not
   actually stop a still-running instance from signing new cookies with the invalidated secret until
-  that instance restarts; echoed at `models/apiKeys.ts:236` and `models/sessions.ts:93`. If a future
-  migration or refactor turns up another pre-existing bug outside its scope, follow the same
+  that instance restarted — has since been fixed too (OpenProject #2172): both `@fastify/cookie` and
+  `@fastify/session` are now handed `helpers/authSecretSigner.ts`, an object that reads
+  `WIKI.config.auth.secret` at call time instead of a value captured once at registration, so rotation
+  takes effect on every instance immediately, no restart needed. No `FIXME:` markers remain from the
+  TypeScript conversion, or from anywhere else in `backend/`. If a future migration or refactor turns
+  up another pre-existing bug outside its scope, follow the same
   pattern: preserve behavior, cast narrowly, and leave a `FIXME:` comment explaining the real fix
   rather than changing runtime behavior inline.
 
@@ -278,6 +331,24 @@ category is an error, everywhere.
 
 Both tools handle `.ts` with no extra configuration, and the backend's oxlint config already enables
 the `typescript` plugin. oxlint does not type-check — run `npm run typecheck` for that.
+
+**Bumping oxlint or oxfmt's version is a dependency-bump checklist item, not a plain version-string
+edit.** A newer formatter release can change what it considers correctly formatted — task #1988
+found `oxfmt` `0.62.0` → `0.64.0` (`377915c6`) silently invalidating seven already-formatted
+`frontend/` SFCs (a single leading space before a `<script setup>` JSDoc opener that 0.64 no longer
+accepts), and that commit's own message claimed a full `oxfmt --check` run had confirmed otherwise —
+it hadn't been run against `frontend/`. Whenever either tool's version changes, run the reformat
+(not just the check) across all three workspaces from the repo root in the **same commit** as the
+bump, and commit whatever it touches:
+
+```sh
+npx --prefix backend oxfmt backend frontend blocks   # reformats — not --check
+npx oxlint                                            # from backend/, frontend/ and blocks/ each
+```
+
+Then confirm `npx --prefix backend oxfmt --check backend frontend blocks` exits clean before
+pushing. Skipping this step is exactly how a version bump ships a red CI gate with nothing wrong in
+the code itself.
 
 **Never put two statements in a Vue template attribute.** `@click="doOne(); doTwo()"` builds today
 and is a build error the moment the file is formatted, because `semi: false` and Vue disagree about
@@ -333,7 +404,8 @@ editor (`GroupEditOverlay.vue`). They live on a group's `permissions` column, ar
 **Page rule permissions** are bound to paths, and to locales and sites: `read:pages`, `write:pages`,
 `review:pages`, `manage:pages`, `delete:pages`, `write:styles`, `write:scripts`, `read:source`,
 `read:history`, `read:assets`, `write:assets`, `manage:assets`, `read:comments`, `write:comments`,
-`manage:comments` (`PAGE_PERMISSIONS` in `api/pages.ts`). A group grants them through **rules**:
+`manage:comments`, `manage:classification` (`PAGE_PERMISSIONS`, declared in `helpers/permissions.ts`
+and imported by `api/pages.ts`). A group grants them through **rules**:
 each rule names some of them (`roles`) plus how it addresses pages (`match` + `path`, or tags) and
 what it does with them (`mode`: ALLOW / DENY / FORCEALLOW). Nothing is granted by default, and when
 several rules match, the most specific one wins — `helpers/pageRules.ts` documents the ordering.
@@ -430,16 +502,21 @@ separate transpile or worker config.
   unit-testing either in isolation (`blockUploadServing.test.ts` — `api/blocks.ts`'s upload route and
   `controllers/blocks.ts`'s serve route each already have their own unit-level `*.test.ts` sibling;
   this one is the real round trip between them), and a structural/self-consistency check against a
-  repo-root doc or CI config with no backend-workspace file to sit next to at all
-  (`changelog.test.ts` against `cliff.toml`, `release-checklist-doc.test.ts` against
-  `docs/release-checklist.md`, `release-workflow.test.ts` against `.github/workflows/build.yml` AND
-  `release.yml` together, `releasing-doc.test.ts` against `docs/versioning.md` — none of those
+  repo-root doc or CI config with no backend-workspace file to sit next to at all — none of those
   subjects live under `backend/`, and `npm run test`'s `'**/*.test.ts'` glob only runs from inside
-  this workspace). A test file that genuinely does have one specific co-located sibling belongs next
-  to it, not here — three such near-namesake pairs (`test/api/sites.test.ts` vs. `api/sites.test.ts`,
-  `test/core/config.test.ts` vs. `core/config.test.ts`, `test/core/scheduler.test.ts` vs.
-  `core/scheduler.test.ts`) existed as discovery hazards until this pass confirmed each co-located
-  file already fully superseded its `test/` namesake and deleted the redundant copy.
+  this workspace, so a test guarding one has to live somewhere inside it regardless. This is the
+  rule to apply, not a fixed list of examples: a by-name enumeration here goes stale the moment a
+  new such test lands elsewhere, which is exactly what happened to the six `docs-*.test.ts` /
+  `localazy-config.test.ts` files that used to sit at the `backend/` root before being moved in here
+  under this same rule. `base.test.ts` is the one file in this category that stays at the `backend/`
+  root rather than moving into `test/`: it is co-located with `backend/base.yml`, resolving it as
+  `path.join(path.dirname(fileURLToPath(import.meta.url)), 'base.yml')`, so it belongs with the file
+  it guards the same way any other co-located test does. A test file that genuinely does have one
+  specific co-located sibling belongs next to it, not here — three such near-namesake pairs
+  (`test/api/sites.test.ts` vs. `api/sites.test.ts`, `test/core/config.test.ts` vs.
+  `core/config.test.ts`, `test/core/scheduler.test.ts` vs. `core/scheduler.test.ts`) existed as
+  discovery hazards until this pass confirmed each co-located file already fully superseded its
+  `test/` namesake and deleted the redundant copy.
 - **Prefer pure unit tests with no `WIKI` global and no database.** Plenty of `helpers/` and `models/`
   logic is testable as plain functions or methods with no I/O — `helpers/pageRules.test.ts` and
   `models/users.test.ts` (`updateSession`, pure session/permission flattening — no `WIKI`, no
@@ -565,6 +642,16 @@ does in the real build, not because it was convenient to share:
   state transitions, `logout()`'s `API_CLIENT`/`EVENT_BUS` round-trip, `Temporal`-backed date
   formatting) are the reference examples of testing real behaviour end-to-end through the harness
   rather than merely asserting Vitest boots.
+- **Two suites drive a real headless Chromium page**, via `test/realGridLayout.js`:
+  `ApiKeyCreateDialog.test.js` and `ProfileApiKeyCreateDialog.test.js`'s "real layout" describes.
+  Neither `jsdom` nor `happy-dom` runs a layout engine, so a test that needs to know how many
+  columns an `auto-fit`/`minmax()` CSS Grid actually renders at a given width launches Playwright's
+  bundled Chromium instead. `npm ci` installs the `playwright` library only, not the browser
+  binary — run `npm run install-browsers` (mirrors `e2e/`'s own script) once per machine to fetch
+  it. `test/realGridLayout.js` probes for a real Chromium at module top level and exports
+  `hasChromium()`; both suites pass `{ skip: !hasChromium() }` to their `describe()` so a `npm run
+  test` with no Chromium installed reports them skipped and exits zero instead of failing on an
+  environment precondition.
 
 ### Testing (blocks)
 
@@ -792,27 +879,20 @@ store; no SVG is ever written into content.
 - Picking an icon calls `POST /_api/icons/materialize`, which is what guarantees the wiki can serve it
   afterwards without the Iconify API.
 
-### GraphQL is being removed
+### GraphQL was removed
 
-An earlier iteration of 3.x used GraphQL/Apollo. **All of it is gone from the live surface** — there
-is no GraphQL server left in `backend/`, `APOLLO_CLIENT` is not defined as a global so any call
-through it would throw, and `blocks/block-index/` no longer imports a `tree.graphql` (its tree comes
-from `sites/…/tree/pages`, plain REST).
+An earlier iteration of 3.x used GraphQL/Apollo; the removal is complete. There is no GraphQL server
+left in `backend/`, `APOLLO_CLIENT` is not defined as a global so any call through it would throw,
+`blocks/block-index/` no longer imports a `tree.graphql` (its tree comes from `sites/…/tree/pages`,
+plain REST), and every former consumer — `components/AuthLoginPanel.vue`'s `register()` call
+included, alongside the passkey login and 2FA paths that were REST from the start — has been ported
+to REST. `AdminPages.vue`, `AdminPagesEdit.vue`, `AdminPagesVisualize.vue` and `AdminTags.vue`, the
+last pages still calling `this.$apollo.mutate`/`this.$apollo.queries.*`, were deleted outright rather
+than ported (`frontend/src/pages/` now has only `AdminPagesDeleted.vue`, an unrelated page). A grep
+for `apollo|graphql` in `frontend/src` turns up only comments and test fixtures referring to the
+removal in the past tense — no live `$apollo` call site remains.
 
-Four route-*unreachable* pages under `frontend/src/pages/` are the only remnant: `AdminPages.vue`,
-`AdminPagesEdit.vue`, `AdminPagesVisualize.vue` and `AdminTags.vue` still call `this.$apollo.mutate`/
-`this.$apollo.queries.*` from an Options-API `apollo:` block — a different, older integration than
-the `APOLLO_CLIENT` global the paragraph above rules out, and one with nothing installed to back it,
-so any of these calls would throw `TypeError: Cannot read properties of undefined (reading
-'mutate')` the moment it ran. None of the four is presently linked from `routes.js` (dead code,
-not merely deprecated), so nothing exercises the throw today. Porting them to REST — or deleting
-them if the feature they back is superseded — is its own, separate work package rather than
-something to fix as a drive-by.
-
-Every other former GraphQL consumer has already been ported to REST — `components/AuthLoginPanel.vue`'s
-`register()` call included, alongside the passkey login and 2FA paths that were REST from the start.
-When touching one of the four remaining files, port it to the REST API (`API_CLIENT` + the matching
-`backend/api/` route) rather than extending the `$apollo` code. If the REST endpoint doesn't exist
-yet, add it under `backend/api/` following the schema + permissions conventions above —
-`sites/:siteId/images/:kind`, which replaced the logo and favicon upload mutations in
-`AdminGeneral.vue`, is a recent example of doing exactly that.
+If a future feature needs a REST endpoint that doesn't exist yet, add it under `backend/api/`
+following the schema + permissions conventions above — `sites/:siteId/images/:kind`, which replaced
+the logo and favicon upload mutations in `AdminGeneral.vue`, is a recent example of doing exactly
+that.

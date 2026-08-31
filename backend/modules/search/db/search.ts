@@ -68,6 +68,15 @@ const MODULE_KEY = 'db'
 const HL_START = '\u0002'
 const HL_STOP = '\u0003'
 
+/**
+ * Ceiling on how many of the SQL query's own matches `query()` scans before deriving `totalHits`
+ * and the requested page from what survives `checkAccess()` (OpenProject #2151). Page-rule
+ * filtering cannot be expressed in the `WHERE` clause — a rule can be a regular expression or a set
+ * of tags — so scanning is bounded rather than unbounded to keep one search request's cost
+ * predictable regardless of how many rows match. See `query()`'s own comment for what this changes.
+ */
+const SCAN_CAP = 500
+
 /** Escape the LIKE wildcards, so that a path filter is a prefix rather than a pattern. */
 function escapeLikePrefix(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
@@ -284,10 +293,13 @@ class DbSearchModule implements SearchModule {
     const direction = orderByDirection === 'asc' ? sql`ASC` : sql`DESC`
     // -> Every page ranks 0 without a query, which would leave the order down to the planner
     const effectiveOrderBy = orderBy === 'relevancy' && !hasQuery ? 'updatedAt' : orderBy
+    // -> `p.id` breaks every tie: over-fetching up to `SCAN_CAP` and then slicing the
+    //    caller's `offset`/`limit` window out in JS (below) only lands on a stable page of results
+    //    when the underlying order is fully deterministic
     const ordering = {
-      relevancy: sql`relevancy ${direction}, p."updatedAt" DESC`,
-      title: sql`p.title ${direction}`,
-      updatedAt: sql`p."updatedAt" ${direction}`
+      relevancy: sql`relevancy ${direction}, p."updatedAt" DESC, p.id`,
+      title: sql`p.title ${direction}, p.id`,
+      updatedAt: sql`p."updatedAt" ${direction}, p.id`
     }[effectiveOrderBy]
 
     const { termHighlighting } = search.getEngineConfig(siteId, MODULE_KEY)
@@ -305,6 +317,27 @@ class DbSearchModule implements SearchModule {
           ? sql`CASE WHEN p.password IS NULL THEN ${headline} ELSE NULL END`
           : headline
 
+    /*
+      OpenProject #2151: `totalHits` used to be derived from a `COUNT(*) OVER()` window over every
+      SQL-matching row, corrected only for the rows actually dropped from THIS page -- so a match on
+      a later page the reader may never see still inflated the reported count. `?query=<phrase>&
+      limit=1` against a corpus with at least two matches, one of them permission-denied, confirmed
+      the phrase existed in a page the caller could not open: a count oracle, reachable
+      unauthenticated wherever guest search is exposed.
+      Fixed by scanning up to `SCAN_CAP` matches (bounded, not the caller's own `offset`/`limit`,
+      since page-rule filtering happens after the query and needs a wider window to fill a page
+      from), filtering ALL of them through `checkAccess()`, and deriving both `totalHits` and the
+      requested page from that filtered set alone -- neither can ever count or return a row the
+      caller was not actually granted `read:pages` on. `totalHits` is exact whenever the true match
+      count is within `SCAN_CAP`; beyond that it is a floor (verified-visible matches within the cap
+      only), never an overcount -- the asymmetry that closes the oracle, since a floor cannot
+      confirm anything about a page beyond what was already checked.
+      Over-fetched and paged in JS rather than with LIMIT/OFFSET in SQL: `checkAccess` below can only
+      run per row, so the caller's page has to be sliced out *after* filtering, not before. `p.id` is
+      appended as a tiebreaker so the scanned order — and therefore which rows fall inside the cap —
+      is stable across calls with the same filters, even when `ordering` alone leaves ties (e.g. two
+      pages with identical `relevancy` and `updatedAt`).
+    */
     const rows = await WIKI.db.execute(sql`
       SELECT
         p.id,
@@ -317,18 +350,21 @@ class DbSearchModule implements SearchModule {
         p.classification,
         to_char(p."updatedAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
         ${hasQuery ? sql`ts_rank(p.ts, ${tsQuery})` : sql`0`} AS relevancy,
-        ${highlight} AS highlight,
-        COUNT(*) OVER() AS "totalHits"
+        ${highlight} AS highlight
       FROM pages p
       WHERE ${sql.join(conditions, sql` AND `)}
       ORDER BY ${ordering}
-      LIMIT ${limit} OFFSET ${offset}
+      LIMIT ${SCAN_CAP}
     `)
 
     /*
       Filtered here rather than in SQL: a page rule can be a regular expression or a set of tags, so
       the deciding rule is only knowable per row. Search must not be a way around page permissions —
       a title and an excerpt are content too.
+
+      This runs over every scanned row (up to SCAN_CAP), not just the caller's page of `limit`
+      results -- `totalHits` below is derived from `visible.length`, so it has to see every row that
+      survived the query before the caller's `offset`/`limit` window is sliced out of it.
     */
     const visible = actor
       ? ((rows.rows ?? rows) as any[]).filter((row) =>
@@ -342,7 +378,11 @@ class DbSearchModule implements SearchModule {
         )
       : ((rows.rows ?? rows) as any[])
 
-    const result = visible.map((row) => ({
+    // -> The caller's page of results comes out of the FILTERED list, not the raw scan -- an
+    //    unreadable row must not consume a slot in someone else's page of results
+    const windowed = visible.slice(offset, offset + limit)
+
+    const result = windowed.map((row) => ({
       id: row.id as string,
       path: row.path as string,
       locale: row.locale as string,
@@ -360,18 +400,12 @@ class DbSearchModule implements SearchModule {
         : null
     }))
 
-    const totalHits = Math.max(
-      0,
-      /*
-        The count postgres reported, less whatever the rules just removed from this page of results.
-        Not exact when rows are dropped -- the window function counted every match, including ones on
-        later pages this reader may not see -- but a total that ignored the filtering entirely would
-        promise results that do not exist.
-      */
-      Number((rows.rows ?? rows)[0]?.totalHits ?? 0) -
-        ((rows.rows ?? rows) as any[]).length +
-        visible.length
-    )
+    /*
+      A count of rows that survived `checkAccess`, and nothing else -- see `SCAN_CAP`'s doc comment
+      for why this is exact up to that cap and a floor beyond it, never a total that includes a match
+      the caller could not open.
+    */
+    const totalHits = visible.length
 
     // -> Only worth asking when the search itself came up empty: a query that matched something has
     //    nothing to be corrected, and no query means there was nothing to have mistyped.
@@ -380,7 +414,11 @@ class DbSearchModule implements SearchModule {
         ? await this.suggestTitle({ siteId, query: terms, publicOnly, includeDrafts, actor })
         : null
 
-    return { results: result, totalHits, suggestion }
+    // -> Rows were dropped from this page by the rules filter above, so the corrected `totalHits`
+    //    is a floor, not an exact count -- see `SearchPagesResult.totalHitsApproximate`'s own doc.
+    const totalHitsApproximate = ((rows.rows ?? rows) as any[]).length !== visible.length
+
+    return { results: result, totalHits, totalHitsApproximate, suggestion }
   }
 
   /**

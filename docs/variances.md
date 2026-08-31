@@ -10,48 +10,32 @@ outright, not left behind as changelog prose — see CLAUDE.md's "variances.md D
 
 **Date:** 2026-08-22
 **Scope:** `backend/` and `frontend/src/` (`.test.ts`/`.test.js`/`.test.mjs`/`.generated.js` files
-excluded — a test file talking *about* a marker in its own prose isn't a marker to triage, and a
+excluded — a test file talking _about_ a marker in its own prose isn't a marker to triage, and a
 generated bundle is machine output no one hand-edits).
 
 A TODO or FIXME marker is not automatically a lint failure or a bug to close on sight — CLAUDE.md's
 "Pre-existing bugs are preserved, not fixed" convention deliberately leaves some in place, narrowly
 cast, until their real fix lands. This entry is the audit trail so a marker sitting in the tree reads
-as "reviewed and intentional" rather than "forgotten." `backend/docs-todo-fixme-drift.test.ts` re-scans the tree on every `npm run test` and fails if a file
+as "reviewed and intentional" rather than "forgotten." `backend/test/docs-todo-fixme-drift.test.ts` re-scans the tree on every `npm run test` and fails if a file
 carrying a marker isn't named here, so this list cannot silently drift out of date.
 
-- **`backend/index.ts`** (FIXME) — `WIKI.config.auth.secret` is read once at plugin registration, not
-  re-read per request. A secret rotation only stops working cookies on an instance once that instance
-  is later restarted; every other still-running instance keeps signing new cookies with the
-  just-invalidated secret until it restarts too. Real, narrow, already-cross-referenced from
-  `models/apiKeys.ts` and `models/sessions.ts` below — not forgotten, just not yet worth the
-  per-request config re-read it would take to close.
 - **`backend/mcp/site.ts`** (TODO, via its own doc comment) — flags that the site type it re-exports is
   narrowed off `WIKI.sites`' `Record<string, any>` shape, standing on the same untightened type
   `backend/types/global.d.ts` tracks below rather than duplicating a separate fix.
-- **`backend/models/apiKeys.ts`** (comment referencing the FIXME above) — notes that `verify()`'s own
-  cert-based check needs no restart to pick up a rotated value, unlike the session-secret path the
-  FIXME in `index.ts` describes; not a marker of its own so much as a pointer keeping the two paths'
-  different behavior from reading as inconsistent by accident.
 - **`backend/models/approvals.ts`** (`TODO(#375)`) — send the actual reviewer notification once
   Feature 375 exposes a delivery primitive. Explicitly scoped to a real, tracked OpenProject item;
   resolve by closing #375 and wiring this call, not by deleting the comment.
-- **`backend/models/sessions.ts`** (comment referencing the FIXME above) — same cross-reference as
-  `apiKeys.ts`: notes that a rotated secret invalidates a *new* session immediately, unlike the
-  still-signing-until-restart gap the `index.ts` FIXME describes for already-issued cookies.
 - **`backend/types/global.d.ts`** (TODO) — `WIKI.sites` is typed `Record<string, any>` though `sites`
   has been a real Drizzle table for a while now; tightening it to the row type is a real but
   low-priority cleanup, not a design gap.
-- **`frontend/src/layouts/AdminLayout.vue`** (TODO) — a "Reflect site storage status" indicator the nav
-  doesn't render yet. Cosmetic, deferred, and self-evident from the comment; no tracking item exists
-  for it because no feature currently depends on it.
 - **`frontend/src/helpers/monacoTypes.js`** (TODO, in a commented-out line) — `this._edits =
-  coalesce(this._edits)` is dead code left commented out with a bare `TODO`, ported through from
+coalesce(this._edits)` is dead code left commented out with a bare `TODO`, ported through from
   Monaco's own upstream type-definition source this file adapts. Not this project's own deferred
   work; left as-is rather than deleted so this file stays traceable against the upstream it mirrors.
 
 **Resolved when:** a file above no longer carries its marker (fixed for real, or the deferred work
 ships), remove its bullet; a newly-marker-carrying file the drift test flags gets a bullet added here
-after a human has actually looked at *why* the marker is there — never a placeholder entry added just
+after a human has actually looked at _why_ the marker is there — never a placeholder entry added just
 to make the drift test pass.
 
 ## Glossary: existing pages pick up a new term on their next render, not instantly site-wide
@@ -92,7 +76,7 @@ registry `api/comments.ts`'s routes already call) as the one live implementation
 
 Feature 396 branched before #394 existed, so it built its own module-discovery/definition-loading
 class from scratch — under the name `models/comments.ts`, colliding at the git level with the
-*actual* `comments.ts` (comment content CRUD: post/edit/delete/list, from #395/#397) rather than with
+_actual_ `comments.ts` (comment content CRUD: post/edit/delete/list, from #395/#397) rather than with
 the provider registry it was really duplicating. Both classes independently implemented
 `refreshFromDisk()`/`getDefinition()` reading `modules/comments/<key>/definition.yml`; #394's version
 was already wired to the `commentProviders` db table, `syncSite()`, `setActiveProvider()` and the live
@@ -413,6 +397,16 @@ real-world case — Okta/Auth0-style providers that sign only the assertion — 
 `buildSaml()` hardcodes it `false` and exposes only `wantAssertionsSigned` (default `true`) as a
 config field, matching 2.5.x's own field set, which never exposed this knob either.
 
+With that pinned, and `node-saml` never validating a `SubjectConfirmationData`'s `Recipient` against
+`callbackUrl` under any setting, `audience` and `InResponseTo` are the only two things binding a given
+assertion to this SP and this specific login — see `buildSaml()`'s own header comment (Feature 2145)
+for how both are now enforced by default: `audience` falls back to the strategy's `issuer` rather than
+disabling the check, and `validateInResponseTo` is pinned `always` against an AuthnRequest id carried
+on the session, via `singleRequestCacheProvider`. `maxAssertionAgeMs` is likewise pinned to a fixed
+ceiling — never configurable, never left at the library's own `0` default of "no cap beyond the
+assertion's own `NotOnOrAfter`" — matched to `AUTH_FLOW_MINUTES` in `api/authentication.ts` (see
+`buildSaml()`'s `MAX_ASSERTION_AGE_MS` comment).
+
 ### `mappingPicture` (LDAP, SAML) and CAS's `baseUrl` are present in config but inert
 
 **Area:** `backend/modules/authentication/{ldap,saml}/definition.yml`,
@@ -502,7 +496,7 @@ read-only comparison.
 2.5.x's renderer explicitly loaded only nine extra packages (`bbox`, `boldsymbol`, `braket`, `color`,
 `extpfeil`, `mhchem`, `newcommand`, `unicode`, `verb`) on top of MathJax's default `input/tex`
 bundle. But it also configured `loader: { require, paths: { mathjax: 'mathjax/es5' } }` and never
-excluded `autoload` — and `input/tex`'s default package set *includes* `autoload`. Running
+excluded `autoload` — and `input/tex`'s default package set _includes_ `autoload`. Running
 server-side in Node with the real `mathjax` package on disk, 2.5.x could therefore load, on first
 use, every package `AutoloadConfiguration.ts`'s `autoload` map covers: `action`, `amscd`, `bbox`,
 `boldsymbol`, `braket`, `bussproofs`, `cancel`, `color`, `enclose`, `extpfeil`, `html`, `mhchem`,
@@ -521,7 +515,7 @@ confirm, not less, and needed no change.
 ### A real, unrelated gap this audit surfaced: MathJax dynamic glyph loading is unwired
 
 While generating the parity evidence above (via a scratch script mirroring `component.js`'s exact
-MathJax setup, deleted before commit), several *reachable* macros still failed to render:
+MathJax setup, deleted before commit), several _reachable_ macros still failed to render:
 `\xtwoheadrightarrow`/`\xtwoheadleftarrow`/`\xmapsto` (extpfeil), `\verb`, and any accented or
 non-Latin Unicode character typed directly into math mode (e.g. `é`). All three draw glyphs that
 `@mathjax/mathjax-newcm-font` ships as separate "dynamic" chunks (`svg/dynamic/arrows.js`,
@@ -569,27 +563,27 @@ by rendering each construct through both engines exactly as `block-katex/compone
 `block-mathjax/component.js` configure them (scratch script, deleted before commit; the two rows
 marked † are now pinned as running tests in `component.test.js` for their respective blocks):
 
-| Construct | `::block-katex` | `::block-mathjax` |
-| --- | --- | --- |
-| `\bussproofs`' `prooftree` environment | Errors — no such environment | Typesets |
-| `\cancelto{0}{x}` | Errors — `\cancel`/`\bcancel`/`\xcancel` work, `\cancelto` doesn't | Typesets |
-| `\centernot` | Errors — undefined | Typesets |
-| `colortbl`'s `\columncolor` (in `array`) | Errors — undefined | Typesets |
-| `empheq` environment | Errors — no such environment | Typesets |
-| `\enclose{shape}{…}` (arbitrary enclosure shapes; `\fbox`/`\cancel` family still work) | Errors — undefined | Typesets |
-| `mathtools`' `\Aboxed` (`\coloneqq` and friends work) | Errors — undefined | Typesets |
-| `physics`' `\dv`, `\pdv`, `\abs`, `\qty` (`\ket`/`\bra` work, via `braket`) | Errors — undefined | Typesets |
-| `textcomp`'s `\textdegree` (`gensymb`'s `\degree` works) | Errors — undefined | Typesets |
-| `upgreek`'s `\upalpha` | Errors — undefined | Typesets |
-| `\bbox[…]{…}` † | Errors — undefined | Typesets |
-| `\label{…}` | Errors — undefined | Typesets (no visible output either way — the gap only matters if content also uses `\ref`, which neither block resolves across formulas) |
-| `\xtwoheadrightarrow`/`\xtwoheadleftarrow`/`\xmapsto` (extpfeil) † | Typesets | **Errors — see the dynamic-glyph gap above; `extpfeil` is declared in `PACKAGES` but currently unusable in this block** |
-| `\verb\|…\|` | Typesets | **Errors — same dynamic-glyph gap** |
-| Accented/non-Latin Unicode typed directly in math mode (é, ü, …) | Typesets | **Errors — same dynamic-glyph gap** |
-| `\href{…}{…}`, `\includegraphics{…}` | Renders the raw command as inert red text (KaTeX's default `trust: false` behavior — no thrown error, no working link/image) | Errors — `html` package deliberately excluded (see `component.js:10-23`) |
-| `\ce{…}`, `\pu{…}` (mhchem) | Typesets | Typesets |
-| `\cancel`, `\bcancel`, `\xcancel` | Typesets | Typesets |
-| AMS environments (`align`, `gather`, `cases`, matrices), `\tag`, `\operatorname` | Typesets | Typesets |
+| Construct                                                                              | `::block-katex`                                                                                                              | `::block-mathjax`                                                                                                                        |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `\bussproofs`' `prooftree` environment                                                 | Errors — no such environment                                                                                                 | Typesets                                                                                                                                 |
+| `\cancelto{0}{x}`                                                                      | Errors — `\cancel`/`\bcancel`/`\xcancel` work, `\cancelto` doesn't                                                           | Typesets                                                                                                                                 |
+| `\centernot`                                                                           | Errors — undefined                                                                                                           | Typesets                                                                                                                                 |
+| `colortbl`'s `\columncolor` (in `array`)                                               | Errors — undefined                                                                                                           | Typesets                                                                                                                                 |
+| `empheq` environment                                                                   | Errors — no such environment                                                                                                 | Typesets                                                                                                                                 |
+| `\enclose{shape}{…}` (arbitrary enclosure shapes; `\fbox`/`\cancel` family still work) | Errors — undefined                                                                                                           | Typesets                                                                                                                                 |
+| `mathtools`' `\Aboxed` (`\coloneqq` and friends work)                                  | Errors — undefined                                                                                                           | Typesets                                                                                                                                 |
+| `physics`' `\dv`, `\pdv`, `\abs`, `\qty` (`\ket`/`\bra` work, via `braket`)            | Errors — undefined                                                                                                           | Typesets                                                                                                                                 |
+| `textcomp`'s `\textdegree` (`gensymb`'s `\degree` works)                               | Errors — undefined                                                                                                           | Typesets                                                                                                                                 |
+| `upgreek`'s `\upalpha`                                                                 | Errors — undefined                                                                                                           | Typesets                                                                                                                                 |
+| `\bbox[…]{…}` †                                                                        | Errors — undefined                                                                                                           | Typesets                                                                                                                                 |
+| `\label{…}`                                                                            | Errors — undefined                                                                                                           | Typesets (no visible output either way — the gap only matters if content also uses `\ref`, which neither block resolves across formulas) |
+| `\xtwoheadrightarrow`/`\xtwoheadleftarrow`/`\xmapsto` (extpfeil) †                     | Typesets                                                                                                                     | **Errors — see the dynamic-glyph gap above; `extpfeil` is declared in `PACKAGES` but currently unusable in this block**                  |
+| `\verb\|…\|`                                                                           | Typesets                                                                                                                     | **Errors — same dynamic-glyph gap**                                                                                                      |
+| Accented/non-Latin Unicode typed directly in math mode (é, ü, …)                       | Typesets                                                                                                                     | **Errors — same dynamic-glyph gap**                                                                                                      |
+| `\href{…}{…}`, `\includegraphics{…}`                                                   | Renders the raw command as inert red text (KaTeX's default `trust: false` behavior — no thrown error, no working link/image) | Errors — `html` package deliberately excluded (see `component.js:10-23`)                                                                 |
+| `\ce{…}`, `\pu{…}` (mhchem)                                                            | Typesets                                                                                                                     | Typesets                                                                                                                                 |
+| `\cancel`, `\bcancel`, `\xcancel`                                                      | Typesets                                                                                                                     | Typesets                                                                                                                                 |
+| AMS environments (`align`, `gather`, `cases`, matrices), `\tag`, `\operatorname`       | Typesets                                                                                                                     | Typesets                                                                                                                                 |
 
 The `\href`/`\includegraphics` row is worth calling out on its own: `block-katex/component.js`'s own
 comment says leaving KaTeX's `trust` option at its default "gates" those commands "the same reason
@@ -610,77 +604,21 @@ throw and fall to the error panel, which is a separate, already-tracked gap betw
 `::block-katex`, not something this task's audit re-derives. Everything else in the table above
 applies equally to the literal path, since it uses the same KaTeX engine and default options.
 
-## Feature 402 — Puppeteer: server-side diagram pre-rendering descoped
-
-**Decided in:** Task 666 ("Decide and record scope per promised capability; correct definition.yml
-wording for whatever is descoped"), part of Feature 402 ("Extension-to-Feature Wiring: Pandoc Import
-& Puppeteer PDF/Diagram Export").
-
-Feature 402 covers three capabilities that `backend/modules/extensions/pandoc/definition.yml` and
-`backend/modules/extensions/puppeteer/definition.yml` promised but that nothing in the codebase
-actually implemented:
-
-1. **Pandoc multi-format page import** (MediaWiki, AsciiDoc, Textile, DocBook, …) — **building now**
-   (Feature 402 tasks 667/668). A straightforward `execFile` shell-out, comparable in shape to the
-   extension-install pattern already used elsewhere in `models/extensions.ts`.
-2. **Puppeteer PDF export** of a page — **building now** (Feature 402 tasks 669/670). A headless
-   Chromium print-to-PDF against the real, live page-view URL, waiting for async block components
-   (Mermaid, PlantUML) to settle before calling `page.pdf()`. This collided at merge-review time with
-   a materially simpler competing PDF export from `feature/page-version-export` (Feature 371, task
-   496); see "PDF export: two competing implementations reconciled" below for how that was resolved.
-3. **Puppeteer server-side pre-rendered Mermaid/PlantUML diagrams** — deferred at the time as
-   OpenProject task 785 ("Puppeteer: server-side pre-rendered Mermaid/PlantUML diagrams (deferred
-   from Feature #402)"), **since shipped** on `feature/puppeteer-diagram-prerender`
-   (`backend/models/diagramRender.ts`). See "Task 785 — server-side diagram pre-rendering" below for
-   the design it landed on, which sidesteps the architectural problem described in "Why #3 is
-   deferred" rather than solving it as originally framed.
-
-### Why #3 is deferred and #1/#2 are not
-
-Web research (recorded on Feature 402) confirms none of the three ever shipped in Wiki.js 2.5.x —
-each surfaces only as a community feature request, never a delivered feature. So none of the three
-required migration or compatibility handling; the only question was whether to build each for real
-now or correct the `definition.yml` claim.
-
-\#1 and #2 are both straightforward: a CLI conversion piped through `execFile`, and a headless-browser
-print of a page that already renders correctly in a live browser context. Both fit cleanly into
-existing patterns in this codebase.
-
-\#3 is architecturally heavier. Mermaid, PlantUML, and Kroki diagrams are drawn entirely client-side
-today by `block-diagram` / `block-plantuml` / `block-kroki` — Lit web components that read their
-fenced source out of the page and render at _view time_, inside a live browser page that has loaded
-the full block-component runtime. The existing headless surface
-(`backend/controllers/render.ts` `/_render`, driven by `models/rendering.ts`) only re-runs the
-markdown-to-HTML pass (`frontend/src/renderers/headless.js` → `window.__wikiRender`); it is a bare
-shell that does not load block components at all, so it cannot produce pre-rendered diagram markup
-today even in principle. Making it do so means running Lit block components inside a headless
-context outside their current view-time-only execution model — a real design problem (how a headless
-pass instantiates the block, waits for its diagram library to settle, extracts or rasterizes the
-result, and where that output is cached relative to stored `page.render` HTML), not a shell-out or a
-print job. That is out of proportion for this Feature, so it is descoped to task 785 rather than
-built now.
-
-### Correction made, then reverted once task 785 shipped
-
-`backend/modules/extensions/puppeteer/definition.yml`'s `description` originally mentioned
-server-side diagram rendering; Feature 402 narrowed it to PDF export only, since that was all it
-built. Task 785 (below) restored a mention of diagram pre-rendering once that capability actually
-existed again.
-
 ## Task 785 — server-side diagram pre-rendering
 
 **Built on:** `feature/puppeteer-diagram-prerender`, closing OpenProject task 785. Delivers
 `backend/models/diagramRender.ts` (`WIKI.models.diagramRender.render()`) plus `POST
 /_api/diagrams/render`.
 
-**The design problem this sidesteps, not solves.** "Why #3 is deferred" above framed the blocker as
-making the headless `/_render` shell run Lit block components as part of rendering a whole *page* —
-a real design problem (block lifecycle inside a non-view context, cache invalidation against stored
-`page.render` HTML) genuinely out of proportion for Feature 402. This task never takes on that
-problem: it renders one diagram from raw source, independent of any page, so there is no page-render
-pipeline to extend and no render cache to invalidate. That framing — page-level pre-rendering wired
-into `models/rendering.ts`'s stored-HTML pipeline — remains unbuilt and would be its own future task
-if ever wanted.
+**The design problem this sidesteps, not solves.** `docs/decisions/diagram-prerendering-scope.md`
+(the record of Feature 402's original descope decision) frames the blocker as making the headless
+`/_render` shell run Lit block components as part of rendering a whole _page_ — a real design
+problem (block lifecycle inside a non-view context, cache invalidation against stored `page.render`
+HTML) genuinely out of proportion for that Feature's scope. This task never takes on that problem:
+it renders one diagram from raw source, independent of any page, so there is no page-render pipeline
+to extend and no render cache to invalidate. That framing — page-level pre-rendering wired into
+`models/rendering.ts`'s stored-HTML pipeline — remains unbuilt and would be its own future task if
+ever wanted.
 
 **Mermaid** still needs a real browser — `mermaid` lays out and paints via the DOM, so there is no way
 around one. Rather than adding a second `mermaid` dependency to the backend (liable to drift from the
@@ -710,7 +648,23 @@ make the endpoint a standing invitation to burn CPU/memory on a public instance 
 per-page integration (e.g. pre-rendering a page's own diagrams as part of PDF export, instead of
 waiting on the live view to draw them one at a time) is left as a followup rather than built here —
 the win is real but unproven without profiling data on where PDF export time actually goes, and nothing
-about the model's shape forecloses wiring it in later.
+about the model's shape forecloses wiring it in later. `GET /sites/:siteId/pages/:pageId/export/pdf`
+(`models/pdfExport.ts`) launches the identical kind of per-request headless browser and, until task
+2262, disagreed with this route by allowing an anonymous caller to trigger one — see that
+reconciliation in "PDF export: two competing implementations reconciled at merge-review time" below.
+
+**Reconciled with PDF export (OpenProject #2258/#2262).** Until the 2026-08-24 audit, `GET
+/sites/:siteId/pages/:pageId/export/pdf` (`api/pages.ts`) disagreed with this route and with the page
+re-render route beside it: it let an anonymous request through to launch Puppeteer, since page
+permissions are page-rule-scoped rather than group-wide and the guests group holds `read:pages` on an
+ordinary public wiki — an accident of how that route's permission check was wired, not a considered
+exception to the reasoning above. It now applies the identical rule: an anonymous request (no session,
+no personal access token) never reaches `WIKI.models.pdfExport.exportPdf()`, for the same reason this
+route requires a session. All three browser-launching routes in this codebase — this one, page
+re-render, and PDF export — now agree. Separately, `helpers/puppeteer.ts#launchPuppeteerBrowser` gained
+a process-wide concurrency ceiling (also #2258/#2259): previously nothing capped how many headless
+Chromium processes any of these three routes could have open at once, so even an authenticated-only
+audience could still exhaust the process with a handful of concurrent requests.
 
 ## PDF export: two competing implementations reconciled at merge-review time
 
@@ -745,6 +699,24 @@ two copies of the same flags/error handling.
 identical question (is the `puppeteer` extension installed) so this is not a correctness bug, just a
 naming nicety left for a future pass rather than bundled into this reconciliation.
 
+**Anonymous access reconciled (task 2262).** The route originally answered an anonymous caller for
+any published, unlocked page — `read:pages` was checked, but nothing else — while the re-render route
+directly above it in `api/pages.ts`, and `POST /_api/diagrams/render` (see task 785's entry above),
+both refuse an anonymous session outright, on the stated grounds that a per-request headless browser
+launch is too cheap for an anonymous caller to repeat and too expensive for the instance to keep
+absorbing for free. PDF export drives the exact same kind of launch — the _full_ SPA page view, not
+even the cheaper `/_render` shell — so allowing it anonymously while its two siblings refuse it was an
+inconsistency the audit that opened task 2262 called out, not a deliberate product decision anyone had
+made. Settled the same way, for the same reason: `GET /sites/:siteId/pages/:pageId/export/pdf` now
+requires `req.session?.authenticated` before it ever calls `loadReadablePage`, matching its siblings
+exactly. `models/pdfExport.ts#exportPdf()` itself is unchanged and still accepts a `null`
+`sessionCookie` — that capability was never the problem; only the route's willingness to reach it
+without a session was. The alternative on the table (serving the page's already-stored `render` HTML
+for an anonymous request instead of driving a live browser) was rejected: it would have resurrected the
+"Retired" `models/rendering.ts#renderPdf()` path above, PDF-with-no-diagrams regression and all, for a
+capability (anonymous PDF export) nothing had actually asked for — refusing anonymous outright is both
+simpler and consistent with what this instance already decided for diagram rendering.
+
 ## 2026-08-17 — Epic 13 (Migration & Upgrade Path from 2.5.x) will not carry forward 2.5.x API tokens or Slack/Discord notification config
 
 The epic roadmap research for Feature 399 left open whether the 2.5.x→3.x migration importer needs
@@ -757,7 +729,7 @@ a specific query surface. This fork's `apiKeys` table (`backend/db/schema.ts`) i
 entirely: keys are bound to a list of **groups** (`groups` jsonb column), not a user, and authorize
 REST endpoints under the group's ordinary permission set rather than a GraphQL scope list (see
 `backend/models/apiKeys.ts`, `backend/api/apiKeys.ts`). There is no GraphQL server left in this fork
-to scope a token against in the first place (see CLAUDE.md, "GraphQL is being removed"). Because the
+to scope a token against in the first place (see CLAUDE.md, "GraphQL was removed"). Because the
 two token models have no field-for-field mapping — user-bound vs. group-bound, GraphQL scopes vs.
 REST/group permissions, and a different signing scheme (this fork's keys are JWTs signed by an
 instance-local keypair generated at migration time, per `SigningCertificates` in
@@ -890,6 +862,20 @@ site sharing it. `search.ts`'s `rebuild()` instead runs a `delete_by_query` filt
 document also carries a `siteId` keyword field for this reason, alongside the fields task #552 named
 explicitly.
 
+**OpenProject #2108 (2026-08-24 security audit, tenancy-isolation lens):** the same reasoning applies
+verbatim to `backend/modules/search/aws-cloudsearch/search.ts`: its `init()` provisions one CloudSearch
+domain per site, and its query client is built per site from that site's own stored `domain`/`endpoint`
+config, but nothing enforces that two sites' `domain`/`endpoint` config can't collide, since a site's
+`search.engines[key]` config is free-form and unchecked for uniqueness across sites — this module was
+the one holdout among the five search modules until #2108 closed the gap. `buildIndexFields()` now
+provisions a filter-only `siteId` field, `toIndexDocument()` emits it, `buildFilterQuery()` adds it as
+an unconditional term clause, and `fetchAllIds()` scopes the id lookup `rebuild()`'s purge diffs against
+by `siteId` too — mirroring `azure-search`'s own `fetchAllIds(client, siteId)`. Because a document
+indexed before the field existed carries no value for it, the purge additionally gates itself on
+`hasUnbackfilledDocuments()` returning clean — checked after that site's own reindex loop, so a single
+rebuild can complete both the backfill and the purge — rather than risk either silently orphaning such a
+document forever or wiping a neighbour site's still-unbackfilled pages.
+
 ## Feature 413 ("RTL support end-to-end")
 
 ### No real Arabic/Hebrew locale data (task 727)
@@ -914,9 +900,13 @@ LTR. Reasoning:
   `composables/direction.js`) and one `commonStore.locale` — there is no separate "admin UI language"
   concept to hang a different direction off of.
 - `AdminLayout.vue`'s own header carries a locale switcher (`commonStore.setLocale(lang.code)`) that
-  lets an operator pick *any* installed locale, RTL ones included, directly from within the admin
+  lets an operator pick _any_ installed locale, RTL ones included, directly from within the admin
   area — the admin UI is evidently meant to render in whatever locale is active, not assumed
-  English/LTR-only.
+  English/LTR-only. (This held as an intent, not yet as fact, until OpenProject #1696: `App.vue`'s
+  router guard used to validate `desiredLocale` against the site's active _content_ locales only, so
+  a UI-only interface locale picked here reverted on the very next navigation, direction included.
+  The guard now also accepts any locale from the instance's installed catalogue
+  (`adminStore.locales`), which is what makes this bullet's claim actually true today.)
 - Forcing LTR chrome around genuinely RTL-translated `admin.*` label text (which does render in
   Arabic once `ar` is the active locale, per the same `t()` mechanism as everywhere else) would
   produce mismatched, not merely conservative, layout — worse than mirroring, not safer.
@@ -956,26 +946,12 @@ One was **not** fixed, foundational rather than cosmetic, and outside RTL-mirror
 Recorded, not fixed, because they are not RTL-mirroring bugs (they would affect any non-English,
 complete-or-not locale, direction aside) and each needs its own design pass:
 
-- **vue-i18n's `fallbackLocale: 'en'` is configured but its dictionary is never guaranteed to be
-  loaded.** `App.vue#applyLocale()` only ever fetches/sets messages for the locale being switched TO,
-  never also for the fallback. A reader whose persisted `desiredLocale` (`localStorage`) is a non-`en`
-  locale, on a fresh page load, never gets `en` messages loaded at all in that session — so any string
-  missing from that locale (which describes essentially any real, incomplete community translation,
-  not just this task's deliberately-partial seed) renders as the **raw i18n key** (`editor.props.icon`,
-  `inbox.title`, …) instead of falling back to English. Reproduced live while walking this task's
-  seeded locale across a fresh navigation. Needs a design decision (always eager-load `en` alongside
-  any non-`en` locale? Gate it on `locales.completeness` to avoid an extra request for a 100%-complete
-  locale?) rather than a one-line patch under this task.
 - **`AdminLocale.vue`'s `load()` can silently revert an in-flight edit.** It re-fires on its own
   `watch(() => adminStore.currentSiteId, ...)`, which resolves asynchronously shortly after
   `AdminLayout.vue`'s mount — a toggle clicked before that resolves can be wiped out by the server's
   still-unchanged response landing after the click. Worked around in `e2e/tests/rtl.spec.js` (an
   explicit "Refresh" + wait for its own `aria-busy` to clear, before touching the toggle); not fixed in
   app code since it is a pre-existing timing issue unrelated to RTL.
-- **The Markdown editor's toolbar buttons carry no `aria-label`.** `t('editor.markup.bold')` and its
-  siblings only ever render into a `<w-tooltip>` (hover-only) — there is no accessible name on the
-  buttons themselves for a screen reader, RTL or not. `e2e/tests/rtl.spec.js` checks the translated
-  string by hovering instead of by role/name for this reason.
 - **`LocaleSelectorMenu.vue` and several `w-menu` anchors in `MainLayout.vue`'s sidebar are not yet
   audited for RTL mirroring.** `LocaleSelectorMenu.vue`'s own default `anchor`/`self` props, and the
   `nav-browse-menu`/`nav-edit-menu` anchors `MainLayout.vue` passes explicitly, are all still
@@ -985,6 +961,19 @@ complete-or-not locale, direction aside) and each needs its own design pass:
   chrome was missed by that pass entirely — a real gap worth a dedicated small follow-up (the same
   mechanical fix as the two `AdminLayout.vue` instances above), not something to fold into this task's
   "seed and validate" brief.
+- **Physical spacing utilities/declarations reach well beyond the components task 721 audited, and
+  the sweep is incremental.** The 2026-08-24 audit (`docs/audit-2026-08-24/accessibility-i18n.md`
+  §15) counted 422 physical `ml-`/`mr-`/`pl-`/`pr-` Tailwind classes and 223 physical
+  `margin`/`padding`/`border-left|right`, bare `left:`/`right:`, and `text-align: left|right`
+  declarations across `frontend/src/**/*.vue` — task 721's pass covered only the named components
+  above. OpenProject epic #1582 tracks the sweep in tranches, shared library first (each fix there
+  multiplies across every consumer): #1585, done here, converts every physical Tailwind
+  margin/padding utility and CSS margin/padding declaration under `frontend/src/components/shared`
+  to its logical form and adds `components/shared/logicalSpacing.test.js` to hold the line, with an
+  allowlist for the rare case (`WTreeNode.vue`'s connector-line geometry) that needs a coordinated
+  redesign rather than a mechanical swap. `pages/`, the non-shared `components/`, and the remaining
+  CSS/SCSS `border`/`text-align`/bare `left`/`right` declarations are NOT yet converted — that is
+  #1590 (allowlist triage), #1594, #1596 and #1601, still open.
 
 ## 2.5.x → 3.0 settings/authentication/storage migration (Feature 420)
 
@@ -1016,6 +1005,28 @@ module prop. At that point `mapStorageRow` should gain a real mapping for `mode`
 instead of reporting them dropped, and this entry should be deleted (not left as historical
 changelog prose).
 
+### 2.5.x `uploads.maxFiles` has no 3.0 destination (OpenProject #2174)
+
+2.5.x's `uploads.maxFiles` mapped to 3.0's `security.uploadMaxFiles` at import time, but that 3.0 key
+was itself dead: seeded and admin-editable, yet read by no upload path anywhere in `backend/` — every
+upload route (`POST /sites/:siteId/assets`, the equivalent for blocks) accepts exactly one file per
+request, so there was no batch to cap. The 2026-08-24 audit flagged this the same way it flagged
+`security.uploadScanSVG` (see `docs/audit-2026-08-24/security/06-files-uploads-storage.md` §4): an
+operator editing "Max Files per Upload" in the admin area had no reason to believe it did nothing.
+
+Per this branch's no-legacy-shim policy (root `CLAUDE.md`), `security.uploadMaxFiles` was deleted
+outright — from `base.yml`, `models/settings.ts`, `models/security.ts`, `api/schemas/security.ts`,
+`AdminSecurity.vue` and its locale strings — rather than kept inert, and
+`migration/mappers/site-settings.ts`'s `maxFiles -> uploadMaxFiles` rename was removed with it: a 2.x
+`uploads.maxFiles` value is now silently dropped on import, same as `mode`/`syncInterval` above.
+`security.uploadScanSVG`, the sibling key from the same audit finding, was implemented instead
+(`models/assets.ts#sanitizeSvgAsset`) rather than deleted, since sanitizing an uploaded SVG is real
+work a per-request file-count cap has no upload surface to attach to.
+
+**Closes when**: a 3.0 upload route accepts more than one file per request (a batch/multi-file
+upload feature). At that point a `uploadMaxFiles`-equivalent setting can be reintroduced and enforced
+against that route, and this entry should be deleted rather than left as historical changelog prose.
+
 ### 2.5.x auth providers 3.0 does not yet implement
 
 2.5.x ships 21 authentication provider modules. At the time this entry was first written 3.0 shipped
@@ -1041,7 +1052,6 @@ for one of the 5 remaining listed providers. At that point `mapAuthenticationRow
 that key through the normal `resolver.getModule()` path with no code change required — only this
 entry (and the corresponding line in the field-mapping doc's no-destination list) needs deleting, one
 provider at a time, as each lands.
-
 
 ## 2026-08-17 — 3.0 will not carry forward 2.5.x's anonymized Telemetry toggle
 
@@ -1189,11 +1199,11 @@ six do not apply, each for a different, specific reason tied to how this fork's 
   report describes.
 - **Item 7 (upstream #2381) — git-sync writes racing a live editor session.** Cross-checked against
   the closed concurrent-edit-safety work: the `expectedUpdatedAt`/409 optimistic-concurrency check
-  (`api/pages.ts`) already covers a *human* editor racing a sync-driven `updatePage()` correctly (the
+  (`api/pages.ts`) already covers a _human_ editor racing a sync-driven `updatePage()` correctly (the
   sync's write bumps `updatedAt`, the editor's stale save 409s, the existing conflict UI handles it).
   What was genuinely unguarded is a different race the same upstream report describes: the scheduler
   claims and runs several jobs concurrently (`processJob`'s `Promise.allSettled`), and a wiki normally
-  runs more than one instance, so two `dispatchStorage` jobs for the *same* storage target — a
+  runs more than one instance, so two `dispatchStorage` jobs for the _same_ storage target — a
   write-path push and a scheduled `sync`'s pull/push, say — could run their `git` commands against the
   one on-disk working copy concurrently, with no in-process mutex able to serialize across either
   interleaved `await`s or separate instances. Fixed with a Postgres advisory lock keyed by `targetId`,
@@ -1290,11 +1300,14 @@ new URL('../../data', import.meta.url) doesn't exist at build time, it will rema
 resolved at runtime. If this is intended, you can use the /* @vite-ignore */ comment to suppress
 this warning.
 ```
+
 plus four more:
+
 ```
 [plugin rolldown:vite-resolve] Module "node:fs/promises" has been externalized for browser
 compatibility, imported by ".../@asciidoctor/core/build/browser/index.js". ...
 ```
+
 (and the same for `node:fs`, `node:path`, `node:async_hooks`).
 
 The `new URL(...)` line comes from the same file, a few lines above the dynamic `node:*` imports:
@@ -1366,8 +1379,7 @@ local-strategy failure site already uses (`{ id: null, name: <best available ide
 `dev/helm/` (Chart.yaml, values.yaml, templates/) and `dev/packer/` (digitalocean.json, scripts/),
 plus their `.github/workflows/helm.yml` and `packer.yml` triggers, were deleted rather than
 refreshed in place. All three currency problems the work package identified were real: the Helm
-chart's Bitnami `postgresql` subchart dependency (`charts.bitnami.com`, deprecated by Broadcom in
-2025) was 8 majors behind with a vendored `.tgz` that didn't even match its own `Chart.lock`; the
+chart's Bitnami `postgresql` subchart dependency (`charts.bitnami.com`, deprecated by Broadcom in 2025) was 8 majors behind with a vendored `.tgz` that didn't even match its own `Chart.lock`; the
 Packer image pinned `ubuntu-20-04-x64` (standard support ended April 2025) and Compose v1 (EOL July
 2023); both workflows still used `actions/checkout@v2` against current v7.
 
@@ -1407,11 +1419,16 @@ before.
 
 ### `@js-temporal/polyfill` (backend, dev-only)
 
-A devDependency, dynamically imported at runtime by `index.ts`/`worker.ts` only when the `Temporal`
-global is missing. `engines` requires Node ≥26, which has `Temporal` natively, so production code
-never reaches that import — it exists solely to keep backend dev/test working on an older local Node.
-Recorded so a future pass doesn't try to either remove it (breaks pre-26 dev sandboxes) or promote it
-to a regular dependency (production never needs it).
+A devDependency only — `index.ts`/`worker.ts` install no polyfill at all on the real boot path.
+`engines` requires Node ≥26, and Node's own v26.0.0 release notes confirm `Temporal` shipped as a
+real, unflagged native global in that release (no `--harmony-temporal`/`--experimental-temporal`
+flag needed) — the official `node:26` image `dev/build/Dockerfile:1` builds from is that same
+release line, so production code never needs this package. It stays a devDependency solely so a
+handful of unit tests can self-install it when run under an older local Node below that floor (e.g.
+this sandbox's Node 25.9) — each such test guards its own import individually (see
+`models/security.test.ts`), independent of anything in `index.ts`/`worker.ts`. Recorded so a future
+pass doesn't try to either remove it (breaks those pre-26 dev sandboxes) or promote it to a regular
+dependency (production never needs it).
 
 ### Stale-but-functionally-complete libraries kept as-is
 
@@ -1457,3 +1474,203 @@ stays on `@twemoji/api` 17.0.2 with an explicit `overrides` entry pinning `@twem
 artwork, separately pinned to upstream tag v17.0.3) despite the version-number mismatch looking like
 drift. Revisit once a `@twemoji/parser` release ships that restores the ten shortcodes' matching —
 until then, do not bump `@twemoji/api` past 17.0.2 in an automated currency pass.
+
+## Elasticsearch smoke suite is deliberately manual, not run in CI (OpenProject #2016)
+
+**Date:** 2026-08-25
+**Feature:** #2016 (part of #2004, "Make the four never-executing test suites run, or delete them")
+
+`backend/modules/search/elasticsearch/search.smoke.test.ts` gates its 12 tests on
+`ELASTICSEARCH_TEST_URL`, which no workflow sets — a real Elasticsearch service container on every
+`quality.yml` run (which already carries a `postgres:18` service for the DB-backed model suites)
+is a meaningfully heavier cost for a module only a site that opts into `config.search.engine:
+elasticsearch` ever exercises, unlike Postgres, which the whole backend depends on to boot at all.
+A nightly/`workflow_dispatch` job was the alternative considered; deferred rather than built now
+because nothing here needs the suite to run on a fixed schedule to catch a regression before it
+ships — `search.test.ts`'s fake-client suite already runs on every PR and covers the query DSL and
+hook wiring this module owns, leaving only "does a real cluster actually accept this DSL" as
+untested, which is unlikely to regress silently between manual runs.
+
+Run it locally or in an ad hoc CI job with a real cluster:
+
+```sh
+docker compose -f dev/docker-compose.search-test.yml up -d --wait
+ELASTICSEARCH_TEST_URL=http://127.0.0.1:59200 \
+  node --test modules/search/elasticsearch/search.smoke.test.ts   # from backend/
+docker compose -f dev/docker-compose.search-test.yml down -v
+```
+
+Revisit if the Elasticsearch module gains active development (new query features, a mapping change)
+frequent enough that a manual run stops being a reliable gate — at that point a scheduled
+`workflow_dispatch`/nightly job earns its ongoing service-container cost.
+
+## OpenProject #2109 — session cookie `secure: true` pinned unconditionally, not `secure: 'auto'`
+
+**Date:** 2026-08-26
+
+Task #2109 asked for `sameSite: 'lax'` plus `cookiePrefix: '__Host-'` on the session cookie
+registration in `index.ts`, describing the `__Host-` prefix as "free" since there is no `domain` and
+`path` is already `/`. Verified against `@fastify/session` 11.1.2's own source
+(`node_modules/@fastify/session/index.js`) that this is not quite right: `cookiePrefix` only
+prefixes the _value_ `@fastify/session` round-trips through the session store — an
+express-session-compatibility shim — and never touches the `Set-Cookie` name a browser actually
+checks the `__Host-` prefix's guarantees against. Getting a literal `__Host-wikiSession` cookie
+means naming it via `cookieName` instead, which is what was implemented (see
+`helpers/security.ts`'s `SESSION_COOKIE_NAME` and its use in `index.ts`).
+
+That substitution has one unavoidable consequence the ticket's text didn't anticipate: a browser
+enforces the `__Host-` prefix by _rejecting outright_ any cookie under that name lacking `Secure`,
+with no exception for a plaintext connection — so keeping `secure: 'auto'` (which resolves `false`
+over plain HTTP) would silently break every login on such a connection instead of merely weakening
+the cookie. `index.ts`'s registration pins `secure: true` unconditionally instead. This is safe and,
+for the ticket's own target case (a reverse proxy terminating TLS with `trustProxy` off), strictly
+more correct than `'auto'` — the browser's own connection is what `Secure` is checked against, not
+this instance's often-wrong belief about it — and `localhost`/`127.0.0.1` dev keeps working, since
+every major browser treats loopback as a trustworthy origin for `Secure` cookies regardless of
+scheme (the same reasoning `models/pdfExport.ts`'s puppeteer cookie-forward already relied on,
+now also marked `secure: true` since Chromium's cookie store enforces the same `__Host-` rule at
+the CDP `Network.setCookie` level).
+
+The one real cost: a deployment that is genuinely all-plaintext, end to end, with no TLS anywhere in
+the path, now fails closed on login (the browser drops the cookie) rather than failing open with an
+insecure one. That is the intended trade-off for this hardening pass — a wiki serving 100% unencrypted
+HTTP is not a configuration this fork means to keep working, and failing loudly (broken login) beats
+failing quietly (a cookie an on-path attacker can read) — but it is a real behavior change worth a
+second look if some deployment this fork still wants to support genuinely has no TLS anywhere.
+`models/security.ts`'s `insecureCookieRiskAt` diagnostic (task 833) is repointed accordingly: it no
+longer means the session cookie came out weak (that path is closed now, unconditionally), only that
+this instance's `request.protocol` is wrong, which still misdirects the OAuth/SAML callback URL
+(`api/authentication.ts#callbackUrl()`) and the sitemap/robots URLs (`controllers/seo.ts`).
+
+## OpenProject #2244/#2250/#2247 — headless Chromium's `--no-sandbox` flipped to an opt-in fallback: two competing implementations reconciled
+
+**Date:** 2026-08-26
+**Feature:** Epic #2244 (children #2250, #2247)
+
+Every headless Chromium launch (`helpers/puppeteer.ts#launchPuppeteerBrowser()`, shared by
+`models/pdfExport.ts`, `models/rendering.ts` and `models/diagramRender.ts`) used to pass
+`--no-sandbox` unconditionally. Two of the three call sites feed the browser attacker-influenced
+content — `pdfExport` drives the live SPA page view under the requester's own session cookie, and
+`diagramRender.renderMermaid` mounts `block-diagram` around a POST-body Mermaid source — so an
+unconditional `--no-sandbox` meant a renderer-process exploit would escape straight to this
+process's own privileges, with no seccomp-bpf or namespace isolation behind it.
+
+Two independent implementations of the same task (#2250) landed in this cycle and collided at merge
+time, each choosing a different home for the opt-in flag: one added `rendering.puppeteerNoSandbox`
+(`config.sample.yml`, plus a `dev/build/Dockerfile` comment pointing at it) but never actually wired
+a default for it into `backend/base.yml` — `getPuppeteerLaunchArgs()` read it via `WIKI.config
+.rendering?.puppeteerNoSandbox`, optional-chained past a `rendering` section that doesn't exist in
+`base.yml`'s `defaults:`, so the key worked only insofar as a deployment's own `config.yml` set it
+outright. The other added `security.allowPuppeteerNoSandbox`, with a real `base.yml` default
+(`false`) alongside this instance's other security-posture toggles (`trustProxy`, `enforceCsp`,
+the rate-limit keys) — the established "read `WIKI.config.security.*` at the point of use" pattern
+those already follow.
+
+**Kept:** `security.allowPuppeteerNoSandbox`, for being the correctly-wired one — a real `base.yml`
+default, and the same config section every other security-posture toggle in this codebase already
+lives in. `config.sample.yml`'s now-orphaned `rendering:` section was deleted rather than left
+pointing at a key nothing reads any more (this fork's "change the shape, change the callers, delete
+the old path" rule — see CLAUDE.md), and `dev/build/Dockerfile`'s comment was repointed at
+`security.allowPuppeteerNoSandbox`. `backend/helpers/puppeteer.test.ts` keeps both implementations'
+distinct coverage: the `security.allowPuppeteerNoSandbox` unit tests from the kept implementation,
+and the `launchUnderSemaphore` describe block (below) from the other, since that part was not
+actually competing — see next.
+
+**Also kept, unconditionally, from the other implementation:** `getPuppeteerLaunchArgs()`'s result
+is still funneled through `launchUnderSemaphore()` in `launchPuppeteerBrowser()` — the process-wide
+concurrency ceiling from OpenProject #2258/#2259 (see "Task 785 — server-side diagram pre-rendering"
+above) that already lived on this integration branch before this merge. The competing
+`allowPuppeteerNoSandbox` implementation branched before that ceiling existed and called
+`puppeteer.launch()` directly; folding its config-key change in without also keeping the semaphore
+wrapper would have silently dropped the concurrency cap. The two changes are orthogonal — one
+decides what flags a launch gets, the other decides when a launch is allowed to start — so both are
+kept in full rather than either superseding the other.
+
+**Posture chosen:** sandboxed by default. `--no-sandbox` is now added only when
+`security.allowPuppeteerNoSandbox` (`backend/base.yml`, default `false`) is explicitly set to
+`true` — logged at `warn` level every time the fallback is taken, so it can't go unnoticed in an
+instance's logs. `dev/build/Dockerfile`'s production image relies on the host kernel allowing
+unprivileged user namespace creation (the default on most distributions) for Chromium's sandbox to
+start without a setuid helper, rather than installing that helper — see the Dockerfile's own
+comment by `USER node`. An operator whose container runtime blocks unprivileged user namespaces
+(a hardened kernel, or an older Docker engine's default seccomp profile) needs to set
+`security.allowPuppeteerNoSandbox: true` for PDF export and diagram/page rendering to keep working,
+and should record that choice here in their own deployment notes.
+
+**Not independently verified in this pass:** building `dev/build/Dockerfile` and confirming a real
+PDF export succeeds with the sandbox enabled inside the resulting container (child #2247's
+done-when) requires a Docker build plus a live Puppeteer/Chromium run — deferred to this project's
+comprehensive after-merge verification pass rather than repeated per work package.
+
+## Migration `20260817165130_main` adds three NOT NULL columns with no DEFAULT (OpenProject #1665)
+
+**Date:** 2026-08-27
+**Severity:** low
+
+`backend/db/migrations/20260817165130_main/migration.sql` adds `pageWatchEvents.pageTitle`,
+`pageWatchEvents.pagePath` (both `text NOT NULL`) and `pageWatchEvents.notifyMode` (`varchar(16) NOT
+NULL`) with no `DEFAULT`. Postgres rejects `ALTER TABLE … ADD COLUMN x text NOT NULL` outright when
+the table already holds rows, unlike `20260821120434_main` (backfills `tree.folderPath` before
+tightening it) and `20260822152223_main` (seeds `classificationLevels` before adding
+`pages.classification` with a matching default) — the correct pattern exists elsewhere in this same
+migrations directory and was not applied here.
+
+Accepted as a one-off rather than hand-editing the recorded migration (forbidden — migration hashes
+are checked) or generating a corrective backfill migration: `notifyMode` has no obvious neutral
+default (`immediate` vs. `digest` both assert something false about history that never happened), and
+this table is new enough — first migrated 2026-08-17 — that no real deployment is expected to hold
+pre-existing rows yet.
+
+**Impact:** any database holding `pageWatchEvents` rows from before 2026-08-17 fails to boot —
+`backend/core/db.ts#syncSchemas` throws inside `migrate()` and `preBoot()` never completes. CI and
+e2e always start from an empty database, so this never surfaces there.
+
+**Workaround:** if a local/dev-container database hits this, drop and recreate it (a fresh install
+seeds no pre-existing `pageWatchEvents` rows, so the migration applies cleanly) rather than trying to
+patch around it in place.
+
+**Guarded against recurring:** `backend/db/schema.test.ts`'s `migration.sql NOT NULL columns require a
+DEFAULT` test scans every `backend/db/migrations/*/migration.sql` for `ADD COLUMN … NOT NULL` with no
+`DEFAULT`, allow-listing only `20260817165130_main`. A new occurrence anywhere else fails that test
+instead of a developer's boot.
+
+**Resolved when:** never, by design — this is a permanent one-off exception for a single already-
+recorded migration, not a task with a future fix. Delete this entry only if the migration is ever
+squashed/regenerated (e.g. a pre-3.0-release migration-history reset) such that `20260817165130_main`
+no longer exists.
+
+## OpenProject #1906 — `frontend/vite.config.js`'s `chunkSizeWarningLimit` restored to (near) Rollup's default; three chunks still exceed it
+
+**Date:** 2026-08-30
+**Feature:** #1906 (part of Epic #1898)
+
+`chunkSizeWarningLimit` was raised from Rollup's 500 kB default to 5000 kB in `fe38f4c7` (this
+fork's GraphQL→REST work), with no comment beside it in an otherwise heavily-commented file and no
+entry anywhere in `docs/`. That let `markdown-*.js` grow to 1,550 kB and Monaco's `editor.api-*.js`
+to 2,592 kB with `npm run build` printing nothing about either — the zero-warnings standard was being
+met by moving the threshold, not by there being nothing to warn about. It is set back to 500 kB here
+(`frontend/vite.config.js`) so a chunk crossing that line prints a warning again, per the choice this
+work package's own description offered: lower the limit and record what still warns, rather than keep
+it raised.
+
+Three chunks are named here because they are expected to still warn at 500 kB even after this change
+— that is the limit doing its job, not a defect in the new number:
+
+- **Monaco's `editor.api-*.js`** (~2,592 kB) and **`ts.worker-*.js`** (~6,752 kB, already above the
+  old 5000 kB limit too) — the editor core and its bundled TypeScript language-service worker. Both
+  are lazy-loaded only when a user opens the page editor (`boot/monaco.js`), never on the reader
+  path, and neither is realistically splittable further: `ts.worker` is `monaco-editor`'s own
+  single-file worker bundle, and `editor.api` is the editor's core module graph. This is the same
+  class of "real, unfixable-here build-output noise" `docs/variances.md`'s asciidoctor entry (above)
+  is the existing precedent for recording rather than chasing.
+- **`markdown-*.js`** (~1,550 kB) — the reader-path markdown/highlight.js/katex chunk. This one is
+  not claimed as unavoidable: sibling work package #1901 (same parent Epic #1898) trims both
+  `highlight.js` root imports (`frontend/src/renderers/markdown.js`,
+  `frontend/src/components/EditorCodeBlockMenu.vue`) from the package root (~190 grammars) down to
+  `highlight.js/lib/common` (~37), which is expected to shrink this chunk meaningfully. It is named
+  here rather than making #1906 wait on #1901 landing first — the epic's own breakdown says neither
+  work package blocks the other. Re-check this chunk's size once #1901 lands, and drop it from this
+  entry (or this entry entirely, if nothing else is left over 500 kB) once it builds under the limit.
+
+A warning on any chunk not named above is a real signal and should be investigated — resist raising
+`chunkSizeWarningLimit` again as a way to make it go away.

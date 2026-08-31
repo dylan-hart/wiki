@@ -2,7 +2,7 @@ import { CustomError, rethrowAsBadRequest } from '../helpers/common.ts'
 import { detectImageMime, imageMimeTypes } from '../helpers/images.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import type { UserPatch, UserProfilePatch } from '../models/users.ts'
+import type { UserPatch, UserProfile, UserProfilePatch } from '../models/users.ts'
 import type { KeyExpiration } from '../models/apiKeys.ts'
 
 interface UserUpdateBody {
@@ -18,6 +18,26 @@ interface UserUpdateBody {
 
 /** How large an avatar upload may be, before any resizing. */
 const avatarUploadLimit = 2 * 1024 * 1024
+
+/**
+ * What blocks `DELETE /:userId` on a `23503` foreign key violation, keyed by the Postgres constraint
+ * name (`db/schema.ts`'s `<table>_<column>_users_id_fkey` naming, confirmed against
+ * `db/migrations/*_main/snapshot.json`) -- so the 409 can name the actual relation rather than a
+ * hard-coded guess. `remedy` is only ever the reassign advice for the two constraints
+ * `WIKI.models.users.reassignContent()` actually clears; `pageEditSubmissions.authorId` has no
+ * reassign path (see that method's doc comment), so its remedy points at resolving the submission
+ * instead.
+ */
+const DELETE_USER_BLOCKING_RELATIONS: Record<string, { relation: string; remedy: string }> = {
+  pages_authorId_users_id_fkey: { relation: 'authored pages', remedy: 'Reassign them first.' },
+  pages_creatorId_users_id_fkey: { relation: 'created pages', remedy: 'Reassign them first.' },
+  pages_ownerId_users_id_fkey: { relation: 'owned pages', remedy: 'Reassign them first.' },
+  assets_authorId_users_id_fkey: { relation: 'authored assets', remedy: 'Reassign them first.' },
+  pageEditSubmissions_authorId_users_id_fkey: {
+    relation: 'an open page edit suggestion',
+    remedy: 'Approve or reject it first.'
+  }
+}
 
 /** A group's identity only -- no member count, no permissions. Shared by both halves of `GET /profile/groups`. */
 const GROUP_IDENTITY_SCHEMA = {
@@ -116,6 +136,21 @@ async function isShowOtherGroupsEnabled(req: FastifyRequest): Promise<boolean> {
     ? await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
     : null
   return site?.config?.features?.showOtherGroups === true
+}
+
+/**
+ * Whether any of the given IDs does not name a real group on this instance.
+ *
+ * `setUserGroups` (`models/users.ts`) resolves its input with `inArray` and silently assigns only
+ * the rows that came back -- deliberately lenient there, since its third caller is IdP enrolment
+ * mapping provider groups that may not exist locally. A route handler has no such excuse: a stale
+ * client naming a deleted group should be told, not have the ID quietly dropped -- especially on
+ * `PUT`, which replaces membership wholesale, so a dropped ID also silently removes the user from
+ * groups they were actually in. Mirrors the check in `api/apiKeys.ts`'s key creation route.
+ */
+async function hasUnknownGroups(groupIds: string[]): Promise<boolean> {
+  const known = await WIKI.models.groups.getAllGroups()
+  return groupIds.some((id) => !known.some((g) => g.id === id))
 }
 
 /**
@@ -385,7 +420,8 @@ async function routes(app: FastifyInstance) {
         'dateFormat',
         'timeFormat',
         'appearance',
-        'cvd'
+        'cvd',
+        'locale'
       ] as const) {
         if (req.body[key] !== undefined) {
           patch[key] = req.body[key]
@@ -398,7 +434,12 @@ async function routes(app: FastifyInstance) {
         throw new CustomError('userProfileInvalidName', 'Invalid User Name')
       }
 
-      const profile = await WIKI.models.users.updateProfile(userId, patch)
+      let profile: UserProfile | null
+      try {
+        profile = await WIKI.models.users.updateProfile(userId, patch)
+      } catch (err: any) {
+        rethrowAsBadRequest(err)
+      }
       if (!profile) {
         return reply.unauthorized()
       }
@@ -412,7 +453,8 @@ async function routes(app: FastifyInstance) {
         dateFormat: profile.dateFormat,
         timeFormat: profile.timeFormat,
         appearance: profile.appearance,
-        cvd: profile.cvd
+        cvd: profile.cvd,
+        locale: profile.locale
       }
 
       return {
@@ -1840,6 +1882,9 @@ async function routes(app: FastifyInstance) {
           'Sending a welcome email requires a configured mail transport (Admin > Mail Configuration).'
         )
       }
+      if (await hasUnknownGroups(req.body.groups ?? [])) {
+        return reply.badRequest('One of the groups does not exist.')
+      }
 
       try {
         const id = await WIKI.models.users.createUser({
@@ -2028,6 +2073,10 @@ async function routes(app: FastifyInstance) {
       // -> Group membership is replaced wholesale here, which would otherwise be a way around the
       //    guards on the groups endpoint.
       if (req.body.groups !== undefined) {
+        if (await hasUnknownGroups(req.body.groups)) {
+          return reply.badRequest('One of the groups does not exist.')
+        }
+
         // -> The guest account must stay in the guests group and nowhere else. Resending the
         //    membership unchanged is allowed, so that saving another field is not blocked.
         if (user.isSystem) {
@@ -2071,22 +2120,16 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        if (Object.keys(patch).length > 0) {
-          await WIKI.models.users.updateUser(req.params.userId, patch)
-        }
-        if (req.body.groups !== undefined) {
-          await WIKI.models.users.setUserGroups(req.params.userId, req.body.groups)
-        }
-        if (req.body.auth !== undefined) {
-          await WIKI.models.users.setUserAuthFlags(req.params.userId, req.body.auth)
-        }
-        // -> OpenProject #936: `session.groups`/`session.permissions` are snapshots taken at login,
-        //    otherwise live for up to the 30-day cookie age -- deactivating an account or changing
-        //    its group membership must end its open sessions now, the same way a personal API token
-        //    already revalidates `isActive` live on every request (`models/apiKeys.ts`).
-        if (patch.isActive === false || req.body.groups !== undefined) {
-          await WIKI.models.sessions.clearSessionsFromUser(req.params.userId)
-        }
+        // -> One transaction for the whole write sequence (OpenProject #1609): a failure partway
+        //    through used to leave an earlier write here already committed behind a bare 500. Session
+        //    clearing on deactivation/group-change (OpenProject #936) and outstanding-token purging on
+        //    deactivation (OpenProject #2094) are both folded into the same method -- see
+        //    `applyUserUpdate`'s own doc comment.
+        await WIKI.models.users.applyUserUpdate(req.params.userId, {
+          patch,
+          groups: req.body.groups,
+          authFlags: req.body.auth
+        })
         await WIKI.models.auditLog.record({
           event: 'user.updated',
           actor: actorFromRequest(req),
@@ -2548,11 +2591,17 @@ async function routes(app: FastifyInstance) {
         })
         return reply.code(204).send()
       } catch (err: any) {
-        // -> Pages and assets reference users without a cascade, so a user who authored content
-        //    cannot be removed. That is a conflict to report, not a server fault.
-        if (err.cause?.code === '23503' || err.code === '23503') {
+        // -> Several tables reference users without a cascade, so a user who still has a row in one
+        //    of them cannot be removed. That is a conflict to report, not a server fault -- and
+        //    Postgres names the specific constraint that tripped, so the reply can name the specific
+        //    relation instead of guessing at "pages or assets".
+        const pgErr = err.cause?.code ? err.cause : err
+        if (pgErr.code === '23503') {
+          const blocker = DELETE_USER_BLOCKING_RELATIONS[pgErr.constraint as string]
           return reply.conflict(
-            'Cannot delete a user who still owns pages or assets. Reassign them first.'
+            blocker
+              ? `Cannot delete a user who still has ${blocker.relation}. ${blocker.remedy}`
+              : 'Cannot delete a user who still owns pages or assets. Reassign them first.'
           )
         }
         WIKI.logger.warn(err)

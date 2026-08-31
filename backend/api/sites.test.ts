@@ -147,8 +147,23 @@ async function countEnabledSites() {
   return enabledSiteCount
 }
 
+/**
+ * Task #1680: `DELETE /:siteId` for an unknown siteId must answer 404, not the pre-existing 400.
+ * `countSites` is separate from `countEnabledSites` above (the last-remaining-site guard counts all
+ * sites, not just enabled ones) and `deleteSite` returning falsy is what the handler reads as "no
+ * such site" -- mirroring `models/sites.ts#deleteSite`'s own not-found return shape.
+ */
+let siteCount = 2
+async function countSites() {
+  return siteCount
+}
+async function deleteSite(id: string) {
+  return Boolean(sites[id])
+}
+
 before(async () => {
   ;(globalThis as any).WIKI = {
+    config: { security: { disallowOpenRedirect: true } },
     models: {
       sites: {
         getSiteByHostname,
@@ -158,7 +173,9 @@ before(async () => {
         clearAsset,
         isHostnameUnique,
         createSite,
-        countEnabledSites
+        countEnabledSites,
+        countSites,
+        deleteSite
       },
       groups: {
         actorForRequest,
@@ -467,6 +484,25 @@ test('manage:sites may still save a patch touching fields beyond theme', async (
 })
 
 /**
+ * OpenProject #1893: the route used to maintain a legacy `ratings` boolean alias under `features`,
+ * deriving it from `ratingsMode` on every write despite nothing ever reading it. That write has been
+ * deleted along with the alias's seeds and JSON Schema entry; a `ratingsMode` patch should reach
+ * `updateSite` carrying only the key that was actually sent, never a synthesized `ratings` key
+ * alongside it.
+ */
+test('a features.ratingsMode patch does not synthesize a legacy ratings alias key', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { features: { ratingsMode: 'stars' } }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls.length, 1)
+  assert.deepEqual(updateSiteCalls[0].patch.config.features, { ratingsMode: 'stars' })
+})
+
+/**
  * OpenProject #989: a site settings edit is one of the events the audit log is meant to capture.
  * The tests above stub `auditLog.record` only to keep the route from throwing — this checks it is
  * actually called, with the fields the patch actually touched.
@@ -556,6 +592,110 @@ test('site:login on this site may save auth and authStrategies', async () => {
   assert.equal(updateSiteCalls.length, 1)
 })
 
+/**
+ * OpenProject #1360/#2208 (2026-08-24 security audit §2): `auth.loginRedirect`/`welcomeRedirect`/
+ * `logoutRedirect` had the identical shape and risk as a group's `redirectOnLogin` (see
+ * `api/groups.test.ts`) — writable by `manage:sites` or the delegated `site:login` permission, and
+ * unvalidated until now. A `site:login` holder is a delegated, non-administrator permission that
+ * could otherwise plant `javascript:...` there and have it execute for the next reader
+ * `AuthLoginPanel.vue`'s `window.location.replace()` sends through it -- covered from both
+ * permission paths below.
+ */
+test('rejects a javascript: auth.loginRedirect with 400, and never reaches updateSite', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { auth: { loginRedirect: 'javascript:alert(1)' } }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+test('site:login on this site may NOT save a javascript: loginRedirect', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:login@${PUT_SITE_ID}`
+    },
+    payload: { auth: { loginRedirect: 'javascript:alert(1)' } }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+test('rejects a scheme-relative //host auth.welcomeRedirect with 400', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { auth: { welcomeRedirect: '//attacker.example' } }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+test('site:login on this site may NOT save a protocol-relative //host welcomeRedirect', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:login@${PUT_SITE_ID}`
+    },
+    payload: { auth: { welcomeRedirect: '//evil.example' } }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+test('accepts a rooted path for auth.logoutRedirect', async () => {
+  updateSiteCalls = []
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { auth: { logoutRedirect: '/' } }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls[0].patch.config.auth.logoutRedirect, '/')
+})
+
+test('accepts a complete https:// URL for auth.logoutRedirect once disallowOpenRedirect is off', async () => {
+  const original = WIKI.config.security.disallowOpenRedirect
+  WIKI.config.security.disallowOpenRedirect = false
+  try {
+    updateSiteCalls = []
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/${PUT_SITE_ID}`,
+      headers: { 'x-test-permissions': 'manage:sites' },
+      payload: { auth: { logoutRedirect: 'https://example.com/goodbye' } }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(updateSiteCalls[0].patch.config.auth.logoutRedirect, 'https://example.com/goodbye')
+  } finally {
+    WIKI.config.security.disallowOpenRedirect = original
+  }
+})
+
+test('site:login on this site may save a rooted-path logoutRedirect', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:login@${PUT_SITE_ID}`
+    },
+    payload: { auth: { logoutRedirect: '/goodbye' } }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls.length, 1)
+  assert.equal(updateSiteCalls[0].patch.config.auth.logoutRedirect, '/goodbye')
+})
+
 test('site:locale on this site may save locales', async () => {
   const res = await app.inject({
     method: 'PUT',
@@ -629,6 +769,23 @@ test('site:general does not grant DELETE /:siteId, which stays manage:sites-only
     }
   })
   assert.equal(res.statusCode, 403)
+})
+
+/**
+ * Task #1680: an unknown siteId used to fall through to `reply.badRequest()` (400) here -- the only
+ * site-scoped route in the API answering that way instead of the 404 every sibling route
+ * (`approvals.ts`, `blocks.ts`, `comments.ts`, `blockCredentials.ts`, `search.ts`, `storage.ts`,
+ * `glossary.ts`, and `GET /:siteIdorHostname` itself) uses for the same condition.
+ */
+test('DELETE /:siteId answers 404, not 400, for an unknown siteId', async () => {
+  const res = await app.inject({
+    method: 'DELETE',
+    url: '/00000000-0000-0000-0000-000000000000',
+    headers: {
+      'x-test-permissions': 'manage:sites'
+    }
+  })
+  assert.equal(res.statusCode, 404)
 })
 
 /**

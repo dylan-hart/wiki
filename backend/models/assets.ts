@@ -4,7 +4,7 @@ import mime from 'mime'
 import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { assets as assetsTable, tree as treeTable } from '../db/schema.ts'
 import { CustomError, decodeTreePath, encodeTreePath } from '../helpers/common.ts'
-import { makeImageThumbnail } from '../helpers/images.ts'
+import { makeImageThumbnail, sanitizeSvg, svgMimeType } from '../helpers/images.ts'
 import { belongsInTarget } from '../helpers/blobTarget.ts'
 import { DB_MODULE } from './storage.ts'
 import type { Readable } from 'node:stream'
@@ -43,6 +43,26 @@ const SWEEP_TARGET_RATIO = 0.8
  * `/_files/` path — which have to agree on what a browser is allowed to open in place.
  */
 export const INLINE_EXTS = new Set(['png', 'apng', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'])
+
+/**
+ * Whether a served asset should be sent as `Content-Disposition: attachment` rather than inline.
+ *
+ * The single predicate both byte-serving routes call (`controllers/files.ts` and `api/assets.ts`'s
+ * `/content`), replacing two expressions that used to disagree — and, on this exact question, were
+ * inverted (OpenProject #1360/#2152/#2164, 2026-08-24 security audit §3): an `INLINE_EXTS` member is
+ * never forced to download, whatever `forceAssetDownload` says — that flag only ever adds attachment
+ * framing to what would otherwise be sent as a plain download already. Adopting the API route's old,
+ * stricter `forceAssetDownload || !INLINE_EXTS.has(fileExt)` everywhere instead would break every
+ * inline image in every page's content the moment an operator turned the setting on, which is why
+ * `controllers/files.ts` was written the other way to begin with. This is intentionally *not* the
+ * durable defence for the SVG/HTML case (an asset can still take the inline branch): that is
+ * `helpers/security.ts#needsSvgCsp` and its per-response Content-Security-Policy, applied
+ * unconditionally regardless of what this function returns. This predicate is disposition-only, and
+ * its role here is defence in depth for every other extension.
+ */
+export function dispositionFor(fileExt: string): boolean {
+  return !INLINE_EXTS.has(fileExt) && Boolean(WIKI.config.security?.forceAssetDownload)
+}
 
 /** What an asset is, for the sake of grouping and filtering. Mirrors the `assetKind` schema enum. */
 export type AssetKind = 'document' | 'image' | 'other'
@@ -107,6 +127,18 @@ export interface Asset {
  */
 export interface AssetAtPath extends Asset {
   locale: string
+}
+
+/**
+ * What `/_thumb/` needs to decide whether the requester may see an asset's preview, plus the bytes
+ * themselves: which site it belongs to, and the path/locale a page-rule check is written against.
+ */
+export interface AssetThumbnail {
+  siteId: string
+  folderPath: string
+  fileName: string
+  locale: string
+  preview: Buffer
 }
 
 /**
@@ -245,10 +277,14 @@ class Assets {
     //    like sending, and this value is what gets served back to a browser later
     const resolvedMime = mime.getType(safeName) ?? mimeType ?? 'application/octet-stream'
     const kind = kindOf(resolvedMime, fileExt)
+    // -> Only reached when the flag is on: a disabled `security.uploadScanSVG` stores the bytes
+    //    exactly as uploaded, same as before this existed.
+    const fileData =
+      resolvedMime === svgMimeType && WIKI.config.security?.uploadScanSVG ? sanitizeSvg(data) : data
 
     const preview =
       kind === 'image'
-        ? await makeImageThumbnail(data, THUMBNAIL_SIZE.width, THUMBNAIL_SIZE.height)
+        ? await makeImageThumbnail(fileData, THUMBNAIL_SIZE.width, THUMBNAIL_SIZE.height)
         : null
 
     // -> What is already at this name, if anything, and what the site says to do about it. Asked
@@ -290,7 +326,7 @@ class Assets {
         fileExt,
         kind,
         mimeType: resolvedMime,
-        data,
+        data: fileData,
         preview,
         authorId
       })
@@ -306,7 +342,7 @@ class Assets {
       locale,
       siteId,
       meta: {
-        fileSize: data.length,
+        fileSize: fileData.length,
         fileExt,
         mimeType: resolvedMime
       }
@@ -320,8 +356,8 @@ class Assets {
         fileExt,
         kind,
         mimeType: resolvedMime,
-        fileSize: data.length,
-        data,
+        fileSize: fileData.length,
+        data: fileData,
         preview,
         authorId,
         siteId
@@ -332,22 +368,22 @@ class Assets {
       throw err
     }
 
-    WIKI.models.hooks.emit('asset:upload', siteId, {
+    await WIKI.models.hooks.emit('asset:upload', siteId, {
       id: entry.id,
       fileName: storedName,
       folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
       siteId,
       authorId,
-      metadata: { fileSize: data.length, mimeType: resolvedMime, kind }
+      metadata: { fileSize: fileData.length, mimeType: resolvedMime, kind }
     })
-    WIKI.models.storage.dispatch('asset:upload', {
+    await WIKI.models.storage.dispatch('asset:upload', {
       id: entry.id,
       fileName: storedName,
       folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
       siteId,
       authorId,
       kind,
-      fileSize: data.length
+      fileSize: fileData.length
     })
 
     return {
@@ -356,7 +392,7 @@ class Assets {
       fileExt,
       kind,
       mimeType: resolvedMime,
-      fileSize: data.length,
+      fileSize: fileData.length,
       folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
       title: entry.title,
       hasPreview: Boolean(preview),
@@ -431,7 +467,7 @@ class Assets {
     this.forgetPath(siteId, folderPath, fileName)
     await this.dropCachedContent([id])
 
-    WIKI.models.hooks.emit('asset:edit', siteId, {
+    await WIKI.models.hooks.emit('asset:edit', siteId, {
       id,
       fileName,
       folderPath,
@@ -439,7 +475,7 @@ class Assets {
       authorId,
       metadata: { fileSize: data.length, mimeType, kind }
     })
-    WIKI.models.storage.dispatch('asset:edit', {
+    await WIKI.models.storage.dispatch('asset:edit', {
       id,
       fileName,
       folderPath,
@@ -682,16 +718,36 @@ class Assets {
   }
 
   /**
-   * An asset's thumbnail, or null when it has none — which is the normal state for anything that is
-   * not an image, and for images uploaded while Sharp was unavailable.
+   * An asset's thumbnail, together with what `/_thumb/` needs to decide who may see it — its site,
+   * path and locale, the same shape `getAssetByPath()` hands `/_files/` — or null when there is no
+   * such asset, or it has no thumbnail: the normal state for anything that is not an image, for
+   * images uploaded while Sharp was unavailable, or for one a storage target's `purge()` has nulled
+   * out.
    */
-  async getThumbnail(id: string): Promise<Buffer | null> {
+  async getThumbnail(id: string): Promise<AssetThumbnail | null> {
     const results = await WIKI.db
-      .select({ preview: assetsTable.preview })
+      .select({
+        siteId: assetsTable.siteId,
+        preview: assetsTable.preview,
+        folderPath: treeTable.folderPath,
+        fileName: treeTable.fileName,
+        locale: treeTable.locale
+      })
       .from(assetsTable)
+      .innerJoin(treeTable, eq(treeTable.id, assetsTable.id))
       .where(eq(assetsTable.id, id))
       .limit(1)
-    return results[0]?.preview ?? null
+    const row = results[0]
+    if (!row?.preview) {
+      return null
+    }
+    return {
+      siteId: row.siteId,
+      folderPath: decodeTreePath(row.folderPath ?? '') ?? '',
+      fileName: row.fileName,
+      locale: row.locale,
+      preview: row.preview
+    }
   }
 
   // == SERVING CACHE ==================
@@ -1081,14 +1137,14 @@ class Assets {
     this.forgetPath(siteId, asset.folderPath, safeName)
     await this.dropCachedContent([id])
 
-    WIKI.models.hooks.emit('asset:rename', siteId, {
+    await WIKI.models.hooks.emit('asset:rename', siteId, {
       id,
       fileName: safeName,
       previousFileName: asset.fileName,
       folderPath: asset.folderPath,
       siteId
     })
-    WIKI.models.storage.dispatch('asset:rename', {
+    await WIKI.models.storage.dispatch('asset:rename', {
       id,
       fileName: safeName,
       previousFileName: asset.fileName,
@@ -1117,13 +1173,13 @@ class Assets {
     this.forgetPath(siteId, asset.folderPath, asset.fileName)
     await this.dropCachedContent([id])
 
-    WIKI.models.hooks.emit('asset:delete', siteId, {
+    await WIKI.models.hooks.emit('asset:delete', siteId, {
       id,
       fileName: asset.fileName,
       folderPath: asset.folderPath,
       siteId
     })
-    WIKI.models.storage.dispatch('asset:delete', {
+    await WIKI.models.storage.dispatch('asset:delete', {
       id,
       fileName: asset.fileName,
       folderPath: asset.folderPath,

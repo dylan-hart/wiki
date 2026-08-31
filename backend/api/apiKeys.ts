@@ -102,7 +102,7 @@ async function routes(app: FastifyInstance) {
               format: 'uuid',
               default: null,
               description:
-                "The single site to pin the key to, or null for instance-wide (every site) — today's only behavior, and the default."
+                'The single site to pin the key to — every /sites/:siteId route rejects a request this key makes against any other site — or null for instance-wide (every site), which stays the default.'
             }
           }
         },
@@ -134,6 +134,15 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      // -> Bearer-token callers never mint keys, admin-issued or personal: `manage:system` on a key
+      //    stands in for a session at the route-permission hook (`index.ts`), but none of `groups`,
+      //    `scope`, `allowedClassifications` or `siteId` below is intersected against the calling
+      //    key's own restrictions, so a site-pinned, classification-restricted PAT could otherwise
+      //    mint itself an unrestricted key with a full expiry term. Session-only, matching what
+      //    `api/users.ts`'s `sessionUserId()` already enforces for the self-service PAT routes.
+      if (req.apiKey) {
+        return reply.forbidden('API keys cannot be created using another API key.')
+      }
       if (!/^[^<>"]+$/.test(req.body.name)) {
         return reply.badRequest('Key name contains invalid characters.')
       }
@@ -154,6 +163,10 @@ async function routes(app: FastifyInstance) {
 
       // -> null pins nothing (instance-wide, today's only behavior); any other value must name a
       //    real site, the same way every entry in `groups` must name a real group above
+      //
+      // -> `siteId` here is a body field pinning the KEY BEING CREATED, not the caller's own site --
+      //    no `enforceApiKeySite()` call; this route is `manage:system`-only, see
+      //    `helpers/apiKeySite.ts`'s doc comment for why that rules it out.
       if (req.body.siteId != null && !WIKI.sites[req.body.siteId]) {
         return reply.badRequest('This site does not exist.')
       }
@@ -238,6 +251,10 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      // -> Same rule as creation above: a bearer-token caller cannot revoke a key, including itself.
+      if (req.apiKey) {
+        return reply.forbidden('API keys cannot be revoked using another API key.')
+      }
       const key = await WIKI.models.apiKeys.getKeyById(req.params.keyId)
       if (!key) {
         return reply.notFound('API key does not exist.')

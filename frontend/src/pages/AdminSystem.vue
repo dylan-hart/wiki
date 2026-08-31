@@ -2,10 +2,13 @@
   <w-page class="admin-system">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-processor.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-processor.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.system.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.system.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.system.subtitle') }}
         </div>
@@ -35,7 +38,7 @@
           class="acrylic-btn"
           flat
           icon="mdi:clipboard-text-outline"
-          label="Copy System Info"
+          :label="t('admin.system.copyInfo')"
           color="primary"
           :disabled="state.loading > 0"
           @click="copySysInfo" />
@@ -404,7 +407,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to load system information.',
+      message: t('admin.system.loadFailed'),
       caption: err.message
     })
   }
@@ -433,13 +436,13 @@ Total RAM: ${state.info.ramTotal}`
     await copyToClipboard(text)
     notify({
       type: 'positive',
-      message: 'Info copied successfully',
+      message: t('admin.system.copySuccess'),
       icon: 'la:clipboard'
     })
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to copy system info',
+      message: t('admin.system.copyFailed'),
       caption: err.message
     })
   }

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import fastify from 'fastify'
 import { registerSchemas } from './site.ts'
+import { buildSitePayload } from '../sites.ts'
 
 /**
  * Regression coverage for task 489: `editors.code` has to be registered on the shared `Site` schema
@@ -30,4 +31,97 @@ test('the Site schema registers editors.code alongside asciidoc/markdown/wysiwyg
   )
 
   await app.close()
+})
+
+/**
+ * Task 2235: `buildSitePayload()` (api/sites.ts) used to spread `...site.config` ahead of the row and
+ * computed fields, so any key that ever landed in a site's config blob reached the response the
+ * moment this schema also declared it — nothing stated or tested that the two had to be kept in sync.
+ * `search` is the load-bearing case: it's where active search-engine credentials live
+ * (`WIKI.sites[siteId]?.config?.search?.engines?.[key]`, e.g. Algolia's `apiKey` and AWS CloudSearch's
+ * `secretAccessKey` — see `models/search.ts:402`/`:535`), seeded under the same top-level `search` key
+ * as `search.engine`/`search.config` (`models/sites.ts`'s `createSite` defaults), and it stayed out of
+ * a reader's browser only because the `Site` schema above declares no top-level `search` property.
+ * `buildSitePayload` is the body of two `publicAccess: true` routes (`GET /sites/:siteIdorHostname`
+ * and `GET /_api/bootstrap`), so a caller passing a `search`-bearing config here — reproducing exactly
+ * what `models/sites.ts` seeds — must never see it echoed back, regardless of what a future schema
+ * edit declares.
+ *
+ * Asserts the full key set, not just `search`'s absence: an allow-list drifting silently out of step
+ * with the `Site` schema (a key spread back in, or named here but never declared on `Site`) is exactly
+ * the failure mode this test exists to catch.
+ */
+test('buildSitePayload returns exactly the allow-listed keys and never `search`', async () => {
+  ;(globalThis as any).WIKI = {
+    models: {
+      rendering: { isAvailable: async () => false },
+      blocks: { getSiteBlocks: async () => [] }
+    }
+  }
+
+  const payload = await buildSitePayload({
+    id: 'site-id',
+    hostname: 'example.test',
+    isEnabled: true,
+    config: {
+      title: 'A Site',
+      description: 'desc',
+      company: 'Acme',
+      contentLicense: 'CC-BY',
+      footerExtra: '',
+      pageExtensions: ['md'],
+      discoverable: false,
+      defaults: { tocDepth: { min: 1, max: 2 } },
+      features: { browse: true },
+      uploads: { conflictBehavior: 'overwrite' },
+      logoText: true,
+      sitemap: true,
+      robots: { index: true, follow: true },
+      auth: { autoLogin: false },
+      authStrategies: [],
+      locales: { primary: 'en', active: ['en'] },
+      assets: { logo: false },
+      editors: { markdown: { isActive: true, config: {} } },
+      theme: { dark: false },
+      analytics: { providers: {} },
+      // -> Deliberately present in the input, exactly as `models/sites.ts` seeds it, to prove it does
+      //    not survive to the output. This is the exclusion the file-header comment above is about.
+      search: {
+        engine: 'algolia',
+        config: {
+          engines: { algolia: { apiKey: 'super-secret-algolia-key' } }
+        }
+      }
+    }
+  })
+
+  assert.deepEqual(Object.keys(payload).sort(), [
+    'analytics',
+    'assets',
+    'auth',
+    'authStrategies',
+    'blocksConfig',
+    'blocksIndex',
+    'company',
+    'contentLicense',
+    'defaults',
+    'description',
+    'discoverable',
+    'editors',
+    'features',
+    'footerExtra',
+    'hostname',
+    'id',
+    'isEnabled',
+    'locales',
+    'logoText',
+    'pageExtensions',
+    'pdfExportAvailable',
+    'robots',
+    'sitemap',
+    'theme',
+    'title',
+    'uploads'
+  ])
+  assert.ok(!('search' in payload), '`search` must never reach the public site payload')
 })

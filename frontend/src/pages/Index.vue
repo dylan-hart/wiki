@@ -322,8 +322,18 @@
               color="secondary"
               size="sm" />
             <div class="flex items-center" v-else-if="siteStore.features.ratingsMode === `thumbs`">
-              <w-btn class="acrylic-btn" flat icon="la:thumbs-down" color="secondary" />
-              <w-btn class="acrylic-btn ml-2" flat icon="la:thumbs-up" color="secondary" />
+              <w-btn
+                class="acrylic-btn"
+                flat
+                icon="la:thumbs-down"
+                color="secondary"
+                :aria-label="t(`common.page.rateThumbsDown`)" />
+              <w-btn
+                class="acrylic-btn ml-2"
+                flat
+                icon="la:thumbs-up"
+                color="secondary"
+                :aria-label="t(`common.page.rateThumbsUp`)" />
             </div>
           </div>
         </template>
@@ -339,6 +349,11 @@
 
       Not gated on having scrolled, as scroll-to-top is: the contents are how a reader decides where to go
       in a long page, and that is most useful before they have gone anywhere.
+
+      `right-0` (not `end-0`) is deliberate -- OpenProject #1590's physical-positioning triage: this is
+      the corner `scroll-to-top` stands down from, a pairing with ANOTHER fixed corner rather than with
+      the reading direction, so it must not move when the locale does. See
+      `frontend/src/physicalPositioning.test.js`.
     -->
     <transition name="toc-open-btn">
       <div v-if="showTocPanelBtn" class="fixed bottom-0 right-0 z-30">
@@ -605,15 +620,8 @@ const isUnsavedNewPage = computed(() => editorStore.isActive && editorStore.mode
 
 const lastModified = computed(() => {
   return pageStore.updatedAt
-    ? // -> The fields luxon's DATETIME_MED expanded to, so the bar reads exactly as before
-      Temporal.Instant.from(pageStore.updatedAt).toLocaleString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit'
-      })
-    : 'N/A'
+    ? userStore.formatDateTime(t, pageStore.updatedAt)
+    : t('common.notAvailable')
 })
 
 /**
@@ -647,7 +655,7 @@ const breadcrumbs = computed(() => [
 watch(
   () => pageStore.render,
   () => {
-    nextTick(() => enhanceRenderedContent(pageContents.value))
+    nextTick(() => enhanceRenderedContent(pageContents.value, t))
   },
   { immediate: true }
 )
@@ -690,6 +698,16 @@ onBeforeUnmount(() => {
 function onHashChange() {
   scrollToAnchorWhenReady(window.location.hash)
 }
+
+/*
+  Generation guard for the plain page-load branch of the watcher below (OpenProject #1785). The
+  watcher is `async` and Vue does not cancel a previous, still-running invocation when `route.path`
+  changes again -- so navigating A -> B while A's `pageStore.pageLoad` is still in flight can let A's
+  slower response land AFTER B's faster one, stomping B's title/body/tags/permissions with A's stale
+  data. A plain incrementing counter, not reactive state: it is only ever read and written from
+  inside the watcher's own closures, never from a template.
+*/
+let pageLoadGeneration = 0
 
 watch(
   () => route.path,
@@ -791,8 +809,21 @@ watch(
       : null
     const pagePath = parsedLocale?.path ?? newValue
     const pageLocale = parsedLocale?.locale ?? siteStore.locales.primary
+    // -> Captured before the first await -- see the counter's own comment above.
+    const generation = ++pageLoadGeneration
     try {
-      await pageStore.pageLoad({ path: pagePath, locale: pageLocale })
+      await pageStore.pageLoad({
+        path: pagePath,
+        locale: pageLocale,
+        isStale: () => generation !== pageLoadGeneration
+      })
+      // -> A faster, later navigation already landed while this one was still in flight -- `pageLoad`
+      //    already discarded its own response (see its own `isStale` check), and none of what follows
+      //    here -- the editor-exit patch, the block-loading scan, the anchor scroll -- belongs to the
+      //    page actually on screen either.
+      if (generation !== pageLoadGeneration) {
+        return
+      }
       if (editorStore.isActive) {
         /*
           Walking away from the editor closes it, and `mode` describes the editor that was open — so
@@ -811,22 +842,63 @@ watch(
       // -> Load Blocks. `?.` because a locked page draws its lock screen in place of the article, so
       //    there is no content element to scan -- and nothing in it to scan for.
       nextTick(() => {
+        // -> Checked again here, not just above: `nextTick` defers to the next DOM update cycle, and
+        //    a further navigation can land in the gap between the check above and this callback
+        //    actually running.
+        if (generation !== pageLoadGeneration) {
+          return
+        }
+        // -> Collected by tag first, one `loadBlocks()` call after the loop, rather than one call
+        //    per element -- matching the batched call `EditorMarkdown.vue`'s own preview render
+        //    makes. A page can embed the same block tag many times (a gallery repeated three times
+        //    down the page, say); the `Map` also dedupes those to one entry before `loadBlocks()`
+        //    ever sees them.
+        const toLoad = new Map()
+        // -> Every enabled block's tag, computed once per scan rather than once per element -- what
+        //    tells a still-parented child block (`block-tab` inside an enabled `block-tabs`) apart
+        //    from an orphan or a disabled block below.
+        const enabledBlockTags = Object.keys(siteStore.blocksIndex).map((key) => `block-${key}`)
         for (const block of pageContents.value?.querySelectorAll(':not(:defined)') ?? []) {
           const tag = block.tagName.toLowerCase()
+          if (!tag.startsWith('block-')) {
+            // -> Not a block tag at all -- an ordinary unknown custom element. Handed to
+            //    `loadBlocks()` as a bare string anyway: it resolves nothing recognisable and the
+            //    import 404s quietly, the same "preview being too generous is the better failure"
+            //    trade `EditorMarkdown.vue`'s own `loadSiteBlocks()` documents for its own
+            //    (author-gated) copy of this list.
+            commonStore.loadBlocks([tag])
+            continue
+          }
           // -> Resolved off `siteStore.blocksIndex` (a public field on the site-info response
           //    every reader's browser already has) rather than `GET sites/:siteId/blocks`, which
           //    is gated to authors/administrators and silently 403s for a plain reader -- see
-          //    `siteBlocksInfoFor` in `backend/api/sites.ts` (OpenProject #954). A tag not found
-          //    there -- most likely because it isn't a block at all -- falls back to the bare tag,
-          //    which `loadBlocks()` treats as a built-in guess: a built-in loads by its flat,
-          //    site-independent URL either way, and a custom block simply does not resolve, the
-          //    same "preview being too generous is the better failure" trade `EditorMarkdown.vue`'s
-          //    own `loadSiteBlocks()` documents for its own (author-gated) copy of this list.
-          const record = tag.startsWith('block-')
-            ? siteStore.blocksIndex[tag.slice('block-'.length)]
-            : undefined
-          commonStore.loadBlocks([record ? { tag, isCustom: record.isCustom, id: record.id } : tag])
+          //    `siteBlocksInfoFor` in `backend/api/sites.ts` (OpenProject #954).
+          const record = siteStore.blocksIndex[tag.slice('block-'.length)]
+          if (record) {
+            toLoad.set(tag, { tag, isCustom: record.isCustom, id: record.id })
+            continue
+          }
+          /*
+            Absent from `blocksIndex`. Most likely a disabled block -- `blockImportUrl()`
+            (`stores/common.js`) resolves a bare tag to the flat, site-independent `/_blocks/<tag>.js`
+            served unauthenticated by `fastifyStatic` (`backend/index.ts`), so falling back to it
+            here the way the unknown-element branch above does would hand a reader a working URL to a
+            block their site turned off -- exactly the leak `siteBlocksInfoFor`'s own doc says must
+            never happen (OpenProject #1729).
+
+            The one exception is a child block: `block-tab` gets no row of its own
+            (`models/blocks.ts#syncSite`), so it never appears in `blocksIndex` even when its parent
+            `block-tabs` is enabled. Told apart from a disabled block the same way the server already
+            does: `unwrapOrphanedChildBlocks` (`backend/models/rendering.ts`) only ever lets a child
+            tag reach the rendered HTML when its parent survived the enabled-blocks filter, so by the
+            time this scan runs, an ancestor that resolves in `blocksIndex` is proof this element is
+            still validly parented rather than orphaned.
+          */
+          if (enabledBlockTags.length > 0 && block.closest(enabledBlockTags.join(','))) {
+            toLoad.set(tag, tag)
+          }
         }
+        commonStore.loadBlocks([...toLoad.values()])
         /*
           Then the heading in the URL, if there is one. The browser tried it the moment it had the
           document, which was long before this render existed, so nothing happened — following a link
@@ -836,14 +908,35 @@ watch(
         scrollToAnchorWhenReady(route.hash)
       })
     } catch (err) {
+      // -> Worse than the success branch above if left unguarded: a stale ERR_PAGE_NOT_FOUND would
+      //    call `pageStore.pageNotFound` below and blank the store for whatever page a faster, later
+      //    navigation already landed on.
+      if (generation !== pageLoadGeneration) {
+        return
+      }
       if (err.message === 'ERR_PAGE_NOT_FOUND') {
         if (newValue === '/') {
           if (!userStore.authenticated) {
             router.push('/login')
-          } else if (!userStore.can('write:pages')) {
-            router.replace('/_error/unauthorized')
           } else {
-            siteStore.overlay = 'Welcome'
+            /*
+              The one place the page permissions have to be asked for on their own -- same as the
+              non-root branch below, and for the same reason: `write:pages` is a page-rule
+              permission, so a cold load's empty `pagePermissions` can only ever answer this
+              truthfully for `manage:system`. Asked at `'home'`, not `pagePath` (which is just `/`
+              here): page rules are written against real page paths, and `'home'` is what the server
+              already treats the root as everywhere else (e.g. `backend/api/pages.ts`'s own
+              `path || 'home'`). OpenProject #2063.
+            */
+            await userStore.fetchPagePermissions('home', pageLocale)
+            if (userStore.can('write:pages')) {
+              siteStore.overlay = 'Welcome'
+            } else {
+              // -> Same missing-page placeholder the non-root branch below draws, not
+              //    `/_error/unauthorized`: a reader who may not write here is not wrong about the
+              //    page -- it genuinely doesn't exist -- so this is what tells them that, truthfully.
+              pageStore.pageNotFound({ path: 'home' })
+            }
           }
         } else {
           /*
@@ -1274,6 +1367,11 @@ $toc-overlay-max: 749.98px;
 
     Right regardless of `tocPosition`: the opener is in the bottom-RIGHT corner, and a panel arriving from
     the far side of the screen from the button that summoned it reads as something else appearing.
+
+    `right`/`translateX(100%)`/the shadow's negative x-offset below all stay physical rather than
+    logical on purpose (OpenProject #1590's physical-positioning triage): this panel is paired with a
+    fixed screen corner (the opener, below), not with the reading direction, so none of it should move
+    when the locale does.
   */
   @media (max-width: $toc-overlay-max) {
     position: fixed;

@@ -4,10 +4,11 @@
       <div class="flex-none">
         <img
           class="admin-icon admin-icons-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-spring.svg" />
+          src="/_assets/icons/fluent-spring.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.icons.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.icons.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.icons.subtitle') }}
         </div>
@@ -145,7 +146,7 @@
                 <w-item-label>{{
                   t('admin.icons.diskCacheValue', {
                     count: state.cache.diskCount ?? 0,
-                    size: prettyBytes(state.cache.diskSize ?? 0)
+                    size: formatFileSize(state.cache.diskSize)
                   })
                 }}</w-item-label>
               </w-item-section>
@@ -171,7 +172,13 @@
         <w-card-section class="flex flex-wrap items-center pb-0">
           <div class="text-h6">{{ t('admin.icons.addSet') }}</div>
           <w-space />
-          <w-btn icon="la:times" flat round dense @click="state.addSetDialog = false" />
+          <w-btn
+            icon="la:times"
+            flat
+            round
+            dense
+            :aria-label="t(`common.actions.close`)"
+            @click="state.addSetDialog = false" />
         </w-card-section>
         <w-card-section>
           <div class="text-body2 text-grey">{{ t('admin.icons.addSetHint') }}</div>
@@ -199,7 +206,7 @@
               v-for="set of filteredAvailableSets"
               :key="set.prefix"
               clickable
-              :disable="set.isAdded"
+              :disabled="set.isAdded"
               @click="addSet(set)">
               <w-item-section side>
                 <div class="admin-icons-samples">
@@ -251,6 +258,7 @@ import { confirm } from '@/composables/dialog'
 
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { formatFileSize } from '@/helpers/fileSize'
 
 // COMPOSABLES
 
@@ -300,16 +308,6 @@ const filteredAvailableSets = computed(() => {
 })
 
 // METHODS
-
-function prettyBytes(bytes) {
-  if (bytes < 1024) {
-    return `${bytes} B`
-  }
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} kB`
-  }
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
 
 /**
  * The Iconify page for the set, which lists every icon it holds with its name.
@@ -403,7 +401,7 @@ async function addSet(set) {
   try {
     const resp = await API_CLIENT.post('icons/sets', { json: { prefix: set.prefix } }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     set.isAdded = true
     notify({
@@ -426,7 +424,7 @@ async function setSetState(set, isEnabled) {
   try {
     const resp = await API_CLIENT.put(`icons/sets/${set.prefix}`, { json: { isEnabled } }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',
@@ -458,7 +456,7 @@ function confirmDeleteSet(set) {
     try {
       const resp = await API_CLIENT.delete(`icons/sets/${set.prefix}`).json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       notify({
         type: 'positive',
@@ -494,7 +492,7 @@ function purgeCache() {
     try {
       const resp = await API_CLIENT.delete('icons/cache').json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       notify({
         type: 'positive',

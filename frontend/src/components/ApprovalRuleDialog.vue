@@ -24,8 +24,7 @@
               hide-bottom-space
               :label="t(`admin.approval.name`)"
               :hint="t(`admin.approval.nameHint`)"
-              lazy-rules="ondemand"
-              autofocus />
+              lazy-rules="ondemand" />
           </w-item-section>
         </w-item>
         <w-item>
@@ -287,7 +286,7 @@ async function save() {
         }).json()
       : await API_CLIENT.post(`sites/${props.siteId}/approvals/rules`, { json: payload }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
 
     notify({

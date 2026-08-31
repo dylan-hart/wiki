@@ -2,10 +2,13 @@
   <w-page class="admin-mail">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-protect.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-protect.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.security.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.security.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.security.subtitle') }}
         </div>
@@ -132,11 +135,31 @@
             </w-item-section>
             <w-item-section avatar>
               <w-toggle
-                v-model="state.config.trustProxy"
+                v-model="trustProxyEnabled"
                 :loading="state.loading > 0"
                 :aria-label="t(`admin.security.trustProxy`)" />
             </w-item-section>
           </w-item>
+          <template v-if="trustProxyEnabled">
+            <w-separator class="my-2" inset />
+            <w-item>
+              <blueprint-icon icon="address" />
+              <w-item-section>
+                <w-item-label>{{ t(`admin.security.trustProxyAddresses`) }}</w-item-label>
+                <w-item-label caption>{{
+                  t(`admin.security.trustProxyAddressesHint`)
+                }}</w-item-label>
+              </w-item-section>
+              <w-item-section style="flex: 0 0 260px">
+                <w-input
+                  outlined
+                  v-model="trustProxyAddresses"
+                  dense
+                  :placeholder="t(`admin.security.trustProxyAddressesPlaceholder`)"
+                  :aria-label="t(`admin.security.trustProxyAddresses`)" />
+              </w-item-section>
+            </w-item>
+          </template>
           <!--
             Only shown once the backend has actually seen the misconfiguration on a live request
             (`GET /system/security`'s `insecureCookieRiskAt`) -- unlike the rate-limit warnings
@@ -159,7 +182,7 @@
                       <div class="mt-1">
                         {{
                           t('admin.security.insecureCookieRiskWarnSince', {
-                            date: humanizeDate(state.config.insecureCookieRiskAt)
+                            date: humanizeDate(t, state.config.insecureCookieRiskAt)
                           })
                         }}
                       </div>
@@ -417,11 +440,6 @@
                   </w-card-section>
                   <w-card-section class="text-caption">
                     <div>{{ t('admin.security.uploadsInfo') }}</div>
-                    <!-- Uploading is real now (`POST /sites/:siteId/assets` in `api/assets.ts`), and
-                         the max file size below is enforced as the request's body limit -- but the
-                         batch count and the SVG scan toggle are still only stored, since a single
-                         request is always one file and nothing sanitizes SVGs yet -->
-                    <div class="mt-1">{{ t('admin.security.uploadsPartiallyEnforced') }}</div>
                   </w-card-section>
                 </w-card-section>
               </w-card>
@@ -439,22 +457,6 @@
                 v-model.number="state.humanUploadMaxFileSize"
                 dense
                 :aria-label="t(`admin.security.maxUploadSize`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="upload-to-ftp" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.security.maxUploadBatch`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.security.maxUploadBatchHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section style="flex: 0 0 200px">
-              <w-input
-                outlined
-                v-model.number="state.config.uploadMaxFiles"
-                dense
-                :suffix="t(`admin.security.maxUploadBatchSuffix`)"
-                :aria-label="t(`admin.security.maxUploadBatch`)" />
             </w-item-section>
           </w-item>
           <w-separator class="my-2" inset />
@@ -577,7 +579,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
@@ -585,9 +587,9 @@ import { loading } from '@/composables/loading'
 
 import { useSiteStore } from '@/stores/site'
 
-import { filesize } from 'filesize'
 import { apiErrorMessage } from '@/helpers/apiError'
-import { parseFileSize } from '@/helpers/fileSize'
+import { humanizeDate } from '@/helpers/datetime'
+import { formatFileSize, parseFileSize } from '@/helpers/fileSize'
 
 // STORES
 
@@ -629,7 +631,6 @@ const state = reactive({
     apiRateLimitWindow: '5m',
     apiRateLimitBan: '15m',
     uploadMaxFileSize: 0,
-    uploadMaxFiles: 0,
     uploadScanSVG: false
   },
   humanUploadMaxFileSize: '0'
@@ -651,22 +652,44 @@ const corsModes = [
   { value: 'REGEX', text: 'Regex Pattern Match' }
 ]
 
-// METHODS
+/*
+  `state.config.trustProxy` is boolean-or-string now (see `backend/models/security.ts`'s widened
+  `validate()`): `false` off, or a comma-separated trusted-proxy address/CIDR list on. The toggle
+  below still needs a plain boolean to bind to, and the new text field below it needs a plain string
+  -- these two computed properties are that split, rather than a second field in `state.config` that
+  would need to be kept in sync with it by hand. `trustProxyAddressCache` remembers the last-typed
+  list across a toggle-off/on cycle -- flipping the toggle off sets `state.config.trustProxy` to
+  `false`, which would otherwise lose whatever address list was typed in the moment the field is
+  hidden (`v-if="trustProxyEnabled"` above), forcing a re-type on every accidental toggle.
+*/
+const trustProxyAddressCache = ref('')
 
-/** Same long-form spelling `AdminCluster.vue` / `AdminApi.vue` use for a stored timestamp. */
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
+const trustProxyEnabled = computed({
+  get: () => Boolean(state.config.trustProxy),
+  set: (val) => {
+    // -> Flipping on lands on the cached address list if there is one, else `true` (not `''`) --
+    //    `!state.config.trustProxy` is what the insecure-cookie-risk warning below keys off of to
+    //    hide itself the instant the toggle flips, and an empty string is just as falsy as `false`
+    //    there. `true` still validates on the backend (see `models/security.test.ts`'s "still
+    //    accepts the bare boolean true"), so it is a real, save-able value on its own -- filling in
+    //    the address field below (which overwrites it with the real string) is what the admin should
+    //    still do before saving, not something this toggle can silently paper over by picking a
+    //    falsy placeholder instead.
+    state.config.trustProxy = val ? trustProxyAddressCache.value || true : false
   }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
-}
+})
+const trustProxyAddresses = computed({
+  get: () => (typeof state.config.trustProxy === 'string' ? state.config.trustProxy : ''),
+  set: (val) => {
+    trustProxyAddressCache.value = val
+    // -> Clearing the field entirely falls back to `true` (trust every proxy) rather than saving an
+    //    ambiguous empty string -- the toggle is still on, so the field being blank should mean "no
+    //    address list configured yet," the same state as just having flipped the toggle on.
+    state.config.trustProxy = val.trim() === '' ? true : val
+  }
+})
+
+// METHODS
 
 async function load() {
   state.loading++
@@ -674,10 +697,10 @@ async function load() {
   try {
     const resp = await API_CLIENT.get('system/security').json()
     state.config = { ...state.config, ...resp }
-    state.humanUploadMaxFileSize = filesize(state.config.uploadMaxFileSize ?? 0, {
-      base: 2,
-      standard: 'jedec'
-    })
+    if (typeof state.config.trustProxy === 'string') {
+      trustProxyAddressCache.value = state.config.trustProxy
+    }
+    state.humanUploadMaxFileSize = formatFileSize(state.config.uploadMaxFileSize)
   } catch (err) {
     notify({
       type: 'negative',
@@ -709,7 +732,7 @@ async function save() {
       }
     }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

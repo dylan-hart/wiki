@@ -3,7 +3,12 @@
     <w-toolbar class="bg-primary text-white flex">
       <div class="text-subtitle2">{{ t('editor.pageData.title') }}</div>
       <w-space />
-      <w-btn icon="la:times" dense flat @click="siteStore.sideDialogShown = false" />
+      <w-btn
+        icon="la:times"
+        dense
+        flat
+        :aria-label="t(`common.actions.close`)"
+        @click="siteStore.sideDialogShown = false" />
     </w-toolbar>
     <w-card-section class="page-data-dialog-selector">
       <!-- .text-overline.text-white {{t('editor.pageData.template')}} -->
@@ -22,7 +27,6 @@
           style="flex: 1 0 auto" />
         <w-btn
           class="acrylic-btn"
-          dark
           icon="la:pen"
           :label="t(`common.actions.manage`)"
           unelevated
@@ -32,23 +36,24 @@
       </div>
     </w-card-section>
     <w-tabs class="alt-card" v-model="state.mode" inline-label no-caps>
-      <w-tab name="visual" label="Visual" />
-      <w-tab name="code" label="YAML" />
+      <w-tab name="visual" :label="t('editor.pageData.tabVisual')" />
+      <w-tab name="code" :label="t('editor.pageData.tabYaml')" />
     </w-tabs>
-    <w-scroll-area
-      :thumb-style="siteStore.thumbStyle"
-      :bar-style="siteStore.barStyle"
-      style="height: calc(100% - 50px - 75px - 48px)">
+    <w-scroll-area style="height: calc(100% - 50px - 75px - 48px)">
       <w-card-section v-if="state.mode === `visual`">
         <div class="gap-2">
-          <w-input label="Attribute Text" dense outlined>
+          <w-input :label="t('editor.pageData.attributeTextLabel')" dense outlined>
             <template v-slot:before><w-icon name="la:font" color="primary" /></template>
           </w-input>
-          <w-input label="Attribute Number" dense outlined type="number">
+          <w-input :label="t('editor.pageData.attributeNumberLabel')" dense outlined type="number">
             <template v-slot:before><w-icon name="la:infinity" color="primary" /></template>
           </w-input>
           <div class="py-1">
-            <w-checkbox label="Attribute Boolean" color="primary" dense size="lg" />
+            <w-checkbox
+              :label="t('editor.pageData.attributeBooleanLabel')"
+              color="primary"
+              dense
+              size="lg" />
           </div>
         </div>
       </w-card-section>
@@ -65,7 +70,7 @@
         v-model="state.content"
         language="yaml"
         :min-height="400"
-        aria-label="Page data (YAML)" />
+        :aria-label="t('editor.pageData.yamlAriaLabel')" />
     </w-scroll-area>
     <w-dialog v-model="state.showDataTemplateDialog">
       <page-data-template-dialog @close="state.showDataTemplateDialog = false" />

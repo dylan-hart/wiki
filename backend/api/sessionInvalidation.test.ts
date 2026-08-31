@@ -6,6 +6,7 @@ import fastifySensible from '@fastify/sensible'
 import ajvFormats from 'ajv-formats'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import {
+  groups as groupsTable,
   sessions as sessionsTable,
   userGroups as userGroupsTable,
   users as usersTable
@@ -149,6 +150,28 @@ describe(
       })
       assert.equal(res.statusCode, 200)
       assert.deepEqual(await sessionIds(), ['member-session'])
+    })
+
+    test('DELETE /:groupId clears sessions for every member (OpenProject #1719)', async () => {
+      // -> A fresh group of its own, not `fixtures.groupId`: this test deletes it, and every other
+      //    test in this file still expects `fixtures.groupId` to exist afterwards.
+      const [deletedGroup] = await fixtures.db
+        .insert(groupsTable)
+        .values({ name: 'Group To Delete', permissions: ['manage:navigation'], rules: [] })
+        .returning({ id: groupsTable.id })
+      await fixtures.db
+        .insert(userGroupsTable)
+        .values({ userId: secondUserId, groupId: deletedGroup!.id })
+      await fixtures.db.insert(sessionsTable).values([
+        { id: 'deleted-group-member-session', userId: secondUserId, data: {} },
+        { id: 'unrelated-session', userId: fixtures.userId, data: {} }
+      ])
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/groups/${deletedGroup!.id}`
+      })
+      assert.equal(res.statusCode, 204)
+      assert.deepEqual(await sessionIds(), ['unrelated-session'])
     })
 
     test('POST /:groupId/users/:userId (assign) clears only the newly-assigned user’s sessions', async () => {

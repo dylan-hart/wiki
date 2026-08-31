@@ -1,6 +1,6 @@
 <template>
   <w-page class="py-4">
-    <div class="w-section-header">{{ t('profile.avatar') }}</div>
+    <h1 class="w-section-header">{{ t('profile.avatar') }}</h1>
     <!--
       -> `min-w-*` on both columns is what lets `flex-wrap` actually wrap them: `flex-1` is
          `flex: 1 1 0%`, and an item whose basis is zero never overflows its line, so on a narrow screen
@@ -18,7 +18,10 @@
           :color="userStore.hasAvatar ? `dark-1` : `primary`"
           text-color="white"
           :class="userStore.hasAvatar ? `is-image` : ``">
-          <img v-if="userStore.hasAvatar" :src="`/_user/current/avatar?` + state.assetTimestamp" />
+          <img
+            v-if="userStore.hasAvatar"
+            :src="`/_user/current/avatar?` + state.assetTimestamp"
+            :alt="userStore.name" />
           <w-icon v-else name="la:user" />
         </w-avatar>
       </div>
@@ -122,7 +125,7 @@ async function uploadImage() {
         }
       }).json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       notify({
         type: 'positive',
@@ -150,7 +153,7 @@ async function clearImage() {
   try {
     const resp = await API_CLIENT.delete('users/profile/avatar').json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

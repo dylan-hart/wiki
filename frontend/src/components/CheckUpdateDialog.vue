@@ -10,7 +10,8 @@
           <img
             src="/_assets/illustrations/undraw_going_up.svg"
             class="mx-auto"
-            style="width: 150px" />
+            style="width: 150px"
+            alt="" />
         </div>
         <template v-if="state.isLoading">
           <w-linear-progress indeterminate size="lg" rounded />
@@ -108,7 +109,7 @@ async function check() {
       state.latest = resp.latest
       state.latestDate = userStore.formatDate(resp.latestDate)
     } else {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
   } catch (err) {
     notify({

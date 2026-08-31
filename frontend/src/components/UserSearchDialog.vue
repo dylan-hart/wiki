@@ -7,14 +7,14 @@
       </w-card-section>
       <w-card-section class="py-2">
         <w-input
+          ref="iptSearch"
           v-model="state.search"
           outlined
           dense
           :placeholder="t(`admin.users.searchUsers`)"
           :aria-label="t(`admin.users.searchUsers`)"
           clearable
-          hide-bottom-space
-          autofocus>
+          hide-bottom-space>
           <template #prepend>
             <w-icon name="la:search" />
           </template>
@@ -35,13 +35,12 @@
               <w-checkbox
                 :model-value="isSelected(usr.id)"
                 :aria-label="usr.name"
-                dense
                 @update:model-value="toggle(usr)"
                 @click.stop />
             </w-item-section>
             <w-item-section avatar>
               <w-avatar v-if="usr.hasAvatar" size="md">
-                <img :src="`/_user/` + usr.id + `/avatar`" />
+                <img :src="`/_user/` + usr.id + `/avatar`" :alt="usr.name" />
               </w-avatar>
               <w-avatar v-else size="md" color="primary" text-color="white" icon="la:user" />
             </w-item-section>
@@ -107,7 +106,7 @@ import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 
 // PROPS
 
@@ -153,9 +152,15 @@ const props = defineProps({
 
 defineEmits([...dialogComponentEmits])
 
+// REFS
+
+const iptSearch = ref(null)
+
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => iptSearch.value
+})
 
 // I18N
 

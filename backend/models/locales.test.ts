@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { eq } from 'drizzle-orm'
-import { localeCode, computeCompleteness, parseSideloadLocalePack } from './locales.ts'
+import { localeCode, computeCompleteness, interpolate, parseSideloadLocalePack } from './locales.ts'
 import { locales as localesTable } from '../db/schema.ts'
 import {
   hasTestDatabase,
@@ -15,29 +15,11 @@ import {
   teardownTestDb,
   type TestFixtures
 } from '../test/db.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 
 // -> `refreshFromDisk()` compares mtimes via the native `Temporal` API (`Date#toTemporalInstant()` +
-//    `Temporal.Instant.compare()`), per CLAUDE.md's "Backend patterns". That is only a runtime global
-//    on Node 26+; this sandbox's Node is 25.9 (a pre-existing, already-documented mismatch — see
-//    feature 410's continuity notes), where both are simply absent and every `stat()` result would
-//    otherwise throw and get misreported as "not found on disk". Feature-detected so this is a no-op
-//    wherever the real thing already exists (Node 26+, i.e. everywhere this actually ships).
-if (typeof Temporal === 'undefined') {
-  class FakeInstant {
-    epochMs: number
-    constructor(epochMs: number) {
-      this.epochMs = epochMs
-    }
-  }
-  ;(globalThis as any).Temporal = {
-    Instant: { compare: (a: FakeInstant, b: FakeInstant) => a.epochMs - b.epochMs }
-  }
-  if (!(Date.prototype as any).toTemporalInstant) {
-    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-      return new FakeInstant(this.getTime())
-    }
-  }
-}
+//    `Temporal.Instant.compare()`), per CLAUDE.md's "Backend patterns".
+await ensureTemporal()
 
 /**
  * `refreshFromDisk` (see `locales.ts`) logs a `[ SKIPPED ]` warning at boot for every language
@@ -124,6 +106,27 @@ describe('computeCompleteness()', () => {
 
   test('an empty base locale reads 100 (nothing to translate)', () => {
     assert.equal(computeCompleteness({}, {}), 100)
+  })
+})
+
+/**
+ * `interpolate()` — the `{name}`-style placeholder substitution `resolveString()`/
+ * `resolvePluralString()` apply to whatever `lookupString()` finds (#1611/#1623).
+ */
+describe('interpolate()', () => {
+  test('substitutes every placeholder present in params', () => {
+    assert.equal(
+      interpolate('Hi {name}, see {link}', { name: 'Ada', link: '/x' }),
+      'Hi Ada, see /x'
+    )
+  })
+
+  test('leaves a placeholder with no matching param untouched, rather than blanking it', () => {
+    assert.equal(interpolate('Hi {name}', {}), 'Hi {name}')
+  })
+
+  test('a template with no placeholders is returned as-is', () => {
+    assert.equal(interpolate('No placeholders here', { name: 'Ada' }), 'No placeholders here')
   })
 })
 
@@ -408,6 +411,138 @@ describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () 
 })
 
 /**
+ * `getLocales()` (OpenProject #2005): used to write one extra `locale:<code>` cache entry per
+ * installed locale, alongside the `locales` list it actually serves and freshness-checks (`has
+ * ('locales')`). Nothing ever read that prefix back, so it was dead writes that could drift from the
+ * `locales` list with no reader to notice. Asserts the cache only ever receives the one `locales` key.
+ */
+describe('getLocales() (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let localesModel: typeof import('./locales.ts').locales
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ locales: localesModel } = await import('./locales.ts'))
+    await seedLocale(fixtures.db, { code: 'en' })
+    await seedLocale(fixtures.db, { code: 'fr' })
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('writes only the "locales" cache key, no per-locale entries', async () => {
+    const cacheSetCalls = (WIKI.cache.set as any).mock.calls.length
+    await localesModel.getLocales({ cache: false })
+
+    const newCalls = (WIKI.cache.set as any).mock.calls.slice(cacheSetCalls)
+    assert.deepEqual(
+      newCalls.map((call: any) => call.arguments[0]),
+      ['locales']
+    )
+  })
+})
+
+/**
+ * OpenProject #2042: `sideloadFromDataPath()` used to call `reloadCache()` directly on a successful
+ * load, refreshing only this instance's own in-memory cache — a locale installed, updated, or
+ * refreshed on instance A stayed invisible to instance B (e.g. `api/sites.ts`'s `installedCodes`
+ * check) until B happened to restart. `broadcastReload()` mirrors `models/groups.ts`'s /
+ * `models/sites.ts`'s fix exactly: every write path goes through it instead of `reloadCache()`
+ * directly, and it emits on `WIKI.events.outbound` (which `core/db.ts`'s real NOTIFY-based bus,
+ * unused here, is what actually carries to other instances).
+ */
+describe('locales.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let localesModel: typeof import('./locales.ts').locales
+  let scratchDir: string
+  let sideloadDir: string
+
+  before(async () => {
+    await setupTestDb()
+    ;({ locales: localesModel } = await import('./locales.ts'))
+
+    scratchDir = await mkdtemp(path.join(tmpdir(), 'wiki-locales-broadcast-test-'))
+    await mkdir(path.join(scratchDir, 'server/locales'), { recursive: true })
+    await writeFile(
+      path.join(scratchDir, 'server/locales/en.json'),
+      JSON.stringify({ key0: 'value0' })
+    )
+
+    WIKI.SERVERPATH = path.join(scratchDir, 'server')
+    WIKI.ROOTPATH = scratchDir
+    WIKI.config.dataPath = path.join(scratchDir, 'data')
+    sideloadDir = path.join(scratchDir, 'data/locales')
+  })
+
+  beforeEach(async () => {
+    await rm(sideloadDir, { recursive: true, force: true })
+    await mkdir(sideloadDir, { recursive: true })
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+  })
+
+  after(async () => {
+    await rm(scratchDir, { recursive: true, force: true })
+    await teardownTestDb()
+  })
+
+  test('sideloadFromDataPath emits exactly one reloadLocales event when it loads a locale', async () => {
+    await writeFile(
+      path.join(sideloadDir, 'tlh.json'),
+      JSON.stringify({ name: 'Klingon', language: 'tlh', strings: { key0: 'wa' } })
+    )
+
+    const result = await localesModel.sideloadFromDataPath({ force: true })
+    assert.deepEqual(result.loaded, ['tlh'])
+
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    const reloadCalls = calls.filter((c: any) => c.arguments[0] === 'reloadLocales')
+    assert.equal(reloadCalls.length, 1, 'expected exactly one reloadLocales broadcast')
+  })
+
+  test('sideloadFromDataPath emits nothing when nothing was loaded', async () => {
+    const result = await localesModel.sideloadFromDataPath({ force: true })
+    assert.deepEqual(result.loaded, [])
+
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.equal(calls.filter((c: any) => c.arguments[0] === 'reloadLocales').length, 0)
+  })
+
+  test('subscribeToEvents wires the inbound reloadLocales event to reloadCache, without re-emitting', async () => {
+    let reloaded = false
+    const originalReloadCache = localesModel.reloadCache.bind(localesModel)
+    localesModel.reloadCache = async () => {
+      reloaded = true
+      await originalReloadCache()
+    }
+    try {
+      localesModel.subscribeToEvents()
+      const onCalls = (WIKI.events.inbound.on as any).mock.calls
+      const handler = onCalls.find((c: any) => c.arguments[0] === 'reloadLocales')?.arguments[1]
+      assert.ok(handler, 'expected subscribeToEvents to register a reloadLocales handler')
+
+      await handler()
+      assert.equal(reloaded, true)
+
+      const outboundCalls = (WIKI.events.outbound.emit as any).mock.calls
+      assert.equal(
+        outboundCalls.filter((c: any) => c.arguments[0] === 'reloadLocales').length,
+        0,
+        'the inbound handler must never re-broadcast, or every instance would echo forever'
+      )
+    } finally {
+      localesModel.reloadCache = originalReloadCache
+    }
+  })
+
+  test('boot-time reloadCache() emits nothing', async () => {
+    await localesModel.reloadCache()
+
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.equal(calls.filter((c: any) => c.arguments[0] === 'reloadLocales').length, 0)
+  })
+})
+
+/**
  * `isReservedLocaleCode` (task 12 / #994): whether a path segment names an INSTALLED locale, case-
  * insensitively — installed, not merely active on a given site, per the decision doc's item 4: a
  * locale can be activated later, so a page created while it was only installed must already be
@@ -443,5 +578,99 @@ describe('isReservedLocaleCode (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
   test('returns false for an empty segment', async () => {
     assert.equal(await localesModel.isReservedLocaleCode(''), false)
+  })
+})
+
+/**
+ * `resolveString()` / `resolvePluralString()` (#1611/#1623): the server-side resolver
+ * `models/mail.ts`'s templates use to address a recipient in `users.prefs.locale` rather than
+ * always `en`. `mail.test.ts` exercises these against the real production `mail.*` keys via a
+ * lightweight stand-in (kept out of the DB, matching that file's own pure-unit convention); this
+ * suite is the one place the resolver itself is proven against a real `locales` row.
+ */
+describe('resolveString / resolvePluralString (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let localesModel: typeof import('./locales.ts').locales
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ locales: localesModel } = await import('./locales.ts'))
+    await fixtures.db.insert(localesTable).values({
+      code: 'en',
+      name: 'English',
+      nativeName: 'English',
+      language: 'en',
+      region: '',
+      script: '',
+      isRTL: false,
+      strings: {
+        greeting: 'Hi {name}, welcome to {place}.',
+        digest: 'no items | one item | {count} items'
+      }
+    })
+    await fixtures.db.insert(localesTable).values({
+      code: 'fr',
+      name: 'French',
+      nativeName: 'Français',
+      language: 'fr',
+      region: '',
+      script: '',
+      isRTL: false,
+      strings: {
+        // -> 'digest' deliberately absent, and 'blankKey' present but blank, to exercise both
+        //    per-key fallback paths against a locale that IS otherwise installed
+        greeting: 'Bonjour {name}, bienvenue à {place}.',
+        blankKey: ''
+      }
+    })
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('resolves and interpolates a key present in the requested locale', async () => {
+    const result = await localesModel.resolveString('fr', 'greeting', {
+      name: 'Ada',
+      place: 'Paris'
+    })
+    assert.equal(result, 'Bonjour Ada, bienvenue à Paris.')
+  })
+
+  test('falls back to en for a locale not installed at all', async () => {
+    const result = await localesModel.resolveString('xx-not-installed', 'greeting', {
+      name: 'Ada',
+      place: 'Paris'
+    })
+    assert.equal(result, 'Hi Ada, welcome to Paris.')
+  })
+
+  test('falls back to en for a key missing from an otherwise-installed locale', async () => {
+    const result = await localesModel.resolveString('fr', 'digest', {})
+    assert.equal(result, 'no items | one item | {count} items')
+  })
+
+  test('falls back to en for a key present but blank in an otherwise-installed locale', async () => {
+    const result = await localesModel.resolveString('fr', 'blankKey', {})
+    // -> en has no 'blankKey' either, so this falls all the way through to the key itself
+    assert.equal(result, 'blankKey')
+  })
+
+  test('a null/undefined locale resolves straight from en', async () => {
+    assert.equal(
+      await localesModel.resolveString(null, 'greeting', { name: 'Ada', place: 'Paris' }),
+      'Hi Ada, welcome to Paris.'
+    )
+    assert.equal(
+      await localesModel.resolveString(undefined, 'greeting', { name: 'Ada', place: 'Paris' }),
+      'Hi Ada, welcome to Paris.'
+    )
+  })
+
+  test('resolvePluralString selects the zero/one/other form by count', async () => {
+    assert.equal(await localesModel.resolvePluralString('en', 'digest', 0), 'no items')
+    assert.equal(await localesModel.resolvePluralString('en', 'digest', 1), 'one item')
+    assert.equal(await localesModel.resolvePluralString('en', 'digest', 2), '2 items')
+    assert.equal(await localesModel.resolvePluralString('en', 'digest', 5), '5 items')
   })
 })

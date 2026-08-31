@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gte, ilike, inArray, lte, sql } from 'drizzle-orm'
+import { chunk } from 'es-toolkit/array'
 import {
   comments as commentsTable,
   pages as pagesTable,
@@ -87,21 +88,47 @@ export interface ListForAdminOptions {
   siteId: string
   /**
    * The accessible-pages set the caller has already computed (see `accessiblePageIdsForAdmin` in
-   * `api/comments.ts`) — every comment returned is restricted to one of these page ids. An empty
-   * array is a legitimate "nothing is accessible" answer, not "no filter": it short-circuits to an
-   * empty result without touching `comments` at all.
+   * `api/comments.ts`) — every comment returned is restricted to one of these page ids.
+   *
+   * `null` means no restriction at all — a `manage:system` actor, who may see every page on the
+   * site. The `pageId IN (...)` condition is omitted entirely rather than populated with every page
+   * id on the site: that used to be exactly backwards, materialising the full page list only to
+   * immediately turn it back into "everything", and binding it twice (once for the page query, once
+   * for its `count(*)`) at up to postgres' 65,535-parameter ceiling.
+   *
+   * An empty array is still a legitimate "nothing is accessible" answer, not "no filter": it
+   * short-circuits to an empty result without touching `comments` at all.
    */
-  pageIds: string[]
+  pageIds: string[] | null
   /** Substring match against the resolved author name (account name, or `guestName`). */
   author?: string
   dateFrom?: Date
   dateTo?: Date
   offset?: number
   limit?: number
+  /**
+   * Max page ids bound into one `pageId IN (...)` query before `pageIds` is split into several
+   * queries whose rows are merged in memory instead. Defaults to a value comfortably under
+   * postgres' 65,535-bind-parameter limit; exposed mainly so a test can exercise the chunking path
+   * without needing tens of thousands of real rows in a throwaway database.
+   */
+  pageIdChunkSize?: number
 }
+
+/** {@link ListForAdminOptions.pageIdChunkSize}'s default. */
+const DEFAULT_PAGE_ID_CHUNK_SIZE = 20000
 
 /** Trimmed content shorter than this is not a comment. Matches 2.5.x's `postNewComment`. */
 const MIN_CONTENT_LENGTH = 2
+
+/**
+ * Trimmed content longer than this is rejected. Mirrors `CommentInput.content`'s `maxLength` in
+ * `api/schemas/comment.ts` — AJV enforces it for the request-driven POST/PATCH routes before the
+ * handler ever calls into this model, but `create`/`update` are also reachable directly (a future
+ * caller, the admin moderation surface, a script), so the ceiling is enforced here too rather than
+ * relying solely on schema validation at the one entry point that currently has it.
+ */
+const MAX_CONTENT_LENGTH = 32768
 
 const DEFAULT_LIMIT = 25
 
@@ -130,15 +157,24 @@ const DEFAULT_LIMIT = 25
  *
  * Also out of scope for this file: Akismet/spam/rate-limit policy, which belongs to Feature 390's
  * default provider.
+ *
+ * **Hook emission** (task 610, moved here from `api/comments.ts` by OpenProject #1923): `create`,
+ * `update` and `delete` each queue their `comment:new` / `comment:edit` / `comment:delete` webhook
+ * deliveries themselves, matching the convention `models/pages.ts`'s `page:create` et al. and
+ * `models/assets.ts`'s `asset:upload` et al. already follow — the route layer used to do this instead,
+ * which was the one exception to that pattern. `delete` re-fetches the row before removing it
+ * specifically so the emitted payload still has `authorId` to hand (a caller may only have a
+ * page-scoped ref, not the full row) — the same two-lookup shape the admin moderation delete route
+ * already used before this move.
  */
 class Comments {
   /**
    * Store a new comment.
    *
-   * The only validation done here is the same floor 2.5.x's `postNewComment` applied: trimmed
-   * content must be at least {@link MIN_CONTENT_LENGTH} characters. Everything past that — spam
-   * scoring, rate limits, guest field requirements — is policy that belongs to the provider layer,
-   * not this primitive.
+   * The only validation done here is the same floor 2.5.x's `postNewComment` applied — trimmed
+   * content must be at least {@link MIN_CONTENT_LENGTH} characters — plus a ceiling of
+   * {@link MAX_CONTENT_LENGTH} characters. Everything past that — spam scoring, rate limits, guest
+   * field requirements — is policy that belongs to the provider layer, not this primitive.
    */
   async create({
     siteId,
@@ -163,6 +199,9 @@ class Comments {
     if (trimmed.length < MIN_CONTENT_LENGTH) {
       throw new Error(`Comment content must be at least ${MIN_CONTENT_LENGTH} characters.`)
     }
+    if (trimmed.length > MAX_CONTENT_LENGTH) {
+      throw new Error(`Comment content must be at most ${MAX_CONTENT_LENGTH} characters.`)
+    }
 
     const rows = await WIKI.db
       .insert(commentsTable)
@@ -177,7 +216,9 @@ class Comments {
         guestIp
       })
       .returning()
-    return rows[0] as Comment
+    const comment = rows[0] as Comment
+    await this.emitEvent('comment:new', comment, await this.resolveAuthorName(comment))
+    return comment
   }
 
   /**
@@ -192,6 +233,9 @@ class Comments {
     if (trimmed.length < MIN_CONTENT_LENGTH) {
       throw new Error(`Comment content must be at least ${MIN_CONTENT_LENGTH} characters.`)
     }
+    if (trimmed.length > MAX_CONTENT_LENGTH) {
+      throw new Error(`Comment content must be at most ${MAX_CONTENT_LENGTH} characters.`)
+    }
 
     const rows = await WIKI.db
       .update(commentsTable)
@@ -201,7 +245,9 @@ class Comments {
       })
       .where(eq(commentsTable.id, id))
       .returning()
-    return rows[0] as Comment
+    const comment = rows[0] as Comment
+    await this.emitEvent('comment:edit', comment, await this.resolveAuthorName(comment))
+    return comment
   }
 
   /**
@@ -214,9 +260,20 @@ class Comments {
     return (rows[0] as Comment) ?? null
   }
 
-  /** Delete a comment. Cascades to its replies via the `replyTo` foreign key. */
+  /**
+   * Delete a comment. Cascades to its replies via the `replyTo` foreign key.
+   *
+   * Fetches the row first so `comment:delete` still has `authorId`/`siteId`/`pageId` to emit once the
+   * row is gone — a caller may only be holding a page-scoped ref (`AdminCommentWithPage`, from
+   * `getWithPage`), not the full row this needs. A no-op, non-emitting delete when `id` does not name
+   * an existing comment (nothing to fetch, nothing to emit).
+   */
   async delete(id: string): Promise<void> {
+    const existing = await this.get(id)
     await WIKI.db.delete(commentsTable).where(eq(commentsTable.id, id))
+    if (existing) {
+      await this.emitEvent('comment:delete', existing)
+    }
   }
 
   /**
@@ -307,54 +364,88 @@ class Comments {
     dateFrom,
     dateTo,
     offset = 0,
-    limit = DEFAULT_LIMIT
+    limit = DEFAULT_LIMIT,
+    pageIdChunkSize = DEFAULT_PAGE_ID_CHUNK_SIZE
   }: ListForAdminOptions): Promise<{ results: AdminComment[]; totalHits: number }> {
-    if (pageIds.length === 0) {
+    if (pageIds !== null && pageIds.length === 0) {
       return { results: [], totalHits: 0 }
     }
 
     const authorName = sql<string>`coalesce(${usersTable.name}, ${commentsTable.guestName}, '')`
-    const conditions = [eq(commentsTable.siteId, siteId), inArray(commentsTable.pageId, pageIds)]
+    const baseConditions = [eq(commentsTable.siteId, siteId)]
     if (dateFrom) {
-      conditions.push(gte(commentsTable.createdAt, dateFrom))
+      baseConditions.push(gte(commentsTable.createdAt, dateFrom))
     }
     if (dateTo) {
-      conditions.push(lte(commentsTable.createdAt, dateTo))
+      baseConditions.push(lte(commentsTable.createdAt, dateTo))
     }
     if (author) {
-      conditions.push(ilike(authorName, `%${author}%`))
+      baseConditions.push(ilike(authorName, `%${author}%`))
     }
-    const where = and(...conditions)
 
-    const [results, countRows] = await Promise.all([
-      WIKI.db
-        .select({
-          id: commentsTable.id,
-          siteId: commentsTable.siteId,
-          pageId: commentsTable.pageId,
-          pagePath: pagesTable.path,
-          authorId: commentsTable.authorId,
-          authorName,
-          replyTo: commentsTable.replyTo,
-          content: commentsTable.content,
-          createdAt: commentsTable.createdAt,
-          updatedAt: commentsTable.updatedAt
-        })
-        .from(commentsTable)
-        .innerJoin(pagesTable, eq(pagesTable.id, commentsTable.pageId))
-        .leftJoin(usersTable, eq(usersTable.id, commentsTable.authorId))
-        .where(where)
-        .orderBy(desc(commentsTable.createdAt))
-        .limit(limit)
-        .offset(offset),
-      WIKI.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(commentsTable)
-        .leftJoin(usersTable, eq(usersTable.id, commentsTable.authorId))
-        .where(where)
-    ])
+    // One query pair for a slice of `pageIds` (or none at all, for `null` — no restriction), sharing
+    // the same `WHERE` between the page query and its `count(*)`, exactly as a single unchunked call
+    // always has.
+    const fetchSlice = (ids: string[] | null, sliceLimit: number, sliceOffset: number) => {
+      const where = and(...baseConditions, ...(ids ? [inArray(commentsTable.pageId, ids)] : []))
+      return Promise.all([
+        WIKI.db
+          .select({
+            id: commentsTable.id,
+            siteId: commentsTable.siteId,
+            pageId: commentsTable.pageId,
+            pagePath: pagesTable.path,
+            authorId: commentsTable.authorId,
+            authorName,
+            replyTo: commentsTable.replyTo,
+            content: commentsTable.content,
+            createdAt: commentsTable.createdAt,
+            updatedAt: commentsTable.updatedAt
+          })
+          .from(commentsTable)
+          .innerJoin(pagesTable, eq(pagesTable.id, commentsTable.pageId))
+          .leftJoin(usersTable, eq(usersTable.id, commentsTable.authorId))
+          .where(where)
+          .orderBy(desc(commentsTable.createdAt))
+          .limit(sliceLimit)
+          .offset(sliceOffset),
+        WIKI.db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(commentsTable)
+          .leftJoin(usersTable, eq(usersTable.id, commentsTable.authorId))
+          .where(where)
+      ])
+    }
 
-    return { results: results as AdminComment[], totalHits: countRows[0]?.count ?? 0 }
+    const pageIdChunks = pageIds === null ? null : chunk(pageIds, pageIdChunkSize)
+
+    // No restriction, or few enough ids to bind in one query: identical shape (and identical query
+    // count) to before this task — pagination stays pushed to SQL, nothing merged in memory.
+    if (pageIdChunks === null || pageIdChunks.length <= 1) {
+      const [results, countRows] = await fetchSlice(pageIds, limit, offset)
+      return { results: results as AdminComment[], totalHits: countRows[0]?.count ?? 0 }
+    }
+
+    /*
+     * More accessible page ids than fit in one bind-safe `IN (...)` (a delegated moderator with a
+     * huge rule-matched page set — `manage:system` never reaches here, since its `pageIds` is
+     * `null`): one query per chunk instead of one oversized bind. Each chunk pulls only up to
+     * `offset + limit` rows — enough to guarantee correctness once every chunk's rows are merged and
+     * re-sorted, since any chunk's rows could sort ahead of or behind another chunk's — then the
+     * merged, re-sorted set is sliced down to the requested page. `totalHits` sums each chunk's own
+     * `count(*)`, which stays exact since the chunks are disjoint page-id sets.
+     */
+    const chunkResults = await Promise.all(
+      pageIdChunks.map((idsChunk) => fetchSlice(idsChunk, offset + limit, 0))
+    )
+    const merged = chunkResults.flatMap(([rows]) => rows as AdminComment[])
+    merged.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    const totalHits = chunkResults.reduce(
+      (sum, [, countRows]) => sum + (countRows[0]?.count ?? 0),
+      0
+    )
+
+    return { results: merged.slice(offset, offset + limit), totalHits }
   }
 
   /** A single comment plus enough of its page to decide `manage:comments` against, or `null`. */
@@ -389,6 +480,57 @@ class Comments {
         classification: row.classification
       }
     }
+  }
+
+  /**
+   * Resolves the display name behind a comment: the account's current name for a logged in author,
+   * the stored `guestName` otherwise. Used only to build the `metadata.authorName` a `comment:new`/
+   * `comment:edit` hook payload carries — the API response's own `authorName` field is resolved
+   * separately, at the route layer (`resolveAuthorName` in `api/comments.ts`), since that also has to
+   * cover `listForPage`'s response shape, which never reaches this method at all.
+   */
+  private async resolveAuthorName(comment: {
+    authorId: string | null
+    guestName: string | null
+  }): Promise<string> {
+    if (comment.authorId) {
+      const user = await WIKI.models.users.getById(comment.authorId)
+      if (user) {
+        return user.name
+      }
+    }
+    return comment.guestName ?? ''
+  }
+
+  /**
+   * Queue a `comment:new` / `comment:edit` / `comment:delete` webhook delivery (task 610; moved here
+   * from `api/comments.ts`'s `emitCommentEvent` by OpenProject #1923 — see the class doc comment).
+   * Payload shape is unchanged from that route-layer version: `comment:delete` carries only the base
+   * identity fields, the other two events add `metadata.authorName`/`metadata.replyTo` and `content`.
+   */
+  private async emitEvent(
+    event: 'comment:new' | 'comment:edit' | 'comment:delete',
+    comment: Comment,
+    authorName?: string
+  ): Promise<void> {
+    const base = {
+      id: comment.id,
+      pageId: comment.pageId,
+      siteId: comment.siteId,
+      authorId: comment.authorId,
+      isGuest: comment.authorId === null
+    }
+    await WIKI.models.hooks.emit(
+      event,
+      comment.siteId,
+      event === 'comment:delete'
+        ? base
+        : {
+            ...base,
+            metadata: { authorName, replyTo: comment.replyTo },
+            content: comment.content
+          }
+    )
   }
 }
 

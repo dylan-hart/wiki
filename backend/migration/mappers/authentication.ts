@@ -25,15 +25,30 @@ import type { SourceRecord } from '../connector.ts'
  *
  * ## Unsupported source modules (mirrors Feature 414's provider-fallback precedent)
  *
- * 3.0 ships four authentication modules (`backend/modules/authentication/{github,google,local,oidc}`);
- * 2.x ships twenty-one. A source row whose `strategyKey` isn't one of the four survivors — resolved via
- * `resolver.getModule()` returning `null`, not a hardcoded list, so this mapper tracks whichever
- * modules actually exist on disk rather than a snapshot of them — has nowhere to land: not just its
- * `config` (a remap target that exists), but the row itself. Exactly like Feature 414's
- * `needsProviderFallback()`/`ProviderFallbackFlag` for source *users* on an unimplemented provider,
- * this mapper does not write a row for it: it reports one `status: 'unsupported'` entry in the
- * result, carrying the source key and module, for whichever future dry-run report (Feature 421) wants
- * to show an administrator exactly what didn't come across and why.
+ * 3.0 ships sixteen authentication modules (`backend/modules/authentication/*`, see
+ * `../unmappable.ts`'s `KNOWN_3_0_AUTH_MODULES`); 2.x ships twenty-one. A source row whose
+ * `strategyKey` isn't one of the sixteen survivors — resolved via `resolver.getModule()` returning
+ * `null`, not a hardcoded list, so this mapper tracks whichever modules actually exist on disk rather
+ * than a snapshot of them — has nowhere to land: not just its `config` (a remap target that exists),
+ * but the row itself. Exactly like Feature 414's `needsProviderFallback()`/`ProviderFallbackFlag` for
+ * source *users* on an unimplemented provider, this mapper does not write a row for it: it reports one
+ * `status: 'unsupported'` entry in the result, carrying the source key and module, for whichever future
+ * dry-run report (Feature 421) wants to show an administrator exactly what didn't come across and why.
+ *
+ * ## Unverified config mappings
+ *
+ * `resolver.getModule()` resolving is necessary but not sufficient for a `config` blob to be safe to
+ * carry across: `CONFIG_TRANSFORMS` below only has a real key-by-key remap for `local`/`google`/
+ * `github`/`oidc` (`MODULES_WITH_VERIFIED_CONFIG_MAPPING`). A row for any other module — `ldap`/`saml`/
+ * `cas`/`auth0`/`okta`/`gitlab`/`keycloak`/`microsoft`/`discord`/`slack`/`twitch`/`oauth2`, all real
+ * 3.0 modules with no verified prop-name check yet — that carried a non-empty `config` comes back
+ * `status: 'flagged'` instead of silently importing as an **enabled** strategy with an empty config
+ * (no server URL, no bind DN, no certificate, no client secret): a broken login option an operator
+ * would otherwise see reported as successfully created. A row with an *empty* config for one of these
+ * modules has nothing to lose in the remap and still comes back `created` — the module itself is real,
+ * only its `config` prop names are unverified. This is deliberately not a copy of `mappers/storage.ts`'s
+ * gate: storage is safe because its transform coverage matches every module a 2.x row can name (`db`/
+ * `gcs` deliberately absent, documented at `storage.ts:167-172`), which is not true here.
  *
  * ## Multi-source conflict policy
  *
@@ -242,6 +257,19 @@ type ConfigTransform = (raw: Record<string, unknown>) => Record<string, unknown>
  * (`enforceTfa`, `emailValidation`, `allowForgotPassword`) are new capabilities that always take
  * their module defaults on import, never a 2.x value.
  */
+/**
+ * Modules `CONFIG_TRANSFORMS` actually has a verified key-by-key remap for. Kept as its own named set
+ * (rather than reading `CONFIG_TRANSFORMS`'s keys where needed) so the "is this module's config
+ * mapping verified" question reads as its own named check at each call site — see the module doc's
+ * "Unverified config mappings" section for why every other real 3.0 module still gets flagged rather
+ * than silently importing an empty config as enabled.
+ */
+const MODULES_WITH_VERIFIED_CONFIG_MAPPING = new Set(['local', 'google', 'github', 'oidc'])
+
+function hasNonEmptyConfig(rawConfig: unknown): boolean {
+  return isPlainObject(rawConfig) && Object.keys(rawConfig).length > 0
+}
+
 const CONFIG_TRANSFORMS: Record<string, ConfigTransform> = {
   local: () => ({}),
   google: (raw) => pick(raw, ['clientId', 'clientSecret', 'hostedDomain']),
@@ -382,6 +410,15 @@ export function mapAuthenticationRow(
     }
   }
 
+  if (!MODULES_WITH_VERIFIED_CONFIG_MAPPING.has(module) && hasNonEmptyConfig(row.config)) {
+    return {
+      sourceKey,
+      module,
+      status: 'flagged',
+      message: `module '${module}' has no verified config prop-name mapping yet — this source row's config was not carried across; see docs/migration/2.5x-settings-auth-storage-field-mapping.md's "The four originally-surviving modules' config prop-name check" section`
+    }
+  }
+
   const incoming = transformConfig(module, row.config)
   const validationError = resolver.validateConfig(module, incoming)
   if (validationError) {
@@ -408,11 +445,19 @@ export function mapAuthenticationRow(
       ? disambiguateDisplayName(baseDisplayName, state.usedDisplayNames)
       : baseDisplayName
 
+  // -> 2.5.x carried one combined flag (`selfRegistration`, source-side); 3.0 splits its target into
+  //    `selfRegistration` (enforced only for a form-based module) and `autoProvision` (enforced only
+  //    for a redirect-based one) -- see OpenProject WP #2130. Mirroring the source value onto
+  //    both is what preserves whichever behavior the source row's module actually relied on, since
+  //    the source has no way to say which of the two it meant and 3.0 only ever enforces the one that
+  //    applies to the module the row lands on; the other stays a stored, inert value.
+  const acceptsNewUsers = !!row.selfRegistration
   const newRow: NewAuthenticationRow = {
     module,
     isEnabled: !!row.isEnabled,
     displayName,
-    registration: !!row.selfRegistration,
+    selfRegistration: acceptsNewUsers,
+    autoProvision: acceptsNewUsers,
     allowedEmailRegex: buildAllowedEmailRegex(row.domainWhitelist),
     autoEnrollGroups: remapAutoEnrollGroups(row.autoEnrollGroups, groupIdMap),
     config: resolver.buildConfig(module, incoming, {})

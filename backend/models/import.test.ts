@@ -1,9 +1,11 @@
 import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { promisify } from 'node:util'
 import type { ExtensionDefinition } from './extensions.ts'
-import { detectImportFormat } from './import.ts'
+import { buildPandocArgs, detectImportFormat, MAX_CONCURRENT_PANDOC, pandocCwd } from './import.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -267,6 +269,119 @@ describe('page import (markdown pass-through)', () => {
         return true
       }
     )
+  })
+})
+
+/**
+ * OpenProject #2191: `rst` and `docbook` both implement file-inclusion directives pandoc would
+ * otherwise honor, and no `cwd` meant a relative include could reach `config.yml` next to the repo
+ * root. The argv actually spawned *is* the whole security boundary here (per the module's own header
+ * comment on `execFile` vs `exec`), so these assert on the pure argv/cwd builders directly rather
+ * than mocking `execFile` or the `node:child_process` module.
+ */
+describe('runPandoc argv (OpenProject #2191: --sandbox)', () => {
+  const repoRoot = path.resolve(import.meta.dirname, '..', '..')
+
+  test('every pandoc-backed format is spawned with --sandbox', () => {
+    for (const format of ['mediawiki', 'textile', 'docbook', 'rst', 'docx', 'odt'] as const) {
+      assert.ok(
+        buildPandocArgs(format).includes('--sandbox'),
+        `expected --sandbox in argv for format ${format}`
+      )
+    }
+  })
+
+  test('the -f value passed to pandoc is the requested format', () => {
+    assert.deepEqual(buildPandocArgs('rst'), ['-f', 'rst', '-t', 'gfm', '--wrap=none', '--sandbox'])
+  })
+
+  test('pandoc is spawned outside the repo root, with nothing sensitive in reach', () => {
+    const cwd = pandocCwd()
+    assert.notEqual(cwd, repoRoot)
+    assert.equal(path.relative(repoRoot, cwd).startsWith('..'), true)
+    assert.equal(cwd, tmpdir())
+  })
+})
+
+/**
+ * OpenProject #2209/#2192: `runPandoc` gates every call through a process-wide concurrency ceiling
+ * (`MAX_CONCURRENT_PANDOC`), so `execPandoc` — the actual spawn, mocked here — is asserted to never
+ * have more than that many invocations in flight at once, however many callers invoke `runPandoc`
+ * concurrently, and that a rejected conversion still frees its slot for the next caller.
+ */
+describe('page import (pandoc concurrency gate, #2209)', () => {
+  let pageImport: typeof import('./import.ts').pageImport
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      models: {
+        extensions: {
+          getDefinition: mock.fn((key: string) => (key === 'pandoc' ? PANDOC_DEFINITION : null)),
+          isInstalled: mock.fn(async () => true)
+        }
+      }
+    }
+    ;({ pageImport } = await import('./import.ts'))
+  })
+
+  after(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('never runs more than MAX_CONCURRENT_PANDOC conversions at once', async () => {
+    let inFlight = 0
+    let maxObserved = 0
+    const execPandoc = mock.method(pageImport as any, 'execPandoc', async () => {
+      inFlight++
+      maxObserved = Math.max(maxObserved, inFlight)
+      // -> Yield long enough that every caller has had a chance to queue up behind the gate
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      inFlight--
+      return 'converted'
+    })
+
+    try {
+      const callerCount = MAX_CONCURRENT_PANDOC * 3
+      await Promise.all(
+        Array.from({ length: callerCount }, () =>
+          (pageImport as any).runPandoc('mediawiki', Buffer.from('= x ='))
+        )
+      )
+      assert.equal(execPandoc.mock.calls.length, callerCount)
+      assert.ok(
+        maxObserved <= MAX_CONCURRENT_PANDOC,
+        `expected at most ${MAX_CONCURRENT_PANDOC} concurrent conversions, observed ${maxObserved}`
+      )
+      assert.equal(
+        maxObserved,
+        MAX_CONCURRENT_PANDOC,
+        'the gate should also be fully used, not idle'
+      )
+    } finally {
+      execPandoc.mock.restore()
+    }
+  })
+
+  test('releases the slot when a conversion fails, so the next caller is not stuck queued', async () => {
+    const execPandoc = mock.method(pageImport as any, 'execPandoc', async () => {
+      throw new Error('pandoc exploded')
+    })
+
+    try {
+      // -> Fill and fail every slot
+      await Promise.all(
+        Array.from({ length: MAX_CONCURRENT_PANDOC }, () =>
+          (pageImport as any).runPandoc('mediawiki', Buffer.from('= x =')).catch(() => {})
+        )
+      )
+
+      // -> A slot freed by a failure must be immediately usable, not leaked
+      execPandoc.mock.mockImplementation(async () => 'recovered')
+      const result = await (pageImport as any).runPandoc('mediawiki', Buffer.from('= x ='))
+      assert.equal(result, 'recovered')
+    } finally {
+      execPandoc.mock.restore()
+    }
   })
 })
 

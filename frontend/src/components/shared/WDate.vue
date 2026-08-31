@@ -3,14 +3,14 @@
     class="w-date inline-block rounded p-3"
     :class="bordered ? 'border border-black/12 dark:border-white/15' : ''"
     role="group"
-    :aria-label="ariaLabel">
+    :aria-label="resolvedAriaLabel">
     <div class="mb-2 flex items-center justify-between gap-2">
       <w-btn
         flat
         dense
         round
         icon="mdi:chevron-left"
-        :aria-label="'Previous month'"
+        :aria-label="resolvedPreviousMonthLabel"
         @click="shiftMonth(-1)" />
       <div class="text-body2 font-medium">{{ monthLabel }}</div>
       <w-btn
@@ -18,7 +18,7 @@
         dense
         round
         icon="mdi:chevron-right"
-        :aria-label="'Next month'"
+        :aria-label="resolvedNextMonthLabel"
         @click="shiftMonth(1)" />
     </div>
 
@@ -51,8 +51,10 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import WBtn from './WBtn.vue'
+import { useDictText } from '@/composables/i18nText'
+import { useCommonStore } from '@/stores/common'
 
 /**
  * Calendar for picking a single date, or a date range with `range`.
@@ -83,15 +85,37 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  /** Falls back to the `common.date.chooseDate` dictionary entry when not given. */
   ariaLabel: {
     type: String,
-    default: 'Choose a date'
+    default: null
+  },
+  /** Accessible name for the previous-month control. Falls back to `common.date.previousMonth`. */
+  previousMonthLabel: {
+    type: String,
+    default: null
+  },
+  /** Accessible name for the next-month control. Falls back to `common.date.nextMonth`. */
+  nextMonthLabel: {
+    type: String,
+    default: null
   }
 })
 
 const emit = defineEmits(['update:modelValue'])
 
-const WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+const dictText = useDictText()
+const resolvedAriaLabel = computed(
+  () => props.ariaLabel ?? dictText('common.date.chooseDate', 'Choose a date')
+)
+const resolvedPreviousMonthLabel = computed(
+  () => props.previousMonthLabel ?? dictText('common.date.previousMonth', 'Previous month')
+)
+const resolvedNextMonthLabel = computed(
+  () => props.nextMonthLabel ?? dictText('common.date.nextMonth', 'Next month')
+)
+
+const commonStore = useCommonStore()
 
 /** `YYYY-MM-DD` for a year/month/day triple, zero-padded. */
 function iso(year, month, day) {
@@ -116,6 +140,25 @@ const anchor = ref(
   })()
 )
 
+/**
+ * Re-sync the visible month whenever the selection's start date changes -- a `modelValue` set
+ * after mount, or set programmatically by the parent, otherwise leaves the calendar showing
+ * whatever month it opened on with the selection off-screen.
+ *
+ * Watches `selectedFrom` specifically rather than deep-watching `modelValue`: in range mode, a
+ * `to`-only edit (the second click of the two-click cycle in `pick()`) leaves `from` untouched, so
+ * this does not fire for it and the view stays put instead of yanking to the end date. It also
+ * never reads or writes `anchor` except in reaction to `selectedFrom` itself, so `shiftMonth()`
+ * remains free to navigate away afterwards without this watcher snapping the view back.
+ */
+watch(selectedFrom, (start) => {
+  if (!start) {
+    return
+  }
+  const [year, month] = start.split('-').map(Number)
+  anchor.value = { year, month }
+})
+
 const monthStart = computed(() =>
   Temporal.PlainDate.from({ year: anchor.value.year, month: anchor.value.month, day: 1 })
 )
@@ -124,10 +167,21 @@ const daysInMonth = computed(() => monthStart.value.daysInMonth)
 const leadingBlanks = computed(() => monthStart.value.dayOfWeek - 1)
 
 const monthLabel = computed(() =>
-  monthStart.value.toLocaleString(undefined, { month: 'long', year: 'numeric' })
+  monthStart.value.toLocaleString(commonStore.locale, { month: 'long', year: 'numeric' })
 )
 
-const weekdayLabels = WEEKDAYS
+/**
+ * 2024-01-01 was a Monday, so adding 0..6 days to it walks Monday through Sunday for whatever locale
+ * is active -- a fixed reference week, unrelated to `anchor`/the month actually on screen, picked
+ * purely so each of the 7 header cells has a real date to ask `toLocaleString` for a weekday name.
+ */
+const WEEKDAY_REFERENCE = Temporal.PlainDate.from('2024-01-01')
+
+const weekdayLabels = computed(() =>
+  Array.from({ length: 7 }, (_, i) =>
+    WEEKDAY_REFERENCE.add({ days: i }).toLocaleString(commonStore.locale, { weekday: 'short' })
+  )
+)
 
 function shiftMonth(delta) {
   const next = monthStart.value.add({ months: delta })
@@ -139,7 +193,7 @@ function dateOf(day) {
 }
 
 function labelFor(day) {
-  return monthStart.value.with({ day }).toLocaleString(undefined, { dateStyle: 'long' })
+  return monthStart.value.with({ day }).toLocaleString(commonStore.locale, { dateStyle: 'long' })
 }
 
 function isSelected(day) {

@@ -2,10 +2,13 @@
   <w-page class="admin-comments">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-comments.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-comments.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.comments.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.comments.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.comments.subtitle') }}
         </div>
@@ -40,7 +43,7 @@
           :label="t(`common.actions.apply`)"
           color="secondary"
           @click="save()"
-          :disable="!selectedProvider"
+          :disable="!selectedProvider || !selectedProvider.isSelectable"
           :loading="state.loading > 0" />
       </div>
     </div>
@@ -63,18 +66,21 @@
               :key="prov.module"
               active-class="bg-primary text-white"
               :active="state.selectedModule === prov.module"
-              :disabled="!prov.isAvailable"
+              :disabled="!prov.isAvailable || !prov.isSelectable"
               clickable
               @click="state.selectedModule = prov.module">
               <w-item-section side>
-                <w-icon v-if="!prov.isAvailable" name="mdi:minus-box-outline" color="grey" />
+                <w-icon
+                  v-if="!prov.isAvailable || !prov.isSelectable"
+                  name="mdi:minus-box-outline"
+                  color="grey" />
                 <w-icon
                   v-else-if="state.selectedModule === prov.module"
                   name="mdi:checkbox-marked-circle-outline" />
                 <w-icon v-else name="mdi:checkbox-blank-circle-outline" color="grey" />
               </w-item-section>
               <w-item-section>
-                <w-item-label :class="!prov.isAvailable ? `text-grey` : ``">{{
+                <w-item-label :class="!prov.isAvailable || !prov.isSelectable ? `text-grey` : ``">{{
                   prov.title
                 }}</w-item-label>
                 <w-item-label caption>{{ prov.description }}</w-item-label>
@@ -244,6 +250,11 @@
             row-key="id"
             flat
             :loading="state.loading > 0">
+            <template #no-data>
+              <div class="text-center text-grey mt-6">
+                {{ t('admin.comments.searchNoResults') }}
+              </div>
+            </template>
             <template #body-cell-author="props">
               <w-td :props="props"
                 ><em>{{ props.value }}</em></w-td
@@ -270,11 +281,6 @@
             </template>
           </w-table>
         </w-card>
-        <div
-          class="text-center text-grey mt-6"
-          v-if="state.comments.length < 1 && state.loading === 0">
-          {{ t('admin.comments.searchNoResults') }}
-        </div>
         <div class="flex items-center justify-center mt-6" v-if="state.totalPages > 1">
           <w-pagination
             v-model="state.currentPage"
@@ -555,9 +561,14 @@ async function save() {
   state.loading++
   loading.show()
   try {
-    await API_CLIENT.put(`sites/${adminStore.currentSiteId}/comments/providers`, {
+    const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}/comments/providers`, {
       json: payloadFor(selectedProvider.value)
     }).json()
+    // -> The API client does not throw for a 400, so a refusal comes back as a parsed error
+    //    envelope rather than a rejection: without this check it reads as a successful save.
+    if (resp?.ok === false) {
+      throw new Error(resp.message || t('admin.comments.saveFailed'))
+    }
     notify({
       type: 'positive',
       message: t('admin.comments.saveSuccess')
@@ -624,7 +635,14 @@ function confirmDelete(comment) {
     state.loading++
     loading.show()
     try {
-      await API_CLIENT.delete(`sites/${adminStore.currentSiteId}/comments/${comment.id}`)
+      const resp = await API_CLIENT.delete(
+        `sites/${adminStore.currentSiteId}/comments/${comment.id}`
+      )
+      // -> The API client does not throw for a 400, so a refusal comes back as a response with
+      //    `ok: false` rather than a rejection: without this check it reads as a successful delete.
+      if (!resp?.ok) {
+        throw new Error((await resp.json())?.message || t('admin.comments.deleteFailed'))
+      }
       notify({
         type: 'positive',
         message: t('admin.comments.deleteSuccess')

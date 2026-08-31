@@ -7,6 +7,8 @@ import { usePageStore } from '@/stores/page'
 import { useEditorStore } from '@/stores/editor'
 import { useCommonStore } from '@/stores/common'
 import WBtn from '@/components/shared/WBtn.vue'
+import { openDialogs } from '@/composables/dialog'
+import { queue as notifyQueue } from '@/composables/notify'
 
 /**
  * `monaco-editor` needs real browser layout/measurement APIs that `happy-dom` (this workspace's
@@ -57,6 +59,12 @@ let disposed
 const fakeEditor = {
   getModel: vi.fn(() => fakeModel),
   getValue: vi.fn(() => fakeModel.getValue()),
+  // -> Real Monaco resets the whole model (and its undo stack) on `setValue`; rebuilding `fakeModel`
+  //    from scratch reproduces that "wholesale replace" shape closely enough for the save-conflict
+  //    discard/undo round trip (OpenProject #2073) to assert against.
+  setValue: vi.fn((value) => {
+    fakeModel = createFakeModel(value)
+  }),
   getPosition: vi.fn(() => (disposed ? null : cursorPosition)),
   setPosition: vi.fn((pos) => {
     cursorPosition = pos
@@ -302,6 +310,103 @@ describe('EditorMarkdown content flusher (OpenProject #806)', () => {
     wrapper.unmount()
 
     expect(editorStore.contentFlusher).toBeNull()
+  })
+})
+
+/*
+  OpenProject #1889: `flushEditorContent()` used to call `processContent(value)` unconditionally on
+  every 500ms debounced edit -- running the full markdown-it + KaTeX + highlight.js pipeline over the
+  whole document and immediately discarding the result whenever there was no preview pane open to show
+  it. These are the fix's three verification points: a closed-pane debounced flush skips the renderer
+  entirely (while still syncing `pageStore.content`, so a save is never reading stale text), reopening
+  the pane catches up the pending render, and the save-path flusher (`editorStore.contentFlusher`, now
+  `flushEditorContentForSave`) still renders a stale document before `pageStore.pageSave()` reads
+  `render` -- see that call site in `stores/page.js`.
+*/
+describe('EditorMarkdown skips rendering while the preview pane is closed (OpenProject #1889)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  async function closePreview(wrapper) {
+    const hideButton = wrapper
+      .findAllComponents(WBtn)
+      .find((candidate) => candidate.props('icon') === 'mdi:eye-off-outline')
+    await hideButton.trigger('click')
+  }
+
+  it('does not run the renderer on a debounced edit while the pane is closed', async () => {
+    const { wrapper, pageStore } = await mountEditor('Initial content.')
+    await closePreview(wrapper)
+    // -> `md` is only assigned once `onMounted` resolves (see `mountEditor`'s own comment on why this
+    //    test file mounts the real markdown pipeline rather than stubbing it out)
+    const renderSpy = vi.spyOn(wrapper.vm.md, 'render')
+
+    fakeModel.applyEdit({
+      range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 },
+      text: 'EDITED '
+    })
+    // -> The handler `onDidChangeModelContent` was registered with -- same as the OpenProject #808
+    //    tests above use to arm the debounce
+    const contentChangeHandler = fakeEditor.onDidChangeModelContent.mock.calls[0][0]
+    contentChangeHandler({})
+    vi.advanceTimersByTime(500)
+
+    // -> Content still syncs on every debounced edit -- a save must never read stale `content`
+    expect(pageStore.content).toContain('EDITED')
+    // -> But the render pipeline itself never ran, and the flag records the render this owes
+    expect(renderSpy).not.toHaveBeenCalled()
+    expect(wrapper.vm.state.renderIsStale).toBe(true)
+  })
+
+  it('renders the pending content once the preview pane is reopened', async () => {
+    const { wrapper, pageStore } = await mountEditor('Initial content.')
+    await closePreview(wrapper)
+
+    fakeModel.applyEdit({
+      range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 },
+      text: 'EDITED '
+    })
+    const contentChangeHandler = fakeEditor.onDidChangeModelContent.mock.calls[0][0]
+    contentChangeHandler({})
+    vi.advanceTimersByTime(500)
+    expect(wrapper.vm.state.renderIsStale).toBe(true)
+
+    const showButton = wrapper
+      .findAllComponents(WBtn)
+      .find((candidate) => candidate.props('icon') === 'mdi:view-split-vertical')
+    await showButton.trigger('click')
+
+    expect(pageStore.render).toContain('EDITED')
+    expect(wrapper.vm.state.renderIsStale).toBe(false)
+  })
+
+  it('the save-path flusher renders a stale document before pageSave reads pageStore.render', async () => {
+    const { wrapper, pageStore } = await mountEditor('Initial content.')
+    const editorStore = useEditorStore()
+    await closePreview(wrapper)
+    const renderBeforeEdit = pageStore.render
+
+    fakeModel.applyEdit({
+      range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 },
+      text: 'SAVE-PATH-EDIT '
+    })
+
+    // -> What `pageStore.pageSave()` calls synchronously before it reads `render` -- proves the save
+    //    path renders even with nothing yet flushed through the debounced handler: the flusher itself
+    //    both syncs `content` from the live editor value and, because the pane is closed, catches up
+    //    the render too -- unlike the plain debounced flush the first test above covers.
+    editorStore.contentFlusher()
+
+    expect(pageStore.content).toContain('SAVE-PATH-EDIT')
+    expect(pageStore.render).not.toBe(renderBeforeEdit)
+    expect(pageStore.render).toContain('SAVE-PATH-EDIT')
+    expect(wrapper.vm.state.renderIsStale).toBe(false)
   })
 })
 
@@ -850,5 +955,61 @@ describe('EditorMarkdown list continuation on Enter (OpenProject #802)', () => {
     pressEnter()
 
     expect(fakeModel.getValue()).toBe('- one\n')
+  })
+})
+
+/*
+  OpenProject #2073: a save-conflict "Discard" choice used to be permanent -- `editor.setValue()`
+  clears Monaco's own undo stack, so once the author's text was overwritten with the server's
+  snapshot, nothing in the app could get it back. `resolveSaveConflict`'s discard branch now stashes
+  the author's pending content in `editorStore.discardedContent` right before the overwrite, and
+  raises a toast with an "undo" action (`undoDiscard`) that restores it into both the store and the
+  live Monaco model.
+*/
+describe('EditorMarkdown save-conflict discard + undo (OpenProject #2073)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // -> Both are module-level singletons shared across every test in the suite; a leftover entry
+    //    from another test finding a stray `n.action` (or a second `openDialogs` row) would make
+    //    this test's own assertions ambiguous about which one they matched.
+    openDialogs.splice(0, openDialogs.length)
+    notifyQueue.splice(0, notifyQueue.length)
+  })
+
+  it("retains the author's discarded content and restores it via the toast's undo action", async () => {
+    const { pageStore } = await mountEditor('Author draft text.')
+    const editorStore = useEditorStore()
+
+    // -> The shape `stores/page.js`'s 409 handler sets `editorStore.saveConflict` to.
+    editorStore.saveConflict = {
+      title: 'Server Title',
+      content: 'Server content.',
+      authorName: 'Jane',
+      updatedAt: '2026-01-01T00:00:00.000Z'
+    }
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+    // -> Same as `<w-dialog-host>` calling the registered handler with the dialog's own emitted
+    //    payload -- 'discard' is `PageSaveConflictDialog.vue`'s own `onOk` value for that choice.
+    await openDialogs[0].handlers.ok[0]('discard')
+    await flushPromises()
+
+    // -> The server's snapshot replaced both the store and the live Monaco model, same as before
+    //    this fix...
+    expect(pageStore.content).toBe('Server content.')
+    expect(fakeModel.getValue()).toBe('Server content.')
+    // -> ...but this time the author's own text was retained rather than lost outright.
+    expect(editorStore.discardedContent).toBe('Author draft text.')
+
+    const toast = notifyQueue.find((n) => n.action)
+    expect(toast).toBeTruthy()
+
+    toast.action.onClick()
+
+    expect(pageStore.content).toBe('Author draft text.')
+    expect(fakeModel.getValue()).toBe('Author draft text.')
+    // -> The stash is cleared once restored, so a stray repeat click has nothing left to redo.
+    expect(editorStore.discardedContent).toBeNull()
   })
 })

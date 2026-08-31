@@ -14,7 +14,6 @@
           icon="la:home"
           to="/" />
         <w-btn
-          class="ml-4"
           v-if="error.showLoginBtn"
           push
           color="primary"
@@ -149,11 +148,15 @@ const error = computed(() => {
     flex-direction: column;
     justify-content: center;
     align-items: center;
+    width: 100%;
+    max-width: 100%;
+    padding: 0 1rem;
+    text-align: center;
   }
 
   &-code {
-    font-size: 12rem;
-    line-height: 12rem;
+    font-size: clamp(4rem, 30vw, 12rem);
+    line-height: 1;
     font-weight: 700;
     background: linear-gradient(45deg, $red-9, $red-3);
     background-clip: text;
@@ -162,9 +165,9 @@ const error = computed(() => {
   }
 
   &-title {
-    font-size: 5rem;
+    font-size: clamp(1.75rem, 10vw, 5rem);
     font-weight: 500;
-    line-height: 5rem;
+    line-height: 1;
   }
 
   &-hint {
@@ -177,6 +180,10 @@ const error = computed(() => {
 
   &-actions {
     margin-top: 2rem;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1rem;
   }
 }
 </style>

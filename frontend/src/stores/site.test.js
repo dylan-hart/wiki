@@ -189,7 +189,11 @@ describe('site store: fetchNavigation()', () => {
     await store.fetchNavigation('nav-1')
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1')
-    expect(store.nav).toEqual({ currentId: 'nav-1', items: [{ id: 'item-1' }] })
+    expect(store.nav).toEqual({
+      currentId: 'nav-1',
+      items: [{ id: 'item-1' }],
+      inFlightId: 'nav-1'
+    })
   })
 
   it('skips the request for an id already cached, unless forceRefresh is passed', async () => {
@@ -231,7 +235,76 @@ describe('site store: fetchNavigation()', () => {
     await store.fetchNavigation('nav-2')
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-2')
-    expect(store.nav).toEqual({ currentId: 'nav-2', items: [{ id: 'new' }] })
+    expect(store.nav).toEqual({ currentId: 'nav-2', items: [{ id: 'new' }], inFlightId: 'nav-2' })
+  })
+
+  /**
+   * OpenProject #1791: `currentId` used to be written only inside the post-await `$patch`, so two
+   * overlapping calls could settle out of order and leave `currentId` naming the wrong menu -- with
+   * the `id === currentId` short-circuit above then preventing the correct menu from ever being
+   * refetched. `inFlightId` is set synchronously before each request and re-checked after it
+   * resolves, so a response for an id that is no longer the most recently requested one is discarded
+   * instead of clobbering the newer menu.
+   */
+  it('discards a stale response when an earlier call resolves after a later one', async () => {
+    const store = useSiteStore()
+    store.id = 'site-1'
+
+    let resolveFirst
+    let resolveSecond
+    const firstResponse = new Promise((resolve) => {
+      resolveFirst = resolve
+    })
+    const secondResponse = new Promise((resolve) => {
+      resolveSecond = resolve
+    })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => firstResponse })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => secondResponse })
+
+    const firstCall = store.fetchNavigation('nav-1')
+    const secondCall = store.fetchNavigation('nav-2')
+
+    // The later call (nav-2) resolves first; the earlier call (nav-1) resolves last.
+    resolveSecond([{ id: 'nav-2-item' }])
+    await secondCall
+    expect(store.nav.currentId).toBe('nav-2')
+
+    resolveFirst([{ id: 'nav-1-item' }])
+    await firstCall
+
+    // The stale nav-1 response must not have overwritten the newer nav-2 menu.
+    expect(store.nav.currentId).toBe('nav-2')
+    expect(store.nav.items).toEqual([{ id: 'nav-2-item' }])
+  })
+
+  it('leaves the correct menu rendered when switching sites twice in quick succession', async () => {
+    const store = useSiteStore()
+    store.id = 'site-1'
+
+    let resolveSiteA
+    let resolveSiteB
+    const siteAResponse = new Promise((resolve) => {
+      resolveSiteA = resolve
+    })
+    const siteBResponse = new Promise((resolve) => {
+      resolveSiteB = resolve
+    })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => siteAResponse })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => siteBResponse })
+
+    // Two rapid site switches, each kicking off a fetch for that site's nav before the previous one
+    // has resolved.
+    const fetchA = store.fetchNavigation('site-a-nav')
+    const fetchB = store.fetchNavigation('site-b-nav')
+
+    // Site A's slower response lands after site B's, as it would for a genuinely slower request.
+    resolveSiteB([{ id: 'site-b-item' }])
+    await fetchB
+    resolveSiteA([{ id: 'site-a-item' }])
+    await fetchA
+
+    expect(store.nav.currentId).toBe('site-b-nav')
+    expect(store.nav.items).toEqual([{ id: 'site-b-item' }])
   })
 })
 

@@ -17,10 +17,19 @@ defaults:
       sslOptions:
         auto: true
       schema: wiki
-    ssl:
-      enabled: false
     pool:
       min: 1
+      # node-postgres defaults `max` to 10 when unset (OpenProject #2276). A handful of concurrent
+      # requests against any unmetered whole-table surface (sitemap/knowledge-graph generation,
+      # icon-set lookup) can occupy that whole pool, queuing every other query behind them, logins
+      # included. Sized here at 20 (double the library default) to give a single instance real
+      # headroom under such a burst while staying well under Postgres' own default `max_connections`
+      # (100), which also has to cover other app instances, the scheduler's worker-thread pools
+      # (each a separate `{min:0,max:1}` connection — see `workerMode` in `core/db.ts`), and
+      # admin/maintenance connections.
+      max: 20
+      connectionTimeoutMillis: 5000
+      statementTimeoutMillis: 60000
     bindIP: 0.0.0.0
     logLevel: info
     logFormat: default
@@ -45,9 +54,13 @@ defaults:
       maxRetries: 2
       retryBackoff: 60
       historyExpiration: 90000
-      # How long, in seconds, a job running in a worker thread may take before the scheduler stops
-      # waiting for it and counts it as failed. A safety net rather than a schedule: a worker thread
-      # that dies mid-task never answers at all, and without a ceiling the scheduler waits forever.
+      # How long, in seconds, a job may take before the scheduler stops waiting for it and counts it
+      # as failed. Applies to both worker-thread jobs (aborted via AbortSignal, plus a backup timer
+      # for a worker that dies mid-task and never answers at all) and in-process jobs (raced against
+      # a timer only -- an in-process task cannot actually be aborted, so the scheduler's own
+      # bookkeeping becoming finite is the point: without this, a task whose promise never settles
+      # -- `withAdvisoryLock` waiting past its own lock_timeout is the documented case -- permanently
+      # strands the worker slot it holds). A safety net rather than a schedule either way.
       taskTimeout: 300
       # How long, in seconds, a job may sit marked as running before it is assumed that whatever was
       # running it is gone, and it is requeued. Deliberately generous: it has to outlast the longest
@@ -73,12 +86,21 @@ defaults:
     # no row is ever inserted, not merely hidden from a later read.
     pageviews:
       isEnabled: true
+      # Real value is generated at first run (`models/settings.ts#init()`, mirroring `auth.secret`
+      # below) and stored in the `settings` table -- this placeholder is only ever seen before that
+      # seeding runs. Keys `hashVisitor()`'s HMAC so a stored `visitorHash` can't be re-derived from
+      # `sessions.id`/`apiKeys.id` without it.
+      hashKey: ''
+    # Only a backstop for a database that predates this key's introduction (the `settings` table row
+    # is what actually governs a live instance -- see `models/settings.ts#init()` and
+    # `models/auditLog.ts`'s `DEFAULT_AUDIT_LOG_RETENTION_DAYS`, which this must match).
+    auditLog:
+      retentionDays: 365
     auth:
       autoLogin: false
       enforce2FA: false
       hideLocal: false
       loginBgUrl: ''
-      secret: 'abcdef1234567890abcdef1234567890abcdef'
     security:
       corsMode: 'OFF'
       corsConfig: ''
@@ -86,10 +108,36 @@ defaults:
       trustProxy: false
       enforceHsts: false
       hstsDuration: 0
-      cspDirectives: ''
+      # -> A known-good starting point for `enforceCsp`, not enabled by default (WP #2158/#2154): the
+      #    admin area's `cspDirectivesHint` requires at least one directive once enforcement is turned
+      #    on, and an operator with nothing to start from was previously left to author one from
+      #    scratch. `object-src`/`base-uri`/`frame-ancestors` are the "at minimum" baseline; the rest
+      #    is sized to what the app itself actually needs:
+      #      - `script-src 'self'` / `worker-src 'self' blob:` -- Monaco's language workers
+      #        (`frontend/src/boot/monaco.js`) and the custom-blocks loader (`/_blocks/**`) are both
+      #        same-origin; `blob:` covers a worker Monaco spins up via an object URL rather than a
+      #        same-origin script URL, which some of its language services still do internally.
+      #      - `style-src 'self' 'unsafe-inline'` -- KaTeX (`frontend/src/renderers/markdown.js`)
+      #        renders every expression as a tree of inline `style="..."` attributes; there is no
+      #        practical nonce/hash story for content an editor can retype at any time.
+      #      - `img-src 'self' data: https:` / `connect-src 'self' https:` -- `block-kroki` and
+      #        `block-plantuml` `fetch()` and `<img src>` an *admin-configured* diagram-rendering
+      #        server (kroki.io / plantuml.com by default, but changeable per block instance), so the
+      #        host can't be pinned to one name; `data:` covers KaTeX/icon-inlined images.
+      #      - `frame-src 'self' https:` -- `block-youtube`/`block-vimeo`/`block-dailymotion`/
+      #        `block-m365-video` each embed a provider iframe; the exact host is either fixed per
+      #        block or, for m365, entirely operator-supplied.
+      #      - `font-src 'self' data:` -- KaTeX's bundled webfonts.
+      #    Deliberately NOT covered: theme HTML injection (`site.theme.injectHead`/`injectBody`, an
+      #    operator-authored inline `<script>`/`<style>`) and the `google`/`gtm`/`matomo` analytics
+      #    modules, which each load a script from their own external origin -- both need directives
+      #    this default can't guess in advance, called out in `AdminSecurity.vue`'s CSP hint instead
+      #    of silently widened for here. See `docs/audit-2026-08-24/security/08-frontend-client.md`
+      #    §10 and the co-located `backend/helpers/security.test.ts` case asserting this parses as
+      #    expected.
+      cspDirectives: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; media-src 'self' https:; frame-src 'self' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
       uploadScanSVG: true
       disallowIframe: true
-      uploadMaxFiles: 20
       uploadMaxFileSize: 10485760
       forceAssetDownload: true
       disallowOpenRedirect: true
@@ -102,6 +150,12 @@ defaults:
       apiRateLimitMax: 300
       apiRateLimitWindow: '5m'
       apiRateLimitBan: '15m'
+      # Off by default: every headless Chromium launch (page re-render, PDF export, diagram render)
+      # runs sandboxed. Set true only when the deployment environment cannot give Chromium its own
+      # sandbox (typically a container without the setuid helper) -- this drops Chromium's own process
+      # sandbox for every one of those launches, including the two that render attacker-influenced
+      # content (a live page view with the requester's session cookie, and POSTed Mermaid source).
+      allowPuppeteerNoSandbox: false
     flags:
       experimental: false
       authDebug: false
@@ -114,73 +168,6 @@ defaults:
       # Whether the daily updateLocales scheduled job is allowed to pull the latest strings from
       # requarks/wiki-locales. Set to false to disable automatic locale syncing.
       locales: true
-    # System defaults
-    channel: NEXT
-    maintainerEmail: security@requarks.io
-tsDictMappings:
-  ar: arabic
-  hy: armenian
-  eu: basque
-  ca: catalan
-  da: danish
-  nl: dutch
-  en: english
-  fi: finnish
-  fr: french
-  de: german
-  el: greek
-  hi: hindi
-  hu: hungarian
-  id: indonesian
-  ga: irish
-  it: italian
-  lt: lithuanian
-  ne: nepali
-  no: norwegian
-  pt: portuguese
-  ro: romanian
-  ru: russian
-  sr: serbian
-  es: spanish
-  sv: swedish
-  ta: tamil
-  tr: turkish
-  yi: yiddish
-# NOTE: this whole `editors:` block is descriptive only -- `core/config.ts` merges just
-# `defaults.config` (above) into `WIKI.config`, never this key, and no other backend/frontend code
-# reads `WIKI.data.editors`. Per-site editor config actually lives in the `sites` table and is
-# provisioned by `models/sites.ts`. Historically it also carried `latexEngine`, which 2.5.x used to
-# pick the single markdown-it plugin that rendered LaTeX; that key was removed (Feature 366 / Task
-# 618) because it had already gone dead in 3.x -- it was never seeded onto a site, never surfaced in
-# `EditorMarkdownConfigOverlay.vue`, and never read anywhere. Math rendering is now two
-# independently-enableable blocks, `block-katex` and `block-mathjax`, each with its own per-site
-# `isEnabled` flag already exposed through `AdminBlocks.vue` / `models/blocks.ts` -- that toggle IS
-# the per-site engine choice, so a second, disconnected `latexEngine` setting would only mislead.
-editors:
-  asciidoc:
-    contentType: asciidoc
-    config: {}
-  code:
-    contentType: html
-    config: {}
-  markdown:
-    contentType: markdown
-    config:
-      allowHTML: true
-      linkify: true
-      lineBreaks: true
-      typographer: false
-      underline: false
-      tabWidth: 2
-      # `kroki` and `plantuml` toggles used to live here, but nothing has read them since diagram
-      # rendering moved to the Blocks system: block-kroki and block-plantuml take their server/
-      # language settings as per-block props on the page itself, not from site-wide editor config.
-      # Removed as dead config surface rather than left as an inert toggle nobody wires up. Same for
-      # `latexEngine` -- see the `editors:` block's own header comment above.
-      multimdTable: true
-  wysiwyg:
-    contentType: html
-    config: {}
 systemIds:
   localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588'
   guestsGroupId: '10000000-0000-4000-8000-000000000001'

@@ -5,7 +5,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { list as listTarball } from 'tar'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { assets as assetsTable } from '../db/schema.ts'
+import { ensureTemporal } from '../test/temporal.ts'
+import {
+  assets as assetsTable,
+  groups as groupsTable,
+  pageHistory as pageHistoryTable,
+  navigation as navigationTable
+} from '../db/schema.ts'
 
 /**
  * `exportSite` is almost entirely SQL orchestration (four tables' worth of site-scoped selects, plus
@@ -20,18 +26,7 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let dataPath: string
 
   before(async () => {
-    // -> Node 25 (this sandbox) has no native `Temporal` yet -- Node 26 does, per this repo's engine
-    //    requirement. Polyfilled only when missing, so this is a no-op on a real Node 26 runtime --
-    //    same pattern as `modules/storage/disk/storage.test.ts`'s own `before()`. The package
-    //    polyfills the `Temporal` global itself but, unlike Node 26, does not also patch
-    //    `Date.prototype.toTemporalInstant()` -- `purgeExpired()` uses that conversion.
-    if (typeof Temporal === 'undefined') {
-      const polyfill = await import('@js-temporal/polyfill')
-      ;(globalThis as any).Temporal = polyfill.Temporal
-      ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-        return polyfill.toTemporalInstant.call(this)
-      }
-    }
+    await ensureTemporal()
 
     fixtures = await setupTestDb()
     ;({ exportModel } = await import('./export.ts'))
@@ -77,6 +72,14 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       },
       { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
     )
+    // -> createPage already recorded one `created` pageHistory row; this adds an `updated` one, so
+    //    the export below has more than one revision to carry for the same page.
+    await pagesModel.updatePage(
+      fixtures.siteId,
+      page.id,
+      { content: '# Hello export, updated' },
+      { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    )
 
     const assetData = Buffer.from('fake file bytes')
     const [asset] = await fixtures.db
@@ -110,8 +113,20 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     // -> Regenerated columns must not have made it into the export
     assert.equal('ts' in exportedPages[0], false)
 
+    const exportedPageHistory = JSON.parse(entries['pageHistory.json']!.toString('utf8'))
+    const pageHistoryForPage = exportedPageHistory.filter((h: any) => h.pageId === page.id)
+    assert.equal(pageHistoryForPage.length, 2)
+    assert.ok(pageHistoryForPage.some((h: any) => h.action === 'created'))
+    assert.ok(pageHistoryForPage.some((h: any) => h.action === 'updated'))
+
     const exportedGroups = JSON.parse(entries['groups.json']!.toString('utf8'))
     assert.ok(exportedGroups.some((g: any) => g.id === fixtures.groupId))
+
+    const exportedHistory = JSON.parse(entries['pageHistory.json']!.toString('utf8'))
+    assert.ok(Array.isArray(exportedHistory))
+
+    const exportedNavigation = JSON.parse(entries['navigation.json']!.toString('utf8'))
+    assert.ok(Array.isArray(exportedNavigation))
 
     const assetManifest = JSON.parse(entries['assets/manifest.json']!.toString('utf8'))
     const exportedAsset = assetManifest.find((a: any) => a.id === asset!.id)
@@ -119,6 +134,83 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     // -> The bytes travel as their own archive entry, not inlined into the JSON manifest
     assert.equal('data' in exportedAsset, false)
     assert.deepEqual(entries[`assets/${asset!.id}.data`], assetData)
+  })
+
+  test('exportSite includes page history and navigation rows', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'history-me',
+        title: 'History Me',
+        editor: 'markdown',
+        content: '# v1'
+      },
+      { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    )
+
+    const [historyRow] = await fixtures.db
+      .insert(pageHistoryTable)
+      .values({
+        pageId: page.id,
+        action: 'updated',
+        locale: 'en',
+        path: 'history-me',
+        title: 'History Me',
+        content: '# v1',
+        siteId: fixtures.siteId,
+        authorId: fixtures.userId
+      })
+      .returning({ id: pageHistoryTable.id })
+
+    // -> `createPage` above already triggers `navigation.ts#ensureSiteNav`, which seeds a blank
+    //    default menu for this site's primary locale -- upserted rather than inserted so this doesn't
+    //    collide with that row's own (siteId, locale) uniqueness constraint.
+    const [navRow] = await fixtures.db
+      .insert(navigationTable)
+      .values({
+        items: [{ id: 'a', type: 'link', label: 'Home', target: '/' }],
+        mode: 'static',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      .onConflictDoUpdate({
+        target: [navigationTable.siteId, navigationTable.locale],
+        set: { items: [{ id: 'a', type: 'link', label: 'Home', target: '/' }] }
+      })
+      .returning({ id: navigationTable.id })
+
+    const result = await exportModel.exportSite(fixtures.siteId)
+    const entries = await readTarball(result.filePath)
+
+    const exportedHistory = JSON.parse(entries['pageHistory.json']!.toString('utf8'))
+    assert.ok(exportedHistory.some((h: any) => h.id === historyRow!.id && h.pageId === page.id))
+
+    const exportedNavigation = JSON.parse(entries['navigation.json']!.toString('utf8'))
+    assert.ok(exportedNavigation.some((n: any) => n.id === navRow!.id && n.locale === 'en'))
+  })
+
+  test('exportSite excludes isSystem groups (Administrators/Users/Guests)', async () => {
+    const [systemGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({
+        name: 'Administrators',
+        permissions: ['manage:system'],
+        rules: [],
+        isSystem: true
+      })
+      .returning({ id: groupsTable.id })
+
+    const result = await exportModel.exportSite(fixtures.siteId)
+    const entries = await readTarball(result.filePath)
+
+    const exportedGroups = JSON.parse(entries['groups.json']!.toString('utf8'))
+
+    // -> The seeded, non-system fixture group still makes it through...
+    assert.ok(exportedGroups.some((g: any) => g.id === fixtures.groupId))
+    // -> ...but the isSystem row does not: `importSite` upserts groups by id, and restoring an
+    //    isSystem row onto a different instance overwrites that instance's own Administrators/
+    //    Users/Guests (see the comment on `exportSite`'s group select).
+    assert.ok(!exportedGroups.some((g: any) => g.id === systemGroup!.id))
   })
 
   test('exportSite rejects an unknown site', async () => {

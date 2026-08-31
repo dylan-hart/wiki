@@ -102,6 +102,25 @@ Bob --> Alice : hi
         options: ['left', 'center'],
         default: 'left'
       }
+    ],
+    /**
+     * Site-level field an admin sets once for the whole site, as opposed to the `server` prop above,
+     * which an author sets per use in the editor for the reader's own browser to fetch from directly.
+     * This one is what the backend itself renders against for a server-side request — OpenProject
+     * task 2223 — so unlike the prop, an admin-set value here is validated at write time
+     * (`models/blocks.ts`) to be an http(s) URL with no query string or fragment. Same field name as
+     * the `server` prop above on purpose — an admin's site-wide server is what `propDefault()`
+     * (`frontend/src/helpers/blocks.js`) seeds the picker's `server` field from, the same way
+     * block-map's `config`/`props` pair does for its own tile-server fields.
+     */
+    config: [
+      {
+        name: 'server',
+        type: 'string',
+        label: 'Server',
+        hint: "PlantUML server this wiki renders diagrams against server-side (PDF export, and any other context that draws a diagram without a reader's own browser). The public one when left empty.",
+        default: 'https://www.plantuml.com/plantuml'
+      }
     ]
   }
 

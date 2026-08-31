@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
-import { decodeTreePath, guardSiteEnabled, normalizePagePath } from '../helpers/common.ts'
-import { INLINE_EXTS } from '../models/assets.ts'
+import { decodeTreePath, normalizePagePath } from '../helpers/common.ts'
+import { needsSvgCsp, SVG_CSP } from '../helpers/security.ts'
+import { dispositionFor } from '../models/assets.ts'
 
 const assetIdParam = {
   type: 'object',
@@ -135,6 +136,7 @@ async function routes(app: FastifyInstance) {
           400: { $ref: 'ApiError#' },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
           409: {
             $ref: 'ApiError#',
             description:
@@ -171,9 +173,18 @@ async function routes(app: FastifyInstance) {
         at — a page rule written (as every page path is) in normalized form could then be bypassed
         just by sending `parentPath` with different casing or stray slashes.
       */
+      // -> Scoped by siteId (OpenProject #2127): a caller-supplied folderId belonging to another
+      //    site must resolve to nothing here, the same as an unknown id, rather than leaking that
+      //    other site's folder path/locale into the permission check below.
       const folder = req.query.folderId
-        ? await WIKI.models.tree.getFolderById(req.query.folderId)
+        ? await WIKI.models.tree.getFolderById(req.query.folderId, req.params.siteId)
         : null
+      // -> Site-checked before the permission check below evaluates against it, so a foreign-site id
+      //    can't make that check run against the wrong destination (matches tree.ts's own folder
+      //    routes: GET/RENAME/DELETE FOLDER)
+      if (req.query.folderId && (!folder || folder.siteId !== req.params.siteId)) {
+        return reply.notFound('This folder does not exist.')
+      }
       const folderPath = folder ? (decodeTreePath(folder.folderPath ?? '') ?? '') : ''
       const parentPath = req.query.parentPath ? normalizePagePath(req.query.parentPath) : ''
       const destination = req.query.folderId
@@ -191,8 +202,12 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden('You are not allowed to upload a file here.')
       }
 
+      // -> `folder`, not the raw `req.query.folderId`: a caller-supplied id that resolved to
+      //    nothing (unknown, or scoped away by the site check above) must not reach `upload()` as
+      //    a parent, which would otherwise attach the new asset's tree row to a folder belonging
+      //    to a different site than the asset's own `siteId`.
       const folderId = req.query.folderId
-        ? req.query.folderId
+        ? folder?.id
         : parentPath
           ? (
               await WIKI.models.tree.getFolder({
@@ -244,9 +259,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
-        return
-      }
       const asset = await WIKI.models.assets.getAsset(req.params.siteId, req.params.assetId)
       // -> Not readable is answered as not there, so the endpoint cannot be used to probe for files
       if (!asset || !mayOnAsset(req, 'read:assets', req.params.siteId, asset)) {
@@ -289,9 +301,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
-        return
-      }
       const asset = await WIKI.models.assets.getAsset(req.params.siteId, req.params.assetId)
       if (!asset || !mayOnAsset(req, 'read:assets', req.params.siteId, asset)) {
         return reply.notFound('This asset does not exist.')
@@ -307,11 +316,22 @@ async function routes(app: FastifyInstance) {
         return reply.redirect(content.redirectUrl, 302)
       }
 
-      if (WIKI.config.security?.forceAssetDownload || !INLINE_EXTS.has(asset.fileExt)) {
+      // -> Same unified predicate `/_files/*` uses (`models/assets.ts#dispositionFor`) — this route
+      //    used to invert it (`forceAssetDownload || !INLINE_EXTS.has(ext)`), which forced every
+      //    image to download whenever `forceAssetDownload` was on, the shipped default (OpenProject
+      //    #1360/#2152/#2164, 2026-08-24 security audit §3).
+      if (dispositionFor(asset.fileExt)) {
         reply.header(
           'Content-Disposition',
           `attachment; filename="${encodeURIComponent(asset.fileName)}"`
         )
+      }
+      // -> Neutralizes an SVG or HTML/XHTML file opened as a document rather than embedded — see
+      //    `helpers/security.ts`'s `SVG_CSP` for the full reasoning. Reachable whenever
+      //    `forceAssetDownload` is off, which is what would otherwise leave this route serving one
+      //    inline with no CSP at all.
+      if (needsSvgCsp(asset.fileExt)) {
+        reply.header('Content-Security-Policy', SVG_CSP)
       }
       // -> The bytes came from a user, so the browser must take the type at its word rather than
       //    looking for something more interesting in them

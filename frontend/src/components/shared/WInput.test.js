@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 
 import WInput from './WInput.vue'
@@ -68,6 +68,33 @@ describe('WInput', () => {
     })
   })
 
+  describe('min/max/step', () => {
+    it('forwards min, max and step to the inner input, not the outer wrapper', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: 10, type: 'number', min: 10, max: 32, step: 2 }
+      })
+
+      const input = wrapper.find('input')
+      expect(input.attributes('min')).toBe('10')
+      expect(input.attributes('max')).toBe('32')
+      expect(input.attributes('step')).toBe('2')
+
+      const outerDiv = wrapper.find('div.w-input')
+      expect(outerDiv.attributes('min')).toBeUndefined()
+      expect(outerDiv.attributes('max')).toBeUndefined()
+      expect(outerDiv.attributes('step')).toBeUndefined()
+    })
+
+    it('leaves min/max/step off the input entirely when unset', () => {
+      const wrapper = mount(WInput, { props: { modelValue: '' } })
+
+      const input = wrapper.find('input')
+      expect(input.attributes('min')).toBeUndefined()
+      expect(input.attributes('max')).toBeUndefined()
+      expect(input.attributes('step')).toBeUndefined()
+    })
+  })
+
   describe('required', () => {
     it('marks aria-required and shows an asterisk beside the label', () => {
       const wrapper = mount(WInput, { props: { modelValue: '', label: 'Name', required: true } })
@@ -91,6 +118,29 @@ describe('WInput', () => {
       expect(valid).toBe(false)
       expect(wrapper.text()).toContain('Required')
       expect(wrapper.find('input').attributes('aria-invalid')).toBe('true')
+    })
+
+    it('announces the message from a live region, and the error text replaces the hint in that same node', async () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '', hint: 'Pick a name', rules: [isNonEmpty] }
+      })
+
+      const describedById = wrapper.find('input').attributes('aria-describedby')
+      const messageEl = wrapper.find(`#${describedById}`)
+      expect(messageEl.attributes('aria-live')).toBe('polite')
+      expect(messageEl.attributes('aria-atomic')).toBe('true')
+      expect(messageEl.text()).toBe('Pick a name')
+
+      wrapper.vm.validate()
+      await wrapper.vm.$nextTick()
+
+      // -> Same node, not a second one -- the live region only announces on a node it was already
+      //    watching, so the error has to land in the node that carries aria-live, not a new one.
+      const messageElAfter = wrapper.find(`#${describedById}`)
+      expect(messageElAfter.exists()).toBe(true)
+      expect(wrapper.findAll(`#${describedById}`)).toHaveLength(1)
+      expect(messageElAfter.attributes('aria-live')).toBe('polite')
+      expect(messageElAfter.text()).toBe('Required')
     })
 
     it('returns true and clears any prior error once the value satisfies every rule', async () => {
@@ -132,6 +182,59 @@ describe('WInput', () => {
     })
   })
 
+  describe('attribute forwarding', () => {
+    it('forwards undeclared attributes like min/max/step to the inner input, not the wrapper', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '', type: 'number' },
+        attrs: { min: '1', max: '3650', step: '1', 'aria-label': 'Retention days' }
+      })
+
+      const input = wrapper.find('input')
+      expect(input.attributes('min')).toBe('1')
+      expect(input.attributes('max')).toBe('3650')
+      expect(input.attributes('step')).toBe('1')
+      expect(input.attributes('aria-label')).toBe('Retention days')
+
+      const wrapperDiv = wrapper.element
+      expect(wrapperDiv.getAttribute('min')).toBeNull()
+      expect(wrapperDiv.getAttribute('max')).toBeNull()
+      expect(wrapperDiv.getAttribute('step')).toBeNull()
+      expect(wrapperDiv.getAttribute('aria-label')).toBeNull()
+    })
+
+    it('still applies a caller-supplied class to the wrapper, not the inner input', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '' },
+        attrs: { class: 'mr-2' }
+      })
+
+      expect(wrapper.classes()).toContain('mr-2')
+      expect(wrapper.find('input').classes()).not.toContain('mr-2')
+    })
+  })
+
+  describe('autofocus prop', () => {
+    it('focuses the control on mount when autofocus is set', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '', autofocus: true },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).toBe(wrapper.find('input').element)
+      wrapper.unmount()
+    })
+
+    it('does not steal focus when autofocus is left off', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '' },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).not.toBe(wrapper.find('input').element)
+      wrapper.unmount()
+    })
+  })
+
   describe('exposed methods', () => {
     it('reveal() shows a revealable password field as if the eye had been clicked', async () => {
       const wrapper = mount(WInput, {
@@ -151,6 +254,138 @@ describe('WInput', () => {
 
       expect(document.activeElement).toBe(wrapper.find('input').element)
       wrapper.unmount()
+    })
+  })
+
+  describe('autofocus', () => {
+    it('focuses the real input on mount when set', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '', autofocus: true },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).toBe(wrapper.find('input').element)
+      wrapper.unmount()
+    })
+
+    it('does nothing when unset', () => {
+      const wrapper = mount(WInput, { props: { modelValue: '' }, attachTo: document.body })
+
+      expect(document.activeElement).not.toBe(wrapper.find('input').element)
+      wrapper.unmount()
+    })
+
+    it('does nothing for a hidden field', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '', autofocus: true, type: 'hidden' },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).not.toBe(wrapper.find('input').element)
+      wrapper.unmount()
+    })
+
+    it('is not left as an inert attribute on the wrapper (excluded from $attrs as a declared prop)', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '', autofocus: true }
+      })
+
+      expect(wrapper.attributes('autofocus')).toBeUndefined()
+    })
+
+    it('mounts as a single root with no "extraneous non-props attributes" warning', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      const wrapper = mount(WInput, { props: { modelValue: '', autofocus: true, class: 'x' } })
+
+      expect(warn).not.toHaveBeenCalled()
+      warn.mockRestore()
+      wrapper.unmount()
+    })
+  })
+
+  describe('accessible name', () => {
+    it('sets aria-label on the input when no label is passed', () => {
+      const wrapper = mount(WInput, { props: { modelValue: '', ariaLabel: 'Search users' } })
+
+      expect(wrapper.find('input').attributes('aria-label')).toBe('Search users')
+    })
+
+    it('does not set aria-label on the input once a label is passed', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '', label: 'Name', ariaLabel: 'Search users' }
+      })
+
+      expect(wrapper.find('input').attributes('aria-label')).toBeUndefined()
+    })
+  })
+
+  describe('attribute forwarding', () => {
+    it('forwards name/inputmode/maxlength onto the real control, not the wrapper', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '' },
+        attrs: { name: 'username', inputmode: 'numeric', maxlength: '10' }
+      })
+
+      const input = wrapper.find('input')
+      expect(input.attributes('name')).toBe('username')
+      expect(input.attributes('inputmode')).toBe('numeric')
+      expect(input.attributes('maxlength')).toBe('10')
+      expect(wrapper.attributes('name')).toBeUndefined()
+
+      const root = wrapper.element
+      expect(root.getAttribute('name')).toBeNull()
+      expect(root.getAttribute('inputmode')).toBeNull()
+      expect(root.getAttribute('maxlength')).toBeNull()
+    })
+
+    it('forwards an aria-label attribute to the real control', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '' },
+        attrs: { 'aria-label': 'Search' }
+      })
+
+      expect(wrapper.find('input').attributes('aria-label')).toBe('Search')
+      expect(wrapper.element.getAttribute('aria-label')).toBeNull()
+    })
+
+    it('keeps a caller-supplied class on the wrapper rather than moving it onto the input', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '' },
+        attrs: { class: 'mb-2' }
+      })
+
+      expect(wrapper.classes()).toContain('mb-2')
+      expect(wrapper.find('input').classes()).not.toContain('mb-2')
+    })
+  })
+
+  describe('validation message live region', () => {
+    it('carries aria-live and aria-atomic whenever the message area is shown', () => {
+      const wrapper = mount(WInput, { props: { modelValue: '', hint: 'Helper text' } })
+
+      const message = wrapper.find('.text-caption')
+      expect(message.attributes('aria-live')).toBe('polite')
+      expect(message.attributes('aria-atomic')).toBe('true')
+    })
+
+    it('replaces the hint with the error text in that same node rather than a new one', async () => {
+      function isNonEmpty(v) {
+        return String(v ?? '').length > 0 || 'Required'
+      }
+      const wrapper = mount(WInput, {
+        props: { modelValue: '', hint: 'Helper text', rules: [isNonEmpty] }
+      })
+
+      const message = wrapper.find('.text-caption')
+      expect(message.text()).toBe('Helper text')
+
+      wrapper.vm.validate()
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.findAll('.text-caption')).toHaveLength(1)
+      expect(message.text()).toBe('Required')
+      expect(message.attributes('aria-live')).toBe('polite')
     })
   })
 })

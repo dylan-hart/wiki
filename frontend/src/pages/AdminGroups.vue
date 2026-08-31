@@ -2,10 +2,10 @@
   <w-page class="admin-groups">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-people.svg" />
+        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-people.svg" alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.groups.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.groups.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.groups.subtitle') }}
         </div>
@@ -16,6 +16,8 @@
           outlined
           v-model="state.search"
           dense
+          :placeholder="t('common.header.search')"
+          :aria-label="t('common.header.search')"
           :class="dark.isActive ? `bg-dark text-white` : `bg-white`">
           <template #prepend><w-icon class="opacity-50" name="la:search" size="20px" /></template>
         </w-input>
@@ -100,8 +102,12 @@
                   icon="la:trash"
                   :color="props.row.isSystem ? `grey` : `negative`"
                   :disabled="props.row.isSystem"
+                  :aria-label="t(`common.actions.delete`)"
                   @click="deleteGroup(props.row)" />
               </w-td>
+            </template>
+            <template #no-data="{ rowsCount }">
+              {{ rowsCount > 0 ? t('admin.groups.noMatchesText') : t('admin.groups.emptyText') }}
             </template>
           </w-table>
         </w-card>

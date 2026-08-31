@@ -37,8 +37,9 @@ export type HookEvent = (typeof HOOK_EVENTS)[number]
  * {@link HOOK_EVENTS} does not necessarily have an `emit()` call wired up yet. Add an event here when
  * you add its `emit()` call.
  *
- * `comment:*`'s `emit()` calls live in `api/comments.ts` rather than a `models/comments.ts` write
- * path, for now — see the comment atop `emitCommentEvent` there for why.
+ * `comment:*`'s `emit()` calls live in `models/comments.ts`'s `create`/`update`/`delete`, matching
+ * `page:*`/`asset:*` (OpenProject #1923 moved these out of `api/comments.ts`, the one route-layer
+ * exception to that convention).
  */
 export const EMITTED_EVENTS: HookEvent[] = [
   'page:create',
@@ -256,21 +257,23 @@ class Hooks {
       eq(jobHistoryTable.task, 'dispatchWebhook'),
       sql`${jobHistoryTable.payload} ->> 'hookId' = ${hookId}`
     )
-    const totals = await WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
-    const deliveries = await WIKI.db
-      .select({
-        event: sql<string>`${jobHistoryTable.payload} ->> 'event'`,
-        state: jobHistoryTable.state,
-        attempt: jobHistoryTable.attempt,
-        maxRetries: jobHistoryTable.maxRetries,
-        lastErrorMessage: jobHistoryTable.lastErrorMessage,
-        startedAt: jobHistoryTable.startedAt,
-        completedAt: jobHistoryTable.completedAt
-      })
-      .from(jobHistoryTable)
-      .where(where)
-      .orderBy(desc(jobHistoryTable.startedAt))
-      .limit(limit)
+    const [deliveries, totals] = await Promise.all([
+      WIKI.db
+        .select({
+          event: sql<string>`${jobHistoryTable.payload} ->> 'event'`,
+          state: jobHistoryTable.state,
+          attempt: jobHistoryTable.attempt,
+          maxRetries: jobHistoryTable.maxRetries,
+          lastErrorMessage: jobHistoryTable.lastErrorMessage,
+          startedAt: jobHistoryTable.startedAt,
+          completedAt: jobHistoryTable.completedAt
+        })
+        .from(jobHistoryTable)
+        .where(where)
+        .orderBy(desc(jobHistoryTable.startedAt))
+        .limit(limit),
+      WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
+    ])
 
     return {
       total: totals[0]?.total ?? 0,

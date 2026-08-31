@@ -2,10 +2,12 @@ import { defineStore } from 'pinia'
 
 import { pick } from 'es-toolkit/object'
 
+import { i18n } from '@/boot/i18n'
 import { useSiteStore } from './site'
 import { useEditorStore } from './editor'
 import { useUserStore } from './user'
-import { isHomePath, localizedPagePath } from '@/helpers/pagePaths'
+import { isHomePath, localizedPagePath, normalizePagePath, pagePathHash } from '@/helpers/pagePaths'
+import { apiErrorBody } from '@/helpers/apiError'
 
 /**
  * The icon a page starts with.
@@ -63,16 +65,28 @@ export const usePageStore = defineStore('page', {
      * not a page that failed to load with the previous one's title and body still in it.
      */
     notFound: false,
+    /**
+     * A new password to protect the page with, in plaintext, never a value the server sent back
+     * (OpenProject #2232 -- the API only ever hashes this and never returns it again, see
+     * `hasPassword`). Empty means "no change" on save unless `removePassword` is also set; the server
+     * hashes whatever is typed here before it touches the database.
+     */
     password: '',
+    /** Whether the page currently has a password set, as the server last reported it. Informational
+     *  only -- `password` above is what actually changes it on save. */
+    hasPassword: false,
+    /**
+     * Set when the password toggle is turned off in the editor, to tell `pageSave` this save means
+     * "take the password off", distinct from "the field was never touched" -- which `password` alone
+     * cannot say once the server stopped echoing the current value back (OpenProject #2232).
+     */
+    removePassword: false,
     path: '',
     publishEndDate: '',
     publishStartDate: '',
     publishState: '',
     relations: [],
     render: '',
-    scriptJsLoad: '',
-    scriptJsUnload: '',
-    scriptCss: '',
     showSidebar: true,
     showTags: true,
     showToc: true,
@@ -152,8 +166,16 @@ export const usePageStore = defineStore('page', {
   actions: {
     /**
      * PAGE - LOAD
+     *
+     * @param {object} args
+     * @param {() => boolean} [args.isStale] Checked once the request resolves, before the store is
+     *   touched at all -- a caller that can start a second, overlapping load for a different target
+     *   (`Index.vue`'s route-path watcher, navigating A -> B while A is still in flight) passes this
+     *   so a slower, now-superseded response cannot stomp whatever a faster, later one already wrote.
+     *   Every other caller leaves it unset and keeps the unconditional write this always had
+     *   (OpenProject #1785).
      */
-    async pageLoad({ path, id, withContent = false, locale }) {
+    async pageLoad({ path, id, withContent = false, locale, isStale }) {
       const editorStore = useEditorStore()
       const siteStore = useSiteStore()
       /*
@@ -169,7 +191,7 @@ export const usePageStore = defineStore('page', {
       this.notFound = false
       try {
         const pageData = await API_CLIENT.get(
-          `sites/${siteStore.id}/pages/${id ?? fastHash(normalizePath(path))}`,
+          `sites/${siteStore.id}/pages/${id ?? pagePathHash(normalizePagePath(path) || 'home')}`,
           {
             searchParams: {
               withContent,
@@ -180,6 +202,13 @@ export const usePageStore = defineStore('page', {
             }
           }
         ).json()
+        // -> Bail before any of it: not just the $patch below, but also the not-found throw, which
+        //    would otherwise send a stale ERR_PAGE_NOT_FOUND back to a caller that has already moved
+        //    on (`Index.vue`'s catch branch guards its own end independently, but there is no reason
+        //    to raise a superseded error at all).
+        if (isStale?.()) {
+          return
+        }
         if (!pageData?.id) {
           throw new Error('ERR_PAGE_NOT_FOUND')
         }
@@ -192,7 +221,12 @@ export const usePageStore = defineStore('page', {
           relations: pageData.relations.map((r) =>
             pick(r, ['id', 'position', 'label', 'caption', 'icon', 'target'])
           ),
-          tocDepth: pick(pageData.tocDepth, ['min', 'max'])
+          tocDepth: pick(pageData.tocDepth, ['min', 'max']),
+          // -> `pageData` never carries a `password` -- the API only ever hashes it, never returns it
+          //    (OpenProject #2232) -- so without this the field would keep whatever the PREVIOUS page
+          //    left typed into it rather than starting empty for this one.
+          password: '',
+          removePassword: false
         })
         this.applyViewerState(pageData.viewer)
         // Update editor state timestamps
@@ -326,14 +360,14 @@ export const usePageStore = defineStore('page', {
         toc: [],
         tags: [],
         relations: [],
-        scriptJsLoad: '',
-        scriptJsUnload: '',
-        scriptCss: '',
         createdAt: '',
         updatedAt: '',
         publishState: '',
         classification: '',
         isLocked: false,
+        password: '',
+        hasPassword: false,
+        removePassword: false,
         canSuggestEdits: false,
         hasOpenSuggestion: false,
         canReview: false,
@@ -480,6 +514,11 @@ export const usePageStore = defineStore('page', {
           than deciding it.
         */
         isSearchable: editor !== 'redirect',
+        // -> A page being created has never had a password set, and nothing here should carry the
+        //    previously-open page's typed-but-unsaved value into a brand new one
+        password: '',
+        hasPassword: false,
+        removePassword: false,
         // -> The page being created is very often the one that was missing, and it is not missing now
         notFound: false,
         /*
@@ -490,8 +529,7 @@ export const usePageStore = defineStore('page', {
           this).
         */
         updatedAt: '',
-        createdAt: '',
-        mode: 'edit'
+        createdAt: ''
       })
     },
     /**
@@ -507,7 +545,11 @@ export const usePageStore = defineStore('page', {
         if (!pageData?.id) {
           throw new Error('ERR_PAGE_NOT_FOUND')
         }
-        this.pageCreate({
+        // -> Awaited so this call's own catch owns the failure: `pageCreate` is async and rejects
+        //    readily (its first act is `editorStore.fetchConfigs()`, a network request that rethrows
+        //    on failure) -- left un-awaited, that rejection escaped this try entirely and became an
+        //    unhandled rejection nobody in `frontend/src` catches (OpenProject #1787).
+        await this.pageCreate({
           editor: pageData.editor,
           title,
           path,
@@ -573,7 +615,7 @@ export const usePageStore = defineStore('page', {
         }
       }).json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || i18n.global.t('common.error.unexpected'))
       }
       this.hasOpenSuggestion = true
       return resp.submission
@@ -744,15 +786,11 @@ export const usePageStore = defineStore('page', {
             'icon',
             'isBrowsable',
             'isSearchable',
-            'password',
             'publishEndDate',
             'publishStartDate',
             'publishState',
             'relations',
             'render',
-            'scriptJsLoad',
-            'scriptJsUnload',
-            'scriptCss',
             'showSidebar',
             'showTags',
             'showToc',
@@ -766,6 +804,21 @@ export const usePageStore = defineStore('page', {
             `pageSave` is called, and cleared below once it has gone up.
           */
           reasonForChange: editorStore.reasonForChange ?? ''
+        }
+
+        /*
+          The password is write-only and never round-trips from the server (OpenProject #2232), so
+          unlike every other field above it cannot simply be picked off `this` -- an untouched field
+          reads as `''` here whether the page has a password or not, and sending that on every save
+          would silently strip one every time an author changed the title. Sent only on an actual
+          intent: a new value to hash and store, or an explicit removal from the password toggle
+          being turned off (`toggleRequirePassword` in `PagePropertiesDialog.vue`). Anything else
+          omits the key entirely, which `updatePage` reads as "leave the stored password alone".
+        */
+        if (this.password) {
+          body.password = this.password
+        } else if (this.removePassword) {
+          body.password = ''
         }
 
         /*
@@ -841,7 +894,12 @@ export const usePageStore = defineStore('page', {
           relations: (pageData.relations ?? []).map((r) =>
             pick(r, ['id', 'position', 'label', 'caption', 'icon', 'target'])
           ),
-          tocDepth: pick(pageData.tocDepth, ['min', 'max'])
+          tocDepth: pick(pageData.tocDepth, ['min', 'max']),
+          // -> Whatever was just sent has already been written, and `pageData` carries no `password`
+          //    back to keep it in sync with (OpenProject #2232) -- so this is cleared explicitly
+          //    rather than left holding a plaintext secret, and pending, past the save it was for.
+          password: '',
+          removePassword: false
         })
 
         /*
@@ -892,8 +950,7 @@ export const usePageStore = defineStore('page', {
           up the resolution dialog.
         */
         if (err.response?.status === 409) {
-          const conflictBody = await err.response.json().catch(() => null)
-          editorStore.saveConflict = conflictBody?.page ?? null
+          editorStore.saveConflict = apiErrorBody(err)?.page ?? null
           throw new Error('ERR_SAVE_CONFLICT')
         }
         console.warn(err)
@@ -905,8 +962,7 @@ export const usePageStore = defineStore('page', {
       await this.pageLoad({ id: editorStore.originPageId ? editorStore.originPageId : this.id })
       // -> Awaited for the same reason as in `pageSave`: the editor closes when this resolves
       await this.router.replace(this.editorExitPath)
-    },
-    generateToc() {}
+    }
   }
 })
 
@@ -919,43 +975,7 @@ export const usePageStore = defineStore('page', {
  */
 function unwrap(resp) {
   if (resp?.ok === false) {
-    throw new Error(resp.message || 'An unexpected error occured.')
+    throw new Error(resp.message || i18n.global.t('common.error.unexpected'))
   }
   return resp
-}
-
-/**
- * Reduce a route path to the form the server stores a page under.
- *
- * A page is looked up by the hash of its path, so the two sides have to agree on what the path *is*
- * before hashing it: the router hands over `/docs/intro`, the server holds `docs/intro`, and the site
- * root is the `home` page rather than an empty path.
- */
-function normalizePath(path) {
-  const clean = (path ?? '').replace(/^\/+/, '').replace(/\/+$/, '').toLowerCase()
-  return clean || 'home'
-}
-
-/**
- * Fast, non-cryptographic 53-bit hash to encode page paths.
- * Returns a URL-safe hex string.
- *
- * Mirrored on the server as `generatePathHash` in `backend/helpers/common.ts` — the two have to stay
- * identical, since this is what a page is addressed by.
- */
-function fastHash(str, seed = 0) {
-  let h1 = 0xdeadbeef ^ seed,
-    h2 = 0x41c6ce57 ^ seed
-  for (let i = 0, ch; i < str.length; i++) {
-    ch = str.charCodeAt(i)
-    h1 = Math.imul(h1 ^ ch, 2654435761)
-    h2 = Math.imul(h2 ^ ch, 1597334677)
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507)
-  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909)
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507)
-  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909)
-
-  // Convert to a 16-character hexadecimal string
-  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16)
 }

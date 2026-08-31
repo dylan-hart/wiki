@@ -1,0 +1,325 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { createI18n } from 'vue-i18n'
+import { createMemoryHistory, createRouter } from 'vue-router'
+
+import Search from './Search.vue'
+import { extractTags, MAX_QUERY_LENGTH } from './searchTags.js'
+import { useSiteStore } from '@/stores/site'
+
+/**
+ * The regex `extractTags()` replaces (see `searchTags.js`'s own header comment for the full
+ * derivation). Kept here, private to the test file, purely as an oracle to differential-test
+ * against on cases too fiddly to hand-verify -- never re-exported for production use.
+ */
+const legacyTagsInQueryRgx = /#[a-z0-9-㐀-䶿一-鿿]+(?=(?:[^"]*(?:")[^"]*(?:"))*[^"]*$)/g
+
+function legacyExtractTags(query) {
+  return Array.from(query.matchAll(legacyTagsInQueryRgx)).map((t) => t[0].substring(1))
+}
+
+describe('extractTags', () => {
+  it('extracts every tag from an unquoted query', () => {
+    expect(extractTags('#one #two #three')).toEqual(['one', 'two', 'three'])
+  })
+
+  it('extracts no tags from an empty or tag-less query', () => {
+    expect(extractTags('')).toEqual([])
+    expect(extractTags('just some words')).toEqual([])
+  })
+
+  it('excludes a #tag-shaped token that lies inside a quoted phrase', () => {
+    expect(extractTags('#a "quoted #nope phrase" #b')).toEqual(['a', 'b'])
+  })
+
+  it('excludes multiple quoted phrases, keeping tags outside each', () => {
+    expect(extractTags('#a "one #x" #b "two #y" #c')).toEqual(['a', 'b', 'c'])
+  })
+
+  it('matches CJK tag characters, same character class as the old regex', () => {
+    expect(extractTags('#日本語 #中文')).toEqual(['日本語', '中文'])
+  })
+
+  it('reproduces the old regex on an odd number of quotes (one stray quote)', () => {
+    const query = '#a "b #c'
+    expect(extractTags(query)).toEqual(legacyExtractTags(query))
+    expect(extractTags(query)).toEqual(['c'])
+  })
+
+  it('reproduces the old regex on an odd number of quotes (three quotes)', () => {
+    const query = '#a "b" #c "d'
+    expect(extractTags(query)).toEqual(legacyExtractTags(query))
+    expect(extractTags(query)).toEqual([])
+  })
+
+  it('reproduces the old regex across a table of quoted/unquoted/odd-quote queries', () => {
+    const cases = [
+      '#one #two',
+      '#one "two #skip" #three',
+      'no tags here',
+      '#a"b',
+      '"#a" #b',
+      '#a "b" "c #d" #e',
+      '#a "b #c" "d',
+      '"""',
+      '#a""#b',
+      '"unterminated #a #b'
+    ]
+    for (const query of cases) {
+      expect(extractTags(query)).toEqual(legacyExtractTags(query))
+    }
+  })
+
+  it('completes promptly on a ~100KB adversarial query (long tag run + many quotes)', () => {
+    // Deliberately NOT differential-tested against `legacyExtractTags` here -- this exact shape
+    // (a long tag run followed by a long run of quotes) is the quadratic-backtracking case being
+    // fixed, so running the old regex against it would defeat the point of the test.
+    const query = `#${'a'.repeat(50_000)}${'"'.repeat(50_000)}`
+    const start = performance.now()
+    const tags = extractTags(query)
+    const elapsedMs = performance.now() - start
+
+    expect(elapsedMs).toBeLessThan(500)
+    expect(tags).toEqual(['a'.repeat(50_000)])
+  })
+})
+
+describe('MAX_QUERY_LENGTH', () => {
+  it('is a positive, generous bound', () => {
+    expect(MAX_QUERY_LENGTH).toBeGreaterThan(100)
+  })
+})
+
+/*
+ * `useMinWidth` (via `useScreen`) calls `window.matchMedia` -- happy-dom supplies one, but this
+ * mirrors `Index.test.js`'s own defensive stub rather than assuming so, since nothing else in this
+ * file needs the real implementation.
+ */
+beforeEach(() => {
+  window.matchMedia =
+    window.matchMedia ??
+    vi.fn().mockImplementation((query) => ({
+      matches: false,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn()
+    }))
+})
+
+let activeWrapper = null
+
+afterEach(() => {
+  activeWrapper?.unmount()
+  activeWrapper = null
+  vi.clearAllMocks()
+})
+
+async function mountSearch() {
+  setActivePinia(createPinia())
+
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/_search', component: { template: '<div />' } }]
+  })
+  router.push('/_search')
+  await router.isReady()
+
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+  const wrapper = mount(Search, {
+    global: {
+      plugins: [router, i18n],
+      stubs: {
+        HeaderNav: true,
+        FooterNav: true,
+        MainOverlayDialog: true
+      }
+    }
+  })
+  activeWrapper = wrapper
+  await flushPromises()
+
+  return { wrapper }
+}
+
+function resultItem(locale, path, title) {
+  return {
+    locale,
+    path,
+    title,
+    description: '',
+    icon: '',
+    highlight: '',
+    updatedAt: '2026-01-01T00:00:00.000Z'
+  }
+}
+
+/**
+ * WP #1728: `state.results` is replaced wholesale on any filter change (the `deep: true` watcher on
+ * `state.params`), but the `w-item` row for each result had no `:key` -- Vue fell back to patching
+ * rows in place by index instead of keying them by identity, reusing a row's DOM element (and any
+ * component-internal state it held: focus, scroll position, in-flight transitions) across two
+ * completely unrelated results. This asserts a row's DOM element is actually replaced, not patched
+ * in place, when the result set changes to a different page of results at the same array index.
+ */
+describe('Search.vue results list keying (WP #1728)', () => {
+  it('replaces a row DOM element (does not reuse it) when the result set changes to unrelated results', async () => {
+    const { wrapper } = await mountSearch()
+
+    wrapper.vm.state.results = [
+      resultItem('en', 'page-one', 'Page One'),
+      resultItem('en', 'page-two', 'Page Two')
+    ]
+    await flushPromises()
+
+    // -> Select the row by the actual link it renders (`localizedPagePath`, no locale prefix here
+    //    since `siteStore.localeRouting.useLocales` defaults falsy) rather than a class guess: the
+    //    results list is the only `w-item v-for` in the template keyed off `state.results`.
+    const firstRowBefore = wrapper.find('a[href="/page-one"]')
+    expect(firstRowBefore.exists()).toBe(true)
+    const firstElBefore = firstRowBefore.element
+
+    // -> A wholesale replacement: an unrelated result set with no keys in common with the first,
+    //    same array length and same index-0 position -- exactly the "any filter change" case the
+    //    bug description calls out.
+    wrapper.vm.state.results = [
+      resultItem('en', 'page-three', 'Page Three'),
+      resultItem('en', 'page-four', 'Page Four')
+    ]
+    await flushPromises()
+
+    const firstRowAfter = wrapper.find('a[href="/page-three"]')
+    expect(firstRowAfter.exists()).toBe(true)
+    expect(firstRowAfter.element).not.toBe(firstElBefore)
+
+    // -> The stale row is gone outright, not merely relabeled in place
+    expect(wrapper.find('a[href="/page-one"]').exists()).toBe(false)
+  })
+})
+
+/**
+ * OpenProject #2006: a restricted reader's page rules can drop rows the search engine itself
+ * matched, which makes the reported `totalHits` a floor rather than an exact count -- see
+ * `backend/modules/search/db/search.test.ts` for the backend half (the flag itself) and this file
+ * for the frontend half (labeling it). Real i18n messages, not the empty stub `TagsBrowse.test.js`
+ * uses, since what is under test here IS the wording the two keys (`search.totalResults` /
+ * `search.totalResultsApprox`) produce.
+ */
+function createTestI18n() {
+  return createI18n({
+    legacy: false,
+    locale: 'en',
+    fallbackWarn: false,
+    messages: {
+      en: {
+        search: {
+          results: 'Search Results',
+          emptyQuery: 'Enter a query in the search field above and press Enter.',
+          totalResults: 'No result | {0} result | {0} results',
+          totalResultsApprox: 'No result | At least {0} result | At least {0} results'
+        }
+      }
+    }
+  })
+}
+
+const FIXTURE_PAGE = {
+  id: 'p1',
+  path: 'some/page',
+  locale: 'en',
+  title: 'Some Page',
+  description: null,
+  icon: null,
+  tags: [],
+  updatedAt: '2026-08-01T00:00:00.000Z',
+  relevancy: 1,
+  highlight: null
+}
+
+async function createTestRouter(initialPath) {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/_search', component: Search },
+      { path: '/:pathMatch(.*)*', component: { template: '<div />' } }
+    ]
+  })
+  router.push(initialPath)
+  await router.isReady()
+  return router
+}
+
+async function mountSearchWithResponse(searchResponse) {
+  setActivePinia(createPinia())
+  const siteStore = useSiteStore()
+  siteStore.id = 'site-1'
+
+  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(searchResponse) })
+
+  const router = await createTestRouter('/_search?q=onboarding')
+  const wrapper = mount(Search, {
+    global: {
+      plugins: [router, createTestI18n()],
+      // -> Real HeaderNav/FooterNav/MainOverlayDialog pull in more stores and API calls than this
+      //    test cares about; stubbed by name so the page around them still renders for real.
+      stubs: { HeaderNav: true, FooterNav: true, MainOverlayDialog: true }
+    }
+  })
+  activeWrapper = wrapper
+  await flushPromises()
+  return { wrapper, siteStore }
+}
+
+describe('Search.vue totalHitsApproximate labeling (OpenProject #2006)', () => {
+  it('shows the exact-count label when the backend reports an exact total', async () => {
+    const { wrapper } = await mountSearchWithResponse({
+      results: [FIXTURE_PAGE],
+      totalHits: 1,
+      totalHitsApproximate: false,
+      suggestion: null
+    })
+
+    expect(wrapper.vm.state.totalApproximate).toBe(false)
+    expect(wrapper.text()).toContain('1 result')
+    expect(wrapper.text()).not.toContain('At least')
+  })
+
+  it('shows the approximate-count label when page rules dropped rows from this page', async () => {
+    const { wrapper } = await mountSearchWithResponse({
+      results: [FIXTURE_PAGE],
+      totalHits: 1,
+      totalHitsApproximate: true,
+      suggestion: null
+    })
+
+    expect(wrapper.vm.state.totalApproximate).toBe(true)
+    expect(wrapper.text()).toContain('At least 1 result')
+  })
+
+  it('resets to the exact label on a later search that reports nothing approximate', async () => {
+    const { wrapper, siteStore } = await mountSearchWithResponse({
+      results: [FIXTURE_PAGE],
+      totalHits: 1,
+      totalHitsApproximate: true,
+      suggestion: null
+    })
+    expect(wrapper.vm.state.totalApproximate).toBe(true)
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          results: [FIXTURE_PAGE],
+          totalHits: 1,
+          totalHitsApproximate: false,
+          suggestion: null
+        })
+    })
+    siteStore.search = 'onboarding guide'
+    await wrapper.vm.performSearch()
+    await flushPromises()
+
+    expect(wrapper.vm.state.totalApproximate).toBe(false)
+    expect(wrapper.text()).not.toContain('At least')
+  })
+})

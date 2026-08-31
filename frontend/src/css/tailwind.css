@@ -82,14 +82,25 @@ html.theme-transition-suppress *::after {
   remapping in `stores/user.js`) by writing those properties on :root, so the indirection is what
   keeps runtime theming working. Do not inline these.
 */
+/*
+  `secondary`/`positive`, `warning` and `accent`/`negative` are darkened from their original
+  brighter tones -- #02c39a, #f99d4d and #f03a47 respectively -- because a solid `WBtn` in one of
+  these colors always draws white text over it (`WBtn.vue`'s `color` prop), and none of the
+  originals cleared 4.5:1 (WCAG AA) against white: 2.26:1, 2.11:1 and 3.89:1. These three do (see
+  `helpers/accessibility.test.js`'s palette-pinning test), each darkened along its own hue so the
+  brand colors stay recognizable rather than converging on a single "safe" shade. `colorSecondary`/
+  `colorAccent` are also site-configurable (`AdminTheme.vue`) -- kept equal to `backend/models/sites.ts`'s
+  `DEFAULT_THEME_COLORS` seed and `AdminTheme.vue`'s `resetColors()`, so a fresh install and a reset
+  theme both start accessible instead of only the CSS fallback being fixed.
+*/
 :root {
   --q-primary: #1976d2;
-  --q-secondary: #02c39a;
-  --q-accent: #f03a47;
-  --q-positive: #02c39a;
-  --q-negative: #f03a47;
+  --q-secondary: #018569;
+  --q-accent: #e81221;
+  --q-positive: #018569;
+  --q-negative: #e81221;
   --q-info: #3e6990;
-  --q-warning: #f99d4d;
+  --q-warning: #ba5a06;
   --q-header: #000;
   --q-sidebar: #1976d2;
 }
@@ -164,6 +175,20 @@ html.theme-transition-suppress *::after {
   --color-grey-8: #616161;
   --color-grey-9: #424242;
   --color-grey-10: #212121;
+
+  /*
+    Muted/secondary body text, split by ground the same way `--color-primary-light` splits headings:
+    `grey-6` on white is 2.68:1 and `grey-7` on `dark-3` is 3.43:1 -- both below AA, and the two
+    grounds need opposite fixes (darker for white, lighter for dark-3), so no single grey ramp step
+    covers both. Raising `grey-6`/`grey-7` themselves isn't an option either -- `grey-6` reads
+    lighter than `grey-7` everywhere else they're both used (`PageToc.vue`'s ink/ink-soft pair is the
+    clearest example), and darkening `grey-6` enough to pass on white while lightening `grey-7`
+    enough to pass on `dark-3` would invert that ordering. `grey-8`/`grey-6` already clear AA on
+    their respective grounds (6.19:1, 5.90:1 -- pinned in `accessibility.test.js`) without any new
+    hex, so these just name that pairing for reuse: `text-muted dark:text-muted-dark`.
+  */
+  --color-muted: var(--color-grey-8);
+  --color-muted-dark: var(--color-grey-6);
 
   --color-blue-grey: #607d8b;
   --color-blue-grey-1: #eceff1;
@@ -418,6 +443,24 @@ html.theme-transition-suppress *::after {
   body.body--dark .w-card {
     background-color: var(--color-dark-3);
     color: var(--color-white);
+  }
+
+  /*
+    Every dialog's panel, clamped to the viewport regardless of what its card asks for.
+
+    `WDialog`'s own `maxWidth` prop is opt-in (most callers never pass it), and a card's own
+    `min-width` -- several go past 550px, one as high as 850px -- otherwise wins outright on a
+    phone-width screen, running the panel off both edges. `calc(100vw - 2rem)` matches the
+    viewport's own `p-4` gutter (1rem each side), so the clamp lines up with the padding the
+    backdrop already reserves rather than fighting it.
+
+    A component class rather than a `WDialog.vue` `<style>` rule, for the same reason `.w-card`
+    lives here: every one of the 19 callers sets its `min-width` as an inline style on the panel's
+    own children, which -- same element, same specificity tier -- would otherwise be free to beat
+    a scoped rule depending on source order. A utility class wins here by @layer order alone.
+  */
+  .w-dialog-panel {
+    max-width: calc(100vw - 2rem);
   }
 
   /*

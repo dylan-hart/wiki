@@ -8,6 +8,7 @@ import {
   mapStorageRows,
   type SourceStorageRow
 } from './storage.ts'
+import { ensureTemporal } from '../../test/temporal.ts'
 
 /**
  * `mapStorageRow(s)` (task 767) tests.
@@ -21,14 +22,7 @@ import {
  */
 
 before(async () => {
-  // -> Node 25 (this sandbox) has no native `Temporal` yet — Node 26 does, per this repo's engine
-  //    requirement. Polyfilled only when missing, so this is a no-op on a real Node 26 runtime — same
-  //    pattern `models/storage.test.ts`'s own `before()` uses. `convertSyncInterval` (in `storage.ts`)
-  //    parses with `Temporal.Duration.from()`, exactly like `models/storage.ts` itself does.
-  if (typeof Temporal === 'undefined') {
-    const polyfill = await import('@js-temporal/polyfill')
-    ;(globalThis as any).Temporal = polyfill.Temporal
-  }
+  await ensureTemporal()
   ;(globalThis as any).WIKI = {
     SERVERPATH: path.join(import.meta.dirname, '..', '..'),
     logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }

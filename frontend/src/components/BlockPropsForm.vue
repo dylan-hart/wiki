@@ -11,31 +11,31 @@
         outlined
         dense
         options-dense
-        :label="field.label ?? field.name"
-        :aria-label="field.label ?? field.name"
+        :label="fieldLabel(field)"
         :required="field.required"
-        :hint="field.hint" />
+        :hint="fieldHint(field)" />
       <w-toggle
         v-else-if="field.type === `boolean`"
         v-model="values[field.name]"
         dense
-        :label="field.label ?? field.name" />
+        :label="fieldLabel(field)" />
       <w-input
         v-else
         v-model="values[field.name]"
         outlined
         dense
         :type="field.type === `number` ? `number` : `text`"
-        :label="field.label ?? field.name"
-        :aria-label="field.label ?? field.name"
+        :label="fieldLabel(field)"
         :required="field.required"
-        :hint="field.hint" />
+        :hint="fieldHint(field)" />
     </template>
   </w-form>
 </template>
 
 <script setup>
 import { useI18n } from 'vue-i18n'
+
+import { useBlockLocale } from '@/composables/blockLocale'
 
 /**
  * The form a block's props make: one field per prop, in the order the block declares them.
@@ -52,11 +52,28 @@ import { useI18n } from 'vue-i18n'
  * `v-model` per field would be the same object, one indirection further away.
  *
  * Padding is the caller's: this sits in a panel in one and a card in the other.
+ *
+ * Labels and hints resolve through i18n before falling back to the raw string the block definition
+ * carries, at the `blocks.<tag>.props.<name>.label` / `.hint` keys minted for the 223 block metadata
+ * strings (see `backend/locales/en.json`). `tag` is optional: a caller with no block tag to give —
+ * the admin "Configure" form, whose fields are a block's site-wide config schema rather than its
+ * author-facing props, and so were never minted under this convention — gets the raw string exactly
+ * as before.
  */
 
 // PROPS
 
-defineProps({
+const props = defineProps({
+  /**
+   * The block's own tag (`SiteBlock.block` / `BlockDefinition.block`, e.g. `openapi`) -- what a
+   * field's `blocks.<tag>.props.<name>.label` / `.hint` key is resolved against. Optional: a caller
+   * with no tag handy (or a custom block with no `blocks.*` namespace minted for it) simply gets
+   * every field's raw `label` / `hint` back unresolved.
+   */
+  block: {
+    type: String,
+    default: ''
+  },
   /** The props the block declares, as the API describes them. */
   fields: {
     type: Array,
@@ -72,4 +89,13 @@ defineProps({
 // I18N
 
 const { t } = useI18n()
+const { blockText } = useBlockLocale()
+
+function fieldLabel(field) {
+  return blockText(props.block, `props.${field.name}.label`, field.label ?? field.name)
+}
+
+function fieldHint(field) {
+  return blockText(props.block, `props.${field.name}.hint`, field.hint)
+}
 </script>

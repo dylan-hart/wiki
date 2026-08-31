@@ -1,6 +1,7 @@
-import { describe, test } from 'node:test'
+import { before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mock } from 'node:test'
+import { ensureTemporal } from '../../../test/temporal.ts'
 import {
   AzureSearchModule,
   buildFilter,
@@ -18,21 +19,13 @@ import type { SearchIndex } from '@azure/search-documents'
 import type { SearchIndexablePage } from '../../../models/search.ts'
 
 /**
- * Minimal stand-in for `Date.prototype.toTemporalInstant()`, which `toIndexDocument` calls to build
- * the document's `updatedAt` field.
+ * `toIndexDocument` calls `Date.prototype.toTemporalInstant()` to build the document's `updatedAt`
+ * field.
  *
  * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
  * v25.9.0, which doesn't expose it yet (same environment gap `core/scheduler.test.ts` stubs around).
- * `toISOString()` already gives millisecond precision with a `Z` suffix, so it's an exact stand-in for
- * what `toTemporalInstant().toString({ smallestUnit: 'millisecond' })` produces. Guarded so it's a
- * no-op on a runtime where the native method already exists.
  */
-if (typeof (Date.prototype as any).toTemporalInstant !== 'function') {
-  ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-    const iso = this.toISOString()
-    return { toString: () => iso }
-  }
-}
+before(() => ensureTemporal())
 
 /**
  * `init()` is task #553's scope — the SDK dependency, `definition.yml`, and idempotent index
@@ -148,11 +141,10 @@ function page(overrides: Partial<SearchIndexablePage> = {}): SearchIndexablePage
     contentType: 'markdown',
     isBrowsable: true,
     isSearchable: true,
-    isSearchableComputed: true,
     classification: 'classification-1',
     password: null,
     ratingScore: 0,
-    ratingCount: new Date('2024-01-01T00:00:00Z'),
+    ratingCount: 0,
     scripts: {},
     historyData: {},
     createdAt: new Date('2024-01-01T00:00:00Z'),
@@ -557,7 +549,13 @@ describe('azure-search module: query()', () => {
     }
   }
 
-  test('translates offset/limit into skip/top for a plain query', async () => {
+  /**
+   * OpenProject #2156: `offset`/`limit` are no longer sent straight through as Azure's own `skip`/
+   * `top` -- page-rule filtering happens after the query, so the module now always scans a bounded
+   * window from the start (`skip: 0`) and applies the caller's own pagination in JS, over the
+   * filtered set. See `query()`'s own comment for the full reasoning.
+   */
+  test('always scans from the start with a bounded top, regardless of the caller’s own offset/limit', async () => {
     const client = fakeQueryClient([{ count: 1, rows: [row()] }])
     const azureSearch = new AzureSearchModule(undefined, () => client)
 
@@ -570,8 +568,37 @@ describe('azure-search module: query()', () => {
     })
 
     assert.equal(client.searches.length, 1)
-    assert.equal(client.searches[0]!.options.skip, 10)
-    assert.equal(client.searches[0]!.options.top, 5)
+    assert.equal(client.searches[0]!.options.skip, 0)
+    assert.ok(
+      client.searches[0]!.options.top > 5,
+      'expected a bounded scan window larger than the requested page size'
+    )
+  })
+
+  test('applies the caller’s offset/limit in JS, over the filtered (visible) set', async () => {
+    const client = fakeQueryClient([
+      {
+        count: 3,
+        rows: [
+          row({ id: 'a', path: 'a' }, 3),
+          row({ id: 'b', path: 'b' }, 2),
+          row({ id: 'c', path: 'c' }, 1)
+        ]
+      }
+    ])
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+
+    const result = await azureSearch.query({
+      siteId: 'site-1',
+      query: 'kangaroo',
+      offset: 1,
+      limit: 1,
+      hideProtectedContent: false
+    })
+
+    assert.equal(result.results.length, 1)
+    assert.equal(result.results[0]!.id, 'b')
+    assert.equal(result.totalHits, 3)
   })
 
   test('returns the exact SearchPagesResult shape', async () => {
@@ -584,7 +611,12 @@ describe('azure-search module: query()', () => {
       hideProtectedContent: false
     })
 
-    assert.deepEqual(Object.keys(result).sort(), ['results', 'suggestion', 'totalHits'])
+    assert.deepEqual(Object.keys(result).sort(), [
+      'results',
+      'suggestion',
+      'totalHits',
+      'totalHitsApproximate'
+    ])
     assert.equal(result.totalHits, 1)
     assert.equal(result.results.length, 1)
     assert.deepEqual(Object.keys(result.results[0]!).sort(), [
@@ -647,7 +679,41 @@ describe('azure-search module: query()', () => {
 
     assert.equal(result.results.length, 1)
     assert.equal(result.results[0]!.id, 'p2')
+    // -> offset (0) plus how many of this page's rows survived checkAccess, never Azure's own count
     assert.equal(result.totalHits, 1)
+    WIKI.models.groups.checkAccess = () => true
+  })
+
+  test('totalHits never reflects Azure’s own count when it exceeds what this page can vouch for', async () => {
+    const client = fakeQueryClient([
+      {
+        // -> Azure reports 100 total matches across many pages this call never fetched -- the old
+        //    arithmetic (count - rows.length + visible.length) would have leaked most of that into
+        //    totalHits even though only this one page was ever checked against checkAccess.
+        count: 100,
+        rows: [
+          row({ id: 'p1', path: 'docs/kangaroo' }, 3),
+          row({ id: 'p2', path: 'docs/secret' }, 2),
+          row({ id: 'p3', path: 'docs/other' }, 1)
+        ]
+      }
+    ])
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+    const actor = { groupIds: [], permissions: [] }
+    ;(WIKI.models.groups.checkAccess as any) = (_actor: any, _perm: any, p: any) =>
+      p.path !== 'docs/secret'
+
+    const result = await azureSearch.query({
+      siteId: 'site-1',
+      query: 'kangaroo',
+      offset: 0,
+      actor,
+      hideProtectedContent: false
+    })
+
+    assert.equal(result.results.length, 2)
+    // -> Exactly the readable count of this page (offset 0 + 2 visible), never Azure's 100
+    assert.equal(result.totalHits, 2)
     WIKI.models.groups.checkAccess = () => true
   })
 
@@ -705,6 +771,40 @@ describe('azure-search module: query()', () => {
     assert.equal(protectedResult.title, 'Vault Secrets')
     // -> Found by title, but never carries an excerpt of the body behind the password
     assert.equal(protectedResult.highlight, null)
+  })
+
+  /**
+   * OpenProject #2151/#2156: `runProtectedSplitQuery`'s merged rows used to be sliced to the
+   * caller's page BEFORE `checkAccess()` ran, so a denied match elsewhere in the merge could still
+   * count toward -- and even occupy a slot in -- the page returned at `limit=1`, the audit's own
+   * repro shape. `totalHits` must never exceed the number of matches the actor can actually read.
+   */
+  test('the split-query path never counts or returns a denied match, even at limit=1', async () => {
+    const openRow = row({ id: 'open', path: 'docs/open', hasPassword: false }, 2)
+    const secretRow = row({ id: 'secret', path: 'docs/secret', hasPassword: false }, 1)
+    const client = fakeQueryClient([
+      { count: 2, rows: [openRow, secretRow] },
+      { count: 0, rows: [] }
+    ])
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+    const actor = { groupIds: [], permissions: [] }
+    ;(WIKI.models.groups.checkAccess as any) = (_actor: any, _perm: any, p: any) =>
+      p.path !== 'docs/secret'
+
+    try {
+      const result = await azureSearch.query({
+        siteId: 'site-1',
+        query: 'kangaroo',
+        actor,
+        limit: 1,
+        hideProtectedContent: true
+      })
+      assert.equal(result.totalHits, 1)
+      assert.equal(result.results.length, 1)
+      assert.equal(result.results[0]!.id, 'open')
+    } finally {
+      WIKI.models.groups.checkAccess = () => true
+    }
   })
 
   test('hideProtectedContent is skipped without a query, since there is no body text to leak', async () => {

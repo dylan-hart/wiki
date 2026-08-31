@@ -2,10 +2,10 @@
   <w-page class="admin-general">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-web.svg" />
+        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-web.svg" alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.general.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.general.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.general.subtitle') }}
         </div>
@@ -242,6 +242,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`admin.general.allowRatings`)"
                 :options="ratingsModes" />
             </w-item-section>
           </w-item>
@@ -273,6 +274,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`admin.general.reasonForChange`)"
                 :options="reasonForChangeModes" />
             </w-item-section>
           </w-item>
@@ -304,6 +306,8 @@
                 color="primary"
                 :left-label-value="`H` + state.config.defaults.tocDepth.min"
                 :right-label-value="`H` + state.config.defaults.tocDepth.max"
+                :aria-label-min="t('editor.props.tocMinMaxDepth')"
+                :aria-label-max="t('editor.props.tocMinMaxDepth')"
                 label
                 markers />
             </w-item-section>
@@ -356,13 +360,17 @@
                   the length of that request. `state.config.id` changes in the exact same assignment as
                   the text, so the two can never disagree.
                 -->
-                <w-btn dense flat v-if="state.config.id">
+                <!-- Preview only, not a real link -- inert rather than given a fake accessible name -->
+                <w-btn dense flat tabindex="-1" aria-hidden="true" v-if="state.config.id">
                   <w-avatar v-if="state.config.logoText" size="34px" square>
-                    <img :src="`/_site/` + state.config.id + `/logo?` + state.assetTimestamp" />
+                    <img
+                      :src="`/_site/` + state.config.id + `/logo?` + state.assetTimestamp"
+                      alt="" />
                   </w-avatar>
                   <img
                     v-else
                     :src="`/_site/` + state.config.id + `/logo?` + state.assetTimestamp"
+                    alt=""
                     style="height: 34px" />
                 </w-btn>
                 <w-toolbar-title class="text-h6" v-if="state.config.logoText">{{
@@ -422,17 +430,23 @@
                   <!-- Same reasoning as the logo preview toolbar above: keyed off `state.config.id`
                        so this can never show a new site's favicon beside the old site's title. -->
                   <w-avatar v-if="state.config.id" size="24px" square>
-                    <img :src="`/_site/` + state.config.id + `/favicon?` + state.assetTimestamp" />
+                    <img
+                      :src="`/_site/` + state.config.id + `/favicon?` + state.assetTimestamp"
+                      :alt="t(`admin.general.favicon`)" />
                   </w-avatar>
                   <div class="text-caption ml-2">{{ state.config.title }}</div>
                 </div>
                 <div>
                   <w-icon name="la:otter" size="24px" color="grey" />
-                  <div class="text-caption ml-2">Lorem ipsum</div>
+                  <div class="text-caption ml-2">
+                    {{ t('admin.general.faviconPreviewSample1') }}
+                  </div>
                 </div>
                 <div>
                   <w-icon name="la:mountain" size="24px" color="grey" />
-                  <div class="text-caption ml-2">Dolor sit amet...</div>
+                  <div class="text-caption ml-2">
+                    {{ t('admin.general.faviconPreviewSample2') }}
+                  </div>
                 </div>
               </div>
             </w-item-section>
@@ -725,7 +739,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to load site configuration.',
+      message: t('admin.general.loadFailed'),
       caption: err.message
     })
   }
@@ -799,7 +813,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.general.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.general.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     notify({
@@ -837,7 +851,7 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to save site configuration.',
+      message: t('admin.general.saveFailed'),
       caption: err.message
     })
   }

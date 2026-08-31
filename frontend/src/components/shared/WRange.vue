@@ -38,7 +38,22 @@
       :aria-valuemax="handle === 'min' ? model.max : max"
       :aria-valuenow="model[handle]"
       :aria-valuetext="labelFor(handle)"
+      :disabled="isDisabled"
+      :aria-disabled="isDisabled || undefined"
       @keydown="onKeydown(handle, $event)">
+      <!--
+        -> `left-1/2 -translate-x-1/2` centers this label under its handle (OpenProject #1590's
+           physical-positioning triage), the same symmetric-centering-vs-physical-translate pairing
+           as `WNotifications`'s toast stack -- swapping only the `left` half to `start` would pull
+           the label off-centre, since `-translate-x-1/2` never mirrors under RTL.
+
+           The rest of this component -- rail, selected span, step markers, and the handles' own
+           `left: ${toPercent(...)}%` above -- is a numeric min/max scale rather than a leading/
+           trailing gutter, and stays physical for the same reason `WMenu`/`WTooltip`'s
+           viewport-relative pixel positioning does: making it direction-aware is a coordinated
+           redesign of `toPercent()` and every `left:` here together, not a mechanical swap, so it
+           is deliberately out of this triage's scope rather than converted piecemeal.
+      -->
       <span
         v-if="label"
         class="pointer-events-none absolute top-full left-1/2 mt-1 -translate-x-1/2 rounded px-1.5 py-0.5 text-caption whitespace-nowrap text-white"
@@ -208,6 +223,9 @@ const KEY_STEPS = {
 }
 
 function onKeydown(handle, ev) {
+  if (isDisabled.value) {
+    return
+  }
   if (ev.key === 'Home' || ev.key === 'End') {
     ev.preventDefault()
     update(handle, ev.key === 'Home' ? props.min : props.max)

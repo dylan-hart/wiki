@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { and, eq, inArray } from 'drizzle-orm'
+import { CustomError } from '../helpers/common.ts'
 import {
   blockCode as blockCodeTable,
   blocks as blocksTable,
@@ -197,17 +198,28 @@ class Blocks {
     for (const definition of registrable) {
       const row = existing.find((entry: any) => entry.block === definition.block)
       if (!row) {
-        await WIKI.db.insert(blocksTable).values({
-          siteId,
-          block: definition.block,
-          name: definition.name,
-          description: definition.description,
-          icon: definition.icon,
-          isEnabled: true,
-          isCustom: false,
-          config: {}
-        })
-        added++
+        // -> `onConflictDoNothing` rather than a plain insert: this runs from `syncAllSites()` at
+        //    every instance's boot, so two instances syncing the same site concurrently both read
+        //    `existing` with nothing there and both reach this insert. Without the conflict target
+        //    the second write would 23505 on `blocks_composite_idx` and abort `postBoot()`; with it,
+        //    the loser silently no-ops and the row it would have written is already there.
+        const [inserted] = await WIKI.db
+          .insert(blocksTable)
+          .values({
+            siteId,
+            block: definition.block,
+            name: definition.name,
+            description: definition.description,
+            icon: definition.icon,
+            isEnabled: true,
+            isCustom: false,
+            config: {}
+          })
+          .onConflictDoNothing({ target: [blocksTable.siteId, blocksTable.block] })
+          .returning({ id: blocksTable.id })
+        if (inserted) {
+          added++
+        }
         continue
       }
       // -> Written only when it would change something, so that a boot that found nothing new is a
@@ -326,6 +338,31 @@ class Blocks {
   }
 
   /**
+   * A site's custom blocks, in just the shape `blockAllowances()` (`models/rendering.ts`) needs to
+   * admit them to the sanitizer's per-block allowlist: the tag they register under and the prop names
+   * a saved page may put on them.
+   *
+   * Every custom row, not only enabled ones — `blockAllowances()` already has `getEnabledKeys()`'s
+   * answer and applies that filter itself, the same way it does for the built-in half of the same
+   * list; duplicating the filter here would just be a second copy of the same rule that could disagree
+   * with the first.
+   *
+   * Prop names are trusted here without a second check: `helpers/blockDefinition.ts#extractBlockDefinition()`
+   * is what actually stands between an uploaded prop name and the sanitizer's attribute allowlist
+   * (`/^[a-z][a-z0-9-]*$/`, rejecting anything shaped like a `*`-glob or an `on*` inline-handler name at
+   * upload time) — this method is a plain read, not a second gate.
+   */
+  async getCustomBlockDefinitions(
+    siteId: string
+  ): Promise<{ block: string; props: BlockProp[] }[]> {
+    const rows = await WIKI.db
+      .select({ block: blocksTable.block, props: blocksTable.props })
+      .from(blocksTable)
+      .where(and(eq(blocksTable.siteId, siteId), eq(blocksTable.isCustom, true)))
+    return rows.map((row) => ({ block: row.block, props: (row.props as BlockProp[]) ?? [] }))
+  }
+
+  /**
    * The keys of the blocks a site has switched on.
    *
    * Read from the database on every call rather than kept in a cache like this model's definitions.
@@ -363,9 +400,10 @@ class Blocks {
    * in `models/rendering.ts` allow-lists an embedded block's attributes by name only, taking whatever
    * string value came with them — so `config` is held to the same standard as the sibling data an
    * admin's site-level form and an author's page-level markup both ultimately feed into the same
-   * component. This is a deliberate choice for new code, not a preserved pre-existing gap: revisit it
-   * if a block ever needs a config value trusted for more than passing through to its own component
-   * (e.g. interpolated into a URL fetched server-side).
+   * component. This was a deliberate choice for new code, not a preserved pre-existing gap, with one
+   * exception carved out since: `assertValidConfig()` below, for exactly the case that comment called
+   * out as worth revisiting — a config value trusted for more than passing through to its own
+   * component, because something here now fetches it server-side.
    */
   private sanitizeConfig(
     block: { key: string; isCustom: boolean } | undefined,
@@ -376,7 +414,56 @@ class Blocks {
     }
     const definition = this.definitions.find((d) => d.block === block.key)
     const declared = new Set((definition?.config ?? []).map((field) => field.name))
-    return Object.fromEntries(Object.entries(config).filter(([key]) => declared.has(key)))
+    const sanitized = Object.fromEntries(
+      Object.entries(config).filter(([key]) => declared.has(key))
+    )
+    this.assertValidConfig(block.key, sanitized)
+    return sanitized
+  }
+
+  /**
+   * The one config value this file actually revisits the "no per-field validation" note above for:
+   * block-plantuml's `server` is fetched server-side by `DiagramRender#renderPlantuml`
+   * (`models/diagramRender.ts`, OpenProject task 2223), unlike every other block's config, which is
+   * only ever handed to that block's own client-side component. A bad value here is not a rendering
+   * inconvenience an author would notice and fix — left unchecked, it is exactly the SSRF this block's
+   * config field exists to close off (OpenProject epic 2216), so it is refused at the one point a
+   * caller can still be turned away: when an admin writes it, not when a reader's request later makes
+   * this model fetch whatever was stored.
+   *
+   * Empty is left alone (falls back to the public default); anything else must parse as a URL, be
+   * `http:`/`https:`, and carry neither a query string nor a fragment — a query string is what let the
+   * old caller-supplied override fold `/${format}/${encoded}` into itself and reach an arbitrary path
+   * on an otherwise-fine host (see `diagramRender.ts`'s `plantumlUrl()`).
+   */
+  private assertValidConfig(blockKey: string, config: Record<string, any>): void {
+    if (blockKey !== 'plantuml') {
+      return
+    }
+    const value = config.server
+    if (typeof value !== 'string' || value.trim() === '') {
+      return
+    }
+    let parsed: URL
+    try {
+      parsed = new URL(value)
+    } catch {
+      throw new CustomError('blocksInvalidConfig', `"${value}" is not a valid URL.`, 400)
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new CustomError(
+        'blocksInvalidConfig',
+        `The PlantUML server must be an http:// or https:// URL, not "${parsed.protocol}".`,
+        400
+      )
+    }
+    if (parsed.search || parsed.hash) {
+      throw new CustomError(
+        'blocksInvalidConfig',
+        'The PlantUML server URL may not contain a query string or fragment.',
+        400
+      )
+    }
   }
 
   /**
@@ -503,8 +590,10 @@ class Blocks {
    * block an administrator just uploaded is one they meant to make available, not one to leave hidden
    * behind a second step.
    *
-   * Callers are expected to have already resolved the tag collision with `isTagTaken()`: this method
-   * does not check again, so it is not itself safe to call twice concurrently for the same tag.
+   * Callers are expected to have already resolved the tag collision with `isTagTaken()`, which this
+   * still races against: two uploads for the same tag can both pass that check and both reach this
+   * insert, so `blocks_composite_idx` is what actually decides the winner. The loser's `23505` is
+   * surfaced as a 409 `CustomError` rather than an unhandled raw error.
    *
    * @param definition The block's own static definition, as `helpers/blockDefinition.ts` extracted it.
    * @param code The uploaded `component.js` source, stored verbatim for `getCustomBlockCode()` to serve back.
@@ -515,20 +604,32 @@ class Blocks {
     code: Buffer
   ): Promise<SiteBlock> {
     return WIKI.db.transaction(async (tx) => {
-      const [row] = await tx
-        .insert(blocksTable)
-        .values({
-          siteId,
-          block: definition.block,
-          name: definition.name,
-          description: definition.description,
-          icon: definition.icon,
-          isEnabled: true,
-          isCustom: true,
-          props: definition.props ?? [],
-          template: definition.template ?? ''
-        })
-        .returning()
+      let row
+      try {
+        ;[row] = await tx
+          .insert(blocksTable)
+          .values({
+            siteId,
+            block: definition.block,
+            name: definition.name,
+            description: definition.description,
+            icon: definition.icon,
+            isEnabled: true,
+            isCustom: true,
+            props: definition.props ?? [],
+            template: definition.template ?? ''
+          })
+          .returning()
+      } catch (err: any) {
+        if (err.cause?.code === '23505' || err.code === '23505') {
+          throw new CustomError(
+            'blockTagTaken',
+            `A block already registers the tag "block-${definition.block}" on this site.`,
+            409
+          )
+        }
+        throw err
+      }
       await tx.insert(blockCodeTable).values({ blockId: row!.id, code })
       return {
         id: row!.id,

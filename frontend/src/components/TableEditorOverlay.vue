@@ -1,5 +1,5 @@
 <template>
-  <w-layout class="table-editor" view="hHh lpR fFf" container>
+  <w-layout class="table-editor" container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="img:/_assets/icons/color-data-grid.svg" left size="md" />
       <span>{{ t(`editor.tableEditor.title`) }}</span>
@@ -14,7 +14,7 @@
         :href="siteStore.docsBase + `/guide/table-editor`"
         target="_blank"
         type="a" />
-      <w-btn-group push>
+      <w-btn-group>
         <w-btn
           push
           color="white"
@@ -29,8 +29,8 @@
           push
           color="positive"
           text-color="white"
-          :label="t(submitLabel)"
-          :aria-label="t(submitLabel)"
+          :label="state.replace ? t('common.actions.update') : t('common.actions.insert')"
+          :aria-label="state.replace ? t('common.actions.update') : t('common.actions.insert')"
           icon="la:check"
           @click="insert" />
       </w-btn-group>
@@ -346,10 +346,6 @@ const bodyRows = computed(() => state.rows.slice(rowOffset.value))
 /* -> Written by `helpers/markdownTable`, which is also what read the table being edited: the two
       directions have to agree, or reopening a table would reformat it */
 const markdown = computed(() => buildTable(state, { compact: state.compact }))
-
-const submitLabel = computed(() =>
-  state.replace ? 'common.actions.update' : 'common.actions.insert'
-)
 
 // METHODS
 

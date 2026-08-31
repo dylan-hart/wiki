@@ -3,12 +3,12 @@
     <w-card style="min-width: 600px">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-key-2.svg" size="sm" class="mr-2" />
-        <span>{{ t(`admin.api.copyKeyTitle`) }}</span>
+        <span>{{ t(`${labelPrefix}.copyKeyTitle`) }}</span>
       </w-card-section>
       <w-card-section class="card-negative">
-        <i18n-t tag="span" keypath="admin.api.newKeyCopyWarn" scope="global">
+        <i18n-t tag="span" :keypath="`${labelPrefix}.newKeyCopyWarn`" scope="global">
           <template #bold>
-            <strong>{{ t('admin.api.newKeyCopyWarnBold') }}</strong>
+            <strong>{{ t(`${labelPrefix}.newKeyCopyWarnBold`) }}</strong>
           </template>
         </i18n-t>
       </w-card-section>
@@ -17,14 +17,14 @@
           <blueprint-icon icon="binary-file" class="self-start" />
           <w-item-section>
             <w-input
+              ref="iptKey"
               type="textarea"
               outlined
               :model-value="props.keyValue"
               readonly
               dense
               hide-bottom-space
-              :label="t(`admin.api.key`)"
-              autofocus />
+              :label="t(`${labelPrefix}.key`)" />
           </w-item-section>
         </w-item>
         <!--
@@ -89,6 +89,7 @@ import { computed } from 'vue'
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { copyToClipboard } from '@/helpers/clipboard'
+import { ref } from 'vue'
 
 // PROPS
 
@@ -96,6 +97,15 @@ const props = defineProps({
   keyValue: {
     type: String,
     required: true
+  },
+  // -> `admin.api.*` for the admin-issued key flow, `profile.api.*` for the self-service personal
+  //    access token flow -- the two string sets say the same things ("Copy Access Token", ...) under
+  //    different i18n namespaces, since a personal token isn't an admin's "API Key" to the reader
+  //    holding it. `admin.api.mcpInstallCommand*` is genuinely global and is not routed through this.
+  //    Mirrors `ApiKeyRevokeDialog`'s own `labelPrefix` prop.
+  labelPrefix: {
+    type: String,
+    default: 'admin.api'
   }
 })
 
@@ -103,9 +113,15 @@ const props = defineProps({
 
 defineEmits([...dialogComponentEmits])
 
+// REFS
+
+const iptKey = ref(null)
+
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK } = useDialogComponent({
+  autofocus: () => iptKey.value
+})
 
 // I18N
 
@@ -136,12 +152,12 @@ async function copyKey() {
     await copyToClipboard(props.keyValue)
     notify({
       type: 'positive',
-      message: t('admin.api.copySuccess')
+      message: t(`${props.labelPrefix}.copySuccess`)
     })
   } catch (err) {
     notify({
       type: 'negative',
-      message: t('admin.api.copyFailed'),
+      message: t(`${props.labelPrefix}.copyFailed`),
       caption: err.message
     })
   }

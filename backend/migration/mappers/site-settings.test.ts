@@ -203,13 +203,17 @@ describe('mapSiteSettings', () => {
     const rows: SiteSettingsSourceRow[] = [
       {
         key: 'uploads',
-        value: { maxFileSize: 5242880, maxFiles: 10, scanSVG: false, forceDownload: false }
+        // -> `maxFiles` has no 3.0 destination (`security.uploadMaxFiles` was removed as a dead key
+        //    that nothing ever enforced; OpenProject #2174) and is expected to be dropped, not mapped.
+        //    `scanSVG` does map across -- `uploadScanSVG` is enforced in 3.0 (OpenProject #2170).
+        value: { maxFileSize: 5242880, scanSVG: false, forceDownload: false }
       }
     ]
     const { instanceSettings } = mapSiteSettings(rows)
+    // -> `maxFiles` is 2.x-only: `uploadMaxFiles` was a dead 3.0 setting nothing enforced
+    //    (OpenProject #1360/#2152/#2174) and has been deleted, so there is nowhere for it to land.
     assert.deepEqual(instanceSettings.security, {
       uploadMaxFileSize: 5242880,
-      uploadMaxFiles: 10,
       uploadScanSVG: false,
       forceAssetDownload: false
     })
@@ -218,10 +222,10 @@ describe('mapSiteSettings', () => {
   test('security and uploads rows both present merge into one security patch', () => {
     const rows: SiteSettingsSourceRow[] = [
       { key: 'security', value: { securityTrustProxy: true } },
-      { key: 'uploads', value: { maxFiles: 3 } }
+      { key: 'uploads', value: { maxFileSize: 3 } }
     ]
     const { instanceSettings } = mapSiteSettings(rows)
-    assert.deepEqual(instanceSettings.security, { trustProxy: true, uploadMaxFiles: 3 })
+    assert.deepEqual(instanceSettings.security, { trustProxy: true, uploadMaxFileSize: 3 })
   })
 
   test('neither security nor uploads present leaves instanceSettings.security unset', () => {

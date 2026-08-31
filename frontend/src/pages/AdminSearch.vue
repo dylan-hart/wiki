@@ -4,10 +4,11 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-find-and-replace-animated.svg" />
+          src="/_assets/icons/fluent-find-and-replace-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.search.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.search.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.search.subtitle') }}
         </div>
@@ -362,7 +363,7 @@ async function save() {
       { json: payloadFor(selectedEngine.value) }
     ).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
 
     if (dictOverrides !== undefined) {
@@ -370,7 +371,7 @@ async function save() {
         json: { dictOverrides }
       }).json()
       if (!dictResp?.ok) {
-        throw new Error(dictResp?.message || 'An unexpected error occured.')
+        throw new Error(dictResp?.message || t('common.error.unexpected'))
       }
     }
 
@@ -397,7 +398,7 @@ async function rebuild() {
   try {
     const resp = await API_CLIENT.post(`sites/${adminStore.currentSiteId}/search/rebuild`).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

@@ -22,18 +22,30 @@ import maintenance from './maintenance.ts'
  * Built here rather than on the object below because `notifyViaDB` is handed to Emittery as a bare
  * listener and so has no `this` to reach it through. The client is read per send for the same reason
  * it is elsewhere: it does not exist until `subscribeToNotifications`.
+ *
+ * The getter is defensive (`WIKI.dbManager?.pubsubClient`) rather than a bare dereference: this module
+ * is also imported from `worker.ts` (transitively, as part of the task-loading import graph), whose own
+ * minimal `WIKI` never sets `dbManager` at all — no worker task currently emits an outbound event, so
+ * this getter has never actually been invoked from a worker thread, but a bare `WIKI.dbManager.pubsubClient`
+ * would throw `TypeError: Cannot read properties of undefined` the moment one did, rather than degrading
+ * to the silent no-op `createNotifier`'s own contract already documents for "nobody currently has a live
+ * LISTEN client".
  */
-const notifier = createNotifier(() => WIKI.dbManager.pubsubClient, 'event bus')
+const notifier = createNotifier(() => WIKI.dbManager?.pubsubClient ?? null, 'event bus')
 
 /**
  * Postgres extensions the schema depends on, installed before the migrations run.
  *
  * `ltree` types the folder paths of the page tree and answers the ancestor queries the navigation is
- * built from; `pg_trgm` backs fuzzy text matching. `pgcrypto` used to be here for `gen_random_uuid()`,
- * which every primary key defaults to — that has been core since Postgres 13, and 16 is the minimum
- * this runs on, so nothing needs it any more.
+ * built from; `pg_trgm` backs fuzzy text matching. `pgcrypto` was dropped from this list once for
+ * `gen_random_uuid()` (core since Postgres 13, and 16 is the minimum this runs on) but is back for
+ * `digest()`: the `userAvatars`/`siteAssets` hash-column migration
+ * (`db/migrations/20260825203005_main`) backfills a sha1 hex digest of every existing row's blob, and
+ * any future one-time backfill needing a digest can reach for it the same way. Listed here rather
+ * than as a `CREATE EXTENSION` preamble hand-written into that migration's own SQL for the reason
+ * explained below: a migration file cannot express it durably.
  */
-const REQUIRED_EXTENSIONS = ['ltree', 'pg_trgm']
+const REQUIRED_EXTENSIONS = ['ltree', 'pg_trgm', 'pgcrypto']
 
 /**
  * Tables whose presence means the database belongs to a Wiki.js 2.x installation.
@@ -52,14 +64,57 @@ const LEGACY_TABLES = ['knex_migrations', 'searchEngines']
  * The decision is made per query rather than when the instance is built, so that the `sqlLog` system
  * flag can be turned on in the admin area and take effect on the next query — a logger chosen at boot
  * would need a restart.
+ *
+ * Bound parameter *values* are never logged, only redacted below. A bound parameter routinely carries
+ * a secret — `models/settings.ts#updateConfig` binds a whole settings blob as one JSONB parameter, and
+ * that blob can hold the API signing private key and its passphrase, the session secret, SMTP/LDAP/
+ * OAuth credentials, storage-target keys, bcrypt hashes and TOTP secrets — and this line reaches
+ * `WIKI.logger.info` unconditionally whenever either trigger below is on: the container log pipeline
+ * for `sqlLog`/`dev.logQueries`, and every connected admin terminal client via
+ * `controllers/terminal.ts`'s backlog replay. Redaction lives inside `logQuery` itself rather than
+ * behind either trigger's `if`, so both are covered identically. See OpenProject #2205.
  */
-const queryLogger = {
+export const queryLogger = {
   logQuery(query: string, params: unknown[]): void {
     if (!flags.isEnabled('sqlLog') && !WIKI.config.dev?.logQueries) {
       return
     }
-    WIKI.logger.info(`[SQL] ${query}${params.length > 0 ? ` -- ${JSON.stringify(params)}` : ''}`)
+    WIKI.logger.info(
+      `[SQL] ${query}${params.length > 0 ? ` -- ${describeQueryParams(params)}` : ''}`
+    )
   }
+}
+
+/**
+ * Describes a bound-parameter array for logging without exposing any value it carries — see
+ * `queryLogger` above.
+ */
+function describeQueryParams(params: unknown[]): string {
+  const count = params.length
+  return `(${count} param${count === 1 ? '' : 's'}: ${params.map(describeQueryParam).join(', ')})`
+}
+
+/** Type/length descriptor for one bound parameter. Never returns the value itself. */
+function describeQueryParam(value: unknown): string {
+  if (value === null || value === undefined) {
+    return 'null'
+  }
+  if (typeof value === 'string') {
+    return `string(${value.length})`
+  }
+  if (Buffer.isBuffer(value)) {
+    return `buffer(${value.length})`
+  }
+  if (Array.isArray(value)) {
+    return `array(${value.length})`
+  }
+  if (value instanceof Date) {
+    return 'date'
+  }
+  if (typeof value === 'object') {
+    return 'object'
+  }
+  return typeof value
 }
 
 /**
@@ -92,6 +147,27 @@ export type WikiTx = Parameters<Parameters<WikiDb['transaction']>[0]>[0]
  * call chain and `importer/assets.ts`'s batch runner for the worked example.
  */
 export type WikiDbOrTx = WikiDb | WikiTx
+
+/**
+ * Resolves the pool-size (`min`/`max`) options merged into the `new Pool()` call in `init()` below.
+ *
+ * A worker thread's pool is pinned to a single, non-persistent connection (`{ min: 0, max: 1 }`)
+ * regardless of the instance-wide config — a CPU-bound job (see `worker.ts`) doesn't need, and
+ * shouldn't hold open, a share of the main pool's budget. The main process instead takes whatever
+ * `pool.min`/`pool.max` resolve to from `base.yml`/`config.yml` (see the comment on `pool.max` in
+ * `base.yml` for what that value is sized against).
+ *
+ * Exported as its own pure function, rather than left as the inline ternary it used to be, so a
+ * test can assert a configured `pool.max` reaches these options without needing a live Postgres
+ * connection — the surrounding `new Pool()` call is otherwise only exercisable through `init()`'s
+ * full connect-and-migrate sequence.
+ */
+export function resolvePoolSizeOptions(
+  workerMode: boolean,
+  configuredPool: PoolConfig
+): Partial<PoolConfig> {
+  return workerMode ? { min: 0, max: 1 } : configuredPool
+}
 
 /**
  * ORM DB module
@@ -180,11 +256,38 @@ export default {
 
     // Initialize Postgres Pool
 
+    // -> `WIKI.config.pool` carries operator-tunable `max`/`connectionTimeoutMillis`/
+    //    `statementTimeoutMillis` (defaulted in base.yml, sized above `scheduler.workers` so the
+    //    scheduler's own claim query is never the thing starved). `connectionTimeoutMillis` bounds
+    //    how long `pool.connect()` waits for a checkout on a saturated pool -- unset, pg-pool waits
+    //    forever, which is what let a saturated main pool wedge every DB-backed request handler,
+    //    session load/save, and the scheduler's claim query indefinitely (task 2249). Worker-mode
+    //    pools already stay tightly bounded in size (`max: 1`, one connection per worker thread) but
+    //    still inherit the same connect timeout, since a worker's single connection can wedge the
+    //    same way. `statement_timeout` has to travel via the `options` connection string -- pg-pool
+    //    has no dedicated config key for it -- so Postgres itself cancels a runaway query rather than
+    //    leaving it to run unbounded once a connection is checked out.
+    const poolConfig = WIKI.config.pool ?? {}
     this.pool = new Pool({
       application_name: `Wiki.js - ${WIKI.INSTANCE_ID}:${workerMode ? 'WORKER' : 'MAIN'}`,
       ...this.config,
-      ...(workerMode ? { min: 0, max: 1 } : WIKI.config.pool),
-      options: `-c search_path=${WIKI.config.db.schema}`
+      connectionTimeoutMillis: poolConfig.connectionTimeoutMillis,
+      ...resolvePoolSizeOptions(workerMode, WIKI.config.pool),
+      options: `-c search_path=${WIKI.config.db.schema} -c statement_timeout=${poolConfig.statementTimeoutMillis}`
+    })
+
+    // -> node-postgres emits 'error' on the pool whenever a checked-in, idle client's connection
+    //    fails (a Postgres restart, a failover, an idle timeout) -- `Pool extends EventEmitter`, so
+    //    with no listener that 'error' is re-thrown as an uncaught exception and kills the process.
+    //    node-postgres already discards the broken client itself, so logging is the whole fix: the
+    //    next checkout opens a fresh connection. Same treatment as the dedicated LISTEN clients in
+    //    `helpers/pubsub.ts`'s `connectListener`. Attached here in `init()` rather than after it
+    //    returns so worker mode (`worker.ts`'s `ensureDb()`, which also calls `init(true)`) is
+    //    covered too.
+    this.pool.on('error', (err: any, client: any) => {
+      WIKI.logger.error(
+        `Postgres pool error${err.code ? ` [${err.code}]` : ''}${client?.processID ? ` (client pid ${client.processID})` : ''}: ${err.message}`
+      )
     })
 
     const db = createDb(this.pool)
@@ -205,10 +308,7 @@ export default {
     WIKI.logger.info(`Using PostgreSQL v${dbVersion.version} [ OK ]`)
 
     // DEV - Drop schema
-    if (WIKI.config.dev?.dropSchema) {
-      WIKI.logger.warn(`DEV MODE - Dropping schema ${WIKI.config.db.schema}...`)
-      await db.execute(`DROP SCHEMA IF EXISTS ${WIKI.config.db.schema} CASCADE;`)
-    }
+    await this.dropSchemaIfDev(db)
 
     // Run Migrations
     if (!workerMode) {
@@ -216,6 +316,38 @@ export default {
     }
 
     return db
+  },
+  /**
+   * DEV - Drop schema, gated on `WIKI.IS_DEBUG` (OpenProject task 2270).
+   *
+   * `dev.dropSchema` is presented in `config.sample.yml` under a "Dev Mode" heading, but the config
+   * value alone used to be trusted in every mode: `config.yml` is merged over `base.yml` with no
+   * environment condition, and `helpers/config.ts#parseConfigValue` also lets the value arrive from
+   * an environment variable, so an operator who reasonably reads that heading as "inert outside dev"
+   * would be wrong. Left ungated, a config carried into production intact -- or an env var aimed at
+   * the wrong layer -- drops the schema, total and irreversible, on the very next boot.
+   *
+   * `WIKI.IS_DEBUG` (`index.ts`) is derived solely from `NODE_ENV === 'development'`, not from any
+   * wiki config or `dev.*` env var, so it cannot be flipped by the same misconfiguration this guards
+   * against. When the key is set but the guard blocks it, an explicit refusal is logged instead of
+   * silently doing nothing, so a developer running with the wrong `NODE_ENV` is not left wondering
+   * why their schema was not dropped.
+   *
+   * `dev.logQueries` (the other member of `dev`, consulted by `queryLogger` above) is intentionally
+   * left ungated here -- it is handled by the `sqlLog` redaction work tracked separately.
+   */
+  async dropSchemaIfDev(db: WikiDb): Promise<void> {
+    if (!WIKI.config.dev?.dropSchema) {
+      return
+    }
+    if (!WIKI.IS_DEBUG) {
+      WIKI.logger.warn(
+        `DEV MODE - dev.dropSchema is set but was refused: WIKI.IS_DEBUG is false. Schema ${WIKI.config.db.schema} was NOT dropped.`
+      )
+      return
+    }
+    WIKI.logger.warn(`DEV MODE - Dropping schema ${WIKI.config.db.schema}...`)
+    await db.execute(`DROP SCHEMA IF EXISTS ${WIKI.config.db.schema} CASCADE;`)
   },
   /**
    * Subscribe to database LISTEN / NOTIFY for multi-instances events
@@ -228,21 +360,22 @@ export default {
    * mirror that faithfully on the sending side rather than trying to paper over it: a send with no
    * live client is a silent no-op, never buffered.
    *
-   * All five current subscribers below already tolerate a missed notification, but not for the same
+   * All eight current subscribers below already tolerate a missed notification, but not for the same
    * reason a naive read of their code might suggest — none re-checks the DB on a timer:
    *  - `configSvc.subscribeToEvents()`'s `reloadConfig` handler, `maintenance.subscribeToEvents()`'s
-   *    `flushCaches`/`disconnectWebsockets` handlers, and `groups`/`sites`/`approvals`'
-   *    `reloadGroups`/`reloadSites`/`reloadApprovals` handlers (each model's own `broadcastReload()`
-   *    is what emits the matching outbound event, right after refreshing this instance's own cache —
-   *    see `models/groups.ts`'s `broadcastReload()` for the shape every one of them follows) are
-   *    purely edge-triggered. A missed one has no independent side channel back except another
-   *    matching event later, or this instance's own restart.
+   *    `flushCaches`/`disconnectWebsockets` handlers, and `groups`/`sites`/`approvals`/
+   *    `classificationLevels`/`glossary`/`locales`' `reloadGroups`/`reloadSites`/`reloadApprovals`/
+   *    `reloadClassificationLevels`/`reloadGlossary`/`reloadLocales` handlers (each model's own
+   *    `broadcastReload()` is what emits the matching outbound event, right after refreshing this
+   *    instance's own cache — see `models/groups.ts`'s `broadcastReload()` for the shape every one of
+   *    them follows) are purely edge-triggered. A missed one has no independent side channel back
+   *    except another matching event later, or this instance's own restart.
    *  - What actually closes the common case is `index.ts`: `preBoot()` calls
-   *    `configSvc.loadFromDb()` and `postBoot()` calls `groups`/`sites`/`locales`/`approvals`
-   *    `.reloadCache()` **unconditionally on every boot**, not gated on any notification having
-   *    arrived. So an instance that missed an event while it was down is always fully resynced the
-   *    moment it comes back — that is the scenario the task description calls out, and it is
-   *    closed by construction, not by chance.
+   *    `configSvc.loadFromDb()` and `postBoot()` calls `groups`/`sites`/`locales`/`approvals`/
+   *    `classificationLevels` `.reloadCache()` **unconditionally on every boot**, not gated on any
+   *    notification having arrived. So an instance that missed an event while it was down is always
+   *    fully resynced the moment it comes back — that is the scenario the task description calls
+   *    out, and it is closed by construction, not by chance.
    *  - The one gap this does *not* close is a notification lost during this instance's own brief
    *    reconnect window while it otherwise stays up the whole time: nothing re-syncs until the next
    *    matching event or a restart. Judged low-severity (bounded window, and every current event —
@@ -254,6 +387,13 @@ export default {
    *    regression coverage. A future subscriber that needs stronger guarantees should re-sync from
    *    the DB itself (on an interval, or at least on its own boot) rather than assume this channel
    *    ever redelivers.
+   *  - `glossary.subscribeToEvents()`'s `invalidateGlossaryCache` handler (OpenProject #2038) is the
+   *    seventh, and needs no boot-time re-sync at all to close the same gap: its cache is lazily
+   *    populated per site on first read rather than warmed at boot, so a fresh `WIKI.cache` (a new
+   *    `LRUCache` every process start, `index.ts`) simply has nothing stale to miss-invalidate right
+   *    after a restart. The residual reconnect-window gap above still applies while the instance
+   *    stays up, which is what `models/glossary.ts`'s bounded `CACHE_TTL_MS` on each cache entry is
+   *    the belt for — see its own doc comment.
    */
   async subscribeToNotifications(): Promise<void> {
     const connectionAppName = `Wiki.js - ${WIKI.INSTANCE_ID}:EVENTS`
@@ -298,6 +438,9 @@ export default {
     WIKI.models.groups.subscribeToEvents()
     WIKI.models.sites.subscribeToEvents()
     WIKI.models.approvals.subscribeToEvents()
+    WIKI.models.classificationLevels.subscribeToEvents()
+    WIKI.models.glossary.subscribeToEvents()
+    WIKI.models.locales.subscribeToEvents()
     // WIKI.db.pages.subscribeToEvents()
 
     WIKI.logger.info('Event Listener initialized successfully: [ OK ]')
@@ -383,34 +526,57 @@ export default {
   },
   /**
    * Migrate DB Schemas
+   *
+   * The schema/extension setup and the migration run are held under one session-scoped Postgres
+   * advisory lock ('wiki:migrate'), taken on a dedicated client checked out of `this.pool` rather than
+   * through drizzle's own query interface — the lock and its release must run on the exact same
+   * physical connection, the same constraint `helpers/advisoryLock.ts` documents and `test/db.ts`'s
+   * `createExtensionsSerialized` already follows. Drizzle's `migrate()` itself takes no lock (verified
+   * in the vendored source): two instances starting together against a fresh database both compute the
+   * same non-empty migration list and both try to apply it, and the loser's transaction fails on
+   * `relation already exists`. Serializing here closes that race; `index.ts#preBoot()` takes the same
+   * key around the is-empty check and first-run seed that follows this, as one atomic boot-time
+   * decision (they cannot share a single lock *acquisition*, since `WIKI.db` — what
+   * `helpers/advisoryLock.ts`'s shared `withAdvisoryLock` reads its connection from — does not exist
+   * yet at this point in boot).
    */
   async syncSchemas(db: WikiDb) {
     await this.checkForLegacyInstall(db)
 
-    WIKI.logger.info('Ensuring DB schema exists...')
-    await db.execute(`CREATE SCHEMA IF NOT EXISTS ${WIKI.config.db.schema}`)
+    const lockClient = await this.pool!.connect()
+    try {
+      await lockClient.query(`SELECT pg_advisory_lock(hashtext('wiki:migrate'))`)
+      try {
+        WIKI.logger.info('Ensuring DB schema exists...')
+        await db.execute(`CREATE SCHEMA IF NOT EXISTS ${WIKI.config.db.schema}`)
 
-    /*
-      Here rather than at the top of the first migration, for the same reason the schema itself is:
-      the migrations need these to exist and cannot express them.
+        /*
+          Here rather than at the top of the first migration, for the same reason the schema itself is:
+          the migrations need these to exist and cannot express them.
 
-      `drizzle-kit generate` builds a migration by diffing the schema definition against the previous
-      snapshot, and an extension is part of neither — so a hand-written `CREATE EXTENSION` preamble
-      survives only until somebody regenerates, at which point the very first migration fails on the
-      `ltree` column it can no longer create. Stated here, that cannot happen.
+          `drizzle-kit generate` builds a migration by diffing the schema definition against the previous
+          snapshot, and an extension is part of neither — so a hand-written `CREATE EXTENSION` preamble
+          survives only until somebody regenerates, at which point the very first migration fails on the
+          `ltree` column it can no longer create. Stated here, that cannot happen.
 
-      Idempotent, so a database whose extensions an administrator installed by hand is untouched.
-    */
-    WIKI.logger.info('Ensuring required DB extensions are installed...')
-    for (const extension of REQUIRED_EXTENSIONS) {
-      await db.execute(`CREATE EXTENSION IF NOT EXISTS ${extension}`)
+          Idempotent, so a database whose extensions an administrator installed by hand is untouched.
+        */
+        WIKI.logger.info('Ensuring required DB extensions are installed...')
+        for (const extension of REQUIRED_EXTENSIONS) {
+          await db.execute(`CREATE EXTENSION IF NOT EXISTS ${extension}`)
+        }
+
+        WIKI.logger.info('Ensuring DB migrations have been applied...')
+        return await migrate(db, {
+          migrationsFolder: path.join(WIKI.SERVERPATH, 'db/migrations'),
+          migrationsSchema: WIKI.config.db.schema,
+          migrationsTable: 'migrations'
+        })
+      } finally {
+        await lockClient.query(`SELECT pg_advisory_unlock(hashtext('wiki:migrate'))`)
+      }
+    } finally {
+      lockClient.release()
     }
-
-    WIKI.logger.info('Ensuring DB migrations have been applied...')
-    return migrate(db, {
-      migrationsFolder: path.join(WIKI.SERVERPATH, 'db/migrations'),
-      migrationsSchema: WIKI.config.db.schema,
-      migrationsTable: 'migrations'
-    })
   }
 }

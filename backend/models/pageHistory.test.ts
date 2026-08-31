@@ -1,8 +1,12 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { eq } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { users as usersTable } from '../db/schema.ts'
+import {
+  classificationLevels as classificationLevelsTable,
+  users as usersTable
+} from '../db/schema.ts'
+import { CustomError } from '../helpers/common.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
@@ -19,12 +23,23 @@ describe(
     let pagesModel: typeof import('./pages.ts').pages
     let pageHistoryModel: typeof import('./pageHistory.ts').pageHistory
     let actor: PageActor
+    /** The strictest configured level (highest `sortOrder`) -- distinct from `fixtures.classificationId`
+     *  (the most-open one, which is also what a fallback to `defaultLevel()` would silently produce), so
+     *  a recovery test that checks this round-trips proves the original level was actually preserved. */
+    let restrictedLevelId: string
 
     before(async () => {
       fixtures = await setupTestDb()
       ;({ pages: pagesModel } = await import('./pages.ts'))
       ;({ pageHistory: pageHistoryModel } = await import('./pageHistory.ts'))
       actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+
+      const [strictest] = await fixtures.db
+        .select({ id: classificationLevelsTable.id })
+        .from(classificationLevelsTable)
+        .orderBy(desc(classificationLevelsTable.sortOrder))
+        .limit(1)
+      restrictedLevelId = strictest!.id
     })
 
     after(async () => {
@@ -67,7 +82,7 @@ describe(
     test('listRecoverable lists the newest deleted version for a path with no live page', async () => {
       const page = await pagesModel.createPage(
         fixtures.siteId,
-        pageInput({ path: 'docs/recoverable-one', title: 'First Title' }),
+        pageInput({ path: 'docs/recoverable-one', title: 'First Title', tags: ['keep-me'] }),
         actor
       )
       await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Second Title' }, actor)
@@ -79,6 +94,53 @@ describe(
       assert.equal(entry!.action, 'deleted')
       assert.equal(entry!.title, 'Second Title')
       assert.equal(entry!.locale, 'en')
+      // -> OpenProject #2168: tags/classification are carried so a caller can run `mayOnPage()`
+      //    against the deleted path with a TAG/TAGALL/CLASSIFICATION rule, and the author's email is
+      //    left out of this row's shape entirely (unlike `list()`'s single-page history), since this
+      //    listing spans every deleted path on the site in one sweep.
+      assert.deepEqual(entry!.tags, ['keep-me'])
+      assert.ok(entry!.classification, 'a page always has a classification')
+      assert.ok(entry!.author.name, 'the author name is still carried, unlike the email')
+    })
+
+    test('listRecoverable carries tags/classification and no author email (OpenProject #2168)', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/recoverable-tagged', tags: ['gamma'] }),
+        actor
+      )
+      await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = recoverable.find((row) => row.path === 'docs/recoverable-tagged')
+      assert.ok(entry)
+      // -> Lets the route narrow its `read:history` check with TAG/TAGALL/CLASSIFICATION rules, not
+      //    just a bare path/locale match.
+      assert.deepEqual(entry!.tags, ['gamma'])
+      assert.equal(typeof entry!.classification, 'string')
+      // -> No `email` anywhere on the row: this listing is reachable by a caller who does NOT hold
+      //    `read:pages` at the deleted path, so it must not hand back the deleting/creating author's
+      //    email address.
+      assert.equal((entry!.author as any).email, undefined)
+      assert.equal('email' in entry!.author, false)
+    })
+
+    test('getDeletedVersion carries tags/classification pulled out of meta (OpenProject #2168)', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/deleted-version-tags', tags: ['delta'] }),
+        actor
+      )
+      await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = recoverable.find((row) => row.path === 'docs/deleted-version-tags')
+      assert.ok(entry)
+
+      const version = await pageHistoryModel.getDeletedVersion(fixtures.siteId, entry!.id)
+      assert.ok(version)
+      assert.deepEqual(version!.tags, ['delta'])
+      assert.equal(typeof version!.classification, 'string')
     })
 
     test('listRecoverable omits a path that was deleted and then reused', async () => {
@@ -111,17 +173,25 @@ describe(
       )
     })
 
-    test('recoverDeletedPage recreates the page from its deleted version', async () => {
+    test('recoverDeletedPage recreates the page from its deleted version, preserving classification and queuing a re-render', async (t) => {
+      const queueRerenderCalls: unknown[][] = []
+      t.mock.method(pagesModel, 'queueRerender', async (...args: unknown[]) => {
+        queueRerenderCalls.push(args)
+        return true
+      })
+
       const page = await pagesModel.createPage(
         fixtures.siteId,
         pageInput({
           path: 'docs/recover-me',
           title: 'Recover Me',
           content: '# Recover Me\n\nOriginal content.',
-          tags: ['keep-me']
+          tags: ['keep-me'],
+          classification: restrictedLevelId
         }),
         actor
       )
+      assert.equal(page.classification, restrictedLevelId)
       await pagesModel.deletePage(fixtures.siteId, page.id, actor)
 
       const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
@@ -136,6 +206,15 @@ describe(
       assert.deepEqual(recovered.tags, ['keep-me'])
       assert.equal(recovered.description, 'A test page')
       assert.equal(recovered.icon, 'mdi:file')
+      // -> OpenProject #1672: not `fixtures.classificationId` (the most-open level, and what a silent
+      //    fallback to `resolveCreateClassification`'s default branch would have produced instead).
+      assert.equal(recovered.classification, restrictedLevelId)
+
+      // -> A re-render is queued for the recovered page rather than left with the empty
+      //    render/toc/searchContent `createPage` wrote (deleted versions never stored the rendered
+      //    HTML -- see `EXCLUDED_FROM_META`).
+      assert.equal(queueRerenderCalls.length, 1)
+      assert.deepEqual(queueRerenderCalls[0], [fixtures.siteId, recovered.id, actor])
 
       const fetched = await pagesModel.getPage({
         siteId: fixtures.siteId,
@@ -151,6 +230,67 @@ describe(
         stillRecoverable.some((row) => row.path === 'docs/recover-me'),
         false
       )
+    })
+
+    /**
+     * OpenProject #2232: `meta.password`, copied verbatim off the deleted row, is already a `bcrypt`
+     * verifier by the time it reaches `recoverDeletedPage` -- not a plaintext for `createPage()` to
+     * hash again. Feeding it through as an ordinary `PageInput.password` would hash the hash, and the
+     * original password would never unlock the recovered page again. This proves the real one still
+     * works after a delete/recover round trip.
+     */
+    test('recoverDeletedPage preserves a working password, without re-hashing the stored verifier', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/recover-with-password', password: 'sw0rdfish' }),
+        actor
+      )
+      await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = recoverable.find((row) => row.path === 'docs/recover-with-password')
+      assert.ok(entry)
+
+      const recovered = await pageHistoryModel.recoverDeletedPage(fixtures.siteId, entry!.id, actor)
+
+      const unlocked = await pagesModel.unlockPage({
+        siteId: fixtures.siteId,
+        id: recovered.id,
+        password: 'sw0rdfish'
+      })
+      assert.ok(unlocked, 'the original password must still unlock the recovered page')
+
+      const rejected = await pagesModel.unlockPage({
+        siteId: fixtures.siteId,
+        id: recovered.id,
+        password: 'wrong-guess'
+      })
+      assert.equal(rejected, null)
+    })
+
+    test('recoverDeletedPage still succeeds when queueRerender throws', async (t) => {
+      t.mock.method(pagesModel, 'queueRerender', async () => {
+        throw new CustomError('renderPuppeteerMissing', 'Puppeteer is not installed.', 503)
+      })
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/recover-rerender-fails' }),
+        actor
+      )
+      await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = recoverable.find((row) => row.path === 'docs/recover-rerender-fails')
+      assert.ok(entry)
+
+      // -> Must not reject or leave the page uncreated: queueRerender is best-effort, caught and
+      //    logged, not a hard dependency of a successful recovery.
+      const recovered = await pageHistoryModel.recoverDeletedPage(fixtures.siteId, entry!.id, actor)
+      assert.equal(recovered.path, 'docs/recover-rerender-fails')
+
+      const fetched = await pagesModel.getPage({ siteId: fixtures.siteId, id: recovered.id })
+      assert.ok(fetched)
     })
 
     test('recoverDeletedPage applies a path/locale override', async () => {
@@ -276,6 +416,25 @@ describe(
         all: 1,
         total: { editor: 2, mcp: 0, all: 2 }
       })
+    })
+
+    test('getDeletedVersion returns the tags and classification the page held when deleted', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/deleted-version-fields', tags: ['tagged'] }),
+        actor
+      )
+      await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = recoverable.find((row) => row.path === 'docs/deleted-version-fields')
+      assert.ok(entry)
+
+      const version = await pageHistoryModel.getDeletedVersion(fixtures.siteId, entry!.id)
+      assert.ok(version)
+      assert.equal(version!.path, 'docs/deleted-version-fields')
+      assert.deepEqual(version!.tags, ['tagged'])
+      assert.ok(version!.classification, 'a page always has a classification')
     })
 
     test('recoverDeletedPage refuses an unknown or non-deleted version id', async () => {

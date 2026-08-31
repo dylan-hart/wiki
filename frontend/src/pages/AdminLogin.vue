@@ -4,10 +4,11 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-bunch-of-keys-animated.svg" />
+          src="/_assets/icons/fluent-bunch-of-keys-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.login.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.login.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.login.subtitle') }}
         </div>
@@ -206,7 +207,7 @@
                   <w-item-section side>
                     <w-toggle
                       v-model="element.isVisible"
-                      label="Visible"
+                      :label="t('admin.login.visible')"
                       :aria-label="element.activeStrategy.displayName" />
                   </w-item-section>
                 </w-item>
@@ -370,7 +371,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.login.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.login.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     notify({
@@ -380,7 +381,7 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to save login configuration.',
+      message: t('admin.login.saveFailed'),
       caption: err.message
     })
   }

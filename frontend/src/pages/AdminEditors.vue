@@ -2,10 +2,13 @@
   <w-page class="admin-flags">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-cashbook.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-cashbook.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.editors.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.editors.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.editors.subtitle') }}
         </div>
@@ -205,7 +208,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to fetch editors state.'
+      message: t('admin.editors.fetchFailed')
     })
   }
   loading.hide()
@@ -228,7 +231,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.editors.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.editors.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     if (adminStore.currentSiteId === siteStore.id) {
@@ -248,7 +251,7 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to save site editors config',
+      message: t('admin.editors.saveFailed'),
       caption: err.message
     })
   }
@@ -271,7 +274,7 @@ function openConfig(editorId) {
     default: {
       notify({
         type: 'negative',
-        message: 'Invalid Editor Config Call'
+        message: t('admin.editors.invalidConfigCall')
       })
     }
   }
@@ -280,8 +283,8 @@ function openConfig(editorId) {
 // MOUNTED
 
 onMounted(async () => {
-  loading.show()
   if (adminStore.currentSiteId) {
+    loading.show()
     await load()
   }
 })

@@ -1,6 +1,10 @@
 import { nanoid } from 'nanoid'
+import { normalizeHostname } from '../helpers/common.ts'
 import { limitAuthAttempts } from '../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
+import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
+import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
+import { actorFromRequest } from '../models/auditLog.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 /**
@@ -132,6 +136,7 @@ async function finishProviderLogin(
       state: flow.state,
       nonce: flow.nonce,
       codeVerifier: flow.codeVerifier,
+      authnRequestId: flow.authnRequestId,
       currentUrl: extra.currentUrl,
       code: extra.code,
       ticket: extra.ticket,
@@ -141,7 +146,19 @@ async function finishProviderLogin(
       { siteId: flow.siteId, strategy, profile, ip: req.ip },
       req
     )
-    return reply.redirect(result.redirect || redirect)
+    /*
+      `result.redirect` is a group's `redirectOnLogin`/`redirectOnFirstLogin` value (OpenProject
+      #1360/#2208, 2026-08-24 security audit) -- validated at write time by `api/groups.ts`'s update
+      route, but checked again here as defence in depth against a row written before that validation
+      existed (a direct DB write, or a 2.5.x import). `redirect` (the flow's own return path, already
+      validated at #1035 below) is the fallback either way.
+    */
+    const target =
+      result.redirect &&
+      isFollowableRedirectTarget(result.redirect, { allowAbsolute: absoluteRedirectsAllowed() })
+        ? result.redirect
+        : redirect
+    return reply.redirect(target)
   } catch (err: any) {
     WIKI.models.flags.authDebug(
       `Login through ${strategy.module} strategy ${strategy.id} failed: ${err.message}`
@@ -210,8 +227,10 @@ async function routes(app: FastifyInstance) {
                     displayName: {
                       type: 'string'
                     },
-                    registration: {
-                      type: 'boolean'
+                    selfRegistration: {
+                      type: 'boolean',
+                      description:
+                        'Present only for a form-based strategy — whether it accepts a new self-registered account. Omitted for a redirect-based strategy: that kind is provisioned automatically or not at all, never through this public self-registration flag.'
                     },
                     allowForgotPassword: {
                       type: 'boolean',
@@ -246,14 +265,14 @@ async function routes(app: FastifyInstance) {
               }
             }
           },
-          400: { $ref: 'ApiError#' }
+          404: { $ref: 'ApiError#' }
         }
       }
     },
     async (req, reply) => {
       const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
       if (!site) {
-        return reply.badRequest('Invalid Site ID')
+        return reply.notFound('Site does not exist.')
       }
       /*
         `getActiveStrategies` rather than the raw rows: it completes each config from the module's
@@ -275,11 +294,17 @@ async function routes(app: FastifyInstance) {
             isVisible: siteStr.isVisible ?? false,
             activeStrategy: {
               displayName: str.displayName,
-              registration: str.registration,
               /*
                 Named explicitly, like every other field here: this endpoint is public and a strategy's
                 config is where an OAuth client secret lives, so nothing may reach it by spreading.
 
+                Only ever present for a form-based module: a redirect-based strategy's new-account path
+                is `autoProvision`, which is never the public login screen's business to know about --
+                publishing it unauthenticated is exactly what told an attacker which provider currently
+                accepts a self-registration POST (see `models/users.ts#register()`'s `useForm` check).
+              */
+              ...(authModule?.useForm && { selfRegistration: str.selfRegistration }),
+              /*
                 A module that declares no such prop reads as false, which is correct rather than a
                 default -- a strategy with no password of its own has no password to reset.
               */
@@ -328,7 +353,11 @@ async function routes(app: FastifyInstance) {
         },
         body: {
           type: 'object',
-          required: ['strategyId'],
+          // -> `password` is required here too, not just checked deeper in `users.login()`: an
+          //    omitted key skips `minLength`'s check entirely (it only constrains a *present*
+          //    value), so without this a body of `{ strategyId, username }` validated and reached
+          //    the LDAP strategy with `password: undefined`.
+          required: ['strategyId', 'password'],
           properties: {
             strategyId: {
               type: 'string',
@@ -402,7 +431,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Register a new account',
         description:
-          "Creates an account under a strategy configured to accept new users. When that strategy's `emailValidation` setting is on (the local strategy's default), the account starts unverified and this answers `nextAction: 'verify'` rather than logging in — a link mailed to the address is what finishes it, at `GET /auth/verify/:token`. With `emailValidation` off, this logs the account straight in like any other successful auth attempt.",
+          "Creates an account under a strategy configured to accept new users. When that strategy's `emailValidation` setting is on (the local strategy's default), the account starts unverified and this answers `nextAction: 'verify'` rather than logging in — a link mailed to the address is what finishes it, at `GET /auth/verify/:token`. With `emailValidation` off, this logs the account straight in like any other successful auth attempt. Submitting an address that already has a verified account under such a strategy answers the same generic `nextAction: 'verify'` rather than an error — that account's owner is emailed a notice instead — so this endpoint cannot be used to test which addresses are already registered.",
         tags: ['Authentication'],
         params: {
           type: 'object',
@@ -1024,15 +1053,32 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('There is no such login provider.')
       }
 
-      const siteId = req.query.siteId ?? WIKI.sitesMappings[req.hostname] ?? ''
+      const siteId = req.query.siteId ?? WIKI.sitesMappings[normalizeHostname(req.hostname)] ?? ''
       const flow = {
         strategyId: strategy.id,
         siteId,
         state: nanoid(32),
         nonce: nanoid(32),
         codeVerifier: nanoid(64),
-        // -> Only a path on this wiki: an open redirect is how a login page is turned into a lure
-        redirect: (req.query.redirect ?? '').startsWith('/') ? req.query.redirect! : '/',
+        /*
+          SAML only: an XML NCName-safe id (must not start with a digit, which `nanoid`'s own
+          alphabet does not guarantee) for the outbound AuthnRequest — ignored by every other
+          module's `authorizationUrl()`, the same way SAML ignores `nonce`/`codeVerifier`. Generated
+          here, ahead of the request being built, so it can be written onto the session first and
+          read back by `finishProviderLogin()` below once the identity provider answers — see
+          `AuthFlow.authnRequestId` in `models/authentication.ts`.
+        */
+        authnRequestId: `_${nanoid(40)}`,
+        // -> Only a path on this wiki (or, with `security.disallowOpenRedirect` off, a complete
+        //    https:// URL): an open redirect is how a login page is turned into a lure, and
+        //    `startsWith('/')` alone let `//evil.example` and `/\evil.example` both through, since a
+        //    browser resolves either as protocol-relative to whatever host follows (OpenProject
+        //    #1360/#2208, 2026-08-24 security audit).
+        redirect: isFollowableRedirectTarget(req.query.redirect, {
+          allowAbsolute: absoluteRedirectsAllowed()
+        })
+          ? req.query.redirect!
+          : '/',
         startedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
       }
       req.session.authFlow = flow
@@ -1042,7 +1088,8 @@ async function routes(app: FastifyInstance) {
           redirectUri: callbackUrl(req, strategy.id),
           state: flow.state,
           nonce: flow.nonce,
-          codeVerifier: flow.codeVerifier
+          codeVerifier: flow.codeVerifier,
+          authnRequestId: flow.authnRequestId
         })
         WIKI.models.flags.authDebug(
           `Redirecting to ${strategy.module} provider for strategy ${strategy.id} from ${req.ip}`
@@ -1288,8 +1335,11 @@ async function routes(app: FastifyInstance) {
         await req.session.destroy()
       }
       // -> And clear that cookie too: `destroy()` detaches the session, which leaves the plugin's own
-      //    save hook with nothing to do. Name and options match the registration in `index.ts`.
-      reply.clearCookie('wikiSession')
+      //    save hook with nothing to do. Name and options match the registration in `index.ts`: the
+      //    `__Host-` prefix requires a clearing `Set-Cookie` to still carry `Secure; Path=/` (task
+      //    2109 / WP 2105 §2) or the browser rejects the clear the same way it would a real one,
+      //    leaving the stale (now-orphaned) cookie sitting in the browser.
+      reply.clearCookie(SESSION_COOKIE_NAME, { path: '/', secure: true })
 
       if (user) {
         WIKI.models.flags.authDebug(
@@ -1457,7 +1507,7 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       const mod = WIKI.models.authentication.getModule(req.body.module)
       if (!mod) {
-        return reply.badRequest(`There is no authentication module named "${req.body.module}".`)
+        return reply.badRequest('ERR_UNKNOWN_AUTH_MODULE')
       }
 
       const invalid =
@@ -1466,7 +1516,8 @@ async function routes(app: FastifyInstance) {
           displayName: req.body.displayName,
           isEnabled: req.body.isEnabled,
           allowedEmailRegex: req.body.allowedEmailRegex,
-          autoEnrollGroups: req.body.autoEnrollGroups
+          autoEnrollGroups: req.body.autoEnrollGroups,
+          mappableGroups: req.body.mappableGroups
         })) ?? WIKI.models.authentication.validateConfig(req.body.module, req.body.config)
       if (invalid) {
         return reply.badRequest(invalid)
@@ -1541,9 +1592,12 @@ async function routes(app: FastifyInstance) {
       for (const field of [
         'displayName',
         'isEnabled',
-        'registration',
+        'selfRegistration',
+        'autoProvision',
         'allowedEmailRegex',
         'autoEnrollGroups',
+        'trustEmailForLinking',
+        'mappableGroups',
         'config'
       ] as const) {
         if (req.body[field] !== undefined) {
@@ -1567,6 +1621,18 @@ async function routes(app: FastifyInstance) {
       if (!(await WIKI.models.authentication.updateStrategy(req.params.strategyId, patch))) {
         return reply.internalServerError('Failed to update the authentication strategy.')
       }
+
+      // -> Config holds OAuth client secrets and LDAP bind passwords, so `detail` names which
+      //    top-level fields changed rather than their values -- `changedFields` never descends into
+      //    `patch.config` itself. Mirrors `storage.targetUpdated` in `api/storage.ts`.
+      await WIKI.models.auditLog.record({
+        event: 'auth.strategyUpdated',
+        actor: actorFromRequest(req),
+        targetType: 'authStrategy',
+        targetId: current.id,
+        targetLabel: current.displayName,
+        detail: { module: current.module, changedFields: Object.keys(patch) }
+      })
 
       return {
         ok: true,

@@ -10,7 +10,7 @@
           flat
           round
           @click="goBack">
-          <w-tooltip anchor="center left" self="center right">{{
+          <w-tooltip labels anchor="center left" self="center right">{{
             t('common.actions.goback')
           }}</w-tooltip>
         </w-btn>
@@ -40,6 +40,7 @@
           <w-list dense padding>
             <w-item
               v-for="item of orderByOptions"
+              :key="item.value"
               clickable
               :active="item.value === state.params.orderBy"
               @click="setOrderBy(item.value)">
@@ -165,7 +166,9 @@
               <i18n-t
                 class="text-caption"
                 v-if="!siteStore.searchIsLoading"
-                keypath="search.totalResults"
+                :keypath="
+                  state.totalApproximate ? `search.totalResultsApprox` : `search.totalResults`
+                "
                 tag="span"
                 :plural="state.total">
                 <strong>{{ state.total }}</strong>
@@ -185,7 +188,8 @@
           </div>
           <w-list separator>
             <w-item
-              v-for="item of state.results"
+              v-for="item of formattedResults"
+              :key="`${item.locale}:${item.path}`"
               clickable
               :to="localizedPagePath(item.path, item.locale, siteStore.localeRouting)">
               <w-item-section avatar>
@@ -202,7 +206,7 @@
                 </w-item-label>
               </w-item-section>
               <w-item-section side>
-                <div class="text-caption text-right">{{ humanizeDate(item.updatedAt) }}</div>
+                <div class="text-caption text-right">{{ item.updatedAtFormatted }}</div>
                 <!--
                   `layout-search-itemtags` was a class nothing defines -- a leftover the layout
                   migration left behind -- so the row had no gap and the chips ran together.
@@ -253,8 +257,7 @@ import HeaderNav from '@/components/HeaderNav.vue'
 import FooterNav from '@/components/FooterNav.vue'
 import MainOverlayDialog from '@/components/MainOverlayDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
-
-const tagsInQueryRgx = /#[a-z0-9-\u3400-\u4DBF\u4E00-\u9FFF]+(?=(?:[^"]*(?:")[^"]*(?:"))*[^"]*$)/g
+import { extractTags, MAX_QUERY_LENGTH } from './searchTags.js'
 
 /** How many results one search returns. The API caps this at 100, and there is no pager yet. */
 const RESULTS_LIMIT = 100
@@ -310,7 +313,14 @@ const state = reactive({
   },
   selectedTags: [],
   results: [],
-  total: 0
+  total: 0,
+  /**
+   * `true` when `total` is a floor, not an exact count: this reader's page rules dropped one or more
+   * of the rows the search engine itself matched (OpenProject #2006). The results list is never
+   * wrong -- everything shown is something this reader may actually open -- only the count beside it
+   * can undercount what a search with no restrictions would have found.
+   */
+  totalApproximate: false
 })
 
 /**
@@ -355,13 +365,21 @@ const tags = computed(() => siteStore.tags.map((t) => t.tag))
 
 const defaultPageIcon = DEFAULT_PAGE_ICON
 
+/**
+ * `state.results` with each row's update time formatted, computed once when the result set changes
+ * rather than once per render of a list that can hold up to `RESULTS_LIMIT` rows.
+ */
+const formattedResults = computed(() =>
+  state.results.map((r) => ({ ...r, updatedAtFormatted: humanizeDate(r.updatedAt) }))
+)
+
 // WATCHERS
 
 watch(
   () => route.query,
   async (newQueryObj) => {
     if (newQueryObj.q) {
-      siteStore.search = newQueryObj.q.trim()
+      siteStore.search = newQueryObj.q.trim().slice(0, MAX_QUERY_LENGTH)
       syncTags()
       performSearch()
     }
@@ -391,9 +409,7 @@ function setOrderBy(val) {
 }
 
 function syncTags(newSelection) {
-  const queryTags = Array.from(siteStore.search.matchAll(tagsInQueryRgx)).map((t) =>
-    t[0].substring(1)
-  )
+  const queryTags = extractTags(siteStore.search)
   if (!newSelection) {
     state.selectedTags = queryTags
   } else {
@@ -415,7 +431,7 @@ async function performSearch() {
   let q = siteStore.search ?? ''
 
   // -> Extract tags
-  const queryTags = Array.from(q.matchAll(tagsInQueryRgx)).map((t) => t[0].substring(1))
+  const queryTags = extractTags(q)
   for (const tag of queryTags) {
     q = q.replaceAll(`#${tag}`, '')
   }
@@ -436,6 +452,7 @@ async function performSearch() {
   if (!q && Object.keys(filters).length < 1) {
     state.results = []
     state.total = 0
+    state.totalApproximate = false
     siteStore.searchLastQuery = siteStore.search
     siteStore.searchIsLoading = false
     return
@@ -456,10 +473,12 @@ async function performSearch() {
     }).json()
     state.results = (resp?.results ?? []).map((r) => ({ ...r, tags: [...(r.tags ?? [])].sort() }))
     state.total = resp?.totalHits ?? 0
+    state.totalApproximate = resp?.totalHitsApproximate ?? false
     siteStore.searchLastQuery = siteStore.search
   } catch (err) {
     state.results = []
     state.total = 0
+    state.totalApproximate = false
     notify({
       type: 'negative',
       message: t('search.failed'),

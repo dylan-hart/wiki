@@ -41,14 +41,14 @@
           <blueprint-icon icon="info-popup" />
           <w-item-section>
             <w-input
+              ref="iptName"
               v-model="state.hook.name"
               outlined
               dense
               :rules="hookNameValidation"
               hide-bottom-space
               :label="t(`common.field.name`)"
-              lazy-rules="ondemand"
-              autofocus />
+              lazy-rules="ondemand" />
           </w-item-section>
         </w-item>
         <w-item>
@@ -254,7 +254,9 @@ defineEmits([...dialogComponentEmits])
 
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => iptName.value
+})
 
 // I18N
 
@@ -370,6 +372,7 @@ const siteOptions = computed(() => [
 // REFS
 
 const editWebhookForm = ref(null)
+const iptName = ref(null)
 
 // VALIDATION RULES
 
@@ -378,8 +381,21 @@ const hookNameValidation = [
   (val) => /^[^<>"]+$/.test(val) || t('admin.webhooks.nameInvalidChars')
 ]
 const hookEventsValidation = [(val) => val.length > 0 || t('admin.webhooks.eventsMissing')]
+/**
+ * Whether `val` is an http(s) URL the backend's own `invalidReason()` (`backend/api/hooks.ts`) would
+ * accept too -- `new URL()` plus a protocol check, not a bare `startsWith('http')`, so a scheme like
+ * `httpfoo://x` is refused here exactly as it already is server-side (OpenProject #1940).
+ */
+function isHttpUrl(val) {
+  try {
+    return ['http:', 'https:'].includes(new URL(val).protocol)
+  } catch {
+    return false
+  }
+}
+
 const hookUrlValidation = [
-  (val) => (val.length > 0 && val.startsWith('http')) || t('admin.webhooks.urlMissing'),
+  (val) => (val.length > 0 && isHttpUrl(val)) || t('admin.webhooks.urlMissing'),
   (val) => /^[^<>"]+$/.test(val) || t('admin.webhooks.urlInvalidChars')
 ]
 
@@ -435,7 +451,7 @@ async function create() {
     }
     const resp = await API_CLIENT.post('hooks', { json: writableFields() }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',
@@ -460,7 +476,7 @@ async function save() {
     }
     const resp = await API_CLIENT.put(`hooks/${props.hookId}`, { json: writableFields() }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

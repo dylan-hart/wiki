@@ -4,10 +4,11 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-network-animated.svg" />
+          src="/_assets/icons/fluent-network-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.cluster.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.cluster.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.cluster.subtitle') }}
         </div>
@@ -78,7 +79,7 @@
             <w-td :props="props">
               <span>{{ props.value }}</span>
               <div>
-                <small class="text-grey">{{ humanizeDate(props.row.dbFirstSeen) }}</small>
+                <small class="text-grey">{{ humanizeDate(t, props.row.dbFirstSeen) }}</small>
               </div>
             </w-td>
           </template>
@@ -86,9 +87,12 @@
             <w-td :props="props">
               <span>{{ props.value }}</span>
               <div>
-                <small class="text-grey">{{ humanizeDate(props.row.dbLastSeen) }}</small>
+                <small class="text-grey">{{ humanizeDate(t, props.row.dbLastSeen) }}</small>
               </div>
             </w-td>
+          </template>
+          <template #no-data>
+            {{ t('admin.cluster.emptyText') }}
           </template>
         </w-table>
       </w-card>
@@ -105,7 +109,7 @@ import { notify } from '@/composables/notify'
 
 import { useSiteStore } from '@/stores/site'
 
-import { relativeDate } from '@/helpers/datetime'
+import { humanizeDate, relativeDate } from '@/helpers/datetime'
 
 // STORES
 
@@ -177,24 +181,6 @@ const nodesHeaders = [
 
 // METHODS
 
-/*
-  The fields luxon's `fff` expanded to, so the cell reads exactly as before -- long month, no seconds.
-  The scheduler spells out seconds in its own copy of this, because there a job's timing is the point.
-*/
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
-}
-
 async function load() {
   state.loading++
   try {
@@ -202,7 +188,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to load list of cluster nodes.',
+      message: t('admin.cluster.loadFailed'),
       caption: err.message
     })
   }

@@ -152,6 +152,7 @@ describe('extractDiagramScript', () => {
  */
 describe('DiagramRender.render', () => {
   let isInstalled: ReturnType<typeof mock.fn>
+  let getSiteBlocks: ReturnType<typeof mock.fn>
   let diagramRender: typeof import('./diagramRender.ts').diagramRender
   let importBlockScript: typeof import('./diagramRender.ts').importBlockScript
   let mountBlockElementScript: typeof import('./diagramRender.ts').mountBlockElementScript
@@ -168,6 +169,12 @@ describe('DiagramRender.render', () => {
             key === 'puppeteer' ? PUPPETEER_DEFINITION : null
           ),
           isInstalled: mock.fn(async () => true)
+        },
+        // -> Only the PlantUML path reads this, resolving the site's `block-plantuml` config value
+        //    instead of a per-request field (OpenProject task 2223) — an empty list is a site with no
+        //    such row at all, which `resolvePlantumlServer()` treats the same as "nothing configured".
+        blocks: {
+          getSiteBlocks: mock.fn(async (_siteId: string) => [] as any[])
         }
       }
     }
@@ -175,6 +182,7 @@ describe('DiagramRender.render', () => {
       await import('./diagramRender.ts'))
     ;({ blockSettleScript } = await import('./pdfExport.ts'))
     isInstalled = (globalThis as any).WIKI.models.extensions.isInstalled
+    getSiteBlocks = (globalThis as any).WIKI.models.blocks.getSiteBlocks
   })
 
   after(() => {
@@ -220,6 +228,8 @@ describe('DiagramRender.render', () => {
   beforeEach(() => {
     isInstalled.mock.resetCalls()
     isInstalled.mock.mockImplementation(async () => true)
+    getSiteBlocks.mock.resetCalls()
+    getSiteBlocks.mock.mockImplementation(async () => [])
     ;(globalThis as any).fetch = undefined
   })
 
@@ -413,7 +423,29 @@ describe('DiagramRender.render', () => {
       assert.equal(result.data.toString('hex'), '090909')
     })
 
-    test('honors a custom server, trimmed of trailing slashes, and the png format', async () => {
+    test('a site whose block-plantuml config names a server renders against it, trimmed of trailing slashes, png format included', async () => {
+      getSiteBlocks.mock.mockImplementation(async (siteId: string) => {
+        assert.equal(siteId, 'site-1')
+        return [
+          { block: 'plantuml', config: { server: 'https://plantuml.example.com/plantuml///' } }
+        ]
+      })
+      const fetchMock = mock.fn(
+        async (_url: string) => new Response(new Uint8Array([1]), { status: 200 })
+      )
+      ;(globalThis as any).fetch = fetchMock
+
+      await diagramRender.render(
+        { type: 'plantuml', source: '@startuml\nA -> B\n@enduml', format: 'png' },
+        'site-1'
+      )
+
+      assert.equal(getSiteBlocks.mock.callCount(), 1)
+      const url = fetchMock.mock.calls[0].arguments[0] as string
+      assert.match(url, /^https:\/\/plantuml\.example\.com\/plantuml\/png\//)
+    })
+
+    test('a server field on the request cannot change the fetched URL or reach the model at all (OpenProject #2219)', async () => {
       const fetchMock = mock.fn(
         async (_url: string) => new Response(new Uint8Array([1]), { status: 200 })
       )
@@ -422,12 +454,119 @@ describe('DiagramRender.render', () => {
       await diagramRender.render({
         type: 'plantuml',
         source: '@startuml\nA -> B\n@enduml',
-        server: 'https://plantuml.example.com/plantuml///',
-        format: 'png'
+        // @ts-expect-error -- `server` no longer exists on `DiagramRenderRequest`; a caller that
+        // still sends it (an un-upgraded client, or a request forged past the API schema) must be
+        // silently ignored, not honored.
+        server: 'https://attacker.example.com/steal'
       })
 
+      assert.equal(fetchMock.mock.callCount(), 1)
       const url = fetchMock.mock.calls[0].arguments[0] as string
-      assert.match(url, /^https:\/\/plantuml\.example\.com\/plantuml\/png\//)
+      assert.match(url, /^https:\/\/www\.plantuml\.com\/plantuml\/svg\//)
+      assert.doesNotMatch(url, /attacker\.example\.com/)
+    })
+
+    test('fetches with `redirect: error` and a bounded timeout signal, matching LiveData#resolve (OpenProject #2216)', async () => {
+      const fetchMock = mock.fn(
+        async (_url: string, _options?: RequestInit) =>
+          new Response(new Uint8Array([1]), { status: 200 })
+      )
+      ;(globalThis as any).fetch = fetchMock
+
+      await diagramRender.render({ type: 'plantuml', source: '@startuml\nA -> B\n@enduml' })
+
+      assert.equal(fetchMock.mock.callCount(), 1)
+      const options = fetchMock.mock.calls[0].arguments[1] as RequestInit
+      assert.equal(options.redirect, 'error')
+      assert.ok(options.signal instanceof AbortSignal)
+    })
+
+    test('reports a redirect refusal as the same clean failure a network error gets', async () => {
+      ;(globalThis as any).fetch = mock.fn(async () => {
+        throw new TypeError('fetch failed: unexpected redirect')
+      })
+
+      await assert.rejects(
+        diagramRender.render({ type: 'plantuml', source: '@startuml\nA -> B\n@enduml' }),
+        (err: any) => {
+          assert.equal(err.name, 'diagramRenderFailed')
+          assert.equal(err.statusCode, 502)
+          assert.match(err.message, /unexpected redirect/)
+          return true
+        }
+      )
+    })
+
+    test('fetches with redirect: "error" and a bounded abort signal (OpenProject #2226)', async () => {
+      const fetchMock = mock.fn(
+        async (_url: string, _init: RequestInit) =>
+          new Response(new Uint8Array([1]), { status: 200 })
+      )
+      ;(globalThis as any).fetch = fetchMock
+
+      await diagramRender.render({ type: 'plantuml', source: '@startuml\nA -> B\n@enduml' })
+
+      const init = fetchMock.mock.calls[0].arguments[1]
+      assert.equal(init.redirect, 'error')
+      assert.ok(init.signal instanceof AbortSignal)
+    })
+
+    test('reports a redirecting server as a clean error rather than following it (OpenProject #2226)', async () => {
+      ;(globalThis as any).fetch = mock.fn(async (_url: string, init: RequestInit) => {
+        if (init.redirect === 'error') {
+          // -> What undici actually throws for a redirect response under `redirect: 'error'`.
+          throw new TypeError('fetch failed')
+        }
+        throw new Error('should never fetch without redirect: "error"')
+      })
+
+      await assert.rejects(
+        diagramRender.render({ type: 'plantuml', source: '@startuml\nA -> B\n@enduml' }),
+        (err: any) => {
+          assert.equal(err.name, 'diagramRenderFailed')
+          assert.equal(err.statusCode, 502)
+          return true
+        }
+      )
+    })
+
+    test('reports a hanging server as a clean error rather than an indefinite hang (OpenProject #2226)', async () => {
+      ;(globalThis as any).fetch = mock.fn(async () => {
+        // -> What undici actually throws once `AbortSignal.timeout` fires mid-request.
+        throw new DOMException('The operation was aborted.', 'TimeoutError')
+      })
+
+      await assert.rejects(
+        diagramRender.render({ type: 'plantuml', source: '@startuml\nA -> B\n@enduml' }),
+        (err: any) => {
+          assert.equal(err.name, 'diagramRenderFailed')
+          assert.equal(err.statusCode, 502)
+          assert.match(err.message, /aborted/i)
+          return true
+        }
+      )
+    })
+
+    test('a site with no block-plantuml config (or no siteId at all) renders against DEFAULT_PLANTUML_SERVER', async () => {
+      getSiteBlocks.mock.mockImplementation(async () => [{ block: 'plantuml', config: {} }])
+      const fetchMock = mock.fn(
+        async (_url: string) => new Response(new Uint8Array([1]), { status: 200 })
+      )
+      ;(globalThis as any).fetch = fetchMock
+
+      await diagramRender.render(
+        { type: 'plantuml', source: '@startuml\nA -> B\n@enduml' },
+        'site-with-no-config'
+      )
+      const firstUrl = fetchMock.mock.calls[0].arguments[0] as string
+      assert.match(firstUrl, /^https:\/\/www\.plantuml\.com\/plantuml\/svg\//)
+
+      // -> No siteId at all (never happens from the real route, which always resolves one) falls
+      //    back the same way, without even asking the model.
+      await diagramRender.render({ type: 'plantuml', source: '@startuml\nA -> B\n@enduml' })
+      assert.equal(getSiteBlocks.mock.callCount(), 1, 'not called again when siteId is undefined')
+      const secondUrl = fetchMock.mock.calls[1].arguments[0] as string
+      assert.match(secondUrl, /^https:\/\/www\.plantuml\.com\/plantuml\/svg\//)
     })
 
     test('surfaces the X-PlantUML-Diagram-Error header as the failure reason', async () => {

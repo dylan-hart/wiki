@@ -1,6 +1,14 @@
 <template>
   <div class="w-color-picker w-[240px] select-none">
-    <!-- Saturation / brightness field -->
+    <!--
+      Saturation / brightness field
+
+      This field's and the hue rail's `left:` below are colour-space coordinates (saturation 0-100%,
+      hue 0-360°), not a leading/trailing gutter -- reviewed under OpenProject #1590's
+      physical-positioning triage and left physical, the same reasoning `WRange`'s numeric scale
+      gets: a colour gradient reads left-to-right by its own convention, independent of the reading
+      direction.
+    -->
     <div
       ref="fieldEl"
       class="relative h-[140px] w-full cursor-crosshair"
@@ -34,7 +42,7 @@
         :value="hex"
         maxlength="7"
         spellcheck="false"
-        aria-label="Hex color"
+        :aria-label="resolvedHexLabel"
         @change="onHexInput"
         @blur="onHexInput" />
     </div>
@@ -43,6 +51,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { useDictText } from '@/composables/i18nText'
 
 /**
  * Hex colour picker: saturation/brightness field, hue rail, and the hex value as text.
@@ -60,10 +69,20 @@ const props = defineProps({
   modelValue: {
     type: String,
     default: '#000000'
+  },
+  /** Accessible name for the hex text field. Falls back to the `common.colorPicker.hexColor` dictionary entry. */
+  hexLabel: {
+    type: String,
+    default: null
   }
 })
 
 const emit = defineEmits(['update:modelValue'])
+
+const dictText = useDictText()
+const resolvedHexLabel = computed(
+  () => props.hexLabel ?? dictText('common.colorPicker.hexColor', 'Hex color')
+)
 
 const fieldEl = ref(null)
 const hueEl = ref(null)

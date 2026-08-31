@@ -7,7 +7,7 @@
       </w-card-section>
       <w-card-section>
         <div class="p-4 text-center">
-          <img src="/_assets/illustrations/undraw_upload.svg" style="width: 150px" />
+          <img src="/_assets/illustrations/undraw_upload.svg" style="width: 150px" alt="" />
         </div>
         <w-linear-progress indeterminate size="lg" rounded />
         <div class="mt-2 text-center text-caption">{{ state.current }} / {{ state.total }}</div>
@@ -82,7 +82,7 @@ onMounted(async () => {
         body: item.file
       }).json()
       if (resp?.ok === false) {
-        throw new Error(resp.message || 'An unexpected error occured.')
+        throw new Error(resp.message || t('common.error.unexpected'))
       }
       // -> The stored name is not always the one asked for: what happens to a file already in the
       //    folder is the site's upload conflict behavior to decide — it may be replaced, or the

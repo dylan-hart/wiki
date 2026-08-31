@@ -71,9 +71,18 @@ export function zeroPageviewCountsForGraph(): PageviewCountsForGraph {
  * Never store a raw session id or API key id -- `visitorHash` only needs to tell two visitors apart,
  * not identify either one. Two different keys/sessions hash to two different visitors; the same one
  * reused is one visitor, which is exactly what a unique-visitor count needs and nothing more.
+ *
+ * Keyed (HMAC-SHA256), not a bare digest -- a bare `sha256(rawId)` is reversible against a known
+ * preimage set: `browser` views hash `sessions.id`, stored verbatim right next to `sessions.userId`
+ * in the same database, and `api`/`mcp` views hash an API key's UUID, a set small enough to
+ * enumerate and pre-hash. Neither is secret, so without a key `visitorHash` would only be
+ * *pseudonymous* in name -- a single join re-identifies every surviving session's pageviews. `key`
+ * is what stands between the column and that re-identification: `WIKI.config.pageviews.hashKey`,
+ * generated once at first run (`models/settings.ts#init()`) and never derived from the raw id, so
+ * two different keys hash the same raw id to two unrelated, uncorrelatable outputs.
  */
-export function hashVisitor(rawId: string): string {
-  return crypto.createHash('sha256').update(rawId).digest('hex')
+export function hashVisitor(rawId: string, key: string): string {
+  return crypto.createHmac('sha256', key).update(rawId).digest('hex')
 }
 
 export interface RecordPageviewParams {
@@ -112,7 +121,7 @@ class Pageviews {
         siteId: params.siteId,
         pageId: params.pageId,
         clientType: params.clientType,
-        visitorHash: hashVisitor(params.visitorRawId)
+        visitorHash: hashVisitor(params.visitorRawId, WIKI.config.pageviews.hashKey)
       })
     } catch (err: any) {
       WIKI.logger.warn(`Failed to record a pageview: ${err.message}`)
@@ -143,6 +152,14 @@ class Pageviews {
    * `GROUP BY`, since a raw `count(*)` needs no identity column at all.
    */
   async countsForGraph(siteId: string): Promise<Map<string, PageviewCountsForGraph>> {
+    // -> Reads gate on the same flag writes already do (OpenProject #2269). Turning tracking off
+    //    stops new rows from ever landing (`record()` above), but the table can still hold up to two
+    //    years of rows from before it was turned off; there is no reason for every `/graph` request
+    //    to run this six-way aggregate over them when the feature they'd size nodes for is disabled.
+    if (WIKI.config.pageviews?.isEnabled !== true) {
+      return new Map()
+    }
+
     const distinct30d = sql<number>`count(distinct case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last30d)}' then ${pageviewsTable.visitorHash} end)::int`
     const distinct6mo = sql<number>`count(distinct case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last6mo)}' then ${pageviewsTable.visitorHash} end)::int`
     const distinct2yr = sql<number>`count(distinct case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last2yr)}' then ${pageviewsTable.visitorHash} end)::int`

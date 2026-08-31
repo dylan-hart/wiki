@@ -4,10 +4,11 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-swiss-army-knife-animated.svg" />
+          src="/_assets/icons/fluent-swiss-army-knife-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.utilities.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.utilities.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.utilities.subtitle') }}
         </div>
@@ -50,6 +51,7 @@
             <w-item-section>
               <w-item-label>{{ t(`admin.utilities.export`) }}</w-item-label>
               <w-item-label caption>{{ t(`admin.utilities.exportHint`) }}</w-item-label>
+              <w-item-label caption>{{ t(`admin.utilities.exportExclusions`) }}</w-item-label>
             </w-item-section>
             <w-item-section side>
               <w-btn
@@ -249,10 +251,12 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { fileSave } from 'browser-fs-access'
 
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 // STORES
 
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
@@ -291,15 +295,7 @@ const scanReportScannedAt = computed(() => {
   if (!state.scanReport?.scannedAt) {
     return ''
   }
-  return Temporal.Instant.from(state.scanReport.scannedAt).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZoneName: 'short'
-  })
+  return userStore.formatDateTime(t, state.scanReport.scannedAt, { seconds: true })
 })
 
 /**
@@ -375,7 +371,7 @@ function disconnectWS() {
     try {
       const resp = await API_CLIENT.post('system/websockets/disconnect').json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       notify({
         type: 'positive',
@@ -413,7 +409,7 @@ function invalidateApiCertificates() {
     try {
       const resp = await API_CLIENT.post('system/certificates').json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       const count = resp.invalidatedKeys ?? 0
       notify({
@@ -452,7 +448,7 @@ function invalidateSessionSecret() {
     try {
       const resp = await API_CLIENT.post('system/sessions/invalidate').json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       // -> This session is one of the ones just ended, so there is nowhere to go but back to the
       //    login screen. A full load rather than a route push: every store is holding the state of
@@ -494,7 +490,7 @@ function purgeHistory() {
         json: { olderThan: state.purgeHistoryTimeframe }
       }).json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       const count = resp.count ?? 0
       notify({
@@ -532,7 +528,7 @@ function purgeRevokedKeys() {
     try {
       const resp = await API_CLIENT.post('system/api-keys/purge').json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       const count = resp.count ?? 0
       notify({
@@ -568,7 +564,7 @@ async function exportContent() {
       json: { siteId: siteStore.id }
     }).json()
     if (!queued?.ok || !queued?.id) {
-      throw new Error(queued?.message || 'An unexpected error occured.')
+      throw new Error(queued?.message || t('common.error.unexpected'))
     }
 
     let blob
@@ -648,7 +644,7 @@ function importFileSelected() {
           body: file
         }).json()
         if (!resp?.ok) {
-          throw new Error(resp?.message || 'An unexpected error occured.')
+          throw new Error(resp?.message || t('common.error.unexpected'))
         }
         notify({
           type: 'positive',
@@ -678,7 +674,7 @@ async function flushCache() {
   try {
     const resp = await API_CLIENT.post('system/cache/flush').json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',
@@ -709,7 +705,7 @@ async function scanPageProblems() {
   try {
     const queued = await API_CLIENT.post('system/pages/scan').json()
     if (!queued?.ok || !queued?.id) {
-      throw new Error(queued?.message || 'An unexpected error occured.')
+      throw new Error(queued?.message || t('common.error.unexpected'))
     }
 
     let job

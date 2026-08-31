@@ -45,7 +45,13 @@ async function routes(app: FastifyInstance) {
       if (!req.session?.authenticated) {
         return reply.unauthorized('Sign in to render a diagram.')
       }
-      const result = await WIKI.models.diagramRender.render(req.body)
+      // -> Not site-scoped by route (no `:siteId`, and this is reachable from any hostname a
+      //    Mermaid/PdfExport caller happens to render from), so the site is resolved the same way
+      //    other non-site-scoped surfaces read it off the request itself — see `index.ts`'s SEO hook.
+      //    Only PlantUML's render path actually reads it (its site's `block-plantuml` config), but
+      //    it's resolved unconditionally so a caller can never pass one of its own.
+      const siteId = WIKI.sitesMappings[req.hostname] || WIKI.sitesMappings['*']
+      const result = await WIKI.models.diagramRender.render(req.body, siteId)
       // -> Freshly drawn from whatever source was posted, and cheap to ask for again — nothing here
       //    is worth a client or intermediary holding onto
       reply.header('Cache-Control', 'no-store')

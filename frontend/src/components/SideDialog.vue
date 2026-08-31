@@ -3,10 +3,7 @@
     class="floating-sidepanel"
     v-model="siteStore.sideDialogShown"
     position="right"
-    full-height
-    transition-show="jump-left"
-    transition-hide="jump-right"
-    no-shake>
+    full-height>
     <component :is="sideDialogs[siteStore.sideDialogComponent]" />
   </w-dialog>
 </template>

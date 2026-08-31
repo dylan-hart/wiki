@@ -32,6 +32,15 @@ import type { PendingDigestEvent } from '../../models/pageWatchEvents.ts'
  * Composes each line of the digest via `WIKI.models.mail.sendPageWatchDigest`, which itself builds
  * every line through the exact same per-event content `sendPageWatchNotification` sends alone — this
  * task supplies the data (grouped events, resolved actor names) but never re-derives the phrasing.
+ *
+ * OpenProject #2173: a digest is a `read:pages` re-check's worst case for staleness — a `digest`-mode
+ * event sits pending for up to a full day (this job's own schedule) between being recorded and being
+ * sent, the longest window anywhere in this feature for a watcher's group membership or the page's
+ * rules to have changed underneath it. `WIKI.models.pageWatchEvents.filterReadable()` (shared with the
+ * in-app inbox's own read-time re-check, `listForUser`) is applied per `(userId, siteId)` group, right
+ * before that group's items are built — an event that fails it is marked delivered anyway (there is
+ * nothing further to tell a watcher about a page they can no longer read) but never appears in the
+ * mail, and a group left with nothing readable is skipped entirely rather than sending an empty digest.
  */
 export async function task(): Promise<void> {
   WIKI.logger.info('Sending page watch digests...')
@@ -79,6 +88,20 @@ export async function task(): Promise<void> {
       const userId = events[0]!.userId
       const siteId = events[0]!.siteId
       try {
+        // -> OpenProject #2173: re-check read:pages right before sending, not just when each event
+        //    was recorded. An event that no longer passes is marked delivered along with the rest of
+        //    this group's readable ones -- there is nothing further to tell this watcher about a page
+        //    they can no longer read, and leaving it pending would only have it re-evaluated (and
+        //    re-filtered out) by every future run indefinitely.
+        const readable = await WIKI.models.pageWatchEvents.filterReadable(userId, events)
+        const unreadable = events.filter((event) => !readable.includes(event))
+        if (unreadable.length > 0) {
+          await WIKI.models.pageWatchEvents.markManyDelivered(unreadable.map((event) => event.id))
+        }
+        if (readable.length < 1) {
+          continue
+        }
+
         const recipient = await WIKI.models.users.getById(userId)
         if (!recipient?.email) {
           WIKI.logger.warn(`Skipping watch digest for user ${userId}: no email address.`)
@@ -86,7 +109,7 @@ export async function task(): Promise<void> {
         }
 
         const items: WatchEventItem[] = []
-        for (const event of events) {
+        for (const event of readable) {
           items.push({
             page: { title: event.pageTitle, path: event.pagePath, locale: event.pageLocale },
             action: event.action,
@@ -95,8 +118,13 @@ export async function task(): Promise<void> {
           })
         }
 
-        await WIKI.models.mail.sendPageWatchDigest({ to: recipient.email, siteId, items })
-        await WIKI.models.pageWatchEvents.markManyDelivered(events.map((event) => event.id))
+        await WIKI.models.mail.sendPageWatchDigest({
+          to: recipient.email,
+          siteId,
+          items,
+          locale: (recipient.prefs as Record<string, any> | undefined)?.locale
+        })
+        await WIKI.models.pageWatchEvents.markManyDelivered(readable.map((event) => event.id))
         sent++
       } catch (err: any) {
         // -> Logged loudly, not thrown: the pending events survive either way (nothing here marks

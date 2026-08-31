@@ -2,10 +2,13 @@
   <w-page class="admin-auth">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-security-lock.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-security-lock.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.auth.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.auth.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.auth.subtitle') }}
         </div>
@@ -189,28 +192,58 @@
             </w-item-section>
           </w-item>
           <w-separator class="my-2" inset />
-          <w-item tag="label">
+          <!-- Exactly one registration control per module, matching what it actually does: a
+               form-based module (Local, LDAP) registers visitors itself, a redirect-based provider
+               auto-provisions whoever it signs in -- the two are enforced separately server-side, so
+               only the one that applies to this module is ever shown. -->
+          <w-item tag="label" v-if="state.strategy.strategy.useForm">
             <blueprint-icon icon="register" />
             <w-item-section>
-              <w-item-label>{{ t(`admin.auth.registration`) }}</w-item-label>
-              <w-item-label caption>{{
-                state.strategy.strategy.key === `local`
-                  ? t(`admin.auth.registrationLocalHint`)
-                  : t(`admin.auth.registrationHint`)
-              }}</w-item-label>
-              <!-- Saved, but there is no self-registration path in the server yet — say so rather than -->
-              <!-- let the toggle read as a working setting -->
-              <w-item-label class="text-orange" caption>{{
-                t(`admin.auth.registrationNotEnforced`)
-              }}</w-item-label>
+              <w-item-label>{{ t(`admin.auth.selfRegistration`) }}</w-item-label>
+              <w-item-label caption>{{ t(`admin.auth.selfRegistrationHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section avatar>
               <w-toggle
-                v-model="state.strategy.registration"
-                :aria-label="t(`admin.auth.registration`)" />
+                v-model="state.strategy.selfRegistration"
+                :aria-label="t(`admin.auth.selfRegistration`)" />
             </w-item-section>
           </w-item>
-          <template v-if="state.strategy.registration">
+          <w-item tag="label" v-else>
+            <blueprint-icon icon="register" />
+            <w-item-section>
+              <w-item-label>{{ t(`admin.auth.autoProvision`) }}</w-item-label>
+              <w-item-label caption>{{ t(`admin.auth.autoProvisionHint`) }}</w-item-label>
+            </w-item-section>
+            <w-item-section avatar>
+              <w-toggle
+                v-model="state.strategy.autoProvision"
+                :aria-label="t(`admin.auth.autoProvision`)" />
+            </w-item-section>
+          </w-item>
+          <!-- Only meaningful for a redirect-based provider: linking by email is what
+               findOrCreateProviderUser() does for a returning identity, a path a form-based
+               strategy's own login() never takes. -->
+          <template v-if="!state.strategy.strategy.useForm">
+            <w-separator class="my-2" inset />
+            <w-item tag="label">
+              <blueprint-icon icon="link" />
+              <w-item-section>
+                <w-item-label>{{ t(`admin.auth.trustEmailForLinking`) }}</w-item-label>
+                <w-item-label caption>{{ t(`admin.auth.trustEmailForLinkingHint`) }}</w-item-label>
+              </w-item-section>
+              <w-item-section avatar>
+                <w-toggle
+                  v-model="state.strategy.trustEmailForLinking"
+                  :aria-label="t(`admin.auth.trustEmailForLinking`)" />
+              </w-item-section>
+            </w-item>
+          </template>
+          <template
+            v-if="
+              state.strategy.strategy.useForm
+                ? state.strategy.selfRegistration
+                : state.strategy.autoProvision
+            ">
             <w-separator class="my-2" inset />
             <w-item>
               <blueprint-icon icon="team" />
@@ -256,7 +289,6 @@
                     <w-item v-bind="itemProps">
                       <w-item-section side>
                         <w-checkbox
-                          size="sm"
                           :model-value="selected"
                           @update:model-value="toggleOption(opt)" />
                       </w-item-section>
@@ -301,7 +333,7 @@
               <em>{{ t('admin.auth.noConfigOption') }}</em>
             </w-banner>
           </w-card-section>
-          <template v-for="(cfg, cfgKey, idx) in state.strategy.config">
+          <template v-for="(cfg, cfgKey, idx) in state.strategy.config" :key="cfgKey">
             <template v-if="configIfCheck(cfg.if)">
               <w-separator class="my-2" inset v-if="idx > 0" />
               <w-item v-if="cfg.type === `boolean`" :tag="cfg.readOnly ? `div` : `label`">
@@ -334,6 +366,7 @@
                     glossy
                     no-caps
                     toggle-color="primary"
+                    :aria-label="cfg.title"
                     :options="cfg.enum"
                     :disable="cfg.readOnly" />
                   <w-select
@@ -358,6 +391,71 @@
                 </w-item-section>
               </w-item>
             </template>
+          </template>
+          <!--
+            Not one of the dynamic `state.strategy.config` props above: `mappableGroups` is a
+            top-level strategy field, same as `autoEnrollGroups`, gated on the module's own
+            `mapGroups` boolean config prop rather than a `configIfCheck` (that check is written
+            against sibling config props, not against another top-level field).
+          -->
+          <template v-if="state.strategy.config?.mapGroups?.value">
+            <w-separator class="my-2" inset />
+            <w-item>
+              <blueprint-icon icon="team" />
+              <w-item-section>
+                <w-item-label>{{ t(`admin.auth.mappableGroups`) }}</w-item-label>
+                <w-item-label caption>{{ t(`admin.auth.mappableGroupsHint`) }}</w-item-label>
+              </w-item-section>
+              <w-item-section>
+                <w-select
+                  outlined
+                  :options="state.groups"
+                  v-model="state.strategy.mappableGroups"
+                  multiple
+                  map-options
+                  emit-value
+                  option-value="id"
+                  option-label="name"
+                  options-dense
+                  dense
+                  hide-bottom-space
+                  :aria-label="t(`admin.auth.mappableGroups`)"
+                  :loading="state.loadingGroups">
+                  <template #selected>
+                    <div class="text-caption" v-if="state.strategy.mappableGroups?.length > 1">
+                      <i18n-t keypath="admin.users.groupsSelected">
+                        <template #count>
+                          <strong>{{ state.strategy.mappableGroups?.length }}</strong>
+                        </template>
+                      </i18n-t>
+                    </div>
+                    <div
+                      class="text-caption"
+                      v-else-if="state.strategy.mappableGroups?.length === 1">
+                      <i18n-t keypath="admin.users.groupSelected">
+                        <template #group
+                          ><strong>{{ selectedMappableGroupName }}</strong></template
+                        >
+                      </i18n-t>
+                    </div>
+                    <span v-else />
+                  </template>
+                  <template #option="{ itemProps, opt, selected, toggleOption }">
+                    <w-item v-bind="itemProps">
+                      <w-item-section side>
+                        <w-checkbox
+                          size="sm"
+                          :model-value="selected"
+                          @update:model-value="toggleOption(opt)" />
+                      </w-item-section>
+                      <w-item-section
+                        ><w-item-label>{{ opt.name }}</w-item-label></w-item-section
+                      >
+                    </w-item>
+                  </template>
+                </w-select>
+              </w-item-section>
+            </w-item>
           </template>
         </w-card>
         <!-- ----------------------- -->
@@ -403,7 +501,8 @@
             <img
               class="w-full mx-auto object-contain rounded"
               :src="state.strategy.strategy.logo"
-              style="height: 100px; max-width: 300px" />
+              style="height: 100px; max-width: 300px"
+              :alt="state.strategy.strategy.title" />
             <div class="text-subtitle2 mt-2">{{ state.strategy.strategy.title }}</div>
             <div class="text-caption mt-2">{{ state.strategy.strategy.description }}</div>
             <div class="text-caption mt-2">
@@ -421,7 +520,7 @@
           <w-space />
           <w-btn
             class="acrylic-btn"
-            icon="la:trash-alt"
+            icon="la:trash"
             flat
             color="negative"
             :disable="isBuiltInLocal"
@@ -512,6 +611,9 @@ const filteredAvailableStrategies = computed(() => {
 })
 const selectedGroupName = computed(() => {
   return state.groups.filter((g) => g.id === state.strategy?.autoEnrollGroups?.[0])[0]?.name
+})
+const selectedMappableGroupName = computed(() => {
+  return state.groups.filter((g) => g.id === state.strategy?.mappableGroups?.[0])[0]?.name
 })
 const strategyRefs = computed(() => {
   if (!state.selectedStrategy) {
@@ -650,9 +752,12 @@ function payloadFor(str) {
   return {
     displayName: str.displayName,
     isEnabled: str.isEnabled,
-    registration: str.registration,
+    selfRegistration: str.selfRegistration,
+    autoProvision: str.autoProvision,
     allowedEmailRegex: str.allowedEmailRegex ?? '',
     autoEnrollGroups: str.autoEnrollGroups ?? [],
+    trustEmailForLinking: str.trustEmailForLinking ?? false,
+    mappableGroups: str.mappableGroups ?? [],
     config
   }
 }
@@ -679,7 +784,7 @@ async function save() {
             json: payloadFor(str)
           }).json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       if (str.isNew && resp.id) {
         // -> So that the reload lands back on the strategy that was just created
@@ -726,9 +831,12 @@ function addStrategy(mod) {
     displayName: mod.title,
     // -> Off until it has been configured and saved: an enabled strategy appears on login screens
     isEnabled: false,
-    registration: false,
+    selfRegistration: false,
+    autoProvision: false,
     allowedEmailRegex: '',
     autoEnrollGroups: [],
+    trustEmailForLinking: false,
+    mappableGroups: [],
     strategy: mod,
     config: buildConfigEditor(mod.props, {})
   }
@@ -766,7 +874,7 @@ function confirmDelete() {
     try {
       const resp = await API_CLIENT.delete(`authentication/strategies/${strategy.id}`)
       if (!resp?.ok) {
-        throw new Error((await resp.json())?.message || 'An unexpected error occured.')
+        throw new Error((await resp.json())?.message || t('common.error.unexpected'))
       }
       notify({
         type: 'positive',

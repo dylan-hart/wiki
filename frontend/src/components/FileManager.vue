@@ -1,5 +1,5 @@
 <template>
-  <w-layout class="fileman" view="hHh lpR lFr" container>
+  <w-layout class="fileman" container>
     <!--
       Three toolbars in one flex row, which below ~700px is more than fits: the row overflowed and took the
       last of them -- the one holding Close -- off the side of the screen, so on a phone the overlay could
@@ -7,11 +7,11 @@
       also why each of the three carries a name.
     -->
     <w-header class="card-header">
-      <w-toolbar class="fileman-hdr-title" dark>
+      <w-toolbar class="fileman-hdr-title">
         <w-icon name="img:/_assets/icons/fluent-folder.svg" left size="md" />
         <span>{{ t(`fileman.title`) }}</span>
       </w-toolbar>
-      <w-toolbar class="fileman-hdr-search" dark>
+      <w-toolbar class="fileman-hdr-search">
         <!--
           -> The CONTENT locale being browsed, not the UI language -- `commonStore.locale` /
              `<locale-selector-menu/>` switch that, and mounting it here read as "which locale's
@@ -33,13 +33,7 @@
           :label="state.locale"
           :aria-label="state.locale"
           style="height: 40px">
-          <w-menu
-            class="translucent-menu"
-            auto-close
-            transition-show="jump-down"
-            transition-hide="jump-up"
-            anchor="bottom left"
-            self="top left">
+          <w-menu class="translucent-menu" auto-close anchor="bottom left" self="top left">
             <w-card class="p-2">
               <w-list dense style="min-width: 180px">
                 <w-item
@@ -101,7 +95,7 @@
         -> No right margin on the last control: the toolbar's own 12px is already close to the 9-10px the
            header leaves above and below.
       -->
-      <w-toolbar class="fileman-hdr-actions" dark>
+      <w-toolbar class="fileman-hdr-actions">
         <w-space />
         <w-btn
           class="mr-2"
@@ -137,7 +131,7 @@
       Narrower while it overlays, so there is a comfortable width of scrim left to tap on.
     -->
     <w-drawer class="fileman-left" v-model="treeDrawerOpen" :width="isTreeOverlay ? 300 : 350">
-      <w-scroll-area :thumb-style="thumbStyle" :bar-style="barStyle" style="height: 100%">
+      <w-scroll-area style="height: 100%">
         <!--
           -> No side padding: the tree's rows run the full width of the drawer, so a hovered or
              selected row reads as a band across it rather than a floating pill. `pt-2` is the gap
@@ -157,15 +151,14 @@
       </w-scroll-area>
     </w-drawer>
     <w-drawer class="fileman-right" :model-value="detailsPaneShown" :width="350" side="right">
-      <w-scroll-area :thumb-style="thumbStyle" :bar-style="barStyle" style="height: 100%">
+      <w-scroll-area style="height: 100%">
         <div class="p-4">
           <template v-if="currentFileDetails">
             <img
-              class="w-full object-cover rounded mb-4"
+              class="w-full aspect-[16/10] object-cover rounded mb-4"
               v-if="currentFileDetails.thumbnail"
               :src="currentFileDetails.thumbnail"
-              width="100%"
-              :ratio="16 / 10" />
+              :alt="currentFileDetails.fileName" />
             <div
               class="fileman-details-row"
               v-for="item of currentFileDetails.items"
@@ -252,11 +245,7 @@
               <w-tooltip anchor="bottom middle" self="top middle">{{
                 t(`fileman.viewOptions`)
               }}</w-tooltip>
-              <w-menu
-                transition-show="jump-down"
-                transition-hide="jump-up"
-                anchor="bottom right"
-                self="top right">
+              <w-menu anchor="bottom right" self="top right">
                 <w-card class="p-2">
                   <div class="text-center">
                     <small class="text-grey">{{ t(`fileman.viewOptions`) }}</small>
@@ -267,7 +256,7 @@
                       <w-item-section side>
                         <w-icon name="la:list" color="grey" size="xs" />
                       </w-item-section>
-                      <w-item-section class="pr-2">Browse using...</w-item-section>
+                      <w-item-section class="pr-2">{{ t('fileman.browseUsing') }}</w-item-section>
                       <w-item-section side>
                         <w-icon name="la:angle-right" color="grey" size="xs" />
                       </w-item-section>
@@ -282,7 +271,9 @@
                                 :color="state.displayMode === `path` ? `positive` : `grey`"
                                 size="xs" />
                             </w-item-section>
-                            <w-item-section class="pr-2">Browse Using Paths</w-item-section>
+                            <w-item-section class="pr-2">{{
+                              t('fileman.browseUsingPaths')
+                            }}</w-item-section>
                           </w-item>
                           <w-item clickable @click="state.displayMode = `title`">
                             <w-item-section side>
@@ -293,7 +284,9 @@
                                 :color="state.displayMode === `title` ? `positive` : `grey`"
                                 size="xs" />
                             </w-item-section>
-                            <w-item-section class="pr-2">Browse Using Titles</w-item-section>
+                            <w-item-section class="pr-2">{{
+                              t('fileman.browseUsingTitles')
+                            }}</w-item-section>
                           </w-item>
                         </w-list>
                       </w-menu>
@@ -305,7 +298,7 @@
                           :color="state.isCompact ? `positive` : `grey`"
                           size="xs" />
                       </w-item-section>
-                      <w-item-section class="pr-2">Compact List</w-item-section>
+                      <w-item-section class="pr-2">{{ t('fileman.compactList') }}</w-item-section>
                     </w-item>
                     <w-item clickable @click="state.shouldShowFolders = !state.shouldShowFolders">
                       <w-item-section side>
@@ -314,7 +307,7 @@
                           :color="state.shouldShowFolders ? `positive` : `grey`"
                           size="xs" />
                       </w-item-section>
-                      <w-item-section class="pr-2">Show Folders</w-item-section>
+                      <w-item-section class="pr-2">{{ t('fileman.showFolders') }}</w-item-section>
                     </w-item>
                   </w-list>
                 </w-card>
@@ -403,14 +396,14 @@
               <w-icon name="la:cloud-upload-alt" size="64px" />
               <span>{{ t('fileman.dropToUpload') }}</span>
             </div>
-            <w-scroll-area :thumb-style="thumbStyle" :bar-style="barStyle" style="height: 100%">
+            <w-scroll-area style="height: 100%">
               <div class="fileman-loadinglist" v-if="state.fileListLoading">
                 <w-spinner class="mr-2" color="primary" size="64px" />
-                <span class="text-primary">Fetching folder contents...</span>
+                <span class="text-primary">{{ t('fileman.fetchingFolderContents') }}</span>
               </div>
               <div class="fileman-emptylist" v-else-if="files.length < 1">
-                <img src="/_assets/icons/carbon-copy-empty-box.svg" />
-                <span>This folder is empty.</span>
+                <img src="/_assets/icons/carbon-copy-empty-box.svg" alt="" />
+                <span>{{ t('common.pageSelector.folderEmptyWarning') }}</span>
               </div>
               <w-list class="fileman-filelist" v-else :class="state.isCompact && `is-compact`">
                 <w-item
@@ -432,13 +425,7 @@
                     <div class="text-caption">{{ item.side }}</div>
                   </w-item-section>
                   <!-- RIGHT-CLICK MENU -->
-                  <w-menu
-                    class="translucent-menu"
-                    touch-position
-                    context-menu
-                    auto-close
-                    transition-show="jump-down"
-                    transition-hide="jump-up">
+                  <w-menu class="translucent-menu" context-menu auto-close>
                     <w-card class="p-2">
                       <w-list dense style="min-width: 150px">
                         <w-item
@@ -495,7 +482,7 @@
                           <w-item-section side>
                             <w-icon name="la:copy" color="teal" />
                           </w-item-section>
-                          <w-item-section>Duplicate...</w-item-section>
+                          <w-item-section>{{ t('fileman.duplicateItem') }}</w-item-section>
                         </w-item>
                         <!--
                           One entry for a page: its name and its place are picked in the same dialog
@@ -506,19 +493,19 @@
                           <w-item-section side>
                             <w-icon name="la:share" color="teal" />
                           </w-item-section>
-                          <w-item-section>Rename / Move Page...</w-item-section>
+                          <w-item-section>{{ t('fileman.renameMovePage') }}</w-item-section>
                         </w-item>
                         <template v-else>
                           <w-item clickable @click="renameItem(item)">
                             <w-item-section side>
                               <w-icon name="la:redo" color="teal" />
                             </w-item-section>
-                            <w-item-section>Rename...</w-item-section>
+                            <w-item-section>{{ t('fileman.renameItem') }}</w-item-section>
                           </w-item>
                         </template>
                         <w-item clickable @click="delItem(item)">
                           <w-item-section side>
-                            <w-icon name="la:trash-alt" color="negative" />
+                            <w-icon name="la:trash" color="negative" />
                           </w-item-section>
                           <w-item-section class="text-negative">{{
                             t(`common.actions.delete`)
@@ -563,17 +550,17 @@ import { notify } from '@/composables/notify'
 import { useMinWidth, useScreen } from '@/composables/screen'
 import { useDark } from '@/composables/dark'
 
-import { useCommonStore } from '@/stores/common'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
-import { filesize } from 'filesize'
 import Fuse from 'fuse.js/basic'
 import NewMenu from './PageNewMenu.vue'
 import Tree from './TreeNav.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { assetUrl } from '@/helpers/assets'
+import { humanizeDate } from '@/helpers/datetime'
 import fileTypes from '@/helpers/fileTypes'
+import { formatFileSize } from '@/helpers/fileSize'
 import { isHomePath, localizedPagePath } from '@/helpers/pagePaths'
 import FolderCreateDialog from '@/components/FolderCreateDialog.vue'
 import FolderDeleteDialog from '@/components/FolderDeleteDialog.vue'
@@ -587,7 +574,6 @@ const screen = useScreen()
 
 // STORES
 
-const commonStore = useCommonStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
@@ -702,19 +688,6 @@ watch(
   }
 )
 
-const thumbStyle = {
-  right: '2px',
-  borderRadius: '5px',
-  backgroundColor: '#000',
-  width: '5px',
-  opacity: 0.15
-}
-const barStyle = {
-  backgroundColor: '#FAFAFA',
-  width: '9px',
-  opacity: 1
-}
-
 // REFS
 
 const fileIpt = ref(null)
@@ -801,7 +774,7 @@ const files = computed(() => {
         }
         case 'asset': {
           f.icon = fileTypes[f.fileExt]?.icon ?? ''
-          f.side = filesize(f.fileSize, { round: 0 })
+          f.side = formatFileSize(f.fileSize)
           if (fileTypes[f.fileExt]) {
             f.caption = t(`fileman.${f.fileExt}FileType`)
           } else {
@@ -843,11 +816,11 @@ const currentFileDetails = computed(() => {
       })
       items.push({
         label: t('fileman.detailsPageUpdated'),
-        value: formatDateTime(item.updatedAt)
+        value: humanizeDate(t, item.updatedAt)
       })
       items.push({
         label: t('fileman.detailsPageCreated'),
-        value: formatDateTime(item.createdAt)
+        value: humanizeDate(t, item.createdAt)
       })
       break
     }
@@ -862,7 +835,7 @@ const currentFileDetails = computed(() => {
       })
       items.push({
         label: t('fileman.detailsAssetSize'),
-        value: filesize(item.fileSize)
+        value: formatFileSize(item.fileSize)
       })
       break
     }
@@ -909,15 +882,6 @@ function dismissTreeOverlay(ev) {
 
 function close() {
   siteStore.overlay = null
-}
-
-function formatDateTime(value) {
-  if (!value) {
-    return ''
-  }
-  return Temporal.Instant.from(value)
-    .toZonedDateTimeISO(Temporal.Now.timeZoneId())
-    .toLocaleString(commonStore.locale, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 function insertItem(item) {
@@ -1045,8 +1009,8 @@ async function loadTree({ parentId = null, parentPath = null, types, initLoad = 
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to load folder tree.',
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      message: t('fileman.folderTreeLoadFailed'),
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   if (parentId === state.currentFolderId) {
@@ -1213,8 +1177,8 @@ function duplicatePage(item) {
     } catch (err) {
       notify({
         type: 'negative',
-        message: 'Failed to duplicate page.',
-        caption: apiErrorMessage(err, 'An unexpected error occured.')
+        message: t('fileman.duplicateFailed'),
+        caption: apiErrorMessage(err, t('common.error.unexpected'))
       })
     }
   })
@@ -1263,7 +1227,7 @@ async function applyRenameOrMovePage(item, opts, isMove) {
       await pageStore.pageRename({ id: item.id, title: opts.title })
       notify({
         type: 'positive',
-        message: 'Page renamed successfully.'
+        message: t('pages.renameSuccess')
       })
     } else {
       await pageStore.pageMove({
@@ -1274,7 +1238,7 @@ async function applyRenameOrMovePage(item, opts, isMove) {
       })
       notify({
         type: 'positive',
-        message: 'Page moved successfully.'
+        message: t('pages.moveSuccess')
       })
     }
     // -> Reload current view
@@ -1282,8 +1246,8 @@ async function applyRenameOrMovePage(item, opts, isMove) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to rename or move page.',
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      message: t('fileman.renameMoveFailed'),
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
 }
@@ -1406,7 +1370,7 @@ async function uploadFiles(filesToUpload) {
           }).json()
           // -> The API client does not throw on 400, so a refused file comes back as a parsed error
           if (resp?.ok === false) {
-            throw new Error(resp.message || 'An unexpected error occured.')
+            throw new Error(resp.message || t('common.error.unexpected'))
           }
         }
         state.uploadPercentage = 100
@@ -1420,8 +1384,8 @@ async function uploadFiles(filesToUpload) {
       } catch (err) {
         notify({
           type: 'negative',
-          message: 'Failed to upload file.',
-          caption: apiErrorMessage(err, 'An unexpected error occured.')
+          message: t('fileman.uploadFailed'),
+          caption: apiErrorMessage(err, t('common.error.unexpected'))
         })
       }
       state.loading--
@@ -1589,7 +1553,7 @@ async function copyItemURL(item) {
         break
       }
       default: {
-        throw new Error('Invalid Item Type')
+        throw new Error('ERR_INVALID_ITEM_TYPE')
       }
     }
     notify({
@@ -1599,7 +1563,7 @@ async function copyItemURL(item) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to copy URL to clipboard.',
+      message: t('fileman.copyURLFailed'),
       caption: err.message
     })
   }
@@ -1629,8 +1593,8 @@ async function downloadItem(item) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to download file.',
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      message: t('fileman.downloadFailed'),
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
 }
@@ -1684,14 +1648,14 @@ function delItem(item) {
 }
 
 /**
- * Ctrl+K reaches THIS search field while the overlay is up.
+ * Cmd+K (macOS/iOS) or Ctrl+K (everywhere else) reaches THIS search field while the overlay is up.
  *
  * HeaderSearch owns the same shortcut and steps aside for an overlay (see the note there), so the two
  * never both answer it. Bound and unbound with the component, which only exists while the overlay is
  * open -- the listener's lifetime is the window in which it should win.
  */
 function handleKeyPress(ev) {
-  if (ev.ctrlKey && ev.key === 'k') {
+  if ((ev.metaKey || ev.ctrlKey) && ev.key === 'k') {
     ev.preventDefault()
     searchField.value?.focus()
   }

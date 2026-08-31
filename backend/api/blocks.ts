@@ -1,4 +1,5 @@
 import { extractBlockDefinition, extractDefinedElementTag } from '../helpers/blockDefinition.ts'
+import { CustomError } from '../helpers/common.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 /**
@@ -151,7 +152,15 @@ async function routes(app: FastifyInstance) {
         arbitrary script, wiki-wide, on the next page view of any block using it. `manage:sites` is
         also the only correct gate available here: it is a closed, group-wide permission (CLAUDE.md's
         Permissions section) and no new, narrower permission name may be invented for this route.
-        Applied identically on the PUT (enable/disable) and DELETE routes below.
+
+        NOT applied identically on the PUT (enable/disable) and DELETE routes below: those also accept
+        the narrower site-scoped `site:blocks` delegation (`mayManageBlocks()`, backed by
+        `checkSiteAccess()` — see `docs/decisions/delegated-per-site-administration.md` §3, which lists
+        `site:blocks` as covering exactly these two routes). That is a deliberate, accepted widening,
+        not an inconsistency: introducing NEW arbitrary script is the more sensitive act, so upload
+        stays gated on `manage:sites` alone one tier tighter than merely enabling, disabling or deleting
+        a block someone with `manage:sites` already put there. Full reconciliation:
+        docs/security/custom-block-upload.md (OpenProject #2128).
       */
       config: {
         permissions: ['manage:sites']
@@ -317,6 +326,10 @@ async function routes(app: FastifyInstance) {
               }
             }
           },
+          400: {
+            $ref: 'ApiError#',
+            description: 'A config value failed validation (e.g. block-plantuml\'s "server").'
+          },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
           404: { $ref: 'ApiError#' },
@@ -341,6 +354,11 @@ async function routes(app: FastifyInstance) {
           updated
         }
       } catch (err: any) {
+        // -> A validation failure (e.g. an invalid block-plantuml "server") carries its own status
+        //    code and a message worth showing the admin who typed it; anything else is an actual fault
+        if (err instanceof CustomError) {
+          throw err
+        }
         WIKI.logger.warn(err)
         return reply.internalServerError()
       }

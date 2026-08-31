@@ -63,9 +63,14 @@ export const JOB_SCHEDULE_SEED = [
     cron: '25 0 * * *',
     type: 'system'
   },
+  // -> Offset from `checkVersion` above, which also writes to `WIKI.config.update` -- both used to
+  //    land on the same minute and be claimed as one `processJob` batch, and `checkVersion`'s
+  //    (now-fixed) unconditional overwrite of the whole `update` object raced this task's synchronous
+  //    read of `update.locales` at the top of its own `task()`, discarding an operator's opt-out on
+  //    every co-scheduled run after the first.
   {
     task: 'updateLocales',
-    cron: '0 0 * * *',
+    cron: '30 0 * * *',
     type: 'system'
   },
   // -> Trims audit log entries older than the configured retention window (default
@@ -240,13 +245,15 @@ class Jobs {
     limit = 100
   }: { states?: JobState[]; limit?: number } = {}): Promise<JobHistoryPage> {
     const where = states.length > 0 ? inArray(jobHistoryTable.state, states) : undefined
-    const totals = await WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
-    const jobs = await WIKI.db
-      .select()
-      .from(jobHistoryTable)
-      .where(where)
-      .orderBy(desc(jobHistoryTable.startedAt))
-      .limit(limit)
+    const [jobs, totals] = await Promise.all([
+      WIKI.db
+        .select()
+        .from(jobHistoryTable)
+        .where(where)
+        .orderBy(desc(jobHistoryTable.startedAt))
+        .limit(limit),
+      WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
+    ])
 
     return {
       total: totals[0]?.total ?? 0,

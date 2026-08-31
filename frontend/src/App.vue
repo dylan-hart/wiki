@@ -18,6 +18,7 @@ import { applyFonts } from '@/helpers/fonts'
 import { applyInjectCss } from '@/helpers/injectCss'
 import { applyInjectBody, applyInjectHead } from '@/helpers/injectHtml'
 import { resolveRouteLocale, stripPageExtension } from '@/helpers/pagePaths'
+import { isFollowableRedirectTarget } from '@/helpers/pageRedirect'
 import { useDark } from '@/composables/dark'
 import { confirm } from '@/composables/dialog'
 import { useDirection } from '@/composables/direction'
@@ -102,6 +103,21 @@ watch(() => commonStore.locale, applyLocale)
 
 // LOCALE
 
+/**
+ * Locale codes with an `applyLocale()` call currently in flight, each mapped to the promise that
+ * call returned.
+ *
+ * `App.vue` drives locale changes through two independent triggers -- the `watch(() =>
+ * commonStore.locale, applyLocale)` below, and the direct call in the router guard after its
+ * correction block -- and both can fire for the same locale within a microtask of each other (the
+ * guard's `commonStore.setLocale()` call is exactly what the watcher above reacts to). Without this,
+ * `applyLocale` has no way to know a fetch for the same locale is already underway, and issues a
+ * second `GET locales/:code/strings` before the first has set `i18n.locale.value` (the only thing an
+ * `i18n.availableLocales.includes()` check up front could have caught). Keyed by locale, not a single
+ * in-flight flag, so a change to a *different* locale mid-fetch is never held up by this.
+ */
+const localeApplyPromises = new Map()
+
 async function applyLocale(locale) {
   /*
     -> Direction + <html lang>
@@ -123,18 +139,61 @@ async function applyLocale(locale) {
   direction.set(Boolean(localeInfo?.isRTL))
   document.documentElement.setAttribute('lang', locale)
 
-  if (!i18n.availableLocales.includes(locale)) {
-    try {
-      i18n.setLocaleMessage(locale, await commonStore.fetchLocaleStrings(locale))
-    } catch (err) {
-      notify({
-        type: 'negative',
-        message: `Failed to load ${locale} locale strings.`,
-        caption: err.message
-      })
-    }
+  // -> Already the active locale, with its strings loaded: nothing left for either trigger to do.
+  if (i18n.locale.value === locale && i18n.availableLocales.includes(locale)) {
+    return
   }
-  i18n.locale.value = locale
+
+  // -> A call for this same locale is already fetching strings -- ride that one instead of a second.
+  const inFlight = localeApplyPromises.get(locale)
+  if (inFlight) {
+    return inFlight
+  }
+
+  const applyPromise = (async () => {
+    if (!i18n.availableLocales.includes(locale)) {
+      try {
+        i18n.setLocaleMessage(locale, await commonStore.fetchLocaleStrings(locale))
+      } catch (err) {
+        notify({
+          type: 'negative',
+          message: i18n.t('common.error.localeLoadFailed', { locale }),
+          caption: err.message
+        })
+      }
+    }
+    i18n.locale.value = locale
+
+    /*
+      -> Eager-load the `en` fallback dictionary
+      `messages: {}` at i18n init (boot/i18n.js) plus the block above -- which only ever loads
+      messages for the locale being switched TO -- means `en`'s own message bag stays empty forever
+      on a site whose active locale isn't `en`. vue-i18n's `fallbackLocale: 'en'` then has nothing to
+      fall back TO, so any key missing from the active locale (true of ~32% of keys even for a
+      "complete" shipped translation, and the whole dictionary for an unrecognised code -- see
+      `fetchLocaleStrings()`'s array guard) renders as its raw dotted path instead of English.
+
+      Fired fire-and-forget, same reasoning as the dir/lang attributes above: nothing downstream of
+      this function needs to wait on it, and it's a no-op once `en` is already loaded (either from a
+      previous call here, or because `en` was itself the active locale).
+    */
+    if (locale !== 'en' && !i18n.availableLocales.includes('en')) {
+      commonStore
+        .fetchLocaleStrings('en')
+        .then((strings) => {
+          i18n.setLocaleMessage('en', strings)
+        })
+        .catch((err) => {
+          console.warn('Failed to load en fallback locale strings.', err)
+        })
+    }
+  })()
+  localeApplyPromises.set(locale, applyPromise)
+  try {
+    await applyPromise
+  } finally {
+    localeApplyPromises.delete(locale)
+  }
 }
 
 // THEME
@@ -153,8 +212,8 @@ async function applyTheme() {
   setCssVar('accent', userStore.getAccessibleColor('accent', siteStore.theme.colorAccent))
   setCssVar('header', userStore.getAccessibleColor('header', siteStore.theme.colorHeader))
   setCssVar('sidebar', userStore.getAccessibleColor('sidebar', siteStore.theme.colorSidebar))
-  setCssVar('positive', userStore.getAccessibleColor('positive', '#02C39A'))
-  setCssVar('negative', userStore.getAccessibleColor('negative', '#f03a47'))
+  setCssVar('positive', userStore.getAccessibleColor('positive', '#018569'))
+  setCssVar('negative', userStore.getAccessibleColor('negative', '#e81221'))
 
   // -> Fonts
   applyFonts(siteStore.theme.baseFont, siteStore.theme.contentFont)
@@ -425,9 +484,9 @@ router.beforeEach(async (to, from) => {
   /*
     -> Locale prefix
     A site with more than one active locale can address each in a page URL's own leading segment
-    (`/fr/some/page`), which is a content decision, not a UI one -- distinct from `desiredLocale` below,
-    which is the interface language and persists across pages regardless of which translation is being
-    read. Resolved into `pageStore.locale` so it is there before the page itself arrives: a `/_` route
+    (`/fr/some/page`), which is a content decision, not a UI one -- distinct from `commonStore.locale`
+    below, which is the interface language and persists across pages regardless of which translation is
+    being read. Resolved into `pageStore.locale` so it is there before the page itself arrives: a `/_` route
     is the app itself rather than a page, same as the extension check above, so it has no path segment
     to read one from -- `resolveRouteLocale` falls back to a `?locale=` query instead (only `/_create`
     ever sets one; see `pageStore.pageCreate`), and then to the site's primary same as an ordinary path
@@ -445,13 +504,10 @@ router.beforeEach(async (to, from) => {
   }
 
   // -> Locale
-  if (
-    !commonStore.desiredLocale ||
-    !siteStore.locales.active.some((l) => l.code === commonStore.desiredLocale)
-  ) {
+  if (!commonStore.locale || !siteStore.locales.active.some((l) => l.code === commonStore.locale)) {
     commonStore.setLocale(siteStore.locales.primary)
   }
-  applyLocale(commonStore.desiredLocale)
+  applyLocale(commonStore.locale)
 
   /*
     -> Page Permissions
@@ -492,10 +548,24 @@ window.addEventListener('beforeunload', (e) => {
 // GLOBAL EVENTS HANDLERS
 
 EVENT_BUS.on('logout', ({ redirect } = {}) => {
-  const target = redirect || '/'
-  // -> A group or the site can send logged out users to another site entirely, which the router cannot
-  //    navigate to — and leaving the wiki means there is no point notifying anyone either
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(target)) {
+  /*
+    OpenProject #1360/#2208 (2026-08-24 security audit §2): `redirect` is a group's `redirectOnLogout`
+    (validated server-side on the way in, but checked again here as defence in depth against a row
+    written before that validation existed). This used to accept ANY `scheme://` prefix
+    (`/^[a-z][a-z0-9+.-]*:\/\//i`), which `javascript://%0aalert(1)` also satisfies — the `//` reads
+    as a JS line comment once the browser decodes the newline, so `window.location.assign()` on it
+    executed the payload. `isFollowableRedirectTarget` looks at what scheme actually resolved, not
+    just "does this look like `scheme://…`".
+  */
+  const target = redirect && isFollowableRedirectTarget(redirect) ? redirect : '/'
+  /*
+    A group or the site can send logged out users to another site entirely, which the router cannot
+    navigate to — and leaving the wiki means there is no point notifying anyone either. Told apart by
+    shape now that `target` is already validated: a rooted path (the only other shape
+    `isFollowableRedirectTarget` accepts) is same-origin and the router's; anything else is a
+    complete http(s) address to a real elsewhere.
+  */
+  if (!target.startsWith('/')) {
     window.location.assign(target)
     return
   }

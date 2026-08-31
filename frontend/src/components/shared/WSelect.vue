@@ -1,5 +1,4 @@
 <template>
-  <!-- sized via `size` (inline style): a font-size CLASS is defeated by Quasar's unlayered `.q-icon { font-size: inherit }` -->
   <!--
     `max-w-full`: the field is often a flex item in a fixed-width track -- the admin rows put one
     in a `flex: 0 0 120px` section. `align-items: stretch` only ever GROWS an item to fill its
@@ -7,14 +6,14 @@
     pushed the field past the section and out of the card. The cap does the shrinking, and stretch
     still handles the growing.
   -->
-  <div class="w-select max-w-full min-w-0">
+  <div class="w-select max-w-full min-w-0" :class="attrs.class" :style="attrs.style">
     <!-- -> Only variants without an outline to rise into still label from above; see WInput -->
     <label
       v-if="label && !hasFloatingLabel"
       :for="selectId"
       class="mb-1 block text-caption text-black/60 dark:text-white/70">
       {{ label }}
-      <span v-if="required" class="text-negative pr-1" aria-hidden="true">&nbsp;*</span>
+      <span v-if="required" class="text-negative pe-1" aria-hidden="true">&nbsp;*</span>
     </label>
 
     <!--
@@ -25,6 +24,8 @@
     -->
     <component
       :is="useInput ? 'div' : 'button'"
+      v-bind="controlAttrs"
+      ref="control"
       :id="useInput ? undefined : selectId"
       :type="useInput ? undefined : 'button'"
       :role="useInput ? undefined : 'combobox'"
@@ -38,7 +39,7 @@
         !useInput && isOpen && activeIndex >= 0 ? optionId(activeIndex) : undefined
       "
       :disabled="useInput ? undefined : isDisabled"
-      class="w-unstyled w-input-control flex w-full flex-nowrap items-center gap-2 rounded text-left"
+      class="w-unstyled w-input-control flex w-full flex-nowrap items-center gap-2 rounded text-start"
       :class="controlClasses"
       :style="controlStyle"
       @click="onControlClick"
@@ -54,7 +55,7 @@
         <legend :class="isFloating ? 'w-input-outline-notch--open' : ''">
           <span
             >{{ label
-            }}<span v-if="required" class="text-negative pr-1" aria-hidden="true"
+            }}<span v-if="required" class="text-negative pe-1" aria-hidden="true"
               >&nbsp;*</span
             ></span
           >
@@ -73,7 +74,7 @@
         class="w-input-float"
         :class="[isFloating ? 'w-input-float--up' : '', floatColorClass]">
         {{ label }}
-        <span v-if="required" class="text-negative pr-1" aria-hidden="true">&nbsp;*</span>
+        <span v-if="required" class="text-negative pe-1" aria-hidden="true">&nbsp;*</span>
       </span>
 
       <slot name="prepend" />
@@ -100,6 +101,7 @@
       -->
       <input
         v-if="useInput"
+        v-bind="$attrs"
         :id="selectId"
         ref="input"
         v-model="query"
@@ -160,7 +162,7 @@
             role="option"
             :aria-selected="String(isSelected(opt.value))"
             :aria-disabled="opt.disable || undefined"
-            class="w-select-option flex w-full flex-nowrap items-center gap-2 px-4 text-left"
+            class="w-select-option flex w-full flex-nowrap items-center gap-2 px-4 text-start"
             :class="[
               optionsDense ? 'min-h-8 py-1 text-body2' : 'min-h-10 py-2',
               isSelected(opt.value) ? 'text-primary' : '',
@@ -195,7 +197,7 @@
           <div
             v-if="!filteredOptions.length"
             class="px-4 py-2 text-body2 text-black/54 dark:text-white/60">
-            {{ noOptionsLabel }}
+            {{ resolvedNoOptionsLabel }}
           </div>
         </div>
       </w-menu>
@@ -214,6 +216,8 @@
     -->
     <div
       v-if="showsBottom"
+      aria-live="polite"
+      aria-atomic="true"
       class="min-h-5 px-1 pt-1 text-caption"
       :class="errorMessage ? 'text-negative' : 'text-black/54 dark:text-white/60'">
       {{ errorMessage || hint }}
@@ -222,10 +226,11 @@
 </template>
 
 <script setup>
-import { computed, inject, nextTick, ref, useId, useSlots, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, ref, useAttrs, useId, useSlots, watch } from 'vue'
 import WChip from './WChip.vue'
 import WMenu from './WMenu.vue'
 import WSpinner from './WSpinner.vue'
+import { useDictText } from '@/composables/i18nText'
 
 /**
  * Dropdown select.
@@ -237,7 +242,17 @@ import WSpinner from './WSpinner.vue'
  * Simplification: no free-text filtering or async search. Every current usage picks from a fixed,
  * short list.
  */
+
+/*
+ * Same wrapper-root shape as WInput, and the same fix -- see the note there. The real control is
+ * the `<button>` for a plain select or the nested `<input>` for the filtering (`useInput`) variant;
+ * `$attrs` is bound onto whichever one is actually rendered, never onto the outer `<div>`/`<button>`
+ * `<component>` when it is only standing in for the popup's anchor.
+ */
+defineOptions({ inheritAttrs: false })
+
 const slots = useSlots()
+const attrs = useAttrs()
 
 const props = defineProps({
   modelValue: {
@@ -334,6 +349,15 @@ const props = defineProps({
     default: false
   },
   /**
+   * Focuses the real control once it is mounted -- the button, or the filter input for the
+   * `useInput` variant. See the matching prop on `WInput` for why this has to be a declared prop
+   * rather than a plain attribute left to fall through to the wrapper root.
+   */
+  autofocus: {
+    type: Boolean,
+    default: false
+  },
+  /**
    * Marks the field as one that has to be filled in.
    *
    * Draws a red asterisk beside the label and tells assistive technology the same thing through
@@ -356,9 +380,10 @@ const props = defineProps({
     type: String,
     default: ''
   },
+  /** Falls back to the `common.select.noOptions` dictionary entry when not given. */
   noOptionsLabel: {
     type: String,
-    default: 'No options'
+    default: null
   },
   /**
    * Type to narrow the list.
@@ -415,6 +440,11 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'create'])
 
+const dictText = useDictText()
+const resolvedNoOptionsLabel = computed(
+  () => props.noOptionsLabel ?? dictText('common.select.noOptions', 'No options')
+)
+
 const isOpen = ref(false)
 /** Pointer-over, for the ring: the ring is an inline style, so CSS `:hover` cannot reach it. */
 const isHovered = ref(false)
@@ -433,6 +463,8 @@ const errorMessage = ref(null)
 /** What has been typed into the filter, when `useInput`. */
 const query = ref('')
 const input = ref(null)
+/** The plain-variant `<button>` (or the `useInput` variant's non-focusable `<div>`); see `focus()`. */
+const control = ref(null)
 
 // -> A stale filter would otherwise still be narrowing the list the next time the popup opens
 watch(isOpen, (open) => {
@@ -444,6 +476,22 @@ watch(isOpen, (open) => {
 // COMPUTED
 
 const isDisabled = computed(() => props.disable || props.disabled)
+
+/**
+ * Everything the caller passed through as a plain HTML attribute -- `name`, `data-*`, ... --
+ * forwarded onto the real control rather than left stranded on the wrapper. For the plain variant
+ * that's this outer `<button>` itself; `class`/`style` are carved out because they're bound
+ * explicitly onto the wrapper above, see the matching note in `WInput`. For the `useInput` variant
+ * the real control is the nested `<input>` instead (it binds `$attrs` itself, below) -- forwarding
+ * here too would land every attribute on both elements, so this resolves to nothing in that case.
+ */
+const controlAttrs = computed(() => {
+  if (props.useInput) {
+    return {}
+  }
+  const { class: _class, style: _style, ...rest } = attrs
+  return rest
+})
 
 /** Options flattened to `{ value, label, raw }`, whatever shape they came in as. */
 const normalizedOptions = computed(() =>
@@ -547,14 +595,35 @@ function validate(value = props.modelValue) {
   return true
 }
 
+/**
+ * Focuses the real interactive element: the filtering variant's `<input>`, or the plain variant's
+ * `<button>` -- whichever one the combobox role actually lives on. Same shape as `WInput`'s
+ * `focus()`, and the guard against a hidden field.
+ */
+function focus() {
+  if (props.useInput) {
+    input.value?.focus()
+  } else {
+    control.value?.focus()
+  }
+}
+
 /*
   Join the enclosing WForm, if there is one, so submitting validates this control too. Optional by
   design -- plenty of selects in the codebase stand alone.
 */
 const registerWithForm = inject('wFormRegister', null)
-registerWithForm?.({ validate })
+registerWithForm?.({ validate, focus })
 
-defineExpose({ validate })
+defineExpose({ validate, focus })
+
+// -> A hidden field (e.g. one behind a `v-if` that hasn't mounted yet) leaves both refs null; the
+//    same optional chaining `focus()` uses above is the guard.
+onMounted(() => {
+  if (props.autofocus) {
+    focus()
+  }
+})
 
 /** Display text for a bound value, resolved back through the options where possible. */
 function labelFor(value) {

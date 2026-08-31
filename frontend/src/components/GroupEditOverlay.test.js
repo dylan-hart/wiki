@@ -1,15 +1,22 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { fileOpen } from 'browser-fs-access'
 
 import GroupEditOverlay from './GroupEditOverlay.vue'
 import UserSearchDialog from './UserSearchDialog.vue'
+import WConfirmDialog from './shared/WConfirmDialog.vue'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
+
+vi.mock('browser-fs-access', () => ({
+  fileOpen: vi.fn(),
+  fileSave: vi.fn()
+}))
 
 /**
  * Task #684: `GroupEditOverlay.vue`'s rule editor is extended to offer the eight `site:*` site-admin
@@ -70,7 +77,22 @@ async function mountRulesSection(groupId) {
   router.push(`/rules`)
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  // -> Task #1602: the catalog's `title:`/`hint:` now resolve through `t()` from
+  //    `admin.groups.permissions.<permission>.title`, not a hardcoded literal in the module-scope
+  //    array -- so this bundle must actually carry those keys for the rendered chip to show the
+  //    expected text instead of the raw untranslated key.
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    messages: {
+      en: Object.fromEntries(
+        Object.entries(SITE_PERMISSION_TITLES).map(([permission, title]) => [
+          `admin.groups.permissions.${permission}.title`,
+          title
+        ])
+      )
+    }
+  })
 
   const wrapper = mount(GroupEditOverlay, {
     global: {
@@ -159,6 +181,59 @@ async function mountWithGroup() {
   return wrapper
 }
 
+/**
+ * OpenProject #1925: the rules/permissions/users sections each carried a "?" help button linking to
+ * `siteStore.docsBase + '/admin/permissions#...'` or `'/admin/groups#users'` -- upstream docs pages
+ * that describe upstream's classic RBAC model, not this fork's three permission kinds (global,
+ * page-rule, and `site:*` delegation -- see `backend/helpers/siteRules.ts`) or its
+ * `manage:classification` guardrail. No accurate fork-specific target exists yet, so the buttons are
+ * removed rather than left teaching the wrong model or pointing at `siteStore.docsBase` at all.
+ */
+describe('GroupEditOverlay: fork-mismatched permission-model help links removed', () => {
+  it('renders no help link on the rules or users sections', async () => {
+    const rulesWrapper = await mountRulesSection('11111111-1111-4111-8111-111111111111')
+    expect(rulesWrapper.find('a[href*="/admin/permissions#rules"]').exists()).toBe(false)
+
+    const usersWrapper = await mountWithGroup()
+    expect(usersWrapper.find('a[href*="/admin/groups#users"]').exists()).toBe(false)
+  })
+
+  it('renders no help link on the permissions section', async () => {
+    setActivePinia(createPinia())
+    const adminStore = useAdminStore()
+    adminStore.overlayOpts = { id: 'group-perms' }
+    adminStore.sites = []
+    adminStore.locales = []
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'group-perms',
+          name: 'Test Group',
+          userCount: 0,
+          permissions: [],
+          rules: []
+        })
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:section', component: { template: '<div />' } }]
+    })
+    router.push('/permissions')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(GroupEditOverlay, {
+      global: { plugins: [router, i18n] }
+    })
+    await flushPromises()
+
+    expect(wrapper.find('a[href*="/admin/permissions#system-permissions"]').exists()).toBe(false)
+  })
+})
+
 describe('GroupEditOverlay rule editor: site: permission vocabulary', () => {
   it('renders every site: permission held by a rule with its catalog title', async () => {
     const wrapper = await mountRulesSection('11111111-1111-4111-8111-111111111111')
@@ -167,6 +242,155 @@ describe('GroupEditOverlay rule editor: site: permission vocabulary', () => {
     for (const title of Object.values(SITE_PERMISSION_TITLES)) {
       expect(text).toContain(title)
     }
+  })
+})
+
+/**
+ * OpenProject #1602: `permissions`' (the global-permission catalog) `hint:` used to be a raw English
+ * literal baked into the module-scope array. It now resolves through `t()` from
+ * `admin.groups.permissions.<permission>.hint` in the `permissions` computed. Supplying a dictionary
+ * value here that does not match the original English literal, and asserting the rendered row shows
+ * exactly that value, is what proves the hint is actually read from the i18n dictionary at render
+ * time rather than still being a literal the catalog carries -- a hardcoded literal could never
+ * produce this text.
+ */
+describe('GroupEditOverlay global permissions: hint resolves from the i18n dictionary', () => {
+  it("renders a permission row's hint from a mounted translation, not a literal", async () => {
+    setActivePinia(createPinia())
+    const adminStore = useAdminStore()
+    adminStore.overlayOpts = { id: 'group-perms' }
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'group-perms',
+          name: 'Test Group',
+          userCount: 0,
+          permissions: [],
+          rules: []
+        })
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:section', component: { template: '<div />' } }]
+    })
+    router.push('/permissions')
+    await router.isReady()
+
+    const dictionaryHint = 'DICTIONARY-SOURCED HINT TEXT, NOT A COMPONENT LITERAL'
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: {
+        en: {
+          'admin.groups.permissions.access:admin.hint': dictionaryHint
+        }
+      }
+    })
+
+    const wrapper = mount(GroupEditOverlay, {
+      global: {
+        plugins: [router, i18n]
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(dictionaryHint)
+  })
+})
+
+/**
+ * OpenProject #1942: `manage:classification` (the 16th and last entry of `PAGE_PERMISSIONS`,
+ * `backend/helpers/permissions.ts`) was enforced by the API but absent from the group editor's
+ * `rules` catalog, so it was grantable only by hand-crafting group-rule JSON against
+ * `PUT /groups/:id` -- no non-`manage:system` user could ever lower a page's classification through
+ * the UI. Mirrors the `site:` permission vocabulary test above: a rule already holding the
+ * permission in its `roles` must render a chip labelled with the catalog's title.
+ */
+describe('GroupEditOverlay rule editor: manage:classification permission', () => {
+  async function mountWithClassificationPermissionRule() {
+    setActivePinia(createPinia())
+    const adminStore = useAdminStore()
+    adminStore.overlayOpts = { id: 'group-manage-classification' }
+    adminStore.sites = []
+    adminStore.locales = []
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'group-manage-classification',
+          name: 'Test Group',
+          userCount: 0,
+          permissions: [],
+          rules: [
+            {
+              id: 'rule-1',
+              name: 'Declassify rule',
+              mode: 'ALLOW',
+              roles: ['write:pages', 'manage:classification'],
+              sites: [],
+              match: 'START',
+              path: '',
+              locales: []
+            }
+          ]
+        })
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:section', component: { template: '<div />' } }]
+    })
+    router.push('/rules')
+    await router.isReady()
+
+    // -> Task #1602's i18n conversion of the `rules` catalog means the rendered chip title now comes
+    //    from this mounted dictionary, not a component literal -- see the `site:` permission test
+    //    above for the same requirement.
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: {
+        en: {
+          'admin.groups.permissions.manage:classification.title': 'Manage Classification'
+        }
+      }
+    })
+
+    const wrapper = mount(GroupEditOverlay, {
+      global: {
+        plugins: [router, i18n]
+      }
+    })
+
+    await flushPromises()
+
+    return wrapper
+  }
+
+  it('renders a rule holding manage:classification with its catalog title', async () => {
+    const wrapper = await mountWithClassificationPermissionRule()
+
+    expect(wrapper.text()).toContain('Manage Classification')
+  })
+})
+
+/**
+ * OpenProject #2182: START/END/EXACT compare `path` directly against a page path, which is always
+ * stored lowercased -- typing an uppercase character there would save a rule that can never match
+ * (silently, for a DENY). The rule path input folds to lowercase as the administrator types, for
+ * these match kinds, rather than only rejecting the mismatch on save.
+ */
+describe('GroupEditOverlay rule editor: path case-folding (OpenProject #2182)', () => {
+  it('lowercases what is typed into the path field for a START rule', async () => {
+    const wrapper = await mountRulesSection('22222222-2222-4222-8222-222222222222')
+
+    const input = wrapper.find('[aria-label="admin.groups.rulePath"]')
+    await input.setValue('HR/Salaries')
+
+    expect(input.element.value).toBe('hr/salaries')
   })
 })
 
@@ -260,6 +484,28 @@ describe('GroupEditOverlay assignUser partial failure', () => {
 })
 
 /**
+ * OpenProject #2039: `unassignUser()` used to pass `cancel: true, persistent: true` but never
+ * `color`/`okLabel`, leaving a primary-blue OK on an irreversible unassign. Now matches the reference
+ * treatment (`AdminIcons.vue`'s `confirmDeleteSet()`).
+ */
+describe('GroupEditOverlay unassignUser confirmation', () => {
+  it('opens a negative-coloured, delete-labelled confirmation', async () => {
+    const wrapper = await mountWithGroup()
+
+    const unassignBtn = wrapper.find('[aria-label="admin.groups.unassignUser"]')
+    expect(unassignBtn.exists()).toBe(true)
+    await unassignBtn.trigger('click')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props.color).toBe('negative')
+    expect(openDialogs[0].props.cancel).toBe(true)
+    expect(openDialogs[0].props.okLabel).toBe('common.actions.delete')
+
+    closeDialog(openDialogs[0].id, false)
+  })
+})
+
+/**
  * OpenProject #1079: the rule editor's match dropdown gains a `CLASSIFICATION` option, which reads
  * `rule.classifications` (a level-id multi-select) rather than `rule.path` (the plain text input
  * every other match kind shares) -- `PagePropertiesDialog.vue`'s own picker is covered separately, at
@@ -326,5 +572,114 @@ describe('GroupEditOverlay rule editor: CLASSIFICATION match kind', () => {
 
     expect(wrapper.find('[aria-label="admin.groups.ruleClassifications"]').exists()).toBe(true)
     expect(wrapper.find('[aria-label="admin.groups.rulePath"]').exists()).toBe(false)
+  })
+})
+
+/**
+ * OpenProject #2034: `importRules()`'s mode-choice prompt was opened with `persistent: true` and no
+ * `cancel`, so `WConfirmDialog` rendered exactly one button. The `model` radio defaults to
+ * `'replace'`, whose `onOk` branch runs `state.group.rules = []` -- pressing the only available
+ * button to back out of the modal discarded every rule on the group. Fixed by adding `cancel: true`
+ * to that one `confirm()` call.
+ */
+describe('GroupEditOverlay import rules confirmation', () => {
+  async function mountRulesSectionWithOneRule() {
+    setActivePinia(createPinia())
+    const adminStore = useAdminStore()
+    adminStore.overlayOpts = { id: 'group-import' }
+    adminStore.sites = []
+    adminStore.locales = []
+    adminStore.classificationLevels = []
+
+    const userStore = useUserStore()
+    userStore.permissions = ['manage:groups']
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'group-import',
+          name: 'Test Group',
+          userCount: 0,
+          permissions: [],
+          rules: [
+            {
+              id: 'rule-1',
+              name: 'Existing Rule',
+              mode: 'ALLOW',
+              roles: ['read:pages'],
+              sites: [],
+              match: 'START',
+              path: '',
+              locales: []
+            }
+          ]
+        })
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:section', component: { template: '<div />' } }]
+    })
+    router.push('/rules')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(GroupEditOverlay, {
+      global: {
+        plugins: [router, i18n]
+      }
+    })
+
+    await flushPromises()
+
+    return wrapper
+  }
+
+  it('opens the import-mode prompt with cancel:true, and leaves rules untouched when canceled', async () => {
+    const wrapper = await mountRulesSectionWithOneRule()
+
+    fileOpen.mockResolvedValueOnce({
+      text: () =>
+        Promise.resolve(
+          JSON.stringify([
+            {
+              name: 'Imported Rule',
+              mode: 'DENY',
+              match: 'START',
+              roles: ['write:pages'],
+              path: '',
+              locales: [],
+              sites: []
+            }
+          ])
+        )
+    })
+
+    // -> `importRules` isn't a key defined in this test's i18n bundle, so the tooltip text falls back
+    //    to the raw key -- but the button carries no visible text of its own (icon-only), so it's
+    //    located by the `data-icon` WIcon.vue stamps onto the rendered SVG instead.
+    const importButton = wrapper
+      .findAll('button')
+      .find((b) => b.find('[data-icon="la:file-import"]').exists())
+    expect(importButton).toBeTruthy()
+    await importButton.trigger('click')
+    await flushPromises()
+
+    // -> importRules() opened the mode-choice prompt via WConfirmDialog, and -- the actual fix --
+    //    passed `cancel: true` so the dialog has a non-destructive exit alongside its OK button.
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].component).toBe(WConfirmDialog)
+    expect(openDialogs[0].props.cancel).toBe(true)
+    const dialogId = openDialogs[0].id
+
+    // -> Simulates the user backing out via the new Cancel button: WDialogHost calls
+    //    `closeDialog(id, false)` for any close that isn't the `ok` event, so `onOk`'s
+    //    `state.group.rules = []` branch must never run.
+    closeDialog(dialogId, false)
+    await flushPromises()
+
+    expect(wrapper.findAll('.admin-groups-rule')).toHaveLength(1)
+    expect(wrapper.find('.admin-groups-rule-name input').element.value).toBe('Existing Rule')
   })
 })

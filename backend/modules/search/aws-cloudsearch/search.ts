@@ -94,6 +94,19 @@ export function buildIndexFields(analysisScheme: string): CloudSearchFieldSpec[]
       //    name); indexing/faceting on it would be meaningless.
       options: { searchEnabled: false, facetEnabled: false, returnEnabled: true }
     },
+    {
+      name: 'siteId',
+      type: 'literal',
+      // -> OpenProject #2108: what `buildFilterQuery()` unconditionally terms every query against, so
+      //    a query never returns another site's rows even when two sites' engine config happens to
+      //    point at the same domain. Same treatment as `hasPassword`/`classification` above: a literal
+      //    field is filterable via a `term` clause regardless of `searchEnabled`/`facetEnabled`, so
+      //    neither is needed here, and the value is never surfaced to a caller — `SearchResult` has no
+      //    `siteId` of its own — so it is not returned either. `hasUnbackfilledDocuments` below also
+      //    depends on this being a real provisioned field: it queries for its *absence* to gate
+      //    `rebuild()`'s purge.
+      options: { searchEnabled: false, facetEnabled: false, returnEnabled: false }
+    },
     { name: 'path', type: 'text', options: { returnEnabled: true, analysisScheme } },
     { name: 'locale', type: 'text', options: { returnEnabled: true, analysisScheme } },
     { name: 'title', type: 'text', options: { returnEnabled: true, analysisScheme } },
@@ -362,6 +375,7 @@ export function toIndexDocument(page: SearchIndexablePage): SdfAddDocument {
     type: 'add',
     id: page.id,
     fields: {
+      siteId: page.siteId,
       path: page.path,
       locale: page.locale,
       title: page.title,
@@ -481,6 +495,7 @@ function publishStateClauses(
 }
 
 export interface CloudSearchFilterParams {
+  siteId: string
   path?: string
   locales?: string[]
   tags?: string[]
@@ -496,20 +511,27 @@ export interface CloudSearchFilterParams {
  * The `filterQuery` (`fq`) expression for a query — structured-query clauses `and`-joined, one per
  * active filter, the same shape `azure-search`'s own `buildFilter` builds as an OData `$filter`.
  *
- * Deliberately carries no `siteId` clause, unlike `azure-search`'s: that module's index can hold
- * documents from several sites sharing one Azure service, so every one of its queries scopes by
- * `siteId`. This module's `CloudSearchQueryClient` is built per site from that site's own stored
- * `domain`/`endpoint` config (`queryClientFor` below) — talking to a given site's engine already only
- * ever reaches that site's own CloudSearch domain, so a document-level `siteId` clause would filter
- * against a value nothing in this schema stores. Matches this task's own literal `fq` spec, which
- * enumerates `path`/`locale`/`tags`/`editor`/`publishState` and not `siteId`.
+ * `siteId` is unconditional and always first (OpenProject #2108), mirroring
+ * `elasticsearch/search.ts:175` (`{ term: { siteId } }`), `algolia/search.ts:101` (`siteId: "..."`) and
+ * `azure-search/search.ts:347` (`eqFilter('siteId', params.siteId)`). This used to be the one search
+ * module that left `siteId` out, on the assumption that `queryClientFor`'s per-site client — built from
+ * that site's own stored `domain`/`endpoint` config — already meant a query could only ever reach that
+ * site's own domain. That assumption doesn't hold: `site.config.search.engines[key]`'s `domain`/
+ * `endpoint` carries no uniqueness check, so two sites can be configured against the same domain, and a
+ * shared domain would otherwise let a request scoped to one site's page rules see the other site's rows,
+ * with the per-row permission check downstream binding those rows to the *requesting* site's page rules
+ * rather than the site they actually belong to. The value is not "nothing in this schema stores" either
+ * — `init()` provisions `siteId` as a plain filterable literal field (`buildIndexFields()`) and
+ * `toIndexDocument()` writes it on every document, the same as every other field this clause filters on.
+ * `docs/variances.md`'s Task #552 entry carries the same reasoning for why a shared domain is treated as
+ * realistic, not a can't-happen case.
  *
  * `tags` becomes an `or` of one `term` clause per requested tag: a document matches if any of its tags
  * is in the requested set — the array-field equivalent of `p.tags @> ...` in postgres (any-of, not
  * all-of), matching `azure-search`'s `tags/any(...)`.
  */
-export function buildFilterQuery(params: CloudSearchFilterParams): string | undefined {
-  const clauses: string[] = []
+export function buildFilterQuery(params: CloudSearchFilterParams): string {
+  const clauses: string[] = [termClause('siteId', params.siteId)]
   if (params.path) {
     clauses.push(prefixClause('path', params.path))
   }
@@ -532,9 +554,8 @@ export function buildFilterQuery(params: CloudSearchFilterParams): string | unde
   if (params.hasPassword !== undefined) {
     clauses.push(termClause('hasPassword', params.hasPassword ? 'true' : 'false'))
   }
-  if (clauses.length === 0) {
-    return undefined
-  }
+  // -> Never empty: the leading `siteId` clause is unconditional, unlike every other filter here, so
+  //    this never returns `undefined` the way `azure-search`'s optional-only `buildFilter` can.
   return clauses.length === 1 ? clauses[0] : `(and ${clauses.join(' ')})`
 }
 
@@ -559,6 +580,15 @@ const PROTECTED_SEARCH_FIELDS = ['title', 'description']
 
 /** Fields `highlight` requests a fragment from — title is excluded, matching `azure-search`'s own choice. */
 const HIGHLIGHT_FIELDS = ['content', 'description']
+
+/**
+ * Ceiling on how many of CloudSearch's own matches `query()` scans (per half, when split) before
+ * deriving `totalHits` and the requested page from what survives `checkAccess()` (OpenProject
+ * #2156, mirroring `db/search.ts`'s own `SCAN_CAP`). Bounded rather than unbounded, since page-rule
+ * filtering cannot be expressed as a CloudSearch `filterQuery` and has to run per-row in this
+ * process.
+ */
+const SCAN_CAP = 500
 
 /**
  * Markers requested via each highlighted field's `pre_tag`/`post_tag`, in place of CloudSearch's own
@@ -977,18 +1007,30 @@ export class AwsCloudSearchModule implements SearchModule {
   }
 
   /**
-   * Every document id currently in a site's domain, `matchall`-queried in pages so a large domain is
-   * never pulled through in one request. No `filterQuery`/`siteId` clause is needed -- unlike
-   * `azure-search`, this module's domain is already scoped to one site (`buildFilterQuery`'s own doc
-   * comment explains why). `rebuild()`'s purge step (OpenProject #922) diffs this against what it just
-   * re-uploaded to find what should no longer be there.
+   * Every document id belonging to a site currently in the domain, `matchall`-queried with a `siteId`
+   * term filter (OpenProject #2108) and paginated so a large domain is never pulled through in one
+   * request — mirroring `azure-search`'s own `fetchAllIds(client, siteId)`. An unscoped `matchall` was
+   * this module's earlier assumption that a domain is always single-site (refuted by OpenProject #2108:
+   * nothing stops two sites configuring the same domain), and fed `rebuild()`'s purge step every other
+   * site's ids too. `rebuild()`'s purge step (OpenProject #922) diffs this against what it just
+   * re-uploaded for this site to find what should no longer be there — scoped to `siteId` so that diff
+   * can never include a document belonging to a different site sharing the same domain
+   * (`buildFilterQuery`'s own doc comment explains why that is no longer a can't-happen case). See
+   * `hasUnbackfilledDocuments` below for why `rebuild()` only trusts this result once every document in
+   * the domain carries the field this filters on.
    */
-  private async fetchAllIds(client: CloudSearchQueryClient): Promise<string[]> {
+  private async fetchAllIds(client: CloudSearchQueryClient, siteId: string): Promise<string[]> {
     const PAGE_SIZE = 1000
     const ids: string[] = []
+    const filterQuery = termClause('siteId', siteId)
     let start = 0
     for (;;) {
-      const { rows } = await this.runQuery(client, { query: 'matchall', start, size: PAGE_SIZE })
+      const { rows } = await this.runQuery(client, {
+        query: 'matchall',
+        filterQuery,
+        start,
+        size: PAGE_SIZE
+      })
       if (rows.length === 0) {
         break
       }
@@ -999,6 +1041,31 @@ export class AwsCloudSearchModule implements SearchModule {
       }
     }
     return ids
+  }
+
+  /**
+   * True when the domain still holds at least one document with no `siteId` value at all -- i.e. a
+   * document indexed before this module started stamping documents with their site (OpenProject
+   * #2108). A `siteId`-scoped `fetchAllIds()` can only be trusted as the *complete* list of what
+   * belongs to this site once every document in the domain -- this site's and any sibling site's
+   * sharing it -- carries the field: until then, an untagged document might be this site's own
+   * now-deleted page (a real ghost, invisible to the scoped list) or a sibling site's still-live page
+   * (which an unscoped list would wrongly purge), and there is no way to tell the two apart from the
+   * domain alone. `rebuild()` gates its purge step on this being `false` rather than guess, and skips
+   * the purge entirely (loudly, not silently) until it comes back clean.
+   *
+   * `(range field=siteId {,})` is CloudSearch's idiom for "this field has any value" (an unbounded
+   * range matches every document that set it, and there is no direct `IS NULL` operator); negating it
+   * finds the ones that didn't.
+   */
+  private async hasUnbackfilledDocuments(client: CloudSearchQueryClient): Promise<boolean> {
+    const { count } = await this.runQuery(client, {
+      query: 'matchall',
+      filterQuery: '(not (range field=siteId {,}))',
+      start: 0,
+      size: 1
+    })
+    return count > 0
   }
 
   /**
@@ -1036,6 +1103,7 @@ export class AwsCloudSearchModule implements SearchModule {
     const client = this.queryClientFor(siteId, this.configFor(siteId))
     const sort = buildSort(orderBy, orderByDirection)
     const filterParams: CloudSearchFilterParams = {
+      siteId,
       path,
       locales,
       tags,
@@ -1045,34 +1113,37 @@ export class AwsCloudSearchModule implements SearchModule {
       includeDrafts
     }
 
+    /*
+      OpenProject #2156 (mirroring #2151's fix to db/search.ts): both branches now always scan a
+      bounded window from the START of the result set (SCAN_CAP, start: 0), never the caller's own
+      offset/limit -- page-rule filtering happens after the query and needs a wider window to fill a
+      page from once denied rows are dropped. `results` and `totalHits` are both then derived from
+      `visible` alone, sliced/counted AFTER filtering rather than before.
+    */
     let rows: CloudSearchHit[]
-    let totalHits: number
 
     if (hasQuery && hideProtectedContent) {
-      const split = await this.runProtectedSplitQuery(
+      rows = await this.runProtectedSplitQuery(
         client,
         terms,
         filterParams,
         sort,
         orderBy,
-        orderByDirection,
-        offset,
-        limit
+        orderByDirection
       )
-      rows = split.rows
-      totalHits = split.totalHits
     } else {
       const result = await this.runQuery(client, {
         query: buildStructuredQuery(FULL_SEARCH_FIELDS, terms),
         filterQuery: buildFilterQuery(filterParams),
         sort,
-        start: offset,
-        size: limit,
+        start: 0,
+        size: SCAN_CAP,
         return: RETURN_FIELDS,
         highlight: hasQuery ? highlightOption() : undefined
       })
+      // -> `result.count` (CloudSearch's own pre-filter `found`) is intentionally left unread:
+      //    `totalHits` below is derived purely from rows that survived `checkAccess`.
       rows = result.rows
-      totalHits = result.count
     }
 
     /*
@@ -1097,7 +1168,7 @@ export class AwsCloudSearchModule implements SearchModule {
         )
       : rows
 
-    const results: SearchResult[] = visible.map((row) => ({
+    const results: SearchResult[] = visible.slice(offset, offset + limit).map((row) => ({
       id: row.id,
       path: fieldValue(row, 'path'),
       locale: fieldValue(row, 'locale'),
@@ -1112,11 +1183,13 @@ export class AwsCloudSearchModule implements SearchModule {
 
     return {
       results,
-      // -> The count CloudSearch reported for both halves of the query, less whatever the rules just
-      //    removed -- not exact when rows are dropped, same caveat the `db`/`azure-search` engines'
-      //    own comments document, but a total that ignored the filtering entirely would promise
-      //    results that don't exist.
-      totalHits: Math.max(0, totalHits - rows.length + visible.length),
+      // -> OpenProject #2151/#2156: derived from `visible` alone -- never a count CloudSearch
+      //    reported before filtering, and therefore never able to exceed what the actor can
+      //    actually read. See `db/search.ts#query()`'s comment for the exact/floor distinction.
+      totalHits: visible.length,
+      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
+      //    above actually dropped a row from this page, same signal `db/search.ts` uses.
+      totalHitsApproximate: rows.length !== visible.length,
       // -> No "did you mean" here: CloudSearch has no built-in fuzzy-title suggestion API comparable
       //    to `db`'s `pg_trgm` similarity, and building one out of band is future scope, not this task's.
       suggestion: null
@@ -1137,9 +1210,13 @@ export class AwsCloudSearchModule implements SearchModule {
    * the `db` engine — split across two CloudSearch queries because an external index has no per-row
    * expression to fall back to.
    *
-   * Each half is fetched `offset + limit` deep (CloudSearch's own `sort` already puts the right rows in
-   * that range), then the two already-ordered lists are merged with the same comparator CloudSearch's
-   * own `sort` would apply and sliced to the requested page locally.
+   * Each half is fetched `SCAN_CAP` deep (CloudSearch's own `sort` already puts the right rows
+   * first), then the two already-ordered lists are merged with the same comparator CloudSearch's
+   * own `sort` would apply. Deliberately NOT sliced to the requested page here (OpenProject
+   * #2151/#2156): the caller (`query()`) still has to run every merged row through `checkAccess()`
+   * first, so slicing by the caller's raw `offset`/`limit` before that filtering ran was exactly
+   * the bug -- a page-rule DENY several rows into the merge used to still count toward, and could
+   * still occupy a slot in, a page the caller asked for.
    */
   private async runProtectedSplitQuery(
     client: CloudSearchQueryClient,
@@ -1147,18 +1224,15 @@ export class AwsCloudSearchModule implements SearchModule {
     filterParams: CloudSearchFilterParams,
     sort: string,
     orderBy: SearchOrderBy,
-    orderByDirection: 'asc' | 'desc',
-    offset: number,
-    limit: number
-  ): Promise<{ rows: CloudSearchHit[]; totalHits: number }> {
-    const fetchDepth = offset + limit
+    orderByDirection: 'asc' | 'desc'
+  ): Promise<CloudSearchHit[]> {
     const [publicResult, protectedResult] = await Promise.all([
       this.runQuery(client, {
         query: buildStructuredQuery(FULL_SEARCH_FIELDS, terms),
         filterQuery: buildFilterQuery({ ...filterParams, hasPassword: false }),
         sort,
         start: 0,
-        size: fetchDepth,
+        size: SCAN_CAP,
         return: RETURN_FIELDS,
         highlight: highlightOption()
       }),
@@ -1167,18 +1241,14 @@ export class AwsCloudSearchModule implements SearchModule {
         filterQuery: buildFilterQuery({ ...filterParams, hasPassword: true }),
         sort,
         start: 0,
-        size: fetchDepth,
+        size: SCAN_CAP,
         return: RETURN_FIELDS
         // -> No `highlight`: a protected page never shows an excerpt, matching `azure-search`/`db`.
       })
     ])
-    const merged = [...publicResult.rows, ...protectedResult.rows].sort((a, b) =>
+    return [...publicResult.rows, ...protectedResult.rows].sort((a, b) =>
       compareRows(a, b, orderBy, orderByDirection)
     )
-    return {
-      rows: merged.slice(offset, offset + limit),
-      totalHits: publicResult.count + protectedResult.count
-    }
   }
 
   /**
@@ -1206,14 +1276,20 @@ export class AwsCloudSearchModule implements SearchModule {
    * Purges ghost documents afterwards (OpenProject #922): `uploadBatch` only ever adds/overwrites, so a
    * page deleted while this engine was unreachable -- the exact scenario `indexPage`'s own doc comment
    * names as what a later rebuild is supposed to put right -- stayed in the domain forever. Every id
-   * currently in the domain (`fetchAllIds`) that was not just re-uploaded is stale and gets removed with
-   * an SDF `delete` entry.
+   * belonging to this site currently in the domain (`fetchAllIds`, `siteId`-scoped since OpenProject
+   * #2108) that was not just re-uploaded is stale and gets removed with an SDF `delete` entry -- but
+   * only once `hasUnbackfilledDocuments` confirms every document in the domain already carries a
+   * `siteId` value, checked *after* this loop has re-uploaded every one of this site's own current
+   * pages: checking before it would count this site's own not-yet-backfilled pages as reason to skip,
+   * forcing a second rebuild before the purge could ever run. Checked after, the very first rebuild
+   * following this field's release can purge in the same pass it finishes backfilling, while still
+   * correctly deferring for as long as any neighbour site sharing the domain has pages of its own not
+   * yet reindexed.
    */
   async rebuild(siteId: string): Promise<RebuildResult> {
     const locales = await this.pageSource.locales(siteId)
     WIKI.logger.info(`Rebuilding the AWS CloudSearch domain for ${locales.length} locale(s)...`)
     const client = this.queryClientFor(siteId, this.configFor(siteId))
-    const existingIds = await this.fetchAllIds(client)
     const uploadedIds = new Set<string>()
     const result: RebuildResult = { pages: 0, locales: [] }
 
@@ -1238,15 +1314,22 @@ export class AwsCloudSearchModule implements SearchModule {
       WIKI.logger.info(`Reindexed ${localePages} page(s) in ${locale}.`)
     }
 
-    const staleIds = existingIds.filter((id) => !uploadedIds.has(id))
-    if (staleIds.length > 0) {
-      await this.uploadBatch(
-        siteId,
-        staleIds.map((id) => ({ type: 'delete' as const, id }))
-      )
+    if (await this.hasUnbackfilledDocuments(client)) {
       WIKI.logger.info(
-        `Purged ${staleIds.length} stale document(s) from the AWS CloudSearch domain.`
+        'Skipping stale-document purge for the AWS CloudSearch domain: some indexed documents predate the siteId field and have not yet been backfilled by a rebuild.'
       )
+    } else {
+      const existingIds = await this.fetchAllIds(client, siteId)
+      const staleIds = existingIds.filter((id) => !uploadedIds.has(id))
+      if (staleIds.length > 0) {
+        await this.uploadBatch(
+          siteId,
+          staleIds.map((id) => ({ type: 'delete' as const, id }))
+        )
+        WIKI.logger.info(
+          `Purged ${staleIds.length} stale document(s) from the AWS CloudSearch domain.`
+        )
+      }
     }
 
     WIKI.logger.info(`AWS CloudSearch domain rebuild completed: ${result.pages} page(s) [ OK ]`)

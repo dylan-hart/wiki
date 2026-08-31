@@ -6,14 +6,22 @@
     pushed the field past the section and out of the card. The cap does the shrinking, and stretch
     still handles the growing.
   -->
-  <div class="w-input max-w-full min-w-0">
+  <!--
+    `inheritAttrs: false` below stops every undeclared attribute (`min`, `max`, `step`, `aria-label`,
+    ...) from decorating this wrapper, which is where they landed by default and did nothing --
+    a `<div>` has no spinner floor/ceiling to constrain. `class` and `style` are the exception:
+    both are genuinely about *this* element (sizing, margin -- callers reach for them to size the
+    whole field, not the raw control inside it), so they're bound back explicitly rather than
+    forwarded onto the inner control with everything else.
+  -->
+  <div class="w-input max-w-full min-w-0" :class="attrs.class" :style="attrs.style">
     <!-- -> Only the non-outlined variant still labels from above; see `hasFloatingLabel` -->
     <label
       v-if="label && !hasFloatingLabel"
       :for="inputId"
       class="mb-1 block text-caption text-black/60 dark:text-white/70">
       {{ label }}
-      <span v-if="required" class="text-negative pr-1" aria-hidden="true">&nbsp;*</span>
+      <span v-if="required" class="text-negative pe-1" aria-hidden="true">&nbsp;*</span>
     </label>
 
     <div
@@ -40,7 +48,7 @@
         <legend :class="isFloating ? 'w-input-outline-notch--open' : ''">
           <span
             >{{ label
-            }}<span v-if="required" class="text-negative pr-1" aria-hidden="true"
+            }}<span v-if="required" class="text-negative pe-1" aria-hidden="true"
               >&nbsp;*</span
             ></span
           >
@@ -53,7 +61,7 @@
         class="w-input-float"
         :class="[isFloating ? 'w-input-float--up' : '', floatColorClass]">
         {{ label }}
-        <span v-if="required" class="text-negative pr-1" aria-hidden="true">&nbsp;*</span>
+        <span v-if="required" class="text-negative pe-1" aria-hidden="true">&nbsp;*</span>
       </label>
 
       <slot name="prepend" />
@@ -72,6 +80,7 @@
 
       <component
         :is="type === 'textarea' ? 'textarea' : 'input'"
+        v-bind="controlAttrs"
         :id="inputId"
         ref="inputEl"
         :type="type === 'textarea' ? undefined : effectiveType"
@@ -81,10 +90,14 @@
         :disabled="disable || disabled"
         :autocomplete="autocomplete"
         :rows="type === 'textarea' ? rows : undefined"
+        :min="min"
+        :max="max"
+        :step="step"
+        :aria-label="label ? undefined : ariaLabel"
         :aria-invalid="hasError || undefined"
         :aria-required="required || undefined"
         :aria-describedby="describedBy"
-        class="w-unstyled min-w-0 flex-1 bg-transparent pt-0.5 outline-none placeholder:text-black/40 dark:placeholder:text-white/40"
+        class="w-unstyled min-w-0 flex-1 bg-transparent pt-0.5 outline-none placeholder:text-black/54 dark:placeholder:text-white/54"
         :class="monospaced ? 'font-mono text-[13px] leading-[1.4] font-semibold' : ''"
         @input="onInput"
         @focus="onFocus"
@@ -104,15 +117,15 @@
       </span>
 
       <!--
-        `mr-1` on the button rather than more padding on the control: the padding is what every
+        `me-1` on the button rather than more padding on the control: the padding is what every
         trailing control shares -- the clear cross, an `append` slot -- and this is about the eye,
         which reads cramped against the field's edge at the row's own 8px.
       -->
       <button
         v-if="revealable && type === 'password'"
         type="button"
-        class="w-unstyled mr-1 shrink-0 cursor-pointer opacity-60 hover:opacity-100"
-        :aria-label="isRevealed ? hideLabel : revealLabel"
+        class="w-unstyled me-1 shrink-0 cursor-pointer opacity-60 hover:opacity-100"
+        :aria-label="isRevealed ? resolvedHideLabel : resolvedRevealLabel"
         :aria-pressed="String(isRevealed)"
         @click="isRevealed = !isRevealed">
         <!-- -> A size of its own rather than the control's 1em: at the field's 14px the eye came out
@@ -124,7 +137,7 @@
         v-if="clearable && String(modelValue ?? '').length > 0"
         type="button"
         class="w-unstyled shrink-0 cursor-pointer opacity-60 hover:opacity-100"
-        :aria-label="clearLabel"
+        :aria-label="resolvedClearLabel"
         @click="clear">
         <w-icon name="mdi:close" />
       </button>
@@ -146,6 +159,8 @@
     <div
       v-if="showsBottom"
       :id="`${inputId}-desc`"
+      aria-live="polite"
+      aria-atomic="true"
       class="min-h-5 px-1 pt-1 text-caption"
       :class="hasError ? 'text-negative' : 'text-black/54 dark:text-white/60'">
       {{ errorMessage || hint }}
@@ -154,7 +169,8 @@
 </template>
 
 <script setup>
-import { computed, inject, ref, useId, useSlots, watch } from 'vue'
+import { computed, inject, onMounted, ref, useAttrs, useId, useSlots, watch } from 'vue'
+import { useDictText } from '@/composables/i18nText'
 
 /**
  * Text input.
@@ -162,12 +178,27 @@ import { computed, inject, ref, useId, useSlots, watch } from 'vue'
  * Validation follows the `rules` convention already in the codebase: an array of functions taking
  * the value and returning `true` when valid, or a message string when not.
  */
+
+/*
+ * The single root is the wrapper `<div>`, not the real control -- an attribute Vue would otherwise
+ * land there by default (`name`, `inputmode`, `maxlength`, an `aria-label` a caller passes) does
+ * nothing on a `<div>`. `$attrs` is bound explicitly onto the real `<input>`/`<textarea>` below
+ * instead. `autofocus` is one of the attributes this rescues, and is worth special handling beyond
+ * plain forwarding -- see the prop.
+ */
+defineOptions({ inheritAttrs: false })
+
 const props = defineProps({
   modelValue: {
     type: [String, Number],
     default: ''
   },
   label: {
+    type: String,
+    default: null
+  },
+  /** Accessible name for the control, used only when there is no `label` to associate instead. */
+  ariaLabel: {
     type: String,
     default: null
   },
@@ -240,6 +271,25 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  /**
+   * Focuses the real control once mounted.
+   *
+   * A declared prop rather than a bare HTML attribute, because the component's root is a wrapping
+   * `<div>` -- the real `<input>`/`<textarea>` sits a level down, and a plain `autofocus` attribute
+   * lands on that wrapper by default, where it does nothing (a `<div>` isn't focusable), and only
+   * reliably fires for an element present when the page itself loads besides. Declaring it here both
+   * keeps it out of `$attrs` (so it doesn't also sit inertly on the wrapper) and gives this component
+   * a moment -- `onMounted` -- to call the already-exposed `focus()` itself. Does nothing for a
+   * `type="hidden"` field, which cannot take focus either.
+   *
+   * A field that mounts after the page has already loaded -- inside a dialog, say -- needs a
+   * different trigger than `onMounted`, since the dialog's own content is not in the DOM yet at that
+   * point; see `composables/dialog.js`'s `useDialogComponent({ autofocus })` for that case.
+   */
+  autofocus: {
+    type: Boolean,
+    default: false
+  },
   autocomplete: {
     type: String,
     default: null
@@ -248,6 +298,21 @@ const props = defineProps({
   rows: {
     type: [String, Number],
     default: 3
+  },
+  /** Native `min` attribute, e.g. for `type="number"`. */
+  min: {
+    type: [String, Number],
+    default: undefined
+  },
+  /** Native `max` attribute, e.g. for `type="number"`. */
+  max: {
+    type: [String, Number],
+    default: undefined
+  },
+  /** Native `step` attribute, e.g. for `type="number"`. */
+  step: {
+    type: [String, Number],
+    default: undefined
   },
   /** Monospaced content, e.g. code or keys. */
   monospaced: {
@@ -262,25 +327,28 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Accessible name for the reveal toggle. */
+  /** Accessible name for the reveal toggle. Falls back to `common.input.showPassword`. */
   revealLabel: {
     type: String,
-    default: 'Show password'
+    default: null
   },
-  /** Accessible name for the reveal toggle once the value is visible. */
+  /**
+   * Accessible name for the reveal toggle once the value is visible. Falls back to
+   * `common.input.hidePassword`.
+   */
   hideLabel: {
     type: String,
-    default: 'Hide password'
+    default: null
   },
   /** Shows a clear button while the field has a value. */
   clearable: {
     type: Boolean,
     default: false
   },
-  /** Accessible name for the clear button. */
+  /** Accessible name for the clear button. Falls back to `common.input.clear`. */
   clearLabel: {
     type: String,
-    default: 'Clear'
+    default: null
   },
   /** Drops the reserved line beneath the control. */
   hideBottomSpace: {
@@ -308,6 +376,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'keyup:enter', 'focus', 'blur'])
 
 const slots = useSlots()
+const attrs = useAttrs()
 
 const inputEl = ref(null)
 const inputId = useId()
@@ -320,7 +389,30 @@ const isRevealed = ref(false)
 
 // COMPUTED
 
+const dictText = useDictText()
+const resolvedRevealLabel = computed(
+  () => props.revealLabel ?? dictText('common.input.showPassword', 'Show password')
+)
+const resolvedHideLabel = computed(
+  () => props.hideLabel ?? dictText('common.input.hidePassword', 'Hide password')
+)
+const resolvedClearLabel = computed(
+  () => props.clearLabel ?? dictText('common.input.clear', 'Clear')
+)
+
 const hasError = computed(() => Boolean(errorMessage.value))
+
+/**
+ * Everything the caller passed through as a plain HTML attribute -- `name`, `inputmode`,
+ * `maxlength`, `aria-label`, `data-*`, ... -- forwarded onto the real control rather than left
+ * stranded on the wrapper `<div>`. `class`/`style` are carved out because they're bound explicitly
+ * onto the wrapper above (see the template): a caller's `class="mb-2"` means spacing around the
+ * whole field, not a class on the input glyph itself.
+ */
+const controlAttrs = computed(() => {
+  const { class: _class, style: _style, ...rest } = attrs
+  return rest
+})
 
 /** A revealed password field renders as plain text; every other type is passed through unchanged. */
 const effectiveType = computed(() =>
@@ -485,6 +577,18 @@ function onInput(ev) {
   emit('update:modelValue', ev.target.value)
 }
 
+function focus() {
+  inputEl.value?.focus()
+}
+
+// -> `type="hidden"` cannot take focus at all, so the prop is a deliberate no-op there rather than
+//    a call that would silently fail on `focus()`
+onMounted(() => {
+  if (props.autofocus && props.type !== 'hidden') {
+    focus()
+  }
+})
+
 function onFocus(ev) {
   hasFocus.value = true
   emit('focus', ev)
@@ -515,14 +619,15 @@ watch(
 
 /*
   Join the enclosing WForm, if there is one, so submitting validates this field too. Optional by
-  design -- most inputs in the codebase stand alone rather than inside a form.
+  design -- most inputs in the codebase stand alone rather than inside a form. `focus` rides along so
+  a failed submit can land the user on the first invalid control -- see WForm's `validate()`.
 */
 const registerWithForm = inject('wFormRegister', null)
-registerWithForm?.({ validate })
+registerWithForm?.({ validate, focus: () => inputEl.value?.focus() })
 
 defineExpose({
   validate,
-  focus: () => inputEl.value?.focus(),
+  focus,
   /**
    * Show the value of a `revealable` password field, as if the eye had been clicked.
    *

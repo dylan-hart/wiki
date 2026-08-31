@@ -1,7 +1,7 @@
 import { actorFrom, loadReadablePage, mayOnPage } from './pages.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { AccessActor } from '../models/groups.ts'
-import type { AdminPageRef, Comment, ThreadedComment } from '../models/comments.ts'
+import type { AdminPageRef, ThreadedComment } from '../models/comments.ts'
 
 /**
  * Comments API Routes
@@ -83,7 +83,9 @@ const commentIdParam = {
  * `WIKI.models.groups.checkAccess` is a synchronous, in-memory call — `models/groups.ts` keeps every
  * group's rules cached, reloaded on write, so evaluating it repeatedly costs no database round trip at
  * all — so the only DB-bound work is one query for the site's page refs (`comments.pageRefsForSite`,
- * `pages_siteId_idx`, narrowed further by a `pathFilter` prefix match pushed into the query itself)
+ * served off `pages_siteId_locale_path_idx`/`pages_siteId_locale_hash_idx` -- both leading on
+ * `siteId`, so either can serve a bare `WHERE siteId = ?` -- narrowed further by a `pathFilter`
+ * prefix match pushed into the query itself)
  * plus the `manage:comments` evaluation against each row, all in memory. The result — a `Set` of
  * accessible page ids, typically a small fraction of a site's total comment volume — is what actually
  * reaches `comments.listForAdmin`, which does the real pagination (`LIMIT`/`OFFSET` in SQL) against
@@ -91,17 +93,22 @@ const commentIdParam = {
  * fetched, let alone permission-checked, unless it belongs to a page already known to be accessible.
  *
  * `manage:system` short-circuits entirely, matching `checkAccess` itself: every page is accessible,
- * so the per-page evaluation is skipped rather than trivially answering `true` for each one.
+ * so neither the per-page evaluation NOR the `pageRefsForSite` query behind it ever runs — the
+ * caller gets back `null` ("no restriction") rather than the full site's page-id list. That list has
+ * no `LIMIT` (`comments.pageRefsForSite`) and, materialised, would become `listForAdmin`'s
+ * `pageId IN (...)`, bound twice (page query + its `count(*)`) at up to postgres'
+ * 65,535-bind-parameter ceiling — real cost paid, and on a large enough site an outright failure,
+ * for an actor who by definition needed no filter at all.
  */
 async function accessiblePageIdsForAdmin(
   actor: AccessActor,
   siteId: string,
   pathFilter?: string
-): Promise<string[]> {
-  const pageRefs: AdminPageRef[] = await WIKI.models.comments.pageRefsForSite(siteId, pathFilter)
+): Promise<string[] | null> {
   if (actor.permissions.includes('manage:system')) {
-    return pageRefs.map((page) => page.id)
+    return null
   }
+  const pageRefs: AdminPageRef[] = await WIKI.models.comments.pageRefsForSite(siteId, pathFilter)
   return pageRefs
     .filter((page) => WIKI.models.groups.checkAccess(actor, 'manage:comments', { ...page, siteId }))
     .map((page) => page.id)
@@ -123,41 +130,6 @@ async function resolveAuthorName(comment: {
     }
   }
   return comment.guestName ?? ''
-}
-
-/**
- * Queue `comment:new` / `comment:edit` / `comment:delete` webhook deliveries (task 610).
- *
- * The convention elsewhere (`models/pages.ts`'s `page:create` et al., `models/assets.ts`'s
- * `asset:upload` et al.) is to call `WIKI.models.hooks.emit()` from inside the model's write methods.
- * FLAG FOR FOLLOW-UP: this route is presently the only writer of comments, so calling it here is
- * functionally equivalent for now; moving these three `emit()` calls into `models/comments.ts`'s
- * `create`/`update`/`delete` would match that convention exactly, but is left for a dedicated task
- * rather than folded into this merge.
- */
-async function emitCommentEvent(
-  event: 'comment:new' | 'comment:edit' | 'comment:delete',
-  comment: Comment,
-  authorName?: string
-): Promise<void> {
-  const base = {
-    id: comment.id,
-    pageId: comment.pageId,
-    siteId: comment.siteId,
-    authorId: comment.authorId,
-    isGuest: comment.authorId === null
-  }
-  await WIKI.models.hooks.emit(
-    event,
-    comment.siteId,
-    event === 'comment:delete'
-      ? base
-      : {
-          ...base,
-          metadata: { authorName, replyTo: comment.replyTo },
-          content: comment.content
-        }
-  )
 }
 
 /**
@@ -484,18 +456,13 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden('You are not allowed to moderate comments on this page.')
       }
 
-      // -> `getWithPage()` above only selects enough to decide `manage:comments` against, not the
-      //    full row `emitCommentEvent` needs (`authorId` in particular) -- fetched fresh right before
-      //    delete rather than widening that query, the same two-lookup shape the page-scoped delete
-      //    below already uses (`comments.get()` after its own page-level gate).
-      const full = await WIKI.models.comments.get(comment.id)
+      // -> `models/comments.ts#delete()` emits `comment:delete` itself, re-fetching the full row
+      //    (`authorId` in particular) before removing it -- `getWithPage()` above only selects enough
+      //    to decide `manage:comments` against, not the full row the hook payload needs. This is also
+      //    what fixed OpenProject #935: this site-wide moderation delete used to skip the emit
+      //    entirely, so a webhook subscriber mirroring comments missed every deletion done from the
+      //    admin moderation screen.
       await WIKI.models.comments.delete(comment.id)
-      // -> Previously missing: the page-scoped delete below emits comment:delete, but this
-      //    site-wide moderation delete did not -- a webhook subscriber mirroring comments missed
-      //    every deletion done from the admin moderation screen (OpenProject #935).
-      if (full) {
-        await emitCommentEvent('comment:delete', full)
-      }
       return reply.code(204).send()
     }
   )
@@ -656,8 +623,9 @@ async function routes(app: FastifyInstance) {
         guestIp: actor ? null : req.ip
       })
 
+      // -> `models/comments.ts#create()` emits `comment:new` itself. `resolveAuthorName` here is only
+      //    for this response's own `authorName` field, which needs the same resolution independently.
       const authorName = await resolveAuthorName(comment)
-      await emitCommentEvent('comment:new', comment, authorName)
 
       // -> The one case `authorEmail` IS shown: the poster being handed their own address back.
       const authorEmail = actor
@@ -685,7 +653,7 @@ async function routes(app: FastifyInstance) {
    */
   app.patch<{
     Params: { siteId: string; pageId: string; commentId: string }
-    Body: { content: string }
+    Body: { content: string; replyTo?: string | null; guestName?: string; guestEmail?: string }
   }>(
     '/sites/:siteId/pages/:pageId/comments/:commentId',
     {
@@ -699,7 +667,7 @@ async function routes(app: FastifyInstance) {
           'be edited via `manage:comments`.',
         tags: ['Comments'],
         params: pageCommentIdParam,
-        body: { $ref: 'CommentInput#' },
+        body: { $ref: 'CommentUpdateInput#' },
         response: {
           200: {
             description: 'The comment as stored, updated',
@@ -732,9 +700,22 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden('You are not allowed to edit this comment.')
       }
 
+      // -> WP 1691: PATCH edits `content` only -- `replyTo`/`guestName`/`guestEmail` are declared on
+      //    `CommentUpdateInput#` (see `api/schemas/comment.ts`) purely so they survive ajv's
+      //    `removeAdditional` instead of vanishing, and are rejected here rather than silently
+      //    ignored: a caller trying to reparent a comment or correct a guest's name via PATCH gets a
+      //    clear 400 instead of a 200 that changed nothing.
+      if (req.body.replyTo != null || req.body.guestName != null || req.body.guestEmail != null) {
+        return reply.badRequest(
+          'replyTo, guestName and guestEmail may not be changed via PATCH; only content can be edited.'
+        )
+      }
+
       const updated = await WIKI.models.comments.update(comment.id, { content: req.body.content })
+      // -> `models/comments.ts#update()` emits `comment:edit` itself. `resolveAuthorName` here is
+      //    only for this response's own `authorName` field, which needs the same resolution
+      //    independently.
       const authorName = await resolveAuthorName(updated)
-      await emitCommentEvent('comment:edit', updated, authorName)
       return {
         id: updated.id,
         siteId: updated.siteId,
@@ -800,8 +781,8 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden('You are not allowed to delete this comment.')
       }
 
+      // -> `models/comments.ts#delete()` emits `comment:delete` itself.
       await WIKI.models.comments.delete(comment.id)
-      await emitCommentEvent('comment:delete', comment)
       return reply.code(204).send()
     }
   )

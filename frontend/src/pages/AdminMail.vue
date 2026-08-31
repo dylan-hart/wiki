@@ -4,10 +4,11 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-message-settings-animated.svg" />
+          src="/_assets/icons/fluent-message-settings-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.mail.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.mail.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.mail.subtitle') }}
         </div>
@@ -426,14 +427,14 @@ async function load() {
   try {
     const resp = await API_CLIENT.get('mail/config').json()
     if (!resp) {
-      throw new Error('Failed to fetch mail config.')
+      throw new Error(t('admin.mail.loadFailed'))
     }
     state.config = toMerged(defaultConfig(), resp)
     adminStore.info.isMailConfigured = state.config?.host?.length > 2
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to fetch mail config',
+      message: t('admin.mail.loadFailed'),
       caption: err.message
     })
   }
@@ -466,9 +467,7 @@ async function save() {
       }
     }).json()
     if (!resp?.ok) {
-      throw new Error(
-        t(`admin.mail.${resp?.error}`, resp?.message || 'An unexpected error occured.')
-      )
+      throw new Error(t(`admin.mail.${resp?.error}`, resp?.message || t('common.error.unexpected')))
     }
     notify({
       type: 'positive',
@@ -502,7 +501,7 @@ async function sendTest() {
       json: { recipientEmail: state.testEmail || '' }
     }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',
@@ -511,7 +510,7 @@ async function sendTest() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   state.testLoading = false

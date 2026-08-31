@@ -36,7 +36,16 @@ Content of the first tab.
 
 ::block-tab{label="Second tab"}
 Content of the second tab.
-::`
+::`,
+    props: [
+      {
+        name: 'active',
+        type: 'number',
+        label: 'Open Panel',
+        hint: 'Which panel is open when the page loads, zero-based.',
+        default: 0
+      }
+    ]
   }
 
   static get styles() {
@@ -269,11 +278,22 @@ Content of the second tab.
     })
   }
 
+  /**
+   * Fetch the icons the tab strip is about to draw.
+   *
+   * All of them at once rather than one after another, since the shared cache collapses the repeats,
+   * and one `requestUpdate()` rather than one per tab — matching `block-index`'s `_loadIcons`.
+   */
   async _loadIcons() {
-    for (const tab of this._tabs.filter((t) => t.icon)) {
-      tab.svg = await fetchIcon(tab.icon)
-      this.requestUpdate()
-    }
+    await Promise.all(
+      this._tabs
+        .filter((t) => t.icon)
+        .map(async (tab) => {
+          tab.svg = await fetchIcon(tab.icon)
+        })
+    )
+    // -> The tabs were mutated rather than replaced, which Lit has no way of noticing on its own
+    this.requestUpdate()
   }
 
   /*

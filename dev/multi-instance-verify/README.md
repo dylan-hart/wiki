@@ -21,7 +21,7 @@ A throwaway container, per CLAUDE.md's convention (pick a port that isn't in use
 
 ```sh
 docker run --rm -d --name wiki-multi-verify-db -p 56070:5432 \
-  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:17
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:18
 ```
 
 ## 2. Two config files, one shared database

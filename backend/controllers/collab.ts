@@ -42,26 +42,33 @@ async function routes(app: FastifyInstance) {
         The codes are in the private 4000 range, where the browser hands them to the page — which is
         how the editor tells "you may not edit this" apart from "the connection dropped" and knows not
         to reconnect. See `composables/collab.js`.
+
+        `WIKI.collab.refuse()`, not `socket.close()` directly: a client that ignores the close frame
+        keeps `capture()`'s pre-auth listener attached for `ws`'s full 30s closing-handshake grace
+        period otherwise. See that method's doc comment.
       */
       if (!isValidUuid(siteId) || !isValidUuid(pageId)) {
-        return socket.close(4400, 'Invalid site or page id')
+        return WIKI.collab.refuse(socket, 4400, 'Invalid site or page id')
       }
       if (!req.session?.authenticated) {
-        return socket.close(4401, 'Authentication is required')
+        return WIKI.collab.refuse(socket, 4401, 'Authentication is required')
       }
       if (!WIKI.sites[siteId]?.config?.features?.collaborativeEditing) {
-        return socket.close(4403, 'Collaborative editing is disabled on this site')
+        return WIKI.collab.refuse(socket, 4403, 'Collaborative editing is disabled on this site')
       }
 
       const page = await WIKI.models.pages.getPage({ siteId, id: pageId })
       if (!page) {
-        return socket.close(4404, 'This page does not exist')
+        return WIKI.collab.refuse(socket, 4404, 'This page does not exist')
       }
       if (!mayOnPage(req, 'write:pages', siteId, page)) {
-        return socket.close(4403, 'You are not allowed to edit this page')
+        return WIKI.collab.refuse(socket, 4403, 'You are not allowed to edit this page')
       }
 
-      await WIKI.collab.join(socket, { id: pageId, siteId }, session)
+      await WIKI.collab.join(socket, { id: pageId, siteId }, session, {
+        userId: req.session.user!.id,
+        address: req.ip
+      })
     }
   )
 }

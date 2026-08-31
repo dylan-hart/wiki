@@ -99,9 +99,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           collaborativeEditing: {
             type: 'boolean'
           },
-          ratings: {
-            type: 'boolean'
-          },
           ratingsMode: {
             type: 'string',
             enum: ['off', 'stars', 'thumbs']

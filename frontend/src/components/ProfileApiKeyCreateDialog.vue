@@ -28,8 +28,7 @@
                 hide-bottom-space
                 :label="t(`profile.api.newKeyName`)"
                 :hint="t(`profile.api.newKeyNameHint`)"
-                lazy-rules="ondemand"
-                autofocus />
+                lazy-rules="ondemand" />
             </w-item-section>
           </w-item>
           <w-item>
@@ -79,7 +78,7 @@
                 OpenProject #1272: a verb-grouped tri-state tree, replacing the earlier flat
                 `w-select multiple use-chips` field -- see `ApiKeyScopePicker.vue`.
               -->
-              <div class="text-caption q-mb-xs">{{ t(`profile.api.newKeyPermissionScopes`) }}</div>
+              <div class="text-caption mb-1">{{ t(`profile.api.newKeyPermissionScopes`) }}</div>
               <api-key-scope-picker v-model="state.keyScope" />
               <div class="text-caption text-grey mt-1">{{ t(`profile.api.newKeyScopeHint`) }}</div>
             </w-item-section>
@@ -97,7 +96,7 @@
                 agent authenticating with my token can read my password pages too" concern the feature
                 exists for.
               -->
-              <div class="text-caption q-mb-xs">
+              <div class="text-caption mb-1">
                 {{ t(`profile.api.newKeyClassificationLevels`) }}
               </div>
               <!--
@@ -118,8 +117,7 @@
                   :key="level.id"
                   v-model="state.keyClassifications"
                   :val="level.id"
-                  :label="level.name"
-                  dense />
+                  :label="level.name" />
               </div>
               <div class="text-caption text-grey mt-1">
                 {{ t(`profile.api.newKeyClassificationLevelsHint`) }}
@@ -167,7 +165,9 @@ defineEmits([...dialogComponentEmits])
 
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => iptName.value
+})
 
 // I18N
 
@@ -271,18 +271,20 @@ async function create() {
       }
     }).json()
     if (!resp?.ok || !resp?.key) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',
       message: t('profile.api.createSuccess')
     })
     // -> The token exists only in this response, so hand it straight to the copy dialog -- same
-    //    generic dialog the admin form reuses, it only needs the token value.
+    //    generic dialog the admin form reuses, only with the `profile.api.*` vocabulary so it calls
+    //    this an "Access Token" rather than the admin flow's "API Key".
     dialog({
       component: ApiKeyCopyDialog,
       componentProps: {
-        keyValue: resp.key
+        keyValue: resp.key,
+        labelPrefix: 'profile.api'
       }
     }).onDismiss(() => {
       onDialogOK()

@@ -2,6 +2,7 @@ import { and, count, eq, inArray } from 'drizzle-orm'
 import { pages as pagesTable } from '../db/schema.ts'
 import { CustomError, isValidUuid } from '../helpers/common.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
+import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
 import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 import { siteAssetKinds } from '../models/sites.ts'
@@ -102,7 +103,7 @@ function maySaveSiteImage(req: FastifyRequest, siteId: string, kind: SiteAssetKi
  *
  * Deliberately does NOT fold in `manage:sites`, `manage:theme` or `manage:navigation` — each of those
  * covers a different subset of the eight surfaces (see `SITE_FIELD_PERMISSIONS`, `mayManageBlocks` in
- * `api/blocks.ts`, `canManageNavigation` in `api/navigation.ts`, `mayReadApprovalRules` in
+ * `api/blocks.ts`, `canManageNavigation` in `api/navigation.ts`, `mayAdministerApprovals` in
  * `api/approvals.ts`), so folding any one of them in here would tell the caller they hold a permission
  * a specific route would still refuse. The frontend already has all three of those in
  * `userStore.permissions` and combines them itself — see `frontend/src/composables/siteAdminAccess.js`.
@@ -125,6 +126,19 @@ function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
  * payload the frontend already loads per-site (`sites/:siteIdorHostname` via `siteStore.loadSite`)
  * and reused by `bootstrap` for the same payload at app load, so the PDF export control can hide or
  * disable itself with an explanatory tooltip instead of offering a button that always 503s.
+ *
+ * Every `site.config` key reaching the response is named explicitly rather than spread in, and both
+ * callers of this function (`GET /sites/:siteIdorHostname` below and `GET /_api/bootstrap`) are
+ * `publicAccess: true`. `search` is the reason: it's where active search-engine credentials live
+ * (`WIKI.sites[siteId]?.config?.search?.engines?.[key]` — `models/search.ts:402`/`:535`, Algolia's
+ * `apiKey` and AWS CloudSearch's `secretAccessKey`), seeded under the same top-level `search` key as
+ * `search.engine`/`search.config` (`models/sites.ts`'s `createSite` defaults). It used to stay out of
+ * the browser only because `api/schemas/site.ts`'s `Site` schema declared no top-level `search`
+ * property and fast-json-stringify silently drops undeclared keys — an invariant nothing stated and
+ * no test pinned, so one additive schema edit would have disclosed both keys on the app's
+ * highest-traffic unauthenticated route. Naming every key here — mirroring
+ * `authentication.ts`'s `activeStrategies` payload — makes the omission positive instead of
+ * accidental; `schemas/site.test.ts` pins it.
  */
 export async function buildSitePayload(site: {
   id: string
@@ -133,14 +147,34 @@ export async function buildSitePayload(site: {
   config: Record<string, any>
 }): Promise<Record<string, any>> {
   const { blocksConfig, blocksIndex } = await siteBlocksInfoFor(site.id)
+  const config = site.config
   return {
-    ...site.config,
     id: site.id,
     hostname: site.hostname,
     isEnabled: site.isEnabled,
     pdfExportAvailable: await WIKI.models.rendering.isAvailable(),
     blocksConfig,
-    blocksIndex
+    blocksIndex,
+    title: config.title,
+    description: config.description,
+    company: config.company,
+    contentLicense: config.contentLicense,
+    footerExtra: config.footerExtra,
+    pageExtensions: config.pageExtensions,
+    discoverable: config.discoverable,
+    defaults: config.defaults,
+    features: config.features,
+    uploads: config.uploads,
+    logoText: config.logoText,
+    sitemap: config.sitemap,
+    robots: config.robots,
+    auth: config.auth,
+    authStrategies: config.authStrategies,
+    locales: config.locales,
+    assets: config.assets,
+    editors: config.editors,
+    theme: config.theme,
+    analytics: config.analytics
   }
 }
 
@@ -635,6 +669,26 @@ async function routes(app: FastifyInstance) {
         throw new CustomError('siteUpdateInvalidTitle', 'Invalid Site Title')
       }
 
+      // -> Guard against a `javascript:` (or any other non-http(s)) `auth.*Redirect` field the same
+      //    way the group redirect fields are guarded — OpenProject #2208 §2. `welcomeRedirect` and
+      //    `logoutRedirect` are handed straight to the browser the same way `loginRedirect` is.
+      if (req.body.auth) {
+        const allowAbsolute = absoluteRedirectsAllowed()
+        for (const field of ['loginRedirect', 'welcomeRedirect', 'logoutRedirect'] as const) {
+          const value = req.body.auth[field]
+          if (
+            value !== undefined &&
+            value !== '' &&
+            !isFollowableRedirectTarget(value, { allowAbsolute })
+          ) {
+            throw new CustomError(
+              'siteUpdateInvalidRedirect',
+              `auth.${field} must be a path on this wiki${allowAbsolute ? ' or a complete https:// URL' : ''}.`
+            )
+          }
+        }
+      }
+
       const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
       if (!site) {
         return reply.notFound('Site does not exist.')
@@ -741,11 +795,6 @@ async function routes(app: FastifyInstance) {
         if (req.body[key] !== undefined) {
           config[key] = req.body[key]
         }
-      }
-
-      // -> Keep the legacy `features.ratings` flag in sync with the ratings mode
-      if (config.features?.ratingsMode !== undefined) {
-        config.features.ratings = config.features.ratingsMode !== 'off'
       }
 
       // -> Update site
@@ -960,12 +1009,9 @@ async function routes(app: FastifyInstance) {
           204: {
             description: 'Site deleted successfully'
           },
-          400: {
-            $ref: 'ApiError#',
-            description: 'Site does not exist. (Pre-existing: a 400 rather than a 404.)'
-          },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
           409: {
             $ref: 'ApiError#',
             description: 'This is the last remaining site, or it still holds content.'
@@ -980,16 +1026,22 @@ async function routes(app: FastifyInstance) {
         } else if (await WIKI.models.sites.deleteSite(req.params.siteId)) {
           reply.code(204)
         } else {
-          reply.badRequest('Site does not exist.')
+          reply.notFound('Site does not exist.')
         }
       } catch (err: any) {
-        // -> Pages, assets, navigation, tags and the page tree all reference the site without a
-        //    cascade, so a site still holding content cannot be removed. That is a conflict to
-        //    report, not a server fault.
+        // -> `deleteSite()` precounts pages/assets and refuses before touching anything, so this is
+        //    the normal way a still-content-holding site is refused -- reported as a conflict, not a
+        //    server fault.
+        if (err.name === 'siteHasContent') {
+          return reply.conflict(err.message)
+        }
+        // -> Backstop only: pages, assets, navigation and the page tree all reference the site without
+        //    a cascade, so a FK violation here means content was inserted in the race between
+        //    `deleteSite()`'s precheck and its transaction actually committing -- still a conflict to
+        //    report, not a server fault. `deleteSite()`'s own transaction has already rolled back
+        //    everything else it touched.
         if (err.cause?.code === '23503' || err.code === '23503') {
-          return reply.conflict(
-            'Cannot delete a site that still holds content. Delete its pages and assets first.'
-          )
+          return reply.conflict('Cannot delete this site: it still holds pages or assets.')
         }
         reply.send(err)
       }

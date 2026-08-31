@@ -66,6 +66,7 @@ const notifier = createNotifier(() => WIKI.scheduler.pubsubClient, 'scheduler')
 interface CompletionPromise {
   id: string
   added: Temporal.Instant
+  promise: Deferred['promise']
   resolve: Deferred['resolve']
   reject: Deferred['reject']
 }
@@ -85,6 +86,25 @@ export interface AddJobOptions {
   notify?: boolean
   /** Whether to return a promise property that resolves when the job completes. */
   promise?: boolean
+}
+
+/**
+ * The claim step of `reapStaleJobs()`, split out purely so its return type can be named
+ * (`Awaited<ReturnType<typeof claimStrandedJobs>>`) without hand-writing the row shape.
+ *
+ * `UPDATE ... RETURNING` is the claim itself: two instances sweeping at once both filter on
+ * `state = 'active'`, so whichever commits second matches nothing and returns nothing. Left to the
+ * caller: everything after the claim succeeds or fails per job, not as a single unit with this.
+ */
+function claimStrandedJobs(cutoff: Date, staleAfter: number) {
+  return WIKI.db
+    .update(jobHistoryTable)
+    .set({
+      state: 'interrupted',
+      lastErrorMessage: `No instance reported on this job within ${staleAfter}s. Whatever was running it is gone.`
+    })
+    .where(and(eq(jobHistoryTable.state, 'active'), lt(jobHistoryTable.startedAt, cutoff)))
+    .returning()
 }
 
 export default {
@@ -240,14 +260,6 @@ export default {
     try {
       const jobId = crypto.randomUUID()
       const jobDefer = createDeferred()
-      if (promise) {
-        this.completionPromises.push({
-          id: jobId,
-          added: Temporal.Now.instant(),
-          resolve: jobDefer.resolve,
-          reject: jobDefer.reject
-        })
-      }
       await WIKI.db.insert(jobsTable).values({
         id: jobId,
         task,
@@ -258,6 +270,20 @@ export default {
         waitUntil,
         createdBy: WIKI.INSTANCE_ID
       })
+      // -> Registered only once the row genuinely exists: pushed before the insert, a failed insert
+      //    would leave this deferred tracked in `completionPromises` with no caller ever having
+      //    received `jobDefer.promise` to attach a handler to, and `expireCompletionPromises()` would
+      //    reject it hours later as an unhandled rejection with nothing to connect it back to this
+      //    call (OpenProject audit 2026-08-24, finding 8).
+      if (promise) {
+        this.completionPromises.push({
+          id: jobId,
+          added: Temporal.Now.instant(),
+          promise: jobDefer.promise,
+          resolve: jobDefer.resolve,
+          reject: jobDefer.reject
+        })
+      }
       if (notify) {
         notifier.send(
           'scheduler',
@@ -297,6 +323,7 @@ export default {
       (p) => Temporal.Instant.compare(p.added, cutoff) < 0
     )
     for (const p of expired) {
+      p.promise.catch(() => {})
       p.reject(new Error(`Timed out after ${ttlSeconds}s waiting for job ${p.id} to complete.`))
     }
   },
@@ -360,11 +387,19 @@ export default {
    * That is what `reapStaleJobs` is for.
    */
   async processJob(): Promise<void> {
+    // -> Reserved up front, before the `await` below, rather than left as a plain check-then-act read
+    //    of `activeWorkers`: `processJob` has two overlapping callers (the polling interval and the
+    //    `newJob` NOTIFY handler), and the claim transaction this reservation guards is several round
+    //    trips long, so nothing serialized concurrent invocations before this and `maxWorkers` did not
+    //    actually bind concurrency. Reserving synchronously (no `await` between the read and the
+    //    increment) closes that window; the reservation is corrected back down below once the claim
+    //    reports how many rows it actually got.
     const availableWorkers = this.maxWorkers - this.activeWorkers
     if (availableWorkers < 1) {
       WIKI.logger.debug('All workers are busy. Cannot process more jobs at the moment.')
       return
     }
+    this.activeWorkers += availableWorkers
 
     let jobs: any[] = []
     try {
@@ -374,7 +409,12 @@ export default {
           .where(
             inArray(
               jobsTable.id,
-              sql`(SELECT id FROM jobs WHERE ("waitUntil" IS NULL OR "waitUntil" <= NOW()) ORDER BY id FOR UPDATE SKIP LOCKED LIMIT ${availableWorkers})`
+              // -> Ordered by due time and age, matching `models/jobs.ts#getUpcoming()`'s own
+              //    `waitUntil ASC NULLS FIRST, createdAt ASC` — `id` is a `crypto.randomUUID()`
+              //    with no correlation to either, so ordering by it left an eligible job that
+              //    happened to sort high repeatedly passed over, and discarded the urgency
+              //    `reapStaleJobs` explicitly sets (`waitUntil: new Date()` on a requeued row).
+              sql`(SELECT id FROM jobs WHERE ("waitUntil" IS NULL OR "waitUntil" <= NOW()) ORDER BY "waitUntil" ASC NULLS FIRST, "createdAt" ASC FOR UPDATE SKIP LOCKED LIMIT ${availableWorkers})`
             )
           )
           .returning()
@@ -407,29 +447,76 @@ export default {
                 state: 'active',
                 executedBy: WIKI.INSTANCE_ID,
                 startedAt: sql`now()`,
-                attempt: job.retries + 1
+                attempt: job.retries + 1,
+                // -> Cleared on every reclaim, not just left over from whatever attempt last wrote it:
+                //    `jobHistory` holds one row per job id across every attempt, so without this a job
+                //    that was interrupted, requeued, reclaimed and then succeeded ends up `completed`
+                //    while still carrying `reapStaleJobs`'s "gone" message from the attempt before it.
+                lastErrorMessage: null
               }
             })
         }
         return claimed
       })
     } catch (err: any) {
-      // -> Nothing was claimed: the transaction rolled back, so the jobs are still queued
+      // -> Nothing was claimed: the transaction rolled back, so the jobs are still queued. Correct the
+      //    up-front reservation back down to what was actually claimed (zero).
+      this.activeWorkers -= availableWorkers
       WIKI.logger.warn(err)
       return
     }
+
+    // -> Correct the up-front reservation down to what was actually claimed: `availableWorkers` slots
+    //    were reserved before this transaction ran, but the claim may have returned fewer jobs (or
+    //    none) than that ceiling allowed.
+    this.activeWorkers -= availableWorkers - jobs.length
 
     if (jobs.length < 1) {
       return
     }
 
-    this.activeWorkers += jobs.length
     try {
       // -> `allSettled`, though `runJob` handles its own failures: one job that manages to throw
       //    anyway must not abandon the bookkeeping of the others
       await Promise.allSettled(jobs.map((job) => this.runJob(job)))
     } finally {
       this.activeWorkers -= jobs.length
+    }
+  },
+  /**
+   * Run an in-process task (`tasks/simple/`) against the same `taskTimeout` ceiling
+   * `executeOnWorker` already gives a worker-thread job.
+   *
+   * Unlike a worker thread, an in-process task cannot actually be aborted — there is no separate
+   * thread to tear down, and the task's own promise keeps running (and, eventually, settling) in the
+   * background whether or not anything is still awaiting it. What this bounds is the scheduler's own
+   * bookkeeping: without a ceiling here, a task that never settles (the documented case is
+   * `withAdvisoryLock` blocking forever on an unavailable lock, before this same audit gave it its own
+   * `lock_timeout`) means `processJob`'s `Promise.allSettled` never settles for it either, so the
+   * `activeWorkers` slots it holds are never returned — 18 of this codebase's 19 task modules run this
+   * way, so one wedged task permanently costs `maxWorkers` slots (default 3), and the instance stops
+   * claiming new jobs at all. Racing the call against a timer here is what makes that finite: the job
+   * is recorded failed and retried with the usual backoff, exactly as a thrown task already is,
+   * `models/rendering.ts#drainQueue`'s `withRenderTimeout` is the in-repo precedent for this shape.
+   */
+  async executeInProcess(job: { task: string; payload?: any; id?: string }): Promise<void> {
+    const timeoutMs = (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000
+    let timer: NodeJS.Timeout | undefined
+    try {
+      await Promise.race([
+        this.tasks![job.task](job.payload, job.id),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            reject(
+              new Error(
+                `Task ${job.task} did not complete within ${timeoutMs / 1000}s and was abandoned.`
+              )
+            )
+          }, timeoutMs)
+        })
+      ])
+    } finally {
+      clearTimeout(timer)
     }
   },
   /**
@@ -445,7 +532,7 @@ export default {
       if (job.useWorker) {
         await this.executeOnWorker(job)
       } else {
-        await this.tasks![job.task](job.payload, job.id)
+        await this.executeInProcess(job)
       }
       await WIKI.db
         .update(jobHistoryTable)
@@ -465,8 +552,14 @@ export default {
         })
       )
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to complete job ${job.id}: ${job.task} [ FAILED ]`)
-      WIKI.logger.warn(err)
+      // -> Only the terminal, retries-exhausted branch logs at `error`. A job that will still be
+      //    retried logs at `warn`, matching the "Rescheduling new attempt" line below it — an
+      //    operator shipping only `error` to alerting must see a storm of failing-and-retrying jobs,
+      //    not just the final give-up.
+      const retriesExhausted = job.retries >= job.maxRetries
+      const failureLog = retriesExhausted ? WIKI.logger.error : WIKI.logger.warn
+      failureLog(`Failed to complete job ${job.id}: ${job.task} [ FAILED ]`)
+      failureLog(err)
       try {
         await WIKI.db
           .update(jobHistoryTable)
@@ -533,22 +626,22 @@ export default {
    * @returns How many jobs were requeued
    */
   async reapStaleJobs(): Promise<number> {
-    try {
-      const staleAfter = WIKI.config.scheduler.staleJobTimeout ?? DEFAULT_STALE_JOB_TIMEOUT
-      const cutoff = new Date(
-        Temporal.Now.instant().subtract({ seconds: staleAfter }).epochMilliseconds
-      )
-      const stranded = await WIKI.db
-        .update(jobHistoryTable)
-        .set({
-          state: 'interrupted',
-          lastErrorMessage: `No instance reported on this job within ${staleAfter}s. Whatever was running it is gone.`
-        })
-        .where(and(eq(jobHistoryTable.state, 'active'), lt(jobHistoryTable.startedAt, cutoff)))
-        .returning()
+    const staleAfter = WIKI.config.scheduler.staleJobTimeout ?? DEFAULT_STALE_JOB_TIMEOUT
+    const cutoff = new Date(
+      Temporal.Now.instant().subtract({ seconds: staleAfter }).epochMilliseconds
+    )
 
-      let requeued = 0
-      for (const job of stranded) {
+    let stranded: Awaited<ReturnType<typeof claimStrandedJobs>>
+    try {
+      stranded = await claimStrandedJobs(cutoff, staleAfter)
+    } catch (err: any) {
+      WIKI.logger.warn(`Failed to requeue interrupted jobs: ${err.message}`)
+      return 0
+    }
+
+    let requeued = 0
+    for (const job of stranded) {
+      try {
         // -> Its remaining attempts are what they were: being interrupted is a failed attempt, and a
         //    job that had already used them up is not owed another one
         if (job.attempt > job.maxRetries) {
@@ -567,38 +660,62 @@ export default {
           )
           continue
         }
-        await WIKI.db.insert(jobsTable).values({
-          id: job.id,
-          task: job.task,
-          useWorker: job.useWorker,
-          payload: job.payload,
-          retries: job.attempt,
-          maxRetries: job.maxRetries,
-          isScheduled: job.wasScheduled,
-          // -> Explicit, not left null: this job already passed whatever `waitUntil` it had before it
-          //    was claimed and interrupted, so it is due again right now regardless. Leaving it null
-          //    would still make `processJob`'s claim query pick it up immediately too (its `WHERE`
-          //    treats null the same as "already due") — but a *scheduled* row with a null `waitUntil`
-          //    crashes `addScheduled()`'s dedupe check the next time it runs (`j.waitUntil.getTime()`
-          //    on `null`), silently pausing cron seeding for this task until this row is claimed
-          //    (OpenProject #929). Setting a real timestamp here keeps every row `isScheduled = true`
-          //    ever produces satisfying that invariant, rather than defending against `null` at every
-          //    site that reads it.
-          waitUntil: new Date(),
-          createdBy: WIKI.INSTANCE_ID
-        })
-        requeued++
+        // -> `.onConflictDoNothing` makes this a no-op, not a duplicate-key throw, when the original
+        //    runner's own retry insert (`runJob`'s own `...job` spread, which reuses the same id)
+        //    already beat this sweep to the punch — a live race, not a hypothetical one. `.returning()`
+        //    is what lets `requeued` below count rows actually inserted rather than rows merely
+        //    attempted. Wrapped in this per-job try/catch, not left to the removed outer one: the
+        //    previous shape aborted the whole loop on the first failing insert, silently leaving every
+        //    remaining stranded job in this batch `interrupted` in history with nothing back in the
+        //    queue — permanently dropped, since a later sweep filters on `state = 'active'` and will
+        //    never see an `interrupted` row again.
+        const inserted = await WIKI.db
+          .insert(jobsTable)
+          .values({
+            id: job.id,
+            task: job.task,
+            useWorker: job.useWorker,
+            payload: job.payload,
+            retries: job.attempt,
+            maxRetries: job.maxRetries,
+            isScheduled: job.wasScheduled,
+            // -> Explicit, not left null: this job already passed whatever `waitUntil` it had before it
+            //    was claimed and interrupted, so it is due again right now regardless. Leaving it null
+            //    would still make `processJob`'s claim query pick it up immediately too (its `WHERE`
+            //    treats null the same as "already due") — but a *scheduled* row with a null `waitUntil`
+            //    crashes `addScheduled()`'s dedupe check the next time it runs (`j.waitUntil.getTime()`
+            //    on `null`), silently pausing cron seeding for this task until this row is claimed
+            //    (OpenProject #929). Setting a real timestamp here keeps every row `isScheduled = true`
+            //    ever produces satisfying that invariant, rather than defending against `null` at every
+            //    site that reads it.
+            waitUntil: new Date(),
+            createdBy: WIKI.INSTANCE_ID
+          })
+          .onConflictDoNothing({ target: jobsTable.id })
+          .returning()
+        requeued += inserted.length
+      } catch (err: any) {
+        // -> One job's requeue failing must not strand every job after it in this array: each still
+        //    has its own `jobHistory` row marked `interrupted`, and without a per-job catch here, a
+        //    single insert failure aborted the whole loop and left the rest permanently unrequeued —
+        //    a later sweep only ever looks at `state = 'active'` rows, so it never revisits them.
+        WIKI.logger.warn(`Failed to requeue job ${job.id}: ${job.task}: ${err.message}`)
       }
-      if (stranded.length > 0) {
-        WIKI.logger.warn(
-          `Found ${stranded.length} interrupted job(s), ${requeued} of them requeued [ OK ]`
-        )
-      }
-      return requeued
-    } catch (err: any) {
-      WIKI.logger.warn(`Failed to requeue interrupted jobs: ${err.message}`)
-      return 0
     }
+
+    // -> `notifier.send` above is deliberately fire-and-forget (see helpers/pubsub.ts) so this
+    //    function can call it from inside a loop with no `await` per iteration. Without draining once
+    //    before returning, an early caller could observe `reapStaleJobs()` as "done" while an
+    //    abandoned job's `jobCompleted` NOTIFY is still queued behind the connection — precisely the
+    //    drop the comment atop this function says this branch exists to avoid.
+    await notifier.drained()
+
+    if (stranded.length > 0) {
+      WIKI.logger.warn(
+        `Found ${stranded.length} interrupted job(s), ${requeued} of them requeued [ OK ]`
+      )
+    }
+    return requeued
   },
   async addScheduled(): Promise<void> {
     try {
@@ -619,10 +736,16 @@ export default {
 
         if (jobLock.rowCount > 0) {
           WIKI.logger.info('Scheduling future planned jobs...')
-          const scheduledJobs = await WIKI.db.select().from(jobScheduleTable)
+          // -> Both selects read through `trx`, the same physical connection the lock UPDATE just
+          //    took, rather than the ambient `WIKI.db` pool handle. Under READ COMMITTED this does not
+          //    change what rows are visible (a `trx.select()` after the lock UPDATE sees exactly the
+          //    same committed rows a pool read would), but it does stop every scheduled task's inserts
+          //    from checking out a *second* pool connection while this one is still held open by the
+          //    transaction.
+          const scheduledJobs = await trx.select().from(jobScheduleTable)
           if (scheduledJobs?.length > 0) {
             // -> Get existing scheduled jobs
-            const existingJobs = await WIKI.db
+            const existingJobs = await trx
               .select()
               .from(jobsTable)
               .where(eq(jobsTable.isScheduled, true))
@@ -657,15 +780,21 @@ export default {
                         j.waitUntil.getTime() === next.getTime()
                     )
                   ) {
-                    this.addJob({
+                    // -> `addJob` swallows its own errors and returns `undefined` on failure (logging
+                    //    its own warning), so awaiting it here and only counting a returned `id` is
+                    //    what keeps this loop's "N scheduled" log reporting actual outcomes rather than
+                    //    intent (OpenProject #1998) -- an insert that never lands must not be counted.
+                    const added = await this.addJob({
                       task: job.task,
                       payload: job.payload,
                       isScheduled: true,
                       waitUntil: new Date(next.getTime()),
                       notify: false
                     })
-                    addedFutureJobs++
-                    totalAdded++
+                    if (added?.id) {
+                      addedFutureJobs++
+                      totalAdded++
+                    }
                   }
                   // -> No more iterations for this period or max iterations count reached
                   if (!plannedIterations.hasNext() || addedFutureJobs >= 10) {

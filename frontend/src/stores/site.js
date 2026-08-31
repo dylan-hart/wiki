@@ -2,8 +2,6 @@ import { defineStore } from 'pinia'
 
 import { sortBy } from 'es-toolkit/array'
 
-import { useUserStore } from './user'
-
 /**
  * Turn the site's active locale CODES into the descriptors the UI reads.
  *
@@ -180,8 +178,8 @@ export const useSiteStore = defineStore('site', {
       injectHead: '',
       injectBody: '',
       colorPrimary: '#1976D2',
-      colorSecondary: '#02C39A',
-      colorAccent: '#f03a47',
+      colorSecondary: '#018569',
+      colorAccent: '#e81221',
       colorHeader: '#000',
       colorSidebar: '#1976D2',
       codeBlocksTheme: '',
@@ -197,35 +195,13 @@ export const useSiteStore = defineStore('site', {
     docsBase: 'https://docs.js.wiki',
     nav: {
       currentId: null,
-      items: []
+      items: [],
+      inFlightId: null
     }
   }),
   getters: {
     overlayIsShown: (state) => Boolean(state.overlay),
     sideNavIsDisabled: (state) => Boolean(state.theme.sidebarPosition === 'off'),
-    scrollStyle: (state) => {
-      const userStore = useUserStore()
-      let isDark = false
-      if (userStore.appearance === 'site') {
-        isDark = state.theme.dark
-      } else if (userStore.appearance === 'dark') {
-        isDark = true
-      }
-      return {
-        thumb: {
-          right: '2px',
-          borderRadius: '5px',
-          backgroundColor: isDark ? '#FFF' : '#000',
-          width: '5px',
-          opacity: isDark ? 0.25 : 0.15
-        },
-        bar: {
-          backgroundColor: isDark ? '#000' : '#FAFAFA',
-          width: '9px',
-          opacity: isDark ? 0.25 : 1
-        }
-      }
-    },
     useLocales: (state) => {
       return state.locales?.active?.length > 1
     },
@@ -252,7 +228,7 @@ export const useSiteStore = defineStore('site', {
       try {
         const siteInfo = await API_CLIENT.get(`sites/${hostname}`).json()
         if (!siteInfo) {
-          throw new Error('Invalid Site')
+          throw new Error('ERR_INVALID_SITE')
         }
         this.applySiteInfo(siteInfo)
       } catch (err) {
@@ -365,8 +341,16 @@ export const useSiteStore = defineStore('site', {
       if (!id || (!forceRefresh && id === this.nav.currentId)) {
         return
       }
+      // -> Set synchronously, before the request goes out, so a second overlapping call can mark
+      //    this one stale the instant it starts -- not only once it too has a response in hand.
+      this.nav.inFlightId = id
       try {
         const items = await API_CLIENT.get(`sites/${this.id}/navigation/${id}`).json()
+        // -> A newer call may have started (and even finished) while this one was in flight; if so,
+        //    its id is no longer the one this response is for, so discard rather than clobber it.
+        if (this.nav.inFlightId !== id) {
+          return
+        }
         this.$patch({
           nav: {
             currentId: id,
@@ -374,6 +358,9 @@ export const useSiteStore = defineStore('site', {
           }
         })
       } catch (err) {
+        if (this.nav.inFlightId !== id) {
+          return
+        }
         // -> An empty sidebar is the right outcome for a menu nobody has set up, rather than an error
         //    in front of a reader who cannot act on it
         console.warn(err.message)

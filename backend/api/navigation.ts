@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import {
+  assertValidNavItems,
   NAV_COPY_MODES,
   NAVIGATION_MODES,
   NAVIGATION_SOURCE_MODES,
@@ -41,7 +42,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get a navigation menu',
         description:
-          'The resolved items of one menu, addressed by the id a page\'s `navigationId` points at. For a `static` menu (still the default, and the only kind before this feature) that is the stored items unchanged; for `auto` it is a fresh tree walk instead, and for `mixed` it is the tree walk merged with the stored items per each item\'s `pinned` placement — so this is not always "a column read verbatim" the way it once was.\n\nReadable without a session, because the sidebar is drawn for anonymous readers too. Items limited to a group are dropped for anyone outside it, at both levels of the menu — so what comes back is what the requester may see, not the whole menu. `full` asks for the whole of it instead (still including generation, so it is the preview an editor needs for `auto`/`mixed`, not just raw stored items), and needs `manage:navigation`, or `site:navigation` on this site.',
+          "The resolved items of one menu, addressed by the id a page's `navigationId` points at. For a `static` menu (still the default, and the only kind before this feature) that is the stored items unchanged; for `auto` it is a fresh tree walk instead, and for `mixed` it is the tree walk merged with the stored items per each item's `pinned` placement — so this is not always \"a column read verbatim\" the way it once was.\n\nReadable without a session, because the sidebar is drawn for anonymous readers too. Items limited to a group are dropped for anyone outside it, at both levels of the menu — so what comes back is what the requester may see, not the whole menu. A generated (`auto`/`mixed`) entry is additionally filtered per-item through the requester's own `read:pages` grant (OpenProject #2155) — a path, tag or classification DENY hides that entry (and drops an emptied-out folder) the same way it hides the page itself, and this runs regardless of `full`. `full` asks for the whole of the visibility-GROUP layer instead (still including generation and its `read:pages` filtering, so it is the preview an editor needs for `auto`/`mixed`, not just raw stored items), and needs `manage:navigation`, or `site:navigation` on this site.",
         tags: ['Navigation'],
         params: {
           type: 'object',
@@ -79,6 +80,7 @@ async function routes(app: FastifyInstance) {
         )
       }
       return WIKI.models.navigation.getNav(req.params.siteId, req.params.navId, {
+        actor: WIKI.models.groups.actorForRequest(req),
         userGroups: req.session?.authenticated ? (req.session.groups ?? []) : [],
         unfiltered
       })
@@ -126,7 +128,7 @@ async function routes(app: FastifyInstance) {
       if (!canManageNavigation(req, req.params.siteId)) {
         return reply.forbidden()
       }
-      return { mode: await WIKI.models.navigation.getMode(req.params.navId) }
+      return { mode: await WIKI.models.navigation.getMode(req.params.siteId, req.params.navId) }
     }
   )
 
@@ -395,6 +397,7 @@ async function routes(app: FastifyInstance) {
               message: { type: 'string' }
             }
           },
+          400: { $ref: 'ApiError#' },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' }
         }
@@ -404,6 +407,7 @@ async function routes(app: FastifyInstance) {
       if (!canManageNavigation(req, req.params.siteId)) {
         return reply.forbidden()
       }
+      assertValidNavItems(req.body.items)
       await WIKI.models.navigation.setNavItems(req.params.siteId, req.params.navId, req.body.items)
       return {
         ok: true,
@@ -572,6 +576,9 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       if (!canManageNavigation(req, req.params.siteId)) {
         return reply.forbidden()
+      }
+      if (req.body.items) {
+        assertValidNavItems(req.body.items)
       }
       const result = await WIKI.models.navigation.updateNavigation({
         siteId: req.params.siteId,

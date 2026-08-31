@@ -7,7 +7,8 @@ import {
   detectSvg,
   makeImageThumbnail,
   normalizeImage,
-  resizeImageToSquareJpeg
+  resizeImageToSquareJpeg,
+  sanitizeSvg
 } from './images.ts'
 
 /** An 8-byte PNG signature, optionally padded out to a given total length. */
@@ -129,6 +130,63 @@ describe('detectSvg', () => {
       assert.equal(detectSvg(polyglot), true)
     }
   )
+})
+
+describe('sanitizeSvg', () => {
+  test('strips a script tag and its contents', () => {
+    const out = sanitizeSvg(
+      Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
+    ).toString('utf8')
+    assert.ok(!out.includes('<script'))
+    assert.ok(!out.includes('alert(1)'))
+  })
+
+  test('strips an event-handler attribute off an otherwise-allowed element', () => {
+    const out = sanitizeSvg(
+      Buffer.from('<svg><circle cx="1" cy="1" r="1" onload="alert(1)"/></svg>')
+    ).toString('utf8')
+    assert.ok(!out.includes('onload'))
+    assert.ok(!out.includes('alert'))
+  })
+
+  test('strips foreignObject and everything nested inside it', () => {
+    const out = sanitizeSvg(
+      Buffer.from('<svg><foreignObject><body onload="alert(1)">hi</body></foreignObject></svg>')
+    ).toString('utf8')
+    assert.ok(!out.includes('foreignObject'))
+    assert.ok(!out.includes('onload'))
+  })
+
+  test('strips a SMIL animation element', () => {
+    const out = sanitizeSvg(
+      Buffer.from('<svg><rect><animate attributeName="x" to="alert(1)"/></rect></svg>')
+    ).toString('utf8')
+    assert.ok(!out.includes('<animate'))
+  })
+
+  test('strips a javascript: scheme off an href', () => {
+    const out = sanitizeSvg(Buffer.from('<svg><use href="javascript:alert(1)"/></svg>')).toString(
+      'utf8'
+    )
+    assert.ok(!out.includes('javascript:'))
+  })
+
+  test('keeps structural elements and their presentation attributes, case-sensitive', () => {
+    const markup =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">' +
+      '<circle cx="5" cy="5" r="4" fill="red"/>' +
+      '</svg>'
+    const out = sanitizeSvg(Buffer.from(markup)).toString('utf8')
+    assert.ok(out.includes('viewBox="0 0 10 10"'))
+    assert.ok(out.includes('<circle'))
+    assert.ok(out.includes('fill="red"'))
+  })
+
+  test('keeps a fragment reference on use/href untouched', () => {
+    const markup = '<svg><defs><circle id="c" cx="1" cy="1" r="1"/></defs><use href="#c"/></svg>'
+    const out = sanitizeSvg(Buffer.from(markup)).toString('utf8')
+    assert.ok(out.includes('href="#c"'))
+  })
 })
 
 /**

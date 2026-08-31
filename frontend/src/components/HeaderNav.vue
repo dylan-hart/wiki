@@ -2,11 +2,11 @@
   <div class="site-header bg-header text-white">
     <div class="flex flex-nowrap">
       <w-toolbar style="height: 64px">
-        <w-btn dense flat to="/">
+        <w-btn dense flat to="/" :aria-label="t(`common.header.home`)">
           <w-avatar v-if="siteStore.logoText" size="34px" square>
-            <img :src="`/_site/current/logo`" />
+            <img :src="`/_site/current/logo`" alt="" />
           </w-avatar>
-          <img v-else :src="`/_site/current/logo`" style="height: 34px" />
+          <img v-else :src="`/_site/current/logo`" style="height: 34px" alt="" />
         </w-btn>
         <div v-if="siteStore.logoText" class="site-title text-h6 ml-2 min-w-0 flex-1 truncate">
           {{ siteStore.title }}
@@ -48,8 +48,8 @@
             flat
             icon="la:plus-circle"
             color="blue-4"
-            aria-label="Create New Page">
-            <w-tooltip>Create New Page</w-tooltip>
+            :aria-label="t('common.header.createNewPage')">
+            <w-tooltip>{{ t('common.header.createNewPage') }}</w-tooltip>
             <new-menu />
           </w-btn>
           <!--
@@ -65,9 +65,9 @@
             flat
             icon="la:folder-open"
             color="positive"
-            aria-label="File Manager"
+            :aria-label="t('fileman.title')"
             @click="openFileManager">
-            <w-tooltip>File Manager</w-tooltip>
+            <w-tooltip>{{ t('fileman.title') }}</w-tooltip>
           </w-btn>
           <w-btn
             v-if="siteStore.features.browse"
@@ -88,13 +88,21 @@
                (`HeaderSearch.vue`) as of OpenProject #1218, to match the 2.5.x reference layout --
                it is no longer one of the five icons here.
           -->
+          <!--
+            OpenProject #2024: this badge counts unread page-watch notifications
+            (`unreadNotifications` below), so it has to land on the tab that actually lists them --
+            `/_inbox/watching`, not the old `/_inbox` redirect into the now-deleted Messages stub.
+            `la:bell` matches the icon `InboxWatching`/`InboxLayout`'s sidenav already use for that
+            tab, so the glyph agrees with the destination instead of pointing at the unrelated
+            `mdi:inbox-full` glyph.
+          -->
           <w-btn
             v-if="userStore.authenticated"
             class="header-nav-btn"
             flat
-            icon="mdi:inbox-full"
+            icon="la:bell"
             color="amber"
-            to="/_inbox"
+            to="/_inbox/watching"
             :aria-label="t(`inbox.title`)">
             <!--
               Same `floating` badge shape `PageActionsCol`'s pending-assets button uses, on the one
@@ -283,15 +291,16 @@ async function loadUnreadNotifications() {
 }
 
 /*
-  Ctrl+K below 600px, where the field is not mounted and so cannot claim the shortcut itself: this
-  opens the row, and `HeaderSearch` focuses on mount. Above the breakpoint, and while the row is
-  already down, the field's own handler is the one that answers -- see `HeaderSearch.handleKeyPress`.
+  Cmd+K (macOS/iOS) or Ctrl+K (everywhere else) below 600px, where the field is not mounted and so
+  cannot claim the shortcut itself: this opens the row, and `HeaderSearch` focuses on mount. Above the
+  breakpoint, and while the row is already down, the field's own handler is the one that answers --
+  see `HeaderSearch.handleKeyPress`.
 */
 function onKeydown(ev) {
   if (!isSearchCollapsed.value || searchRowIsOpen.value || !siteStore.features.search) {
     return
   }
-  if (ev.ctrlKey && ev.key === 'k' && !siteStore.overlayIsShown) {
+  if ((ev.metaKey || ev.ctrlKey) && ev.key === 'k' && !siteStore.overlayIsShown) {
     ev.preventDefault()
     searchRowIsOpen.value = true
   }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createI18n } from 'vue-i18n'
 
 import WChip from './WChip.vue'
 
@@ -44,5 +45,36 @@ describe('WChip', () => {
     expect(wrapper.emitted('remove')).toHaveLength(1)
     // -> `@click.stop` on the remove button: it must not also bubble into the chip's own click
     expect(wrapper.emitted('click')).toBeUndefined()
+  })
+
+  describe('i18n', () => {
+    it('resolves the remove button label from the dictionary when removeLabel is not overridden', () => {
+      const i18n = createI18n({
+        legacy: false,
+        locale: 'en',
+        messages: { en: { 'common.chip.remove': 'Entfernen' } }
+      })
+      const wrapper = mount(WChip, {
+        props: { label: 'Tag', removable: true },
+        global: { plugins: [i18n] }
+      })
+
+      expect(wrapper.find('button[aria-label="Entfernen"]').exists()).toBe(true)
+    })
+
+    it('still prefers an explicit removeLabel prop over the dictionary', () => {
+      const i18n = createI18n({
+        legacy: false,
+        locale: 'en',
+        messages: { en: { 'common.chip.remove': 'Entfernen' } }
+      })
+      const wrapper = mount(WChip, {
+        props: { label: 'Tag', removable: true, removeLabel: 'Drop Tag' },
+        global: { plugins: [i18n] }
+      })
+
+      expect(wrapper.find('button[aria-label="Drop Tag"]').exists()).toBe(true)
+      expect(wrapper.find('button[aria-label="Entfernen"]').exists()).toBe(false)
+    })
   })
 })

@@ -6,7 +6,7 @@
         <!-- SIDE TOOLBAR -->
         <!-- ------------------------------------------------------- -->
         <w-btn icon="mdi:link-variant-plus" padding="sm sm" flat @click="insertLink">
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertLink')
           }}</w-tooltip>
         </w-btn>
@@ -14,7 +14,7 @@
                 URL, which was never implemented, and the clipboard — see `getAssetFromClipboard`, which
                 now has no caller. -->
         <w-btn icon="mdi:image-plus-outline" padding="sm sm" flat @click="insertAssets">
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertAssets')
           }}</w-tooltip>
         </w-btn>
@@ -23,27 +23,27 @@
             :anchor="sideToolbarMenuAnchor"
             :self="sideToolbarMenuSelf"
             @select="insertCodeBlock" />
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertCodeBlock')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:table-large-plus" padding="sm sm" flat @click="insertTable">
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertTable')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:tab-plus" padding="sm sm" flat @click="insertTabset">
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertTabset')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:toy-brick-plus" padding="sm sm" flat @click="insertBlock">
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertBlock')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:book-plus" padding="sm sm" flat @click="insertFootnote">
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertFootnote')
           }}</w-tooltip>
         </w-btn>
@@ -52,7 +52,7 @@
             :anchor="sideToolbarMenuAnchor"
             :self="sideToolbarMenuSelf"
             @select="insertEmoji" />
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertEmoji')
           }}</w-tooltip>
         </w-btn>
@@ -65,12 +65,12 @@
             content-class="shadow-7">
             <icon-picker-dialog no-image @update:model-value="insertIcon" />
           </w-menu>
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertIcon')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:line-scan" padding="sm sm" flat @click="insertHorizontalBar">
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertHorizontalBar')
           }}</w-tooltip>
         </w-btn>
@@ -83,7 +83,7 @@
         <!-- ------------------------------------------------------- -->
         <div class="editor-markdown-toolbar">
           <w-btn icon="mdi:format-bold" padding="xs sm" flat @click="toggleMarkup({ start: `**` })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.bold')
             }}</w-tooltip>
           </w-btn>
@@ -92,7 +92,7 @@
             padding="xs sm"
             flat
             @click="toggleMarkup({ start: `*` })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.italic')
             }}</w-tooltip>
           </w-btn>
@@ -101,12 +101,12 @@
             padding="xs sm"
             flat
             @click="toggleMarkup({ start: `~~` })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.strikethrough')
             }}</w-tooltip>
           </w-btn>
           <w-btn icon="mdi:format-header-pound" padding="xs sm" flat>
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.header')
             }}</w-tooltip>
             <w-menu auto-close>
@@ -127,7 +127,7 @@
             padding="xs sm"
             flat
             @click="toggleMarkup({ start: `~` })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.subscript')
             }}</w-tooltip>
           </w-btn>
@@ -136,12 +136,12 @@
             padding="xs sm"
             flat
             @click="toggleMarkup({ start: `^` })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.superscript')
             }}</w-tooltip>
           </w-btn>
           <w-btn icon="mdi:format-quote-close" padding="xs sm" flat>
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.blockquoteAdmonitions')
             }}</w-tooltip>
             <w-menu auto-close>
@@ -208,7 +208,7 @@
             padding="xs sm"
             flat
             @click="insertBeforeEachLine({ content: `- ` })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.unorderedList')
             }}</w-tooltip>
           </w-btn>
@@ -217,12 +217,12 @@
             padding="xs sm"
             flat
             @click="insertBeforeEachLine({ content: `1. ` })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.orderedList')
             }}</w-tooltip>
           </w-btn>
           <w-btn icon="mdi:format-list-checks" padding="xs sm" flat>
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.taskList')
             }}</w-tooltip>
             <w-menu auto-close>
@@ -239,7 +239,7 @@
             </w-menu>
           </w-btn>
           <w-btn icon="mdi:code-tags" padding="xs sm" flat @click="toggleMarkup({ start: '`' })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.inlineCode')
             }}</w-tooltip>
           </w-btn>
@@ -248,7 +248,7 @@
             padding="xs sm"
             flat
             @click="toggleMarkup({ start: `<kbd>`, end: `</kbd>` })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.keyboardKey')
             }}</w-tooltip>
           </w-btn>
@@ -260,7 +260,7 @@
               padding="xs sm"
               flat
               @click="state.previewShown = true">
-              <w-tooltip anchor="top middle" self="bottom middle">{{
+              <w-tooltip labels anchor="top middle" self="bottom middle">{{
                 t('editor.togglePreviewPane')
               }}</w-tooltip>
             </w-btn>
@@ -305,7 +305,7 @@
               flat
               @click="state.previewScrollSync = !state.previewScrollSync"
               :color="state.previewScrollSync ? `primary` : null">
-              <w-tooltip anchor="top middle" self="bottom middle">{{
+              <w-tooltip labels anchor="top middle" self="bottom middle">{{
                 t('editor.toggleScrollSync')
               }}</w-tooltip>
             </w-btn>
@@ -314,7 +314,7 @@
               padding="xs sm"
               flat
               @click="state.previewShown = false">
-              <w-tooltip anchor="top middle" self="bottom middle">{{
+              <w-tooltip labels anchor="top middle" self="bottom middle">{{
                 t('editor.togglePreviewPane')
               }}</w-tooltip>
             </w-btn>
@@ -618,7 +618,17 @@ const state = reactive({
     pixel width this session or a past one committed by dragging the divider, and it is left alone by
     hiding the pane -- only overwritten by another drag, or restored from a saved value on mount.
   */
-  previewWidth: null
+  previewWidth: null,
+  /*
+    Set by `flushEditorContent` whenever it skips `processContent` because the preview pane is
+    closed (OpenProject #1889) -- the debounced content sync still has to happen every 500ms so a
+    save is never reading stale `pageStore.content`, but re-running the markdown-it/KaTeX/
+    highlight.js pipeline for a preview nobody can see is pure waste. `flushStaleRenderIfNeeded`
+    clears it the moment the render is actually needed: reopening the pane (the `previewShown`
+    watcher below) or saving (`flushEditorContentForSave`, what's registered as
+    `editorStore.contentFlusher`).
+  */
+  renderIsStale: false
 })
 
 /**
@@ -1522,8 +1532,14 @@ function processContent(newContent) {
     render: html
   })
   nextTick(async () => {
-    // -> With the preview pane closed there is no DOM to attend to. The render is stored either way, so
-    //    the store still holds what a save would send
+    /*
+      With the preview pane closed there is often no DOM to attend to -- and, since `flushEditorContent`
+      (OpenProject #1889) now skips calling this at all while `state.previewShown` is false, most
+      closed-pane edits never even reach this line any more. What still can: the post-init and
+      conflict-resolution callers below run unconditionally, and the `previewShown` watcher's
+      catch-up render can land before Vue has mounted the pane's `v-if` in the same tick. Either way
+      the render is stored, so the store still holds what a save would send.
+    */
     if (!container) {
       return
     }
@@ -1577,7 +1593,7 @@ function processContent(newContent) {
       commonStore.loadBlocks([...pendingBlocks.values()]).then(syncPreviewTabs)
     }
     // -> The render was just replaced, so the copy buttons went with it
-    enhanceRenderedContent(container)
+    enhanceRenderedContent(container, t)
   })
 }
 
@@ -1679,18 +1695,60 @@ function reloadEditorContent({ replacements = [] } = {}) {
 /**
  * Copy the editor's current text into the store right now, rather than on the usual 500ms debounce.
  *
- * Shared by the change handler below, on every debounced edit, and by `editorStore.contentFlusher`,
- * which `pageSave()` calls synchronously before it reads `content` -- see the call site there for why
- * a save can otherwise land inside that debounce window. Deliberately leaves `contentLoaded` and
+ * Called by the change handler below on every debounced edit. Deliberately leaves `contentLoaded` and
  * `lastChangeTimestamp` alone: those describe an actual edit having happened, which is true every time
  * the change handler below calls this, but is not true of a save that runs this on a page nobody has
  * touched since it loaded -- `pageSave()`'s own guard is what a wrongly-forced `contentLoaded` would
  * defeat.
+ *
+ * The render is skipped, not just deferred, while the preview pane is closed (OpenProject #1889):
+ * `processContent` runs the full markdown-it/KaTeX/highlight.js pipeline over the whole document, and
+ * with no preview DOM to patch the result was being computed and immediately discarded, twice a
+ * second, for as long as an author kept typing with the pane shut. `renderIsStale` records that the
+ * store's `content` has moved on since the last render, so whichever of `flushStaleRenderIfNeeded`'s
+ * two callers needs a current render next -- reopening the pane, or a save -- can catch it up.
  */
 function flushEditorContent() {
   const value = editor.getValue()
   pageStore.content = value
+  if (!state.previewShown) {
+    state.renderIsStale = true
+    return
+  }
   processContent(value)
+}
+
+/**
+ * Runs `processContent` against whatever `flushEditorContent` left un-rendered, if anything.
+ *
+ * Called from the two moments a current render actually matters while the preview pane is closed: the
+ * `previewShown` watcher below (an author reopening the pane wants to see it, not the last thing that
+ * rendered before they closed it) and `flushEditorContentForSave` (a save reads `pageStore.render`,
+ * which `pageStore.content` alone does not keep current -- see that function's own comment). A no-op
+ * when nothing is stale, so calling it after every ordinary render is harmless.
+ */
+function flushStaleRenderIfNeeded() {
+  if (!state.renderIsStale) {
+    return
+  }
+  processContent(pageStore.content)
+  state.renderIsStale = false
+}
+
+/**
+ * What's registered as `editorStore.contentFlusher`, which `pageSave()` calls synchronously before it
+ * reads `content` -- see the call site there for why a save can otherwise land inside the 500ms
+ * debounce window `flushEditorContent` above exists to close.
+ *
+ * A save needs more than that, though: with the preview pane closed, `flushEditorContent` alone would
+ * leave `pageStore.render` stale, and `pageSave()`'s body is built from `render`, not `content` --
+ * an unrendered edit would otherwise ship the previous save's HTML under this one's markdown. Flushing
+ * first and then catching up the render (if `flushEditorContent` just marked it stale) is what keeps
+ * both in step at the one moment that matters even with nobody watching the preview.
+ */
+function flushEditorContentForSave() {
+  flushEditorContent()
+  flushStaleRenderIfNeeded()
 }
 
 /**
@@ -1709,6 +1767,10 @@ function flushEditorContent() {
  * sets `editorStore.saveConflict` again, which re-triggers the `watch` below and puts this same
  * dialog back up with the newer snapshot -- the editor's content itself is never touched by a
  * refusal, only ever replaced by an explicit "Discard" choice.
+ *
+ * A "Discard" choice is itself still recoverable (OpenProject #2073): the author's pending content is
+ * stashed in `editorStore.discardedContent` right before it is overwritten, and the toast that
+ * follows offers it straight back via `undoDiscard()` below.
  */
 function resolveSaveConflict(snapshot) {
   dialog({
@@ -1717,6 +1779,7 @@ function resolveSaveConflict(snapshot) {
   })
     .onOk(async (action) => {
       if (action === 'discard') {
+        editorStore.stashDiscardedContent(pageStore.content)
         pageStore.$patch({
           title: snapshot.title,
           content: snapshot.content,
@@ -1725,9 +1788,22 @@ function resolveSaveConflict(snapshot) {
         })
         editor.setValue(snapshot.content)
         processContent(pageStore.content)
+        // -> This render is current as of the line above, whatever was pending before it
+        state.renderIsStale = false
         // -> Adopting the server's copy leaves nothing of this author's pending; see `hasPendingChanges`
         const now = Temporal.Now.instant()
         editorStore.$patch({ lastChangeTimestamp: now, lastSaveTimestamp: now })
+        notify({
+          type: 'warning',
+          message: t('editor.collab.saveConflict.discarded'),
+          // -> Longer than the 5s default: this toast is the only remaining route back to the
+          //    author's discarded text, so it should still be there a moment after a quick glance.
+          timeout: 10000,
+          action: {
+            label: t('editor.collab.saveConflict.undoDiscard'),
+            onClick: undoDiscard
+          }
+        })
       } else if (action === 'overwrite') {
         pageStore.updatedAt = snapshot.updatedAt
         try {
@@ -1750,11 +1826,42 @@ function resolveSaveConflict(snapshot) {
     })
 }
 
+/**
+ * Restores the author's own content after a save-conflict "Discard" replaced it with the server's
+ * snapshot -- the undo action offered on the toast `resolveSaveConflict` raises right after
+ * (OpenProject #2073). Puts the stashed copy back into `pageStore.content` and the live Monaco model
+ * the same way discard itself does (`editor.setValue`), then clears the stash so a stray second
+ * click -- the toast is already gone by then, but nothing stops calling this directly -- has nothing
+ * left to restore.
+ */
+function undoDiscard() {
+  const content = editorStore.discardedContent
+  if (content === null) {
+    return
+  }
+  pageStore.$patch({ content, contentLoaded: true })
+  editor.setValue(content)
+  processContent(content)
+  editorStore.clearDiscardedContent()
+}
+
 watch(
   () => editorStore.saveConflict,
   (snapshot) => {
     if (snapshot) {
       resolveSaveConflict(snapshot)
+    }
+  }
+)
+
+// -> Catches up a render that `flushEditorContent` skipped while the pane was closed (OpenProject
+//    #1889), so an author who reopens it sees what they just typed rather than what was on screen
+//    when they closed it
+watch(
+  () => state.previewShown,
+  (shown) => {
+    if (shown) {
+      flushStaleRenderIfNeeded()
     }
   }
 )
@@ -2132,8 +2239,8 @@ onMounted(async () => {
   EVENT_BUS.on('insertBlock', insertBlockClb)
   EVENT_BUS.on('reloadEditorContent', reloadEditorContent)
 
-  // -> See `flushEditorContent` and `pageSave()` in `stores/page.js` for why this exists
-  editorStore.contentFlusher = flushEditorContent
+  // -> See `flushEditorContentForSave` and `pageSave()` in `stores/page.js` for why this exists
+  editorStore.contentFlusher = flushEditorContentForSave
 })
 
 onBeforeUnmount(() => {
@@ -2146,7 +2253,7 @@ onBeforeUnmount(() => {
   monacoRef.value?.removeEventListener('drop', onEditorDrop)
   // -> Only clear it if it is still this instance's -- guards against a second mount's registration
   //    being torn down by the first's unmount in whatever order they settle in
-  if (editorStore.contentFlusher === flushEditorContent) {
+  if (editorStore.contentFlusher === flushEditorContentForSave) {
     editorStore.contentFlusher = null
   }
   // -> Registered against the markdown language, not this editor, so nothing else takes it down

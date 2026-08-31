@@ -148,6 +148,43 @@ describe('WebhookEditDialog - send test event', () => {
       )
     ).toBe(true)
   })
+
+  it('rejects a scheme that merely starts with "http" (httpfoo://), matching the API (OpenProject #1940)', async () => {
+    // -> Placed last in this describe block: `testButton()`'s `document.body` lookup returns the
+    //    FIRST matching button across every dialog mounted so far in this file (nothing here calls
+    //    `wrapper.unmount()`), so a new mount+assert pair earlier in the block would shift which
+    //    stale button the tests after it resolve to. Appending avoids disturbing that ordering.
+    mountDialog(null)
+    await flushPromises()
+
+    const urlInput = document.body.querySelector('input[placeholder="https://"]')
+    urlInput.value = 'httpfoo://x'
+    urlInput.dispatchEvent(new Event('input'))
+    await flushPromises()
+
+    const btn = testButton()
+    expect(btn.disabled).toBe(true)
+  })
+})
+
+/**
+ * Task 1940: `hookUrlValidation` must reject everything `invalidReason()` (`backend/api/hooks.ts`)
+ * rejects, so a URL the form accepts is never refused by the API with a 400 the admin sees as a
+ * server error.
+ */
+describe('WebhookEditDialog - url validation', () => {
+  it('rejects a URL with a non-http(s) protocol, matching the API', async () => {
+    mountDialog(null)
+    await flushPromises()
+
+    const urlInput = document.body.querySelector('input[placeholder="https://"]')
+    urlInput.value = 'httpfoo://x'
+    urlInput.dispatchEvent(new Event('input'))
+    await flushPromises()
+
+    const btn = testButton()
+    expect(btn.disabled).toBe(true)
+  })
 })
 
 /**

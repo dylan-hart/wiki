@@ -313,6 +313,158 @@ describe('App.vue applyLocale()', () => {
 })
 
 /**
+ * Regression coverage for OpenProject #1652: `applyLocale()` must eager-load the `en` fallback
+ * dictionary alongside a non-`en` active locale, so vue-i18n's `fallbackLocale: 'en'` (boot/i18n.js)
+ * has something to actually fall back to -- otherwise any key missing from the active locale (routine
+ * for any real, incomplete translation) renders as its raw dotted key path instead of English.
+ */
+describe('App.vue applyLocale() en fallback eager-load', () => {
+  async function mountAppWithLocaleAndRequests(localeCode, { active }) {
+    const siteStore = useSiteStore()
+    const flagsStore = useFlagsStore()
+    const userStore = useUserStore()
+    const commonStore = useCommonStore()
+
+    siteStore.$patch({
+      id: 'site-1',
+      locales: { primary: 'en', showMenu: true, active }
+    })
+    flagsStore.loaded = true
+    userStore.profileLoaded = true
+    commonStore.setLocale(localeCode)
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    // -> `messages: {}`, matching the real boot/i18n.js -- not `{ en: {} }` as the other describe
+    //    blocks in this file use, since that would put `en` in `availableLocales` from the start and
+    //    the eager-load branch under test (`!i18n.availableLocales.includes('en')`) would never fire.
+    const i18n = createI18n({ legacy: false, locale: 'en', fallbackLocale: 'en', messages: {} })
+
+    mount(App, { global: { plugins: [router, i18n] } })
+
+    await router.push('/')
+    await router.isReady()
+    await flushPromises()
+
+    return { i18n }
+  }
+
+  it('requests both the active non-en locale and en, exactly once each', async () => {
+    API_CLIENT.get.mockImplementation((url) => ({
+      json: () =>
+        Promise.resolve(
+          url === 'locales/fr/strings' ? { 'common.actions.save': 'Enregistrer' } : {}
+        )
+    }))
+
+    const { i18n } = await mountAppWithLocaleAndRequests('fr', {
+      active: [
+        { code: 'en', language: 'en', name: 'English', nativeName: 'English', isRTL: false },
+        { code: 'fr', language: 'fr', name: 'French', nativeName: 'Français', isRTL: false }
+      ]
+    })
+
+    const requestedUrls = API_CLIENT.get.mock.calls.map(([url]) => url)
+    expect(requestedUrls.filter((url) => url === 'locales/fr/strings')).toHaveLength(1)
+    expect(requestedUrls.filter((url) => url === 'locales/en/strings')).toHaveLength(1)
+    expect(i18n.global.availableLocales).toEqual(expect.arrayContaining(['fr', 'en']))
+  })
+
+  it('requests en exactly once when the active locale already IS en', async () => {
+    API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve({}) }))
+
+    await mountAppWithLocaleAndRequests('en', {
+      active: [{ code: 'en', language: 'en', name: 'English', nativeName: 'English', isRTL: false }]
+    })
+
+    const requestedUrls = API_CLIENT.get.mock.calls.map(([url]) => url)
+    expect(requestedUrls.filter((url) => url === 'locales/en/strings')).toHaveLength(1)
+  })
+
+  it('falls back to English instead of raw key echo when the strings backend has no row for the active locale', async () => {
+    // -> `xx` is listed as one of the site's active locales, so the router guard's own
+    //    not-active/not-installed correction never kicks in and silently swaps it for the primary
+    //    locale before applyLocale() ever runs -- but `models/locales.ts#getStrings()` still replies
+    //    with its no-row array shape for it, an installed-but-not-yet-cached code in practice.
+    API_CLIENT.get.mockImplementation((url) => ({
+      json: () =>
+        Promise.resolve(
+          url === 'locales/xx/strings' ? [] : { 'common.actions.save': 'Save' } // en reply
+        )
+    }))
+
+    const { i18n } = await mountAppWithLocaleAndRequests('xx', {
+      active: [
+        { code: 'en', language: 'en', name: 'English', nativeName: 'English', isRTL: false },
+        { code: 'xx', language: 'xx', name: 'Xx', nativeName: 'Xx', isRTL: false }
+      ]
+    })
+
+    // -> The array-shaped reply for `xx` is rejected by fetchLocaleStrings(), so setLocaleMessage()
+    //    is never called for it -- only `en` ends up loaded, giving the fallback something to
+    //    resolve `common.actions.save` from instead of echoing the raw key.
+    expect(i18n.global.availableLocales).toEqual(['en'])
+    expect(i18n.global.t('common.actions.save')).toBe('Save')
+  })
+})
+
+/**
+ * Regression coverage for OpenProject #1769: a first navigation to a site whose primary locale isn't
+ * the stored default drives `applyLocale()` through BOTH of its triggers for the same new locale
+ * within a microtask of each other -- the router guard's `commonStore.setLocale(primary)` correction
+ * fires the `watch(() => commonStore.locale, applyLocale)` at the top of this file, and the guard's
+ * own very next line calls `applyLocale(commonStore.locale)` directly. Before this fix, neither call
+ * had any way to see the other's fetch already underway, so this exact sequence issued the same
+ * `GET locales/:code/strings` twice.
+ */
+describe('App.vue applyLocale() idempotency', () => {
+  it('two overlapping calls for the same locale issue exactly one locale-strings request', async () => {
+    const siteStore = useSiteStore()
+    const flagsStore = useFlagsStore()
+    const userStore = useUserStore()
+    const commonStore = useCommonStore()
+
+    // -> commonStore.locale defaults to 'en' (no stored value in this test's localStorage stub), which
+    //    is NOT in this site's active list -- so the guard's correction branch runs, driving both
+    //    triggers to 'fr' back to back.
+    siteStore.$patch({
+      id: 'site-1',
+      locales: {
+        primary: 'fr',
+        showMenu: true,
+        active: [
+          { code: 'fr', language: 'fr', name: 'French', nativeName: 'Français', isRTL: false }
+        ]
+      }
+    })
+    flagsStore.loaded = true
+    userStore.profileLoaded = true
+
+    API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve({}) })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    mount(App, { global: { plugins: [router, i18n] } })
+
+    await router.push('/')
+    await router.isReady()
+    await flushPromises()
+
+    expect(commonStore.locale).toBe('fr')
+    const localeStringsCalls = API_CLIENT.get.mock.calls.filter(
+      ([url]) => url === 'locales/fr/strings'
+    )
+    expect(localeStringsCalls.length).toBe(1)
+  })
+})
+
+/**
  * Regression coverage for OpenProject #809's follow-up: the Markdown editor's saved
  * preview-shown/width/font-size preferences used to only ever be fetched from
  * `EditorMarkdown.vue`'s own `onMounted`, once the reader had already clicked Edit -- putting a
@@ -667,5 +819,100 @@ describe('App.vue router.onError() (OpenProject #951)', () => {
 
     expect(commonStore.routerLoading).toBe(false)
     expect(notifyQueue.at(-1)).toMatchObject({ type: 'negative', message: 'Navigation failed.' })
+  })
+})
+
+/**
+ * OpenProject #1360/#2208 (2026-08-24 security audit §2): the `'logout'` `EVENT_BUS` handler used to
+ * treat ANY `scheme://` prefix as "leaving the wiki" and call `window.location.assign()` on it
+ * directly — `javascript://%0aalert(1)` matches that same generic pattern, and a browser executes it
+ * as script once it decodes the `%0a` into a real newline (the `//` becomes a JS line comment, ending
+ * before `alert(1)`). `redirect` is a group's `redirectOnLogout`, so the actual attacker is whoever
+ * holds `manage:groups` (or `write:pages`-adjacent delegation) on the group a victim is a member of —
+ * every member of that group gets this run on their next logout.
+ */
+describe('App.vue logout handler (OpenProject #2208)', () => {
+  function makeRouter() {
+    return createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: { template: '<div />' } },
+        { path: '/other', component: { template: '<div />' } }
+      ]
+    })
+  }
+
+  async function mountReady(router) {
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    currentWrapper = mount(App, { global: { plugins: [router, i18n] } })
+    await router.push('/')
+    await router.isReady()
+  }
+
+  async function emitLogout(redirect) {
+    EVENT_BUS.emit('logout', { redirect })
+    await flushPromises()
+  }
+
+  // -> `window.location.assign` is a genuine global: a spy left in place from one test would keep
+  //    wrapping itself (and keep its recorded calls) into the next one.
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('refuses a javascript: redirect and routes to / internally instead of assigning it', async () => {
+    const router = makeRouter()
+    await mountReady(router)
+    const assign = vi.spyOn(window.location, 'assign').mockImplementation(() => {})
+
+    await emitLogout('javascript://%0aalert(1)')
+
+    expect(assign).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.path).toBe('/')
+  })
+
+  it('refuses a scheme-relative //host redirect the same way', async () => {
+    const router = makeRouter()
+    await mountReady(router)
+    const assign = vi.spyOn(window.location, 'assign').mockImplementation(() => {})
+
+    await emitLogout('//attacker.example')
+
+    expect(assign).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.path).toBe('/')
+  })
+
+  it('still leaves the wiki via window.location.assign for a genuine https:// redirect', async () => {
+    const router = makeRouter()
+    await mountReady(router)
+    const assign = vi.spyOn(window.location, 'assign').mockImplementation(() => {})
+
+    await emitLogout('https://idp.example.com/logged-out')
+
+    expect(assign).toHaveBeenCalledWith('https://idp.example.com/logged-out')
+    // -> Not routed internally as well -- the two are mutually exclusive branches
+    expect(router.currentRoute.value.path).toBe('/')
+  })
+
+  it('still routes a same-origin path internally, unaffected by the scheme check', async () => {
+    const router = makeRouter()
+    await mountReady(router)
+    const assign = vi.spyOn(window.location, 'assign').mockImplementation(() => {})
+
+    await emitLogout('/other')
+
+    expect(assign).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.path).toBe('/other')
+  })
+
+  it('routes to / when no redirect is given at all', async () => {
+    const router = makeRouter()
+    await mountReady(router)
+    const assign = vi.spyOn(window.location, 'assign').mockImplementation(() => {})
+
+    await emitLogout(undefined)
+
+    expect(assign).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.path).toBe('/')
   })
 })

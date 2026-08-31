@@ -1,5 +1,5 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog v-model="dialogVisible" :aria-label="dialogTitle" @hide="onDialogHide">
     <w-card class="page-save-dialog" style="width: 860px; max-width: 90vw">
       <w-card-section v-if="props.mode === `savePage`" class="card-header">
         <w-icon name="img:/_assets/icons/fluent-save-as.svg" size="sm" class="mr-2" />
@@ -65,11 +65,11 @@
           <blueprint-icon icon="new-document" />
           <w-item-section>
             <w-input
+              ref="iptTitle"
               v-model="state.title"
               :label="t(`pageSaveDialog.pageTitle`)"
               dense
               outlined
-              autofocus
               @focus="state.currentFileId = null"
               @keyup:enter="save" />
           </w-item-section>
@@ -104,7 +104,9 @@
       </w-list>
       <w-card-actions class="card-actions px-4">
         <w-btn class="acrylic-btn" icon="la:ellipsis-h" color="blue-grey" padding="xs sm" flat>
-          <w-tooltip anchor="center right" self="center left">Display Options</w-tooltip>
+          <w-tooltip labels anchor="center right" self="center left">{{
+            t(`pageSaveDialog.displayOptions`)
+          }}</w-tooltip>
           <w-menu auto-close anchor="top left" self="bottom left">
             <w-card class="p-2">
               <w-list dense>
@@ -230,7 +232,9 @@ defineEmits([...dialogComponentEmits])
 
 // DIALOG
 
-const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent({
+  autofocus: () => iptTitle.value
+})
 
 // STORES
 
@@ -262,6 +266,7 @@ const state = reactive({
 // REFS
 
 const treeComp = ref(null)
+const iptTitle = ref(null)
 
 // -> Path Name is the leaf slug only -- the folder itself comes from the tree browser (#1013), not
 //    from typing `/`-separated segments here. Live validation (`w-input`'s `rules` convention) is
@@ -270,6 +275,18 @@ const treeComp = ref(null)
 const pathRules = [(value) => !value?.includes('/') || t('pageSaveDialog.pathNoSlashes')]
 
 // COMPUTED
+
+/** Mirrors the header's own per-mode title (below), as the dialog's accessible name. */
+const dialogTitle = computed(() => {
+  switch (props.mode) {
+    case 'duplicatePage':
+      return t('pageDuplicateDialog.title')
+    case 'renamePage':
+      return t('pageRenameDialog.title')
+    default:
+      return t('pageSaveDialog.title')
+  }
+})
 
 const currentFolderPath = computed(() => {
   const folderNode = state.currentFolderId ? state.treeNodes[state.currentFolderId] : null
@@ -503,7 +520,7 @@ async function loadTree({ parentId = null, parentPath = null, initLoad = false }
     notify({
       type: 'negative',
       message: t('pageSaveDialog.loadFailed'),
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   if (parentId) {

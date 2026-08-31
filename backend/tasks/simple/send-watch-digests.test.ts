@@ -14,6 +14,7 @@ import type { PendingDigestEvent } from '../../models/pageWatchEvents.ts'
 let previousWiki: any
 let listPendingForDigest: ReturnType<typeof mock.fn>
 let markManyDelivered: ReturnType<typeof mock.fn>
+let filterReadable: ReturnType<typeof mock.fn>
 let getById: ReturnType<typeof mock.fn>
 let sendPageWatchDigest: ReturnType<typeof mock.fn>
 let loggerError: ReturnType<typeof mock.fn>
@@ -45,6 +46,10 @@ after(() => {
 beforeEach(() => {
   listPendingForDigest = mock.fn(async () => [] as PendingDigestEvent[])
   markManyDelivered = mock.fn(async () => {})
+  // -> Pass-through by default (OpenProject #2173's read:pages re-check): every existing test in this
+  //    file predates the check and expects its events to reach the digest unfiltered. The dedicated
+  //    describe block below overrides this per test to exercise the filtering itself.
+  filterReadable = mock.fn(async (_userId: string, events: PendingDigestEvent[]) => events)
   getById = mock.fn(async (id: string) => ({
     id,
     name: 'Someone Person',
@@ -55,7 +60,7 @@ beforeEach(() => {
   ;(globalThis as any).WIKI = {
     logger: { info: mock.fn(), warn: mock.fn(), error: loggerError, debug: mock.fn() },
     models: {
-      pageWatchEvents: { listPendingForDigest, markManyDelivered },
+      pageWatchEvents: { listPendingForDigest, markManyDelivered, filterReadable },
       users: { getById },
       mail: { sendPageWatchDigest }
     }
@@ -210,5 +215,68 @@ describe('send-watch-digests task', () => {
     })
 
     await assert.rejects(() => sendWatchDigests(), /connection refused/)
+  })
+})
+
+/**
+ * OpenProject #2173: `filterReadable` is applied per `(userId, siteId)` group, right before that
+ * group's mail is composed -- the send-time re-check for the one delivery path (`digest`) where an
+ * event can sit pending the longest between being recorded and being acted on.
+ */
+describe('send-watch-digests task — read:pages re-check (OpenProject #2173)', () => {
+  test('an event that fails the re-check is excluded from the digest but still marked delivered', async () => {
+    filterReadable.mock.mockImplementation(async () => [])
+    listPendingForDigest.mock.mockImplementation(async () => [pendingEvent()])
+
+    await sendWatchDigests()
+
+    assert.equal(sendPageWatchDigest.mock.calls.length, 0)
+    assert.equal(markManyDelivered.mock.calls.length, 1)
+    assert.deepEqual(markManyDelivered.mock.calls[0]!.arguments[0], ['event-1'])
+  })
+
+  test('a group left with nothing readable is skipped entirely -- no digest, no recipient lookup', async () => {
+    filterReadable.mock.mockImplementation(async () => [])
+    listPendingForDigest.mock.mockImplementation(async () => [pendingEvent()])
+
+    await sendWatchDigests()
+
+    assert.equal(getById.mock.calls.length, 0)
+  })
+
+  test('a mixed group only digests the readable events, and marks both readable and unreadable delivered', async () => {
+    const readable = pendingEvent({ id: 'ev-readable', pageId: 'page-readable' })
+    const unreadable = pendingEvent({
+      id: 'ev-unreadable',
+      pageId: 'page-unreadable',
+      pageTitle: 'No Longer Readable'
+    })
+    filterReadable.mock.mockImplementation(async () => [readable])
+    listPendingForDigest.mock.mockImplementation(async () => [readable, unreadable])
+
+    await sendWatchDigests()
+
+    assert.equal(sendPageWatchDigest.mock.calls.length, 1)
+    const call = sendPageWatchDigest.mock.calls[0]!.arguments[0] as any
+    assert.equal(call.items.length, 1)
+    assert.equal(call.items[0].page.title, 'Getting Started')
+
+    // -> First call marks the readable-only batch delivered alongside the send; the unreadable one is
+    //    marked delivered too (nothing further to tell that watcher), in its own call.
+    const deliveredIds = markManyDelivered.mock.calls.flatMap((c: any) => c.arguments[0])
+    assert.deepEqual(new Set(deliveredIds), new Set(['ev-readable', 'ev-unreadable']))
+  })
+
+  test('filterReadable is called once per (userId, siteId) group with that group’s own events', async () => {
+    listPendingForDigest.mock.mockImplementation(async () => [
+      pendingEvent({ id: 'ev-1', userId: 'user-a' }),
+      pendingEvent({ id: 'ev-2', userId: 'user-b' })
+    ])
+
+    await sendWatchDigests()
+
+    assert.equal(filterReadable.mock.calls.length, 2)
+    const userIds = filterReadable.mock.calls.map((c: any) => c.arguments[0]).sort()
+    assert.deepEqual(userIds, ['user-a', 'user-b'])
   })
 })

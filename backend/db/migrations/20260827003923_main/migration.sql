@@ -1,0 +1,1 @@
+ALTER TABLE "blockCredentials" RENAME COLUMN "allowedDomains" TO "allowedOrigins";

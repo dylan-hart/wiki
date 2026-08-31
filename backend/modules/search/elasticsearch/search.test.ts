@@ -446,17 +446,76 @@ describe('ElasticsearchSearchModule', () => {
     await assert.doesNotReject(mod.created(fakePage()))
   })
 
-  test('query() sends the query DSL and paging to the index for this site', async () => {
+  /**
+   * OpenProject #2156: `offset`/`limit` are no longer sent straight through as Elasticsearch's own
+   * `from`/`size` -- page-rule filtering happens after the query, so the module now always scans a
+   * bounded window from the start (`from: 0, size: SCAN_CAP`) and applies the caller's own
+   * pagination in JS, over the filtered set. See `query()`'s own comment for the full reasoning.
+   */
+  test('query() always scans from the start with a bounded size, regardless of the caller’s own offset/limit', async () => {
     const { mod, calls } = moduleWithFakeClient()
     await mod.query({ siteId, query: 'kangaroo', tags: ['guide'], offset: 10, limit: 5 })
 
     assert.equal(calls.search!.length, 1)
     const [{ index, from, size, query }] = calls.search!
     assert.equal(index, 'wiki-test')
-    assert.equal(from, 10)
-    assert.equal(size, 5)
+    assert.equal(from, 0)
+    assert.ok(size > 5, 'expected a bounded scan window larger than the requested page size')
     assert.equal(query.bool.must[0].simple_query_string.query, 'kangaroo')
     assert.ok(query.bool.filter.some((f: any) => f.match?.tags === 'guide'))
+  })
+
+  test('query() applies the caller’s offset/limit in JS, over the filtered (visible) set', async () => {
+    const { mod, calls, setSearchResponse } = moduleWithFakeClient()
+    setSearchResponse({
+      hits: {
+        total: { value: 3 },
+        hits: [
+          {
+            _id: 'p1',
+            _score: 3,
+            _source: {
+              path: 'a',
+              locale: 'en',
+              title: 'A',
+              description: '',
+              tags: [],
+              updatedAt: 'x'
+            }
+          },
+          {
+            _id: 'p2',
+            _score: 2,
+            _source: {
+              path: 'b',
+              locale: 'en',
+              title: 'B',
+              description: '',
+              tags: [],
+              updatedAt: 'x'
+            }
+          },
+          {
+            _id: 'p3',
+            _score: 1,
+            _source: {
+              path: 'c',
+              locale: 'en',
+              title: 'C',
+              description: '',
+              tags: [],
+              updatedAt: 'x'
+            }
+          }
+        ]
+      }
+    })
+
+    const result = await mod.query({ siteId, query: 'x', offset: 1, limit: 1 })
+    assert.equal(result.results.length, 1)
+    assert.equal(result.results[0]!.path, 'b')
+    assert.equal(result.totalHits, 3)
+    assert.equal(calls.search!.length, 1)
   })
 
   test('query() applies actor-based checkAccess filtering to the hits Elasticsearch returned', async () => {
@@ -498,20 +557,92 @@ describe('ElasticsearchSearchModule', () => {
     ;(globalThis as any).WIKI.models.groups.checkAccess = denyForSecret
 
     try {
-      const result = await mod.query({
-        siteId,
-        query: '',
-        actor: { groupIds: [], permissions: [] }
-      })
-      assert.equal(result.results.length, 1)
-      assert.equal(result.results[0]!.path, 'open')
-      // -> totalHits is the reported total adjusted by what checkAccess removed from this page, not
-      //    the raw count
-      assert.equal(result.totalHits, 1)
+      // -> OpenProject #2151/#2156: totalHits is derived from `visible` alone now, never Elasticsearch's
+      //    own raw hit count -- asserted at limit=1 too, the audit's own repro shape, since the old
+      //    arithmetic only ever corrected for what was dropped from the SINGLE fetched page.
+      for (const limit of [undefined, 1]) {
+        const result = await mod.query({
+          siteId,
+          query: '',
+          actor: { groupIds: [], permissions: [] },
+          ...(limit ? { limit } : {})
+        })
+        assert.equal(result.results.length, 1)
+        assert.equal(result.results[0]!.path, 'open')
+        assert.equal(result.totalHits, 1, `expected totalHits=1 at limit=${limit ?? 'default'}`)
+      }
     } finally {
       ;(globalThis as any).WIKI.models.groups.checkAccess = previousCheckAccess
     }
-    assert.equal(calls.search!.length, 1)
+    assert.equal(calls.search!.length, 2)
+  })
+
+  test('totalHits never reflects the reported total when it exceeds what this page can vouch for', async () => {
+    const { mod, setSearchResponse } = moduleWithFakeClient()
+    setSearchResponse({
+      // -> Elasticsearch reports 100 total matches across many pages this call never fetched -- the
+      //    old arithmetic (total - hits.length + visible.length) would have leaked most of that into
+      //    totalHits even though only this one page was ever checked against checkAccess.
+      hits: {
+        total: { value: 100 },
+        hits: [
+          {
+            _id: 'p1',
+            _score: 3,
+            _source: {
+              path: 'open-1',
+              locale: 'en',
+              title: 'Open 1',
+              description: '',
+              tags: [],
+              updatedAt: 'x'
+            }
+          },
+          {
+            _id: 'p2',
+            _score: 2,
+            _source: {
+              path: 'secret-1',
+              locale: 'en',
+              title: 'Secret 1',
+              description: '',
+              tags: [],
+              updatedAt: 'x'
+            }
+          },
+          {
+            _id: 'p3',
+            _score: 1,
+            _source: {
+              path: 'open-2',
+              locale: 'en',
+              title: 'Open 2',
+              description: '',
+              tags: [],
+              updatedAt: 'x'
+            }
+          }
+        ]
+      }
+    })
+    const denySecret = (_actor: AccessActor, _permission: string, page: { path: string }) =>
+      !page.path.startsWith('secret')
+    const previousCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
+    ;(globalThis as any).WIKI.models.groups.checkAccess = denySecret
+
+    try {
+      const result = await mod.query({
+        siteId,
+        query: 'x',
+        offset: 0,
+        actor: { groupIds: [], permissions: [] }
+      })
+      assert.equal(result.results.length, 2)
+      // -> Exactly the readable count within the scanned window (2 visible), never Elasticsearch's 100
+      assert.equal(result.totalHits, 2)
+    } finally {
+      ;(globalThis as any).WIKI.models.groups.checkAccess = previousCheckAccess
+    }
   })
 
   test('query() passes each hit’s own indexed classification to checkAccess, not a hardcoded null (OpenProject #1125)', async () => {

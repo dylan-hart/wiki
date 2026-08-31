@@ -4,10 +4,11 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-lightning-bolt-animated.svg" />
+          src="/_assets/icons/fluent-lightning-bolt-animated.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.webhooks.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.webhooks.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.webhooks.subtitle') }}
         </div>
@@ -116,7 +117,7 @@
                   class="acrylic-btn mr-2"
                   color="indigo"
                   icon="la:pen"
-                  label="Edit"
+                  :label="t('common.actions.edit')"
                   flat
                   no-caps
                   @click="editHook(hook.id)" />
@@ -125,6 +126,7 @@
                   color="red"
                   icon="la:trash"
                   flat
+                  :aria-label="t(`common.actions.delete`)"
                   @click="deleteHook(hook)" />
               </w-item-section>
             </w-item>

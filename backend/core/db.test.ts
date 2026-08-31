@@ -2,21 +2,29 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import Emittery from 'emittery'
+import { Pool } from 'pg'
 
-import dbManager from './db.ts'
+import dbManager, { queryLogger } from './db.ts'
 import configSvc from './config.ts'
 import maintenance from './maintenance.ts'
 import { groups } from '../models/groups.ts'
 import { sites } from '../models/sites.ts'
 import { approvals } from '../models/approvals.ts'
+import { classificationLevels } from '../models/classificationLevels.ts'
+import { glossary } from '../models/glossary.ts'
+import { locales } from '../models/locales.ts'
+import { hasTestDatabase } from '../test/db.ts'
 
 /**
  * Task 708 (feature 411): confirms what `core/db.ts`'s `subscribeToNotifications()` /
  * `notifyViaDB()` actually guarantee for a cross-instance event relayed over the `wiki` NOTIFY
  * channel, and whether any current subscriber (`core/config.ts`'s `reloadConfig`,
- * `core/maintenance.ts`'s `disconnectWebsockets`/`flushCaches`, and — added by OpenProject #966 —
- * `models/groups.ts`/`sites.ts`/`approvals.ts`'s `reloadGroups`/`reloadSites`/`reloadApprovals`)
- * depends on more than that.
+ * `core/maintenance.ts`'s `disconnectWebsockets`/`flushCaches`, — added by OpenProject #966 —
+ * `models/groups.ts`/`sites.ts`/`approvals.ts`'s `reloadGroups`/`reloadSites`/`reloadApprovals`,
+ * — added by OpenProject #2042 — `models/locales.ts`'s `reloadLocales`, — added by OpenProject
+ * #2038 — `models/glossary.ts`'s `invalidateGlossaryCache`, and — added by OpenProject #2030 —
+ * `models/classificationLevels.ts`'s `reloadClassificationLevels`) depends on more than
+ * that.
  *
  * Postgres NOTIFY has no persistence and no delivery guarantee: a message published while nobody
  * is LISTENing on that channel is dropped by the server, not queued for later delivery. `notifier`
@@ -28,6 +36,10 @@ import { approvals } from '../models/approvals.ts'
  * (`helpers/pubsub.ts`'s `connectListener`, task 703) after a dropped connection and before the
  * next one lands.
  *
+ * OpenProject #2030 added an eighth subscriber, `classificationLevels`'s
+ * `reloadClassificationLevels` — same shape as `groups`/`sites`/`approvals`, stubbed and asserted
+ * the same way below.
+ *
  * A fake `Pool`/`PoolClient` pair stands in for postgres, matching `helpers/pubsub.test.ts`'s
  * fixtures — this is event-bus wiring and delivery-loss semantics, not SQL, so a mock is the right
  * tool per CLAUDE.md's testing guidance rather than a real two-`node backend` harness (also not
@@ -36,10 +48,12 @@ import { approvals } from '../models/approvals.ts'
  *
  * **Finding**, expanded on in `dev/multi-instance-verify/README.md`: no subscriber is exposed to a
  * *permanently* missed event, because `index.ts`'s `preBoot()` calls `configSvc.loadFromDb()` and
- * `postBoot()` calls `groups`/`sites`/`locales`/`approvals` `.reloadCache()` unconditionally on
- * every boot — not gated on any notification ever having arrived. An instance that missed a
- * `reloadConfig`/`flushCaches`/`reloadGroups`/`reloadSites`/`reloadApprovals` notify while it was
- * down (or mid-restart) is fully resynced the moment it comes back, regardless of what it missed. The
+ * `postBoot()` calls `groups`/`sites`/`locales`/`approvals`/`classificationLevels`
+ * `.reloadCache()` unconditionally on every boot — not gated on any notification ever having
+ * arrived. An instance that missed a
+ * `reloadConfig`/`flushCaches`/`reloadGroups`/`reloadSites`/`reloadApprovals`/`reloadLocales`/`reloadClassificationLevels`
+ * notify while it was down (or mid-restart) is fully resynced the moment it comes back, regardless
+ * of what it missed. The
  * narrower residual gap is an instance that stays up throughout but loses one specific
  * notification during its own listener's brief reconnect window: nothing re-checks the DB for it
  * independently until the next matching event (another settings save, another manual "flush
@@ -83,6 +97,9 @@ let disconnectWebsocketsMock: any
 let groupsReloadCacheMock: any
 let sitesReloadCacheMock: any
 let approvalsReloadCacheMock: any
+let localesReloadCacheMock: any
+let glossaryDropLocalCacheMock: any
+let classificationLevelsReloadCacheMock: any
 
 before(() => {
   previousWiki = (globalThis as any).WIKI
@@ -96,15 +113,28 @@ beforeEach(() => {
   //    `.subscribeToEvents()` now (see `core/db.ts`), which is real model code reachable off
   //    `WIKI.models` — stubbed here the same way `configSvc.loadFromDb`/`maintenance.flushCaches`
   //    already are, so this suite's minimal `WIKI` needs a `models` object at all.
+  // -> OpenProject #2042: `locales` joins the same wiring.
   groupsReloadCacheMock = mock.fn(async () => {})
   sitesReloadCacheMock = mock.fn(async () => {})
   approvalsReloadCacheMock = mock.fn(async () => {})
+  localesReloadCacheMock = mock.fn(async () => {})
+  // -> OpenProject #2038: `subscribeToNotifications()` also wires `glossary.subscribeToEvents()` now
+  //    (see `core/db.ts`) -- stubbed the same way, though its local effect is a cache delete rather
+  //    than a DB re-fetch, so the stubbed method is `dropLocalCache`, not `reloadCache`.
+  glossaryDropLocalCacheMock = mock.fn(() => {})
+  // -> OpenProject #2030: `subscribeToNotifications()` also wires
+  //    `classificationLevels.subscribeToEvents()` now (see `core/db.ts`), stubbed the same way as
+  //    `groups`/`sites`/`approvals`/`locales`.
+  classificationLevelsReloadCacheMock = mock.fn(async () => {})
   configSvc.loadFromDb = loadFromDbMock
   maintenance.flushCaches = flushCachesMock
   maintenance.disconnectWebsockets = disconnectWebsocketsMock
   groups.reloadCache = groupsReloadCacheMock
   sites.reloadCache = sitesReloadCacheMock
   approvals.reloadCache = approvalsReloadCacheMock
+  locales.reloadCache = localesReloadCacheMock
+  glossary.dropLocalCache = glossaryDropLocalCacheMock
+  classificationLevels.reloadCache = classificationLevelsReloadCacheMock
 
   ;(globalThis as any).WIKI = {
     INSTANCE_ID: 'instance-a',
@@ -112,7 +142,7 @@ beforeEach(() => {
     events: { inbound: new Emittery(), outbound: new Emittery() },
     configSvc,
     dbManager,
-    models: { groups, sites, approvals }
+    models: { groups, sites, approvals, locales, glossary, classificationLevels }
   }
 
   dbManager.pool = null
@@ -204,7 +234,7 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.deepEqual(received, [{ event: 'reloadConfig', value: null }])
   })
 
-  test('wires all five current subscribers, each purely reactive to the notify with no independent re-check', async () => {
+  test('wires all eight current subscribers, each purely reactive to the notify with no independent re-check', async () => {
     const pool = new FakePool()
     const client = new FakeClient()
     pool.queueClient(client)
@@ -237,6 +267,29 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
       channel: 'wiki',
       payload: JSON.stringify({ source: 'instance-b', event: 'reloadApprovals', value: null })
     })
+    // -> OpenProject #2042: locale cache reloads propagate the same way now
+    client.emit('notification', {
+      channel: 'wiki',
+      payload: JSON.stringify({ source: 'instance-b', event: 'reloadLocales', value: null })
+    })
+    // -> OpenProject #2038: glossary cache invalidation propagates the same way now
+    client.emit('notification', {
+      channel: 'wiki',
+      payload: JSON.stringify({
+        source: 'instance-b',
+        event: 'invalidateGlossaryCache',
+        value: { siteId: 'site-1' }
+      })
+    })
+    // -> OpenProject #2030: classification-level cache reloads propagate the same way now
+    client.emit('notification', {
+      channel: 'wiki',
+      payload: JSON.stringify({
+        source: 'instance-b',
+        event: 'reloadClassificationLevels',
+        value: null
+      })
+    })
 
     // -> Emittery's inbound handlers run as microtasks; give them a tick.
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -247,5 +300,331 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.equal(groupsReloadCacheMock.mock.calls.length, 1)
     assert.equal(sitesReloadCacheMock.mock.calls.length, 1)
     assert.equal(approvalsReloadCacheMock.mock.calls.length, 1)
+    assert.equal(localesReloadCacheMock.mock.calls.length, 1)
+    assert.equal(glossaryDropLocalCacheMock.mock.calls.length, 1)
+    assert.deepEqual(glossaryDropLocalCacheMock.mock.calls[0].arguments, ['site-1'])
+    assert.equal(classificationLevelsReloadCacheMock.mock.calls.length, 1)
+  })
+})
+
+/**
+ * OpenProject #2205: `queryLogger.logQuery` used to write `JSON.stringify(params)` of the whole
+ * bound-parameter array at `info` level under either trigger, with no redaction — and a bound
+ * parameter routinely carries a credential (`models/settings.ts#updateConfig` binds the whole
+ * settings blob, including the API signing key/passphrase and the session secret, as one JSONB
+ * parameter). These cases exercise the fix: the emitted line must carry a parameter's shape
+ * (count, type, length) but never its value, under both `sqlLog` and `WIKI.config.dev.logQueries`
+ * independently, since redaction has to sit inside `logQuery` itself rather than behind either
+ * trigger's own `if`.
+ */
+describe('queryLogger.logQuery() — bound-parameter redaction', () => {
+  let previousWiki: any
+  let infoCalls: string[]
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  beforeEach(() => {
+    infoCalls = []
+    ;(globalThis as any).WIKI = {
+      logger: {
+        info: (msg: string) => {
+          infoCalls.push(msg)
+        },
+        warn: () => {},
+        debug: () => {},
+        error: () => {}
+      },
+      config: { flags: { sqlLog: false }, dev: {} }
+    }
+  })
+
+  // -> A PEM-shaped string (stands in for the API signing key) and a JSON blob carrying a `secret`
+  //    key (stands in for `models/settings.ts`'s `auth` blob) — the two shapes OpenProject #2205
+  //    calls out by name.
+  const pemLikeParam =
+    '-----BEGIN PRIVATE KEY-----\nMIIExampleNotARealKeyMaterialxxxxxxxxxxxxx\n-----END PRIVATE KEY-----'
+  const secretBlobParam = {
+    auth: { secret: 'super-secret-session-value', certs: { passphrase: 'hunter2-passphrase' } }
+  }
+
+  test('sqlLog flag on: query text is logged, neither the PEM value nor the secret-object value is', () => {
+    WIKI.config.flags.sqlLog = true
+
+    queryLogger.logQuery('select 1 from "settings" where "key" = $1 and "value" = $2', [
+      pemLikeParam,
+      secretBlobParam
+    ])
+
+    assert.equal(infoCalls.length, 1)
+    const [line] = infoCalls
+    assert.ok(line.includes('select 1 from "settings"'), 'query text is still logged')
+    assert.ok(!line.includes(pemLikeParam), 'PEM value must not appear')
+    assert.ok(!line.includes('BEGIN PRIVATE KEY'), 'PEM value must not appear, even in part')
+    assert.ok(!line.includes('super-secret-session-value'), 'session secret value must not appear')
+    assert.ok(!line.includes('hunter2-passphrase'), 'passphrase value must not appear')
+    assert.ok(!line.includes(JSON.stringify(secretBlobParam)), 'no JSON.stringify of the params')
+    // -> Shape is still useful for debugging: count, and a type/length per parameter.
+    assert.match(line, /2 params/)
+    assert.match(line, /string\(\d+\)/)
+    assert.match(line, /object/)
+  })
+
+  test('WIKI.config.dev.logQueries on, sqlLog flag off: the same redaction applies independently', () => {
+    WIKI.config.flags.sqlLog = false
+    WIKI.config.dev.logQueries = true
+
+    queryLogger.logQuery('update "settings" set "value" = $1', [secretBlobParam])
+
+    assert.equal(infoCalls.length, 1)
+    const [line] = infoCalls
+    assert.ok(!line.includes('super-secret-session-value'), 'session secret value must not appear')
+    assert.ok(!line.includes('hunter2-passphrase'), 'passphrase value must not appear')
+    assert.ok(!line.includes(JSON.stringify(secretBlobParam)), 'no JSON.stringify of the params')
+  })
+
+  test('both triggers off: nothing is logged at all', () => {
+    WIKI.config.flags.sqlLog = false
+    WIKI.config.dev.logQueries = false
+
+    queryLogger.logQuery('select 1', [pemLikeParam])
+
+    assert.equal(infoCalls.length, 0)
+  })
+
+  test('no bound parameters: query text is logged with no trailing parameter section', () => {
+    WIKI.config.flags.sqlLog = true
+
+    queryLogger.logQuery('select 1', [])
+
+    assert.deepEqual(infoCalls, ['[SQL] select 1'])
+  })
+})
+
+/**
+ * Task 2270: `dev.dropSchema` must not be honored outside a debug boot, even though the config value
+ * itself carries no environment condition -- see `dropSchemaIfDev`'s own doc comment in `core/db.ts`
+ * for the full reasoning. A fake `db` (just an `execute` mock.fn, matching this suite's other fakes)
+ * stands in for the real Drizzle instance since this is pure guard logic, not SQL.
+ */
+describe('dropSchemaIfDev() — WIKI.IS_DEBUG guard (task 2270)', () => {
+  let executeMock: any
+  let warnMock: any
+  let fakeDb: any
+
+  beforeEach(() => {
+    executeMock = mock.fn(async () => ({ rows: [] }))
+    fakeDb = { execute: executeMock }
+    warnMock = mock.fn(() => {})
+    WIKI.logger.warn = warnMock
+    WIKI.config = { db: { schema: 'wiki' }, dev: {} }
+  })
+
+  test('dropSchema set, IS_DEBUG false: the schema is NOT dropped, and a refusal is logged', async () => {
+    WIKI.IS_DEBUG = false
+    WIKI.config.dev.dropSchema = true
+
+    await dbManager.dropSchemaIfDev(fakeDb)
+
+    assert.equal(executeMock.mock.calls.length, 0)
+    assert.equal(warnMock.mock.calls.length, 1)
+    assert.match(warnMock.mock.calls[0].arguments[0], /refused/i)
+    assert.match(warnMock.mock.calls[0].arguments[0], /NOT dropped/)
+  })
+
+  test('dropSchema set, IS_DEBUG true: the schema IS dropped', async () => {
+    WIKI.IS_DEBUG = true
+    WIKI.config.dev.dropSchema = true
+
+    await dbManager.dropSchemaIfDev(fakeDb)
+
+    assert.equal(executeMock.mock.calls.length, 1)
+    assert.match(executeMock.mock.calls[0].arguments[0], /DROP SCHEMA IF EXISTS wiki CASCADE/)
+  })
+
+  test('dropSchema unset: nothing happens regardless of IS_DEBUG, and nothing is logged', async () => {
+    WIKI.IS_DEBUG = true
+    WIKI.config.dev.dropSchema = false
+
+    await dbManager.dropSchemaIfDev(fakeDb)
+
+    assert.equal(executeMock.mock.calls.length, 0)
+    assert.equal(warnMock.mock.calls.length, 0)
+  })
+})
+
+/**
+ * Task 2249: `init()`'s `new Pool({...})` now carries an explicit `max`, `connectionTimeoutMillis`
+ * and (via the `options` connection string, alongside `search_path`) `statement_timeout`, all sourced
+ * from `WIKI.config.pool` (defaulted in `base.yml`, operator-tunable via `config.yml`). Unset, pg-pool
+ * falls back to `max: 10` with no connect or statement bound at all, so a saturated pool or a runaway
+ * query blocks its caller forever (`docs/audit-2026-08-24/security/12-infrastructure-ops.md` §2).
+ *
+ * These exercise real `pg` `Pool`/Postgres behavior against the config values `db.ts#init()` now
+ * passes through — a mock of `pg-pool`'s internal checkout queue or Postgres's own timeout enforcement
+ * would mostly just restate what's under test rather than verify it, so this is the DB-backed
+ * exception CLAUDE.md's testing guidance carves out. Gated on `DATABASE_URL` like every other
+ * DB-backed suite in this file — `npm run test` reports these as skipped without one.
+ */
+describe('main pool bounds (task 2249)', { skip: !hasTestDatabase() }, () => {
+  let pool: Pool | undefined
+
+  afterEach(async () => {
+    await pool?.end()
+    pool = undefined
+  })
+
+  test('a third concurrent checkout on a max:2 pool rejects within connectionTimeoutMillis rather than hanging forever', async () => {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 2,
+      connectionTimeoutMillis: 300
+    })
+
+    // -> Check out both connections and never release them, saturating the pool exactly the way a
+    //    stuck query or a leaked client would in production.
+    const held = await Promise.all([pool.connect(), pool.connect()])
+
+    const startedAt = Date.now()
+    await assert.rejects(
+      () => pool!.connect(),
+      /timeout exceeded when trying to connect/,
+      'a third checkout on a saturated max:2 pool must reject, not hang'
+    )
+    const elapsedMs = Date.now() - startedAt
+    assert.ok(
+      elapsedMs < 2000,
+      `expected the rejection at ~connectionTimeoutMillis (300ms), took ${elapsedMs}ms`
+    )
+
+    for (const client of held) {
+      client.release()
+    }
+  })
+
+  test('a query exceeding statement_timeout is cancelled by Postgres rather than running unbounded', async () => {
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 1,
+      // -> Mirrors how `db.ts#init()` appends `statement_timeout` to the `options` connection string
+      //    alongside `search_path`, rather than a dedicated pg-pool config key (there isn't one).
+      options: '-c statement_timeout=300'
+    })
+
+    await assert.rejects(
+      () => pool!.query('SELECT pg_sleep(2)'),
+      /statement timeout/,
+      'a query past statement_timeout must be cancelled by Postgres, not left to run to completion'
+    )
+  })
+})
+
+/**
+ * OpenProject #2049: `init()` builds `this.pool = new Pool({...})` and, until now, never attached an
+ * `error` listener to it. node-postgres emits `error` on the pool whenever a checked-in, idle
+ * client's connection fails (a Postgres restart, a failover, an idle timeout) -- `Pool extends
+ * EventEmitter`, so an unhandled `error` is re-thrown as an uncaught exception and takes the whole
+ * process down, exactly the failure mode `helpers/pubsub.ts`'s `connectListener` already guards
+ * against for the dedicated LISTEN clients. This is the same regression-test shape
+ * `helpers/pubsub.test.ts` uses for that listener path, aimed at the main pool instead.
+ *
+ * `Pool.prototype.query` is mocked at the `pg` level rather than reaching for a real Postgres
+ * connection: `init()`'s own query traffic (`connect()`'s `SELECT 1 + 1;`, then `SHOW
+ * server_version;`) both go through `drizzle-orm/node-postgres`'s session, which calls
+ * `this.client.query(...)` directly on the pool handed to `createDb()` -- so intercepting
+ * `Pool.prototype.query` is enough to run the real `init()` end to end with no `DATABASE_URL` and no
+ * network I/O. `workerMode: true` additionally skips `syncSchemas()` (real migrations), which is the
+ * only other DB-touching step `init()` takes.
+ */
+describe('init() attaches an error listener to the main pool (OpenProject #2049)', () => {
+  let previousWiki: any
+  let previousDatabaseUrl: string | undefined
+  let queryMock: ReturnType<typeof mock.method>
+  let loggerErrorMock: any
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    previousDatabaseUrl = process.env.DATABASE_URL
+    delete process.env.DATABASE_URL
+
+    queryMock = mock.method(Pool.prototype, 'query', async function (queryConfig: any) {
+      const text = typeof queryConfig === 'string' ? queryConfig : queryConfig?.text
+      if (typeof text === 'string' && text.includes('SHOW server_version')) {
+        return { rows: [{ server_version: '16.4' }] }
+      }
+      return { rows: [] }
+    })
+  })
+
+  after(() => {
+    queryMock.mock.restore()
+    ;(globalThis as any).WIKI = previousWiki
+    if (previousDatabaseUrl === undefined) {
+      delete process.env.DATABASE_URL
+    } else {
+      process.env.DATABASE_URL = previousDatabaseUrl
+    }
+  })
+
+  beforeEach(() => {
+    loggerErrorMock = mock.fn(() => {})
+    ;(globalThis as any).WIKI = {
+      INSTANCE_ID: 'instance-a',
+      logger: { warn: () => {}, info: () => {}, debug: () => {}, error: loggerErrorMock },
+      config: {
+        db: {
+          host: '127.0.0.1',
+          user: 'wiki',
+          pass: 'wiki',
+          db: 'wiki',
+          port: 5432,
+          schema: 'public',
+          ssl: false
+        },
+        pool: {}
+      }
+    }
+    dbManager.pool = null
+    dbManager.pubsubClient = null
+    dbManager.listenerHandle = null
+    dbManager.connectAttempts = 0
+  })
+
+  afterEach(async () => {
+    if (dbManager.pool) {
+      await dbManager.pool.end()
+      dbManager.pool = null
+    }
+  })
+
+  test('the constructed pool has an error listener registered', async () => {
+    await dbManager.init(true)
+
+    assert.ok(dbManager.pool, 'init() should have set dbManager.pool')
+    assert.ok(
+      dbManager.pool!.listenerCount('error') >= 1,
+      'the pool should have at least one error listener attached'
+    )
+  })
+
+  test('emitting error on the pool logs through WIKI.logger.error rather than throwing', async () => {
+    await dbManager.init(true)
+
+    const err: any = new Error('Connection terminated unexpectedly')
+    err.code = 'ECONNRESET'
+
+    assert.doesNotThrow(() => {
+      dbManager.pool!.emit('error', err)
+    })
+
+    assert.equal(loggerErrorMock.mock.calls.length, 1)
+    const [message] = loggerErrorMock.mock.calls[0].arguments
+    assert.match(message, /ECONNRESET/)
+    assert.match(message, /Connection terminated unexpectedly/)
   })
 })

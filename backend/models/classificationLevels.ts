@@ -22,16 +22,48 @@ export interface ClassificationLevel {
  * Cached the same way `groups`' page rules are (`models/groups.ts`'s `rulesCache`): a page's
  * classification is resolved against this on every page create/move/update, so reading it from the
  * database on every request would put a query in front of everything the floor invariant (#1080)
- * touches. Reloaded whenever a level is created, edited, reordered or removed.
+ * touches. Reloaded whenever a level is created, edited, reordered or removed -- and, unlike
+ * `rulesCache`, that reload is broadcast to every other instance in the cluster via
+ * `broadcastReload()`/`subscribeToEvents()`, the same HA propagation `groups.ts` uses, so a reorder
+ * on one instance doesn't leave another comparing `sortOrder` values against a stale hierarchy.
  */
 let levelsCache: ClassificationLevel[] = []
 
 class ClassificationLevels {
-  /** Reload every level into memory. Called at boot, same as `groups.reloadCache()`. */
+  /**
+   * Reload every level into memory. Called at boot, and by both halves of the cross-instance
+   * propagation below -- `broadcastReload()` (this instance's own change) and `subscribeToEvents()`'s
+   * handler (another instance's). Never call this directly from a mutator; go through
+   * `broadcastReload()` instead, or the change never reaches the rest of the cluster.
+   */
   async reloadCache(): Promise<void> {
     const rows = await WIKI.db.select().from(levelsTable).orderBy(asc(levelsTable.sortOrder))
     levelsCache = rows as ClassificationLevel[]
     WIKI.logger.info(`Loaded ${levelsCache.length} classification level(s) [ OK ]`)
+  }
+
+  /**
+   * Reload this instance's own cache, then tell every other instance in the cluster to do the same.
+   *
+   * The write already happened in the database by the time a caller reaches this -- what's left is
+   * making every instance's in-memory cache agree with it, this one included. Never call
+   * `WIKI.events.outbound.emit('reloadClassificationLevels')` directly, and never call it from inside
+   * `reloadCache()` itself: `reloadCache()` also runs when `subscribeToEvents()`'s handler answers
+   * *another* instance's event, and broadcasting from there would echo the event back around the
+   * cluster forever (see `groups.ts`'s own `broadcastReload()`, this method's model).
+   */
+  private async broadcastReload(): Promise<void> {
+    await this.reloadCache()
+    WIKI.events.outbound.emit('reloadClassificationLevels')
+  }
+
+  /**
+   * Subscribe to HA propagation events
+   */
+  subscribeToEvents(): void {
+    WIKI.events.inbound.on('reloadClassificationLevels', async () => {
+      await this.reloadCache()
+    })
   }
 
   /** Every level, most-open first. What the admin list and every level picker render. */
@@ -120,21 +152,35 @@ class ClassificationLevels {
     return allowedIds.includes(candidateId)
   }
 
-  async create(input: { name: string; sortOrder?: number }): Promise<ClassificationLevel> {
+  /**
+   * Create a level, always appended after the current highest `sortOrder`.
+   *
+   * `sortOrder` is never taken from the caller (OpenProject #1651) -- a caller-supplied value could
+   * collide with a survivor left behind by an uncompacted `delete()`, or with another level entirely.
+   * The insert position is computed from a fresh `MAX(sortOrder)` read rather than the in-memory
+   * cache, so a create racing a delete's renumbering still lands one past whatever is actually in the
+   * database.
+   */
+  async create(input: { name: string }): Promise<ClassificationLevel> {
     const name = input.name.trim()
     if (name.length < 1) {
       throw new CustomError('classificationNameMissing', 'A classification level needs a name.')
     }
-    const sortOrder = input.sortOrder ?? (levelsCache.at(-1)?.sortOrder ?? -1) + 1
+    const [row] = await WIKI.db
+      .select({ max: sql<number>`coalesce(max(${levelsTable.sortOrder}), -1)` })
+      .from(levelsTable)
+    const sortOrder = (row?.max ?? -1) + 1
     const inserted = await WIKI.db.insert(levelsTable).values({ name, sortOrder }).returning()
-    await this.reloadCache()
+    await this.broadcastReload()
     return inserted[0] as ClassificationLevel
   }
 
-  async update(
-    id: string,
-    patch: { name?: string; sortOrder?: number }
-  ): Promise<ClassificationLevel | null> {
+  /**
+   * Rename a level. `sortOrder` is not settable here (OpenProject #1651) -- `reorder()` is the only
+   * way to change ordering, so there is no single-level write path that could be handed a value
+   * colliding with another level's.
+   */
+  async update(id: string, patch: { name?: string }): Promise<ClassificationLevel | null> {
     const values: Record<string, any> = { updatedAt: sql`now()` }
     if (patch.name !== undefined) {
       const name = patch.name.trim()
@@ -143,24 +189,35 @@ class ClassificationLevels {
       }
       values.name = name
     }
-    if (patch.sortOrder !== undefined) {
-      values.sortOrder = patch.sortOrder
-    }
     const updated = await WIKI.db
       .update(levelsTable)
       .set(values)
       .where(eq(levelsTable.id, id))
       .returning()
-    await this.reloadCache()
+    await this.broadcastReload()
     return (updated[0] as ClassificationLevel) ?? null
   }
 
   /**
    * Reorder every level at once -- assigns `sortOrder` = position in `orderedIds`, the shape a
    * drag-to-reorder admin list naturally produces without a numeric field per row.
+   *
+   * Two-phase to survive the `sortOrder` unique index (OpenProject #1654): a plain positional
+   * reassignment can collide mid-transaction with a row not yet touched -- its still-current
+   * `sortOrder` may equal another row's target position. First move every row to a disjoint
+   * "staging" range strictly below any current `sortOrder`, so nothing can collide, then assign the
+   * real `0..N-1` positions once every row is out of that range.
    */
   async reorder(orderedIds: string[]): Promise<void> {
     await WIKI.db.transaction(async (tx) => {
+      const currentMin = Math.min(0, ...levelsCache.map((level) => level.sortOrder))
+      const stagingBase = currentMin - orderedIds.length - 1
+      for (const [index, id] of orderedIds.entries()) {
+        await tx
+          .update(levelsTable)
+          .set({ sortOrder: stagingBase - index, updatedAt: sql`now()` })
+          .where(eq(levelsTable.id, id))
+      }
       for (const [index, id] of orderedIds.entries()) {
         await tx
           .update(levelsTable)
@@ -168,7 +225,7 @@ class ClassificationLevels {
           .where(eq(levelsTable.id, id))
       }
     })
-    await this.reloadCache()
+    await this.broadcastReload()
   }
 
   /**
@@ -182,6 +239,11 @@ class ClassificationLevels {
    * `jsonb` with no FK to enforce the key half at all, so this jsonb containment check is the ONLY
    * thing stopping a level's deletion from silently dropping it out of a key's allow-set out from
    * under it.
+   *
+   * The survivors are renumbered to a gapless `0..n-1` in the same transaction as the delete
+   * (OpenProject #1651) -- otherwise a delete out of the middle of the list (Public(0)/Internal(1)/
+   * Restricted(2), delete Internal) leaves a gap ({0, 2}) that `create()`'s next append lands on,
+   * colliding with the survivor already there.
    */
   async delete(id: string): Promise<boolean> {
     if (levelsCache.length <= 1) {
@@ -214,9 +276,25 @@ class ClassificationLevels {
         409
       )
     }
-    const result = await WIKI.db.delete(levelsTable).where(eq(levelsTable.id, id))
-    await this.reloadCache()
-    return (result.rowCount ?? 0) > 0
+    const deleted = await WIKI.db.transaction(async (tx) => {
+      const result = await tx.delete(levelsTable).where(eq(levelsTable.id, id))
+      if ((result.rowCount ?? 0) === 0) {
+        return false
+      }
+      const survivors = await tx
+        .select({ id: levelsTable.id })
+        .from(levelsTable)
+        .orderBy(asc(levelsTable.sortOrder))
+      for (const [index, level] of survivors.entries()) {
+        await tx
+          .update(levelsTable)
+          .set({ sortOrder: index, updatedAt: sql`now()` })
+          .where(eq(levelsTable.id, level.id))
+      }
+      return true
+    })
+    await this.broadcastReload()
+    return deleted
   }
 
   /**

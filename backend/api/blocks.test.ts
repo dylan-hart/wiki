@@ -257,6 +257,14 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
    * `manage:sites` alone. Both routes now also accept the site-scoped `site:blocks` permission from
    * task #682 (`checkSiteAccess()`), checked in-handler via `mayManageBlocks` since `config.permissions`
    * cannot express a per-site check (same reasoning as page permissions — see CLAUDE.md).
+   *
+   * OpenProject #2128 settled the question this raised for `docs/security/custom-block-upload.md`:
+   * `BLOCK_ID` below is deliberately `isCustom: true` in `siteBlocks` (as opposed to
+   * `'built-in-block-id'`, `isCustom: false`, also in the fixture) precisely so
+   * "`site:blocks` may set blocks state" / "may delete a custom block" pin the chosen resolution — accept
+   * the widening — against the row that actually matters for the "who can make arbitrary script run"
+   * question, not incidentally against whichever row happened to be first in the fixture. See that
+   * document's §2 for the reconciled permission table and residual-risk statement.
    */
   const SITE_ID = '5d9c8f1e-2b3a-4c5d-9e6f-7a8b9c0d1e2f'
   const BLOCK_ID = 'a1b2c3d4-e5f6-4789-9abc-def012345678'
@@ -366,7 +374,9 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
     assert.equal(setBlocksStateCalls.length, 1)
   })
 
-  test('site:blocks on this site may set blocks state', async () => {
+  test('site:blocks on this site may enable/disable an isCustom: true block (OpenProject #2128: chosen resolution is to allow this, not incidental)', async () => {
+    const target = siteBlocks.find((b) => b.id === BLOCK_ID)!
+    assert.equal(target.isCustom, true) // deliberately targeting the genuinely-custom row, not the built-in one
     const res = await app.inject({
       method: 'PUT',
       url: `/sites/${SITE_ID}/blocks`,
@@ -399,7 +409,9 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
     assert.equal(setBlocksStateCalls.length, 0)
   })
 
-  test('site:blocks on this site may delete a custom block', async () => {
+  test('site:blocks on this site may delete an isCustom: true block (OpenProject #2128: chosen resolution is to allow this, not incidental)', async () => {
+    const target = siteBlocks.find((b) => b.id === BLOCK_ID)!
+    assert.equal(target.isCustom, true) // deliberately targeting the genuinely-custom row, not the built-in one
     const res = await app.inject({
       method: 'DELETE',
       url: `/sites/${SITE_ID}/blocks/${BLOCK_ID}`,
@@ -444,6 +456,16 @@ describe('PUT /sites/:siteId/blocks (per-block config passthrough)', () => {
       }
     })
     await app.register(fastifySensible)
+    // -> Mirrors `index.ts`'s real `setErrorHandler` (same as the describe block above) — needed here
+    //    too now that one of this block's own tests throws a model-level `CustomError`.
+    app.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
     await registerErrorSchema(app)
     await registerBlockSchema(app)
     await app.register(blocksRoutes)
@@ -513,5 +535,23 @@ describe('PUT /sites/:siteId/blocks (per-block config passthrough)', () => {
     })
     assert.equal(res.statusCode, 200)
     assert.deepEqual(lastCall?.states, [{ id: BLOCK_ID, isEnabled: false }])
+  })
+
+  test('a CustomError from the model (e.g. an invalid block-plantuml "server") surfaces its own status code, not a generic 500', async () => {
+    ;(globalThis as any).WIKI.models.blocks.setBlocksState = async () => {
+      const { CustomError } = await import('../helpers/common.ts')
+      throw new CustomError('blocksInvalidConfig', '"not a url" is not a valid URL.', 400)
+    }
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/blocks`,
+      payload: {
+        states: [{ id: BLOCK_ID, isEnabled: true, config: { server: 'not a url' } }]
+      }
+    })
+
+    assert.equal(res.statusCode, 400)
+    assert.match(res.json().message, /not a valid URL/)
   })
 })

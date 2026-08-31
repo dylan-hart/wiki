@@ -60,6 +60,32 @@ describe('mapNavigationItem', () => {
     assert.deepEqual(c.dropped, [])
   })
 
+  test('translates a 2.x mdi-<name> webfont class to an mdi:<name> Iconify reference', () => {
+    const c = ctx()
+    const item = mapNavigationItem({ id: 'h2', kind: 'header', label: 'Home', icon: 'mdi-home' }, c)
+    assert.deepEqual(item, { id: 'h2', type: 'header', label: 'Home', icon: 'mdi:home' })
+    assert.deepEqual(c.warnings, [])
+  })
+
+  test('passes an already-Iconify-shaped icon reference through untouched', () => {
+    const c = ctx()
+    const item = mapNavigationItem({ id: 'h3', kind: 'header', label: 'Home', icon: 'mdi:home' }, c)
+    assert.deepEqual(item, { id: 'h3', type: 'header', label: 'Home', icon: 'mdi:home' })
+    assert.deepEqual(c.warnings, [])
+  })
+
+  test('drops a non-MDI 2.x icon class, warning by item title, rather than storing it unresolved', () => {
+    const c = ctx()
+    const item = mapNavigationItem(
+      { id: 'h4', kind: 'header', label: 'Section', icon: 'las la-cog' },
+      c
+    )
+    assert.deepEqual(item, { id: 'h4', type: 'header', label: 'Section' })
+    assert.equal(c.warnings.length, 1)
+    assert.match(c.warnings[0], /"Section"/)
+    assert.match(c.warnings[0], /"las la-cog"/)
+  })
+
   test('maps a divider onto a separator', () => {
     const c = ctx()
     const item = mapNavigationItem({ id: 'd1', kind: 'divider' }, c)

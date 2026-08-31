@@ -2,10 +2,13 @@
   <w-page class="admin-locale">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-language.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-language.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.locale.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.locale.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.locale.subtitle') }}
         </div>
@@ -138,7 +141,7 @@
       </div>
       <div class="col-span-12 lg:col-span-5">
         <div class="p-4 text-center">
-          <img src="/_assets/illustrations/undraw_world.svg" style="width: 80%" />
+          <img src="/_assets/illustrations/undraw_world.svg" style="width: 80%" alt="" />
         </div>
       </div>
     </div>
@@ -285,7 +288,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.locale.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.locale.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     state.active = active

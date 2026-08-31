@@ -1,5 +1,5 @@
 <template>
-  <w-layout class="page-history" view="hHh lpR fFf" container>
+  <w-layout class="page-history" container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="la:history" left size="md" />
       <span>{{ t('history.title') }}</span>
@@ -54,7 +54,7 @@
     <!-- TIMELINE -->
     <!-- ----------------------------------------------------- -->
     <w-drawer class="page-history-sidebar" :model-value="true" :width="380">
-      <w-scroll-area :thumb-style="thumb" :bar-style="bar" style="height: 100%">
+      <w-scroll-area style="height: 100%">
         <div class="page-history-timeline" v-if="state.versions.length > 0">
           <div
             class="page-history-item"
@@ -76,7 +76,7 @@
                   {{ t('history.current') }}
                 </w-badge>
               </div>
-              <div class="page-history-meta">{{ humanizeDate(version.versionDate) }}</div>
+              <div class="page-history-meta">{{ humanizeDate(t, version.versionDate) }}</div>
               <div class="page-history-meta flex items-center gap-1">
                 <span>{{ version.author.name || t('history.unknownAuthor') }}</span>
                 <!--
@@ -164,7 +164,7 @@
                   glossy
                   dense
                   no-caps
-                  label="A"
+                  :label="t(`history.versionLabelA`)"
                   padding="0.285em sm"
                   :color="version.id === state.aId ? `pink-6` : `dark-3`"
                   :aria-label="t(`history.pickA`)"
@@ -174,7 +174,7 @@
                   glossy
                   dense
                   no-caps
-                  label="B"
+                  :label="t(`history.versionLabelB`)"
                   padding="0.285em sm"
                   :color="version.id === state.bId ? `pink-6` : `dark-3`"
                   :aria-label="t(`history.pickB`)"
@@ -296,6 +296,7 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
 /**
@@ -342,19 +343,6 @@ const state = reactive({
   /** One column with the changes marked in place, rather than the two-column default. */
   inline: false
 })
-
-const thumb = {
-  right: '2px',
-  borderRadius: '5px',
-  backgroundColor: '#FFF',
-  width: '5px',
-  opacity: 0.25
-}
-const bar = {
-  backgroundColor: '#000',
-  width: '9px',
-  opacity: 0.25
-}
 
 /**
  * How each kind of change reads on the line. Both halves are literals on purpose: an icon name built
@@ -408,13 +396,6 @@ function close() {
   siteStore.$patch({ overlay: '' })
 }
 
-function humanizeDate(val) {
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  })
-}
-
 function actionStyle(action) {
   return ACTION_STYLES[action] ?? ACTION_FALLBACK
 }
@@ -424,7 +405,7 @@ function actionLabel(action) {
 }
 
 function sideLabel(version) {
-  return version ? humanizeDate(version.versionDate) : t('history.emptyPage')
+  return version ? humanizeDate(t, version.versionDate) : t('history.emptyPage')
 }
 
 /** Who, and why if they said — the same line the timeline entry carries, on one row. */
@@ -558,7 +539,7 @@ async function viewSource(version) {
     component: defineAsyncComponent(() => import('./PageVersionSourceDialog.vue')),
     componentProps: {
       content: full.content ?? '',
-      date: humanizeDate(full.versionDate)
+      date: humanizeDate(t, full.versionDate)
     }
   })
 }
@@ -602,7 +583,7 @@ function restoreVersion(version) {
   confirm({
     title: t('history.restore'),
     message: [
-      t('history.restoreConfirm', { date: humanizeDate(version.versionDate) }),
+      t('history.restoreConfirm', { date: humanizeDate(t, version.versionDate) }),
       t('history.restoreConfirmHint')
     ],
     caption: t('history.versionId', { id: version.id }),
@@ -621,11 +602,11 @@ function restoreVersion(version) {
         json: {
           content,
           render: await renderOf(full, content),
-          reasonForChange: t('history.restoreReason', { date: humanizeDate(full.versionDate) })
+          reasonForChange: t('history.restoreReason', { date: humanizeDate(t, full.versionDate) })
         }
       }).json()
       if (!resp?.page?.id) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       notify({ type: 'positive', message: t('history.restoreSuccess') })
       // -> The page behind this overlay is now out of date, and so is the timeline: the restore is
@@ -686,12 +667,12 @@ function branchFrom(version) {
           // -> A version that was scheduled carries dates this new page has not got, and the API
           //    rightly refuses that combination
           publishState: full.meta?.publishState === 'published' ? 'published' : 'draft',
-          reasonForChange: t('history.branchReason', { date: humanizeDate(full.versionDate) })
+          reasonForChange: t('history.branchReason', { date: humanizeDate(t, full.versionDate) })
         }
       }).json()
       const page = resp?.page
       if (!page?.id) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       notify({ type: 'positive', message: t('history.branchSuccess') })
       close()

@@ -22,3 +22,18 @@
 export function apiErrorMessage(err, fallback) {
   return err?.data?.message || err?.message || fallback
 }
+
+/**
+ * The parsed response body a failed API request came with, if any.
+ *
+ * Same `err.data`, not `err.response`, rule as {@link apiErrorMessage}: ky has already parsed the
+ * body into `data` before throwing, and `err.response`'s own body stream is already consumed by
+ * then, so a call site reaching for `err.response.json()` gets a rejected promise (or, if awaited
+ * and swallowed, silently reads as `undefined`) instead of the envelope the server actually sent.
+ *
+ * @param {Error} err The thrown error — ky's `HTTPError`, or anything else that reached the catch
+ * @returns {object|undefined} The server's parsed JSON body, when there was one
+ */
+export function apiErrorBody(err) {
+  return err?.data
+}

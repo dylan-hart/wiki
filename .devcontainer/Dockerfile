@@ -1,6 +1,9 @@
 # Based of https://github.com/devcontainers/images/blob/main/src/javascript-node/.devcontainer/Dockerfile
 
-ARG VARIANT=26
+# Digest-pinned for the same reason as dev/build/Dockerfile's base image -- see its comment. Bump
+# alongside that file's pin during the normal currency pass; the two need not always match a commit
+# apart (this is dev tooling, that one is what gets published) but should stay close.
+ARG VARIANT=26.7.0-bookworm@sha256:e929171d35b9df7773a3ec5b068e387fa109441dc90f91e6560af5d39b7e9bf1
 FROM node:${VARIANT}
 
 ARG USERNAME=node

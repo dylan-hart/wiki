@@ -28,10 +28,13 @@ const props = defineProps({
   }
 })
 
+// -> `col.align` keeps its `left`/`right` names, since every call site's column descriptors already
+//    use them, but resolves to the logical `text-start`/`text-end` utility so a column stays on the
+//    reader's leading/trailing edge under RTL rather than the visual side the descriptor names.
 const ALIGN = {
-  left: 'text-left',
+  left: 'text-start',
   center: 'text-center',
-  right: 'text-right'
+  right: 'text-end'
 }
 
 const alignClass = computed(() => ALIGN[props.props?.col?.align] ?? ALIGN.left)

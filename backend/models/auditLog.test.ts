@@ -117,18 +117,69 @@ describe('auditLog record/list/listActors/purge (DB-backed)', { skip: !hasTestDa
     assert.ok(actors.some((a) => a.id === fixtures.userId && a.name === 'Fixture User'))
   })
 
-  test('purge() drops nothing when every entry is inside the retention window', async () => {
+  test('purge() drops nothing when every entry is inside the retention window, but still records itself', async () => {
     const before = (await auditLogModel.list()).total
     const purged = await auditLogModel.purge(365)
     assert.equal(purged, 0)
+    // OpenProject #2237: purge() always writes its own `auditLog.purged` entry, even a zero-count
+    // run, so the log shows the job ran rather than staying silent.
+    const after = await auditLogModel.list()
+    assert.equal(after.total, before + 1)
+    assert.equal(after.entries[0]!.event, 'auditLog.purged')
+    assert.equal(after.entries[0]!.detail.count, 0)
+    assert.ok(after.entries[0]!.detail.cutoff)
+  })
+
+  /*
+    OpenProject #1902: the classification-conflicts resolve route writes its audit entries through
+    this batched path instead of one `record()` call per page.
+  */
+  test('recordMany() writes N entries in one call, matching N record() calls', async () => {
+    const before = (await auditLogModel.list()).total
+    await auditLogModel.recordMany([
+      {
+        event: 'page.classificationChanged',
+        actor: { id: fixtures.userId, name: 'Fixture User' },
+        targetType: 'page',
+        targetId: 'page-1',
+        targetLabel: 'batch/one',
+        detail: { from: 'a', to: 'b' }
+      },
+      {
+        event: 'page.classificationChanged',
+        actor: { id: fixtures.userId, name: 'Fixture User' },
+        targetType: 'page',
+        targetId: 'page-2',
+        targetLabel: 'batch/two',
+        detail: { from: 'a', to: 'b' }
+      }
+    ])
+    const { total, entries } = await auditLogModel.list({ event: 'page.classificationChanged' })
+    assert.equal(total, before + 2)
+    const targetIds = entries.map((e) => e.targetId).sort()
+    assert.deepEqual(targetIds.filter((id) => id === 'page-1' || id === 'page-2').sort(), [
+      'page-1',
+      'page-2'
+    ])
+  })
+
+  test('recordMany() with an empty array writes nothing', async () => {
+    const before = (await auditLogModel.list()).total
+    await auditLogModel.recordMany([])
     assert.equal((await auditLogModel.list()).total, before)
   })
 
-  test('purge() drops entries older than the retention window', async () => {
+  test('purge() drops entries older than the retention window, then records its own purge', async () => {
     const before = (await auditLogModel.list()).total
     assert.ok(before > 0)
     const purged = await auditLogModel.purge(0)
     assert.equal(purged, before)
-    assert.equal((await auditLogModel.list()).total, 0)
+    // Only the purge's own new entry survives -- everything that existed before it, including the
+    // previous test's `auditLog.purged` row, was older than the (empty) retention window.
+    const after = await auditLogModel.list()
+    assert.equal(after.total, 1)
+    assert.equal(after.entries[0]!.event, 'auditLog.purged')
+    assert.equal(after.entries[0]!.detail.count, purged)
+    assert.ok(after.entries[0]!.detail.cutoff)
   })
 })

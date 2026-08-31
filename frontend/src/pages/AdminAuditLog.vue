@@ -2,10 +2,13 @@
   <w-page class="admin-audit-log">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-event-log.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-event-log.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.audit.title') }}</div>
+        <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.audit.title') }}</h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.audit.subtitle') }}
         </div>
@@ -46,7 +49,8 @@
               emit-value
               map-options
               v-model="state.filters.actorId"
-              :options="actorOptions" />
+              :options="actorOptions"
+              :aria-label="t('admin.audit.filterActor')" />
           </div>
           <div style="min-width: 220px">
             <div class="text-caption text-grey mb-1">{{ t('admin.audit.filterEvent') }}</div>
@@ -57,15 +61,26 @@
               emit-value
               map-options
               v-model="state.filters.event"
-              :options="eventOptions" />
+              :options="eventOptions"
+              :aria-label="t('admin.audit.filterEvent')" />
           </div>
           <div style="min-width: 160px">
             <div class="text-caption text-grey mb-1">{{ t('admin.audit.filterFrom') }}</div>
-            <w-input outlined dense type="date" v-model="state.filters.from" />
+            <w-input
+              outlined
+              dense
+              type="date"
+              v-model="state.filters.from"
+              :aria-label="t('admin.audit.filterFrom')" />
           </div>
           <div style="min-width: 160px">
             <div class="text-caption text-grey mb-1">{{ t('admin.audit.filterTo') }}</div>
-            <w-input outlined dense type="date" v-model="state.filters.to" />
+            <w-input
+              outlined
+              dense
+              type="date"
+              v-model="state.filters.to"
+              :aria-label="t('admin.audit.filterTo')" />
           </div>
           <w-btn
             class="acrylic-btn"
@@ -83,24 +98,24 @@
         </w-card-section>
       </w-card>
 
-      <w-card
-        v-if="state.entries.length < 1"
-        flat
-        :class="dark.isActive ? `bg-dark-5` : `bg-grey-3`">
-        <w-card-section class="items-center" horizontal>
-          <w-card-section class="flex-none pr-0">
-            <w-icon name="la:info-circle" size="sm" />
-          </w-card-section>
-          <w-card-section class="text-caption">{{ t('admin.audit.none') }}</w-card-section>
-        </w-card-section>
-      </w-card>
-      <w-card v-else flat>
+      <w-card flat>
         <w-table
           :rows="state.entries"
           :columns="headers"
           row-key="id"
           flat
           :loading="state.loading > 0">
+          <template #no-data>
+            <w-card-section
+              class="items-center"
+              horizontal
+              :class="dark.isActive ? `bg-dark-5` : `bg-grey-3`">
+              <w-card-section class="flex-none pr-0">
+                <w-icon name="la:info-circle" size="sm" />
+              </w-card-section>
+              <w-card-section class="text-caption">{{ t('admin.audit.none') }}</w-card-section>
+            </w-card-section>
+          </template>
           <template v-slot:body-cell-event="props">
             <w-td :props="props">
               <strong>{{ eventLabel(props.value) }}</strong>
@@ -132,7 +147,7 @@
           </template>
           <template v-slot:body-cell-date="props">
             <w-td :props="props">
-              <span>{{ humanizeDate(props.value) }}</span>
+              <span>{{ humanizeDate(t, props.value) }}</span>
               <div>
                 <small class="text-grey">{{ relativeDate(props.value) }}</small>
               </div>
@@ -163,13 +178,17 @@
           <div class="flex items-end gap-3">
             <div style="width: 160px">
               <w-input
+                ref="retentionInput"
                 outlined
                 dense
                 type="number"
                 min="1"
                 max="3650"
                 v-model.number="state.retentionDays"
-                :suffix="t('admin.audit.retentionDaysSuffix')" />
+                :rules="retentionDaysRules"
+                lazy-rules="ondemand"
+                :suffix="t('admin.audit.retentionDaysSuffix')"
+                :aria-label="t('admin.audit.retentionTitle')" />
             </div>
             <w-btn
               class="acrylic-btn"
@@ -194,7 +213,7 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 
 import { apiErrorMessage } from '@/helpers/apiError'
-import { relativeDate } from '@/helpers/datetime'
+import { humanizeDate, relativeDate } from '@/helpers/datetime'
 
 import { useSiteStore } from '@/stores/site'
 
@@ -234,6 +253,7 @@ const AUDIT_EVENTS = [
   'group.memberRemoved',
   'apiKey.issued',
   'apiKey.revoked',
+  'auth.strategyUpdated',
   'site.settingsUpdated',
   'storage.targetUpdated',
   'glossaryTerm.created',
@@ -281,9 +301,8 @@ const state = reactive({
 })
 
 function eventLabel(ev) {
-  const key = `admin.audit.event.${ev}`
-  const translated = t(key)
-  return translated === key ? ev : translated
+  const translated = t(`admin.audit.event.${ev}`)
+  return translated === `admin.audit.event.${ev}` ? ev : translated
 }
 
 const eventOptions = ref([
@@ -293,21 +312,19 @@ const eventOptions = ref([
 
 const actorOptions = ref([{ label: t('admin.audit.allActors'), value: null }])
 
-// METHODS
+const retentionInput = ref(null)
 
-function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
-}
+/**
+ * `min`/`max` on the native control stop the spinner and the slider, not a pasted value -- typing or
+ * pasting "0" or "9999" bypasses both silently. Mirrors `ApprovalRuleDialog.vue`'s
+ * `minApprovalsValidation` convention.
+ */
+const retentionDaysRules = [
+  (val) =>
+    (Number.isInteger(val) && val >= 1 && val <= 3650) || t('admin.audit.retentionDaysInvalid')
+]
+
+// METHODS
 
 function resetFilters() {
   state.filters.actorId = null
@@ -403,13 +420,16 @@ async function loadRetention() {
 }
 
 async function saveRetention() {
+  if (retentionInput.value && !retentionInput.value.validate()) {
+    return
+  }
   state.savingRetention = true
   try {
     const resp = await API_CLIENT.put('audit-log/settings', {
       json: { retentionDays: state.retentionDays }
     }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

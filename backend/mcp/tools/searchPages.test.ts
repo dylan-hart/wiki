@@ -65,7 +65,8 @@ test('handleSearchPages: forwards query/locale/tags/limit and the actor to searc
     groupIds: [GROUP_ID],
     permissions: [],
     scope: null,
-    allowedClassifications: undefined
+    allowedClassifications: undefined,
+    siteId: null
   })
 })
 
@@ -99,4 +100,23 @@ test('handleSearchPages: refuses a site the configured key is not scoped to', as
 test('handleSearchPages: refuses an unknown site', async () => {
   const ctx = install()
   await assert.rejects(() => handleSearchPages(ctx, { query: 'x', siteId: 'nope' }), McpToolError)
+})
+
+// -> OpenProject #2203: an admin-issued key (`ctx.userId === null`) has no attributable user behind
+//    it, exactly like a bearer-token REST caller with no session -- `actorFrom(req)` resolves `null`
+//    for it there, so `POST /_api/sites/:siteId/pages/search` derives `publicOnly: true`, and
+//    `pageActorFor(ctx)` must resolve `null` here too, so `search_pages` derives the same value for
+//    the same key rather than seeing every non-draft unpublished page regardless of publish state.
+test('handleSearchPages: an admin-issued key (no userId) is publicOnly, same as an unauthenticated REST caller', async () => {
+  const ctx = install()
+  assert.equal(ctx.userId, null)
+  await handleSearchPages(ctx, { query: 'x', siteId: SITE_ID })
+  assert.equal(queryCalls[0].publicOnly, true)
+})
+
+test('handleSearchPages: a personal-access-token key (userId set) is not publicOnly', async () => {
+  const ctx = install()
+  ctx.userId = 'user-1'
+  await handleSearchPages(ctx, { query: 'x', siteId: SITE_ID })
+  assert.equal(queryCalls[0].publicOnly, false)
 })

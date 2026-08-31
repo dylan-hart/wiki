@@ -148,6 +148,17 @@ export default class LdapAuthentication {
     if (!url || !bindDn || !bindCredentials || !searchBase || !searchFilter) {
       throw new Error('ERR_STRATEGY_MISCONFIGURED')
     }
+    // -> Distinct from the misconfiguration guard above: this is a bad *credential*, not a bad
+    //    *strategy*. `ldapts`'s BindRequest defaults a missing password to `''` and sends it as a
+    //    simple-auth bind, which RFC 4513 defines as an unauthenticated bind that many directories
+    //    (Active Directory by default) answer with success against any DN that resolves — refuse it
+    //    here, before the verification bind is ever attempted.
+    if (!password) {
+      WIKI.models.flags.authDebug(
+        `LDAP strategy ${this.strategyId}: refused an empty/missing password for "${username}"`
+      )
+      throw new Error('ERR_LOGIN_FAILED')
+    }
 
     let tlsOptions: Record<string, any>
     try {

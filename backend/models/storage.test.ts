@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 import { getFileExtension, storage, SYNC_SHAPED_ACTIONS } from './storage.ts'
 import { sites as sitesTable } from '../db/schema.ts'
 import type { StorageTarget } from './storage.ts'
@@ -11,18 +12,7 @@ import type { StorageTarget } from './storage.ts'
 // -> `refreshFromDisk()` reads real files under `modules/storage`, so the only setup needed is a
 //    minimal `WIKI` global pointing at this checkout's `backend/` directory — no database involved.
 before(async () => {
-  // -> Node 25 (this sandbox) has no native `Temporal` yet — Node 26 does, per this repo's engine
-  //    requirement. Polyfilled only when missing, so this is a no-op on a real Node 26 runtime. The
-  //    package polyfills the `Temporal` global itself but, unlike Node 26, does not also patch
-  //    `Date.prototype.toTemporalInstant()` -- `tickScheduledSyncs()` uses that conversion (this
-  //    codebase's documented convention, see CLAUDE.md), so it is patched on here too.
-  if (typeof Temporal === 'undefined') {
-    const polyfill = await import('@js-temporal/polyfill')
-    ;(globalThis as any).Temporal = polyfill.Temporal
-    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-      return polyfill.toTemporalInstant.call(this)
-    }
-  }
+  await ensureTemporal()
   global.WIKI = {
     SERVERPATH: path.join(import.meta.dirname, '..'),
     logger: {

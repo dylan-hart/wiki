@@ -24,10 +24,19 @@ const iconCache = new Map()
  * An empty string for anything that is not a `prefix:name` reference, an icon the server will not
  * serve, or a request that failed: a missing icon is a row without one, not a row that breaks.
  *
+ * An `img:` reference is `iconImageUrl()`'s to resolve, not this function's — it names a file to
+ * point an `<img>` at, not an Iconify icon to fetch, so it is rejected here before either the cache
+ * or `/_icons` ever see it. This is the one place that check has to happen: every caller shares it
+ * for free, and `''` is never written to `iconCache` for a reference that was never a fetch to begin
+ * with.
+ *
  * @param {string} reference An Iconify reference, e.g. `mdi:home`.
  * @returns {Promise<string>} The SVG markup, or an empty string.
  */
 export async function fetchIcon(reference) {
+  if (iconImageUrl(reference) !== null) {
+    return ''
+  }
   if (iconCache.has(reference)) {
     return iconCache.get(reference)
   }

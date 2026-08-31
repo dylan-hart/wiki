@@ -40,7 +40,11 @@ async function mountNav(items, { path = '/' } = {}) {
   await router.push(path)
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    messages: { en: { common: { sidebar: { browse: 'Browse' } } } }
+  })
 
   const wrapper = mount(NavSidebar, {
     global: {
@@ -80,12 +84,36 @@ describe('NavSidebar destination()', () => {
       label: 'mailto link',
       target: 'mailto:hello@example.org',
       /*
-        Not explicitly called out in `routableHref`'s own comment, but already covered by its
-        protocol check: `mailto:` fails `/^https?:$/`, so this falls straight through to the
-        non-routable branch with no special-casing needed. Verified rather than assumed -- see
-        `destination()`'s JSDoc for where this is now documented.
+        `mailto:` fails `routableHref`'s `/^https?:$/` check, so this falls through to the
+        non-routable branch -- and is explicitly on `SAFE_TARGET_PROTOCOLS` there, so it still comes
+        out as a plain `href` rather than being refused the way `javascript:` now is below. Verified
+        rather than assumed -- see `destination()`'s JSDoc for where this is now documented.
       */
       expect: { href: 'mailto:hello@example.org' }
+    },
+    {
+      label: 'tel link',
+      target: 'tel:+15555550100',
+      expect: { href: 'tel:+15555550100' }
+    },
+    {
+      label: 'javascript: scheme',
+      target: 'javascript:alert(1)',
+      /*
+        OpenProject #2208 §3: refused outright, `{}` -- neither `to` nor `href` -- rather than the old
+        behavior of handing it out verbatim as a plain anchor's `href`. Vue does not sanitize a
+        dynamically bound `href`, so that used to mean a `site:navigation` holder (a delegated,
+        non-administrator permission) could plant script that ran for any reader who clicked the row.
+        Refused regardless of `openInNewWindow` too -- see `blocked` below.
+      */
+      expect: {},
+      blocked: true
+    },
+    {
+      label: 'data: scheme',
+      target: 'data:text/html,<script>alert(1)</script>',
+      expect: {},
+      blocked: true
     },
     {
       label: 'Files download',
@@ -151,18 +179,25 @@ describe('NavSidebar destination()', () => {
   )
 
   it.each(CASES)(
-    '$label, openInNewWindow on: always a plain anchor targeting _blank',
-    async ({ label, target }) => {
+    '$label, openInNewWindow on: always a plain anchor targeting _blank (unless the scheme is refused)',
+    async ({ label, target, blocked }) => {
       const { wrapper } = await mountNav(items)
       const row = rowFor(wrapper, `${label} (new tab)`)
       /*
         `routableHref` declines any `target` other than `_self` on principle -- a new tab is the
         browser's context to open, not the router's to swap in -- so `openInNewWindow` always wins
-        out to a plain `href`/`target="_blank"` pair, for every category above without exception.
+        out to a plain `href`/`target="_blank"` pair, for every category above except a refused
+        scheme (`javascript:`, `data:`): that one stays refused regardless of window mode, since a
+        new tab is still this app's `<a>` binding the click runs through.
       */
       expect(row.props('to')).toBeFalsy()
-      expect(row.props('href')).toBe(target)
-      expect(row.props('target')).toBe('_blank')
+      if (blocked) {
+        expect(row.props('href')).toBeFalsy()
+        expect(row.props('target')).toBeFalsy()
+      } else {
+        expect(row.props('href')).toBe(target)
+        expect(row.props('target')).toBe('_blank')
+      }
     }
   )
 })
@@ -490,7 +525,11 @@ async function mountSidebar(sidebarPosition) {
   router.push('/')
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    messages: { en: { common: { sidebar: { browse: 'Browse' } } } }
+  })
 
   return mount(NavSidebar, {
     global: {
@@ -499,7 +538,60 @@ async function mountSidebar(sidebarPosition) {
   })
 }
 
+/**
+ * OpenProject #1630 (task 1640): the primary navigation had no `<nav>` element and no accessible
+ * name at all, so it was unreachable through the landmarks rotor and indistinguishable from
+ * `PageToc`'s own `<nav>` even if it had been one. `common.sidebar.browse` ("Browse") is the label
+ * the fix's own spec names, already used elsewhere in this sidebar for the tree-browser button.
+ */
+describe('NavSidebar landmark', () => {
+  it('wraps the nav list in a named <nav> landmark', async () => {
+    setActivePinia(createPinia())
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    router.push('/')
+    await router.isReady()
+
+    // -> A real message this time (`mountSidebar`'s own harness intentionally leaves `en` empty,
+    //    since none of ITS assertions read a translated string) -- vue-i18n returns the bare key
+    //    for a missing one, and this test needs the resolved label.
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: { en: { 'common.sidebar.browse': 'Browse' } }
+    })
+
+    const wrapper = mount(NavSidebar, { global: { plugins: [router, i18n] } })
+    await wrapper.vm.$nextTick()
+
+    const nav = wrapper.find('nav')
+    expect(nav.exists()).toBe(true)
+    expect(nav.attributes('aria-label')).toBe('Browse')
+    // -> The list itself lives INSIDE the landmark, not merely beside it
+    expect(nav.find('.sidebar-nav-list').exists()).toBe(true)
+  })
+})
+
 describe('NavSidebar', () => {
+  /**
+   * OpenProject #1640: the sidebar had no `<nav>` landmark at all -- a screen reader's landmarks
+   * rotor had nothing to jump to for the primary navigation, distinct from the page's own `<nav
+   * class="page-toc">` (`PageToc.vue`). Asserted here that a `<nav>` wraps the rendered list AND
+   * carries the resolved (not hardcoded) accessible name, so the two landmarks are both present and
+   * distinguishable.
+   */
+  it('wraps the sidebar list in a named <nav> landmark', async () => {
+    const wrapper = await mountSidebar('left')
+
+    const nav = wrapper.find('nav')
+    expect(nav.exists()).toBe(true)
+    expect(nav.attributes('aria-label')).toBe('Browse')
+    expect(nav.find('.sidebar-nav-list').exists()).toBe(true)
+  })
+
   it('applies sidebar-nav--flipped only when sidebarPosition is "right"', async () => {
     const defaultSidebar = await mountSidebar('left')
     expect(defaultSidebar.classes()).not.toContain('sidebar-nav--flipped')
@@ -516,9 +608,8 @@ describe('NavSidebar', () => {
    * "elbows" that already read `inset-inline-start`, and a `border-left` here would point the
    * straight run of the rail at a different edge than its own turns once `dir="rtl"` moves them.
    *
-   * Excludes the `<script>` block's `thumbStyle.right` (the scroll-thumb's position within its own
-   * track, a native-scrollbar convention this custom control is matching -- not a text-direction
-   * concern), which is why this greps the `<style>` block specifically rather than the whole file.
+   * Scoped to the `<style>` block specifically rather than the whole file, since a script-side
+   * `right`/`left` property name (positioning, not a physical border) would otherwise false-match.
    */
   it('keeps the open-group rail on a logical (inline-start) border, not a physical one', () => {
     const dir = dirname(fileURLToPath(import.meta.url))

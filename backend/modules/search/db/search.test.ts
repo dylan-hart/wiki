@@ -1,5 +1,6 @@
-import { after, before, describe, test } from 'node:test'
+import { after, afterEach, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import {
   hasTestDatabase,
@@ -7,6 +8,7 @@ import {
   teardownTestDb,
   type TestFixtures
 } from '../../../test/db.ts'
+import { groups as groupsTable } from '../../../db/schema.ts'
 import type { PageActor, PageInput } from '../../../models/pages.ts'
 
 /**
@@ -239,10 +241,101 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
     assert.equal(asBlocked.totalHits, 0)
     assert.deepEqual(asBlocked.results, [])
+    // -> The window function counted the row postgres matched; the rules filter then dropped it from
+    //    this page, so the corrected total is no longer exact -- see OpenProject #2006.
+    assert.equal(asBlocked.totalHitsApproximate, true)
 
     // -> Sanity check: the same query against the same page finds it once access is not blocked
     const unfiltered = await searchModel.query({ siteId: fixtures.siteId, query: 'numbat' })
     assert.equal(unfiltered.totalHits, 1)
+    // -> Nothing was dropped by the rules filter here (no `actor` was even passed), so the total is exact
+    assert.equal(unfiltered.totalHitsApproximate, false)
+  })
+
+  /**
+   * OpenProject #2151: `totalHits` used to be `COUNT(*) OVER()` over the *unfiltered* text query,
+   * adjusted only by what `checkAccess` dropped from the single page already fetched — so a match
+   * outside that page, which the actor could never actually read, still inflated the count. This is
+   * most visible at `limit: 1`: three pages share the term below, but the actor may read only one of
+   * them, so `visible` (what `checkAccess` actually lets them see) is the true readable-matches
+   * count. The old arithmetic reported 2 or 3 there (`windowCount(3) - rows.length(1) +
+   * visible.length(0 or 1)`, depending only on which single row postgres's LIMIT happened to return)
+   * — always more than the one page this actor may see.
+   */
+  test('totalHits never exceeds what the actor may actually read, even at limit: 1', async () => {
+    const readablePath = 'docs/bilby-public'
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: readablePath, title: 'Bilby Public Notes' }),
+      actor
+    )
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/bilby-secret-a', title: 'Bilby Secret Notes A' }),
+      actor
+    )
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/bilby-secret-b', title: 'Bilby Secret Notes B' }),
+      actor
+    )
+
+    // -> A group whose only rule grants `read:pages` on exactly `readablePath` — nothing grants it
+    //    on the other two, and nothing is granted by default (see `helpers/pageRules.ts`), so a
+    //    guest-like actor in only this group can read that one page and none of the others.
+    const [restrictedGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({
+        name: 'Bilby Readers',
+        permissions: [],
+        rules: [
+          {
+            id: randomUUID(),
+            name: 'Allow the public bilby page',
+            roles: ['read:pages'],
+            match: 'EXACT',
+            mode: 'ALLOW',
+            path: readablePath,
+            locales: [],
+            sites: []
+          }
+        ]
+      })
+      .returning({ id: groupsTable.id })
+    await WIKI.models.groups.reloadCache()
+
+    const restrictedActor: PageActor = {
+      id: fixtures.userId,
+      groupIds: [restrictedGroup!.id],
+      permissions: []
+    }
+
+    const atLimitOne = await searchModel.query({
+      siteId: fixtures.siteId,
+      query: 'bilby',
+      actor: restrictedActor,
+      limit: 1
+    })
+    assert.equal(atLimitOne.totalHits, 1)
+    assert.equal(atLimitOne.results.length, 1)
+    assert.equal(atLimitOne.results[0]!.path, readablePath)
+
+    // -> Same actor, no `limit` narrowing the page fetched — the count must still reflect only the
+    //    one page they may read, not all three matches.
+    const unpaged = await searchModel.query({
+      siteId: fixtures.siteId,
+      query: 'bilby',
+      actor: restrictedActor
+    })
+    assert.equal(unpaged.totalHits, 1)
+    assert.deepEqual(
+      unpaged.results.map((r) => r.path),
+      [readablePath]
+    )
+
+    // -> Sanity check: the unrestricted actor sees all three
+    const unrestricted = await searchModel.query({ siteId: fixtures.siteId, query: 'bilby' })
+    assert.equal(unrestricted.totalHits, 3)
   })
 
   /**
@@ -373,5 +466,100 @@ describe('db search module query() siteId threading (task 678)', () => {
 
     assert.equal(checkAccessCalls.length, 1)
     assert.equal(checkAccessCalls[0].siteId, '11111111-1111-4111-8111-111111111111')
+  })
+})
+
+describe('db search module query() totalHitsApproximate (OpenProject #2006)', () => {
+  /**
+   * Mock-based, same reasoning as the "siteId threading" suite above: whether `totalHitsApproximate`
+   * is set is decided entirely by comparing the row count before and after the `checkAccess` filter,
+   * with no SQL of its own to exercise against a real database -- so a fake two-row response plus a
+   * controllable `checkAccess` is enough to cover both branches fast, leaving the "does this actually
+   * happen against real page rules" case to the DB-backed suite above.
+   */
+  function rowFixtures() {
+    return [
+      {
+        id: 'page-1',
+        path: 'engineering/onboarding',
+        locale: 'en',
+        title: 'Onboarding',
+        description: null,
+        icon: null,
+        tags: [],
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        relevancy: 0,
+        highlight: null,
+        totalHits: 2
+      },
+      {
+        id: 'page-2',
+        path: 'engineering/secret-roadmap',
+        locale: 'en',
+        title: 'Secret Roadmap',
+        description: null,
+        icon: null,
+        tags: [],
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        relevancy: 0,
+        highlight: null,
+        totalHits: 2
+      }
+    ]
+  }
+
+  function installWiki(checkAccess: (page: any) => boolean) {
+    ;(globalThis as any).WIKI = {
+      config: {},
+      sites: {},
+      db: { execute: async () => ({ rows: rowFixtures() }) },
+      models: {
+        groups: { checkAccess: (_actor: any, _permission: string, page: any) => checkAccess(page) }
+      }
+    }
+  }
+
+  afterEach(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('is true when the rules filter drops a row the engine counted', async () => {
+    installWiki((page) => page.path !== 'engineering/secret-roadmap')
+    const { default: dbSearchModule } = await import('./search.ts')
+
+    const result = await dbSearchModule.query({
+      siteId: '11111111-1111-4111-8111-111111111111',
+      actor: { groupIds: [], permissions: [] } as any
+    })
+
+    assert.equal(result.results.length, 1)
+    assert.equal(result.totalHitsApproximate, true)
+  })
+
+  test('is false when the rules filter drops nothing', async () => {
+    installWiki(() => true)
+    const { default: dbSearchModule } = await import('./search.ts')
+
+    const result = await dbSearchModule.query({
+      siteId: '11111111-1111-4111-8111-111111111111',
+      actor: { groupIds: [], permissions: [] } as any
+    })
+
+    assert.equal(result.results.length, 2)
+    assert.equal(result.totalHitsApproximate, false)
+  })
+
+  test('is false when no actor is given to filter against', async () => {
+    installWiki(() => {
+      throw new Error('checkAccess should not be called without an actor')
+    })
+    const { default: dbSearchModule } = await import('./search.ts')
+
+    const result = await dbSearchModule.query({
+      siteId: '11111111-1111-4111-8111-111111111111'
+    })
+
+    assert.equal(result.results.length, 2)
+    assert.equal(result.totalHitsApproximate, false)
   })
 })

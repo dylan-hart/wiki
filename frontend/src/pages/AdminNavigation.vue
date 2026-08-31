@@ -4,12 +4,13 @@
       <div class="flex-none">
         <img
           class="admin-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-tree-structure.svg" />
+          src="/_assets/icons/fluent-tree-structure.svg"
+          alt="" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">
+        <h1 class="text-h5 text-primary animated fadeInLeft">
           {{ t('admin.navigation.title') }}
-        </div>
+        </h1>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
           {{ t('admin.navigation.subtitle') }}
         </div>
@@ -106,16 +107,16 @@
                 {{ props.value }}
               </w-td>
             </template>
+            <template #no-data>
+              <div class="p-4 text-center text-grey">
+                {{
+                  state.overrides.length < 1
+                    ? t('admin.navigation.emptyText')
+                    : t('admin.navigation.noMatchesText')
+                }}
+              </div>
+            </template>
           </w-table>
-          <div
-            class="p-4 text-center text-grey"
-            v-if="state.loading < 1 && filteredOverrides.length < 1">
-            {{
-              state.overrides.length < 1
-                ? t('admin.navigation.emptyText')
-                : t('admin.navigation.noMatchesText')
-            }}
-          </div>
         </w-card>
       </div>
     </div>

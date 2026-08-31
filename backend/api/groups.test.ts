@@ -46,6 +46,20 @@ describe(
         }
       })
       await app.register(fastifySensible)
+      // -> Mirrors `index.ts`'s real `setErrorHandler`: a thrown `CustomError` (or a
+      //    `@fastify/sensible` error) carries `.statusCode`, but nothing shapes it into the
+      //    `{ ok, error, statusCode, message }` `ApiError#` schema expects without this -- the
+      //    default handler tries to serialize the raw `Error` object against that schema and fails,
+      //    since an `Error` has no `ok`/`error` property of its own.
+      app.setErrorHandler((error: any, req, reply) => {
+        reply.code(error.statusCode ?? 500).send({
+          ok: false,
+          error: error.name,
+          statusCode: error.statusCode ?? 500,
+          message: error.message
+        })
+      })
+      await registerErrorSchema(app)
       await registerUserSchema(app)
       await registerGroupSchema(app)
       await app.register(groupsRoutes)
@@ -127,6 +141,125 @@ describe(
 
       warn.mock.restore()
     })
+
+    /**
+     * OpenProject #1360/#2208 (2026-08-24 security audit §2, §6): `redirectOnLogin` was a bare
+     * `{ type: 'string' }` with no scheme check, and `AuthLoginPanel.vue`'s
+     * `window.location.replace()` on the login path executes a `javascript:` value in the NEXT
+     * signed-in user's session — including an administrator's, since the guard `clampGuestPatch`
+     * above enforces protects only `manage:system` itself, not these fields.
+     */
+    test('rejects a javascript: redirectOnLogin with 400, and does not save it', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/${fixtures.groupId}`,
+        payload: { redirectOnLogin: 'javascript:alert(1)' }
+      })
+      assert.equal(res.statusCode, 400)
+
+      const saved = await groupsModel.getGroupById(fixtures.groupId)
+      assert.notEqual(saved?.redirectOnLogin, 'javascript:alert(1)')
+    })
+
+    test('rejects a scheme-relative //host redirectOnFirstLogin with 400', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/${fixtures.groupId}`,
+        payload: { redirectOnFirstLogin: '//attacker.example' }
+      })
+      assert.equal(res.statusCode, 400)
+    })
+
+    test('accepts a rooted path and a complete https:// URL for redirectOnLogout', async () => {
+      for (const target of ['/dashboard', 'https://example.com/goodbye']) {
+        const res = await app.inject({
+          method: 'PUT',
+          url: `/${fixtures.groupId}`,
+          payload: { redirectOnLogout: target }
+        })
+        assert.equal(res.statusCode, 200)
+        const saved = await groupsModel.getGroupById(fixtures.groupId)
+        assert.equal(saved?.redirectOnLogout, target)
+      }
+    })
+
+    test('accepts an empty string — the seeded default meaning "no redirect configured"', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/${fixtures.groupId}`,
+        payload: { redirectOnLogin: '' }
+      })
+      assert.equal(res.statusCode, 200)
+    })
+  }
+)
+
+/**
+ * Task 2116: `PUT /:groupId` round-trips a `CLASSIFICATION` rule -- the `match` value the ajv schema
+ * previously rejected with a 400 (see `api/schemas/group.test.ts` for the schema-level regression) --
+ * and its `classifications` array survives the write/read cycle intact, exercising the real route +
+ * model rather than the schema in isolation.
+ */
+describe(
+  'PUT /:groupId — CLASSIFICATION rule round-trip (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let app: FastifyInstance
+    let fixtures: TestFixtures
+    let groupsModel: typeof import('../models/groups.ts').groups
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ groups: groupsModel } = await import('../models/groups.ts'))
+      // -> Not the guests group: `clampGuestPatch` only clamps roles for that one group, and this test
+      //    is about the `match`/`classifications` shape surviving validation, not the guest clamp.
+      ;(globalThis as any).WIKI.data.systemIds = { guestsGroupId: 'not-this-group' }
+
+      app = fastify({
+        ajv: {
+          plugins: [[ajvFormats.default, {}] as any]
+        }
+      })
+      await app.register(fastifySensible)
+      await registerUserSchema(app)
+      await registerGroupSchema(app)
+      await app.register(groupsRoutes)
+      await app.ready()
+    })
+
+    after(async () => {
+      await app.close()
+      await teardownTestDb()
+    })
+
+    test('accepts a CLASSIFICATION rule and reads its classifications array back intact', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/${fixtures.groupId}`,
+        payload: {
+          rules: [
+            {
+              id: 'classification-rule',
+              name: 'Restricted classification',
+              roles: ['read:pages'],
+              match: 'CLASSIFICATION',
+              mode: 'DENY',
+              path: '',
+              locales: [],
+              sites: [],
+              classifications: [fixtures.classificationId]
+            }
+          ]
+        }
+      })
+
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.json().ok, true)
+
+      const saved = await groupsModel.getGroupById(fixtures.groupId)
+      assert.equal(saved?.rules[0]!.match, 'CLASSIFICATION')
+      assert.deepEqual(saved?.rules[0]!.classifications, [fixtures.classificationId])
+    })
   }
 )
 
@@ -198,6 +331,16 @@ let app: FastifyInstance
 
 before(async () => {
   ;(globalThis as any).WIKI = {
+    config: {
+      auth: {
+        // -> Distinct from GROUP_ID, so the root-admin-permissions guard in the PUT handler never
+        //    activates for the fixture group these tests exercise.
+        rootAdminGroupId: '99999999-9999-9999-9999-999999999999'
+      }
+    },
+    logger: {
+      warn: () => {}
+    },
     models: {
       groups: {
         async getAllGroups() {
@@ -205,7 +348,19 @@ before(async () => {
         },
         async getGroupById(id: string) {
           return id === GROUP_ID ? fullGroup : null
+        },
+        async updateGroup() {
+          return true
+        },
+        holdsSystemPermission() {
+          return true
         }
+      },
+      sessions: {
+        async clearSessionsForGroup() {}
+      },
+      auditLog: {
+        async record() {}
       }
     }
   }
@@ -274,4 +429,182 @@ test('an account with neither read:groups, manage:groups nor manage:navigation i
 test('an anonymous request is refused the list', async () => {
   const res = await app.inject({ method: 'GET', url: '/' })
   assert.equal(res.statusCode, 401)
+})
+
+/**
+ * OpenProject #1658: `permissions` and rule `roles` are now validated against the closed
+ * vocabularies (`helpers/permissions.ts`, `helpers/siteRules.ts`) at the schema level, so an unknown
+ * string is rejected with 400 before it ever reaches `updateGroup` -- rather than being silently
+ * accepted, stored, and granting nothing. Schema validation runs ahead of the permission preHandler
+ * in Fastify's request lifecycle, but `manage:groups` headers are still sent here to keep each case
+ * indistinguishable from a real, otherwise-authorized caller.
+ *
+ * There is no equivalent case for the create route: `POST /groups` accepts only `name` in its body
+ * (`createGroup` seeds default permissions/rules internally, not from caller input), so it has no
+ * `permissions`/`roles` surface for an unknown vocabulary entry to reach in the first place.
+ *
+ * Placed before the redirect-field-validation describe block below: that block's own `after()` tears
+ * down the ambient `globalThis.WIKI` its isolated `redirectApp` needs, and these three cases run
+ * against the file's own top-level `app`/`WIKI` instead -- ordered after that teardown, they would
+ * find `WIKI` gone.
+ */
+test('PUT rejects an unknown global permission string with 400', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${GROUP_ID}`,
+    headers: headersFor(['manage:groups']),
+    payload: {
+      permissions: ['manage:navigations']
+    }
+  })
+  assert.equal(res.statusCode, 400)
+})
+
+test('PUT rejects an unknown rule role string with 400', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${GROUP_ID}`,
+    headers: headersFor(['manage:groups']),
+    payload: {
+      rules: [
+        {
+          id: 'bad-role',
+          name: 'Bad role',
+          roles: ['write:page'],
+          match: 'START',
+          mode: 'ALLOW',
+          path: '',
+          locales: [],
+          sites: []
+        }
+      ]
+    }
+  })
+  assert.equal(res.statusCode, 400)
+})
+
+test('PUT accepts a known global permission and a known rule role', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${GROUP_ID}`,
+    headers: headersFor(['manage:groups']),
+    payload: {
+      permissions: ['manage:navigation'],
+      rules: [
+        {
+          id: 'good-role',
+          name: 'Good role',
+          roles: ['write:pages', 'site:theme'],
+          match: 'START',
+          mode: 'ALLOW',
+          path: '',
+          locales: [],
+          sites: []
+        }
+      ]
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().ok, true)
+})
+
+/**
+ * OpenProject #2208 §2: `redirectOnLogin`/`redirectOnFirstLogin`/`redirectOnLogout` used to be
+ * copied into the patch with no validation at all, so a `manage:groups` holder could store
+ * `javascript:...` on the administrators group and have it execute for the next admin who signs in
+ * -- with no click required, and a complete bypass of `api/groups.ts`'s own `manage:system` guard,
+ * whose entire purpose is to stop `manage:groups` reaching that permission. Isolated route-file
+ * approach, same as the permission-surface suite above: `WIKI.models.groups` stubbed rather than a
+ * real database, since this is about the route's own validation rather than model behavior.
+ */
+describe('PUT /:groupId — redirect field validation', () => {
+  const REDIRECT_GROUP_ID = '55555555-5555-5555-5555-555555555555'
+  let redirectApp: FastifyInstance
+  let updateGroupCalls: Array<{ id: string; patch: Record<string, unknown> }>
+
+  before(async () => {
+    updateGroupCalls = []
+    ;(globalThis as any).WIKI = {
+      config: { security: { disallowOpenRedirect: true } },
+      models: {
+        groups: {
+          async getGroupById(id: string) {
+            return id === REDIRECT_GROUP_ID
+              ? { id: REDIRECT_GROUP_ID, name: 'Editors', permissions: [], rules: [] }
+              : null
+          },
+          async updateGroup(id: string, patch: Record<string, unknown>) {
+            updateGroupCalls.push({ id, patch })
+          },
+          holdsSystemPermission() {
+            return true
+          }
+        },
+        auditLog: {
+          async record() {}
+        }
+      }
+    }
+
+    redirectApp = fastify()
+    await redirectApp.register(fastifySensible)
+    redirectApp.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerGroupSchema(redirectApp)
+    await registerUserSchema(redirectApp)
+    await registerErrorSchema(redirectApp)
+    await redirectApp.register(groupsRoutes)
+    await redirectApp.ready()
+  })
+
+  after(async () => {
+    await redirectApp.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('rejects a javascript: redirectOnLogin with 400 and does not persist it', async () => {
+    const res = await redirectApp.inject({
+      method: 'PUT',
+      url: `/${REDIRECT_GROUP_ID}`,
+      payload: { redirectOnLogin: 'javascript:alert(1)' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(updateGroupCalls.length, 0)
+  })
+
+  test('rejects a protocol-relative //host redirectOnFirstLogin with 400', async () => {
+    const res = await redirectApp.inject({
+      method: 'PUT',
+      url: `/${REDIRECT_GROUP_ID}`,
+      payload: { redirectOnFirstLogin: '//evil.example' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(updateGroupCalls.length, 0)
+  })
+
+  test('rejects a complete https:// redirectOnLogout while disallowOpenRedirect is on', async () => {
+    const res = await redirectApp.inject({
+      method: 'PUT',
+      url: `/${REDIRECT_GROUP_ID}`,
+      payload: { redirectOnLogout: 'https://elsewhere.example/bye' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(updateGroupCalls.length, 0)
+  })
+
+  test('accepts a rooted path redirectOnLogin and persists it', async () => {
+    const res = await redirectApp.inject({
+      method: 'PUT',
+      url: `/${REDIRECT_GROUP_ID}`,
+      payload: { redirectOnLogin: '/welcome' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(updateGroupCalls.at(-1)?.patch.redirectOnLogin, '/welcome')
+  })
 })
