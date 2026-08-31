@@ -335,17 +335,29 @@ class Locales {
   }
 
   async getStrings(locale: string) {
-    const results = await WIKI.db
-      .select({ strings: localesTable.strings })
-      .from(localesTable)
-      .where(eq(localesTable.code, locale))
-      .limit(1)
-    return results.length === 1 ? results[0].strings : []
+    const cacheKey = `localeStrings:${locale}`
+    if (!WIKI.cache.has(cacheKey)) {
+      const results = await WIKI.db
+        .select({ strings: localesTable.strings })
+        .from(localesTable)
+        .where(eq(localesTable.code, locale))
+        .limit(1)
+      WIKI.cache.set(cacheKey, results.length === 1 ? results[0].strings : [])
+    }
+    return WIKI.cache.get(cacheKey)
   }
 
   async reloadCache(): Promise<void> {
     WIKI.logger.info('Reloading locales cache...')
     const locales = await WIKI.models.locales.getLocales({ cache: false })
+    // -> `getStrings()` caches per code under `localeStrings:<code>` (OpenProject #1915). This is
+    //    the single invalidation point for that cache too — called from `sideloadFromDataPath` after
+    //    a pack is written, so dropping every known code's entry here (rather than tracking which
+    //    codes were ever actually requested) is what guarantees a sideloaded pack's strings are
+    //    fresh on the very next `getStrings()` call.
+    for (const locale of locales) {
+      WIKI.cache.delete(`localeStrings:${locale.code}`)
+    }
     WIKI.logger.info(`Loaded ${locales.length} locales into cache [ OK ]`)
   }
 }

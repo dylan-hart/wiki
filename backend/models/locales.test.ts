@@ -445,3 +445,88 @@ describe('isReservedLocaleCode (DB-backed)', { skip: !hasTestDatabase() }, () =>
     assert.equal(await localesModel.isReservedLocaleCode(''), false)
   })
 })
+
+/**
+ * `getStrings()` caching (OpenProject #1915): mirrors `getLocales()`'s existing `WIKI.cache` shape —
+ * keyed `localeStrings:<code>` — so a cold page load doesn't pay a fresh ~190 KB JSONB read on every
+ * visit. `reloadCache()` is the single invalidation point (already called from
+ * `sideloadFromDataPath`), so a sideloaded pack must be visible on the next `getStrings()` call.
+ */
+describe('getStrings() caching (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let localesModel: typeof import('./locales.ts').locales
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ locales: localesModel } = await import('./locales.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('a second call for the same code issues no query, reading the cache instead', async () => {
+    await seedLocale(fixtures.db, { code: 'ja' })
+    await fixtures.db
+      .update(localesTable)
+      .set({ strings: { hello: 'Konnichiwa' } })
+      .where(eq(localesTable.code, 'ja'))
+
+    const first = await localesModel.getStrings('ja')
+    assert.deepEqual(first, { hello: 'Konnichiwa' })
+
+    const getCallsBefore = (WIKI.cache.get as any).mock.callCount()
+    const second = await localesModel.getStrings('ja')
+
+    assert.deepEqual(second, { hello: 'Konnichiwa' })
+    assert.equal((WIKI.cache.get as any).mock.callCount(), getCallsBefore + 1)
+  })
+
+  test('a different code gets its own cache entry', async () => {
+    await seedLocale(fixtures.db, { code: 'en' })
+    await seedLocale(fixtures.db, { code: 'fr' })
+    await fixtures.db
+      .update(localesTable)
+      .set({ strings: { hello: 'Hello' } })
+      .where(eq(localesTable.code, 'en'))
+    await fixtures.db
+      .update(localesTable)
+      .set({ strings: { hello: 'Bonjour' } })
+      .where(eq(localesTable.code, 'fr'))
+
+    assert.deepEqual(await localesModel.getStrings('en'), { hello: 'Hello' })
+    assert.deepEqual(await localesModel.getStrings('fr'), { hello: 'Bonjour' })
+
+    assert.equal(WIKI.cache.has('localeStrings:en'), true)
+    assert.equal(WIKI.cache.has('localeStrings:fr'), true)
+  })
+
+  test('reloadCache() drops the per-code key, so a sideloaded pack is visible next call', async () => {
+    await seedLocale(fixtures.db, { code: 'de' })
+    await fixtures.db
+      .update(localesTable)
+      .set({ strings: { hello: 'Hallo' } })
+      .where(eq(localesTable.code, 'de'))
+
+    await localesModel.getStrings('de')
+    assert.equal(WIKI.cache.has('localeStrings:de'), true)
+
+    // Simulate what sideloadFromDataPath does: write new strings straight to the DB row, then rely
+    // on reloadCache() (its own invalidation point) to make them visible.
+    await fixtures.db
+      .update(localesTable)
+      .set({ strings: { hello: 'Hallo (updated)' } })
+      .where(eq(localesTable.code, 'de'))
+
+    await localesModel.reloadCache()
+    assert.equal(WIKI.cache.has('localeStrings:de'), false)
+
+    assert.deepEqual(await localesModel.getStrings('de'), { hello: 'Hallo (updated)' })
+  })
+
+  test('an unknown code caches the empty-array miss too', async () => {
+    const result = await localesModel.getStrings('zz-nonexistent')
+    assert.deepEqual(result, [])
+    assert.equal(WIKI.cache.has('localeStrings:zz-nonexistent'), true)
+  })
+})
