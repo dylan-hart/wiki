@@ -195,6 +195,21 @@
               </div>
             </div>
           </div>
+          <!-- Older versions than the page fetched at first come in one bite at a time, not by
+               scroll -- the timeline is what a reader scans, not what should quietly grow underneath
+               them while they're in the middle of doing that. -->
+          <div class="page-history-load-more" v-if="state.nextCursor">
+            <w-btn
+              outline
+              dense
+              no-caps
+              color="secondary"
+              padding="0.4em md"
+              :loading="state.loadingMore"
+              @click="loadMore">
+              {{ t('history.loadMore') }}
+            </w-btn>
+          </div>
         </div>
         <div class="p-4 text-grey-5" v-else-if="state.loading < 1">{{ t('history.none') }}</div>
       </w-scroll-area>
@@ -330,6 +345,14 @@ const state = reactive({
   loading: 0,
   /** Newest first, as the API returns them: the first entry is the page as it stands. */
   versions: [],
+  /**
+   * The route's own paging cursor -- the history is keyset-paginated (OpenProject #1859), so
+   * `state.versions` starts as just the first page rather than the page's whole history. Null once
+   * there is nothing older left to fetch.
+   */
+  nextCursor: null,
+  /** Separate from `loading`: fetching an older page shouldn't reshow the header's syncing spinner. */
+  loadingMore: false,
   /** The left-hand side. Null against the very first version, where there is nothing to compare to. */
   aId: null,
   /** The right-hand side. Never null once there is any history at all. */
@@ -831,8 +854,9 @@ async function load() {
   state.loading++
   state.notice = ''
   try {
-    state.versions =
-      (await API_CLIENT.get(`sites/${siteStore.id}/pages/${pageStore.id}/history`).json()) ?? []
+    const res = await API_CLIENT.get(`sites/${siteStore.id}/pages/${pageStore.id}/history`).json()
+    state.versions = res?.items ?? []
+    state.nextCursor = res?.nextCursor ?? null
     // -> The timeline says so itself; repeating it in the diff pane would say it twice
     if (state.versions.length < 1) {
       return
@@ -850,6 +874,34 @@ async function load() {
     })
   } finally {
     state.loading--
+  }
+}
+
+/**
+ * Fetch the next, older page of the timeline and append it.
+ *
+ * Appended, not replacing `state.versions`: `selectVersion`/`pick` index into that array directly,
+ * and the already-picked A/B letters must stay put while more history arrives underneath them.
+ */
+async function loadMore() {
+  if (!state.nextCursor || state.loadingMore) {
+    return
+  }
+  state.loadingMore = true
+  try {
+    const res = await API_CLIENT.get(`sites/${siteStore.id}/pages/${pageStore.id}/history`, {
+      searchParams: { cursor: state.nextCursor }
+    }).json()
+    state.versions.push(...(res?.items ?? []))
+    state.nextCursor = res?.nextCursor ?? null
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('history.loadMoreFailed'),
+      caption: apiErrorMessage(err)
+    })
+  } finally {
+    state.loadingMore = false
   }
 }
 
@@ -1010,6 +1062,12 @@ $timeline-turn: 16px;
     display: flex;
     align-items: center;
     gap: 0.25rem;
+  }
+
+  &-load-more {
+    display: flex;
+    justify-content: center;
+    padding: 0.5rem 1rem 1rem;
   }
 
   &-compare {

@@ -167,7 +167,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       actor
     )
     const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
-    const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+    const { items: entries } = await pageHistoryModel.list(fixtures.siteId, page.id)
     assert.equal(entries.length, 1)
     assert.equal(entries[0]!.via, 'editor')
   })
@@ -182,7 +182,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Updated via MCP' }, mcpActor)
 
     const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
-    const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+    const { items: entries } = await pageHistoryModel.list(fixtures.siteId, page.id)
     // -> Newest first: [0] is the update, [1] is the creation -- both attributed to the same actor.
     assert.equal(entries.length, 2)
     assert.equal(entries[0]!.via, 'mcp')
@@ -317,7 +317,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     // real updatedAt, not the moment this test ran — otherwise a page imported with genuinely old
     // history would show a "created" entry timestamped today at the top of its timeline.
     const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
-    const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+    const { items: entries } = await pageHistoryModel.list(fixtures.siteId, page.id)
     assert.equal(entries.length, 1)
     assert.equal(entries[0]!.versionDate.toISOString(), sourceUpdatedAt)
   })
@@ -938,7 +938,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       // -> History: a "moved" entry was recorded for this page
       const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
       const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
-      assert.equal(entries[0]!.action, 'moved')
+      assert.equal(entries.items[0]!.action, 'moved')
 
       // -> Search
       assert.equal(searchModel.renamed.mock.calls.length, 1)

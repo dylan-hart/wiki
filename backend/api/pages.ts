@@ -2085,7 +2085,10 @@ async function routes(app: FastifyInstance) {
   /**
    * PAGE HISTORY
    */
-  app.get<{ Params: { siteId: string; pageId: string } }>(
+  app.get<{
+    Params: { siteId: string; pageId: string }
+    Querystring: { limit?: number; cursor?: string }
+  }>(
     '/sites/:siteId/pages/:pageId/history',
     {
       /*
@@ -2095,15 +2098,29 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "Get a page's version history",
         description:
-          'Every recorded version of the page, newest first — the first entry is the page as it stands now.\n\nNeeds `read:history` ON THIS PAGE, granted by a group rule — the permission that says who may see what a page used to contain. Reading the page itself is required on top, so a page the caller could not open answers 404 and a password-protected one answers only once the session has satisfied `POST …/unlock`.',
+          "One page of recorded versions of the page, newest first — the first entry of the first page is the page as it stands now.\n\nKeyset-paginated on `versionDate` rather than offset-based, so a deep history stays cheap to page through: pass the previous response's `nextCursor` back as `cursor` to fetch the next page, and stop once `nextCursor` comes back null. Needs `read:history` ON THIS PAGE, granted by a group rule — the permission that says who may see what a page used to contain. Reading the page itself is required on top, so a page the caller could not open answers 404 and a password-protected one answers only once the session has satisfied `POST …/unlock`.",
         tags: ['Pages'],
         params: pageIdParam,
+        querystring: {
+          type: 'object',
+          properties: {
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 200,
+              default: 50,
+              description: 'Versions per page.'
+            },
+            cursor: {
+              type: 'string',
+              description:
+                "Opaque cursor from a previous response's `nextCursor`, to fetch the next page."
+            }
+          }
+        },
         response: {
-          200: {
-            description: 'Versions of this page, newest first',
-            type: 'array',
-            items: { $ref: 'PageHistoryEntry#' }
-          },
+          200: { $ref: 'PageHistoryList#' },
+          400: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
           404: { $ref: 'ApiError#' }
         }
@@ -2120,7 +2137,10 @@ async function routes(app: FastifyInstance) {
       if (page.isLocked) {
         return reply.forbidden('This page is password protected.')
       }
-      return WIKI.models.pageHistory.list(req.params.siteId, req.params.pageId)
+      return WIKI.models.pageHistory.list(req.params.siteId, req.params.pageId, {
+        limit: req.query.limit,
+        cursor: req.query.cursor
+      })
     }
   )
 

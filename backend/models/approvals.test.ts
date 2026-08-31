@@ -836,7 +836,7 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
 
     const history = await pageHistoryModel.list(fixtures.siteId, page.id)
     assert.equal(
-      history.filter((entry) => entry.action === 'updated').length,
+      history.items.filter((entry) => entry.action === 'updated').length,
       1,
       'the page should carry exactly one "updated" history version'
     )
@@ -951,7 +951,7 @@ describe('approvals concurrent finalisation (DB-backed)', { skip: !hasTestDataba
     assert.equal(finalPage!.content, 'Suggested content')
 
     const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
-    const updated = entries.filter((e) => e.action === 'updated')
+    const updated = entries.items.filter((e) => e.action === 'updated')
     assert.equal(updated.length, 1, 'exactly one updated history version, not two')
 
     // -> Closed out: gone from the queue, not left behind for either racer to find again

@@ -2802,6 +2802,8 @@
   "history.emptyPage": "Nothing",
   "history.inline": "Inline",
   "history.loadFailed": "Failed to load the page history.",
+  "history.loadMore": "Load older versions",
+  "history.loadMoreFailed": "Failed to load older versions.",
   "history.none": "No history has been recorded for this page yet.",
   "history.pickA": "Compare from this version",
   "history.pickB": "Compare to this version",

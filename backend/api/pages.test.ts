@@ -3020,6 +3020,175 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
 })
 
 /**
+ * OpenProject #1859: `GET /sites/:siteId/pages/:pageId/history` is now a thin pass-through onto
+ * `pageHistory.list`'s own keyset pagination -- `models/pageHistory.test.ts` covers the pagination and
+ * no-`authorEmail` behavior itself against a real database, so this file only proves the route wires
+ * the querystring through and shapes the model's error the way every other route here does.
+ */
+describe('GET /sites/:siteId/pages/:pageId/history — querystring wiring', () => {
+  const SITE_ID = '11111111-1111-1111-1111-111111111111'
+  const PAGE_ID = '22222222-2222-2222-2222-222222222222'
+
+  let app: FastifyInstance
+  let getPageResult: any
+  let listCalledWith: any[]
+  let listImpl: (...args: any[]) => Promise<any>
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      models: {
+        pages: {
+          getPage: async () => getPageResult
+        },
+        groups: {
+          actorForRequest: () => ({ permissions: [] }),
+          checkAccess: () => true,
+          groupIdsForRequest: () => []
+        },
+        pageHistory: {
+          list: async (...args: any[]) => {
+            listCalledWith = args
+            return listImpl(...args)
+          }
+        }
+      }
+    }
+
+    app = Fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    // -> Mirrors `index.ts`'s real `setErrorHandler`, same as the deleted-pages block above
+    app.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerErrorSchema(app)
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    getPageResult = { id: PAGE_ID, path: 'some-page', locale: 'en', isLocked: false }
+    listCalledWith = []
+    listImpl = async () => ({ items: [], nextCursor: null })
+  })
+
+  test('forwards limit and cursor from the querystring to the model, and returns its shape verbatim', async () => {
+    listImpl = async () => ({
+      items: [
+        {
+          id: 'v1',
+          action: 'updated',
+          via: 'editor',
+          changedFields: [],
+          reason: '',
+          versionDate: '2026-01-01T00:00:00.000Z',
+          locale: 'en',
+          path: 'some-page',
+          title: 'Some Page',
+          author: { id: 'u1', name: 'Ada' }
+        }
+      ],
+      nextCursor: 'opaque-cursor-token'
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/history?limit=10&cursor=abc`
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(listCalledWith, [SITE_ID, PAGE_ID, { limit: 10, cursor: 'abc' }])
+    const body = res.json()
+    assert.equal(body.nextCursor, 'opaque-cursor-token')
+    assert.equal(body.items.length, 1)
+    // -> No `email` anywhere on the author, matching `PageHistoryListEntry`'s narrower schema
+    assert.equal('email' in body.items[0].author, false)
+  })
+
+  test('omitting the querystring applies the schema default (50) for limit, and no cursor', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/history`
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(listCalledWith, [SITE_ID, PAGE_ID, { limit: 50, cursor: undefined }])
+  })
+
+  test('surfaces an invalid-cursor rejection from the model as 400 JSON, not a 500', async () => {
+    listImpl = async () => {
+      throw new CustomError('pageHistoryInvalidCursor', 'This history cursor is not valid.', 400)
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/history?cursor=not-valid`
+    })
+
+    assert.equal(res.statusCode, 400)
+    const body = res.json()
+    assert.equal(body.error, 'pageHistoryInvalidCursor')
+  })
+
+  test('404s for a page the actor cannot read, without ever reaching pageHistory.list', async () => {
+    getPageResult = null
+    listImpl = async () => {
+      throw new Error('list should not be called when the page is unreadable')
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/history`
+    })
+
+    assert.equal(res.statusCode, 404)
+  })
+
+  test('403s for a password-locked page, without ever reaching pageHistory.list', async () => {
+    getPageResult = { id: PAGE_ID, path: 'some-page', locale: 'en', isLocked: true }
+    listImpl = async () => {
+      throw new Error('list should not be called for a locked page')
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/history`
+    })
+
+    assert.equal(res.statusCode, 403)
+  })
+
+  test('rejects a limit outside [1, 200] at the schema, before it can reach the handler', async () => {
+    listImpl = async () => {
+      throw new Error('list should not be called for a schema-invalid limit')
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/history?limit=201`
+    })
+
+    assert.equal(res.statusCode, 400)
+  })
+})
+
+/**
  * Route-level test for `PUT /sites/:siteId/pages/:pageId/path` — the destination permission check.
  *
  * `movePage` can now change a page's locale as well as its path, which makes where a page is going a
