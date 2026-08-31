@@ -142,19 +142,18 @@ class CommentProviders {
   /**
    * Whether a provider may be listed and selected.
    *
-   * Deliberately **not** `hasImplementation` alone: `models/storage.ts` gates a storage target's
-   * actions on that field, which happens to be harmless there only because no storage module has
-   * shipped an implementation yet, so every target is equally unavailable. A comment provider is a
-   * different shape entirely — Disqus, Commento and Artalk are pure client-side embeds (a shortname
-   * or instance URL handed to the vendor's own script) and were never going to get a `comments.ts`,
-   * so gating on `hasImplementation` the same way would mark them permanently unselectable instead of
-   * temporarily unavailable. `codeTemplate` is the independent signal that a provider needs no
-   * server-side implementation to be usable.
+   * `hasImplementation` alone, matching `models/storage.ts`'s equivalent gate. Reversed from an
+   * earlier version that also treated `codeTemplate` as an independent grant — see the "Comment
+   * provider selectability" entry in `docs/variances.md` for why: no page-view code renders a
+   * `codeTemplate` provider's embed, and building that render path turned out to be materially more
+   * than the one-field flip it looked like (a new public, per-page-permission-gated API to expose
+   * the active provider to anonymous readers, plus vendor-specific glue for three different
+   * third-party SDKs), so the fork now marks Disqus/Commento/Artalk `isAvailable: false` instead —
+   * `AdminComments.vue` already renders such a row disabled — rather than advertise a provider the
+   * picker cannot actually deliver comments through.
    */
-  isSelectable(
-    definition: Pick<CommentProviderDefinition, 'hasImplementation' | 'codeTemplate'>
-  ): boolean {
-    return definition.hasImplementation || definition.codeTemplate
+  isSelectable(definition: Pick<CommentProviderDefinition, 'hasImplementation'>): boolean {
+    return definition.hasImplementation
   }
 
   /**
