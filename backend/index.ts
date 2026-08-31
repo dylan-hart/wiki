@@ -4,7 +4,6 @@
 // ===========================================
 
 import { existsSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import semver from 'semver'
 import { customAlphabet } from 'nanoid'
@@ -33,7 +32,7 @@ import configSvc from './core/config.ts'
 import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
-import { resolveAppShellLocale, templateAppShell } from './helpers/appShell.ts'
+import { resolveAppShellLocale, getTemplatedAppShell } from './helpers/appShell.ts'
 import {
   localePrefixRedirectTarget,
   localePrefixStripTarget,
@@ -836,15 +835,19 @@ async function initHTTPServer() {
     convention, which are absent here rather than being the app.
 
     `no-store`: the bundles this pulls in are hashed and immutable under `/_assets`, but the document
-    naming them must never be held, or a rebuilt frontend would keep booting the previous one. Read per
-    request for the same reason -- `npm run build` while the server is up should be enough. It also
-    means a cache never has to be told the templated `lang`/`dir` below vary per site, since nothing
-    is cached at all.
+    naming them must never be held, or a rebuilt frontend would keep booting the previous one. Stat'd
+    per request for the same reason -- `npm run build` while the server is up should be enough. It
+    also means a cache never has to be told the templated `lang`/`dir` below vary per site, since
+    nothing is cached at all client-side (the server-side memo below is a from-scratch re-template
+    keyed on that same stat, not a cache the client could ever observe).
 
     `lang`/`dir` are filled in here rather than left to `App.vue` (which also sets them, from
     `siteStore.locales`, the moment it boots): that only happens once its JS has loaded, parsed and
     run, so an RTL locale would flash LTR for however long that takes. Templating them into the shell
-    itself closes that window -- see `helpers/appShell.ts`.
+    itself closes that window -- see `helpers/appShell.ts`, whose `getTemplatedAppShell` memoises the
+    templated output per `(lang, isRTL)` pair (there are only a handful) rather than re-reading and
+    re-templating the shell on every request; it also keeps `getLocales()` off the hot path for an
+    already-seen `lang`, only calling it again once the shell file's `mtimeMs` moves.
   */
   app.setNotFoundHandler(async (req, reply) => {
     const [urlPath, urlSearch] = req.raw.url!.split('?')
@@ -858,15 +861,15 @@ async function initHTTPServer() {
       return reply.notFound()
     }
     try {
-      const shell = await readFile(appShellPath, 'utf8')
       // -> Same site resolution as the SEO hook above: straight off the caches, since this also
       //    runs on every request that reaches the shell.
       const siteId = WIKI.sitesMappings[req.hostname] || WIKI.sitesMappings['*']
       const siteConfig = WIKI.sites[siteId]?.config
       const lang = resolveAppShellLocale(urlPath!, urlSearch, siteConfig?.locales)
-      const locales = await WIKI.models.locales.getLocales()
-      const isRTL = locales.find((l: any) => l.code === lang)?.isRTL ?? false
-      const templated = templateAppShell(shell, { lang, isRTL })
+      const templated = await getTemplatedAppShell(appShellPath, lang, async () => {
+        const locales = await WIKI.models.locales.getLocales()
+        return locales.find((l: any) => l.code === lang)?.isRTL ?? false
+      })
       return reply
         .header('Cache-Control', 'no-store')
         .type('text/html; charset=utf-8')

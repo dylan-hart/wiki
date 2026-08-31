@@ -1,6 +1,11 @@
-import { describe, test } from 'node:test'
+import { describe, test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { resolveAppShellLocale, templateAppShell } from './appShell.ts'
+import {
+  resolveAppShellLocale,
+  templateAppShell,
+  getTemplatedAppShell,
+  resetAppShellCache
+} from './appShell.ts'
 
 describe('templateAppShell', () => {
   test('sets lang and dir="ltr" for a non-RTL locale', () => {
@@ -53,5 +58,101 @@ describe('resolveAppShellLocale', () => {
 
   test('a bare path is the primary', () => {
     assert.equal(resolveAppShellLocale('/guides/x', undefined, cfg), 'en')
+  })
+})
+
+describe('getTemplatedAppShell', () => {
+  beforeEach(() => {
+    resetAppShellCache()
+  })
+
+  /** Builds injectable fs stand-ins plus call counters, so a test can assert re-read/re-resolve counts. */
+  function makeReader(initialHtml: string, initialMtimeMs: number) {
+    let html = initialHtml
+    let mtimeMs = initialMtimeMs
+    const readFile = { calls: 0 }
+    const stat = { calls: 0 }
+    return {
+      set: (nextHtml: string, nextMtimeMs: number) => {
+        html = nextHtml
+        mtimeMs = nextMtimeMs
+      },
+      readFile: {
+        calls: readFile,
+        fn: async (_path: string) => {
+          readFile.calls++
+          return html
+        }
+      },
+      stat: {
+        calls: stat,
+        fn: async (_path: string) => {
+          stat.calls++
+          return { mtimeMs }
+        }
+      }
+    }
+  }
+
+  test('a repeated (lang, isRTL) pair returns byte-identical output without re-reading the file', async () => {
+    const reader = makeReader('<html lang="en">', 1000)
+    let resolveCalls = 0
+    const resolveIsRTL = () => {
+      resolveCalls++
+      return false
+    }
+    const first = await getTemplatedAppShell('/shell.html', 'fr', resolveIsRTL, {
+      readFile: reader.readFile.fn,
+      stat: reader.stat.fn
+    })
+    const second = await getTemplatedAppShell('/shell.html', 'fr', resolveIsRTL, {
+      readFile: reader.readFile.fn,
+      stat: reader.stat.fn
+    })
+    assert.equal(first, second)
+    assert.equal(first, '<html lang="fr" dir="ltr">')
+    assert.equal(reader.readFile.calls.calls, 1)
+    assert.equal(resolveCalls, 1)
+    // stat is still consulted each call to detect a rebuilt shell, just not the read/template work.
+    assert.equal(reader.stat.calls.calls, 2)
+  })
+
+  test('a different lang gets its own cache entry', async () => {
+    const reader = makeReader('<html lang="en">', 1000)
+    const first = await getTemplatedAppShell('/shell.html', 'fr', () => false, {
+      readFile: reader.readFile.fn,
+      stat: reader.stat.fn
+    })
+    const second = await getTemplatedAppShell('/shell.html', 'ar', () => true, {
+      readFile: reader.readFile.fn,
+      stat: reader.stat.fn
+    })
+    assert.equal(first, '<html lang="fr" dir="ltr">')
+    assert.equal(second, '<html lang="ar" dir="rtl">')
+    assert.equal(reader.readFile.calls.calls, 2)
+  })
+
+  test('touching the shell file mtimeMs forces a re-template', async () => {
+    const reader = makeReader('<html lang="en">', 1000)
+    let resolveCalls = 0
+    const resolveIsRTL = () => {
+      resolveCalls++
+      return false
+    }
+    const first = await getTemplatedAppShell('/shell.html', 'fr', resolveIsRTL, {
+      readFile: reader.readFile.fn,
+      stat: reader.stat.fn
+    })
+    assert.equal(first, '<html lang="fr" dir="ltr">')
+
+    // Simulate `npm run build` rewriting the shell.
+    reader.set('<html lang="en" data-build="2">', 2000)
+    const second = await getTemplatedAppShell('/shell.html', 'fr', resolveIsRTL, {
+      readFile: reader.readFile.fn,
+      stat: reader.stat.fn
+    })
+    assert.equal(second, '<html lang="fr" dir="ltr">')
+    assert.equal(reader.readFile.calls.calls, 2)
+    assert.equal(resolveCalls, 2)
   })
 })
