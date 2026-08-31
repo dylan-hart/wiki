@@ -155,5 +155,56 @@ describe('publish workflow split (build.yml + release.yml)', () => {
       assert.match(raw, /NOT CI-enforceable/i)
       assert.match(raw, /manual sign-off/i)
     })
+
+    test('fails closed before building/publishing anything when the tag is not on scarlett', () => {
+      const containmentIndex = findStepIndex(steps, /merge-base\s+--is-ancestor/)
+      assert.ok(containmentIndex !== -1, 'expected a step running git merge-base --is-ancestor')
+
+      const containmentStep = steps[containmentIndex]
+      assert.match(
+        containmentStep.run,
+        /origin\/scarlett/,
+        'expected the containment check to compare against origin/scarlett'
+      )
+      assert.match(
+        containmentStep.run,
+        /\$GITHUB_SHA/,
+        'expected the containment check to test the tagged commit ($GITHUB_SHA)'
+      )
+      assert.match(
+        containmentStep.run,
+        /exit 1/,
+        'expected the step to exit non-zero (fail the job) when the ancestor check fails'
+      )
+
+      // Must fetch the scarlett ref explicitly — fetch-depth: 0 on checkout gives full history for
+      // the tag ref, not a guaranteed origin/scarlett remote-tracking ref.
+      assert.match(
+        containmentStep.run,
+        /git fetch origin scarlett/,
+        'expected an explicit fetch of the scarlett branch before the ancestor check'
+      )
+
+      // Must run immediately after checkout — before Node setup, every quality gate, and the
+      // Docker publish step — so nothing downstream ever executes against an out-of-branch tag.
+      const checkoutIndex = findStepIndex(steps, /actions\/checkout/)
+      const dockerStepIndex = findStepIndex(steps, /docker\/build-push-action/)
+      assert.ok(checkoutIndex !== -1, 'expected a checkout step')
+      assert.ok(
+        containmentIndex === checkoutIndex + 1,
+        'expected the containment check to be the step immediately after checkout'
+      )
+      assert.ok(
+        containmentIndex < dockerStepIndex,
+        'expected the containment check to run before the Docker publish step'
+      )
+      for (const [, pattern] of gateChecks) {
+        const gateIndex = findStepIndex(steps, pattern)
+        assert.ok(
+          containmentIndex < gateIndex,
+          'expected the containment check to run before the quality gates too'
+        )
+      }
+    })
   })
 })

@@ -43,6 +43,26 @@ jobs:
           # tag that was pushed.
           fetch-depth: 0
 
+      # --- Release-branch containment (fail closed, before anything else runs) ---------------
+      # This workflow's whole premise (see the file header) is that build.yml's quality/e2e suites
+      # already ran on this exact commit as part of a push to `scarlett` — but nothing enforced
+      # that a tag actually points at a commit that went through that pipeline until this step.
+      # RELEASING.md's runbook has the release manager tag directly off a local `scarlett`
+      # checkout (step 1: "the exact commit on `scarlett`"; step 4: `git tag` then `git push`), so
+      # a legitimate release tag's commit is always reachable from `scarlett`'s own history — an
+      # ancestor check is sufficient here. This is unrelated to squash-merge rewriting individual
+      # PR-branch commits when they land on `scarlett`: that only affects comparing a feature
+      # branch's own commits against `scarlett`, not a tag pushed against `scarlett`'s real tip.
+      # `fetch-depth: 0` above gives full history for the tag ref itself, but the `scarlett`
+      # remote-tracking ref still needs an explicit fetch.
+      - name: Verify tag is contained in scarlett
+        run: |
+          git fetch origin scarlett
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/scarlett; then
+            echo "::error::Tag $GITHUB_REF_NAME (commit $GITHUB_SHA) is not contained in scarlett — refusing to release a commit that hasn't gone through build.yml's quality gates and e2e suite on scarlett." >&2
+            exit 1
+          fi
+
       - name: Setup Node.js environment
         uses: actions/setup-node@v7
         with:
