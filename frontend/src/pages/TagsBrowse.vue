@@ -130,7 +130,7 @@
               <w-item-label v-if="item.description" caption>{{ item.description }}</w-item-label>
               <w-item-label class="text-grey" caption>/{{ item.path }}</w-item-label>
               <w-item-label caption>{{
-                t('tags.pageLastUpdated', { date: humanizeDate(item.updatedAt) })
+                t('tags.pageLastUpdated', { date: humanizeDate(t, item.updatedAt) })
               }}</w-item-label>
             </w-item-section>
             <w-item-section side>
@@ -165,11 +165,11 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeDate } from '@/helpers/datetime'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
 import { DEFAULT_PAGE_ICON } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
-import { useUserStore } from '@/stores/user'
 
 /** How many results one browse returns. The API caps this at 100, and there is no pager yet. */
 const RESULTS_LIMIT = 100
@@ -182,7 +182,6 @@ const router = useRouter()
 // STORES
 
 const siteStore = useSiteStore()
-const userStore = useUserStore()
 
 // I18N
 
@@ -270,10 +269,6 @@ function splitTags(raw) {
     .split(',')
     .map((tag) => tag.trim())
     .filter(Boolean)
-}
-
-function humanizeDate(val) {
-  return userStore.formatDateTime(t, val)
 }
 
 /**

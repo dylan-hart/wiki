@@ -63,7 +63,7 @@
           </template>
           <template #body-cell-deletedAt="props">
             <w-td :props="props">
-              <div>{{ formattedDate(props.value) }}</div>
+              <div>{{ humanizeDate(t, props.value) }}</div>
               <div class="text-caption text-grey">{{ relativeDate(props.value) }}</div>
             </w-td>
           </template>
@@ -101,9 +101,8 @@ import { confirm, dialog } from '@/composables/dialog'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
-import { useUserStore } from '@/stores/user'
 
-import { relativeDate } from '@/helpers/datetime'
+import { humanizeDate, relativeDate } from '@/helpers/datetime'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
@@ -132,7 +131,6 @@ const dark = useDark()
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
-const userStore = useUserStore()
 
 // ROUTER
 
@@ -204,10 +202,6 @@ const headers = [
 watch(() => adminStore.currentSiteId, load)
 
 // METHODS
-
-function formattedDate(val) {
-  return userStore.formatDateTime(t, val)
-}
 
 function authorLabel(row) {
   return row.author?.name || row.author?.email || t('history.unknownAuthor')
