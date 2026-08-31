@@ -4,7 +4,37 @@
       ref="canvasRef"
       class="graph-view-canvas"
       @click="onCanvasClick"
-      @mousemove="onCanvasMouseMove" />
+      @mousemove="onCanvasMouseMove">
+      <!--
+        Canvas fallback content (OpenProject #1686): a visually-hidden ("sr-only", the same
+        Tailwind utility `CollabPresence.vue` uses) but focusable text alternative to the painted
+        graph, for keyboard and screen-reader access -- one entry per REAL node (a synthetic
+        folder/tag/classification hub has no page to link to, so it never gets a top-level entry
+        of its own), each an `<a>` to that node's page, with its direct graph-neighbors listed
+        underneath: a real neighbor as another `<a>`, a synthetic one as plain text. Reuses
+        `nodes.value`/`edges.value` -- the same currently-visible set the canvas draws, already
+        shaped by `groupBy`/`edgeMode`/`activeFilters` -- rather than fetching or deriving
+        anything separately, so the alternative always describes what is actually on screen.
+      -->
+      <ul class="graph-view-fallback sr-only">
+        <li v-for="entry in fallbackNodes" :key="entry.node.path">
+          <a :href="fallbackHref(entry.node)" @click.prevent="navigateToNode(entry.node)">{{
+            entry.node.title || entry.node.path
+          }}</a>
+          <ul v-if="entry.links.length">
+            <li v-for="link in entry.links" :key="link.path">
+              <a
+                v-if="!link.synthetic"
+                :href="fallbackHref(link)"
+                @click.prevent="navigateToNode(link)"
+                >{{ link.title || link.path }}</a
+              >
+              <span v-else>{{ link.title || link.path }}</span>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </canvas>
     <div
       v-if="hoveredNode"
       class="graph-view-tooltip"
@@ -330,6 +360,53 @@ const legendEntries = computed(() => {
   return [...seen.entries()].map(([key, color]) => ({ key, color }))
 })
 
+/** Path -> node lookup over the currently-visible set, for resolving a fallback-list edge
+ *  endpoint that `d3-force` hasn't mutated into a node reference yet -- see `resolveEndpoint()`. */
+const nodesByPath = computed(() => new Map(nodes.value.map((n) => [n.path, n])))
+
+/** An edge's endpoint, resolved to the actual node object it names. `forceLink`'s `id()`
+ *  resolution (attached by `startSimulation()`) mutates `edge.source`/`edge.target` in place from
+ *  a plain path string into a node reference the moment it initializes against the simulation's
+ *  current node set -- same object-or-string shape `graphFilters.js#endpointId` normalizes, here
+ *  resolved to the node itself (not just its id) since the fallback list needs the node's title. */
+function resolveEndpoint(endpoint) {
+  return typeof endpoint === 'object' && endpoint !== null
+    ? endpoint
+    : nodesByPath.value.get(endpoint)
+}
+
+/** A node's direct graph-neighbors, in first-seen order with no duplicates -- every other
+ *  endpoint of an edge in `edges.value` (the edges currently drawn) that touches this node,
+ *  whether the neighbor is a real page or a synthetic folder/tag/classification hub. */
+function fallbackLinksFor(node) {
+  const seen = new Set()
+  const links = []
+  for (const edge of edges.value) {
+    const source = resolveEndpoint(edge.source)
+    const target = resolveEndpoint(edge.target)
+    if (!source || !target) {
+      continue
+    }
+    const neighbor = source === node ? target : target === node ? source : null
+    if (neighbor && neighbor !== node && !seen.has(neighbor.path)) {
+      seen.add(neighbor.path)
+      links.push(neighbor)
+    }
+  }
+  return links
+}
+
+/** The fallback list's data (OpenProject #1686): one entry per REAL node currently visible, each
+ *  paired with its direct neighbors (`fallbackLinksFor`) -- a synthetic node never gets a
+ *  top-level entry since it has no page for its `<a>` to point at, but it can still appear as a
+ *  (non-link) neighbor under a real node's entry. Recomputes off `nodes.value`/`edges.value`, so
+ *  it stays in step with `groupBy`/`edgeMode`/`activeFilters` the same way the canvas drawing does. */
+const fallbackNodes = computed(() =>
+  nodes.value
+    .filter((node) => !node.synthetic)
+    .map((node) => ({ node, links: fallbackLinksFor(node) }))
+)
+
 let simulation = null
 let ctx = null
 let resizeObserver = null
@@ -584,18 +661,27 @@ function findNodeAt(clientX, clientY) {
   return nodeQuadtree.find(x, y, 12)
 }
 
-function onCanvasClick(event) {
-  const node = findNodeAt(event.clientX, event.clientY)
+/** A node's in-app link (its page path plus locale prefix, per the site's locale-prefix rules) --
+ *  shared by the canvas click handler and every fallback-list `<a>` (OpenProject #1686). */
+function fallbackHref(node) {
+  return localizedPagePath(node.path, node.locale, {
+    useLocales: siteStore.useLocales,
+    primary: siteStore.locales.primary,
+    forcePrefix: siteStore.locales.forcePrefix
+  })
+}
+
+/** Navigates to a node's page, if it has one -- a synthetic (folder/tag/classification hub) node
+ *  is not a real page and is silently ignored, same as a canvas click that misses every dot. */
+function navigateToNode(node) {
   if (!node || node.synthetic) {
     return
   }
-  router.push(
-    localizedPagePath(node.path, node.locale, {
-      useLocales: siteStore.useLocales,
-      primary: siteStore.locales.primary,
-      forcePrefix: siteStore.locales.forcePrefix
-    })
-  )
+  router.push(fallbackHref(node))
+}
+
+function onCanvasClick(event) {
+  navigateToNode(findNodeAt(event.clientX, event.clientY))
 }
 
 function onCanvasMouseMove(event) {
@@ -949,6 +1035,13 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 160px;
+}
+
+.graph-view-fallback,
+.graph-view-fallback ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
 .graph-view-tooltip {

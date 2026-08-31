@@ -77,10 +77,26 @@ const FIXTURE_GRAPH = {
   edges: [{ source: 'a', target: 'b', type: 'link' }]
 }
 
+/** OpenProject #1686's fallback-list tests need a real-to-real edge to assert against -- under
+ *  every current `edgeMode` two nodes are only ever DIRECTLY connected when one's path is
+ *  literally the other's parent path (every other case is mediated by a synthetic folder/tag/
+ *  classification hub, per `graphFilters.js#buildPathHierarchyEdges` reusing a real page as its
+ *  own folder node rather than synthesizing a duplicate). `docs` is deliberately real (not just
+ *  `docs/child`), so `buildPathHierarchyEdges` wires `docs -> docs/child` directly instead of
+ *  through a synthetic `docs` marker. */
+const NESTED_FIXTURE_GRAPH = {
+  nodes: [
+    { path: 'docs', locale: 'en', title: 'Docs', icon: null, tags: [], folder: '' },
+    { path: 'docs/child', locale: 'en', title: 'Child', icon: null, tags: [], folder: 'docs' }
+  ],
+  edges: []
+}
+
 /** Options for `API_CLIENT.get('system/pageviews')` -- defaults to tracking enabled so the
  *  'visits' sizing option is available in the default `mountGraph()` fixture; a test asserting the
- *  disabled case passes `{ pageviewsEnabled: false }`. */
-async function mountGraph({ pageviewsEnabled = true } = {}) {
+ *  disabled case passes `{ pageviewsEnabled: false }`. `graph` defaults to `FIXTURE_GRAPH` --
+ *  passing `NESTED_FIXTURE_GRAPH` is how the #1686 fallback-list tests get a real-to-real edge. */
+async function mountGraph({ pageviewsEnabled = true, graph = FIXTURE_GRAPH } = {}) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
@@ -92,7 +108,7 @@ async function mountGraph({ pageviewsEnabled = true } = {}) {
   router.push('/')
   await router.isReady()
 
-  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_GRAPH) })
+  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(graph) })
   API_CLIENT.get.mockReturnValueOnce({
     json: () => Promise.resolve({ isEnabled: pageviewsEnabled })
   })
@@ -367,5 +383,69 @@ describe('Graph.vue (OpenProject #891)', () => {
     await flushPromises()
 
     expect(wrapper.find('canvas').exists()).toBe(true)
+  })
+
+  describe('keyboard/screen-reader fallback list (OpenProject #1686)', () => {
+    it("renders one focusable <a> per real node, pointing at that node's page path", async () => {
+      const wrapper = await mountGraph()
+
+      // -> Default `edgeMode` ('paths') synthesizes a root node for 'a'/'b' (both top-level
+      //    paths); the fallback list gets no top-level entry for it -- only 'a' and 'b' do.
+      const links = wrapper.findAll('.graph-view-fallback > li > a')
+      expect(links).toHaveLength(2)
+      expect(links.map((link) => link.attributes('href')).sort()).toEqual(['/a', '/b'])
+    })
+
+    it('is visually hidden (sr-only) while its links stay real, focusable <a> elements', async () => {
+      const wrapper = await mountGraph()
+
+      const list = wrapper.find('.graph-view-fallback')
+      expect(list.classes()).toContain('sr-only')
+      expect(list.element.tagName).toBe('UL')
+
+      const link = wrapper.find('.graph-view-fallback a')
+      expect(link.element.tagName).toBe('A')
+      // -> No explicit tabindex means the native, keyboard-reachable default for an `<a href>`.
+      expect(link.attributes('tabindex')).toBeUndefined()
+    })
+
+    it("lists each node's direct links: a real neighbor as an <a>, a synthetic one as plain text", async () => {
+      const wrapper = await mountGraph({ graph: NESTED_FIXTURE_GRAPH })
+
+      // -> Each `<li>`'s own top-level `<a>` always precedes its nested `<ul>` in document order,
+      //    so a plain `find('a')` (happy-dom doesn't support a leading `> ` combinator scoped to
+      //    an element) resolves to that entry's own link, not one of its nested neighbor links.
+      const items = wrapper.findAll('.graph-view-fallback > li')
+      const docsItem = items.find((item) => item.find('a').attributes('href') === '/docs')
+      const childItem = items.find((item) => item.find('a').attributes('href') === '/docs/child')
+
+      // -> 'docs' connects to the real 'docs/child' (a link) and the synthetic root node
+      //    synthesized as 'docs' has no parent segment of its own (plain text, no <a>).
+      expect(docsItem.find('ul a').attributes('href')).toBe('/docs/child')
+      expect(docsItem.find('ul').text()).toContain('(root)')
+      expect(docsItem.findAll('ul a')).toHaveLength(1)
+
+      // -> 'docs/child' connects only to the real 'docs' node.
+      expect(childItem.findAll('ul a')).toHaveLength(1)
+      expect(childItem.find('ul a').attributes('href')).toBe('/docs')
+    })
+
+    it("clicking a fallback link navigates to that node's page (Enter activates an <a> the same way)", async () => {
+      const wrapper = await mountGraph()
+
+      const link = wrapper.find('.graph-view-fallback a[href="/a"]')
+      expect(link.exists()).toBe(true)
+
+      await link.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.vm.$router.currentRoute.value.fullPath).toBe('/a')
+    })
+
+    it('omits a top-level entry for a synthetic node, since it has no real page to link to', async () => {
+      const wrapper = await mountGraph()
+
+      expect(wrapper.vm.fallbackNodes.some((entry) => entry.node.synthetic)).toBe(false)
+    })
   })
 })
