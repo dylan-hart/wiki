@@ -1656,7 +1656,9 @@ export const tree = pgTable(
 
 // USER AVATARS ------------------------
 export const userAvatars = pgTable('userAvatars', {
-  id: uuid().primaryKey(),
+  id: uuid()
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
   data: bytea().notNull(),
   // -> sha1 hex digest of `data`, kept in sync by every write path -- lets a conditional request
   //    (ETag) be answered without reading the blob back out of the database.
