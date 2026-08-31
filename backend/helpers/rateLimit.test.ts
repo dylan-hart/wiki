@@ -6,10 +6,11 @@ import fastifySensible from '@fastify/sensible'
 import {
   activeBanMemo,
   consumeAccountAuthAttempt,
+  isPublicRateLimitedPath,
   limitApiKey,
   limitApiRequests,
-  limitPublicRequests,
-  isPublicRateLimitedPath
+  limitGuestComments,
+  limitPublicRequests
 } from './rateLimit.ts'
 
 /**
@@ -794,5 +795,91 @@ describe('rate-limit ban memo', () => {
     } finally {
       clock.restore()
     }
+  })
+})
+
+/**
+ * Unit tests for `limitGuestComments` (OpenProject #2256): the fixed, non-configurable per-IP limit
+ * on anonymous comment posting. `api/comments.ts` is what decides *when* to call this (only on the
+ * guest branch); this file covers only the hook's own job — what key it builds, and how it turns a
+ * refused verdict into a 429 with `Retry-After`, matching `limitApiKey`/`limitApiRequests`'s shape.
+ */
+describe('limitGuestComments', () => {
+  function makeReply(): FastifyReply {
+    return {
+      header: mock.fn(),
+      tooManyRequests: mock.fn()
+    } as unknown as FastifyReply
+  }
+
+  function makeReq(overrides: Partial<FastifyRequest> = {}): FastifyRequest {
+    return {
+      method: 'POST',
+      url: '/_api/sites/site-1/pages/page-1/comments',
+      ip: '203.0.113.7',
+      ...overrides
+    } as unknown as FastifyRequest
+  }
+
+  let consume: ReturnType<typeof mock.fn>
+
+  beforeEach(() => {
+    consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    ;(globalThis as any).WIKI = {
+      models: { rateLimits: { consume } },
+      logger: { debug: mock.fn() }
+    }
+  })
+
+  afterEach(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('keys the bucket by req.ip, prefixed so it never collides with another limiter', async () => {
+    await limitGuestComments(makeReq(), makeReply())
+    assert.equal(consume.mock.calls.length, 1)
+    assert.equal(consume.mock.calls[0].arguments[0], 'comment-guest:203.0.113.7')
+  })
+
+  test('uses a fixed policy: 5 per 10 minutes, 15 minute ban', async () => {
+    await limitGuestComments(makeReq(), makeReply())
+    const policy = consume.mock.calls[0].arguments[1] as any
+    assert.equal(policy.max, 5)
+    assert.equal(policy.windowSeconds, 600)
+    assert.equal(policy.banSeconds, 900)
+  })
+
+  test('lets the request through when under the limit', async () => {
+    const reply = makeReply()
+    await limitGuestComments(makeReq(), reply)
+    assert.equal((reply.tooManyRequests as any).mock.calls.length, 0)
+  })
+
+  test('refuses with a 429 and Retry-After once the policy is exceeded', async () => {
+    consume.mock.mockImplementationOnce(async () => ({ allowed: false, hits: 6, retryAfter: 120 }))
+    const reply = makeReply()
+    await limitGuestComments(makeReq(), reply)
+    assert.deepEqual((reply.header as any).mock.calls[0].arguments, ['Retry-After', '120'])
+    assert.equal((reply.tooManyRequests as any).mock.calls.length, 1)
+  })
+
+  test('two different guest addresses get independent counters', async () => {
+    const hits = new Map<string, number>()
+    consume.mock.mockImplementation(async (key: string, policy: any) => {
+      const n = (hits.get(key) ?? 0) + 1
+      hits.set(key, n)
+      return { allowed: n <= policy.max, hits: n, retryAfter: n <= policy.max ? 0 : 60 }
+    })
+
+    for (let i = 0; i < 5; i++) {
+      await limitGuestComments(makeReq({ ip: '203.0.113.7' }), makeReply())
+    }
+    const replySixth = makeReply()
+    await limitGuestComments(makeReq({ ip: '203.0.113.7' }), replySixth)
+    assert.equal((replySixth.tooManyRequests as any).mock.calls.length, 1)
+
+    const replyOther = makeReply()
+    await limitGuestComments(makeReq({ ip: '198.51.100.2' }), replyOther)
+    assert.equal((replyOther.tooManyRequests as any).mock.calls.length, 0)
   })
 })
