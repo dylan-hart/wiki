@@ -56,8 +56,8 @@ export type PurgeTimeframe = keyof typeof purgeTimeframes
  * Taken straight off the stored row, so a field added to a page is captured here without this list
  * being touched. The exclusions are either derived from the content (`render`, `toc`, `searchContent`,
  * `ts`), fixed for the page's whole life (`id`, `siteId`, `creatorId`, `createdAt`), or bookkeeping
- * that says nothing about the version (`hash`, `updatedAt`, `authorId`, `ratingScore`, `ratingCount`,
- * `historyData`, `isSearchableComputed`).
+ * that says nothing about the version (`hash`, `updatedAt`, `authorId`, `historyData`,
+ * `isSearchableComputed`).
  */
 const EXCLUDED_FROM_META = new Set([
   'id',
@@ -71,8 +71,6 @@ const EXCLUDED_FROM_META = new Set([
   'toc',
   'searchContent',
   'ts',
-  'ratingScore',
-  'ratingCount',
   'historyData',
   'isSearchableComputed',
   // -> Held in columns of their own
@@ -96,8 +94,6 @@ const NOT_REPORTED_AS_CHANGED = new Set([
   'hash',
   'authorId',
   'updatedAt',
-  'ratingScore',
-  'ratingCount',
   'historyData',
   'isSearchableComputed'
 ])

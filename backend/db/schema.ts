@@ -769,8 +769,6 @@ export const pages = pgTable(
       (): SQL => sql`${pages.publishState} != 'draft' AND ${pages.isSearchable}`
     ),
     password: varchar({ length: 255 }),
-    ratingScore: integer().notNull().default(0),
-    ratingCount: timestamp().notNull().defaultNow(),
     scripts: jsonb().notNull().default({}),
     historyData: jsonb().notNull().default({}),
     createdAt: timestamp().notNull().defaultNow(),
