@@ -140,7 +140,6 @@ jobs:
           file: dev/build/Dockerfile
           push: true
           platforms: linux/amd64
-          # platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.IMAGE_NAMESPACE }}:3.0.0-alpha
             ${{ env.IMAGE_NAMESPACE }}:${{ env.REL_VERSION }}
