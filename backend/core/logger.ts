@@ -3,7 +3,10 @@ import EventEmitter from 'node:events'
 
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug'
 export type IgnoredLogLevel = 'verbose' | 'silly'
-export type LogFn = (...args: unknown[]) => void
+// -> In JSON mode, merged into the payload as siblings of `message` (see the `WIKI.config.logFormat
+//    === 'json'` branch below). Ignored entirely in text mode.
+export type LogContext = Record<string, unknown>
+export type LogFn = (msg: unknown, context?: LogContext) => void
 
 /**
  * Formatted lines kept in memory, replayed to an admin terminal the moment it connects
@@ -48,12 +51,12 @@ export default {
     primaryLogger.backlog = () => [...backlog]
 
     LEVELS.forEach((lvl) => {
-      primaryLogger[lvl] = (...args: unknown[]) => {
-        primaryLogger.emit(lvl, ...args)
+      primaryLogger[lvl] = (msg: unknown, context?: LogContext) => {
+        primaryLogger.emit(lvl, msg, context)
       }
 
       if (!ignoreNextLevels) {
-        primaryLogger.on(lvl, (msg: unknown) => {
+        primaryLogger.on(lvl, (msg: unknown, context?: LogContext) => {
           let formatted = ''
           // -> Normalized before the format branch below: `Error` has no enumerable own properties, so
           //    `JSON.stringify`-ing one straight (the JSON branch used to) serialized it as `{}`,
@@ -65,6 +68,11 @@ export default {
           }
           if (WIKI.config.logFormat === 'json') {
             formatted = JSON.stringify({
+              // -> Spread first so `context` can only ever add sibling fields, never override the four
+              //    fixed ones below — a context key named e.g. `message` or `level` loses the collision
+              //    rather than corrupting the record. A context-free call spreads nothing, leaving this
+              //    byte-identical to the pre-context-support payload.
+              ...context,
               timestamp: new Date().toISOString(),
               instance: WIKI.INSTANCE_ID,
               level: lvl,
