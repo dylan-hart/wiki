@@ -478,8 +478,6 @@ async function initHTTPServer() {
     //    runs via `closePromises` above, awaited by the library before it closes the server — this
     //    handler is logging only.
     WIKI.logger.info('Shutting down HTTP Server... [ STOPPING ]')
-    // -> The actual shutdown work happens in `closePromises` above, which the library awaits before
-    //    closing the server -- this handler is log-only now.
   })
 
   WIKI.server.on(gracefulServer.SHUTDOWN, (err: Error) => {
