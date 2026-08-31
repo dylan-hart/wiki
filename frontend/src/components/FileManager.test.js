@@ -7,6 +7,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import FileManager from './FileManager.vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 import { queue as notifyQueue } from '@/composables/notify'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 
@@ -26,6 +27,9 @@ const i18n = createI18n({
   locale: 'en',
   messages: {
     en: {
+      common: {
+        datetime: '{date} at {time}'
+      },
       fileman: {
         dropToUpload: 'Drop files to upload',
         dropFoldersRejected: "Folders can't be uploaded by drag-and-drop.",
@@ -528,6 +532,52 @@ describe('FileManager homepage guard (WP #1149)', () => {
       `sites/${siteStore.id}/pages/p2/path`,
       expect.anything()
     )
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * WP 2082: `FileManager.vue` had its own local `formatDateTime` -- named after, but not actually,
+ * `userStore.formatDateTime` -- driven by `commonStore.locale` and the browser's own timezone rather
+ * than this reader's stored preferences. These cover the details panel's two date fields now routing
+ * through the real store method instead.
+ */
+describe('FileManager date formatting via userStore (WP 2082)', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("renders a page item's updated/created dates from userStore.formatDateTime, so a stored timezone changes them", async () => {
+    const { wrapper } = await mountFileManager()
+    const userStore = useUserStore()
+    const formatSpy = vi.spyOn(userStore, 'formatDateTime')
+    userStore.timezone = 'Pacific/Kiritimati' // far from the test runner's own zone
+    userStore.dateFormat = 'YYYY-MM-DD'
+    userStore.timeFormat = '24h'
+
+    wrapper.vm.state.fileList = [
+      {
+        id: 'p1',
+        type: 'page',
+        title: 'My Page',
+        fileName: 'my-page',
+        pageType: 'markdown',
+        folderPath: '',
+        updatedAt: '2026-03-04T23:30:00Z',
+        createdAt: '2026-01-01T00:00:00Z'
+      }
+    ]
+    wrapper.vm.state.currentFileId = 'p1'
+    await flushPromises()
+
+    const details = wrapper.vm.currentFileDetails
+    const updatedRow = details.items.find((row) => row.value === formatSpy.mock.results[0]?.value)
+
+    expect(formatSpy).toHaveBeenCalledWith(expect.any(Function), '2026-03-04T23:30:00Z')
+    expect(formatSpy).toHaveBeenCalledWith(expect.any(Function), '2026-01-01T00:00:00Z')
+    // -> The rendered cell is exactly what the store method returned, not a re-derived value
+    expect(updatedRow.value).toBe('2026-03-05 at 13:30')
 
     wrapper.unmount()
   })

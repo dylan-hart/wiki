@@ -1117,18 +1117,10 @@ function checkRoute() {
   }
 }
 
+// -> Routed through the store: this reader's stored date pattern, 12h/24h choice, zone and its
+//    abbreviation now apply here, same as everywhere else.
 function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
+  return userStore.formatDateTimeWithZone(t, val) || '---'
 }
 
 function getRuleModeColor(mode) {

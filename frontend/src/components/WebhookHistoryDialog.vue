@@ -85,6 +85,8 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 
+import { useUserStore } from '@/stores/user'
+
 // PROPS
 
 const props = defineProps({
@@ -102,6 +104,10 @@ defineEmits([...dialogComponentEmits])
 
 const { dialogVisible, onDialogHide, onDialogCancel } = useDialogComponent()
 
+// STORES
+
+const userStore = useUserStore()
+
 // I18N
 
 const { t } = useI18n()
@@ -116,20 +122,10 @@ const state = reactive({
 
 // METHODS
 
-/** Absolute, and with seconds: for a delivery attempt, the timing IS the thing being read. */
+/** Absolute, and with seconds: for a delivery attempt, the timing IS the thing being read. Routed
+ *  through the store, so this reader's stored date pattern, 12h/24h choice and zone apply here too. */
 function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZoneName: 'short'
-  })
+  return userStore.formatDateTimeSeconds(t, val) || '---'
 }
 
 async function load() {

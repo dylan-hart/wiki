@@ -604,16 +604,9 @@ const relationsRight = computed(() => {
 const isUnsavedNewPage = computed(() => editorStore.isActive && editorStore.mode === 'create')
 
 const lastModified = computed(() => {
-  return pageStore.updatedAt
-    ? // -> The fields luxon's DATETIME_MED expanded to, so the bar reads exactly as before
-      Temporal.Instant.from(pageStore.updatedAt).toLocaleString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit'
-      })
-    : 'N/A'
+  // -> Routed through the store rather than a locale-driven format directly: this reader's stored
+  //    date pattern, 12h/24h choice and timezone now apply here too, same as everywhere else.
+  return pageStore.updatedAt ? userStore.formatDateTime(t, pageStore.updatedAt) : 'N/A'
 })
 
 /**

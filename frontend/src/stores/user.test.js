@@ -314,3 +314,64 @@ describe('user store: formatDate()', () => {
     expect(store.formatDate(null)).toBe('')
   })
 })
+
+/**
+ * WP 2082 (part of epic 2069): the two variants the six one-off screens (`FileManager.vue` and
+ * friends) need beyond plain `formatDateTime`/`formatDate` -- one adding the zone abbreviation, one
+ * adding seconds precision. Both stay built on `toUserZone`/`formatDatePart`/`formatTimePart` rather
+ * than reimplementing zone resolution, so they inherit the same nullish-date and invalid-timezone
+ * handling `formatDateTime` already has.
+ */
+describe('user store: formatDateTimeWithZone() / formatDateTimeSeconds()', () => {
+  const t = (key, params) => `${params.date} at ${params.time}`
+
+  it('formatDateTimeWithZone renders the stored zone abbreviation, honouring a 24h preference and a timezone other than the runner’s', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '24h'
+    store.timezone = 'Pacific/Kiritimati' // UTC+14 -- about as far from the test runner's own zone as it gets
+
+    const rendered = store.formatDateTimeWithZone(t, '2026-03-04T12:00:00Z')
+
+    // -> The instant is 2026-03-05 in this zone, not 2026-03-04 as a browser-default (likely UTC or
+    //    close to it) render would show -- proving the stored timezone, not the runner's, drove this
+    expect(rendered).toBe('2026-03-05 at 02:00 GMT+14')
+  })
+
+  it('formatDateTimeWithZone returns an empty string for a nullish date rather than throwing', () => {
+    const store = useUserStore()
+
+    expect(store.formatDateTimeWithZone(t, null)).toBe('')
+  })
+
+  it('formatDateTimeSeconds renders seconds and the stored zone abbreviation, honouring a 24h preference and a timezone other than the runner’s', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '24h'
+    store.timezone = 'Pacific/Kiritimati'
+
+    const rendered = store.formatDateTimeSeconds(t, '2026-03-04T12:00:30Z')
+
+    expect(rendered).toBe('2026-03-05 at 02:00:30 GMT+14')
+  })
+
+  it('formatDateTimeSeconds returns an empty string for a nullish date rather than throwing', () => {
+    const store = useUserStore()
+
+    expect(store.formatDateTimeSeconds(t, null)).toBe('')
+  })
+
+  it('both variants differ from what the browser-default (undefined timezone) rendering would produce', () => {
+    const store = useUserStore()
+    store.dateFormat = 'YYYY-MM-DD'
+    store.timeFormat = '24h'
+    store.timezone = 'Pacific/Kiritimati'
+
+    const browserDefault = Temporal.Instant.from('2026-03-04T12:00:00Z')
+      .toZonedDateTimeISO(Temporal.Now.timeZoneId())
+      .toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+
+    expect(store.formatDateTimeWithZone(t, '2026-03-04T12:00:00Z')).not.toContain(browserDefault)
+    expect(store.formatDateTimeSeconds(t, '2026-03-04T12:00:00Z')).not.toContain(browserDefault)
+  })
+})

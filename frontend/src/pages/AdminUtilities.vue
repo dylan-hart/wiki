@@ -249,10 +249,12 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { fileSave } from 'browser-fs-access'
 
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 // STORES
 
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
@@ -287,20 +289,11 @@ const purgeHistoryTimeframes = computed(() => [
   { value: '2y', label: t('admin.utilities.purgeHistoryYear', 2, { count: 2 }) }
 ])
 
-const scanReportScannedAt = computed(() => {
-  if (!state.scanReport?.scannedAt) {
-    return ''
-  }
-  return Temporal.Instant.from(state.scanReport.scannedAt).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZoneName: 'short'
-  })
-})
+// -> Routed through the store: this reader's stored date pattern, 12h/24h choice and zone now apply
+//    here too, same as everywhere else.
+const scanReportScannedAt = computed(() =>
+  userStore.formatDateTimeSeconds(t, state.scanReport?.scannedAt)
+)
 
 /**
  * The report's five checks, each with its entries rendered as one readable line — a raw dump of

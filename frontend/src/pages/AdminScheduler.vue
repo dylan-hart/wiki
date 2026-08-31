@@ -413,6 +413,7 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDuration, relativeDate } from '@/helpers/datetime'
 
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 // COMPOSABLES
 
@@ -421,6 +422,7 @@ const dark = useDark()
 // STORES
 
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
@@ -626,20 +628,10 @@ watch(
 
 // METHODS
 
-/** Absolute, and with seconds: for a job, the timing IS the thing being read. */
+/** Absolute, and with seconds: for a job, the timing IS the thing being read. Routed through the
+ *  store, so this reader's stored date pattern, 12h/24h choice and zone apply here too. */
 function humanizeDate(val) {
-  if (!val) {
-    return '---'
-  }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZoneName: 'short'
-  })
+  return userStore.formatDateTimeSeconds(t, val) || '---'
 }
 
 async function load() {

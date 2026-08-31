@@ -563,9 +563,9 @@ import { notify } from '@/composables/notify'
 import { useMinWidth, useScreen } from '@/composables/screen'
 import { useDark } from '@/composables/dark'
 
-import { useCommonStore } from '@/stores/common'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 import { filesize } from 'filesize'
 import Fuse from 'fuse.js/basic'
@@ -587,9 +587,9 @@ const screen = useScreen()
 
 // STORES
 
-const commonStore = useCommonStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // ROUTER
 
@@ -843,11 +843,11 @@ const currentFileDetails = computed(() => {
       })
       items.push({
         label: t('fileman.detailsPageUpdated'),
-        value: formatDateTime(item.updatedAt)
+        value: userStore.formatDateTime(t, item.updatedAt)
       })
       items.push({
         label: t('fileman.detailsPageCreated'),
-        value: formatDateTime(item.createdAt)
+        value: userStore.formatDateTime(t, item.createdAt)
       })
       break
     }
@@ -909,15 +909,6 @@ function dismissTreeOverlay(ev) {
 
 function close() {
   siteStore.overlay = null
-}
-
-function formatDateTime(value) {
-  if (!value) {
-    return ''
-  }
-  return Temporal.Instant.from(value)
-    .toZonedDateTimeISO(Temporal.Now.timeZoneId())
-    .toLocaleString(commonStore.locale, { dateStyle: 'medium', timeStyle: 'short' })
 }
 
 function insertItem(item) {
