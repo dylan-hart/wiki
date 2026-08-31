@@ -358,21 +358,15 @@ async function save() {
       }
     }
 
-    const resp = await API_CLIENT.put(
+    await API_CLIENT.put(
       `sites/${adminStore.currentSiteId}/search/engines/${selectedEngine.value.key}`,
       { json: payloadFor(selectedEngine.value) }
     ).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
 
     if (dictOverrides !== undefined) {
-      const dictResp = await API_CLIENT.patch(`sites/${adminStore.currentSiteId}/search`, {
+      await API_CLIENT.patch(`sites/${adminStore.currentSiteId}/search`, {
         json: { dictOverrides }
       }).json()
-      if (!dictResp?.ok) {
-        throw new Error(dictResp?.message || t('common.error.unexpected'))
-      }
     }
 
     notify({
@@ -396,10 +390,7 @@ async function save() {
 async function rebuild() {
   state.rebuildLoading = true
   try {
-    const resp = await API_CLIENT.post(`sites/${adminStore.currentSiteId}/search/rebuild`).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
+    await API_CLIENT.post(`sites/${adminStore.currentSiteId}/search/rebuild`).json()
     notify({
       type: 'positive',
       message: t('admin.search.rebuildInitSuccess')

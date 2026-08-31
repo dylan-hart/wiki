@@ -136,12 +136,9 @@ async function globalSwitch() {
   state.isToggleLoading = true
   const wanted = !state.enabled
   try {
-    const resp = await API_CLIENT.put('system/pageviews', {
+    await API_CLIENT.put('system/pageviews', {
       json: { isEnabled: wanted }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occurred.')
-    }
     notify({
       type: 'positive',
       message: wanted

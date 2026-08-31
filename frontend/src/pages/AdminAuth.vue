@@ -783,9 +783,6 @@ async function save() {
         : await API_CLIENT.put(`authentication/strategies/${str.id}`, {
             json: payloadFor(str)
           }).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
       if (str.isNew && resp.id) {
         // -> So that the reload lands back on the strategy that was just created
         state.selectedStrategy = resp.id
@@ -872,10 +869,7 @@ function confirmDelete() {
   }).onOk(async () => {
     state.loading++
     try {
-      const resp = await API_CLIENT.delete(`authentication/strategies/${strategy.id}`)
-      if (!resp?.ok) {
-        throw new Error((await resp.json())?.message || t('common.error.unexpected'))
-      }
+      await API_CLIENT.delete(`authentication/strategies/${strategy.id}`)
       notify({
         type: 'positive',
         message: t('admin.auth.deleteSuccess', { strategy: strategy.displayName })

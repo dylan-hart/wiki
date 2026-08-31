@@ -449,10 +449,7 @@ async function create() {
     if (!isFormValid) {
       throw new Error(t('admin.webhooks.createInvalidData'))
     }
-    const resp = await API_CLIENT.post('hooks', { json: writableFields() }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
+    await API_CLIENT.post('hooks', { json: writableFields() }).json()
     notify({
       type: 'positive',
       message: t('admin.webhooks.createSuccess')
@@ -474,10 +471,7 @@ async function save() {
     if (!isFormValid) {
       throw new Error(t('admin.webhooks.createInvalidData'))
     }
-    const resp = await API_CLIENT.put(`hooks/${props.hookId}`, { json: writableFields() }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
+    await API_CLIENT.put(`hooks/${props.hookId}`, { json: writableFields() }).json()
     notify({
       type: 'positive',
       message: t('admin.webhooks.updateSuccess')

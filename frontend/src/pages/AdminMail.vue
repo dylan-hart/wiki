@@ -448,7 +448,7 @@ async function save() {
 
   state.loading++
   try {
-    const resp = await API_CLIENT.put('mail/config', {
+    await API_CLIENT.put('mail/config', {
       json: {
         senderName: state.config.senderName || '',
         senderEmail: state.config.senderEmail || '',
@@ -466,9 +466,6 @@ async function save() {
         dkimPrivateKey: state.config.dkimPrivateKey || ''
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(t(`admin.mail.${resp?.error}`, resp?.message || t('common.error.unexpected')))
-    }
     notify({
       type: 'positive',
       message: t('admin.mail.saveSuccess')
@@ -477,7 +474,10 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: t(
+        `admin.mail.${err.data?.error}`,
+        apiErrorMessage(err, 'An unexpected error occured.')
+      )
     })
   }
   state.loading--
@@ -497,12 +497,9 @@ async function sendTest() {
 
   state.testLoading = true
   try {
-    const resp = await API_CLIENT.post('mail/test', {
+    await API_CLIENT.post('mail/test', {
       json: { recipientEmail: state.testEmail || '' }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
     notify({
       type: 'positive',
       message: t('admin.mail.sendTestSuccess')

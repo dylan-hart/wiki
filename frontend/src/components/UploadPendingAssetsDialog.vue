@@ -114,9 +114,6 @@ onMounted(async () => {
         timeout: false,
         signal: controller.signal
       }).json()
-      if (resp?.ok === false) {
-        throw new Error(resp.message || t('common.error.unexpected'))
-      }
       // -> The stored name is not always the one asked for: what happens to a file already in the
       //    folder is the site's upload conflict behavior to decide — it may be replaced, or the
       //    arrival may take the next free `name-1.ext` — so the content has to point at what the

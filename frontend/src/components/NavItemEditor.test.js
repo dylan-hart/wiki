@@ -290,8 +290,10 @@ describe('NavItemEditor', () => {
     copyAction.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await vi.waitUntil(() => typeof confirm === 'function')
 
+    const err = new Error('Bad Request')
+    err.data = { message: 'Nope.' }
     API_CLIENT.post.mockReturnValueOnce({
-      json: vi.fn().mockResolvedValue({ ok: false, message: 'Nope.' })
+      json: vi.fn().mockRejectedValue(err)
     })
     const itemsBefore = wrapper.vm.buildSaveItems()
 

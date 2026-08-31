@@ -206,16 +206,13 @@ async function save() {
     if (!isFormValid) {
       throw new Error(t('auth.errors.fields'))
     }
-    const resp = await API_CLIENT.put('users/profile/password', {
+    await API_CLIENT.put('users/profile/password', {
       json: {
         strategyId: props.strategyId,
         currentPassword: state.currentPassword,
         newPassword: state.newPassword
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(localizeError(resp?.message, t) || t('common.error.unexpected'))
-    }
     notify({
       type: 'positive',
       message: t('auth.changePwd.success')

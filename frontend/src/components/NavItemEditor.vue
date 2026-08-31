@@ -882,13 +882,9 @@ function openCopyDialog() {
 async function copyFrom(sourceSiteId, sourceNavId) {
   state.loading++
   try {
-    const resp = await API_CLIENT.post(`sites/${props.siteId}/navigation/${props.navId}/copy`, {
+    await API_CLIENT.post(`sites/${props.siteId}/navigation/${props.navId}/copy`, {
       json: { sourceSiteId, sourceNavId, mode: 'append' }
     }).json()
-    // -> The API client does not throw on 400, so a refusal comes back as a parsed error
-    if (resp?.ok === false) {
-      throw new Error(resp.message || t('common.error.unexpected'))
-    }
     await loadMenuItems()
     // -> OpenProject #1012: this already persisted server-side, unlike the rest of this editor's
     //    changes -- see the `copied` event's own doc comment above for why the host needs telling.

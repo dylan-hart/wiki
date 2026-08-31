@@ -359,6 +359,7 @@ import {
 import { dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { useMinWidth } from '@/composables/screen'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { assetPath } from '@/helpers/assets'
 import { blockMarkdown } from '@/helpers/blocks'
 import { directionalAnchor } from '@/helpers/directionalAnchor'
@@ -1329,16 +1330,14 @@ function onDividerPointerUp() {
 async function persistPreviewWidth(px) {
   const payload = { ...editorStore.userSettings.markdown, previewWidth: px }
   try {
-    const resp = await API_CLIENT.put('users/profile/editor-settings/markdown', {
+    await API_CLIENT.put('users/profile/editor-settings/markdown', {
       json: payload
     }).json()
-    if (resp?.ok) {
-      editorStore.$patch({
-        userSettings: { ...editorStore.userSettings, markdown: payload }
-      })
-    }
+    editorStore.$patch({
+      userSettings: { ...editorStore.userSettings, markdown: payload }
+    })
   } catch (err) {
-    console.warn(`Could not save the Markdown editor's preview width: ${err.message}`)
+    console.warn(`Could not save the Markdown editor's preview width: ${apiErrorMessage(err)}`)
   }
 }
 

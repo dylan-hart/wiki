@@ -614,9 +614,6 @@ export const usePageStore = defineStore('page', {
           ...(guestEmail ? { guestEmail } : {})
         }
       }).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || i18n.global.t('common.error.unexpected'))
-      }
       this.hasOpenSuggestion = true
       return resp.submission
     },

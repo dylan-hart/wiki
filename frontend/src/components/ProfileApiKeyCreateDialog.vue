@@ -270,8 +270,8 @@ async function create() {
         siteId: state.keySiteId
       }
     }).json()
-    if (!resp?.ok || !resp?.key) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
+    if (!resp?.key) {
+      throw new Error(t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

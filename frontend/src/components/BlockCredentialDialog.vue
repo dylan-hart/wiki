@@ -243,23 +243,17 @@ async function submit() {
   state.isLoading = true
   try {
     if (props.mode === 'rotate') {
-      const resp = await API_CLIENT.post(
+      await API_CLIENT.post(
         `sites/${adminStore.currentSiteId}/block-credentials/${props.credential.id}/rotate`,
         { json: { secret: state.secret } }
       ).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
       notify({ type: 'positive', message: t('admin.blocks.credentialRotateSuccess') })
       onDialogOK()
     } else if (props.mode === 'domains') {
-      const resp = await API_CLIENT.post(
+      await API_CLIENT.post(
         `sites/${adminStore.currentSiteId}/block-credentials/${props.credential.id}/allowed-origins`,
         { json: { allowedOrigins: state.allowedOrigins } }
       ).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
       notify({ type: 'positive', message: t('admin.blocks.credentialDomainsUpdateSuccess') })
       onDialogOK()
     } else {

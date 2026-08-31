@@ -78,10 +78,7 @@ const state = reactive({
 async function confirm() {
   state.isLoading = true
   try {
-    const resp = await API_CLIENT.delete(`hooks/${props.hook.id}`)
-    if (!resp?.ok) {
-      throw new Error((await resp.json())?.message || t('common.error.unexpected'))
-    }
+    await API_CLIENT.delete(`hooks/${props.hook.id}`)
     notify({
       type: 'positive',
       message: t('admin.webhooks.deleteSuccess')

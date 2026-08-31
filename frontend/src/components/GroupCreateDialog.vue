@@ -47,6 +47,7 @@ import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { reactive, ref } from 'vue'
 
 // EMITS
@@ -91,16 +92,11 @@ async function create() {
     if (!isFormValid) {
       throw new Error(t('admin.groups.createInvalidData'))
     }
-    const resp = await API_CLIENT.post('groups', {
+    await API_CLIENT.post('groups', {
       json: {
         name: state.groupName
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.groups.${resp?.error}`, resp?.message || t('common.error.unexpected'))
-      )
-    }
     notify({
       type: 'positive',
       message: t('admin.groups.createSuccess')
@@ -109,7 +105,9 @@ async function create() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: err.data
+        ? t(`admin.groups.${err.data.error}`, apiErrorMessage(err, 'An unexpected error occured.'))
+        : err.message
     })
   }
   state.isLoading = false

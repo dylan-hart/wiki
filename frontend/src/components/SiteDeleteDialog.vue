@@ -99,10 +99,7 @@ async function confirm() {
   }
   state.isLoading = true
   try {
-    const resp = await API_CLIENT.delete(`sites/${props.site.id}`)
-    if (!resp?.ok) {
-      throw new Error((await resp.json())?.message || t('common.error.unexpected'))
-    }
+    await API_CLIENT.delete(`sites/${props.site.id}`)
     notify({
       type: 'positive',
       message: t('admin.sites.deleteSuccess')

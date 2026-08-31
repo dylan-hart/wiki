@@ -369,10 +369,7 @@ function disconnectWS() {
   }).onOk(async () => {
     loading.show()
     try {
-      const resp = await API_CLIENT.post('system/websockets/disconnect').json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
+      await API_CLIENT.post('system/websockets/disconnect').json()
       notify({
         type: 'positive',
         message: t('admin.utilities.disconnectWSSuccess')
@@ -408,9 +405,6 @@ function invalidateApiCertificates() {
     loading.show()
     try {
       const resp = await API_CLIENT.post('system/certificates').json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
       const count = resp.invalidatedKeys ?? 0
       notify({
         type: 'positive',
@@ -446,10 +440,7 @@ function invalidateSessionSecret() {
   }).onOk(async () => {
     loading.show()
     try {
-      const resp = await API_CLIENT.post('system/sessions/invalidate').json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
+      await API_CLIENT.post('system/sessions/invalidate').json()
       // -> This session is one of the ones just ended, so there is nowhere to go but back to the
       //    login screen. A full load rather than a route push: every store is holding the state of
       //    somebody who is no longer signed in.
@@ -489,9 +480,6 @@ function purgeHistory() {
       const resp = await API_CLIENT.post('system/history/purge', {
         json: { olderThan: state.purgeHistoryTimeframe }
       }).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
       const count = resp.count ?? 0
       notify({
         type: 'positive',
@@ -527,9 +515,6 @@ function purgeRevokedKeys() {
     loading.show()
     try {
       const resp = await API_CLIENT.post('system/api-keys/purge').json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || t('common.error.unexpected'))
-      }
       const count = resp.count ?? 0
       notify({
         type: 'positive',
@@ -563,8 +548,8 @@ async function exportContent() {
     const queued = await API_CLIENT.post('system/export', {
       json: { siteId: siteStore.id }
     }).json()
-    if (!queued?.ok || !queued?.id) {
-      throw new Error(queued?.message || t('common.error.unexpected'))
+    if (!queued?.id) {
+      throw new Error(t('common.error.unexpected'))
     }
 
     let blob
@@ -636,16 +621,13 @@ function importFileSelected() {
     .onOk(async () => {
       loading.show()
       try {
-        const resp = await API_CLIENT.post('system/import', {
+        await API_CLIENT.post('system/import', {
           searchParams: { targetSiteId: siteStore.id },
           headers: {
             'content-type': file.type || 'application/gzip'
           },
           body: file
         }).json()
-        if (!resp?.ok) {
-          throw new Error(resp?.message || t('common.error.unexpected'))
-        }
         notify({
           type: 'positive',
           message: t('admin.utilities.importSuccess')
@@ -672,10 +654,7 @@ function importFileSelected() {
 async function flushCache() {
   loading.show()
   try {
-    const resp = await API_CLIENT.post('system/cache/flush').json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || t('common.error.unexpected'))
-    }
+    await API_CLIENT.post('system/cache/flush').json()
     notify({
       type: 'positive',
       message: t('admin.utilities.flushCacheSuccess')
@@ -704,8 +683,8 @@ async function scanPageProblems() {
   state.scanReport = null
   try {
     const queued = await API_CLIENT.post('system/pages/scan').json()
-    if (!queued?.ok || !queued?.id) {
-      throw new Error(queued?.message || t('common.error.unexpected'))
+    if (!queued?.id) {
+      throw new Error(t('common.error.unexpected'))
     }
 
     let job

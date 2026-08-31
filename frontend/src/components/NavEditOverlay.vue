@@ -191,10 +191,6 @@ async function save() {
         items
       }
     }).json()
-    // -> The API client does not throw on 400, so a refusal comes back as a parsed error
-    if (resp?.ok === false) {
-      throw new Error(resp.message || t('common.error.unexpected'))
-    }
     notify({
       type: 'positive',
       message: t('navEdit.saveSuccess')

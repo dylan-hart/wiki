@@ -91,14 +91,11 @@ const state = reactive({
 async function confirm() {
   state.isLoading = true
   try {
-    const resp = await API_CLIENT.put(`sites/${props.site.id}`, {
+    await API_CLIENT.put(`sites/${props.site.id}`, {
       json: {
         isEnabled: props.targetState
       }
     })
-    if (!resp?.ok) {
-      throw new Error((await resp.json())?.message || t('common.error.unexpected'))
-    }
     notify({
       type: 'positive',
       message: t('admin.sites.updateSuccess')

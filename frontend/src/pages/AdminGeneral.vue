@@ -591,6 +591,7 @@ import {
 } from '@/helpers/siteImages'
 import { isValidHostname } from '@/helpers/siteValidation'
 import { hostnameRenamedAway } from '@/helpers/siteRename'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { toMerged } from 'es-toolkit/object'
 
@@ -775,7 +776,7 @@ function parsePageExtensions(value) {
 async function save() {
   state.loading++
   try {
-    const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
+    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
       json: {
         hostname: state.config.hostname ?? '',
         title: state.config.title ?? '',
@@ -811,11 +812,6 @@ async function save() {
         }
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.general.${resp?.error}`, resp?.message || t('common.error.unexpected'))
-      )
-    }
     notify({
       type: 'positive',
       message: t('admin.general.saveSuccess')
@@ -852,7 +848,10 @@ async function save() {
     notify({
       type: 'negative',
       message: t('admin.general.saveFailed'),
-      caption: err.message
+      caption: t(
+        `admin.general.${err.data?.error}`,
+        apiErrorMessage(err, t('common.error.unexpected'))
+      )
     })
   }
   state.loading--

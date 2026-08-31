@@ -255,24 +255,11 @@ async function recover(row, overrides = {}) {
       `sites/${adminStore.currentSiteId}/pages/deleted/${row.id}/recover`,
       { json: overrides }
     ).json()
-    // -> The API client does not throw on 400, so an invalid locale comes back as a parsed error
-    //    rather than reaching the catch below
-    if (resp?.ok === false) {
-      if (resp.error === 'pageInvalidLocale') {
-        promptLocale(row, overrides)
-      } else {
-        notify({
-          type: 'negative',
-          message: t('history.recovery.recoverFailed'),
-          caption: resp.message
-        })
-      }
-      return
-    }
     notify({ type: 'positive', message: t('history.recovery.recoverSuccess') })
     router.push(localizedPagePath(resp.page.path, resp.page.locale, siteStore.localeRouting))
   } catch (err) {
-    // -> ky throws above 400 -- a path a newer page has since taken answers 409
+    // -> ky throws above 400 -- a path a newer page has since taken answers 409, and an invalid
+    //    locale answers 400 with `error: 'pageInvalidLocale'` in the body
     if (err.response?.status === 409) {
       notify({
         type: 'negative',
@@ -280,6 +267,8 @@ async function recover(row, overrides = {}) {
         caption: t('history.recovery.pathConflictText', { path: overrides.path ?? row.path })
       })
       promptPath(row, overrides)
+    } else if (err.data?.error === 'pageInvalidLocale') {
+      promptLocale(row, overrides)
     } else {
       notify({
         type: 'negative',
