@@ -95,8 +95,11 @@ depends on a developer remembering:
    is rejected — kills the `fr/` shadowing class permanently and cheaply.
 5. **The known leak list**: /_edit threads `?locale=` (the mechanism already exists for `/_`
    routes); sitemap emits localized URLs + hreflang; app shell uses the request's resolved locale
-   for `lang`/`dir`; the ~10 bare-path link sites go through `localizedPagePath`; locale
-   deactivation validates (or migrates) existing content.
+   for `lang`/`dir` **(closed — decided 2026-08-31, see `docs/decisions/lang-dir-contract.md`: the
+   client now derives `<html lang>`/`dir` from the content locale the same way the server-side
+   shell template already did, instead of overwriting it from the interface locale post-hydration)**;
+   the ~10 bare-path link sites go through `localizedPagePath`; locale deactivation validates (or
+   migrates) existing content.
 6. Optional but worth deciding here: a **translation-group link** (nullable `translationGroupId`
    on `pages`) if real multilingual use is intended — today the switcher navigates on faith.
 7. **Canonical URLs**: today `/en/page` and `/page` are duplicate URLs for the same page (the
