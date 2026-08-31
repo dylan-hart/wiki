@@ -34,6 +34,19 @@ describe('WIcon', () => {
     expect(img.attributes('src')).toBe('/_assets/icons/blueprint.svg')
   })
 
+  it('renders an img: reference with an empty alt inside an aria-hidden wrapper', () => {
+    // -> The 35 admin page headers (frontend/src/pages/Admin*.vue) all depend on this: each one
+    //    already carries a visible text-h5 title next to the icon, so the icon itself must stay out
+    //    of the accessibility tree rather than have assistive tech announce its filename.
+    const wrapper = mount(WIcon, { props: { name: 'img:/_assets/icons/fluent-web.svg' } })
+
+    expect(wrapper.attributes('aria-hidden')).toBe('true')
+
+    const img = wrapper.find('img')
+    expect(img.exists()).toBe(true)
+    expect(img.attributes('alt')).toBe('')
+  })
+
   it('renders nothing for a legacy webfont-style name', () => {
     // -> Regression case for the CLAUDE.md/WIcon.vue discrepancy (task 470): CLAUDE.md used to claim
     //    `las la-cog` / `mdi-check` webfont names were mapped onto Iconify equivalents. No such mapping

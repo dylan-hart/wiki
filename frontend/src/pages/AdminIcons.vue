@@ -2,9 +2,9 @@
   <w-page class="admin-icons">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <img
-          class="admin-icon admin-icons-icon animated fadeInLeft"
-          src="/_assets/icons/fluent-spring.svg" />
+        <w-icon
+          name="img:/_assets/icons/fluent-spring.svg"
+          class="admin-icon admin-icons-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.icons.title') }}</div>
