@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import ProfileApi from './ProfileApi.vue'
+import { useUserStore } from '@/stores/user'
 
 /**
  * OpenProject #788: `ProfileApi.vue` is the self-service counterpart to `AdminApi.vue` -- it lists
@@ -11,14 +12,26 @@ import ProfileApi from './ProfileApi.vue'
  * rather than the admin-only `api-keys` resource, and shows no groups picker or global enable/disable
  * switch (neither makes sense for a token that always carries the caller's own current permissions).
  */
-function mountPage() {
-  setActivePinia(createPinia())
+/**
+ * @param {boolean} freshPinia Set false when the caller already activated its own Pinia instance
+ *   (and may have pre-seeded store state on it) -- e.g. to set userStore.timezone before the
+ *   component's first render, rather than having this overwrite it with a blank one.
+ */
+function mountPage({ freshPinia = true } = {}) {
+  if (freshPinia) {
+    setActivePinia(createPinia())
+  }
 
   const i18n = createI18n({
     legacy: false,
     locale: 'en',
     messages: {
       en: {
+        // -> Real wording from backend/locales/en.json:2060, needed so humanizeDate()'s
+        //    t('common.datetime', …) call renders actual text rather than the raw key.
+        common: {
+          datetime: '{date} at {time}'
+        },
         profile: {
           api: {
             title: 'API Access',
@@ -127,5 +140,51 @@ describe('ProfileApi', () => {
     expect(opened.props.endpoint).toBe('users/profile/api-keys')
     expect(opened.props.labelPrefix).toBe('profile.api')
     expect(opened.props.apiKey).toStrictEqual(key)
+  })
+
+  // OpenProject #2078: this page renders its "Created on" line through
+  // helpers/datetime.js#humanizeDate() -> userStore.formatDateTime(), not a local
+  // Temporal.Instant#toLocaleString() call of its own -- so a viewer's stored timezone preference
+  // must change what's rendered, the same instant included.
+  it('renders createdOn through the store formatter, so a stored timezone changes it', async () => {
+    globalThis.API_CLIENT.get.mockImplementation((resource) => {
+      const payloads = {
+        'users/profile/api-keys': [
+          {
+            id: 'key-1',
+            name: 'My Laptop',
+            keyShort: 'abcd',
+            scope: null,
+            siteId: null,
+            userId: 'user-1',
+            isRevoked: false,
+            isInvalidated: false,
+            createdAt: '2026-03-04T15:30:00.000Z',
+            expiration: '2099-01-01T00:00:00.000Z'
+          }
+        ],
+        sites: []
+      }
+      return { json: () => Promise.resolve(payloads[resource] ?? []) }
+    })
+
+    setActivePinia(createPinia())
+    const userStore = useUserStore()
+    // -> UTC+9, nowhere near the test runner's own zone -- if this weren't wired through the store
+    //    the rendered cell would still show the runner's default zone instead. Set BEFORE mounting
+    //    so the very first render already reflects it, rather than relying on a later reactive
+    //    re-render to prove the point.
+    userStore.timezone = 'Asia/Tokyo'
+    userStore.dateFormat = 'YYYY-MM-DD'
+    userStore.timeFormat = '24h'
+
+    const wrapper = mountPage({ freshPinia: false })
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+
+    // -> Same instant as createdAt above, nine hours ahead in Tokyo: 2026-03-04T15:30Z rolls over
+    //    to 2026-03-05 00:30 local -- proof the stored timezone is what produced this text.
+    expect(wrapper.text()).toContain('2026-03-05 at 00:30')
   })
 })
