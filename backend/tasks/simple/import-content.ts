@@ -1,3 +1,9 @@
+import { importModel as siteImport } from '../../models/siteImport.ts'
+import { groups } from '../../models/groups.ts'
+import { glossary } from '../../models/glossary.ts'
+import { assets } from '../../models/assets.ts'
+import { jobs } from '../../models/jobs.ts'
+
 /**
  * Restore a tarball uploaded through `POST /_api/system/import` into a target site.
  *
@@ -5,6 +11,21 @@
  * back apart and restoring it inside a transaction is not something a request thread should be
  * blocked on. The uploaded file is a working file rather than a downloadable product (unlike an
  * export's tarball), so it is deleted once this task is done with it — success or failure alike.
+ *
+ * `siteImport.importSite` writes `pages`/`tree`/`assets`/`groups` directly against the database
+ * (bypassing `models/groups.ts`'s own write paths for the group upsert, in particular — see its own
+ * class doc), so none of the ordinary post-write cache/index hooks fire on their own. This task is
+ * what runs them, once `importSite` has actually succeeded: reloading (and cluster-broadcasting) the
+ * page-rule cache imported/updated groups are now part of, invalidating the glossary's cached terms
+ * for the target site, dropping the asset path-resolution cache wholesale (a bulk content replacement
+ * isn't enumerable path-by-path the way a single move is), and queuing — not running inline — a full
+ * search-index rebuild for the target site, so the job's own runtime stays bounded to the restore
+ * itself rather than also paying for a synchronous reindex.
+ *
+ * @param deps Real models (and scheduler) by default; overridable so tests can exercise the
+ *   post-import side effects without a database. Each has its own default rather than one default for
+ *   the whole object, so a test overriding only one dependency still gets the real implementation of
+ *   the rest.
  */
 export async function task(
   payload: { filePath: string; targetSiteId: string; importedById: string } = {
@@ -12,17 +33,42 @@ export async function task(
     targetSiteId: '',
     importedById: ''
   },
-  jobId?: string
+  jobId?: string,
+  deps: {
+    siteImport?: typeof siteImport
+    groups?: typeof groups
+    glossary?: typeof glossary
+    assets?: typeof assets
+    jobs?: typeof jobs
+    addJob?: typeof WIKI.scheduler.addJob
+  } = {}
 ): Promise<void> {
+  const {
+    siteImport: siteImportDep = siteImport,
+    groups: groupsDep = groups,
+    glossary: glossaryDep = glossary,
+    assets: assetsDep = assets,
+    jobs: jobsDep = jobs,
+    addJob = (opts) => WIKI.scheduler.addJob(opts)
+  } = deps
+
   WIKI.logger.info(`Importing content into site ${payload.targetSiteId}...`)
   try {
-    const result = await WIKI.models.import.importSite(
+    const result = await siteImportDep.importSite(
       payload.filePath,
       payload.targetSiteId,
       payload.importedById
     )
+
+    // -> Post-import side effects: only reached once the restore itself has actually succeeded, so a
+    //    failed/partial import never reloads caches as though it had landed.
+    await groupsDep.broadcastReload()
+    glossaryDep.invalidateCache(payload.targetSiteId)
+    assetsDep.forgetAllPaths()
+    await addJob({ task: 'rebuildSearchIndex', payload: { siteId: payload.targetSiteId } })
+
     if (jobId) {
-      await WIKI.models.jobs.setResult(jobId, result)
+      await jobsDep.setResult(jobId, result)
     }
     WIKI.logger.info(`Imported content into site ${payload.targetSiteId}: [ COMPLETED ]`)
   } catch (err: any) {
@@ -30,6 +76,6 @@ export async function task(
     WIKI.logger.error(err.message)
     throw err
   } finally {
-    await WIKI.models.import.deleteUpload(payload.filePath)
+    await siteImportDep.deleteUpload(payload.filePath)
   }
 }

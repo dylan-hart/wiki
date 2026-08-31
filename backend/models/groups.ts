@@ -211,8 +211,13 @@ class Groups {
    * `reloadCache()` itself: `reloadCache()` also runs when `subscribeToEvents()`'s handler answers
    * *another* instance's event, and broadcasting from there would echo the event back around the
    * cluster forever.
+   *
+   * Public rather than internal-only: a write that bypasses this model's own insert/update/delete
+   * methods — `models/siteImport.ts#importSite`'s raw `tx.insert(groupsTable).onConflictDoUpdate(...)`
+   * upsert of imported groups is the one case today — still needs this same reload-then-notify shape,
+   * called by whoever performed the write (`tasks/simple/import-content.ts`) once it lands.
    */
-  private async broadcastReload(): Promise<void> {
+  async broadcastReload(): Promise<void> {
     await this.reloadCache()
     WIKI.events.outbound.emit('reloadGroups')
   }

@@ -101,6 +101,15 @@ function readJson<T>(entries: Record<string, Buffer>, name: string): T {
  * - **The target site's own config, hostname and enabled state are left untouched.** `site.json` is
  *   validated as present (it is part of the archive's structure) but its contents are not applied —
  *   only pages, tree entries, assets and groups are what this restores.
+ *
+ * **Cache and index invalidation is deliberately not this method's job.** `importSite` writes
+ * `pages`/`tree`/`assets` directly and upserts `groups` through a raw query rather than through
+ * `models/groups.ts`'s own methods, so none of the ordinary post-write hooks (the page-rule
+ * `rulesCache` reload/broadcast, the glossary's per-site term cache, the asset path-resolution cache,
+ * the search index) fire as a side effect of this transaction. That is intentional: this model has no
+ * business scheduling a cross-instance cache broadcast or queuing a search-index rebuild job, the way
+ * no other `models/` write path does either. `tasks/simple/import-content.ts`, the sole caller, is
+ * where that happens — see its own doc comment — once this method has actually returned successfully.
  */
 class ImportModel {
   /** `<dataPath>/imports` — created on first use, same as the export/icon/asset caches. */
