@@ -2017,3 +2017,265 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
   })
 })
+
+/**
+ * The generated-tree cache `getGeneratedTree` builds inside `getNav` (OpenProject #1825), proven
+ * behaviorally rather than by counting queries: a direct, bypass-the-model mutation of a `tree` row a
+ * generated menu depends on is invisible to a warm cache, and becomes visible again only once one of
+ * the real write paths this feature invalidates from (or `invalidateCache` itself) runs. This is a
+ * black-box proof of "no further query on a second call" — the point the query count itself would
+ * otherwise be checked for — since none of `generateFromTree`'s query-builder calls round-trip through
+ * `db.execute()`, which is the only spy point every other query-counting case in this file uses.
+ */
+describe('navigation generated-tree cache (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let navigationModel: typeof import('./navigation.ts').navigation
+  let pagesModel: typeof import('./pages.ts').pages
+  let treeModel: typeof import('./tree.ts').tree
+  let actor: PageActor
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ navigation: navigationModel } = await import('./navigation.ts'))
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ tree: treeModel } = await import('./tree.ts'))
+    actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  async function setMode(navId: string, mode: 'static' | 'auto' | 'mixed') {
+    await WIKI.db.update(navigationTable).set({ mode }).where(eq(navigationTable.id, navId))
+  }
+
+  test('a warm cache survives a direct tree mutation that bypasses every model write path, until invalidateCache runs', async () => {
+    const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+    await setMode(siteNavId, 'auto')
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'cache-staleness-page',
+        title: 'Original Title',
+        editor: 'markdown',
+        content: '# Hi'
+      },
+      actor
+    )
+
+    const first = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    assert.equal(first.find((item) => item.id === page.id)?.label, 'Original Title')
+
+    // -> Bypasses every model write path this feature invalidates from -- a genuine "nothing told the
+    //    cache" probe, not just a fast-follow write that happened to invalidate anyway
+    await WIKI.db
+      .update(treeTable)
+      .set({ title: 'Mutated Behind The Cache' })
+      .where(eq(treeTable.id, page.id))
+
+    const second = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    assert.equal(
+      second.find((item) => item.id === page.id)?.label,
+      'Original Title',
+      'the warm cache is served, not a fresh query'
+    )
+
+    navigationModel.invalidateCache(fixtures.siteId)
+    const third = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    assert.equal(
+      third.find((item) => item.id === page.id)?.label,
+      'Mutated Behind The Cache',
+      'invalidateCache drops the stale entry'
+    )
+  })
+
+  test('createPage (tree.addPage) invalidates so a previously-cached menu picks up a page created afterwards', async () => {
+    const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+    await setMode(siteNavId, 'auto')
+    // -> Both top-level (no parent folder), so each shows up directly in the site-root walk rather
+    //    than nested under an auto-created folder -- keeps the assertion below a flat top-level check
+    await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'addpage-invalidation-first', title: 'First', editor: 'markdown', content: '# Hi' },
+      actor
+    )
+    const warmed = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    assert.ok(warmed.some((item) => item.label === 'First'))
+
+    await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'addpage-invalidation-second', title: 'Second', editor: 'markdown', content: '# Hi' },
+      actor
+    )
+
+    const refreshed = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    assert.ok(
+      refreshed.some((item) => item.label === 'Second'),
+      'createPage (tree.addPage) invalidated the warm cache'
+    )
+  })
+
+  test('deletePage (tree.deleteEntry) invalidates so a previously-cached menu drops a deleted page', async () => {
+    const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+    await setMode(siteNavId, 'auto')
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'delete-invalidation-page', title: 'Delete Me', editor: 'markdown', content: '# Hi' },
+      actor
+    )
+    const warmed = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    assert.ok(warmed.some((item) => item.label === 'Delete Me'))
+
+    await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+    const refreshed = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    assert.equal(
+      refreshed.some((item) => item.label === 'Delete Me'),
+      false
+    )
+  })
+
+  test('createFolder invalidates so a previously-cached menu picks up a new section afterwards', async () => {
+    const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+    await setMode(siteNavId, 'auto')
+    const warmed = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    assert.equal(
+      warmed.some((item) => item.label === 'Fresh Folder'),
+      false
+    )
+
+    await treeModel.createFolder({
+      parentPath: '',
+      pathName: 'fresh-folder',
+      title: 'Fresh Folder',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    // -> An empty folder holds no visible page, so it would not appear anyway -- give it one so the
+    //    walk's `holdsVisiblePages` EXISTS actually includes it, isolating what this test means to prove
+    await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'fresh-folder/inside', title: 'Inside', editor: 'markdown', content: '# Hi' },
+      actor
+    )
+
+    const refreshed = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    assert.ok(refreshed.some((item) => item.label === 'Fresh Folder'))
+  })
+
+  test('updatePage publishState/icon changes invalidate a menu depending on them', async () => {
+    const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+    await setMode(siteNavId, 'auto')
+    const draft = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'publish-invalidation-page',
+        title: 'Publish Me',
+        editor: 'markdown',
+        content: '# Hi',
+        publishState: 'draft'
+      },
+      actor
+    )
+
+    const beforePublish = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    assert.equal(
+      beforePublish.some((item) => item.label === 'Publish Me'),
+      false
+    )
+
+    await pagesModel.updatePage(fixtures.siteId, draft.id, { publishState: 'published' }, actor)
+
+    const afterPublish = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    assert.ok(afterPublish.some((item) => item.label === 'Publish Me'))
+
+    await pagesModel.updatePage(fixtures.siteId, draft.id, { icon: 'mdi:star' }, actor)
+
+    const afterIcon = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    assert.equal(afterIcon.find((item) => item.label === 'Publish Me')?.icon, 'mdi:star')
+  })
+
+  test('updateNavigation mode changes invalidate a previously-cached ancestor menu', async () => {
+    const folder = await treeModel.createFolder({
+      parentPath: '',
+      pathName: 'cascade-cache-section',
+      title: 'Cascade Cache Section',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'cascade-cache-section/inside',
+        title: 'Inside Section',
+        editor: 'markdown',
+        content: '# Hi'
+      },
+      actor
+    )
+    const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+    await setMode(siteNavId, 'auto')
+
+    // -> The folder itself is the top-level generated item here ('Inside Section' is nested a level
+    //    below it) -- and it is exactly what a `hide` on the folder drops outright, so asserting on
+    //    the folder's own presence is both the simpler check and the one `generateFromTree`'s
+    //    hide-boundary rule (dropped, not just emptied) actually promises
+    const beforeHide = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    assert.ok(beforeHide.some((item) => item.label === 'Cascade Cache Section'))
+
+    await navigationModel.updateNavigation({
+      siteId: fixtures.siteId,
+      pageId: folder.id,
+      mode: 'hide'
+    })
+
+    const afterHide = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    assert.equal(
+      afterHide.some((item) => item.label === 'Cascade Cache Section'),
+      false
+    )
+  })
+
+  test('a warm generated-tree cache never leaks a visibilityGroups-restricted stored item between actors on a mixed menu', async () => {
+    const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+    await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'mixed-actor-safety-page',
+        title: 'Mixed Actor Page',
+        editor: 'markdown',
+        content: '# Hi'
+      },
+      actor
+    )
+    await navigationModel.setNavItems(fixtures.siteId, siteNavId, [
+      {
+        id: 'restricted-item',
+        type: 'link',
+        label: 'Restricted',
+        target: '/secret',
+        visibilityGroups: ['editors']
+      }
+    ])
+    await setMode(siteNavId, 'mixed')
+
+    // -> Warms the shared generated-tree cache from a call that also carries the restricting group,
+    //    so the generated portion is genuinely cached before the group-blind assertion below runs
+    const withGroup = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+      userGroups: ['editors']
+    })
+    assert.ok(withGroup.some((item) => item.id === 'restricted-item'))
+    assert.ok(withGroup.some((item) => item.label === 'Mixed Actor Page'))
+
+    const withoutGroup = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+      userGroups: []
+    })
+    assert.equal(
+      withoutGroup.some((item) => item.id === 'restricted-item'),
+      false
+    )
+    // -> The shared, cached generated portion is untouched by the other actor's missing group
+    assert.ok(withoutGroup.some((item) => item.label === 'Mixed Actor Page'))
+  })
+})

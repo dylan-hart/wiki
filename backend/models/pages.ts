@@ -1129,6 +1129,20 @@ class Pages {
         .where(eq(treeTable.id, id))
     }
 
+    // -> A generated menu item's label comes from the tree row's title (just synced above), and its
+    //    icon/inclusion at all from `pages.icon`/`isBrowsable`/`publishState` -- any ancestor
+    //    `auto`/`mixed` menu's cached tree walk for this site depends on whichever of these changed
+    //    (OpenProject #1825). This write bypasses `tree.ts`'s own methods (a direct `treeTable`
+    //    update above, not `renameEntry`), so it needs its own invalidation rather than inheriting one.
+    if (
+      treeTitle !== null ||
+      patch.icon !== undefined ||
+      patch.isBrowsable !== undefined ||
+      patch.publishState !== undefined
+    ) {
+      WIKI.models.navigation.invalidateCache(siteId)
+    }
+
     await WIKI.models.search.updated(rawUpdated)
     await WIKI.models.hooks.emit('page:edit', siteId, {
       id,
@@ -1505,7 +1519,7 @@ class Pages {
     await WIKI.models.tree.deleteEntry(id)
     // -> A page that overrode the sidebar owns a menu keyed by its own id, which nothing could reach
     //    once the page is gone
-    await WIKI.models.navigation.deleteNavForEntries([id])
+    await WIKI.models.navigation.deleteNavForEntries(siteId, [id])
     // -> The FK from `glossaryTerms.pageId` is `set null` (see `db/schema.ts`), so a term canonically
     //    linked to this page is unlinked at the db level already; the cached, resolved copy of that
     //    link needs the same drop or it would keep pointing at a page that no longer exists
