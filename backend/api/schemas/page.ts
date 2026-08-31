@@ -701,6 +701,30 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
+   * PAGE HISTORY RECOVERABLE PAGE - One keyset page of `listRecoverable` results
+   *
+   * Wraps `RecoverablePageEntry`, not `PageHistoryEntry` (OpenProject #2168) -- see that schema's own
+   * doc comment for why: `tags`/`classification` ride along and `author.email` is dropped, since this
+   * listing spans every deleted path on the site in one sweep rather than one page's own history.
+   */
+  app.addSchema({
+    $id: 'PageHistoryRecoverablePage',
+    type: 'object',
+    properties: {
+      items: {
+        type: 'array',
+        description:
+          'Recoverable deletions from this page of the scan, already filtered to rows the caller may read the history of — can be shorter than the requested `limit` even mid-list.',
+        items: { $ref: 'RecoverablePageEntry#' }
+      },
+      nextCursor: {
+        type: ['string', 'null'],
+        description: 'Pass back as `cursor` to fetch the next page. Null once there is no more.'
+      }
+    }
+  })
+
+  /**
    * PAGE HISTORY RECOVER RESPONSE - A deleted page, recreated from one of its versions
    */
   app.addSchema({

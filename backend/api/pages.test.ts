@@ -2506,7 +2506,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   const VERSION_ID = '22222222-2222-2222-2222-222222222222'
 
   let app: FastifyInstance
-  let listRecoverableResult: any[]
+  let listRecoverableResult: { items: any[]; nextCursor: string | null }
   let getDeletedVersionResult: any
   let recoverDeletedPageImpl: (...args: any[]) => Promise<any>
   let checkAccessImpl: (actor: any, permission: string, page: any) => boolean
@@ -2529,7 +2529,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
           groupIdsForRequest: () => []
         },
         pageHistory: {
-          listRecoverable: async (_siteId: string) => listRecoverableResult,
+          listRecoverable: async (_siteId: string, _opts?: any) => listRecoverableResult,
           getDeletedVersion: async (_siteId: string, _versionId: string) => getDeletedVersionResult,
           recoverDeletedPage: async (...args: any[]) => recoverDeletedPageImpl(...args)
         }
@@ -2572,7 +2572,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   beforeEach(() => {
-    listRecoverableResult = []
+    listRecoverableResult = { items: [], nextCursor: null }
     getDeletedVersionResult = null
     checkAccessImpl = () => false
     recoverDeletedPageImpl = async () => {
@@ -2581,28 +2581,31 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   test('GET /sites/:siteId/pages/deleted only includes rows the actor may read the history of', async () => {
-    listRecoverableResult = [
-      {
-        id: 'v1',
-        path: 'visible',
-        locale: 'en',
-        title: 'Visible',
-        action: 'deleted',
-        tags: [],
-        classification: null,
-        author: { id: 'u1', name: 'Author One' }
-      },
-      {
-        id: 'v2',
-        path: 'hidden',
-        locale: 'en',
-        title: 'Hidden',
-        action: 'deleted',
-        tags: [],
-        classification: null,
-        author: { id: 'u2', name: 'Author Two' }
-      }
-    ]
+    listRecoverableResult = {
+      items: [
+        {
+          id: 'v1',
+          path: 'visible',
+          locale: 'en',
+          title: 'Visible',
+          action: 'deleted',
+          tags: [],
+          classification: null,
+          author: { id: 'u1', name: 'Author One' }
+        },
+        {
+          id: 'v2',
+          path: 'hidden',
+          locale: 'en',
+          title: 'Hidden',
+          action: 'deleted',
+          tags: [],
+          classification: null,
+          author: { id: 'u2', name: 'Author Two' }
+        }
+      ],
+      nextCursor: null
+    }
     checkAccessImpl = (_actor, permission, page) =>
       permission === 'read:history' && page.path === 'visible'
 
@@ -2613,26 +2616,30 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
 
     assert.equal(res.statusCode, 200)
     const body = res.json()
-    assert.equal(body.length, 1)
-    assert.equal(body[0].path, 'visible')
+    assert.equal(body.items.length, 1)
+    assert.equal(body.items[0].path, 'visible')
+    assert.equal(body.nextCursor, null)
     // -> No authorEmail anywhere in the response (OpenProject #2168)
-    assert.equal(body[0].author.email, undefined)
+    assert.equal(body.items[0].author.email, undefined)
     assert.ok(!JSON.stringify(body).includes('email'))
   })
 
   test("GET /sites/:siteId/pages/deleted checks read:history with the version's own tags/classification (OpenProject #2168)", async () => {
-    listRecoverableResult = [
-      {
-        id: 'v1',
-        path: 'classified',
-        locale: 'en',
-        title: 'Classified',
-        action: 'deleted',
-        tags: ['secret'],
-        classification: 'restricted-level-id',
-        author: { id: 'u1', name: 'Author One' }
-      }
-    ]
+    listRecoverableResult = {
+      items: [
+        {
+          id: 'v1',
+          path: 'classified',
+          locale: 'en',
+          title: 'Classified',
+          action: 'deleted',
+          tags: ['secret'],
+          classification: 'restricted-level-id',
+          author: { id: 'u1', name: 'Author One' }
+        }
+      ],
+      nextCursor: null
+    }
     const seenChecks: any[] = []
     checkAccessImpl = (_actor, permission, page) => {
       if (permission === 'read:history') {
@@ -2647,7 +2654,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     })
 
     assert.equal(res.statusCode, 200)
-    assert.equal(res.json().length, 0)
+    assert.equal(res.json().items.length, 0)
     assert.deepEqual(seenChecks, [
       {
         path: 'classified',
@@ -2660,18 +2667,21 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   test('GET /sites/:siteId/pages/deleted never carries authorEmail, even for a row the actor may read', async () => {
-    listRecoverableResult = [
-      {
-        id: 'v1',
-        path: 'visible',
-        locale: 'en',
-        title: 'Visible',
-        action: 'deleted',
-        author: { id: 'u2', name: 'Someone' },
-        tags: [],
-        classification: null
-      }
-    ]
+    listRecoverableResult = {
+      items: [
+        {
+          id: 'v1',
+          path: 'visible',
+          locale: 'en',
+          title: 'Visible',
+          action: 'deleted',
+          author: { id: 'u2', name: 'Someone' },
+          tags: [],
+          classification: null
+        }
+      ],
+      nextCursor: null
+    }
     checkAccessImpl = () => true
 
     const res = await app.inject({
@@ -2681,8 +2691,8 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
 
     assert.equal(res.statusCode, 200)
     const body = res.json()
-    assert.equal(body.length, 1)
-    assert.equal(body[0].author.email, undefined)
+    assert.equal(body.items.length, 1)
+    assert.equal(body.items[0].author.email, undefined)
   })
 
   test('GET /sites/:siteId/pages/deleted narrows by a TAG-scoped DENY rule', async () => {
@@ -2721,19 +2731,29 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
       })
       return rule ? rule.mode !== 'DENY' : false
     }
-    listRecoverableResult = [
-      { id: 'v1', path: 'open', locale: 'en', title: 'Open', action: 'deleted', tags: ['public'] },
-      {
-        id: 'v2',
-        path: 'closed',
-        locale: 'en',
-        title: 'Closed',
-        action: 'deleted',
-        // -> Tagged BOTH: matches the broad ALLOW too, so this actually exercises the DENY tiebreak
-        //    rather than just "no rule matched at all".
-        tags: ['public', 'secret']
-      }
-    ]
+    listRecoverableResult = {
+      items: [
+        {
+          id: 'v1',
+          path: 'open',
+          locale: 'en',
+          title: 'Open',
+          action: 'deleted',
+          tags: ['public']
+        },
+        {
+          id: 'v2',
+          path: 'closed',
+          locale: 'en',
+          title: 'Closed',
+          action: 'deleted',
+          // -> Tagged BOTH: matches the broad ALLOW too, so this actually exercises the DENY tiebreak
+          //    rather than just "no rule matched at all".
+          tags: ['public', 'secret']
+        }
+      ],
+      nextCursor: null
+    }
 
     const res = await app.inject({
       method: 'GET',
@@ -2742,8 +2762,65 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
 
     assert.equal(res.statusCode, 200)
     const body = res.json()
-    assert.equal(body.length, 1)
-    assert.equal(body[0].path, 'open')
+    assert.equal(body.items.length, 1)
+    assert.equal(body.items[0].path, 'open')
+  })
+
+  test('GET /sites/:siteId/pages/deleted forwards nextCursor unchanged even when the permission filter shortens items', async () => {
+    // -> The model's own page boundary says there is more (`nextCursor` set) even though every row on
+    //    THIS page gets filtered out by the actor's permissions -- the route must not let a
+    //    permission-shortened (here, emptied) page read as "end of list".
+    listRecoverableResult = {
+      items: [
+        {
+          id: 'v1',
+          path: 'hidden',
+          locale: 'en',
+          title: 'Hidden',
+          action: 'deleted',
+          tags: [],
+          classification: null,
+          author: { id: 'u1', name: 'Author One' }
+        }
+      ],
+      nextCursor: 'opaque-cursor-token'
+    }
+    checkAccessImpl = () => false
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/deleted`
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.deepEqual(body.items, [])
+    assert.equal(body.nextCursor, 'opaque-cursor-token')
+  })
+
+  test('GET /sites/:siteId/pages/deleted forwards limit and cursor query params to the model', async () => {
+    const original = (globalThis as any).WIKI.models.pageHistory.listRecoverable
+    let seenOpts: any
+    try {
+      ;(globalThis as any).WIKI.models.pageHistory.listRecoverable = async (
+        _siteId: string,
+        opts: any
+      ) => {
+        seenOpts = opts
+        return { items: [], nextCursor: null }
+      }
+      checkAccessImpl = () => true
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/sites/${SITE_ID}/pages/deleted?limit=10&cursor=abc123`
+      })
+
+      assert.equal(res.statusCode, 200)
+      assert.deepEqual(seenOpts, { limit: 10, cursor: 'abc123' })
+    } finally {
+      ;(globalThis as any).WIKI.models.pageHistory.listRecoverable = original
+    }
   })
 
   test('POST recover requires a logged in user', async () => {
@@ -2903,18 +2980,21 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   test('GET /sites/:siteId/pages/deleted carries no authorEmail on any row (OpenProject #2168)', async () => {
-    listRecoverableResult = [
-      {
-        id: 'v1',
-        path: 'visible',
-        locale: 'en',
-        title: 'Visible',
-        action: 'deleted',
-        tags: [],
-        classification: null,
-        author: { id: 'u1', name: 'Someone' }
-      }
-    ]
+    listRecoverableResult = {
+      items: [
+        {
+          id: 'v1',
+          path: 'visible',
+          locale: 'en',
+          title: 'Visible',
+          action: 'deleted',
+          tags: [],
+          classification: null,
+          author: { id: 'u1', name: 'Someone' }
+        }
+      ],
+      nextCursor: null
+    }
     checkAccessImpl = () => true
 
     const res = await app.inject({
@@ -2924,9 +3004,9 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
 
     assert.equal(res.statusCode, 200)
     const body = res.json()
-    assert.equal(body.length, 1)
-    assert.equal(body[0].author.email, undefined)
-    assert.equal('authorEmail' in body[0], false)
+    assert.equal(body.items.length, 1)
+    assert.equal(body.items[0].author.email, undefined)
+    assert.equal('authorEmail' in body.items[0], false)
   })
 
   test('POST recover recreates the page and returns it', async () => {

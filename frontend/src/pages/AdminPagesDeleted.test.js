@@ -35,7 +35,10 @@ const row = {
 function mockLoadEndpoints(rows = [row]) {
   globalThis.API_CLIENT.get.mockImplementation((url) => {
     if (String(url).includes('pages/deleted')) {
-      return { json: () => Promise.resolve(rows) }
+      // -> One page, already exhausted -- `fetchAllRecoverable`'s cursor loop stops as soon as
+      //    `nextCursor` is null, so a single-page mock is enough for tests that don't care about
+      //    pagination itself.
+      return { json: () => Promise.resolve({ items: rows, nextCursor: null }) }
     }
     // -> The site lookup `load()` makes alongside the row list, for its currently active locales
     return { json: () => Promise.resolve({ locales: { active: ['en', 'fr'] } }) }
@@ -80,6 +83,44 @@ async function clickRecover(wrapper) {
 beforeEach(() => {
   openDialogs.splice(0, openDialogs.length)
   notifyQueue.splice(0, notifyQueue.length)
+})
+
+describe('AdminPagesDeleted: load()', () => {
+  it('pages through the cursor until nextCursor is null, assembling the full list', async () => {
+    const rowA = { ...row, id: 'hist-a', path: 'a' }
+    const rowB = { ...row, id: 'hist-b', path: 'b' }
+    const seenUrls = []
+
+    setActivePinia(createPinia())
+    const adminStore = useAdminStore()
+    adminStore.currentSiteId = 'site-1'
+
+    globalThis.API_CLIENT.get.mockImplementation((url) => {
+      seenUrls.push(String(url))
+      if (String(url).includes('pages/deleted')) {
+        if (!String(url).includes('cursor=')) {
+          return { json: () => Promise.resolve({ items: [rowA], nextCursor: 'page-2' }) }
+        }
+        return { json: () => Promise.resolve({ items: [rowB], nextCursor: null }) }
+      }
+      return { json: () => Promise.resolve({ locales: { active: ['en'] } }) }
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
+    })
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const wrapper = mount(AdminPagesDeleted, { global: { plugins: [router, i18n] } })
+    await flushPromises()
+
+    // -> Both server pages' rows landed in the same list, and the second request carried the first
+    //    page's own `nextCursor` forward
+    expect(wrapper.vm.state.rows.map((r) => r.id)).toEqual(['hist-a', 'hist-b'])
+    expect(seenUrls.some((u) => u.includes('pages/deleted') && u.includes('cursor=page-2'))).toBe(
+      true
+    )
+  })
 })
 
 describe('AdminPagesDeleted: recover()', () => {

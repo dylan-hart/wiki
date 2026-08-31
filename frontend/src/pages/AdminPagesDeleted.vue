@@ -112,6 +112,12 @@ import { localizedPagePath } from '@/helpers/pagePaths'
  * admin genuinely has no rows in look identical here, which is the point -- there is no partial-access
  * state to explain.
  *
+ * The server paginates that route with a `versionDate` keyset cursor rather than answering the whole
+ * site in one unbounded query (OpenProject #1862) -- `fetchAllRecoverable` below pages through it in a
+ * loop so this view still shows the complete list at once, just assembled from several bounded calls
+ * rather than one unbounded one. Stop on `nextCursor === null`, never on a short page: the permission
+ * filter above can legitimately shrink one page below the requested limit while rows remain.
+ *
  * Recovering can answer back in three shapes, and each gets its own handling rather than one generic
  * failure notice:
  *   - success, which routes straight to the page that now exists again;
@@ -205,6 +211,27 @@ function authorLabel(row) {
   return row.author?.name || row.author?.email || t('history.unknownAuthor')
 }
 
+/**
+ * Every recoverable deletion, assembled from as many bounded pages as the server's `versionDate`
+ * cursor takes to exhaust -- see the component doc comment above for why this loops instead of one
+ * unbounded call.
+ */
+async function fetchAllRecoverable() {
+  const rows = []
+  let cursor
+  for (;;) {
+    const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
+    const page = await API_CLIENT.get(
+      `sites/${adminStore.currentSiteId}/pages/deleted${query}`
+    ).json()
+    rows.push(...(page?.items ?? []))
+    cursor = page?.nextCursor ?? null
+    if (!cursor) {
+      return rows
+    }
+  }
+}
+
 async function load() {
   if (!adminStore.currentSiteId) {
     return
@@ -214,7 +241,7 @@ async function load() {
     // -> The active locale list travels with the site, not with any one deletion: it is what the
     //    site accepts NOW, which is the whole reason a stale locale needs a picker at all
     const [rows, site] = await Promise.all([
-      API_CLIENT.get(`sites/${adminStore.currentSiteId}/pages/deleted`).json(),
+      fetchAllRecoverable(),
       API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
     ])
     state.rows = rows ?? []
