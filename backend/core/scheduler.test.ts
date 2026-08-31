@@ -399,6 +399,99 @@ describe('executeOnWorker (real worker pool)', () => {
 })
 
 /**
+ * `stop()`'s bounded drain of in-flight jobs, OpenProject #2019. `processJob()` tracks each
+ * `runJob` promise in `inFlightJobs`; `stop()` must (1) clear `pollingRef`/`scheduledRef`
+ * synchronously, before it starts waiting on anything, so no new job is claimed mid-shutdown, (2)
+ * actually await whatever was already in flight rather than dropping it, and (3) not let a job that
+ * never settles on its own hold shutdown open past a bound.
+ *
+ * Drives the real `stop()` against a fake `workerPool`/`listenerHandle` (no real pool, no pubsub) so
+ * only the drain behavior itself is under test.
+ */
+describe('stop (fake WIKI)', () => {
+  let previousWiki: any
+  let destroyCalls: number
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    destroyCalls = 0
+    ;(globalThis as any).WIKI = {
+      // -> 0.05s taskTimeout + the fixed 1s SHUTDOWN_DRAIN_GRACE = a ~1.05s bound: short enough to
+      //    keep this suite fast, long enough to clearly separate "waited out the bound" from
+      //    "resolved immediately".
+      config: { scheduler: { taskTimeout: 0.05 } },
+      logger: { info: () => {}, warn: () => {}, debug: () => {} }
+    }
+    scheduler.pollingRef = setInterval(() => {}, 1_000_000)
+    scheduler.scheduledRef = setInterval(() => {}, 1_000_000)
+    scheduler.workerPool = {
+      destroy: async () => {
+        destroyCalls++
+      }
+    }
+    scheduler.listenerHandle = null
+    scheduler.inFlightJobs = new Set()
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+    scheduler.workerPool = null
+    scheduler.pollingRef = null
+    scheduler.scheduledRef = null
+    scheduler.inFlightJobs = new Set()
+  })
+
+  test('clears pollingRef and scheduledRef synchronously, before anything is awaited', () => {
+    assert.ok(scheduler.pollingRef, 'test setup sanity check')
+    assert.ok(scheduler.scheduledRef, 'test setup sanity check')
+
+    const stopPromise = scheduler.stop()
+
+    // -> `stop()` runs synchronously up to its first `await` -- by the time control returns here,
+    //    both refs must already be nulled, regardless of how long the drain that follows takes.
+    assert.equal(scheduler.pollingRef, null)
+    assert.equal(scheduler.scheduledRef, null)
+
+    return stopPromise
+  })
+
+  test('awaits an in-flight job rather than dropping it', async () => {
+    let settled = false
+    const job: Promise<void> = new Promise((resolve) =>
+      setTimeout(() => {
+        settled = true
+        resolve()
+      }, 100)
+    )
+    scheduler.inFlightJobs.add(job)
+
+    await scheduler.stop()
+
+    assert.equal(settled, true, 'stop() must not resolve before the in-flight job settled')
+    assert.equal(destroyCalls, 1, 'the worker pool must still be destroyed after the drain')
+  })
+
+  test('a never-settling in-flight job does not prevent stop() from resolving within the bound', async () => {
+    scheduler.inFlightJobs.add(new Promise<void>(() => {})) // -> deliberately never settles
+
+    const start = Date.now()
+    await scheduler.stop()
+    const elapsed = Date.now() - start
+
+    // Bound is taskTimeout (0.05s) + SHUTDOWN_DRAIN_GRACE (1s) = ~1.05s.
+    assert.ok(elapsed < 3000, `expected stop() to resolve within the bound, took ${elapsed}ms`)
+    assert.ok(
+      elapsed >= 900,
+      `expected stop() to wait out most of the bound rather than short-circuiting, took ${elapsed}ms`
+    )
+    assert.equal(destroyCalls, 1, 'the worker pool must still be destroyed once the bound elapses')
+  })
+})
+
+/**
  * Task 704 (b)/(c): `reapStaleJobs()`'s stale-claim recovery and its concurrency guarantee, plus a
  * regression for a bug this verification turned up in `processJob()`'s reclaim path — all run against
  * a real, migrated Postgres (see `test/db.ts`), not a mock of the query builder: the thing under test
