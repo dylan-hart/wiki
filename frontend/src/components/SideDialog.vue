@@ -24,6 +24,10 @@ import { useSiteStore } from '@/stores/site'
 import LoadingGeneric from '@/components/LoadingGeneric.vue'
 
 const sideDialogs = {
+  PageBacklinksDialog: defineAsyncComponent({
+    loader: () => import('@/components/PageBacklinksDialog.vue'),
+    loadingComponent: LoadingGeneric
+  }),
   PageDataDialog: defineAsyncComponent({
     loader: () => import('@/components/PageDataDialog.vue'),
     loadingComponent: LoadingGeneric

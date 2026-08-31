@@ -247,7 +247,7 @@
               </w-item-section>
               <w-item-section><w-item-label>Rerender Page</w-item-label></w-item-section>
             </w-item>
-            <w-item clickable disabled v-if="flagsStore.experimental">
+            <w-item clickable @click="toggleBacklinks">
               <w-item-section class="items-center" avatar>
                 <w-icon class="text-deep-orange-9" name="la:sun" size="sm" />
               </w-item-section>
@@ -419,12 +419,13 @@ const canRerenderPage = computed(
 /**
  * Whether the "..." menu has anything to show.
  *
- * Every entry in it is behind something: Rerender Page behind `canRerenderPage`, Convert Page and View
- * Backlinks behind the experimental flag (the first behind `manage:pages` as well). So those two tests
- * cover the whole menu -- and with neither of them true it opened an empty panel, which is what a guest
- * got on every page. Keep this in step with the entries themselves.
+ * View Backlinks (OpenProject #1917) is unconditional -- unlike Rerender Page (behind
+ * `canRerenderPage`) and Convert Page (still behind the experimental flag, plus `manage:pages`),
+ * every reader who can see this rail at all can see it. So the menu can never come up empty any
+ * more; this stays `true` rather than being deleted outright because OpenProject #1921 (deleting the
+ * dead Convert Page entry) is the one that also removes this workaround for good.
  */
-const hasPageActions = computed(() => flagsStore.experimental || canRerenderPage.value)
+const hasPageActions = computed(() => true)
 
 // METHODS
 
@@ -438,6 +439,13 @@ function togglePageProperties() {
 function togglePageData() {
   siteStore.$patch({
     sideDialogComponent: 'PageDataDialog',
+    sideDialogShown: true
+  })
+}
+
+function toggleBacklinks() {
+  siteStore.$patch({
+    sideDialogComponent: 'PageBacklinksDialog',
     sideDialogShown: true
   })
 }

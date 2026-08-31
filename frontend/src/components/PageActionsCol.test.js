@@ -342,9 +342,10 @@ describe('PageActionsCol export menu', () => {
 /**
  * OpenProject #858: Rerender Page can't just check `write:pages` -- the backend also refuses the
  * request when Puppeteer isn't installed (503) or the page's editor isn't markdown
- * (`renderUnsupportedEditor`). Mirrors the PDF export item's own availability gate above, and
- * `canRerenderPage` doubles as what decides whether the "..." Page Actions menu has anything to show
- * at all, so the empty-menu case is worth its own assertion.
+ * (`renderUnsupportedEditor`). Mirrors the PDF export item's own availability gate above. Since
+ * OpenProject #1917, `canRerenderPage` no longer decides whether the "..." Page Actions menu shows
+ * at all -- View Backlinks is unconditional, so the trigger always renders; what varies here is only
+ * whether Rerender Page itself appears inside it.
  */
 async function mountRailWithPageActions({
   pdfExportAvailable = true,
@@ -584,18 +585,44 @@ describe('PageActionsCol page actions menu', () => {
     expect(menuItemLabels()).toContain('Rerender Page')
   })
 
-  it('hides the "..." Page Actions button entirely when Rerender Page is the only entry and cannot run', async () => {
+  // -> OpenProject #1917: View Backlinks is unconditional now, so unlike Rerender Page it never
+  //    leaves the "..." trigger with nothing to show -- the button stays, just without Rerender Page.
+  it('keeps the "..." Page Actions button visible via View Backlinks even when Rerender Page cannot run', async () => {
     ;({ wrapper } = await mountRailWithPageActions({ pdfExportAvailable: false }))
 
-    // -> With the experimental flag off, Rerender Page was the menu's only entry -- so with it also
-    //    unavailable, the trigger itself must not render (no separator/button opening an empty panel)
-    expect(wrapper.find('[aria-label="Page Actions"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="Page Actions"]').exists()).toBe(true)
+
+    await wrapper.get('[aria-label="Page Actions"]').trigger('click')
+    await flushPromises()
+
+    expect(menuItemLabels()).not.toContain('Rerender Page')
+    expect(menuItemLabels()).toContain('View Backlinks')
   })
 
-  it('hides the Page Actions menu for a non-markdown editor even when write:pages and Puppeteer are available', async () => {
+  it('keeps the Page Actions menu visible for a non-markdown editor, still offering View Backlinks', async () => {
     ;({ wrapper } = await mountRailWithPageActions({ editor: 'code' }))
 
-    expect(wrapper.find('[aria-label="Page Actions"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="Page Actions"]').exists()).toBe(true)
+
+    await wrapper.get('[aria-label="Page Actions"]').trigger('click')
+    await flushPromises()
+
+    expect(menuItemLabels()).not.toContain('Rerender Page')
+    expect(menuItemLabels()).toContain('View Backlinks')
+  })
+
+  it('opens the backlinks side panel when View Backlinks is clicked', async () => {
+    let ctx
+    ;({ wrapper } = ctx = await mountRailWithPageActions())
+
+    await wrapper.get('[aria-label="Page Actions"]').trigger('click')
+    await flushPromises()
+
+    clickMenuItem('View Backlinks')
+    await flushPromises()
+
+    expect(ctx.siteStore.sideDialogComponent).toBe('PageBacklinksDialog')
+    expect(ctx.siteStore.sideDialogShown).toBe(true)
   })
 })
 
