@@ -1072,4 +1072,35 @@ describe('Graph.vue (OpenProject #891)', () => {
       expect(wrapper.vm.fallbackNodes.some((entry) => entry.node.synthetic)).toBe(false)
     })
   })
+
+  // -> OpenProject #1866: the server-side node cap's truncated/totalNodes signal.
+  it('captures truncated: false and totalNodes from an under-cap response', async () => {
+    const wrapper = await mountGraph()
+
+    expect(wrapper.vm.graphTruncated).toBe(false)
+    expect(wrapper.vm.totalNodes).toBe(FIXTURE_GRAPH.nodes.length)
+  })
+
+  it('captures truncated: true and the true totalNodes from a capped response', async () => {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
+    })
+    router.push('/')
+    await router.isReady()
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ ...FIXTURE_GRAPH, truncated: true, totalNodes: 5000 })
+    })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ isEnabled: true }) })
+
+    const wrapper = mount(Graph, { global: { plugins: [router, createTestI18n()] } })
+    await flushPromises()
+
+    expect(wrapper.vm.graphTruncated).toBe(true)
+    expect(wrapper.vm.totalNodes).toBe(5000)
+  })
 })

@@ -223,6 +223,13 @@ const loadError = ref(null)
 const allNodes = shallowRef([])
 const allEdges = shallowRef([])
 
+/** Server-side truncation signal (OpenProject #1866): `assembleGraph` caps the node set at
+ *  `GRAPH_NODE_CAP` and reports whether it had to. `totalNodes` is the true readable-page count
+ *  even when truncated, so a future notice (OpenProject #1875) can say how much was cut, not just
+ *  that some was. */
+const graphTruncated = ref(false)
+const totalNodes = ref(0)
+
 /** 'site' is deliberately not an option here -- see the spec's architecture note: a single loaded
  *  graph has exactly one site value, so grouping by it would be a no-op UI control. */
 const groupBy = ref('folder')
@@ -958,6 +965,8 @@ async function loadGraph() {
     }).json()
     allNodes.value = (graph.nodes ?? []).map((n) => markRaw(n))
     allEdges.value = (graph.edges ?? []).map((e) => markRaw(e))
+    graphTruncated.value = graph.truncated ?? false
+    totalNodes.value = graph.totalNodes ?? allNodes.value.length
     applyFilters()
     sizeCanvas()
     startSimulation()

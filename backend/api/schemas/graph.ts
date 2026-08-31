@@ -200,7 +200,18 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     type: 'object',
     properties: {
       nodes: { type: 'array', items: { $ref: 'GraphNode#' } },
-      edges: { type: 'array', items: { $ref: 'GraphEdge#' } }
-    }
+      edges: { type: 'array', items: { $ref: 'GraphEdge#' } },
+      truncated: {
+        type: 'boolean',
+        description:
+          'Whether the node set was cut off by the server-side node cap (OpenProject #1866) -- when true, `nodes` holds only a subset of `totalNodes` readable pages, and every edge touching a dropped node has been dropped with it.'
+      },
+      totalNodes: {
+        type: 'integer',
+        description:
+          'Count of pages the caller may read, before the cap is applied. Equal to `nodes.length` when `truncated` is false.'
+      }
+    },
+    required: ['nodes', 'edges', 'truncated', 'totalNodes']
   })
 }

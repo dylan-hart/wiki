@@ -4,7 +4,7 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import { eq } from 'drizzle-orm'
-import graphRoutes, { assembleGraph, folderOf, type GraphPageRow } from './graph.ts'
+import graphRoutes, { assembleGraph, folderOf, GRAPH_NODE_CAP, type GraphPageRow } from './graph.ts'
 import { registerSchemas as registerGraphSchema } from './schemas/graph.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import {
@@ -861,5 +861,94 @@ describe('GET /sites/:siteId/graph — actor hoisted out of the per-row filter (
     for (const call of checkAccess.mock.calls) {
       assert.equal(call.arguments[0], actor)
     }
+  })
+})
+
+// -> OpenProject #1866: the node cap, and the truncated/totalNodes signal that lets a client tell
+//    the reader a graph view is partial rather than silently attempting a layout it cannot finish.
+describe('assembleGraph node cap', () => {
+  /** `n` rows with zero-padded paths, so lexicographic order (what the cap sorts by) matches
+   *  numeric order -- makes "which rows survive" trivial to assert on. */
+  function makeManyRows(n: number): GraphPageRow[] {
+    return Array.from({ length: n }, (_, i) => makeRow({ path: `p${String(i).padStart(6, '0')}` }))
+  }
+
+  test('an under-cap site is not truncated, and totalNodes equals nodes.length', () => {
+    const rows = makeManyRows(3)
+
+    const result = assembleGraph(rows, () => true)
+
+    assert.equal(result.truncated, false)
+    assert.equal(result.totalNodes, result.nodes.length)
+    assert.equal(result.totalNodes, 3)
+  })
+
+  test('an over-cap site is truncated to exactly the cap, reporting the true totalNodes', () => {
+    const rows = makeManyRows(GRAPH_NODE_CAP + 137)
+
+    const result = assembleGraph(rows, () => true)
+
+    assert.equal(result.truncated, true)
+    assert.equal(result.nodes.length, GRAPH_NODE_CAP)
+    assert.equal(result.totalNodes, GRAPH_NODE_CAP + 137)
+  })
+
+  test('the cap only counts readable rows -- totalNodes reflects canRead, not the raw row count', () => {
+    const rows = makeManyRows(GRAPH_NODE_CAP + 50)
+
+    const result = assembleGraph(
+      rows,
+      (row) => row.path < `p${String(GRAPH_NODE_CAP).padStart(6, '0')}`
+    )
+
+    assert.equal(result.truncated, false)
+    assert.equal(result.totalNodes, GRAPH_NODE_CAP)
+    assert.equal(result.nodes.length, GRAPH_NODE_CAP)
+  })
+
+  test('selection is deterministic (sorted by path), not raw row order', () => {
+    const ordered = makeManyRows(GRAPH_NODE_CAP + 10)
+    const shuffled = [...ordered].reverse()
+
+    const fromOrdered = assembleGraph(ordered, () => true)
+    const fromShuffled = assembleGraph(shuffled, () => true)
+
+    assert.deepEqual(
+      fromOrdered.nodes.map((n) => n.path),
+      fromShuffled.nodes.map((n) => n.path)
+    )
+    // -> The lexicographically-first GRAPH_NODE_CAP paths, specifically -- not just "some stable
+    //    subset". Confirms the sort key is `path`, not e.g. insertion order surviving a stable sort.
+    assert.deepEqual(
+      fromOrdered.nodes.map((n) => n.path),
+      ordered.slice(0, GRAPH_NODE_CAP).map((r) => r.path)
+    )
+  })
+
+  test('no returned edge references a node dropped by the cap', () => {
+    const rows = makeManyRows(GRAPH_NODE_CAP + 20)
+    // -> Every row links to the very last (guaranteed-dropped) row, and to the very first
+    //    (guaranteed-retained) row -- if capped-out targets leaked through, half these edges would
+    //    dangle.
+    const droppedPath = rows.at(-1)!.path
+    const retainedPath = rows[0]!.path
+    for (const row of rows) {
+      row.links = [droppedPath, retainedPath]
+    }
+
+    const result = assembleGraph(rows, () => true)
+    // -> Edge `source`/`target` are composite `locale:path` node ids (OpenProject #1621/#1626),
+    //    not bare paths -- compare against `n.id`, not `n.path`.
+    const nodeIds = new Set(result.nodes.map((n) => n.id))
+    const retainedId = `en:${retainedPath}`
+
+    assert.ok(result.truncated)
+    for (const edge of result.edges) {
+      assert.ok(nodeIds.has(edge.source), `edge source ${edge.source} is not a returned node`)
+      assert.ok(nodeIds.has(edge.target), `edge target ${edge.target} is not a returned node`)
+    }
+    // -> Sanity: edges to the retained target did survive, so the assertion above isn't vacuously
+    //    true from every edge having been dropped.
+    assert.ok(result.edges.some((e) => e.target === retainedId))
   })
 })
