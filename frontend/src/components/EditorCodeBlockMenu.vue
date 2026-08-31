@@ -76,15 +76,22 @@
 import { computed, nextTick, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import hljs from 'highlight.js'
+// -> `lib/common`, not the `highlight.js` root -- see `renderers/markdown.js`'s import for the full
+//    reasoning. hljs is a module-singleton registry, so this file and the renderer must both import
+//    exactly this module: importing the root here (or leaving the renderer on it) would let this
+//    picker offer a language the renderer highlights differently, or vice-versa.
+import hljs from 'highlight.js/lib/common'
 
 /**
  * Picks the language for a fenced code block.
  *
- * The list is whatever highlight.js has registered — asked at runtime rather than kept as a copy here,
- * so it cannot drift from what the renderer will actually highlight. Each entry carries the id that
- * goes on the fence and the name hljs calls it; the filter matches either, plus the aliases, so `md`
- * finds Markdown and `js` finds JavaScript.
+ * The list is whatever `highlight.js/lib/common` registers -- ~36 of the most commonly written
+ * languages, not the full ~190 the package ships (see the import comment above) -- asked at runtime
+ * via `hljs.listLanguages()` rather than kept as a copy here, so it cannot drift from what the renderer
+ * will actually highlight. Each entry carries the id that goes on the fence and the name hljs calls it;
+ * the filter matches either, plus the aliases, so `md` finds Markdown and `js` finds JavaScript. A
+ * language outside this set can still be typed by hand after the fence -- it just renders unhighlighted,
+ * same as any unrecognized language always has.
  */
 
 // PROPS
