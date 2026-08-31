@@ -48,6 +48,19 @@ describe('RELEASING.md — release-manager runbook', () => {
     assert.match(raw, /git tag[^\n]*v\$\{?VERSION|git tag[^\n]*v\d/)
   })
 
+  test('signs the release tag rather than merely annotating it (WP #2280)', () => {
+    assert.match(raw, /git tag -s\b/)
+    assert.doesNotMatch(raw, /git tag -a\b/)
+  })
+
+  test('notes the signing-key prerequisite for a signed tag', () => {
+    assert.match(raw, /signing key|signingkey|gpg|ssh signing/i)
+  })
+
+  test('has a step for verifying the published build-provenance attestation', () => {
+    assert.match(raw, /gh attestation verify/)
+  })
+
   test('includes the `git push` of the tag, which is what actually triggers release.yml', () => {
     assert.match(raw, /git push[^\n]*\btag\b|git push[^\n]*v\$\{?VERSION/)
   })

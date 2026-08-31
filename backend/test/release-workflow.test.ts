@@ -155,5 +155,53 @@ describe('publish workflow split (build.yml + release.yml)', () => {
       assert.match(raw, /NOT CI-enforceable/i)
       assert.match(raw, /manual sign-off/i)
     })
+
+    describe('provenance, SBOM, signed attestation and release-artifact checksums (WP #2280)', () => {
+      const dockerStepIndex = findStepIndex(steps, /docker\/build-push-action/)
+      const dockerStep = steps[dockerStepIndex]
+
+      test('grants the job attestations:write and id-token:write, alongside contents/packages write', () => {
+        const jobWithPerms = Object.values<any>(doc.jobs).find((job: any) => job.permissions)
+        assert.equal(jobWithPerms.permissions.attestations, 'write')
+        assert.equal(jobWithPerms.permissions['id-token'], 'write')
+      })
+
+      test('the Docker build step turns on max-mode provenance and an SBOM', () => {
+        assert.equal(dockerStep.with.provenance, 'mode=max')
+        assert.equal(dockerStep.with.sbom, true)
+      })
+
+      test('the Docker build step exposes an id so its digest output can be attested', () => {
+        assert.ok(dockerStep.id, 'expected the docker/build-push-action step to declare an `id`')
+      })
+
+      test('an attest-build-provenance step runs after the Docker push, keyed on its digest', () => {
+        const attestIndex = findStepIndex(steps, /attest-build-provenance/)
+        assert.ok(attestIndex !== -1, 'expected an actions/attest-build-provenance step')
+        assert.ok(
+          attestIndex > dockerStepIndex,
+          'expected the attestation step to run after the Docker push it attests'
+        )
+        const attestStep = steps[attestIndex]
+        assert.match(attestStep.with['subject-digest'], /docker_build.*digest|digest/)
+        assert.equal(attestStep.with['push-to-registry'], true)
+      })
+
+      test('a release archive is prepared and checksummed before the GitHub Release step', () => {
+        const releaseStepIndex = findStepIndex(steps, /action-gh-release/)
+        const archiveIndex = findStepIndex(steps, /wiki-js\.tar\.gz/)
+        const checksumIndex = findStepIndex(steps, /sha256sum/)
+        assert.ok(archiveIndex !== -1, 'expected a step producing wiki-js.tar.gz')
+        assert.ok(checksumIndex !== -1, 'expected a sha256sum step')
+        assert.ok(archiveIndex < releaseStepIndex && checksumIndex < releaseStepIndex)
+      })
+
+      test('the GitHub Release attaches the archive and its checksum via files:', () => {
+        const releaseStepIndex = findStepIndex(steps, /action-gh-release/)
+        const releaseStep = steps[releaseStepIndex]
+        assert.match(releaseStep.with.files, /wiki-js\.tar\.gz\.sha256/)
+        assert.match(releaseStep.with.files, /wiki-js\.tar\.gz(?!\.sha256)/)
+      })
+    })
   })
 })
