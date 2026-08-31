@@ -680,6 +680,7 @@ test('deleteAsset awaits both asset:delete hooks.emit and storage.dispatch befor
     models: {
       ...(global.WIKI as any).models,
       tree: { deleteEntry: async () => undefined },
+      contentSync: { forgetContent: async () => undefined },
       hooks: { emit: delayedDispatchMock(order, 'hooks') },
       storage: { dispatch: delayedDispatchMock(order, 'storage') }
     }
