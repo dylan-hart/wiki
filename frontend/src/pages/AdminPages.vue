@@ -87,6 +87,84 @@
         </w-card-section>
       </w-card>
 
+      <!-- SELECTION / BULK ACTION TOOLBAR -->
+      <div v-if="state.rows.length > 0" class="flex flex-wrap items-center gap-3 mb-2 min-h-[36px]">
+        <w-checkbox
+          :model-value="allOnPageSelected"
+          :indeterminate="someOnPageSelected && !allOnPageSelected"
+          :label="t('admin.pages.selectAllOnPage')"
+          @update:model-value="toggleSelectAllOnPage" />
+        <template v-if="state.selectedIds.length > 0">
+          <span class="text-caption text-grey">{{
+            t('admin.pages.selectedCount', { count: state.selectedIds.length })
+          }}</span>
+          <w-btn
+            flat
+            dense
+            no-caps
+            :label="t('admin.pages.clearSelection')"
+            @click="clearSelection" />
+          <w-space />
+          <w-btn
+            unelevated
+            no-caps
+            color="negative"
+            icon="la:trash"
+            :disable="state.bulkLoading"
+            :label="t('admin.pages.bulkDelete')"
+            @click="confirmBulkDelete" />
+          <w-btn
+            unelevated
+            no-caps
+            color="secondary"
+            icon="la:redo-alt"
+            :disable="state.bulkLoading"
+            :label="t('admin.pages.bulkRender')"
+            @click="confirmBulkRender" />
+          <w-btn
+            unelevated
+            no-caps
+            color="primary"
+            icon="la:hashtag"
+            :disable="state.bulkLoading"
+            :label="t('admin.pages.bulkRetag')"
+            @click="state.retagOpen = !state.retagOpen" />
+        </template>
+      </div>
+
+      <!-- RETAG PANEL -->
+      <w-card v-if="state.retagOpen" flat bordered class="mb-4 p-3">
+        <div class="grid grid-cols-12 gap-2 items-end">
+          <w-input
+            class="col-span-12 sm:col-span-5"
+            outlined
+            dense
+            :label="t('admin.pages.retagAddLabel')"
+            v-model="state.retagAdd" />
+          <w-input
+            class="col-span-12 sm:col-span-5"
+            outlined
+            dense
+            :label="t('admin.pages.retagRemoveLabel')"
+            v-model="state.retagRemove" />
+          <div class="col-span-12 sm:col-span-2 flex gap-2 justify-end">
+            <w-btn
+              flat
+              no-caps
+              :disable="state.bulkLoading"
+              :label="t('common.actions.cancel')"
+              @click="state.retagOpen = false" />
+            <w-btn
+              unelevated
+              no-caps
+              color="primary"
+              :loading="state.bulkLoading"
+              :label="t('admin.pages.retagApply')"
+              @click="submitBulkRetag" />
+          </div>
+        </div>
+      </w-card>
+
       <w-card v-if="state.rows.length < 1" flat :class="dark.isActive ? `bg-dark-5` : `bg-grey-3`">
         <w-card-section class="items-center" horizontal>
           <w-card-section class="flex-none pr-0">
@@ -102,6 +180,14 @@
           row-key="id"
           flat
           :loading="state.loading > 0">
+          <template #body-cell-select="props">
+            <w-td :props="props">
+              <w-checkbox
+                v-model="state.selectedIds"
+                :val="props.row.id"
+                :aria-label="t('admin.pages.selectRowAria', { title: props.row.title })" />
+            </w-td>
+          </template>
           <template #body-cell-title="props">
             <w-td :props="props">
               <strong>{{ props.row.title }}</strong>
@@ -175,6 +261,7 @@ import { useI18n } from 'vue-i18n'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
+import { confirm } from '@/composables/dialog'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
@@ -195,6 +282,16 @@ import { localizedPagePath } from '@/helpers/pagePaths'
  * The row shape that route answers with has no `editor` or `publishState` field, even though both
  * are valid filters on it (every search-engine module's SELECT list was checked, not just the
  * default db one) -- so those two narrow the result set without being shown as their own column.
+ *
+ * OpenProject #1882 layers row selection and bulk delete/re-render/retag on top: selection is
+ * scoped to the CURRENT PAGE of results only ("select-all-on-page", not a select-everything-
+ * matching-the-filter across every page of the pager) -- `state.selectedIds` is cleared on every
+ * reload (a filter change, a page change, or after a bulk action lands), so it never silently
+ * carries a stale id from a row that has since scrolled out of view.
+ *
+ * The bulk endpoint (`POST .../pages/bulk`) reports a status per page rather than failing outright
+ * on the first one the caller may not act on -- `applyBulkResult` below is what turns that into a
+ * notification summarizing how many landed versus were skipped/not found/errored.
  */
 
 // COMPOSABLES
@@ -224,6 +321,7 @@ const PAGE_SIZE = 50
 
 const state = reactive({
   loading: 0,
+  bulkLoading: false,
   rows: [],
   total: 0,
   currentPage: 1,
@@ -235,10 +333,21 @@ const state = reactive({
     tags: '',
     editor: '',
     publishState: ''
-  }
+  },
+  selectedIds: [],
+  retagOpen: false,
+  retagAdd: '',
+  retagRemove: ''
 })
 
 const headers = [
+  {
+    label: '',
+    align: 'center',
+    field: 'id',
+    name: 'select',
+    style: 'width: 40px'
+  },
   {
     label: t('admin.pages.colTitle'),
     align: 'left',
@@ -296,6 +405,11 @@ const localeOptions = computed(() =>
 )
 
 const totalPages = computed(() => Math.max(1, Math.ceil(state.total / PAGE_SIZE)))
+
+const allOnPageSelected = computed(
+  () => state.rows.length > 0 && state.rows.every((row) => state.selectedIds.includes(row.id))
+)
+const someOnPageSelected = computed(() => state.selectedIds.length > 0)
 
 /**
  * Set just before `applyFilters()`/`resetFilters()` reset `state.currentPage` to 1, so the
@@ -374,6 +488,8 @@ async function load({ page } = {}) {
     state.rows = (resp?.results ?? []).map((r) => ({ ...r, tags: [...(r.tags ?? [])].sort() }))
     state.total = resp?.totalHits ?? 0
     state.currentPage = targetPage
+    // -> Selection is scoped to the page of results just replaced -- see the header doc comment.
+    state.selectedIds = []
   } catch (err) {
     notify({
       type: 'negative',
@@ -415,6 +531,95 @@ async function loadSite() {
 
 async function init() {
   await Promise.all([loadSite(), load({ page: 1 })])
+}
+
+function clearSelection() {
+  state.selectedIds = []
+}
+
+function toggleSelectAllOnPage() {
+  if (allOnPageSelected.value) {
+    state.selectedIds = state.selectedIds.filter((id) => !state.rows.some((row) => row.id === id))
+  } else {
+    state.selectedIds = [...new Set([...state.selectedIds, ...state.rows.map((row) => row.id)])]
+  }
+}
+
+function splitTags(raw) {
+  return raw
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+}
+
+/** Turns a `POST .../pages/bulk` response into a summary notification. */
+function applyBulkResult(resp) {
+  const counts = resp?.counts ?? {}
+  const done = counts.done ?? 0
+  const total = resp?.results?.length ?? 0
+  const problems = [
+    counts.skipped ? t('admin.pages.bulkResultSkipped', { count: counts.skipped }) : null,
+    counts.notFound ? t('admin.pages.bulkResultNotFound', { count: counts.notFound }) : null,
+    counts.error ? t('admin.pages.bulkResultError', { count: counts.error }) : null
+  ].filter(Boolean)
+  notify({
+    type: problems.length > 0 ? 'warning' : 'positive',
+    message: t('admin.pages.bulkResultSummary', { done, total }),
+    caption: problems.join(' ')
+  })
+}
+
+async function runBulkAction(action, extra = {}) {
+  state.bulkLoading = true
+  try {
+    const resp = await API_CLIENT.post(`sites/${adminStore.currentSiteId}/pages/bulk`, {
+      json: { pageIds: [...state.selectedIds], action, ...extra }
+    }).json()
+    applyBulkResult(resp)
+    state.retagOpen = false
+    state.retagAdd = ''
+    state.retagRemove = ''
+    await load({ page: state.currentPage })
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.pages.bulkActionFailed'),
+      caption: apiErrorMessage(err)
+    })
+  } finally {
+    state.bulkLoading = false
+  }
+}
+
+function confirmBulkDelete() {
+  const count = state.selectedIds.length
+  confirm({
+    title: t('admin.pages.bulkDeleteConfirmTitle'),
+    message: t('admin.pages.bulkDeleteConfirmText', { count }),
+    cancel: true,
+    color: 'negative',
+    okLabel: t('admin.pages.bulkDelete')
+  }).onOk(() => runBulkAction('delete'))
+}
+
+function confirmBulkRender() {
+  const count = state.selectedIds.length
+  confirm({
+    title: t('admin.pages.bulkRenderConfirmTitle'),
+    message: t('admin.pages.bulkRenderConfirmText', { count }),
+    cancel: true,
+    okLabel: t('admin.pages.bulkRender')
+  }).onOk(() => runBulkAction('render'))
+}
+
+function submitBulkRetag() {
+  const addTags = splitTags(state.retagAdd)
+  const removeTags = splitTags(state.retagRemove)
+  if (addTags.length < 1 && removeTags.length < 1) {
+    notify({ type: 'negative', message: t('admin.pages.retagNoneProvided') })
+    return
+  }
+  runBulkAction('retag', { addTags, removeTags })
 }
 
 // MOUNTED

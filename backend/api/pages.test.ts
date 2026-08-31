@@ -4057,3 +4057,236 @@ describe('GET /sites/:siteId/pages/deleted — actor hoisted out of the per-row 
     }
   })
 })
+
+/**
+ * `POST /sites/:siteId/pages/bulk` (OpenProject #1882): the admin page inventory's bulk
+ * delete/re-render/retag action. The behavior this proves is the thing that distinguishes it from
+ * `POST …/classification-conflicts/resolve` elsewhere in this file -- that route refuses the WHOLE
+ * request on the first page the caller may not act on; this one reports that one page as `skipped`
+ * and keeps going, since a bulk action starts from an arbitrary admin-picked selection rather than a
+ * conflict list the caller already knows they may act on.
+ */
+describe('POST /sites/:siteId/pages/bulk', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+  const PAGE_ALLOWED = '22222222-2222-4222-8222-222222222222'
+  const PAGE_DENIED = '33333333-3333-4333-8333-333333333333'
+  const PAGE_UNSAFE_RENDER = '44444444-4444-4444-8444-444444444444'
+
+  let app: FastifyInstance
+  let pageRows: Map<
+    string,
+    { id: string; path: string; locale: string; tags: string[]; classification: string }
+  >
+  let deleteCalls: string[]
+  let renderCalls: string[]
+  let updateCalls: { id: string; patch: any }[]
+  let deniedIds: Set<string>
+
+  function withSession(session: Record<string, any>) {
+    return { 'x-test-session': JSON.stringify(session) }
+  }
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      config: { port: 3000 },
+      logger: { debug: () => {} },
+      models: {
+        rateLimits: {
+          consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
+        },
+        groups: {
+          actorForRequest: (req: any) => ({
+            id: req.session?.user?.id ?? null,
+            permissions: req.session?.permissions ?? [],
+            groups: req.session?.groups ?? []
+          }),
+          // -> Denies exactly the page ids this test session put in `deniedIds` -- everything else
+          //    passes, whatever permission is actually being asked for.
+          checkAccess: (_actor: any, _permission: string, page: any) => !deniedIds.has(page.id),
+          groupIdsForRequest: () => []
+        },
+        pages: {
+          getPagesByIds: async (_siteId: string, ids: string[]) => {
+            const out = new Map()
+            for (const id of ids) {
+              if (pageRows.has(id)) {
+                out.set(id, pageRows.get(id))
+              }
+            }
+            return out
+          },
+          deletePage: async (_siteId: string, id: string) => {
+            deleteCalls.push(id)
+            return true
+          },
+          queueRerender: async (_siteId: string, id: string) => {
+            renderCalls.push(id)
+            if (id === PAGE_UNSAFE_RENDER) {
+              throw new Error('This editor cannot be rendered.')
+            }
+            return true
+          },
+          updatePage: async (_siteId: string, id: string, patch: any) => {
+            updateCalls.push({ id, patch })
+            return { id, ...patch }
+          }
+        }
+      }
+    }
+
+    app = Fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
+    await app.register(fastifySensible)
+    app.decorateRequest('session', null as any)
+    app.addHook('onRequest', async (req) => {
+      const raw = req.headers['x-test-session']
+      ;(req as any).session = typeof raw === 'string' ? JSON.parse(raw) : {}
+    })
+    app.setErrorHandler((error: any, _req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerErrorSchema(app)
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    deleteCalls = []
+    renderCalls = []
+    updateCalls = []
+    deniedIds = new Set()
+    pageRows = new Map([
+      [
+        PAGE_ALLOWED,
+        {
+          id: PAGE_ALLOWED,
+          path: 'docs/allowed',
+          locale: 'en',
+          tags: ['a', 'b'],
+          classification: ''
+        }
+      ],
+      [
+        PAGE_DENIED,
+        { id: PAGE_DENIED, path: 'docs/denied', locale: 'en', tags: [], classification: '' }
+      ],
+      [
+        PAGE_UNSAFE_RENDER,
+        { id: PAGE_UNSAFE_RENDER, path: 'docs/unsafe', locale: 'en', tags: [], classification: '' }
+      ]
+    ])
+  })
+
+  const AUTHED = withSession({ authenticated: true, user: { id: 'u1' }, permissions: [] })
+
+  test('401 for an anonymous request, before touching any page', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/bulk`,
+      payload: { pageIds: [PAGE_ALLOWED], action: 'delete' }
+    })
+    assert.equal(res.statusCode, 401)
+    assert.equal(deleteCalls.length, 0)
+  })
+
+  test('a mixed selection deletes the allowed page and reports the denied one skipped, not a batch failure', async () => {
+    deniedIds = new Set([PAGE_DENIED])
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/bulk`,
+      headers: AUTHED,
+      payload: { pageIds: [PAGE_ALLOWED, PAGE_DENIED], action: 'delete' }
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.ok, true)
+    assert.deepEqual(deleteCalls, [PAGE_ALLOWED])
+    const byId = Object.fromEntries(body.results.map((r: any) => [r.id, r]))
+    assert.equal(byId[PAGE_ALLOWED].status, 'done')
+    assert.equal(byId[PAGE_DENIED].status, 'skipped')
+    assert.equal(byId[PAGE_DENIED].path, 'docs/denied')
+    assert.deepEqual(body.counts, { done: 1, skipped: 1 })
+  })
+
+  test('an id that does not exist on this site comes back notFound, not an error', async () => {
+    const missing = '99999999-9999-4999-8999-999999999999'
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/bulk`,
+      headers: AUTHED,
+      payload: { pageIds: [missing], action: 'delete' }
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.results[0].status, 'notFound')
+    assert.equal(body.counts.notFound, 1)
+  })
+
+  test('a page that throws while rendering is reported as error, and the rest of the batch still runs', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/bulk`,
+      headers: AUTHED,
+      payload: { pageIds: [PAGE_UNSAFE_RENDER, PAGE_ALLOWED], action: 'render' }
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.deepEqual(renderCalls, [PAGE_UNSAFE_RENDER, PAGE_ALLOWED])
+    const byId = Object.fromEntries(body.results.map((r: any) => [r.id, r]))
+    assert.equal(byId[PAGE_UNSAFE_RENDER].status, 'error')
+    assert.match(byId[PAGE_UNSAFE_RENDER].message, /cannot be rendered/)
+    assert.equal(byId[PAGE_ALLOWED].status, 'done')
+  })
+
+  test('retag adds and removes tags relative to each page’s own existing tags', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/bulk`,
+      headers: AUTHED,
+      payload: {
+        pageIds: [PAGE_ALLOWED],
+        action: 'retag',
+        addTags: ['c'],
+        removeTags: ['a']
+      }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(updateCalls.length, 1)
+    assert.deepEqual(new Set(updateCalls[0].patch.tags), new Set(['b', 'c']))
+  })
+
+  test('400 when retag is called with neither addTags nor removeTags', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/bulk`,
+      headers: AUTHED,
+      payload: { pageIds: [PAGE_ALLOWED], action: 'retag' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(updateCalls.length, 0)
+  })
+
+  test('a repeated id in the selection is only acted on once', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/bulk`,
+      headers: AUTHED,
+      payload: { pageIds: [PAGE_ALLOWED, PAGE_ALLOWED], action: 'delete' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(deleteCalls, [PAGE_ALLOWED])
+    assert.equal(res.json().results.length, 1)
+  })
+})
