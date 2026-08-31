@@ -1,0 +1,29 @@
+version: 2
+
+updates:
+  # Four independently-installed npm workspaces — there is no root manifest, so no root entry.
+  - package-ecosystem: npm
+    directory: /backend
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: /blocks
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: /e2e
+    schedule:
+      interval: weekly
+
+  # Covers the workflow files under .github/workflows/ (quality.yml, build.yml, release.yml, e2e.yml).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
