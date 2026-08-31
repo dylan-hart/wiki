@@ -190,6 +190,7 @@ class Locales {
         skipped.push({ code, error: `could not be saved: ${err.message}` })
         continue
       }
+      this.invalidateStringsCache(code)
       loaded.push(code)
       WIKI.logger.info(`Sideloaded locale ${code} from ${this.sideloadPath()}. [ OK ]`)
     }
@@ -268,6 +269,7 @@ class Locales {
                 target: localesTable.code,
                 set: { strings: flStrings, completeness, updatedAt: sql`now()` }
               })
+            this.invalidateStringsCache(langFilename)
             WIKI.logger.info(`Locale ${langFilename} loaded successfully. [ OK ]`)
           } else {
             WIKI.logger.info(
@@ -334,18 +336,42 @@ class Locales {
     return codes.includes(segment.toLowerCase())
   }
 
+  /**
+   * `en.json` alone is 2,807 keys / 180KB, and this is read on every locale-strings request — cached
+   * under `localeStrings:${locale}`, the same pattern `getLocales()` already uses for the `locales`
+   * key, so a hit skips both the DB round trip and (via the route's ETag/304) the response
+   * serialization. Invalidated wherever a locale row's `strings` column can change — see
+   * `invalidateStringsCache()`.
+   */
   async getStrings(locale: string) {
-    const results = await WIKI.db
-      .select({ strings: localesTable.strings })
-      .from(localesTable)
-      .where(eq(localesTable.code, locale))
-      .limit(1)
-    return results.length === 1 ? results[0].strings : []
+    const cacheKey = `localeStrings:${locale}`
+    if (!WIKI.cache.has(cacheKey)) {
+      const results = await WIKI.db
+        .select({ strings: localesTable.strings })
+        .from(localesTable)
+        .where(eq(localesTable.code, locale))
+        .limit(1)
+      WIKI.cache.set(cacheKey, results.length === 1 ? results[0].strings : [])
+    }
+    return WIKI.cache.get(cacheKey)
+  }
+
+  /**
+   * Clears one locale's cached `getStrings()` result — the counterpart to that method's cache fill.
+   * Called from every path that can change a `strings` column (`refreshFromDisk`,
+   * `sideloadFromDataPath`, `reloadCache`) so a served-from-cache response never outlives the row it
+   * was read from.
+   */
+  private invalidateStringsCache(code: string): void {
+    WIKI.cache.delete(`localeStrings:${code}`)
   }
 
   async reloadCache(): Promise<void> {
     WIKI.logger.info('Reloading locales cache...')
     const locales = await WIKI.models.locales.getLocales({ cache: false })
+    for (const locale of locales) {
+      this.invalidateStringsCache(locale.code)
+    }
     WIKI.logger.info(`Loaded ${locales.length} locales into cache [ OK ]`)
   }
 }

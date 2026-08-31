@@ -213,13 +213,18 @@ describe('parseSideloadLocalePack()', () => {
 describe('refreshFromDisk() completeness (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let refreshFromDisk: (typeof import('./locales.ts').locales)['refreshFromDisk']
+  // -> Held as a bound method reference (`.bind`), not further destructured: `refreshFromDisk` itself
+  //    now calls `this.invalidateStringsCache()` internally, so it needs its real receiver — unlike
+  //    the free-standing `localeCode`/`computeCompleteness`/`parseSideloadLocalePack` exports used
+  //    elsewhere in this file, `Locales`'s methods are plain prototype methods, not bound class
+  //    fields.
+  let localesModel: typeof import('./locales.ts').locales
   let scratchDir: string
 
   before(async () => {
     fixtures = await setupTestDb()
-    ;({
-      locales: { refreshFromDisk }
-    } = await import('./locales.ts'))
+    ;({ locales: localesModel } = await import('./locales.ts'))
+    refreshFromDisk = localesModel.refreshFromDisk.bind(localesModel)
 
     scratchDir = await mkdtemp(path.join(tmpdir(), 'wiki-locales-test-'))
     await mkdir(path.join(scratchDir, 'locales'), { recursive: true })
@@ -270,6 +275,31 @@ describe('refreshFromDisk() completeness (DB-backed)', { skip: !hasTestDatabase(
       row!.completeness,
       50,
       'skip path must not clear or corrupt the last-computed value'
+    )
+  })
+
+  test('a subsequent refreshFromDisk() invalidates the cached getStrings() result', async () => {
+    await refreshFromDisk({ force: true })
+    const cached = await localesModel.getStrings('de')
+    assert.deepEqual(
+      cached,
+      Object.fromEntries(Array.from({ length: 5 }, (_, i) => [`key${i}`, `wert${i}`]))
+    )
+
+    // -> Change the disk file to a value distinguishable from what is already cached, so a stale
+    //    read (invalidation not actually happening) and a fresh one are unambiguous.
+    const updatedDeStrings = Object.fromEntries(
+      Array.from({ length: 5 }, (_, i) => [`key${i}`, `neu${i}`])
+    )
+    await writeFile(path.join(scratchDir, 'locales/de.json'), JSON.stringify(updatedDeStrings))
+
+    await refreshFromDisk({ force: true })
+
+    const reloaded = await localesModel.getStrings('de')
+    assert.deepEqual(
+      reloaded,
+      updatedDeStrings,
+      'expected the cache to have been invalidated by refreshFromDisk(), serving the reloaded strings'
     )
   })
 })
@@ -356,6 +386,29 @@ describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () 
     assert.equal(row!.completeness, 100)
   })
 
+  test('a subsequent sideload invalidates the cached getStrings() result for that code', async () => {
+    await writeFile(
+      path.join(sideloadDir, 'tlh.json'),
+      JSON.stringify({ name: 'Klingon', language: 'tlh', strings: { hello: 'nuqneH' } })
+    )
+    await localesModel.sideloadFromDataPath({ force: true })
+    assert.deepEqual(await localesModel.getStrings('tlh'), { hello: 'nuqneH' })
+
+    // -> Overwrite the sideload file with a value distinguishable from what is already cached, so a
+    //    stale read (invalidation not actually happening) and a fresh one are unambiguous.
+    await writeFile(
+      path.join(sideloadDir, 'tlh.json'),
+      JSON.stringify({ name: 'Klingon', language: 'tlh', strings: { hello: 'majQa' } })
+    )
+    await localesModel.sideloadFromDataPath({ force: true })
+
+    assert.deepEqual(
+      await localesModel.getStrings('tlh'),
+      { hello: 'majQa' },
+      'expected the cache to have been invalidated by sideloadFromDataPath(), serving the reloaded strings'
+    )
+  })
+
   test('skips a malformed pack and reports why, without touching valid ones', async () => {
     await writeFile(path.join(sideloadDir, 'broken.json'), '{ not valid json')
     await writeFile(
@@ -406,6 +459,75 @@ describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () 
     await rm(missingRoot, { recursive: true, force: true })
   })
 })
+
+/**
+ * `getStrings()` (DB-backed): the `localeStrings:${code}` cache fill/read itself, isolated from any
+ * one write path — `refreshFromDisk()`'s and `sideloadFromDataPath()`'s own invalidation are covered
+ * next to those methods' existing describe blocks above, since both need that block's scratch-disk
+ * fixture anyway. `reloadCache()` needs no disk at all, so it is covered here instead.
+ */
+describe(
+  'getStrings() caching and reloadCache() invalidation (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let localesModel: typeof import('./locales.ts').locales
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ locales: localesModel } = await import('./locales.ts'))
+      await seedLocale(fixtures.db, { code: 'ct' })
+      await fixtures.db
+        .update(localesTable)
+        .set({ strings: { greeting: 'hello' } })
+        .where(eq(localesTable.code, 'ct'))
+      await seedLocale(fixtures.db, { code: 'ct2' })
+      await fixtures.db
+        .update(localesTable)
+        .set({ strings: { greeting: 'bonjour' } })
+        .where(eq(localesTable.code, 'ct2'))
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test('a second getStrings() call is served from cache rather than a fresh read', async () => {
+      const first = await localesModel.getStrings('ct')
+      assert.deepEqual(first, { greeting: 'hello' })
+
+      // -> Mutate the row directly, bypassing every cache-invalidating path this feature adds — the
+      //    strongest proof a second call is served from cache rather than the database: if it queried
+      //    again, it would see this new value immediately.
+      await fixtures.db
+        .update(localesTable)
+        .set({ strings: { greeting: 'bypassed-the-cache' } })
+        .where(eq(localesTable.code, 'ct'))
+
+      const second = await localesModel.getStrings('ct')
+      assert.deepEqual(
+        second,
+        { greeting: 'hello' },
+        'expected the stale cached value, not the freshly-written row'
+      )
+    })
+
+    test('reloadCache() invalidates the cached getStrings() result', async () => {
+      // -> A distinct code (`ct2`) from the previous test's `ct`, so this test's own cache-priming read
+      //    below is unambiguously a fresh one rather than inheriting whatever `ct` left cached.
+      const primed = await localesModel.getStrings('ct2')
+      assert.deepEqual(primed, { greeting: 'bonjour' })
+
+      await fixtures.db
+        .update(localesTable)
+        .set({ strings: { greeting: 'reloaded' } })
+        .where(eq(localesTable.code, 'ct2'))
+      await localesModel.reloadCache()
+
+      assert.deepEqual(await localesModel.getStrings('ct2'), { greeting: 'reloaded' })
+    })
+  }
+)
 
 /**
  * `isReservedLocaleCode` (task 12 / #994): whether a path segment names an INSTALLED locale, case-

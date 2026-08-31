@@ -86,7 +86,19 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req) => {
+    async (req, reply) => {
+      const locales = await WIKI.models.locales.getLocales()
+      const locale = locales.find((lc: any) => lc.code === req.params.code)
+      // -> An unknown code has no row, and therefore no `updatedAt` to key an ETag off — falls
+      //    straight through to `getStrings()`'s existing `[]` response, same as before this route
+      //    gained caching.
+      if (locale) {
+        const etag = `"${locale.code}-${new Date(locale.updatedAt).getTime()}"`
+        reply.header('ETag', etag)
+        if (req.headers['if-none-match'] === etag) {
+          return reply.code(304).send()
+        }
+      }
       return WIKI.models.locales.getStrings(req.params.code)
     }
   )
