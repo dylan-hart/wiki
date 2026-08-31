@@ -5,7 +5,7 @@
   never waits on (or depends on) the icon service. Regenerate with `npm run icons` after adding or
   removing an icon; `npm run icons:check` fails the build if this drifts.
 
-  271 icons.
+  270 icons.
 */
 export const BUNDLED_ICONS = {
   "la:angle-right": {"body":"<path fill=\"currentColor\" d=\"M12.969 4.281L11.53 5.72L21.812 16l-10.28 10.281l1.437 1.438l11-11l.687-.719l-.687-.719z\"/>","width":32,"height":32},
@@ -274,6 +274,7 @@ export const BUNDLED_ICONS = {
   "mdi:toy-brick-plus": {"body":"<path fill=\"currentColor\" d=\"M19 6V5a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v1h-2V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v1H3v14h10.09a5.5 5.5 0 0 1-.09-1a6 6 0 0 1 8-5.66V6m-1 9v3h3v2h-3v3h-2v-3h-3v-2h3v-3Z\"/>","width":24,"height":24},
   "mdi:transfer-down": {"body":"<path fill=\"currentColor\" d=\"M16 3v2H8V3zm0 4v2H8V7zm0 4v2H8v-2zM5 15h14l-7 7z\"/>","width":24,"height":24},
   "mdi:transfer-up": {"body":"<path fill=\"currentColor\" d=\"M8 21v-2h8v2zm0-4v-2h8v2zm0-4v-2h8v2zm11-4H5l7-7z\"/>","width":24,"height":24},
+  "mdi:tune-variant": {"body":"<path fill=\"currentColor\" d=\"M8 13c-1.86 0-3.41 1.28-3.86 3H2v2h2.14c.45 1.72 2 3 3.86 3s3.41-1.28 3.86-3H22v-2H11.86c-.45-1.72-2-3-3.86-3m0 6c-1.1 0-2-.9-2-2s.9-2 2-2s2 .9 2 2s-.9 2-2 2M19.86 6c-.45-1.72-2-3-3.86-3s-3.41 1.28-3.86 3H2v2h10.14c.45 1.72 2 3 3.86 3s3.41-1.28 3.86-3H22V6zM16 9c-1.1 0-2-.9-2-2s.9-2 2-2s2 .9 2 2s-.9 2-2 2\"/>","width":24,"height":24},
   "mdi:undo-variant": {"body":"<path fill=\"currentColor\" d=\"M13.5 7a6.5 6.5 0 0 1 6.5 6.5a6.5 6.5 0 0 1-6.5 6.5H10v-2h3.5c2.5 0 4.5-2 4.5-4.5S16 9 13.5 9H7.83l3.08 3.09L9.5 13.5L4 8l5.5-5.5l1.42 1.41L7.83 7zM6 18h2v2H6z\"/>","width":24,"height":24},
   "mdi:view-split-vertical": {"body":"<path fill=\"currentColor\" d=\"M13 5h8v14h-8zM3 5h8v2H3zm0 6V9h8v2zm0 8v-2h8v2zm0-4v-2h8v2z\"/>","width":24,"height":24},
   "mdi:wifi-off": {"body":"<path fill=\"currentColor\" d=\"M2.28 3L1 4.27l1.47 1.47c-.43.26-.86.55-1.27.86L3 9c.53-.4 1.08-.75 1.66-1.07l2.23 2.23c-.74.34-1.45.75-2.09 1.24l1.8 2.4c.78-.58 1.66-1.03 2.6-1.33L11.75 15c-1.25.07-2.41.5-3.35 1.2L12 21l2.46-3.27L17.74 21L19 19.72M12 3c-2.15 0-4.2.38-6.1 1.07l2.39 2.4C9.5 6.16 10.72 6 12 6c3.38 0 6.5 1.11 9 3l1.8-2.4C19.79 4.34 16.06 3 12 3m0 6c-.38 0-.75 0-1.12.05l3.19 3.2c1.22.28 2.36.82 3.33 1.55l1.8-2.4C17.2 9.89 14.7 9 12 9\"/>","width":24,"height":24}

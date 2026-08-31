@@ -39,6 +39,12 @@ const NOTIFICATION = {
 
 const messages = {
   en: {
+    common: {
+      actions: {
+        cancel: 'Cancel',
+        save: 'Save'
+      }
+    },
     inbox: {
       notificationsTitle: 'Notifications',
       notificationsInfo: 'Changes to pages you watch, unread first.',
@@ -56,9 +62,47 @@ const messages = {
       watchingLoadFailed: 'Failed to load your watched pages.',
       watchingUnwatch: 'Stop watching',
       watchingUnwatched: '{title} is no longer watched.',
-      watchingUnwatchFailed: 'Could not stop watching this page.'
+      watchingUnwatchFailed: 'Could not stop watching this page.',
+      watchingPreferences: 'Notification preferences',
+      watchingPreferencesMode: 'Delivery',
+      watchingPreferencesModeDigest: 'Digest',
+      watchingPreferencesModeImmediate: 'Immediate',
+      watchingPreferencesEdited: 'Notify when edited',
+      watchingPreferencesMoved: 'Notify when moved',
+      watchingPreferencesDeleted: 'Notify when deleted',
+      watchingPreferencesSaveFailed: 'Could not save your notification preferences.'
     }
   }
+}
+
+// -> `preference` is present here too (not just on `WATCHED_PAGE_WITH_PREFERENCE` below): every
+//    watched page carries one from the API, this fixture just isn't the one the preference-menu
+//    tests assert against.
+const WATCHED_PAGE_WITH_PREFERENCE = {
+  pageId: 'watched-page-1',
+  path: 'some/watched-page',
+  locale: 'en',
+  title: 'Watched Page',
+  description: null,
+  icon: null,
+  updatedAt: '2026-08-17T12:00:00.000Z',
+  watchedAt: '2026-08-16T12:00:00.000Z',
+  preference: {
+    notifyMode: 'digest',
+    notifyOnEdited: true,
+    notifyOnMoved: true,
+    notifyOnDeleted: true
+  }
+}
+
+function findByRoleAndText(role, text) {
+  return [...document.querySelectorAll(`[role="${role}"]`)].find((el) =>
+    el.textContent.includes(text)
+  )
+}
+
+function findButtonByText(text) {
+  return [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === text)
 }
 
 async function mountInboxWatching(sitePatch = {}) {
@@ -241,5 +285,124 @@ describe('InboxWatching watching', () => {
     const lastNotification = notifyQueue[notifyQueue.length - 1]
     expect(lastNotification.type).toBe('negative')
     expect(lastNotification.caption).toBe('You are not watching this page.')
+  })
+})
+
+/**
+ * Task 1895 (WP 1895, Epic 1867): `PATCH .../watch` was caller-less -- the model layer
+ * (`resolvePreference`/`setPreference` in `models/pageWatching.ts`) already existed, this page
+ * already received `preference` on every watched page, and nothing in the UI ever sent the PATCH.
+ * These cover the menu this task added, kept to the checkboxes rather than also driving WSelect's own
+ * listbox open-and-pick sequence -- that mechanic already has its own dedicated suite
+ * (`WSelect.test.js`) and re-exercising it here would only be testing WSelect again, not this page.
+ */
+describe('InboxWatching notification preferences', () => {
+  function mockWatchedPage(extraGetHandler) {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'sites/site-1/watching') {
+        // -> A fresh deep copy per call, not the shared const: `page.preference = ...` in
+        //    `savePreference()` mutates through Vue's reactive proxy straight into the underlying
+        //    object, and `state.pages` is built directly from what this resolves -- reusing
+        //    `WATCHED_PAGE_WITH_PREFERENCE` itself here would let one test's successful save leak
+        //    into every test that runs after it in the same file.
+        return {
+          json: () =>
+            Promise.resolve([
+              {
+                ...WATCHED_PAGE_WITH_PREFERENCE,
+                preference: { ...WATCHED_PAGE_WITH_PREFERENCE.preference }
+              }
+            ])
+        }
+      }
+      if (extraGetHandler) {
+        const handled = extraGetHandler(url)
+        if (handled) {
+          return handled
+        }
+      }
+      return { json: () => Promise.resolve([]) }
+    })
+  }
+
+  it('opens seeded from the page’s current preference, and saving PATCHes only that watch', async () => {
+    mockWatchedPage()
+    API_CLIENT.patch.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          preference: { ...WATCHED_PAGE_WITH_PREFERENCE.preference, notifyOnMoved: false }
+        })
+    })
+
+    const { wrapper } = await mountInboxWatching()
+
+    const trigger = wrapper.find('[aria-label="Notification preferences"]')
+    expect(trigger.exists()).toBe(true)
+    await trigger.trigger('click')
+    await flushLoads()
+
+    const movedCheckbox = findByRoleAndText('checkbox', 'Notify when moved')
+    expect(movedCheckbox).toBeTruthy()
+    movedCheckbox.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushLoads()
+
+    findButtonByText('Save').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushLoads()
+
+    expect(API_CLIENT.patch).toHaveBeenCalledWith('sites/site-1/pages/watched-page-1/watch', {
+      json: {
+        notifyMode: 'digest',
+        notifyOnEdited: true,
+        notifyOnMoved: false,
+        notifyOnDeleted: true
+      }
+    })
+  })
+
+  it('shows a toast and leaves the stored preference untouched when saving fails', async () => {
+    mockWatchedPage()
+    API_CLIENT.patch.mockImplementationOnce(() => {
+      throw new Error('network')
+    })
+
+    const { wrapper } = await mountInboxWatching()
+    const trigger = wrapper.find('[aria-label="Notification preferences"]')
+
+    await trigger.trigger('click')
+    await flushLoads()
+    findByRoleAndText('checkbox', 'Notify when moved').dispatchEvent(
+      new MouseEvent('click', { bubbles: true })
+    )
+    await flushLoads()
+    findButtonByText('Save').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushLoads()
+
+    expect(notifyQueue.some((n) => n.type === 'negative')).toBe(true)
+
+    // -> The failed PATCH never touched `page.preference`, so closing (Cancel, since a failed save
+    //    leaves the menu open with the edited copy still showing) and reopening re-seeds the menu
+    //    from the untouched original -- proving the failure did not leak the discarded edit into it.
+    findButtonByText('Cancel').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushLoads()
+    await trigger.trigger('click')
+    await flushLoads()
+
+    expect(findByRoleAndText('checkbox', 'Notify when moved').getAttribute('aria-checked')).toBe(
+      'true'
+    )
+  })
+
+  it('cancelling does not send a request', async () => {
+    mockWatchedPage()
+
+    const { wrapper } = await mountInboxWatching()
+
+    await wrapper.find('[aria-label="Notification preferences"]').trigger('click')
+    await flushLoads()
+    findButtonByText('Cancel').dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushLoads()
+
+    expect(API_CLIENT.patch).not.toHaveBeenCalled()
   })
 })

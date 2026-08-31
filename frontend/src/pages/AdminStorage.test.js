@@ -144,3 +144,52 @@ describe('AdminStorage.vue - v-network-graph local registration', () => {
     expect(graph.findAll('.v-ng-node').length).toBeGreaterThan(0)
   })
 })
+
+/**
+ * WP 1895: `POST .../setup` was one of the nine caller-less API routes (Epic 1867) -- unlike the
+ * GitHub App flow above, this is the *generic*, module-agnostic contract (`definition.setup`,
+ * `mod.setup`/`setupDestroy`, the `target.setup.state` gate on Enable) that stays regardless of which
+ * module eventually implements it, and whose DELETE twin (Uninstall, above) already had a real
+ * caller. `runSetupStep()` gives POST one too: a "Start/Continue Setup" row, gated the same way
+ * Uninstall is but on the opposite state.
+ *
+ * Kept to source-text assertions for the same reason the describe block above is: a full mount of
+ * this page is a disproportionate lift for what this file already established is not worth it. The
+ * actual step-naming logic (`nextSetupStepName`) is unit-tested directly in
+ * `helpers/storageSetup.test.js`, with no page mount needed for that part at all.
+ */
+describe('AdminStorage.vue - storage target setup POST wiring (task 1895)', () => {
+  it('gates the whole Setup card on having a handler, not on already being configured', () => {
+    const cardOpenTag = pageSource.slice(
+      pageSource.indexOf('<w-card class="pb-2 mb-4"'),
+      pageSource.indexOf('<w-card-header>')
+    )
+    expect(cardOpenTag).toContain('v-if="state.target.setup && state.target.setup.handler"')
+    expect(cardOpenTag).not.toContain('configured')
+  })
+
+  it('renders a Start/Continue Setup row only while setup is not yet configured', () => {
+    expect(pageSource).toMatch(/v-if="state\.target\.setup\.state !== `configured`"/)
+  })
+
+  it('still renders the Uninstall row only once configured', () => {
+    expect(pageSource).toMatch(/v-if="state\.target\.setup\.state === `configured`"/)
+  })
+
+  it('runSetupStep() posts to the setup route via the shared step-naming helper', () => {
+    expect(pageSource).toContain("import { nextSetupStepName } from '@/helpers/storageSetup'")
+    expect(pageSource).toContain('async function runSetupStep()')
+    expect(pageSource).toContain('nextSetupStepName(state.target?.setup?.state)')
+    expect(pageSource).toMatch(
+      /API_CLIENT\.post\(\s*`sites\/\$\{adminStore\.currentSiteId\}\/storage\/targets\/\$\{state\.target\.id\}\/setup`/
+    )
+  })
+
+  it('reloads the target list after a step completes, rather than guessing the module’s new state', () => {
+    const fnBody = pageSource.slice(
+      pageSource.indexOf('async function runSetupStep()'),
+      pageSource.indexOf('async function setupDestroy()')
+    )
+    expect(fnBody).toContain('await load()')
+  })
+})
