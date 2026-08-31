@@ -8,7 +8,11 @@ const snapshot: MetricsSnapshot = {
   usersTotal: 17,
   groupsTotal: 4,
   instancesTotal: 3,
-  jobsQueued: 0
+  jobsQueued: 0,
+  jobsFailed: 1,
+  dbPoolTotal: 10,
+  dbPoolIdle: 8,
+  dbPoolWaiting: 0
 }
 
 describe('formatPrometheusMetrics', () => {
@@ -35,6 +39,18 @@ describe('formatPrometheusMetrics', () => {
         '# HELP wikijs_jobs_queued Jobs waiting in the queue, not yet claimed by a worker.',
         '# TYPE wikijs_jobs_queued gauge',
         'wikijs_jobs_queued 0',
+        '# HELP wikijs_jobs_failed_total Failed jobs currently retained in job history. Not a lifetime total: rows age out under the configured job history retention window, so this can decrease as well as increase between scrapes.',
+        '# TYPE wikijs_jobs_failed_total gauge',
+        'wikijs_jobs_failed_total 1',
+        '# HELP wikijs_db_pool_total Total clients (idle + in use) in the database connection pool.',
+        '# TYPE wikijs_db_pool_total gauge',
+        'wikijs_db_pool_total 10',
+        '# HELP wikijs_db_pool_idle Idle clients in the database connection pool, available to be checked out.',
+        '# TYPE wikijs_db_pool_idle gauge',
+        'wikijs_db_pool_idle 8',
+        '# HELP wikijs_db_pool_waiting Queries currently waiting for a client to become available in the database connection pool.',
+        '# TYPE wikijs_db_pool_waiting gauge',
+        'wikijs_db_pool_waiting 0',
         ''
       ].join('\n')
     )
@@ -46,7 +62,7 @@ describe('formatPrometheusMetrics', () => {
       .trim()
       .split('\n')
       .filter((line) => !line.startsWith('#'))
-    assert.equal(valueLines.length, 6)
+    assert.equal(valueLines.length, 10)
     for (const line of valueLines) {
       assert.match(line, /^wikijs_[a-z_]+ \d+$/)
     }

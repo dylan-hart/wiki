@@ -213,6 +213,18 @@ class Jobs {
   }
 
   /**
+   * How many failed jobs are currently retained in job history.
+   *
+   * Not a true monotonic total: `jobHistory` rows age out under `cleanJobHistory`'s retention window
+   * (see `tasks/simple/clean-job-history.ts`), so this can go down as well as up between reads — a
+   * count of what is currently retained, not a running lifetime count. `/metrics`' gauge of the same
+   * name documents this same caveat for scrapers.
+   */
+  async countFailed(): Promise<number> {
+    return WIKI.db.$count(jobHistoryTable, eq(jobHistoryTable.state, 'failed'))
+  }
+
+  /**
    * The cron schedule: which tasks run automatically and how often
    */
   async getSchedule() {

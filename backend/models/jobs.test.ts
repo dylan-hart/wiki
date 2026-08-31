@@ -275,3 +275,27 @@ describe('jobs TZ regression (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
   })
 })
+
+describe('countFailed (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+
+  before(async () => {
+    fixtures = await setupTestDb()
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('counts only jobHistory rows in the failed state', async () => {
+    await fixtures.db.insert(jobHistoryTable).values([
+      { task: 'testTask', state: 'failed', createdAt: new Date() },
+      { task: 'testTask', state: 'failed', createdAt: new Date() },
+      { task: 'testTask', state: 'completed', createdAt: new Date() },
+      { task: 'testTask', state: 'active', createdAt: new Date() },
+      { task: 'testTask', state: 'interrupted', createdAt: new Date() }
+    ])
+
+    assert.equal(await jobs.countFailed(), 2)
+  })
+})

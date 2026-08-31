@@ -6,10 +6,13 @@ import type { FastifyInstance } from 'fastify'
 /**
  * /metrics — Prometheus scrape endpoint
  *
- * SCOPE DECISION (task 594): implemented for real, not descoped. The metric set is six gauges
- * already computed elsewhere (`GET /_api/system/info`, `WIKI.models.jobs`), so the exposition
- * writer is hand-rolled in `helpers/metrics.ts` rather than pulling in `prom-client` — there are no
- * counters, histograms or multi-metric registries here to justify a client library's bookkeeping.
+ * SCOPE DECISION (task 594, revisited at task 1939): implemented for real, not descoped. The metric
+ * set is ten gauges already computed elsewhere (`GET /_api/system/info`, `WIKI.models.jobs`,
+ * `WIKI.dbManager.pool`), so the exposition writer is hand-rolled in `helpers/metrics.ts` rather
+ * than pulling in `prom-client` — there are no counters, histograms or multi-metric registries here
+ * to justify a client library's bookkeeping. Task 1939 added the failed-job and db-pool gauges but
+ * reaffirmed this call: every new series is still a plain gauge (including `wikijs_jobs_failed_total`,
+ * despite the `_total` suffix — see its help text), so the original rationale still holds.
  *
  * Deliberately not under `/_api`: Prometheus scrapes a fixed path with no session, and its own
  * convention is an unprefixed `/metrics`. This is the one route in the server that breaks the
@@ -62,25 +65,42 @@ async function routes(app: FastifyInstance) {
       return reply.forbidden()
     }
 
-    // -> All six lookups are independent round trips, so issue them concurrently rather than
+    // -> All seven lookups are independent round trips, so issue them concurrently rather than
     //    serially — a serial chain holds a pool connection for the sum of their latencies instead
     //    of the max, on every Prometheus scrape (task 1842).
-    const [activeWorkers, pagesTotal, usersTotal, groupsTotal, clusterNodes, jobsQueued] =
-      await Promise.all([
-        WIKI.models.jobs.countActive(),
-        WIKI.db.$count(pagesTable),
-        WIKI.db.$count(usersTable),
-        WIKI.db.$count(groupsTable),
-        getClusterNodes(),
-        WIKI.models.jobs.countPending()
-      ])
+    const [
+      activeWorkers,
+      pagesTotal,
+      usersTotal,
+      groupsTotal,
+      clusterNodes,
+      jobsQueued,
+      jobsFailed
+    ] = await Promise.all([
+      WIKI.models.jobs.countActive(),
+      WIKI.db.$count(pagesTable),
+      WIKI.db.$count(usersTable),
+      WIKI.db.$count(groupsTable),
+      getClusterNodes(),
+      WIKI.models.jobs.countPending(),
+      WIKI.models.jobs.countFailed()
+    ])
+
+    // -> `pool` is typed `Pool | null` (it is only ever null before `dbManager.init()` completes at
+    //    boot, long before this route can be serving requests) — defaulted to 0s rather than asserted
+    //    non-null, so a scrape never 500s over it.
+    const pool = WIKI.dbManager.pool
     const snapshot: MetricsSnapshot = {
       activeWorkers,
       pagesTotal,
       usersTotal,
       groupsTotal,
       instancesTotal: clusterNodes.length,
-      jobsQueued
+      jobsQueued,
+      jobsFailed,
+      dbPoolTotal: pool?.totalCount ?? 0,
+      dbPoolIdle: pool?.idleCount ?? 0,
+      dbPoolWaiting: pool?.waitingCount ?? 0
     }
 
     return reply
