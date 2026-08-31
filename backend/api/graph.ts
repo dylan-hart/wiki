@@ -48,7 +48,25 @@ export interface GraphEdge {
 export interface Graph {
   nodes: GraphNode[]
   edges: GraphEdge[]
+  /** Whether the node set was cut off by `GRAPH_NODE_CAP` (OpenProject #1866) -- when true, `nodes`
+   *  holds only the first `GRAPH_NODE_CAP` of `totalNodes` readable pages, and every edge touching a
+   *  dropped node has been dropped with it. */
+  truncated: boolean
+  /** Count of pages the caller may read, before the cap is applied -- equal to `nodes.length` when
+   *  `truncated` is false. */
+  totalNodes: number
 }
+
+/**
+ * Hard ceiling on nodes returned by one `assembleGraph` call (OpenProject #1866). Unbounded, the
+ * response is one row (plus contributor/pageview count objects) per readable page -- multi-megabyte
+ * JSON and a multi-second force-layout block on a wiki of a few thousand pages, with no degradation
+ * path. This is a first hedge, not a redesign of #848's fetch-once-and-filter-client-side shape (a
+ * `?folder=`/`?depth=` neighbourhood parameter is the follow-up if that shape ever needs revisiting)
+ * -- picked generously enough that it should rarely bite in practice, retune via this one constant
+ * once real graph sizes are observed.
+ */
+export const GRAPH_NODE_CAP = 2000
 
 /** A page's first path segment — `docs/child` -> `docs`, the home page (path `''`) -> `''`. */
 export function folderOf(path: string): string {
@@ -90,9 +108,22 @@ export function assembleGraph(
   pageviewsFor: (pageId: string) => PageviewCountsForGraph = zeroPageviewCountsForGraph
 ): Graph {
   const visible = rows.filter(canRead)
-  const visiblePaths = new Set(visible.map((row) => row.path))
+  const totalNodes = visible.length
+  const truncated = totalNodes > GRAPH_NODE_CAP
 
-  const nodes: GraphNode[] = visible.map((row) => ({
+  // -> Deterministic, not arbitrary DB row order (OpenProject #1866's "not arbitrary row order"
+  //    requirement): sort by path before capping, so which pages survive a truncated response is
+  //    stable across requests and across a physical row order Postgres gives no guarantee on.
+  const retained = truncated
+    ? [...visible].sort((a, b) => a.path.localeCompare(b.path)).slice(0, GRAPH_NODE_CAP)
+    : visible
+
+  // -> Rebuilt from `retained`, not `visible`: this is what keeps edge assembly below internally
+  //    consistent -- an edge whose source or target got capped out is dropped along with it, for
+  //    free, by the same `visiblePaths.has(...)` checks that already filter out unreadable pages.
+  const visiblePaths = new Set(retained.map((row) => row.path))
+
+  const nodes: GraphNode[] = retained.map((row) => ({
     path: row.path,
     locale: row.locale,
     title: row.title,
@@ -105,7 +136,7 @@ export function assembleGraph(
   }))
 
   const edges: GraphEdge[] = []
-  for (const row of visible) {
+  for (const row of retained) {
     for (const relation of row.relations) {
       if (visiblePaths.has(relation.target)) {
         edges.push({
@@ -123,7 +154,7 @@ export function assembleGraph(
     }
   }
 
-  return { nodes, edges }
+  return { nodes, edges, truncated, totalNodes }
 }
 
 const siteIdParam = {
