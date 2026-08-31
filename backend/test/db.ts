@@ -102,7 +102,7 @@ export async function setupTestDb(): Promise<TestFixtures> {
   const db = drizzle({ client: pool, relations }) as WikiDb
 
   await db.execute(sql.raw(`CREATE SCHEMA "${schema}"`))
-  await createExtensionsSerialized()
+  await createExtensionsSerialized(pool)
   await migrate(db, {
     migrationsFolder: path.join(import.meta.dirname, '../db/migrations'),
     migrationsSchema: schema,
@@ -181,9 +181,14 @@ export async function setupTestDb(): Promise<TestFixtures> {
  * physical connection — a `Pool` query checks a connection out and back in per call, so a lock taken
  * through `db.execute()` could be released from a different one — hence the dedicated client here
  * rather than reusing the pool passed to `drizzle()`.
+ *
+ * Exported (not just used by `setupTestDb()`) so a suite that needs its own hand-rolled minimal
+ * fixture — one with no pre-seeded rows, unlike `setupTestDb()`'s site/user/group — can still create
+ * the same required extensions the same serialized way, against the caller's own `Pool`, rather than
+ * duplicating this lock dance. `core/config.test.ts`'s `ensureSeeded()` suite is the first such case.
  */
-async function createExtensionsSerialized(): Promise<void> {
-  const client = await pool!.connect()
+export async function createExtensionsSerialized(pool: Pool): Promise<void> {
+  const client = await pool.connect()
   try {
     await client.query(`SELECT pg_advisory_lock(hashtext('wiki_test_extensions'))`)
     try {

@@ -184,16 +184,9 @@ async function preBoot() {
   WIKI.models = (await import('./models/index.ts')).default
 
   try {
-    if (await WIKI.configSvc.loadFromDb()) {
-      WIKI.logger.info('Settings merged with DB successfully [ OK ]')
-    } else {
-      WIKI.logger.warn('No settings found in DB. Initializing with defaults...')
-      await WIKI.configSvc.initDbValues()
-
-      if (!(await WIKI.configSvc.loadFromDb())) {
-        throw new Error('Settings table is empty! Could not initialize [ ERROR ]')
-      }
-    }
+    // -> The is-empty check and the seed itself are held under one advisory lock so a concurrently
+    //    booting instance can never observe a half-seeded database — see `configSvc.ensureSeeded()`.
+    await WIKI.configSvc.ensureSeeded()
   } catch (err: any) {
     WIKI.logger.error('Database Initialization Error: ' + err.message)
     if (WIKI.IS_DEBUG) {

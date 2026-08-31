@@ -2,8 +2,28 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { after, before, test } from 'node:test'
+import { randomBytes } from 'node:crypto'
+import { after, before, describe, test } from 'node:test'
+import { Pool } from 'pg'
+import { drizzle } from 'drizzle-orm/node-postgres'
+import { migrate } from 'drizzle-orm/node-postgres/migrator'
+import { sql } from 'drizzle-orm'
 import configSvc from './config.ts'
+import { relations } from '../db/relations.ts'
+import { groups as groupsTable, sites as sitesTable } from '../db/schema.ts'
+import { createExtensionsSerialized, hasTestDatabase } from '../test/db.ts'
+import { createCacheStub, createEventsStub, createSchedulerStub } from '../test/mocks.ts'
+import type { WikiDb } from './db.ts'
+
+// `models/jobs.ts#init()` calls `Temporal.Now.instant()` unconditionally. Node ships `Temporal` as a
+// global from v26 -- but not every environment running this test has that landed yet, and
+// `@js-temporal/polyfill` (already pulled in transitively by drizzle-kit) is a faithful ponyfill, so
+// install it as the global only when it is genuinely missing, exactly as `models/security.test.ts`
+// does for the same reason.
+if (typeof Temporal === 'undefined') {
+  const { Temporal: TemporalPolyfill } = await import('@js-temporal/polyfill')
+  ;(globalThis as any).Temporal = TemporalPolyfill
+}
 
 /**
  * Regression test for `config.init()`'s DB_PASS_FILE (Docker secret) handling: `.trim()` was called
@@ -70,4 +90,99 @@ test('reads and trims the DB_PASS_FILE contents into WIKI.config.db.pass', async
 
   const wiki = (globalThis as any).WIKI
   assert.equal(wiki.config.db.pass, 'sup3rSecret')
+})
+
+/**
+ * DB-backed regression coverage for OpenProject #2044: `ensureSeeded()` holds one advisory lock
+ * across the is-empty check plus `initDbValues()`, so two instances booting against the same fresh
+ * database can never interleave — see `ensureSeeded()`'s own doc comment in `config.ts`.
+ *
+ * Deliberately NOT built on `test/db.ts#setupTestDb()`: that fixture pre-inserts a site/user/group
+ * directly (bypassing `initDbValues()` entirely) specifically so model tests have something to point
+ * at, which would falsify this suite's own precondition — a database that is genuinely still empty.
+ * This sets up the bare minimum instead: a fresh schema, migrated, with no rows of its own.
+ */
+describe('ensureSeeded() (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  const SYSTEM_IDS = {
+    localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588',
+    guestsGroupId: '10000000-0000-4000-8000-000000000001',
+    usersGroupId: '20000000-0000-4000-8000-000000000002',
+    classificationPublicId: '30000000-0000-4000-8000-000000000001',
+    classificationInternalId: '30000000-0000-4000-8000-000000000002',
+    classificationRestrictedId: '30000000-0000-4000-8000-000000000003'
+  }
+
+  let pool: Pool
+  let schema: string
+  let db: WikiDb
+  let previousDbWiki: any
+
+  before(async () => {
+    schema = `test_${randomBytes(6).toString('hex')}`
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      options: `-c search_path=${schema},public`
+    })
+    db = drizzle({ client: pool, relations }) as WikiDb
+
+    await db.execute(sql.raw(`CREATE SCHEMA "${schema}"`))
+    await createExtensionsSerialized(pool)
+    await migrate(db, {
+      migrationsFolder: path.join(import.meta.dirname, '../db/migrations'),
+      migrationsSchema: schema,
+      migrationsTable: 'migrations'
+    })
+
+    const models = (await import('../models/index.ts')).default
+
+    previousDbWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = {
+      IS_DEBUG: false,
+      ROOTPATH: process.cwd(),
+      SERVERPATH: path.join(import.meta.dirname, '..'),
+      INSTANCE_ID: 'test',
+      config: {},
+      data: { systemIds: SYSTEM_IDS },
+      db,
+      logger: {
+        error: () => {},
+        warn: () => {},
+        info: () => {},
+        debug: () => {},
+        verbose: () => {},
+        silly: () => {}
+      },
+      cache: createCacheStub(),
+      events: createEventsStub(),
+      scheduler: createSchedulerStub(),
+      models
+    }
+  })
+
+  after(async () => {
+    if (pool && schema) {
+      await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
+    }
+    await pool?.end()
+    ;(globalThis as any).WIKI = previousDbWiki
+  })
+
+  test('exactly one of two concurrent callers seeds; the other observes a fully-seeded DB', async () => {
+    const [first, second] = await Promise.all([configSvc.ensureSeeded(), configSvc.ensureSeeded()])
+
+    // -> One caller performed the seed, the other found it already done — never both, and never
+    //    neither (which the old, unlocked code could produce: both see `loadFromDb()` return
+    //    `false` and both race straight into `initDbValues()`).
+    assert.notEqual(first, second, `expected exactly one seed, got [${first}, ${second}]`)
+
+    const siteCount = await db.$count(sitesTable)
+    assert.equal(siteCount, 1, 'expected exactly one seeded site, not zero or a duplicate')
+
+    const groupRows = await db.select({ id: groupsTable.id }).from(groupsTable)
+    assert.equal(groupRows.length, 3, 'expected exactly the three standard groups')
+
+    // -> Both calls must agree the DB is now seeded, proving the loser re-checked inside the lock
+    // rather than trusting a stale read from before it blocked.
+    assert.equal(await configSvc.loadFromDb(), true)
+  })
 })
