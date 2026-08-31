@@ -3,7 +3,7 @@ import { and, count, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import { uniq } from 'es-toolkit/array'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
 import { CustomError, normalizePagePath } from '../helpers/common.ts'
-import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
+import { clearPageRuleRegexCache, resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { resolveSiteRule, ruleMatchesSite } from '../helpers/siteRules.ts'
 import type { SystemIds } from './types.ts'
 import type { FastifyRequest } from 'fastify'
@@ -266,6 +266,10 @@ class Groups {
     for (const row of rows) {
       rulesCache[row.id] = (row.rules ?? []) as GroupRule[]
     }
+    // -> Compiled REGEX rule patterns are keyed by pattern text, not by rule identity -- dropping
+    //    them here (rather than leaving them to accumulate) is what makes an edited pattern get
+    //    recompiled promptly instead of the cache growing across every group edit an instance sees.
+    clearPageRuleRegexCache()
     WIKI.logger.info(`Loaded page rules for ${rows.length} groups [ OK ]`)
   }
 

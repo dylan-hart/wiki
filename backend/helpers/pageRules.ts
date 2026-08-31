@@ -1,32 +1,6 @@
 import type { GroupRule, GroupRuleMatch, GroupRuleMode } from '../models/groups.ts'
 
 /**
- * Compiled `REGEX` rule patterns, memoized by the rule's own path string.
- *
- * `ruleMatchesPage` runs once per (rule, page) pair -- `/sitemap.xml`'s guest-rule pass alone calls it
- * once for every published, browsable page on the site, on every request. A `REGEX` rule's pattern is
- * set once by an administrator and reused across every page it is checked against, so compiling it
- * fresh each time was pure waste (OpenProject #2267). Unbounded: the key space is admin-authored rule
- * paths, not user input, so it cannot grow without bound the way a per-request cache could.
- */
-const compiledRegexCache = new Map<string, RegExp | null>()
-
-/** A rule pattern compiled to a `RegExp`, or `null` when it does not compile -- memoized either way. */
-function compileRulePattern(pattern: string): RegExp | null {
-  if (compiledRegexCache.has(pattern)) {
-    return compiledRegexCache.get(pattern)!
-  }
-  let compiled: RegExp | null
-  try {
-    compiled = new RegExp(pattern)
-  } catch {
-    compiled = null
-  }
-  compiledRegexCache.set(pattern, compiled)
-  return compiled
-}
-
-/**
  * How a page rule is matched against a page, and which rule wins when several match.
  *
  * ---------------------------------------------------------------------------------------------
@@ -149,6 +123,45 @@ const MATCH_PRIORITY: GroupRuleMatch[] = [
  */
 export const MODE_PRIORITY: GroupRuleMode[] = ['ALLOW', 'DENY', 'FORCEALLOW']
 
+/**
+ * Compiled REGEX rule patterns, keyed by the already-normalized path text a rule addresses.
+ *
+ * `ruleMatchesPage` sits on a hot path shared by every `rulesAllow` caller (the graph,
+ * `visibleTreeItems()`, the sitemap build, the admin comment path), and recompiling a REGEX
+ * pattern's `RegExp` on every single row it's tested against is pure waste: the compiled output
+ * depends only on the pattern text, not on which rule or page it's being asked about. `null` marks a
+ * pattern that failed to compile, so an invalid pattern is remembered as failing closed rather than
+ * re-thrown-and-caught on every subsequent row.
+ *
+ * Cleared by `clearPageRuleRegexCache()`, which `models/groups.ts#reloadCache()` calls on every
+ * reload (boot, a local group edit, and every other cluster instance's `reloadGroups` event) — the
+ * same invalidation path that already rebuilds the pooled rule rows themselves, so an edited pattern
+ * is recompiled promptly instead of the map growing forever across repeated edits.
+ */
+const compiledRegexCache = new Map<string, RegExp | null>()
+
+/** Drops every cached compiled REGEX pattern. Call whenever the underlying rules are reloaded. */
+export function clearPageRuleRegexCache(): void {
+  compiledRegexCache.clear()
+}
+
+/** The compiled pattern for this (already-normalized) path text, compiling and caching it on a miss. */
+function compiledRegexFor(normalizedPath: string): RegExp | null {
+  if (compiledRegexCache.has(normalizedPath)) {
+    return compiledRegexCache.get(normalizedPath)!
+  }
+  let compiled: RegExp | null
+  try {
+    compiled = new RegExp(normalizedPath)
+  } catch {
+    // -> A rule that cannot compile addresses nothing, rather than everything -- cached as such so
+    //    every subsequent row against this pattern fails closed without re-attempting compilation
+    compiled = null
+  }
+  compiledRegexCache.set(normalizedPath, compiled)
+  return compiled
+}
+
 /** Tags are written on a rule as a comma-separated list, in the field a path would otherwise use. */
 function ruleTags(rule: GroupRule): string[] {
   return rule.path
@@ -230,10 +243,10 @@ export function ruleMatchesPage(rule: GroupRule, page: RulePageRef): boolean {
       //    `rulePath` only ever has its leading slash stripped (see `normalizePath`), so it carries
       //    the pattern's own case sensitivity through unchanged; page paths are always stored
       //    lowercase, so a pattern meant to match ordinary path segments already needs to be written
-      //    in lowercase regardless. Compiled through `compileRulePattern` so a rule that cannot
-      //    compile addresses nothing rather than everything, and so its compiled form is memoized
-      //    (OpenProject #2267) rather than rebuilt on every page this runs against.
-      const compiled = compileRulePattern(rulePath)
+      //    in lowercase regardless. Compiled through `compiledRegexFor` so a rule that cannot compile
+      //    addresses nothing rather than everything, and so its compiled form is memoized (OpenProject
+      //    #2267) rather than rebuilt on every page this runs against.
+      const compiled = compiledRegexFor(rulePath)
       return compiled ? compiled.test(pagePath) : false
     }
     case 'TAG':
