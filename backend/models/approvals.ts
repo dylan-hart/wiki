@@ -1298,6 +1298,9 @@ class Approvals {
         classification: page.classification
       }
     )
+    // -> A suggestion approved with no `render` (content-only) is exactly the case `updatePage()`
+    //    itself now handles: it consults `ensureCanRender()` before the write and queues the
+    //    re-render after, so there is nothing left for this call site to do (OpenProject #1716/#1723).
     await WIKI.models.pages.updatePage(
       siteId,
       page.id,
@@ -1305,11 +1308,6 @@ class Approvals {
       actor,
       submitterRenderPermissions
     )
-    if (!render) {
-      // -> Briefly stale rather than wrong: the browser is a queue away, and a suggestion approved
-      //    while it is busy waits its turn instead of starting a second one
-      await WIKI.models.pages.queueRerender(siteId, page.id, actor, submitterRenderPermissions)
-    }
     WIKI.logger.debug(`Approved edit suggestion ${submissionId} onto page ${page.id}`)
     return decision
   }

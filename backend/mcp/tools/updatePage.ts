@@ -58,10 +58,9 @@ function toResult(payload: unknown): CallToolResult {
  * stale copy open in a browser tab, which has no equivalent here — an MCP caller has no "copy it was
  * looking at" to go stale, only the read it made moments before this call.
  *
- * Same caveat as `create_page` on `content` with no accompanying render: sending it leaves the
- * previous render in place (`models/pages.ts#updatePage()`'s own documented behavior for a
- * source-only edit), which now shows stale HTML until the page is re-saved through an editor or its
- * re-render is queued.
+ * `content` with no accompanying render is exactly what `models/pages.ts#updatePage()` itself now
+ * handles (OpenProject #1716): it confirms up front that this instance can actually render the page,
+ * then queues the same headless-browser render a stale stored page's re-render would get.
  */
 export async function handleUpdatePage(
   ctx: McpAuthContext,

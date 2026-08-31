@@ -23,12 +23,11 @@ import type { Page, PageActor, PageInput } from '../models/pages.ts'
  * that here would drift the moment `createPage()` changes.
  *
  * Like every module in this feature so far, this one has no db access and is not wired to a CLI yet —
- * `WIKI.models.pages.createPage`/`queueRerender`, the tree existing-entry lookup, the provenance
- * store, and the per-page history backfill are all injected (`ImportPagesDeps`), so tests exercise
- * the real mapping/orchestration logic with fakes standing in for each, and Task 421's CLI is what
- * will eventually pass the real `WIKI.models.pages` / `WIKI.models.tree` /
- * `createProvenanceStore(WIKI.db)` implementations (and `page-history-import.ts`'s
- * `backfillPageHistoryForPage`) here.
+ * `WIKI.models.pages.createPage`, the tree existing-entry lookup, the provenance store, and the
+ * per-page history backfill are all injected (`ImportPagesDeps`), so tests exercise the real
+ * mapping/orchestration logic with fakes standing in for each, and Task 421's CLI is what will
+ * eventually pass the real `WIKI.models.pages` / `WIKI.models.tree` / `createProvenanceStore(WIKI.db)`
+ * implementations (and `page-history-import.ts`'s `backfillPageHistoryForPage`) here.
  *
  * `importPages()` normalizes and collision-checks each page's tree location itself, via `./path-normalization.ts`'s
  * `normalizeMigratedPath()`, rather than requiring the caller to run it first. That module's own doc
@@ -59,7 +58,8 @@ import type { Page, PageActor, PageInput } from '../models/pages.ts'
  *
  * ## History backfill, interleaved (OpenProject #1818)
  *
- * Immediately after a page is created (and any `queueRerender()` call resolves), `importPages()` calls
+ * Immediately after a page is created (and any render-queue it triggered has been requested —
+ * `createPage()`'s own concern, see "The render bootstrap decision" below), `importPages()` calls
  * `page-history-import.ts`'s `backfillPageHistoryForPage()` for that one page's `history` chain alone —
  * resolving `pageIdMap` for a single freshly-created page rather than waiting for the whole run, via
  * `ImportPagesDeps.backfillHistory`. This is what "page 1's history lands before page 2 is even staged"
@@ -121,8 +121,10 @@ import type { Page, PageActor, PageInput } from '../models/pages.ts'
  *     extracts `toc`/`searchContent` from it immediately, so the page is fully readable and searchable
  *     the instant it's created — at the cost of that HTML reflecting 2.x's markdown-it plugin output
  *     (2.x's renderer, 2.x's plugin set) until the page is next edited or explicitly re-rendered.
- *   - **`'queue'`**: create with an empty render, then call `pagesModel.queueRerender()` so the
- *     headless-browser `renderPages` job produces a native 3.0 render — correct output, using 3.0's own
+ *   - **`'queue'`**: leave `input.render` undefined, which `createPage()` itself (OpenProject #1716)
+ *     recognizes as "content with nothing to show for it" — it confirms up front that this instance can
+ *     render the page at all, creates it, then queues the same headless-browser `renderPages` job a
+ *     stale stored page would get, producing a native 3.0 render — correct output, using 3.0's own
  *     renderer, at the cost of queuing one browser render per page across the whole imported wiki, which
  *     is a real operational cost (time, and Puppeteer resource pressure) an operator importing a large
  *     wiki may want to skip and do gradually instead. Hence this being opt-in, not the default.
@@ -131,10 +133,10 @@ import type { Page, PageActor, PageInput } from '../models/pages.ts'
  * `pages.render` → `pages.render` mapping, which is the other reason it is the default here rather than
  * `'queue'`.
  *
- * `queueRerender()` (`backend/models/pages.ts:907`, via `rendering.ensureCanRender`) only implements
- * server-side rendering for the `markdown` editor today — every other editor throws
+ * `createPage()`'s render-queue path (`backend/models/pages.ts`, via `rendering.ensureCanRender`) only
+ * implements server-side rendering for the `markdown` editor today — every other editor throws
  * `renderUnsupportedEditor`. Requesting `'queue'` for a non-markdown page therefore falls back to
- * `'passthrough'` for that page alone, with a warning, rather than failing it.
+ * `'passthrough'` for that page alone, with a warning, rather than failing it (see `canQueue` below).
  *
  * ## `privateNS` / `isPrivate`
  *
@@ -152,7 +154,6 @@ import type { Page, PageActor, PageInput } from '../models/pages.ts'
  * tests) never touch `WIKI` or a real database. See the module doc comment for why. */
 export interface PagesWriteModel {
   createPage(siteId: string, input: PageInput, actor: PageActor): Promise<Page>
-  queueRerender(siteId: string, id: string, actor: PageActor): Promise<boolean>
 }
 
 export interface ImportPagesDeps {
@@ -375,9 +376,6 @@ export function describePrivacyWarning(
 interface MappedPage {
   input: PageInput
   actor: PageActor
-  /** Whether `importPages` should call `queueRerender()` for this page after creation — see "The
-   * render bootstrap decision". */
-  queueRerender: boolean
   warnings: string[]
 }
 
@@ -404,7 +402,7 @@ function mapStagedPageToInput(
     )
   }
 
-  // -> 'queue' only actually works for the markdown editor today (queueRerender -> ensureCanRender
+  // -> 'queue' only actually works for the markdown editor today (createPage()'s own ensureCanRender
   //    throws renderUnsupportedEditor for anything else) — fall back per-page rather than failing the
   //    page over a render-bootstrap preference.
   const canQueue = renderBootstrap === 'queue' && editor === 'markdown'
@@ -448,7 +446,6 @@ function mapStagedPageToInput(
   return {
     input,
     actor: { id: staged.creatorId, groupIds: [], permissions: actorPermissions },
-    queueRerender: canQueue,
     warnings
   }
 }
@@ -645,16 +642,6 @@ export async function importPages(
     pageIdMap.set(staged.oldId, result.destId)
 
     const pageWarnings = result.action === 'created' ? mapped.warnings : []
-    if (result.action === 'created' && mapped.queueRerender) {
-      try {
-        await deps.pagesModel.queueRerender(options.siteId, result.destId, mapped.actor)
-      } catch (err: any) {
-        pageWarnings.push(
-          `page ${staged.oldId}: queueRerender() failed after creation — the page was created with an ` +
-            `empty render and needs a manual re-render: ${err.message}`
-        )
-      }
-    }
 
     if (result.action === 'created' && deps.backfillHistory) {
       // -> Immediately after this page's own createPage() — before the next page is even pulled off

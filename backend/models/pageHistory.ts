@@ -600,13 +600,15 @@ class PageHistory {
    *
    * Carries the classification the page held when it was deleted (OpenProject #1672), rather than
    * letting `createPage` fall back to the destination's floor or the instance default -- a page
-   * classified `Restricted` and deleted must not come back `Public`. Also queues a re-render once the
-   * page exists, since a deleted version's row never stored the rendered HTML (only `EXCLUDED_FROM_META`
-   * fields are derived, and `render`/`toc`/`searchContent` are among them) -- left unqueued, the
-   * recovered page would render as a blank body until someone re-saved it or an admin re-rendered it by
-   * hand.
+   * classified `Restricted` and deleted must not come back `Public`. `input` below carries no
+   * `render` -- a deleted version's row never stored the rendered HTML (only `EXCLUDED_FROM_META`
+   * fields are derived, and `render`/`toc`/`searchContent` are among them) -- so `createPage()` itself
+   * (OpenProject #1716) confirms up front that this instance can render the page at all, then queues
+   * the re-render once the row exists; there is nothing left for this method to do after the call
+   * (OpenProject #1723).
    *
-   * @throws If no `deleted` version exists at this id for this site.
+   * @throws If no `deleted` version exists at this id for this site, or (via `createPage()`'s own
+   *   up-front check) if nothing here could ever render the recovered page.
    */
   async recoverDeletedPage(
     siteId: string,
@@ -668,19 +670,6 @@ class PageHistory {
         .update(pagesTable)
         .set({ password: meta.password })
         .where(eq(pagesTable.id, page.id))
-    }
-
-    // -> Best effort, not a hard dependency: `queueRerender` calls `ensureCanRender` unconditionally and
-    //    throws `renderUnsupportedEditor`/`renderPuppeteerMissing` on an instance with no Puppeteer
-    //    extension, which must not turn a successful recovery into a 500 with the page already created.
-    //    Mirrors `migration/page-import.ts`'s try/catch/log/continue shape for the same call.
-    try {
-      await WIKI.models.pages.queueRerender(siteId, page.id, actor)
-    } catch (err: any) {
-      WIKI.logger.warn(
-        `Recovered page ${page.id} but failed to queue a re-render -- it will render blank until ` +
-          `re-saved or re-rendered manually: ${err.message}`
-      )
     }
 
     if (meta.password) {
