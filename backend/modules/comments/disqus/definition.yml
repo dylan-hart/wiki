@@ -5,7 +5,7 @@ author: requarks.io
 logo: https://static.requarks.io/logo/disqus.svg
 website: https://disqus.com/
 codeTemplate: true
-isAvailable: true
+isAvailable: false
 props:
   accountName:
     type: String

@@ -234,14 +234,15 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
 })
 
 /**
- * `codeTemplate`/`hasImplementation`/`isSelectable` (Feature 396): the module loader must not gate
- * "is this provider selectable" purely on `hasImplementation`, the way `models/storage.ts` currently
- * does for storage targets -- harmless there only because no storage module has shipped an
- * implementation yet, so every target is equally (and temporarily) unavailable. Disqus, Commento and
- * Artalk are pure client-side embeds -- a shortname/instance URL handed to the vendor's own script --
- * and were never going to get a `comments.ts`, so the same gate would mark them *permanently*
- * unselectable. `codeTemplate: true` (declared on each of their `definition.yml`) is the independent
- * signal that lets a provider be selectable without server-side code behind it.
+ * `codeTemplate`/`hasImplementation`/`isSelectable` (OpenProject #1958): `isSelectable()` now gates
+ * purely on `hasImplementation`, matching `models/storage.ts`'s equivalent gate for storage targets.
+ * An earlier version (Feature 396) treated `codeTemplate: true` (declared on each of Disqus/Commento/
+ * Artalk's `definition.yml`) as an independent grant, so a provider with no server-side
+ * implementation could still be selected on the theory that a future page-view render path would
+ * embed the vendor's own client-side script. No such render path was ever built, and the three
+ * providers now declare `isAvailable: false` instead (see the "Comment provider selectability" entry
+ * in `docs/variances.md` for the full reversal) -- `codeTemplate` remains a descriptive field on the
+ * definition (still read off disk below), it just no longer feeds `isSelectable()`.
  *
  * No `WIKI` global/database beyond `SERVERPATH` + a silent logger is needed: `refreshFromDisk()` only
  * reads disk, and points at this repo's own real `modules/comments/` directory (not a fixture) so
@@ -278,31 +279,29 @@ describe('commentProviders (definition loading)', () => {
     assert.equal(defaultProvider.codeTemplate, false)
   })
 
-  test('all three external providers are selectable despite having no comments.ts', () => {
+  test('all three external providers are unavailable and not selectable despite declaring codeTemplate', () => {
     for (const key of ['disqus', 'commento', 'artalk']) {
       const definition = commentProvidersModel.definitions.find((d) => d.key === key)!
       assert.equal(definition.hasImplementation, false, `${key} unexpectedly has an implementation`)
       assert.equal(definition.codeTemplate, true, `${key} did not declare codeTemplate: true`)
+      assert.equal(definition.isAvailable, false, `${key} should declare isAvailable: false`)
       assert.equal(
         commentProvidersModel.isSelectable(definition),
-        true,
-        `${key} should be selectable via codeTemplate even without hasImplementation`
+        false,
+        `${key} should not be selectable -- codeTemplate no longer grants selectability on its own`
       )
     }
   })
 
-  test('the default provider is selectable via hasImplementation, not codeTemplate', () => {
+  test('the default provider is selectable via hasImplementation', () => {
     const definition = commentProvidersModel.definitions.find((d) => d.key === 'default')!
     assert.equal(definition.hasImplementation, true)
     assert.equal(definition.codeTemplate, false)
     assert.equal(commentProvidersModel.isSelectable(definition), true)
   })
 
-  test('a hypothetical provider with neither hasImplementation nor codeTemplate is not selectable', () => {
-    assert.equal(
-      commentProvidersModel.isSelectable({ hasImplementation: false, codeTemplate: false }),
-      false
-    )
+  test('a hypothetical provider with no implementation is not selectable, codeTemplate notwithstanding', () => {
+    assert.equal(commentProvidersModel.isSelectable({ hasImplementation: false }), false)
   })
 
   test('backend/locales/en.json carries a codeTemplate-aware caption under admin.comments.*', async () => {
