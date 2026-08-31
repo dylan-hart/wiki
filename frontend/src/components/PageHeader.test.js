@@ -154,3 +154,54 @@ describe('PageHeader review-queue menu direction', () => {
     expect(menuAfter.props('anchor')).toBe('bottom left')
   })
 })
+
+/**
+ * OpenProject #2137: the return leg `hasOpenSuggestion` alone never gave -- that flag going false
+ * says nothing about what happened to the suggestion. `pageStore.resolvedSubmission`, set from the
+ * `viewer` block a page fetch carries back, is what fills that in here.
+ */
+describe('PageHeader suggestion outcome (OpenProject #2137)', () => {
+  it('renders a declined resolution with both the outcome and the reviewer’s reason visible', async () => {
+    const wrapper = await mountHeader()
+    usePageStore().$patch({
+      hasOpenSuggestion: false,
+      resolvedSubmission: { status: 'declined', reason: 'Overlaps with an existing section' }
+    })
+    await wrapper.vm.$nextTick()
+
+    const text = wrapper.text()
+    expect(text).toContain('common.page.suggestionResolvedDeclined')
+    expect(text).toContain('Overlaps with an existing section')
+  })
+
+  it('renders an approved resolution with no reason line, since approval never carries one', async () => {
+    const wrapper = await mountHeader()
+    usePageStore().$patch({
+      hasOpenSuggestion: false,
+      resolvedSubmission: { status: 'approved', reason: null }
+    })
+    await wrapper.vm.$nextTick()
+
+    const text = wrapper.text()
+    expect(text).toContain('common.page.suggestionResolvedApproved')
+    expect(text).not.toContain('common.page.suggestionResolvedReasonLabel')
+  })
+
+  it('stays hidden once nothing has been resolved', async () => {
+    const wrapper = await mountHeader()
+
+    expect(wrapper.text()).not.toContain('common.page.suggestionResolvedDeclined')
+    expect(wrapper.text()).not.toContain('common.page.suggestionResolvedApproved')
+  })
+
+  it('stays hidden behind a newer open suggestion, even with a resolved one on record', async () => {
+    const wrapper = await mountHeader()
+    usePageStore().$patch({
+      hasOpenSuggestion: true,
+      resolvedSubmission: { status: 'declined', reason: 'Try again later' }
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).not.toContain('common.page.suggestionResolvedDeclined')
+  })
+})

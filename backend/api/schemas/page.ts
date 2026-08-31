@@ -310,6 +310,19 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
             items: { $ref: 'PageEditSubmission#' },
             description: 'What is waiting on this page, oldest first. Empty unless `canReview`.'
           },
+          resolvedSubmission: {
+            type: ['object', 'null'],
+            description:
+              'What became of the requester’s most recently resolved suggestion on this page, if they made one and a reviewer has acted on it. Null while nothing of theirs has been resolved, or for a guest, whose suggestions are attributed to nobody.',
+            properties: {
+              status: { type: 'string', enum: ['approved', 'declined'] },
+              reason: {
+                type: ['string', 'null'],
+                description: 'The reviewer’s note on why. Always null for an approval.'
+              },
+              resolvedAt: { type: 'string', format: 'date-time' }
+            }
+          },
           activeEditors: {
             type: 'object',
             description:

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createPatch } from 'diff'
-import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
   approvalRules as approvalRulesTable,
   groups as groupsTable,
@@ -90,6 +90,17 @@ export interface PageEditSubmission {
   baseHash: string
   createdAt: Date
   updatedAt: Date
+}
+
+/**
+ * What became of a resolved suggestion, as its author sees it -- the return leg `hasOpenSuggestion`
+ * alone cannot give: that flag only ever says a suggestion is gone, never what happened to it.
+ */
+export interface ResolvedSubmission {
+  status: 'approved' | 'declined'
+  /** The reviewer's note on why. Always null for an approval -- only decline takes one. */
+  reason: string | null
+  resolvedAt: Date
 }
 
 /** A submission as a reviewer sees it in their queue. */
@@ -544,6 +555,7 @@ class Approvals {
     hasOpenSuggestion: boolean
     canReview: boolean
     pendingSubmissions: ReviewableSubmission[]
+    resolvedSubmission: ResolvedSubmission | null
   }> {
     const actorId = req.session?.authenticated ? (req.session.user?.id ?? null) : null
     const groupIds = this.getActorGroupIds(req)
@@ -558,6 +570,10 @@ class Approvals {
     const hasOpenSuggestion = Boolean(
       submitRule && actorId && (await this.getOwnSubmission(page.id, actorId))
     )
+    // -> Same gate as `hasOpenSuggestion` above: no submit rule covering this page for this reader
+    //    means no query, not just an unreachable answer.
+    const resolvedSubmission =
+      submitRule && actorId ? await this.getResolvedSubmission(page.id, actorId) : null
 
     const reviewerScope: ReviewerScope = this.isReviewerSession(req)
       ? {
@@ -586,7 +602,8 @@ class Approvals {
             ...reviewerScope,
             pageId: page.id
           })
-        : []
+        : [],
+      resolvedSubmission
     }
   }
 
@@ -621,6 +638,49 @@ class Approvals {
       )
       .limit(1)
     return (rows[0] as PageEditSubmission) ?? null
+  }
+
+  /**
+   * The most recently resolved (approved or declined) suggestion this user made on this page, if any.
+   *
+   * Guests get null whoever they are, for the same reason `getOwnSubmission` does: there is no
+   * account to look one up by, so there is nothing to show back to them here either. A page can carry
+   * more than one resolved row for the same author over time (declined, then suggested again and
+   * approved) -- this answers only the latest, which is what a reader returning to the page cares
+   * about.
+   */
+  async getResolvedSubmission(
+    pageId: string,
+    authorId: string | null
+  ): Promise<ResolvedSubmission | null> {
+    if (!authorId) {
+      return null
+    }
+    const rows = await WIKI.db
+      .select({
+        status: submissionsTable.status,
+        resolvedReason: submissionsTable.resolvedReason,
+        updatedAt: submissionsTable.updatedAt
+      })
+      .from(submissionsTable)
+      .where(
+        and(
+          eq(submissionsTable.pageId, pageId),
+          eq(submissionsTable.authorId, authorId),
+          inArray(submissionsTable.status, ['approved', 'declined'])
+        )
+      )
+      .orderBy(desc(submissionsTable.updatedAt))
+      .limit(1)
+    const row = rows[0]
+    if (!row) {
+      return null
+    }
+    return {
+      status: row.status as 'approved' | 'declined',
+      reason: row.resolvedReason,
+      resolvedAt: row.updatedAt
+    }
   }
 
   /**

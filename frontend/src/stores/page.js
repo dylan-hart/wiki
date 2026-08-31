@@ -107,6 +107,13 @@ export const usePageStore = defineStore('page', {
     canSuggestEdits: false,
     /** Whether the reader already has a suggestion open on this page, which they would carry on with. */
     hasOpenSuggestion: false,
+    /**
+     * What became of this reader's most recently resolved suggestion on this page, if a reviewer has
+     * acted on one -- `{ status: 'approved' | 'declined', reason: string | null, resolvedAt }`, or
+     * null while nothing of theirs has been resolved yet, or for a guest. `hasOpenSuggestion` going
+     * false on its own says nothing about what happened; this is the return leg.
+     */
+    resolvedSubmission: null,
     /** Whether this reader reviews this page, which is what shows the review button on it. */
     canReview: false,
     /** The suggestions waiting on this page, oldest first. Empty for everybody who is not its reviewer. */
@@ -328,6 +335,7 @@ export const usePageStore = defineStore('page', {
       this.$patch({
         canSuggestEdits: viewer.canSuggestEdits === true,
         hasOpenSuggestion: viewer.hasOpenSuggestion === true,
+        resolvedSubmission: viewer.resolvedSubmission ?? null,
         canReview: viewer.canReview === true,
         pendingSubmissions: viewer.pendingSubmissions ?? [],
         isWatching: viewer.isWatching === true,
@@ -370,6 +378,7 @@ export const usePageStore = defineStore('page', {
         removePassword: false,
         canSuggestEdits: false,
         hasOpenSuggestion: false,
+        resolvedSubmission: null,
         canReview: false,
         pendingSubmissions: [],
         isWatching: false,
