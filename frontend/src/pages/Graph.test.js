@@ -112,7 +112,37 @@ describe('Graph.vue (OpenProject #891)', () => {
     const wrapper = await mountGraph()
 
     expect(wrapper.find('canvas').exists()).toBe(true)
-    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/graph')
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/graph', {
+      searchParams: { sizing: 'edits' }
+    })
+  })
+
+  // -> OpenProject #1863: the fetch's `sizing` param tracks whichever "Size by" mode is active at
+  //    load time -- not a fixed 'edits', which the test above (mounting at the default mode) can't
+  //    tell apart from a hardcoded value.
+  it('sends the currently-active sizeBy mode as the sizing param on (re)load', async () => {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
+    })
+    router.push('/')
+    await router.isReady()
+
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_GRAPH) })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ isEnabled: true }) })
+    const wrapper = mount(Graph, { global: { plugins: [router, createTestI18n()] } })
+    await flushPromises()
+
+    wrapper.vm.sizeBy = 'visits'
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_GRAPH) })
+    await wrapper.vm.loadGraph()
+
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith('sites/site-1/graph', {
+      searchParams: { sizing: 'visits' }
+    })
   })
 
   it('paths mode (the default edgeMode) adds synthetic folder/root nodes to the visible set', async () => {

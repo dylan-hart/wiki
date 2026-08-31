@@ -719,11 +719,18 @@ function attachZoom() {
   zoomTransform.value = zoomIdentity
 }
 
+/** `sizing` (OpenProject #1863) asks the backend to attach each node's `contributors`/`pageviews`
+ *  count objects, which otherwise dominate the payload and go unused by most of a page's readers.
+ *  Sent as the currently-active `sizeBy` mode, but the backend gates on presence alone and always
+ *  returns both objects together -- since the "Size by" toggle (`sizeBy`, below) switches modes
+ *  client-side with no refetch, both dimensions need to already be on hand either way. */
 async function loadGraph() {
   isLoading.value = true
   loadError.value = null
   try {
-    const graph = await API_CLIENT.get(`sites/${siteStore.id}/graph`).json()
+    const graph = await API_CLIENT.get(`sites/${siteStore.id}/graph`, {
+      searchParams: { sizing: sizeBy.value }
+    }).json()
     allNodes.value = graph.nodes ?? []
     allEdges.value = graph.edges ?? []
     applyFilters()
