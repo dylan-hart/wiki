@@ -405,12 +405,9 @@ async function loadRetention() {
 async function saveRetention() {
   state.savingRetention = true
   try {
-    const resp = await API_CLIENT.put('audit-log/settings', {
+    await API_CLIENT.put('audit-log/settings', {
       json: { retentionDays: state.retentionDays }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
     notify({
       type: 'positive',
       message: t('admin.audit.retentionSaveSuccess')

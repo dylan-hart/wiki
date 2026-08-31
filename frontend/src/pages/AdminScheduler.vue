@@ -673,10 +673,7 @@ async function load() {
 async function runNow(entry) {
   state.loading++
   try {
-    const resp = await API_CLIENT.post(`scheduler/schedule/${entry.id}/run`).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
+    await API_CLIENT.post(`scheduler/schedule/${entry.id}/run`).json()
     // -> Nothing on this tab changes: the job it queued shows up under upcoming, then in the history
     notify({
       type: 'positive',
@@ -695,10 +692,7 @@ async function runNow(entry) {
 async function cancelJob(jobId) {
   state.loading++
   try {
-    const resp = await API_CLIENT.delete(`scheduler/upcoming/${jobId}`)
-    if (!resp?.ok) {
-      throw new Error((await resp.json())?.message || 'An unexpected error occured.')
-    }
+    await API_CLIENT.delete(`scheduler/upcoming/${jobId}`)
     notify({
       type: 'positive',
       message: t('admin.scheduler.cancelJobSuccess')
@@ -718,10 +712,7 @@ async function cancelJob(jobId) {
 async function retryJob(jobId) {
   state.loading++
   try {
-    const resp = await API_CLIENT.post(`scheduler/jobs/${jobId}/retry`).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
+    await API_CLIENT.post(`scheduler/jobs/${jobId}/retry`).json()
     notify({
       type: 'positive',
       message: t('admin.scheduler.retryJobSuccess')

@@ -97,6 +97,7 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 import { useFlagsStore } from '@/stores/flags'
@@ -216,7 +217,7 @@ async function save() {
   state.loading++
   try {
     // -> Only `isActive` is sent, so each editor's own `config` is left untouched by the merge
-    const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
+    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
       json: {
         editors: {
           asciidoc: { isActive: state.config.asciidoc },
@@ -226,11 +227,6 @@ async function save() {
         }
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.editors.${resp?.error}`, resp?.message || 'An unexpected error occured.')
-      )
-    }
     if (adminStore.currentSiteId === siteStore.id) {
       siteStore.$patch({
         editors: {
@@ -249,7 +245,10 @@ async function save() {
     notify({
       type: 'negative',
       message: 'Failed to save site editors config',
-      caption: err.message
+      caption: t(
+        `admin.editors.${err.data?.error}`,
+        apiErrorMessage(err, 'An unexpected error occured.')
+      )
     })
   }
   state.loading--

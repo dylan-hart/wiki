@@ -145,9 +145,6 @@ async function upload() {
       },
       body: state.file
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
     notify({
       type: 'positive',
       message: t('admin.blocks.uploadSuccess')

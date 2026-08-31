@@ -241,6 +241,7 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
@@ -350,7 +351,7 @@ async function load() {
 async function save() {
   state.loading++
   try {
-    const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
+    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
       json: {
         auth: {
           autoLogin: state.config.autoLogin ?? false,
@@ -368,11 +369,6 @@ async function save() {
         }))
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.login.${resp?.error}`, resp?.message || 'An unexpected error occured.')
-      )
-    }
     notify({
       type: 'positive',
       message: t('admin.login.saveSuccess')
@@ -381,7 +377,10 @@ async function save() {
     notify({
       type: 'negative',
       message: 'Failed to save login configuration.',
-      caption: err.message
+      caption: t(
+        `admin.login.${err.data?.error}`,
+        apiErrorMessage(err, 'An unexpected error occured.')
+      )
     })
   }
   state.loading--

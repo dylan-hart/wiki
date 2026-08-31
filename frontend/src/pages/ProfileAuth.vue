@@ -245,11 +245,7 @@ function disableTfa(strategyId) {
   }).onOk(async () => {
     loading.show()
     try {
-      // -> Answers 204, so there is no body to read — only whether it succeeded
-      const resp = await API_CLIENT.delete(`users/profile/tfa/${strategyId}`)
-      if (!resp?.ok) {
-        throw new Error(localizeError((await resp.json())?.message, t))
-      }
+      await API_CLIENT.delete(`users/profile/tfa/${strategyId}`)
       notify({
         type: 'positive',
         message: t('profile.authDisableTfaSuccess')
@@ -258,7 +254,7 @@ function disableTfa(strategyId) {
       notify({
         type: 'negative',
         message: t('profile.authDisableTfaFailed'),
-        caption: apiErrorMessage(err)
+        caption: localizeError(apiErrorMessage(err), t)
       })
     }
     await fetchAuthMethods()
@@ -283,15 +279,12 @@ function enablePasswordLogin(strategyId) {
 async function setPasswordLogin(strategyId, isEnabled) {
   loading.show()
   try {
-    const resp = await API_CLIENT.put('users/profile/password-login', {
+    await API_CLIENT.put('users/profile/password-login', {
       json: {
         strategyId,
         isEnabled
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(localizeError(resp?.message, t))
-    }
     notify({
       type: 'positive',
       message: isEnabled
@@ -304,7 +297,7 @@ async function setPasswordLogin(strategyId, isEnabled) {
       message: isEnabled
         ? t('profile.authEnablePasswordLoginFailed')
         : t('profile.authDisablePasswordLoginFailed'),
-      caption: apiErrorMessage(err)
+      caption: localizeError(apiErrorMessage(err), t)
     })
   }
   await fetchAuthMethods()
@@ -337,9 +330,6 @@ function regenerateRecoveryCodes(strategyId) {
           strategyId
         }
       }).json()
-      if (!resp?.ok) {
-        throw new Error(localizeError(resp?.message, t))
-      }
       loading.hide()
       dialog({
         component: RecoveryCodesDialog,
@@ -352,7 +342,7 @@ function regenerateRecoveryCodes(strategyId) {
       notify({
         type: 'negative',
         message: t('profile.tfaRecoveryCodesRegenerateFailed'),
-        caption: apiErrorMessage(err)
+        caption: localizeError(apiErrorMessage(err), t)
       })
     }
   })
@@ -368,9 +358,6 @@ async function setupPasskey() {
     // -> Generate registration options
 
     const genResp = await API_CLIENT.post('users/profile/passkeys/challenge').json()
-    if (!genResp?.ok) {
-      throw new Error(localizeError(genResp?.message, t))
-    }
 
     // -> Start registration on the authenticator
 
@@ -403,15 +390,12 @@ async function setupPasskey() {
 
     // -> Verify the authenticator response
 
-    const resp = await API_CLIENT.post('users/profile/passkeys', {
+    await API_CLIENT.post('users/profile/passkeys', {
       json: {
         name: passkeyName,
         registrationResponse: attResp
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(localizeError(resp?.message, t))
-    }
     notify({
       type: 'positive',
       message: t('profile.passkeysSetupSuccess')
@@ -420,7 +404,7 @@ async function setupPasskey() {
     notify({
       type: 'negative',
       message: t('profile.passkeysSetupFailed'),
-      caption: apiErrorMessage(err)
+      caption: localizeError(apiErrorMessage(err), t)
     })
   }
   await fetchAuthMethods()
@@ -437,10 +421,7 @@ async function deactivatePasskey(pkey) {
   }).onOk(async () => {
     loading.show()
     try {
-      const resp = await API_CLIENT.delete(`users/profile/passkeys/${encodeURIComponent(pkey.id)}`)
-      if (!resp?.ok) {
-        throw new Error(localizeError((await resp.json())?.message, t))
-      }
+      await API_CLIENT.delete(`users/profile/passkeys/${encodeURIComponent(pkey.id)}`)
       notify({
         type: 'positive',
         message: t('profile.passkeysDeactivateSuccess')
@@ -449,7 +430,7 @@ async function deactivatePasskey(pkey) {
       notify({
         type: 'negative',
         message: t('profile.passkeysDeactivateFailed'),
-        caption: apiErrorMessage(err)
+        caption: localizeError(apiErrorMessage(err), t)
       })
     }
     await fetchAuthMethods()

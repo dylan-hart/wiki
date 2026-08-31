@@ -171,6 +171,7 @@ import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 
@@ -314,14 +315,11 @@ async function save() {
         config
       }
     }
-    const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
+    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
       json: {
         analytics: { providers }
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
     notify({
       type: 'positive',
       message: t('admin.analytics.saveSuccess')
@@ -330,7 +328,7 @@ async function save() {
     notify({
       type: 'negative',
       message: t('admin.analytics.saveFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err, 'An unexpected error occured.')
     })
   }
   state.loading--

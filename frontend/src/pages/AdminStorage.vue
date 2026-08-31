@@ -1015,12 +1015,9 @@ async function save({ silent = false } = {}) {
     loading.show()
   }
   try {
-    const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}/storage/targets`, {
+    await API_CLIENT.put(`sites/${adminStore.currentSiteId}/storage/targets`, {
       json: { targets: state.targets.map(payloadFor) }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
     saveSuccess = true
     if (!silent) {
       notify({
@@ -1074,12 +1071,9 @@ async function executeAction(act) {
     state.runningAction = true
     state.runningActionHandler = act.handler
     try {
-      const resp = await API_CLIENT.post(
+      await API_CLIENT.post(
         `sites/${adminStore.currentSiteId}/storage/targets/${state.selectedTarget}/actions/${act.handler}`
       ).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
-      }
       // -> A sync-shaped action (sync / syncUntracked / importAll) is queued on the scheduler by
       //    `api/storage.ts` rather than run inline -- this response confirms it was queued, not that
       //    it finished, so the notification says so rather than claiming completion.
@@ -1127,12 +1121,9 @@ async function setupDestroy() {
     })
 
     try {
-      const resp = await API_CLIENT.delete(
+      await API_CLIENT.delete(
         `sites/${adminStore.currentSiteId}/storage/targets/${state.selectedTarget}/setup`
       ).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
-      }
       state.target.setup.state = 'notconfigured'
       // -> A provider-backed setup handler may need a moment to settle before it can be started over
       setTimeout(() => {

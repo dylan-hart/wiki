@@ -702,15 +702,12 @@ async function save() {
       throw new Error(t('admin.security.maxUploadSizeInvalid'))
     }
 
-    const resp = await API_CLIENT.put('system/security', {
+    await API_CLIENT.put('system/security', {
       json: {
         ...state.config,
         uploadMaxFileSize
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
     notify({
       type: 'positive',
       message: t('admin.security.saveSuccess')

@@ -276,10 +276,6 @@ async function save() {
     const resp = await API_CLIENT.put(`sites/${siteStore.id}/navigation/pages/${pageStore.id}`, {
       json: { mode: state.mode, menuMode: state.menuMode }
     }).json()
-    // -> The API client does not throw on 400, so a refusal comes back as a parsed error
-    if (resp?.ok === false) {
-      throw new Error(resp.message || 'An unexpected error occured.')
-    }
     notify({
       type: 'positive',
       message: t('navEdit.saveModeSuccess')

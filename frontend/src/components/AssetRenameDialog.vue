@@ -94,15 +94,11 @@ async function rename() {
     if (state.path?.length < 2 || !state.path?.includes('.')) {
       throw new Error(t('fileman.renameAssetInvalid'))
     }
-    const resp = await API_CLIENT.patch(`sites/${siteStore.id}/assets/${props.assetId}`, {
+    await API_CLIENT.patch(`sites/${siteStore.id}/assets/${props.assetId}`, {
       json: {
         fileName: state.path
       }
     }).json()
-    // -> The API client does not throw on 400, so a refused name comes back as a parsed error
-    if (resp?.ok === false) {
-      throw new Error(resp.message || 'An unexpected error occured.')
-    }
     notify({
       type: 'positive',
       message: t('fileman.renameAssetSuccess')

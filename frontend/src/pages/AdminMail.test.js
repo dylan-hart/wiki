@@ -87,12 +87,15 @@ describe('AdminMail sendTest', () => {
   })
 
   it('shows the backend error message when mail is not configured', async () => {
+    // -> Regression coverage for #1767: ky throws for a 400 the same as any other non-2xx status
+    //    (see `boot/api.js`), and parses the body onto `err.data` before throwing.
+    const err = new Error('Bad Request')
+    err.data = {
+      ok: false,
+      message: 'Mail is not configured. Set an SMTP host before sending a test email.'
+    }
     API_CLIENT.post.mockReturnValueOnce({
-      json: () =>
-        Promise.resolve({
-          ok: false,
-          message: 'Mail is not configured. Set an SMTP host before sending a test email.'
-        })
+      json: () => Promise.reject(err)
     })
 
     const { recipientField, sendButton } = await mountAdminMail()
@@ -105,9 +108,9 @@ describe('AdminMail sendTest', () => {
   })
 
   it('shows the backend error message, not a generic one, when the request throws (e.g. a 502)', async () => {
-    // -> ky throws for any status above 400 (see `boot/api.js`), and parses the body onto `err.data`
+    // -> ky throws for every non-2xx status (see `boot/api.js`), and parses the body onto `err.data`
     //    before throwing (see `helpers/apiError.js`) -- this is what a 502/422/500 from `mail/test`
-    //    looks like on the wire, as opposed to the 400 case above which ky resolves normally.
+    //    looks like on the wire, same as the 400 case above.
     const err = new Error('Request failed with status code 502')
     err.data = {
       ok: false,

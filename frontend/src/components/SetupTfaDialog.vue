@@ -173,9 +173,6 @@ async function load() {
         strategyId: props.strategyId
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(localizeError(resp?.message, t) || 'An unexpected error occured.')
-    }
     state.continuationToken = resp.continuationToken
     state.tfaQRImage = resp.tfaQRImage
     state.tfaSecret = resp.tfaSecret
@@ -183,7 +180,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: apiErrorMessage(err)
+      message: localizeError(apiErrorMessage(err, 'An unexpected error occured.'), t)
     })
     onDialogCancel()
   }
@@ -202,9 +199,6 @@ async function save() {
         securityCode: state.securityCode
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(localizeError(resp?.message, t) || t('auth.errors.loginError'))
-    }
     state.continuationToken = ''
     state.securityCode = ''
     notify({
@@ -221,7 +215,7 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: apiErrorMessage(err)
+      message: localizeError(apiErrorMessage(err, t('auth.errors.loginError')), t)
     })
   }
   state.isLoading = false

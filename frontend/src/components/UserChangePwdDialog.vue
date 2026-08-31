@@ -175,17 +175,12 @@ async function save() {
     if (!isFormValid) {
       throw new Error(t('admin.users.createInvalidData'))
     }
-    const resp = await API_CLIENT.put(`users/${props.userId}/password`, {
+    await API_CLIENT.put(`users/${props.userId}/password`, {
       json: {
         newPassword: state.userPassword,
         mustChangePassword: state.userMustChangePassword
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.users.${resp?.error}`, resp?.message || 'An unexpected error occured.')
-      )
-    }
     notify({
       type: 'positive',
       message: t('admin.users.changePasswordSuccess')
@@ -194,10 +189,14 @@ async function save() {
       mustChangePassword: state.userMustChangePassword
     })
   } catch (err) {
-    // -> ky throws above 400 with the reason in the body, which is where the server explains itself
+    // -> ky throws above 400 with the reason in the body, which is where the server explains itself;
+    //    some error codes have a nicer translation under `admin.users.*`
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: t(
+        `admin.users.${err.data?.error}`,
+        apiErrorMessage(err, 'An unexpected error occured.')
+      )
     })
   }
   state.isLoading = false

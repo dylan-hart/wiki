@@ -207,19 +207,15 @@ async function save() {
 
   state.loading++
   try {
-    const resp = await API_CLIENT.put('system/flags', {
+    await API_CLIENT.put('system/flags', {
       json: state.flags
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
     notify({
       type: 'positive',
       message: t('admin.flags.saveSuccess')
     })
     await load()
   } catch (err) {
-    // -> ky doesn't throw on 400, so the API's own message is on the response
     notify({
       type: 'negative',
       message: t('admin.flags.saveFailed'),

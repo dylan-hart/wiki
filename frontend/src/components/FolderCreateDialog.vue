@@ -154,17 +154,13 @@ async function create() {
       throw new Error(t('fileman.createFolderInvalidData'))
     }
     // -> No locale is sent: the server puts the folder in the site's primary one
-    const resp = await API_CLIENT.post(`sites/${siteStore.id}/tree/folders`, {
+    await API_CLIENT.post(`sites/${siteStore.id}/tree/folders`, {
       json: {
         parentId: props.parentId,
         pathName: state.path,
         title: state.title
       }
     }).json()
-    // -> The API client does not throw on 400, so a refused name comes back as a parsed error
-    if (resp?.ok === false) {
-      throw new Error(resp.message || 'An unexpected error occured.')
-    }
     notify({
       type: 'positive',
       message: t('fileman.createFolderSuccess')

@@ -1393,7 +1393,7 @@ async function uploadFiles(filesToUpload) {
           // -> The body is the file itself rather than a multipart form. The locale is the one
           //    currently being browsed, so an upload lands in the same locale as the folder it was
           //    dropped into rather than always the site's primary.
-          const resp = await API_CLIENT.post(`sites/${siteStore.id}/assets`, {
+          await API_CLIENT.post(`sites/${siteStore.id}/assets`, {
             searchParams: {
               fileName: fileToUpload.name,
               locale: state.locale,
@@ -1404,10 +1404,6 @@ async function uploadFiles(filesToUpload) {
             },
             body: fileToUpload
           }).json()
-          // -> The API client does not throw on 400, so a refused file comes back as a parsed error
-          if (resp?.ok === false) {
-            throw new Error(resp.message || 'An unexpected error occured.')
-          }
         }
         state.uploadPercentage = 100
         loadTree({ parentId: state.currentFolderId })

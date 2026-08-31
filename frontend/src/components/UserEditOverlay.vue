@@ -926,14 +926,9 @@ async function save(patch, { silent, keepOpen } = { silent: false, keepOpen: fal
     }
   }
   try {
-    const resp = await API_CLIENT.put(`users/${adminStore.overlayOpts.id}`, {
+    await API_CLIENT.put(`users/${adminStore.overlayOpts.id}`, {
       json: patch
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.users.${resp?.error}`, resp?.message || 'An unexpected error occured.')
-      )
-    }
     if (!silent) {
       notify({
         type: 'positive',
@@ -944,10 +939,14 @@ async function save(patch, { silent, keepOpen } = { silent: false, keepOpen: fal
       close()
     }
   } catch (err) {
-    // -> ky throws above 400 with the reason in the body, which is where the server explains itself
+    // -> ky throws above 400 with the reason in the body, which is where the server explains itself;
+    //    some error codes have a nicer translation under `admin.users.*`
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: t(
+        `admin.users.${err.data?.error}`,
+        apiErrorMessage(err, 'An unexpected error occured.')
+      )
     })
   }
   loading.hide()

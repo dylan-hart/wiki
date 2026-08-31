@@ -578,12 +578,8 @@ async function renderMarkdown(markdown, pagePath) {
   return md.render(markdown, { pagePath })
 }
 
-/** One `POST sites/:siteId/pages`, thrown as a plain Error on `{ ok: false }` even when ky itself did not throw (see `boot/api.js`'s 400 carve-out). */
 async function createPage(payload) {
   const resp = await API_CLIENT.post(`sites/${siteStore.id}/pages`, { json: payload }).json()
-  if (resp?.ok === false) {
-    throw new Error(resp.message || 'Failed to save the page.')
-  }
   return resp.page
 }
 
@@ -604,9 +600,6 @@ async function overwriteExisting(row, render) {
       expectedUpdatedAt: existing.updatedAt
     }
   }).json()
-  if (resp?.ok === false) {
-    throw new Error(resp.message || 'Failed to save the page.')
-  }
   return resp.page
 }
 

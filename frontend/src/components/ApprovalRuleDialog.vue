@@ -286,9 +286,6 @@ async function save() {
           json: payload
         }).json()
       : await API_CLIENT.post(`sites/${props.siteId}/approvals/rules`, { json: payload }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
 
     notify({
       type: 'positive',

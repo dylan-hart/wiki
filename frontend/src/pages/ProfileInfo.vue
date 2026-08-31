@@ -218,6 +218,7 @@ import { useI18n } from 'vue-i18n'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { computed, onMounted, reactive } from 'vue'
 
 import { useSiteStore } from '@/stores/site'
@@ -338,9 +339,6 @@ async function save() {
         cvd: state.config.cvd
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured')
-    }
     if (resp.profile) {
       applyProfile(resp.profile)
     }
@@ -362,7 +360,7 @@ async function save() {
     notify({
       type: 'negative',
       message: t('profile.saveFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err, 'An unexpected error occured')
     })
   }
   loading.hide()

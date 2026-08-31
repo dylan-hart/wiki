@@ -58,6 +58,7 @@ import { useI18n } from 'vue-i18n'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { computed, reactive } from 'vue'
 
 import { useSiteStore } from '@/stores/site'
@@ -115,15 +116,12 @@ async function uploadImage() {
     state.loading++
     try {
       // -> The image is the request body itself: the endpoint takes the raw file, not a form
-      const resp = await API_CLIENT.put('users/profile/avatar', {
+      await API_CLIENT.put('users/profile/avatar', {
         body: file,
         headers: {
           'content-type': file.type
         }
       }).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
-      }
       notify({
         type: 'positive',
         message: t('profile.avatarUploadSuccess')
@@ -136,7 +134,7 @@ async function uploadImage() {
       notify({
         type: 'negative',
         message: t('profile.avatarUploadFailed'),
-        caption: err.message
+        caption: apiErrorMessage(err, 'An unexpected error occured.')
       })
     }
     state.loading--
@@ -148,10 +146,7 @@ async function uploadImage() {
 async function clearImage() {
   state.loading++
   try {
-    const resp = await API_CLIENT.delete('users/profile/avatar').json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
+    await API_CLIENT.delete('users/profile/avatar').json()
     notify({
       type: 'positive',
       message: t('profile.avatarClearSuccess')
@@ -164,7 +159,7 @@ async function clearImage() {
     notify({
       type: 'negative',
       message: t('profile.avatarClearFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err, 'An unexpected error occured.')
     })
   }
   state.loading--

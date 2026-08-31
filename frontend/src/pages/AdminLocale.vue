@@ -154,6 +154,7 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
@@ -273,7 +274,7 @@ async function save() {
     if (!active.includes(state.primary)) {
       active.push(state.primary)
     }
-    const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
+    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
       json: {
         locales: {
           primary: state.primary,
@@ -283,11 +284,6 @@ async function save() {
         }
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.locale.${resp?.error}`, resp?.message || 'An unexpected error occured.')
-      )
-    }
     state.active = active
     notify({
       type: 'positive',
@@ -300,7 +296,10 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: t(
+        `admin.locale.${err.data?.error}`,
+        apiErrorMessage(err, 'An unexpected error occured.')
+      )
     })
   }
   state.loading--

@@ -69,10 +69,7 @@ const { t } = useI18n()
 
 async function confirm() {
   try {
-    const resp = await API_CLIENT.delete(`groups/${props.group.id}`)
-    if (!resp?.ok) {
-      throw new Error((await resp.json())?.message || 'An unexpected error occured.')
-    }
+    await API_CLIENT.delete(`groups/${props.group.id}`)
     notify({
       type: 'positive',
       message: t('admin.groups.deleteSuccess')

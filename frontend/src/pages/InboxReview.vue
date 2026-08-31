@@ -463,9 +463,6 @@ function approveSubmission() {
         `sites/${siteStore.id}/approvals/submissions/${state.selected.id}/approve`,
         { json: { content, render: renderReviewed(content) } }
       ).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
-      }
       // -> `finalized` is false the moment a rule asks for more than one sign-off and this reviewer
       //    is not the last one in: the page was not written, so leaving with the ordinary "applied"
       //    toast would be a straightforward lie. `finalized` defaults true for a server predating this
@@ -540,9 +537,6 @@ function rejectSubmission() {
       const resp = await API_CLIENT.post(
         `sites/${siteStore.id}/approvals/submissions/${state.selected.id}/reject`
       ).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
-      }
       notify({
         type: 'positive',
         message: t('inbox.reviewDeclineSuccess')

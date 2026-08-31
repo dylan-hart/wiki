@@ -401,10 +401,7 @@ async function addSet(set) {
 
   state.loading++
   try {
-    const resp = await API_CLIENT.post('icons/sets', { json: { prefix: set.prefix } }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
+    await API_CLIENT.post('icons/sets', { json: { prefix: set.prefix } }).json()
     set.isAdded = true
     notify({
       type: 'positive',
@@ -424,10 +421,7 @@ async function addSet(set) {
 async function setSetState(set, isEnabled) {
   state.loading++
   try {
-    const resp = await API_CLIENT.put(`icons/sets/${set.prefix}`, { json: { isEnabled } }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
+    await API_CLIENT.put(`icons/sets/${set.prefix}`, { json: { isEnabled } }).json()
     notify({
       type: 'positive',
       message: isEnabled
@@ -456,10 +450,7 @@ function confirmDeleteSet(set) {
   }).onOk(async () => {
     state.loading++
     try {
-      const resp = await API_CLIENT.delete(`icons/sets/${set.prefix}`).json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
-      }
+      await API_CLIENT.delete(`icons/sets/${set.prefix}`).json()
       notify({
         type: 'positive',
         message: t('admin.icons.deleteSuccess', { set: set.name })
@@ -492,10 +483,7 @@ function purgeCache() {
   }).onOk(async () => {
     state.loading++
     try {
-      const resp = await API_CLIENT.delete('icons/cache').json()
-      if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
-      }
+      await API_CLIENT.delete('icons/cache').json()
       notify({
         type: 'positive',
         message: t('admin.icons.purgeCacheSuccess')

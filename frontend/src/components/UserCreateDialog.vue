@@ -176,6 +176,7 @@ import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { passwordStrengthScore } from '@/helpers/passwordStrength'
 import { computed, onMounted, reactive, ref } from 'vue'
 
@@ -329,11 +330,6 @@ async function create() {
           : {})
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.users.${resp?.error}`, resp?.message || 'An unexpected error occured.')
-      )
-    }
     notify({
       type: 'positive',
       message: t('admin.users.createSuccess')
@@ -349,7 +345,12 @@ async function create() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      // -> A refused create carries a server error code in `err.data.error`, which some codes have
+      //    a nicer translation for; a client-side validation failure above is a plain Error with no
+      //    `.data`, and its own message is already the text to show.
+      message: err.data
+        ? t(`admin.users.${err.data.error}`, apiErrorMessage(err, 'An unexpected error occured.'))
+        : err.message
     })
   }
   state.loading--

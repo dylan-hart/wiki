@@ -47,23 +47,17 @@ export function isAcceptedSiteImage(file) {
  */
 export async function uploadSiteImage(siteId, kind, file) {
   // -> The image is the request body itself: the endpoint takes the raw file, not a form
-  const resp = await API_CLIENT.put(`sites/${siteId}/images/${kind}`, {
+  await API_CLIENT.put(`sites/${siteId}/images/${kind}`, {
     body: file,
     headers: {
       'content-type': file.type
     }
   }).json()
-  if (!resp?.ok) {
-    throw new Error(resp?.message || 'An unexpected error occured.')
-  }
 }
 
 /**
  * Remove one of a site's images, leaving the built-in default in its place.
  */
 export async function clearSiteImage(siteId, kind) {
-  const resp = await API_CLIENT.delete(`sites/${siteId}/images/${kind}`).json()
-  if (!resp?.ok) {
-    throw new Error(resp?.message || 'An unexpected error occured.')
-  }
+  await API_CLIENT.delete(`sites/${siteId}/images/${kind}`).json()
 }

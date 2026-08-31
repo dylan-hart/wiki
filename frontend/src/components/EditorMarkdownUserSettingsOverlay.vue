@@ -174,12 +174,9 @@ async function save() {
       fontSize: Number.parseInt(state.config.fontSize, 10),
       previewWidth: state.config.previewWidth
     }
-    const resp = await API_CLIENT.put('users/profile/editor-settings/markdown', {
+    await API_CLIENT.put('users/profile/editor-settings/markdown', {
       json: payload
     }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
     editorStore.$patch({ userSettings: { ...editorStore.userSettings, markdown: payload } })
     notify({
       type: 'positive',

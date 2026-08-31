@@ -14,11 +14,11 @@ import { queue as notifyQueue } from '@/composables/notify'
  *
  * The recover endpoint (task 512) can answer three ways, and `AdminPagesDeleted.vue` has to tell
  * them apart rather than funnel every non-success into one dead-ending error toast:
- *   - a `pageDuplicatePath` conflict comes back as an HTTP 409, which ky's client throws for;
- *   - a `pageInvalidLocale` refusal comes back as an HTTP 400, which — per `boot/api.js`'s
- *     `throwHttpErrors: (status) => status > 400` — does NOT throw, so it has to be read off the
- *     resolved body's `ok: false` instead.
- * Both must reopen a picker rather than just reporting failure.
+ *   - a `pageDuplicatePath` conflict comes back as an HTTP 409;
+ *   - a `pageInvalidLocale` refusal comes back as an HTTP 400.
+ * ky throws for both — `catch (err)` tells them apart by `err.response?.status` for the 409 case
+ * and `err.data?.error` for the 400 case, reading the parsed body off `err.data` the same way
+ * `apiErrorMessage()` does. Both must reopen a picker rather than just reporting failure.
  */
 
 const row = {
@@ -136,15 +136,19 @@ describe('AdminPagesDeleted: recover()', () => {
 
   it('on a 400 pageInvalidLocale refusal, offers the active locales instead of dead-ending', async () => {
     const { wrapper } = await mountPage()
-    // -> `throwHttpErrors` does not throw for exactly 400, so this resolves rather than rejecting
     globalThis.API_CLIENT.post.mockReturnValueOnce({
       json: () =>
-        Promise.resolve({
-          ok: false,
-          error: 'pageInvalidLocale',
-          statusCode: 400,
-          message: 'This site does not have the "en" locale enabled.'
-        })
+        Promise.reject(
+          Object.assign(new Error('Bad Request'), {
+            response: { status: 400 },
+            data: {
+              ok: false,
+              error: 'pageInvalidLocale',
+              statusCode: 400,
+              message: 'This site does not have the "en" locale enabled.'
+            }
+          })
+        )
     })
 
     await clickRecover(wrapper)
@@ -159,7 +163,12 @@ describe('AdminPagesDeleted: recover()', () => {
     const { wrapper, router } = await mountPage()
     globalThis.API_CLIENT.post.mockReturnValueOnce({
       json: () =>
-        Promise.resolve({ ok: false, error: 'pageInvalidLocale', statusCode: 400, message: 'x' })
+        Promise.reject(
+          Object.assign(new Error('Bad Request'), {
+            response: { status: 400 },
+            data: { ok: false, error: 'pageInvalidLocale', statusCode: 400, message: 'x' }
+          })
+        )
     })
     await clickRecover(wrapper)
 

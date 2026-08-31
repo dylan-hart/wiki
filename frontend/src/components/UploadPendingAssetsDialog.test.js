@@ -126,6 +126,8 @@ describe('UploadPendingAssetsDialog: mid-batch failure (OpenProject #945)', () =
   })
 
   it('applies an already-succeeded item to the editor and prunes it from pendingAssets, even when a later item fails', async () => {
+    const err = new Error('Bad Request')
+    err.data = { message: 'Disk full' }
     API_CLIENT.post
       .mockReturnValueOnce({
         json: vi.fn().mockResolvedValue({
@@ -134,7 +136,7 @@ describe('UploadPendingAssetsDialog: mid-batch failure (OpenProject #945)', () =
         })
       })
       .mockReturnValueOnce({
-        json: vi.fn().mockResolvedValue({ ok: false, message: 'Disk full' })
+        json: vi.fn().mockRejectedValue(err)
       })
 
     const reloadSpy = vi.fn()
@@ -164,8 +166,10 @@ describe('UploadPendingAssetsDialog: mid-batch failure (OpenProject #945)', () =
   })
 
   it("does not re-apply the failed item's own blob URL as a replacement", async () => {
+    const err = new Error('Bad Request')
+    err.data = { message: 'Disk full' }
     API_CLIENT.post.mockReturnValueOnce({
-      json: vi.fn().mockResolvedValue({ ok: false, message: 'Disk full' })
+      json: vi.fn().mockRejectedValue(err)
     })
 
     const { pageStore } = await mountDialog({

@@ -205,6 +205,7 @@ import { onMounted, reactive } from 'vue'
 
 import { loading } from '@/composables/loading'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 import { useEditorStore } from '@/stores/editor'
@@ -297,11 +298,6 @@ async function save() {
         }
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.editors.markdown.${resp?.error}`, resp?.message || 'An unexpected error occured.')
-      )
-    }
     notify({
       type: 'positive',
       message: t('admin.editors.markdown.saveSuccess')
@@ -312,7 +308,10 @@ async function save() {
     notify({
       type: 'negative',
       message: 'Failed to save Markdown editor config',
-      caption: err.message
+      caption: t(
+        `admin.editors.markdown.${err.data?.error}`,
+        apiErrorMessage(err, 'An unexpected error occured.')
+      )
     })
   }
   state.loading--

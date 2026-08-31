@@ -1219,20 +1219,20 @@ async function save() {
         rules: state.group.rules ?? []
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.groups.${resp?.error}`, resp?.message || 'An unexpected error occured.')
-      )
-    }
     notify({
       type: 'positive',
       message: t('admin.groups.saveSuccess')
     })
   } catch (err) {
-    // -> ky throws above 400 with the reason in the body, which is where the server explains itself
+    // -> ky throws above 400 with the reason in the body, which is where the server explains itself;
+    //    some error codes have a nicer translation under `admin.groups.*`, so look it up before
+    //    falling back to the server's own message
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: t(
+        `admin.groups.${err.data?.error}`,
+        apiErrorMessage(err, 'An unexpected error occured.')
+      )
     })
   }
   state.isLoading = false
@@ -1371,10 +1371,7 @@ function assignUser() {
     let assigned = 0
     for (const usr of users) {
       try {
-        const resp = await API_CLIENT.post(`groups/${state.group.id}/users/${usr.id}`).json()
-        if (!resp?.ok) {
-          throw new Error(resp?.message || 'An unexpected error occured.')
-        }
+        await API_CLIENT.post(`groups/${state.group.id}/users/${usr.id}`).json()
         assigned++
       } catch (err) {
         // -> ky throws above 400, with the reason in the body
@@ -1404,10 +1401,7 @@ async function unassignUser(user) {
   }).onOk(async () => {
     state.isLoadingUsers = true
     try {
-      const resp = await API_CLIENT.delete(`groups/${state.group.id}/users/${user.id}`)
-      if (!resp?.ok) {
-        throw new Error((await resp.json())?.message || 'An unexpected error occured.')
-      }
+      await API_CLIENT.delete(`groups/${state.group.id}/users/${user.id}`)
       notify({
         type: 'positive',
         message: t('admin.groups.unassignUserSuccess')

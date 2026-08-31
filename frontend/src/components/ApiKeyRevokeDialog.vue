@@ -89,10 +89,7 @@ const state = reactive({
 async function confirm() {
   state.isLoading = true
   try {
-    const resp = await API_CLIENT.post(`${props.endpoint}/${props.apiKey.id}/revoke`).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
+    await API_CLIENT.post(`${props.endpoint}/${props.apiKey.id}/revoke`).json()
     notify({
       type: 'positive',
       message: t(`${props.labelPrefix}.revokeSuccess`)

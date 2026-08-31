@@ -5,6 +5,7 @@ import { createI18n } from 'vue-i18n'
 
 import UserCreateDialog from './UserCreateDialog.vue'
 import { useAdminStore } from '@/stores/admin'
+import { queue as notifyQueue } from '@/composables/notify'
 
 /*
   `WDialog`'s content lives behind a `<teleport to="body">`, which lands it as a REAL child of
@@ -74,5 +75,46 @@ describe('UserCreateDialog send welcome email toggle', () => {
     //    ('site-1') is what the field is pre-filled with on mount.
     expect(document.body.textContent).toContain('My Site')
     expect(document.body.querySelectorAll('.w-chip')).toHaveLength(0)
+  })
+})
+
+/**
+ * Regression coverage for #1767: `create()` used to test the resolved 400's `resp?.ok` and throw a
+ * translated message built from `resp.error`/`resp.message` -- dead once `boot/api.js` throws on
+ * 400 instead of resolving it. The `catch` now reads the same two fields off `err.data`.
+ */
+describe('UserCreateDialog: create() failure path', () => {
+  it('shows the server error message on a refused create, translated by error code', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+
+    wrapper.vm.state.userName = 'New User'
+    wrapper.vm.state.userEmail = 'new@example.com'
+    wrapper.vm.state.userPassword = 'a-long-enough-password'
+    wrapper.vm.state.userGroups = ['group-1']
+    await flushPromises()
+
+    notifyQueue.splice(0, notifyQueue.length)
+    const err = new Error('Bad Request')
+    err.data = {
+      ok: false,
+      error: 'createEmailExists',
+      statusCode: 400,
+      message: 'A user with this email already exists.'
+    }
+    API_CLIENT.post.mockImplementationOnce(() => {
+      throw err
+    })
+
+    await wrapper.vm.create()
+    await flushPromises()
+
+    // -> No translation exists for `admin.users.createEmailExists` in this test's i18n instance, so
+    //    `t()` falls back to the server's own message -- exactly what the removed `resp?.ok` branch
+    //    used to show.
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'A user with this email already exists.'
+    })
   })
 })

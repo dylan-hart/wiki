@@ -250,9 +250,6 @@ async function setEnabled(rule, isEnabled) {
       `sites/${adminStore.currentSiteId}/approvals/rules/${rule.id}`,
       { json: { isEnabled } }
     ).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
     Object.assign(rule, resp.rule)
     notify({
       type: 'positive',
@@ -302,12 +299,7 @@ function deleteRule(rule) {
   }).onOk(async () => {
     state.loading++
     try {
-      const resp = await API_CLIENT.delete(
-        `sites/${adminStore.currentSiteId}/approvals/rules/${rule.id}`
-      )
-      if (!resp?.ok) {
-        throw new Error((await resp.json())?.message || 'An unexpected error occured.')
-      }
+      await API_CLIENT.delete(`sites/${adminStore.currentSiteId}/approvals/rules/${rule.id}`)
       notify({
         type: 'positive',
         message: t('admin.approval.deleteSuccess')

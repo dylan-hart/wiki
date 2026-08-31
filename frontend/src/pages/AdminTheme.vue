@@ -363,6 +363,7 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 import { contrastRatio, getAccessibleColor, WCAG_AA_CONTRAST } from '@/helpers/accessibility'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { toMerged } from 'es-toolkit/object'
 import { startCase } from 'es-toolkit/string'
@@ -817,16 +818,11 @@ async function save() {
       baseFont: state.config.baseFont,
       contentFont: state.config.contentFont
     }
-    const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
+    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
       json: {
         theme: patchTheme
       }
     }).json()
-    if (!resp?.ok) {
-      throw new Error(
-        t(`admin.theme.${resp?.error}`, resp?.message || 'An unexpected error occured.')
-      )
-    }
     if (adminStore.currentSiteId === siteStore.id) {
       siteStore.$patch({
         theme: patchTheme
@@ -841,7 +837,10 @@ async function save() {
     notify({
       type: 'negative',
       message: 'Failed to save site theme config',
-      caption: err.message
+      caption: t(
+        `admin.theme.${err.data?.error}`,
+        apiErrorMessage(err, 'An unexpected error occured.')
+      )
     })
   }
   state.loading--
