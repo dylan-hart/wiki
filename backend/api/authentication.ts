@@ -1339,10 +1339,14 @@ async function routes(app: FastifyInstance) {
       //    `__Host-` prefix requires a clearing `Set-Cookie` to still carry `Secure; Path=/` (task
       //    2109 / WP 2105 §2) or the browser rejects the clear the same way it would a real one,
       //    leaving the stale (now-orphaned) cookie sitting in the browser -- `security.cookieSecure:
-      //    false` drops both, so the clear has to match whichever is actually in effect.
+      //    false` drops both, so the clear has to match whichever is actually in effect. `sameSite`
+      //    also mirrors the registration ('lax', not 'strict' -- see index.ts's comment: the
+      //    OAuth/SAML callback is a cross-site top-level navigation back to this origin) so the
+      //    clearing cookie's attributes match the one being cleared exactly (OpenProject #2336).
       reply.clearCookie(sessionCookieName(), {
         path: '/',
-        secure: WIKI.config.security?.cookieSecure !== false
+        secure: WIKI.config.security?.cookieSecure !== false,
+        sameSite: 'lax'
       })
 
       if (user) {
