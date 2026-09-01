@@ -42,7 +42,17 @@ test('a Users-group account can read a page but not write it, and is refused the
   await createDialog.getByLabel('Password', { exact: true }).fill(userPassword)
   await createDialog.getByRole('combobox', { name: 'Groups' }).click()
   await page.getByRole('option', { name: 'Users', exact: true }).click()
-  await page.keyboard.press('Escape') // -> multi-select stays open; close it before submitting
+  // -> Multi-select stays open; close it by clicking elsewhere in the dialog rather than pressing
+  //    Escape -- WDialog's own Escape handler is a capture-phase `document` listener (WDialog.vue),
+  //    which always runs before WMenu's dropdown-close handler (bubble phase, since OpenProject
+  //    #2364) ever gets a turn, so an Escape meant only for the still-open Groups dropdown also
+  //    cancels this non-persistent dialog outright -- confirmed against a real run: the click on
+  //    "Create" below still resolved and reported success (a stale reference into a dialog already
+  //    mid-close), but no POST to `users` was ever made and no new row landed in the table. Real
+  //    product bug (OpenProject #2370), tracked separately from this suite; clicking the dialog's own
+  //    header text is an outside-click as far as the dropdown's click-away catcher is concerned
+  //    (`WMenu.vue`), closing it with no Escape keypress involved at all.
+  await createDialog.getByText('Create User', { exact: true }).click()
   await createDialog.getByRole('button', { name: 'Create', exact: true }).click()
   await expect(page.getByText('User created successfully!')).toBeVisible()
 
