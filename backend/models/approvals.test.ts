@@ -237,6 +237,86 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
     })
     assert.deepEqual(approveSecond, { ok: false, reason: 'stale' })
   })
+
+  /**
+   * OpenProject #2349: the finalizing transaction commits `status: 'approved'` before `updatePage()`
+   * (deliberately non-transactional -- see that transaction's own comment) actually writes the page.
+   * A failure there used to leave the submission stuck `approved` forever with no write behind it and
+   * no retry path, since every other query here requires `status = 'open'` to act on a row.
+   */
+  test('reverts the submission back to open (not stuck approved) when updatePage() throws after the approval threshold is met', async () => {
+    const page = await makePage('approvals/write-failure', 'Original content')
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    const updatePage = mock.method(pagesModel, 'updatePage', async () => {
+      throw new Error('simulated write failure')
+    })
+    try {
+      await assert.rejects(
+        () =>
+          approvalsModel.approveSubmission({
+            siteId: fixtures.siteId,
+            submissionId: submission.id,
+            content: 'Suggested content',
+            render: '<p>Suggested content</p>',
+            actor
+          }),
+        /simulated write failure/
+      )
+    } finally {
+      updatePage.mock.restore()
+    }
+
+    const [row] = await fixtures.db
+      .select({ status: submissionsTable.status, resolvedBy: submissionsTable.resolvedBy })
+      .from(submissionsTable)
+      .where(eq(submissionsTable.id, submission.id))
+      .limit(1)
+    assert.equal(row!.status, 'open')
+    assert.equal(row!.resolvedBy, null)
+
+    const untouched = await pagesModel.getPage({
+      siteId: fixtures.siteId,
+      id: page.id,
+      withContent: true
+    })
+    assert.equal(untouched!.content, 'Original content')
+
+    // -> Visible in the reviewer queue again, and retriable: a later approve call is not blocked by a
+    //    permanently-resolved row that was never actually written.
+    const stillPending = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
+      groupIds: [],
+      reviewsAll: true,
+      pageId: page.id
+    })
+    assert.ok(stillPending.some((s) => s.id === submission.id))
+
+    const retried = await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Suggested content',
+      render: '<p>Suggested content</p>',
+      actor
+    })
+    assert.deepEqual(retried, {
+      ok: true,
+      finalized: true,
+      approvalsCount: 1,
+      approvalsRequired: 1
+    })
+    const written = await pagesModel.getPage({
+      siteId: fixtures.siteId,
+      id: page.id,
+      withContent: true
+    })
+    assert.equal(written!.content, 'Suggested content')
+  })
 })
 
 /**
