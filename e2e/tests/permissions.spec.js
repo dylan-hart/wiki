@@ -43,28 +43,28 @@ test('a Users-group account can read a page but not write it, and is refused the
   const groupsCombobox = createDialog.getByRole('combobox', { name: 'Groups' })
   await groupsCombobox.click()
   await page.getByRole('option', { name: 'Users', exact: true }).click()
-  // -> Multi-select stays open; close it with Tab rather than a click of any kind. Two other
-  //    approaches were tried and both failed against a real run:
-  //      - Escape: WDialog's own Escape handler is a capture-phase `document` listener
-  //        (WDialog.vue), which always runs before WMenu's dropdown-close handler (bubble phase,
-  //        since OpenProject #2364) ever gets a turn, so an Escape meant only for the still-open
-  //        Groups dropdown also cancels this non-persistent dialog outright -- the click on
-  //        "Create" afterward still resolved and reported success (a stale reference into a dialog
-  //        already mid-close), but no POST to `users` was ever made and no new row landed in the
-  //        table. Real product bug, filed separately as OpenProject #2370.
-  //      - Clicking anything else in the dialog (its header text, even the Groups trigger itself
-  //        again): WMenu's own full-viewport outside-click catcher sits above the ENTIRE dialog
-  //        while its popup is open -- confirmed directly from the failure's own action log, which
-  //        named that catcher (`<div class="fixed inset-0">`) as the element actually intercepting
-  //        the trigger's own click too -- so every click-based target in the dialog is obscured and
-  //        Playwright's actionability check correctly refuses to click through it, retrying for the
-  //        full 30s.
-  //    Tab avoids both: `WSelect.vue`'s own `onKeydown` closes the dropdown on Tab directly
-  //    (`case 'Tab': isOpen.value = false`, bound to the trigger's own `@keydown`, not a click), and
-  //    Tab is a different key entirely from WDialog's Escape-specific handler, so it never reaches
-  //    that code path at all.
-  await page.keyboard.press('Tab')
-  await createDialog.getByRole('button', { name: 'Create', exact: true }).click()
+  // -> Multi-select stays open by design ("several options in one go") -- state.userGroups is
+  //    already committed at this point regardless (WSelect.vue's select() emits update:modelValue
+  //    immediately on option click, not on close), so nothing about submitting correctly depends on
+  //    visually closing the dropdown first. Every attempt to actually close it before clicking
+  //    "Create" failed against real runs, for the same underlying reason: WMenu's own full-viewport
+  //    outside-click catcher (`<div class="fixed inset-0">`) sits above the ENTIRE dialog while its
+  //    popup is open, so every click-based target in the dialog -- the header text, the trigger
+  //    itself again -- is obscured, and Playwright's actionability check correctly refuses to click
+  //    through it. Escape doesn't work either and is worse: WDialog's own Escape handler is a
+  //    capture-phase `document` listener (WDialog.vue), which always runs before WMenu's own
+  //    dropdown-close handler (bubble phase, since OpenProject #2364) ever gets a turn, so it cancels
+  //    the whole non-persistent dialog outright instead of just closing the dropdown. Even Tab, which
+  //    WSelect.vue's own onKeydown closes the dropdown on directly with no click involved
+  //    (`case 'Tab': isOpen.value = false`), didn't visibly take effect -- left open in a real run's
+  //    final DOM, most likely raced by WDialog's own capture-phase Tab-trap (`trapTab()`) refocusing
+  //    the panel's first field before WSelect's target-phase handler gets a turn, the same
+  //    capture-vs-bubble ordering problem as the Escape case. Rather than keep guessing at a fourth
+  //    interaction to route around the same underlying dialog/menu bug (OpenProject #2370), force the
+  //    "Create" click through directly: it dispatches straight on the button itself, bypassing the
+  //    hit-test the catcher would otherwise win, exactly like a user who successfully clicks it
+  //    despite the dropdown still being visually open would.
+  await createDialog.getByRole('button', { name: 'Create', exact: true }).click({ force: true })
   await expect(page.getByText('User created successfully!')).toBeVisible()
 
   // -> As the new user, in a session of its own.
