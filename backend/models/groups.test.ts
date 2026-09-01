@@ -1276,8 +1276,15 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
    * (an API key's `siteId`) is refused `checkSiteAccess()` for any OTHER site, even a
    * `manage:system`-holding one, ahead of that bypass for the same "administrator's own choice at
    * mint time" reasoning.
+   *
+   * OpenProject #2338 (a duplicate finding of the same #2189/#2199 fix, filed from an audit pass
+   * that ran just before it merged): this is the exact scenario -- an actor holding `manage:system`
+   * alongside a non-null `siteId` pin -- the WP asked to fix. This test already proves the pin wins;
+   * `checkSiteAccess()` also had a second, now-dead copy of this same guard sitting AFTER the
+   * `manage:system` bypass (unreachable once the pre-bypass guard below is in place), which #2338's
+   * fix removed as pure dead-code cleanup with no behavior change.
    */
-  test('a site-pinned actor is refused checkSiteAccess for a different site, even holding manage:system (OpenProject #2199)', async () => {
+  test('a site-pinned actor is refused checkSiteAccess for a different site, even holding manage:system (OpenProject #2199, #2338)', async () => {
     await fixtures.db
       .update(groupsTable)
       .set({ rules: [rule({ sites: [] })] })

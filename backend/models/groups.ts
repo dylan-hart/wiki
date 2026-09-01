@@ -608,25 +608,22 @@ class Groups {
    * @param siteId The site being administered
    */
   checkSiteAccess(actor: AccessActor, permission: string, siteId: string): boolean {
-    // -> Same site-pin guard as checkAccess(), ahead of manage:system for the same reason -- see
-    //    that method's own comment (OpenProject #2189/#2199)
-    if (actor.siteId != null && actor.siteId !== siteId) {
+    /*
+      OpenProject #2189/#2199 (OpenProject #2338: consolidated onto the single guard below -- this
+      used to also be re-checked AFTER the `manage:system` bypass, which was dead code once this
+      guard was in place ahead of it: by the time that second check ran, `actor.siteId` was already
+      guaranteed either null or equal to `siteId`, so it could never actually refuse anything).
+      Same site-pin guard as `checkAccess()`, ahead of `manage:system` for the same reason -- see
+      that method's own comment. Delegates to `withinSitePin()`, matching `checkAccess()`'s shape.
+    */
+    if (!this.withinSitePin(actor, siteId)) {
       return false
     }
     // -> Above the rules entirely, same guard as checkAccess()
     if (actor.permissions.includes('manage:system')) {
       return true
     }
-    // -> Same site-pin boundary as checkAccess() (OpenProject #2199), checked ahead of the rules.
-    if (actor.siteId != null && siteId !== actor.siteId) {
-      return false
-    }
     if (!this.withinScope(actor, permission)) {
-      return false
-    }
-    // -> OpenProject #2189/#2199: a site-pinned key may never be granted a site-admin permission on
-    //    a different site, regardless of what its groups' rules say.
-    if (!this.withinSitePin(actor, siteId)) {
       return false
     }
     const rule = resolveSiteRule(this.rulesForGroups(actor.groupIds), permission, siteId)
