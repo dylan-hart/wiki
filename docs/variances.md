@@ -769,6 +769,32 @@ instead.
 
 Recording this here so a future spec pass on Epic 13 does not re-open or re-derive either question.
 
+## 2026-09-01 — 2.5.x → 3.0 migration importer drops a migrated user's two-factor authentication state
+
+**Security-relevant, operator-facing behavior change**, caught by a whole-branch review of the
+migration importer (Feature 421's twenty-task reset). Both real (non-stub) `UserConverter`s
+(`backend/migration/importers/user-converters.ts#createLocalUserConverter`,
+`backend/migration/importers/users-groups.ts#createProviderFallbackUserConverter`) hardcode every
+imported user's `users.auth[authModuleId].tfaIsActive: false` and `.tfaSecret: ''`, regardless of what
+the 2.x source row actually had. **A user who had two-factor authentication enabled on the 2.x source
+does NOT have it enabled on the migrated 3.0 account** — the account imports with 2FA off, not with
+its old secret carried across.
+
+This is a deliberate scope decision, not an oversight left unfixed: carrying a 2.x TOTP secret across
+for real would need actual analysis of whether 2.x's stored secret encoding is even compatible with
+3.0's TOTP implementation (`backend/models/users.ts`'s 2FA verification path) — genuine follow-up work,
+not a mechanical field copy. `docs/migration/2.5x-to-3.0-mapping.md`'s `users` table marks
+`tfaIsActive`/`tfaSecret` **DROPPED** to match this.
+
+**Operator impact**: after a migration, every account that had 2FA enabled on the 2.x source is
+reachable with password alone (once that password is known/reset) until the affected user re-enables
+2FA themselves post-migration. A migration runbook should call this out explicitly as a step —
+re-enabling 2FA is not automatic and not currently importer-assisted.
+
+**Closes when**: a follow-up task analyzes 2.x's TOTP secret encoding against 3.0's and either
+implements a real carry-over or confirms one is genuinely infeasible (in which case this entry stays,
+narrowed to record that conclusion, rather than being deleted).
+
 ## Azure AI Search / AWS CloudSearch: no local emulator for end-to-end verification (Feature #381)
 
 **Spec expectation:** every backend feature's automated tests exercise real behavior, matching the
@@ -1003,33 +1029,42 @@ complete-or-not locale, direction aside) and each needs its own design pass:
 
 ## 2.5.x → 3.0 settings/authentication/storage migration (Feature 420)
 
-Two permanent import-time gaps confirmed by
+Import-time gaps confirmed by
 [`docs/migration/2.5x-settings-auth-storage-field-mapping.md`](migration/2.5x-settings-auth-storage-field-mapping.md)
 (task 763) and exercised directly by
 [`backend/migration/mappers/fixtures.test.ts`](../backend/migration/mappers/fixtures.test.ts) (task
-768). Both are **confirmed NO DESTINATION on 3.0 as it exists today**, not bugs in the mapper code —
-`mapStorageRow`/`mapAuthenticationRow` (tasks 765/767) already handle each case explicitly (a
-reported dropped field, a reported `unsupported` row) rather than silently losing data. The importer
-cannot close either gap on its own; only new 3.0 capability can.
+768), not bugs in the mapper code — `mapStorageRow`/`mapAuthenticationRow` (tasks 765/767) already
+handle each case explicitly (a reported dropped field, a reported `unsupported` row) rather than
+silently losing data. The `uploads.maxFiles` and auth-provider gaps below are still **confirmed NO
+DESTINATION on 3.0 as it exists today**, in full; the storage `mode`/`syncInterval` gap that used to
+be a third full NO DESTINATION case narrowed once 3.0 grew a real destination for the common values
+(see that entry). The importer cannot close what remains of any of these on its own; only new 3.0
+capability can.
 
-### 2.5.x storage `mode`/`syncInterval` have no 3.0 destination
+### 2.5.x storage `mode`/`syncInterval`: the common cases now map; an unsupported mode or an inexpressible cron shape still doesn't
 
-2.5.x's `storage` table carries `mode` (`'sync'|'push'|'pull'`) and `syncInterval`, describing sync
-direction and schedule. 3.0's `storage` table (`backend/db/schema.ts`) has no column for either, and
-no shipped `backend/modules/storage/*/definition.yml` declares an equivalent prop — the `git`
-module's own definition says so directly: "Synchronization (direction and schedule) is not modelled
-yet."
+2.5.x's `storage` table carries `mode` (`'sync'|'push'|'pull'`) and `syncInterval` (a raw five-field
+cron expression), describing sync direction and schedule. 3.0's `storage` table gained a real
+destination for both — `StorageTarget.sync.mode`/`sync.scheduleOverride` (`backend/models/storage.ts`)
+— which is why this entry no longer says "no 3.0 destination": that was true when this entry was
+first written, but is not the whole story any more.
 
-`mapStorageRow` (`backend/migration/mappers/storage.ts`) reports this on every `'updated'` result as
-`droppedFields: { mode, syncInterval }` with the real source values, rather than discarding them
-unremarked — so a migration report can surface "this target used to sync every 15 minutes, pushed
-only, and neither fact carried over" to the administrator. There is nothing further an importer can
-do: no 3.0 column or module prop exists to hold either value.
+`mapStorageRow` (`backend/migration/mappers/storage.ts`) now maps `mode` straight across to `syncMode`
+whenever the source value is one of the target module's own declared `supportedModes`, and converts
+`syncInterval`'s cron expression to an ISO-8601 `scheduleOverride` for the two shapes that have a
+lossless duration equivalent: "every N minutes" (`*/N * * * *`) and "every N hours" (`0 */N * * *`).
 
-**Closes when**: Epic 6 (storage) ships a sync-direction/schedule concept on the `storage` table or a
-module prop. At that point `mapStorageRow` should gain a real mapping for `mode`/`syncInterval`
-instead of reporting them dropped, and this entry should be deleted (not left as historical
-changelog prose).
+What remains a genuine gap: an unsupported `mode` value (a module that doesn't declare it, or a value
+outside `'sync'|'push'|'pull'`), and any other cron shape a cron expression can express but an
+ISO-8601 repeating duration cannot (a pinned minute/hour, a day-of-week restriction, …) — neither has
+a 3.0 equivalent to convert to. `mapStorageRow` reports these on every `'updated'` result as
+`droppedFields: { mode, syncInterval }` — only the field(s) that actually had an unconvertible source
+value — with the real source values, rather than discarding them unremarked.
+
+**Closes when**: 3.0's `scheduleOverride` gains a full cron-expression concept (not just a repeating
+ISO-8601 duration), or Epic 6 otherwise extends the sync-schedule model to cover the remaining cron
+shapes. At that point `convertSyncInterval` (`backend/migration/mappers/storage.ts`) should be
+extended, and this entry narrowed further or deleted (not left as historical changelog prose).
 
 ### 2.5.x `uploads.maxFiles` has no 3.0 destination (OpenProject #2174)
 

@@ -46,16 +46,26 @@ export interface UnmappableEntry {
  * written to the 3.0 destination; `unmappable` is a record that cannot be written at all, regardless
  * of dry-run vs. live.
  *
- * `wouldSkipExisting` is nonzero once a phase's `classify` checks the provenance/idempotency tracking
- * Feature 421 task 746 built (`../provenance.ts`'s `resolveExisting`/`lookupOrInsert`) — currently the
- * `users`, `content` (pages only) and `assets` phases — or (Task 15) reports a `flagged`
- * authentication/storage row whose module is real but whose config could not be safely carried
- * across; `groups`, `pageHistory` and `tags` still count every record into `wouldCreate` or
- * `unmappable`, having no per-record idempotency rule of their own yet. `conflicts` is empty for most
- * phases today — no general rule yet for what makes two records genuinely conflict rather than one
+ * `wouldSkipExisting` is nonzero whenever a phase's `classify` decides a record cannot or should not be
+ * written even though it isn't a genuine conflict either — there is no single shared idempotency module
+ * behind this (`../provenance.ts`, which Feature 421 task 746 originally built one in, was deleted once
+ * every phase got its own real write path); each phase makes its own call instead. `content`'s `pages`
+ * entity checks the real destination tree for a collision (`pagesDeps.existingEntry`, backed by
+ * `WIKI.models.tree.getEntryAt()`); `users`' three entities route a `'skipped'`/`'flagged'`
+ * `RecordStatus` the importer's own per-record converter already decided (an unconvertible or
+ * already-a-system-object record, not a live destination lookup — see `phases/users.ts#routeOutcome()`'s
+ * own doc comment); `settings` (Task 15) reports a `flagged` authentication/storage row whose module is
+ * real but whose config could not be safely carried across. `assets`'s two entities have no
+ * `skipExisting` bucket of their own at all — an asset or comment either creates or conflicts (see
+ * `phases/assets.ts#routeImportOutcome()`), never skips. `pageHistory` and `tags` are folded into
+ * `pages` (see `phases/content.ts`'s own doc comment on why neither has its own entity any more), so
+ * neither contributes a `wouldCreate`/`unmappable` count of its own either. `conflicts` is empty for
+ * most phases today — no general rule yet for what makes two records genuinely conflict rather than one
  * simply superseding the other — except the `settings` phase (Task 15), which uses it for both an
  * authentication row's `conflict-skipped` multi-source collision and the (expected-never, defensive)
- * case of a storage row naming a module with no matching per-site row already seeded.
+ * case of a storage row naming a module with no matching per-site row already seeded, and the
+ * `content`/`assets` phases, which use it for a write that was genuinely attempted and failed (a
+ * sibling-collision, an unresolvable `pageId`, ...).
  *
  * The `found === wouldCreate + wouldSkipExisting + conflicts.length + unmappable.length` invariant
  * holds **per record** for every phase except `settings` (Task 15). That phase's single `settings`
