@@ -18,19 +18,23 @@
  *    re-serialize), so a render-vs-render hash comparison would report a mismatch for essentially
  *    every real page. `content` is the one field `createPage()` stores unmodified.
  *
- * Every entity generator this reads through `SourceConnector` is, as of this task, still a
- * `NotYetImplementedError` stub (Features 414/416/418/420 own implementing them) — exactly the same
- * situation task 744's dry-run mode and task 746's provenance tracking were built against. This module
- * follows the same honest pattern established there: a `NotYetImplementedError` is caught and reported
- * as `'not_implemented'` for that entity rather than crashing the whole verification run, so this is
- * genuinely runnable and testable today, and starts reporting real numbers the moment each Feature
- * lands — no changes needed here when that happens.
+ * Every entity generator this reads through `SourceConnector` is real against a `PostgresSourceConnector`
+ * source, now that Features 414/416/418/420 have landed — the whole-branch reset this file is part of
+ * built genuine write paths for every phase against that connector kind. `ExportBundleSourceConnector`
+ * is the one that still stubs most of them out with `NotYetImplementedError` (`users`/`groups`/
+ * `settings`/`comments`/`assets` — export-bundle write support is explicitly out of this plan's scope,
+ * see `tasks/migrate.ts`'s own module doc), which is exactly the case this module was built to handle
+ * honestly rather than assume away: a `NotYetImplementedError` is caught and reported as
+ * `'not_implemented'` for that entity rather than crashing the whole verification run, so a verify run
+ * against a bundle source still produces a real report for whatever it *can* read (`pages`/`pageHistory`/
+ * `tags`/`navigation`) instead of failing outright.
  */
 
 import { createHash } from 'node:crypto'
 import { and, eq, sql } from 'drizzle-orm'
 import { assets, groups, navigation, pageHistory, pages, users } from '../db/schema.ts'
 import { NotYetImplementedError } from './connector.ts'
+import { deriveUserGroupsFromEmbeddedGroups } from './importers/users-groups.ts'
 import { normalizeMigratedPath } from './path-normalization.ts'
 import type { WikiDb } from '../core/db.ts'
 import type { MigrationPhaseId } from './context.ts'
@@ -100,6 +104,38 @@ const PHASE_FOUND_SENTINEL_OFFSET: Partial<Record<MigrationPhaseId, number>> = {
   content: 1
 }
 
+/**
+ * Two more entities land in a phase's real `PhaseReport.found`, that — unlike `navigation`'s constant
+ * sentinel above — genuinely vary per run and so cannot be handled as a fixed offset:
+ *
+ * - `userGroups`: the `users` phase's third entity (`phases/users.ts`, `dependsOn: ['groups', 'users']`
+ *   implicitly via strict entity-drain order), one record per source membership — derived the exact same
+ *   way that entity's own `source` does, `deriveUserGroupsFromEmbeddedGroups(source.users())` re-
+ *   expanding each user row's embedded `groups: [{id, name}]` array. There is no `SourceConnector
+ *   .userGroups()` method to read this off directly (see that function's own doc comment) and no
+ *   `VerifyEntity` for it either — `ENTITY_OWNING_PHASE` only accounts for `users`+`groups`, so a real
+ *   `users`-phase `PhaseReport.found` (`groups + users + userGroups`) was undercounted by exactly the
+ *   membership count on every source where any user belongs to any group, which is effectively always.
+ * - `comments`: the `assets` phase's second entity, read directly off `SourceConnector.comments()` — a
+ *   real generator since Task 16 built a write path for it, but never added to `VERIFY_ENTITIES` (see
+ *   that array's own doc comment: record-count reconciliation and this phase-found comparison are
+ *   different concerns). A real `assets`-phase `PhaseReport.found` (`assets + comments`) was
+ *   undercounted by the comment count on every source with at least one comment.
+ *
+ * `countPhaseOnlySourceCounts()` computes both once per verify run, the same way `countSourceEntities()`
+ * computes `SourceEntityCounts` once — `compareAgainstDryRunReports()` takes the result as a second
+ * input rather than re-deriving it, so it stays a pure function of already-computed counts.
+ */
+export interface PhaseOnlySourceCounts {
+  userGroups: number | 'not_implemented'
+  comments: number | 'not_implemented'
+}
+
+const PHASE_ONLY_SOURCE_OWNING_PHASE: Record<keyof PhaseOnlySourceCounts, MigrationPhaseId> = {
+  userGroups: 'users',
+  comments: 'assets'
+}
+
 /** A source-side count, or `'not_implemented'` when that entity's generator is still a
  * `NotYetImplementedError` stub. */
 export type SourceEntityCounts = Record<VerifyEntity, number | 'not_implemented'>
@@ -110,6 +146,41 @@ async function countAsyncIterable(iterable: AsyncIterable<unknown>): Promise<num
     count++
   }
   return count
+}
+
+/** Wraps `body` the same way `countSourceEntities()` wraps each `VERIFY_ENTITIES` read: a
+ * `NotYetImplementedError` — thrown either synchronously when a stub generator method is called, or
+ * from inside the async iteration itself, both real shapes across the two connectors — resolves to
+ * `'not_implemented'` for this one count rather than aborting the whole verify run. */
+async function countOrNotImplemented(
+  body: () => AsyncIterable<unknown>
+): Promise<number | 'not_implemented'> {
+  try {
+    return await countAsyncIterable(body())
+  } catch (err: any) {
+    if (err instanceof NotYetImplementedError) {
+      return 'not_implemented'
+    }
+    throw err
+  }
+}
+
+/**
+ * Counts the two phase-report entities `VERIFY_ENTITIES`/`countSourceEntities()` do not cover — see
+ * `PhaseOnlySourceCounts`'s own doc comment for why each needs its own derivation. `userGroups` reads
+ * `source.users()` a second time (once here, once inside `countSourceEntities()`'s own `users` count) —
+ * the same accepted "two full reads of `users`" tradeoff `phases/users.ts`'s own `userGroups` entity
+ * makes, since this table is never in the same volume class as `pages`/`assetData`.
+ */
+export async function countPhaseOnlySourceCounts(
+  source: SourceConnector
+): Promise<PhaseOnlySourceCounts> {
+  return {
+    userGroups: await countOrNotImplemented(() =>
+      deriveUserGroupsFromEmbeddedGroups(source.users())
+    ),
+    comments: await countOrNotImplemented(() => source.comments())
+  }
 }
 
 /**
@@ -159,8 +230,8 @@ export interface DestinationCounter {
 }
 
 /** Builds the real, `WikiDb`-backed `DestinationCounter`. A test builds its own fake implementing this
- * same interface instead of standing up a database — same pattern `provenance.ts`'s `ProvenanceStore`
- * and `phases.test.ts`'s fake `SourceConnector` already use in this codebase. */
+ * same interface instead of standing up a database — same pattern `phases.test.ts`'s fake
+ * `SourceConnector` already uses in this codebase. */
 export function createDestinationCounter(db: WikiDb): DestinationCounter {
   return {
     async users() {
@@ -249,8 +320,10 @@ const EXPECTED_COUNT_DELTA: Record<VerifyEntity, number> = {
 
 /** Per-entity source-vs-destination reconciliation — task 748's first check. A `'not_implemented'`
  * source count is reported as-is rather than as a mismatch: there is nothing to compare against yet,
- * and calling that a failure would make every run fail until Features 414/416/418/420 all land. A
- * match requires `destinationCount - sourceCount` to equal that entity's `EXPECTED_COUNT_DELTA`, not
+ * and calling that a failure would make every run against an `ExportBundleSourceConnector` source fail
+ * on `users`/`groups`/`assets` alone (still stubs there — see the module doc comment), which is not a
+ * real data problem. A match requires `destinationCount - sourceCount` to equal that entity's
+ * `EXPECTED_COUNT_DELTA`, not
  * bare equality — see its doc comment for why `groups` alone expects a nonzero difference. */
 export function compareEntityCounts(
   sourceCounts: SourceEntityCounts,
@@ -297,9 +370,19 @@ export interface PhaseReportComparison {
  * `PHASE_FOUND_SENTINEL_OFFSET`'s doc comments — not `pages` + `pageHistory` + `tags`, which is what
  * this compared before Task 13's content-staging rewrite folded both of those into `pages`), so that is
  * the finest grain this comparison can honestly make.
+ *
+ * `phaseOnlyCounts` folds in `userGroups`/`comments` (whole-branch review Critical #2 fix) — real,
+ * run-varying counts `ENTITY_OWNING_PHASE`/`VERIFY_ENTITIES` cannot express, unlike
+ * `PHASE_FOUND_SENTINEL_OFFSET`'s fixed constant. Without this, the `users` phase's `liveFound` (just
+ * `groups + users`) undercounted a real `PhaseReport.found` (`groups + users + userGroups`) by exactly
+ * the membership count on essentially every real source, and the `assets` phase's `liveFound` (just
+ * `assets`) undercounted its own real `found` (`assets + comments`) by the comment count on any source
+ * with at least one — both reported as a spurious `'mismatch'`, not a real data problem. See
+ * `PhaseOnlySourceCounts`'s own doc comment for the full trace.
  */
 export function compareAgainstDryRunReports(
   sourceCounts: SourceEntityCounts,
+  phaseOnlyCounts: PhaseOnlySourceCounts,
   dryRunReports: PhaseReport[]
 ): PhaseReportComparison[] {
   const phasesWithEntities = new Set(
@@ -308,11 +391,20 @@ export function compareAgainstDryRunReports(
   for (const phase of Object.keys(PHASE_FOUND_SENTINEL_OFFSET) as MigrationPhaseId[]) {
     phasesWithEntities.add(phase)
   }
+  for (const phase of Object.values(PHASE_ONLY_SOURCE_OWNING_PHASE)) {
+    phasesWithEntities.add(phase)
+  }
 
   return [...phasesWithEntities].map((phase) => {
     const reportsForPhase = dryRunReports.filter((report) => report.phase === phase)
     const ownedEntities = VERIFY_ENTITIES.filter((entity) => ENTITY_OWNING_PHASE[entity] === phase)
-    const ownedCounts = ownedEntities.map((entity) => sourceCounts[entity])
+    const phaseOnlyKeys = (
+      Object.keys(PHASE_ONLY_SOURCE_OWNING_PHASE) as (keyof PhaseOnlySourceCounts)[]
+    ).filter((key) => PHASE_ONLY_SOURCE_OWNING_PHASE[key] === phase)
+    const ownedCounts: (number | 'not_implemented')[] = [
+      ...ownedEntities.map((entity) => sourceCounts[entity]),
+      ...phaseOnlyKeys.map((key) => phaseOnlyCounts[key])
+    ]
     const sentinelOffset = PHASE_FOUND_SENTINEL_OFFSET[phase] ?? 0
     const liveFound = ownedCounts.some((count) => count === 'not_implemented')
       ? null
@@ -415,10 +507,10 @@ export interface SpotCheckOptions {
   rng?: () => number
 }
 
-/** Looks up one destination page's stored body by the natural key an importer would key on
- * (`siteId`, `locale`, `path` — same as `provenance.ts`'s `findExistingPageByPath`; `path` is the
- * already-normalized 3.0 tree path, not the raw 2.x one — see `runContentSpotCheck`). Returns
- * `undefined` when no such page exists at the destination. */
+/** Looks up one destination page's stored body by the natural key an importer would key on (`siteId`,
+ * `locale`, `path` — the same key `phases/content.ts`'s `existingEntry` checks against
+ * `WIKI.models.tree.getEntryAt()`; `path` is the already-normalized 3.0 tree path, not the raw 2.x one
+ * — see `runContentSpotCheck`). Returns `undefined` when no such page exists at the destination. */
 export type DestinationPageLookup = (
   siteId: string,
   locale: string,
@@ -477,8 +569,9 @@ function pageContent(record: SourceRecord): string | null {
  * path never found. Otherwise it reservoir-samples `options.sampleSize` (default 20) pages uniformly
  * at random while reading the source exactly once.
  *
- * `source.pages()` still being a `NotYetImplementedError` stub (true for both connectors as of this
- * task) reports as a single `'source_not_implemented'` entry rather than throwing — the same honest,
+ * `source.pages()` being a `NotYetImplementedError` stub — real against both connectors today, but a
+ * theoretical concern for any future `SourceConnector` implementation this module has no visibility
+ * into — reports as a single `'source_not_implemented'` entry rather than throwing, the same honest,
  * non-crashing pattern the rest of this module and `phases/define-phase.ts` follow.
  */
 export async function runContentSpotCheck(
