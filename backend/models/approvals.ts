@@ -150,28 +150,18 @@ export interface ReviewableSubmissionDetail extends ReviewableSubmission {
  * `'stale'` is the one case that boolean could not express -- the page moved since the reviewer's
  * `baseHash` was taken, so nothing was written and the caller has to decide what to do about it,
  * rather than the write silently going ahead over whatever changed in between.
- * `'forbidden'` is the finalizing approve reaching its threshold for a reviewer who does not hold
- * `write:pages` on the target page -- approval-rule membership alone is not enough to write a page,
- * since accepting a suggestion is still a write. The submission is left pending (not deleted) rather
- * than partially applied; an approval already recorded towards the threshold by this call stays
- * recorded, since the vote itself is harmless -- only the write is refused.
- *
  * `'forbidden'` (OpenProject #2160/#2165) is the reviewer-queue gate and page-rule permissions
  * disagreeing: an approval rule made this reviewer one of the page's reviewers, but their own
  * `write:pages` grant does not cover it (or covers it more narrowly than the rule's `reviewerGroups`
  * implied) -- accepting a suggestion writes the page, and should never take less permission than a
- * direct save does.
+ * direct save does. Checked before anything is recorded, so a refusal here leaves the page, the
+ * submission, and its existing vote tally completely untouched -- there is nothing to partially apply.
  *
  * `ok: true` no longer means the page was written: with a `minApprovals` above 1, one reviewer's
  * approve only records their sign-off towards the threshold. `finalized` says which happened --
  * `false` is "recorded, still waiting on more approvers", `true` is "threshold reached, page written,
  * submission closed out" -- and `approvalsCount`/`approvalsRequired` are what a caller shows for
  * either one.
- *
- * `'forbidden'` (OpenProject #2165) is the threshold-reached case refused for lack of `write:pages` on
- * the target page -- the vote up to that point still stands (a lower-privilege act than the write
- * itself), but the page is left untouched and the submission stays open rather than being partially
- * applied.
  */
 export type ApproveSubmissionResult =
   | { ok: true; finalized: boolean; approvalsCount: number; approvalsRequired: number }
@@ -1363,25 +1353,6 @@ class Approvals {
           `suggestion ${submissionId} on page ${page.id}; waiting on more reviewers`
       )
       return decision
-    }
-
-    // -> Approval-rule membership (checked in `getSubmissionForReview`/`reviewerFor`, upstream of
-    //    this call) is what gates who may REVIEW a submission at all, not what it takes to WRITE a
-    //    page. Accepting a suggestion is still a write, so it takes the same `write:pages` a direct
-    //    save would -- otherwise a reviewer on a broad `match: 'START', path: ''` rule could push
-    //    arbitrary content to any page with a pending suggestion, bypassing `write:pages` and any
-    //    classification DENY. Refusing here leaves the submission pending rather than partially
-    //    applied: the approval already recorded above still counts, only the write is refused.
-    if (
-      !WIKI.models.groups.checkAccess(actor, 'write:pages', {
-        path: page.path,
-        locale: page.locale,
-        siteId,
-        classification: page.classification ?? null,
-        tags: page.tags ?? []
-      })
-    ) {
-      return { ok: false, reason: 'forbidden' }
     }
 
     /*
