@@ -4,6 +4,7 @@ import type { StagedPage } from './content-staging.ts'
 import type { PageHistoryImportResult } from './page-history-import.ts'
 import type { Page, PageActor, PageInput } from '../models/pages.ts'
 import {
+  createPageImporter,
   derivePublishState,
   describePrivacyWarning,
   importPages,
@@ -681,5 +682,47 @@ describe('importPages', () => {
 
     assert.equal(result.succeeded.length, 1)
     assert.deepEqual(result.succeeded[0].warnings, [])
+  })
+})
+
+describe('createPageImporter', () => {
+  test('accumulates state across multiple importOne() calls', async () => {
+    const pagesModel = new FakePagesModel()
+    const importer = createPageImporter(
+      { pagesModel, existingEntry: noExistingEntries },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
+    await importer.importOne(buildStagedPage({ oldId: 1, path: 'one' }))
+    await importer.importOne(buildStagedPage({ oldId: 2, path: 'two' }))
+
+    assert.equal(importer.succeeded.length, 2)
+    assert.equal(importer.failed.length, 0)
+    assert.equal(importer.pageIdMap.size, 2)
+    assert.equal(importer.pageIdMap.get(1), 'page-1')
+    assert.equal(importer.pageIdMap.get(2), 'page-2')
+    assert.equal(pagesModel.created.length, 2)
+  })
+
+  test('detects a sibling collision across two importOne() calls', async () => {
+    // -> Same single-pass semantics as importPages()'s own sibling-collision test above, but driven
+    //    directly through two separate importOne() calls rather than one importPages() run over an
+    //    iterable — this is exactly the calling shape Task 13 needs: claimedLocations must persist in
+    //    the importer's own closure between calls, not just within one for-await loop.
+    const pagesModel = new FakePagesModel()
+    const importer = createPageImporter(
+      { pagesModel, existingEntry: noExistingEntries },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
+    await importer.importOne(buildStagedPage({ oldId: 1, path: 'FooBar' }))
+    await importer.importOne(buildStagedPage({ oldId: 2, path: 'foobar' }))
+
+    assert.equal(pagesModel.created.length, 1)
+    assert.equal(importer.succeeded.length, 1)
+    assert.equal(importer.succeeded[0].oldId, 1)
+    assert.equal(importer.failed.length, 1)
+    assert.equal(importer.failed[0].oldId, 2)
+    assert.equal(importer.failed[0].reason, 'sibling-collision')
   })
 })

@@ -426,23 +426,31 @@ function streamedLocationKey(locale: string, parentPath: string, fileName: strin
   return `${locale} ${parentPath} ${fileName}`
 }
 
+/** Live, streaming per-page import — the extracted body of what used to be `importPages()`'s whole
+ * `for await` loop (OpenProject #1818's own follow-up, so Task 13 can drive one `StagedPage` at a time
+ * from a phase-classify callback instead of only ever being handed a whole iterable up front).
+ * `succeeded`/`failed`/`warnings`/`pageIdMap` are live references into the same arrays/map every
+ * `importOne()` call mutates — not snapshots — so a caller reading them after several calls sees every
+ * page processed so far. See the module doc comment's "Streaming input and per-page sibling-collision
+ * detection" and "History backfill, interleaved" for what `importOne()` does and why. */
+export interface PageImporter {
+  importOne(staged: StagedPage): Promise<void>
+  readonly succeeded: PageImportSuccess[]
+  readonly failed: PageImportFailure[]
+  readonly warnings: string[]
+  readonly pageIdMap: IdMap<number>
+}
+
 /**
- * Imports every staged page into `siteId` via `createPage()`, per this task's description — streaming
- * (WP #1790 / Task #1818): `pages` is consumed one page at a time (an `AsyncIterable` or a plain
- * `Iterable` both work — `for await` accepts either), and each page is fully resolved — path-assigned,
- * created, its history backfilled — before the next one is even pulled off `pages`, so at most one
- * page's heavy fields are resident at a time. See the module doc comment's "Streaming input and
- * per-page sibling-collision detection" and "History backfill, interleaved".
- *
- * Never throws for one bad, colliding, or history-failing page — each becomes a `PageImportFailure`
- * (or a warning on an otherwise-successful page) instead, so one page's bad data cannot abort the
- * whole run.
+ * Builds a `PageImporter` for one import run against `siteId` — the stateful factory `importPages()`
+ * itself is now a thin wrapper around (see below). Never throws for one bad, colliding, or
+ * history-failing page — each becomes a `PageImportFailure` (or a warning on an otherwise-successful
+ * page) instead, so one page's bad data cannot abort the whole run.
  */
-export async function importPages(
-  pages: AsyncIterable<StagedPage> | Iterable<StagedPage>,
+export function createPageImporter(
   deps: ImportPagesDeps,
   options: ImportPagesOptions
-): Promise<PageImportResult> {
+): PageImporter {
   const renderBootstrap = options.renderBootstrap ?? 'passthrough'
   const nowMillis = options.now ?? Date.now()
 
@@ -455,7 +463,7 @@ export async function importPages(
   //    the heavy StagedPage fields this streaming shape exists to avoid holding onto.
   const claimedLocations = new Map<string, number>()
 
-  for await (const staged of pages) {
+  async function importOne(staged: StagedPage): Promise<void> {
     const normalized = normalizeMigratedPath(staged.path)
 
     if ('reason' in normalized) {
@@ -466,7 +474,7 @@ export async function importPages(
         reason: normalized.reason,
         message: normalized.message
       })
-      continue
+      return
     }
 
     const locationKey = streamedLocationKey(
@@ -486,7 +494,7 @@ export async function importPages(
           `same tree location as page ${claimedByOldId}, already imported earlier in this streaming run ` +
           '— the earlier page was kept, this one was not.'
       })
-      continue
+      return
     }
 
     const treeExists = await deps.existingEntry(
@@ -503,7 +511,7 @@ export async function importPages(
         reason: 'existing-entry-collision',
         message: `page ${staged.oldId} at "${normalized.path}" (locale "${staged.locale}") already exists in the target site's tree — import failed for this page.`
       })
-      continue
+      return
     }
 
     claimedLocations.set(locationKey, staged.oldId)
@@ -540,7 +548,7 @@ export async function importPages(
         reason: 'create-error',
         message: `createPage() failed: ${err.message}`
       })
-      continue
+      return
     }
 
     pageIdMap.set(staged.oldId, destId)
@@ -569,5 +577,38 @@ export async function importPages(
     })
   }
 
-  return { succeeded, failed, warnings, pageIdMap }
+  return { importOne, succeeded, failed, warnings, pageIdMap }
+}
+
+/**
+ * Imports every staged page into `siteId` via `createPage()`, per this task's description — streaming
+ * (WP #1790 / Task #1818): `pages` is consumed one page at a time (an `AsyncIterable` or a plain
+ * `Iterable` both work — `for await` accepts either), and each page is fully resolved — path-assigned,
+ * created, its history backfilled — before the next one is even pulled off `pages`, so at most one
+ * page's heavy fields are resident at a time. See the module doc comment's "Streaming input and
+ * per-page sibling-collision detection" and "History backfill, interleaved".
+ *
+ * A thin wrapper around `createPageImporter()` (OpenProject #1818's own follow-up) — Task 13 drives
+ * the same per-page logic directly via `importOne()` instead of a whole iterable, for a streaming
+ * phase-classify callback that can't hand this function a single `AsyncIterable` up front.
+ *
+ * Never throws for one bad, colliding, or history-failing page — each becomes a `PageImportFailure`
+ * (or a warning on an otherwise-successful page) instead, so one page's bad data cannot abort the
+ * whole run.
+ */
+export async function importPages(
+  pages: AsyncIterable<StagedPage> | Iterable<StagedPage>,
+  deps: ImportPagesDeps,
+  options: ImportPagesOptions
+): Promise<PageImportResult> {
+  const importer = createPageImporter(deps, options)
+  for await (const staged of pages) {
+    await importer.importOne(staged)
+  }
+  return {
+    succeeded: importer.succeeded,
+    failed: importer.failed,
+    warnings: importer.warnings,
+    pageIdMap: importer.pageIdMap
+  }
 }
