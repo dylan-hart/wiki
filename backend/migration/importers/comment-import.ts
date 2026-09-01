@@ -38,7 +38,7 @@ export interface CommentImportOptions {
   userIdMap: UserIdMap
 }
 
-export type CommentImportFailureReason = 'unknown-page' | 'create-error'
+export type CommentImportFailureReason = 'malformed-record' | 'unknown-page' | 'create-error'
 
 export interface CommentImportFailure {
   oldId: number
@@ -90,6 +90,22 @@ export async function importComment(
   | { result: 'success'; success: CommentImportSuccess }
   | { result: 'failure'; failure: CommentImportFailure }
 > {
+  // -> Guards the whole-record case (`raw` itself null/undefined) the same way `phases/assets.ts`'s
+  //    own `classify` guards its identifier expression — not reachable from the real connector today
+  //    (`PostgresSourceConnector#comments()` always yields a real row object), but cheap enough to
+  //    make this function safe to call with an untrusted `record as SourceRecord` cast without relying
+  //    on the caller having already checked.
+  if (!raw || typeof raw !== 'object') {
+    return {
+      result: 'failure',
+      failure: {
+        oldId: Number.NaN,
+        reason: 'malformed-record',
+        message: 'received a malformed comment record (not an object) — nothing to read.'
+      }
+    }
+  }
+
   const oldId = typeof raw.id === 'number' ? raw.id : Number(raw.id)
   const sourcePageId = typeof raw.pageId === 'number' ? raw.pageId : Number(raw.pageId)
   const pageId = options.pageIdMap.get(sourcePageId)

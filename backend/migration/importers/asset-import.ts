@@ -58,7 +58,7 @@ export interface AssetImportOptions {
   fallbackActorId: string
 }
 
-export type AssetImportFailureReason = 'read-error' | 'upload-error'
+export type AssetImportFailureReason = 'read-error' | 'folder-error' | 'upload-error'
 
 export interface AssetImportFailure {
   relativePath: string
@@ -131,6 +131,22 @@ export async function importAsset(
   | { result: 'success'; success: AssetImportSuccess }
   | { result: 'failure'; failure: AssetImportFailure }
 > {
+  // -> Guards the whole-record case (`file` itself null/undefined) the same way `phases/assets.ts`'s
+  //    own `classify` guards its identifier expression (`file?.relativePath`) — not reachable from
+  //    either real connector today (`PostgresSourceConnector#assets()` always yields a real object),
+  //    but cheap enough to make this function safe to call with an untrusted `record as SourceAssetFile`
+  //    cast without relying on the caller having already checked.
+  if (!file || typeof file !== 'object') {
+    return {
+      result: 'failure',
+      failure: {
+        relativePath: 'unknown',
+        reason: 'read-error',
+        message: 'received a malformed asset record (not an object) — nothing to read.'
+      }
+    }
+  }
+
   // -> `file.relativePath` stands in for this record's identifier throughout — guarded against a
   //    malformed source row (e.g. missing entirely) the same way `phases/assets.ts`'s own `classify`
   //    guards its own identifier, so a bad record reports a clean 'read-error' rather than crashing on
@@ -156,8 +172,9 @@ export async function importAsset(
     )
   }
 
+  let folder: { id: string } | null
   try {
-    const folder = folderPath
+    folder = folderPath
       ? await deps.treeModel.getFolder({
           path: folderPath,
           locale: options.locale,
@@ -165,7 +182,14 @@ export async function importAsset(
           createIfMissing: true
         })
       : null
+  } catch (err: any) {
+    return {
+      result: 'failure',
+      failure: { relativePath, reason: 'folder-error', message: err.message }
+    }
+  }
 
+  try {
     const uploaded = await deps.assetsModel.upload({
       siteId: options.siteId,
       locale: options.locale,

@@ -47,9 +47,15 @@ class FakeAssetsModel implements AssetsWriteModel {
 class FakeTreeModel implements TreeFolderModel {
   calls: Parameters<TreeFolderModel['getFolder']>[0][] = []
   private nextId = 1
+  failNextGetFolder: string | null = null
 
   async getFolder(input: Parameters<TreeFolderModel['getFolder']>[0]) {
     this.calls.push(input)
+    if (this.failNextGetFolder) {
+      const message = this.failNextGetFolder
+      this.failNextGetFolder = null
+      throw new Error(message)
+    }
     return { id: `folder-${this.nextId++}` }
   }
 }
@@ -131,6 +137,37 @@ describe('importAsset', () => {
     if (outcome.result === 'failure') {
       assert.equal(outcome.failure.reason, 'upload-error')
       assert.match(outcome.failure.message, /assetNameTakenByEntry/)
+    }
+  })
+
+  test('a getFolder() failure becomes a distinct folder-error failure, not upload-error', async () => {
+    const assetsModel = new FakeAssetsModel()
+    const treeModel = new FakeTreeModel()
+    treeModel.failNextGetFolder = 'treeInvalidFolder'
+    const deps: AssetImportDeps = { assetsModel, treeModel }
+    const file = buildFile({ relativePath: 'docs/sub/diagram.png', filename: 'diagram.png' })
+
+    const outcome = await importAsset(file, deps, buildOptions())
+
+    assert.equal(outcome.result, 'failure')
+    if (outcome.result === 'failure') {
+      assert.equal(outcome.failure.reason, 'folder-error')
+      assert.match(outcome.failure.message, /treeInvalidFolder/)
+    }
+    assert.equal(assetsModel.uploaded.length, 0, 'upload() was never reached')
+  })
+
+  test('a null/undefined record is reported as a read-error, not a crash', async () => {
+    const assetsModel = new FakeAssetsModel()
+    const treeModel = new FakeTreeModel()
+    const deps: AssetImportDeps = { assetsModel, treeModel }
+
+    const outcome = await importAsset(null as unknown as SourceAssetFile, deps, buildOptions())
+
+    assert.equal(outcome.result, 'failure')
+    if (outcome.result === 'failure') {
+      assert.equal(outcome.failure.reason, 'read-error')
+      assert.equal(outcome.failure.relativePath, 'unknown')
     }
   })
 

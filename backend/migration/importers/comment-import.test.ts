@@ -40,6 +40,20 @@ function buildOptions(overrides: Partial<CommentImportOptions> = {}): CommentImp
 }
 
 describe('importComment', () => {
+  test('a null/undefined record is reported as malformed-record, not a crash', async () => {
+    const commentsModel = new FakeCommentsModel()
+    const deps: CommentImportDeps = { commentsModel }
+
+    const outcome = await importComment(null as unknown as SourceRecord, deps, buildOptions())
+
+    assert.equal(outcome.result, 'failure')
+    if (outcome.result === 'failure') {
+      assert.equal(outcome.failure.reason, 'malformed-record')
+      assert.ok(Number.isNaN(outcome.failure.oldId))
+    }
+    assert.equal(commentsModel.created.length, 0)
+  })
+
   test('a pageId not in pageIdMap reports unknown-page and never calls create()', async () => {
     const commentsModel = new FakeCommentsModel()
     const deps: CommentImportDeps = { commentsModel }

@@ -1811,27 +1811,59 @@ platform line, by `backend/test/release-workflow.test.ts`. Revisit if arm64 imag
 ever actually requested — the added CI time would then be a cost worth paying rather than an unpriced
 inheritance.
 
-## Task 16 (migration): an imported asset's `createdAt`/`updatedAt` are always "now," not the 2.x source's real dates
+## 2026-09-01 — Migration importer (Feature 418): asset/comment writes carry no timestamps, and comment replies lose their thread
 
 **Date:** 2026-09-01
 **Feature:** Feature 418 (2.5.x → 3.0 migration: assets/comments importer)
-**Decision:** `backend/migration/importers/asset-import.ts#importAsset()` writes every imported asset
-through the same `WIKI.models.assets.upload()` path a live upload takes (tree row + `assets` row +
-thumbnail generation) rather than a second, hand-rolled writer — the design spec's own call, so the
-import path can never drift from what a real upload actually does. `upload()` has no parameter for
-`createdAt`/`updatedAt` (unlike `WIKI.models.pages.createPage()`, which the content importer — Task
-13 — does thread the 2.x source's real dates through), so every asset this importer creates gets
-`upload()`'s own default: whatever the destination row's column defaults resolve to at write time,
-i.e. the moment the migration ran, not the 2.x source file's real creation/modification date.
+
+Referenced from code as the **asset-import-timestamps** entry (`backend/migration/connector.ts`,
+`backend/migration/importers/asset-import.ts`) — kept as the anchor name below even though this entry
+now also covers comments, so the existing code comments pointing at it stay accurate without needing
+their own edit.
+
+### Asset and comment `createdAt`/`updatedAt` are always "now," not the 2.x source's real dates
+
+**Decision:** `backend/migration/importers/asset-import.ts#importAsset()` and
+`backend/migration/importers/comment-import.ts#importComment()` write every imported asset/comment
+through the same model-layer path a live upload/post takes (`WIKI.models.assets.upload()`,
+`WIKI.models.comments.create()`) rather than a second, hand-rolled writer — the design spec's own
+call, so the import path can never drift from what a real upload/post actually does. Neither method
+has a parameter for `createdAt`/`updatedAt` (unlike `WIKI.models.pages.createPage()`, which the
+content importer — Task 13 — does thread the 2.x source's real dates through), so every asset/comment
+this importer creates gets that model's own default: whatever the destination row's column defaults
+resolve to at write time, i.e. the moment the migration ran, not the 2.x source's real
+creation/modification date.
 
 **Why this reads as a deviation:** `docs/migration/2.5x-to-3.0-mapping.md`'s general expectation for
 every other imported entity (pages, page history, users) is that source timestamps are carried across
 verbatim, and `SourceAssetFile` (`backend/migration/connector.ts`) does carry `createdAt`/`updatedAt`
 off the source row when the connector kind can supply them (Postgres-direct; an export bundle cannot,
-per that file's own doc comment) — so an asset silently not getting the same treatment could look like
-an oversight rather than a real model-layer gap.
+per that file's own doc comment) — so an asset/comment silently not getting the same treatment could
+look like an oversight rather than a real model-layer gap.
 
-**What actually happens:** every migrated asset's `createdAt`/`updatedAt` reflect the migration run's
-own wall-clock time. Adding a timestamp override to `models/assets.ts#upload()` — a live-upload path
-with no other caller that would ever want to backdate a file — is out of this task's scope; revisit
-only if asset date fidelity is ever actually requested for the migration importer specifically.
+**What actually happens:** every migrated asset's and comment's `createdAt`/`updatedAt` reflect the
+migration run's own wall-clock time, not the source's. For comments specifically, this also means
+`models/comments.ts#listForPage()`'s ordering-by-`createdAt` sorts a migrated thread by import order,
+not real chronology. Adding a timestamp override to `models/assets.ts#upload()`/
+`models/comments.ts#create()` — live write paths with no other caller that would ever want to backdate
+a row — is out of this task's scope; revisit only if date fidelity is ever actually requested for the
+migration importer specifically.
+
+### Comment `replyTo` threading is dropped, not preserved
+
+**Decision:** `backend/migration/importers/comment-import.ts#importComment()` never passes `replyTo`
+to `models/comments.ts#create()`, so every imported comment lands as a top-level comment (the column
+defaults to `null`) regardless of what it replied to in 2.x.
+`docs/migration/2.5x-to-3.0-mapping.md:226` already flagged this as something a future importer
+"will need to preserve or replace with `NULL`"; this task takes the `NULL` (replace) branch of that
+choice rather than the preserve branch.
+
+**Why this reads as a deviation:** preserving 2.x reply structure would need an old-comment-id →
+new-UUID map — the same shape `page-import.ts#pageIdMap` builds for pages — plus a second pass once
+every comment in a thread has a real destination id (a reply can point at a comment later in the same
+source stream). That is real, additional scope this task did not build; dropping the thread structure
+without a written decision could otherwise look like an oversight rather than an accepted scope cut.
+
+**What actually happens:** every migrated comment is flat/top-level; 2.x reply chains are not
+reconstructed. Revisit only if comment-thread fidelity is ever actually requested for the migration
+importer specifically — the id-map-plus-second-pass shape above is the known path to it.
