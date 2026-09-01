@@ -25,11 +25,12 @@ import collabRoutes from '../controllers/collab.ts'
  * actually calls `verifyClient` before a route's own handler ever runs, for both routes, off the one
  * registration.
  *
- * No `WIKI` global beyond `WIKI.collab.capture` (called synchronously, before any check, at the top of
- * `controllers/collab.ts`'s handler) is needed: every assertion below is settled by either the
- * handshake being refused outright (`verifyClient`, before the handler runs at all) or by each
- * controller's own *first* check — `terminal.ts`'s `req.session?.authenticated`, `collab.ts`'s
- * `isValidUuid` — neither of which touches a database or a model.
+ * No `WIKI` global beyond `WIKI.collab.capture`/`.refuse` (both called synchronously off the top of
+ * `controllers/collab.ts`'s handler, before any other check) is needed: every assertion below is
+ * settled by either the handshake being refused outright (`verifyClient`, before the handler runs at
+ * all) or by each controller's own *first* check — `terminal.ts`'s `req.session?.authenticated`,
+ * `collab.ts`'s `isValidUuid` (itself refused via `WIKI.collab.refuse`, not a bare `conn.close()`) —
+ * neither of which touches a database or a model.
  */
 describe('WebSocket verifyClient (OpenProject #2120)', () => {
   let app: FastifyInstance
@@ -51,7 +52,21 @@ describe('WebSocket verifyClient (OpenProject #2120)', () => {
       collab: {
         // -> Called before `controllers/collab.ts` checks anything else; a no-op session object is
         //    all the paths this suite exercises ever touch.
-        capture: () => ({})
+        capture: () => ({}),
+        // -> Every refusal branch in controllers/collab.ts -- including the very first, the
+        //    isValidUuid check the "same-origin handshake reaches the controller" case below relies
+        //    on -- calls WIKI.collab.refuse(conn, code, reason) instead of conn.close() directly (see
+        //    that method's own doc comment on core/collab.ts). Without a stub here, that call throws
+        //    "WIKI.collab.refuse is not a function" inside the handler, which @fastify/websocket does
+        //    not turn into a close frame -- the socket is left open, and this suite's own
+        //    `ws.once('close', ...)` wait (no timeout) then hangs forever. Mirrors the real
+        //    implementation closely enough for this suite's purposes: a plain close, no grace-period
+        //    terminate timer, since nothing here exercises a client that ignores the close frame.
+        refuse: (
+          conn: { close: (code: number, reason: string) => void },
+          code: number,
+          reason: string
+        ) => conn.close(code, reason)
       }
     }
 
