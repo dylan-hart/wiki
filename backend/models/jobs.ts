@@ -5,6 +5,7 @@ import {
   jobHistory as jobHistoryTable
 } from '../db/schema.ts'
 import { and, count, desc, eq, inArray, lte, not, sql } from 'drizzle-orm'
+import { getJobExecutionContext } from '../helpers/jobExecutionContext.ts'
 
 /** The states a job can be in once it has been picked up for execution. */
 export const JOB_STATES = ['active', 'completed', 'failed', 'interrupted'] as const
@@ -347,8 +348,30 @@ class Jobs {
    * what a task was given, this is what it made. `exportContent` is the first user: it stores
    * `{ filePath, fileSize }` here so the download route can find the tarball without either side
    * knowing anything more specific about the other.
+   *
+   * Fenced against `helpers/jobExecutionContext.ts`'s attempt number (OpenProject #2351): an
+   * in-process task cannot actually be cancelled at its `taskTimeout` ceiling, so a stale,
+   * already-abandoned task can still be running in the background and call this after a later
+   * reclaim of the same job id has already completed and recorded its own result. When the calling
+   * task's captured attempt no longer matches `jobHistory.attempt`, that later reclaim has moved on,
+   * so the write is dropped rather than clobbering it. A call with no matching context (a
+   * worker-thread task, or any direct caller outside `executeInProcess`) writes unconditionally, as
+   * before.
    */
   async setResult(id: string, result: Record<string, any>): Promise<void> {
+    const context = getJobExecutionContext()
+    if (context && context.jobId === id) {
+      const updated = await WIKI.db
+        .update(jobHistoryTable)
+        .set({ result })
+        .where(and(eq(jobHistoryTable.id, id), eq(jobHistoryTable.attempt, context.attempt)))
+      if ((updated.rowCount ?? 0) < 1) {
+        WIKI.logger.warn(
+          `Dropped a stale setResult() for job ${id} (attempt ${context.attempt}): a later attempt has already superseded it.`
+        )
+      }
+      return
+    }
     await WIKI.db.update(jobHistoryTable).set({ result }).where(eq(jobHistoryTable.id, id))
   }
 
