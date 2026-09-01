@@ -243,6 +243,43 @@ describe('migration phases', () => {
     assert.match(result.report!.conflicts[0]!.detail, /sibling-collision|same tree location/)
   })
 
+  test('contentPhase: a navigation item with an invalid/unvalidated target is blanked with a warning, not a thrown error that aborts the phase (review fix)', async () => {
+    // -> navigation-import.ts's mapNavigationItem() carries an 'external'/'externalblank' target
+    //    through verbatim, unvalidated -- a schemeless target like this one would have made the real
+    //    WIKI.models.navigation.setNavItems() throw CustomError('navigationInvalidTarget')
+    //    (assertValidNavItems()), which define-phase.ts#readEntity() does not special-case the way it
+    //    does NotYetImplementedError -- before the fix, this would have surfaced as the WHOLE phase
+    //    reporting status: 'error' with an emptied report, discarding every already-imported page.
+    async function* pages(): AsyncGenerator<SourceRecord> {}
+    async function* pageHistory(): AsyncGenerator<SourceRecord> {}
+    async function* navigation(): AsyncGenerator<SourceRecord> {
+      yield {
+        key: 'site',
+        config: [
+          {
+            id: 'bad-external',
+            kind: 'link',
+            label: 'Bad External Link',
+            targetType: 'external',
+            target: 'example.com' // -> no scheme: fails isFollowableRedirectTarget()
+          }
+        ]
+      }
+    }
+    const connector = { ...stubConnector(), pages, pageHistory, navigation }
+    const logs: string[] = []
+    const result = await contentPhase.run({
+      ...contextWith(connector),
+      dryRun: true,
+      log: (message) => logs.push(message)
+    })
+    assert.equal(result.status, 'ok')
+    assert.ok(
+      logs.some((message) => message.includes('Bad External Link') && message.includes('blanked')),
+      'a warning naming the blanked item was logged'
+    )
+  })
+
   test('assetsPhase counts assets, but reports not_implemented — no phase has a write path yet', async () => {
     const result = await assetsPhase.run(contextWith(workingConnector({ assets: 9 })))
     assert.equal(result.status, 'not_implemented')

@@ -133,16 +133,40 @@ function fakeSourceConnector(): SourceConnector {
         },
         {
           // -> Orphaned: pageId 999 names no current page (a deleted 2.x page). content-staging.ts
-          //    keeps this on ContentStagingContext.orphanedHistory rather than attaching it to any
-          //    StagedPage; nothing in phases/content.ts backfills orphaned history (out of this
-          //    task's scope) — this row only proves the streaming merge-join doesn't mis-attach it
-          //    or crash the run.
+          //    keeps this (and the row below, same pageId) on ContentStagingContext.orphanedHistory
+          //    rather than attaching either to any StagedPage — phases/content.ts backfills the whole
+          //    group once `pages` has drained, via page-history-import.ts#backfillPageHistory()'s
+          //    batch form, sharing one freshly synthesized pageId across the group (see the "two rows,
+          //    one synthesized pageId" assertion below).
           id: 201,
+          pageId: 999,
+          action: 'updated',
+          path: 'long-gone',
+          localeCode: 'en',
+          title: 'Long Gone (v1)',
+          description: null,
+          content: '# Long gone, first version',
+          contentType: 'markdown',
+          isPrivate: false,
+          isPublished: false,
+          publishStartDate: null,
+          publishEndDate: null,
+          editorKey: 'markdown',
+          versionDate: '2021-06-01T00:00:00.000Z',
+          createdAt: '2021-06-01T00:00:00.000Z',
+          extra: {},
+          tags: [],
+          authorId: null
+        },
+        {
+          // -> Second row of the same orphaned group (same pageId 999) — proves the synthesized id is
+          //    shared across the whole group, not minted once per row.
+          id: 202,
           pageId: 999,
           action: 'deleted',
           path: 'long-gone',
           localeCode: 'en',
-          title: 'Long Gone',
+          title: 'Long Gone (v2, deleted)',
           description: null,
           content: null,
           contentType: 'markdown',
@@ -171,7 +195,19 @@ function fakeSourceConnector(): SourceConnector {
               targetType: 'page',
               target: '/en/welcome'
             },
-            { id: 'nav-home', kind: 'link', label: 'Home', targetType: 'home', target: '' }
+            { id: 'nav-home', kind: 'link', label: 'Home', targetType: 'home', target: '' },
+            {
+              // -> mapNavigationItem() carries an 'external' target through verbatim, unvalidated —
+              //    this schemeless target would make the real setNavItems() throw
+              //    CustomError('navigationInvalidTarget') without the sanitize-before-write fix, which
+              //    would abort the whole phase (status: 'error', emptied report) after the "welcome"
+              //    page above was already successfully created.
+              id: 'nav-bad-external',
+              kind: 'link',
+              label: 'Bad External',
+              targetType: 'external',
+              target: 'example.com'
+            }
           ]
         }
       ]),
@@ -284,7 +320,9 @@ describe(
       assert.equal(blockedTreeEntries[0]!.title, 'Already here')
 
       // -> the site's navigation menu was written, with the "page"-type item resolved onto the real
-      //    new page id's path (locale prefix stripped) and the "home"-type item resolved to '/'.
+      //    new page id's path (locale prefix stripped), the "home"-type item resolved to '/', and the
+      //    invalid schemeless "external" target blanked rather than aborting the whole phase (review
+      //    fix — see the module doc comment's "Navigation targets are sanitized" section).
       const [navRow] = await fixtures.db
         .select()
         .from(navigationTable)
@@ -292,8 +330,24 @@ describe(
       assert.ok(navRow, 'the site-wide navigation row exists')
       assert.deepEqual(navRow!.items, [
         { id: 'nav-welcome', type: 'link', label: 'Welcome', target: '/welcome' },
-        { id: 'nav-home', type: 'link', label: 'Home', target: '/' }
+        { id: 'nav-home', type: 'link', label: 'Home', target: '/' },
+        { id: 'nav-bad-external', type: 'link', label: 'Bad External', target: '' }
       ])
+
+      // -> orphaned pageHistory (review fix): both rows of the pageId-999 orphan group were written,
+      //    sharing one freshly synthesized pageId that is real (a real pageHistory FK-shaped uuid) and
+      //    distinct from the "welcome" page's own id.
+      const orphanRows = await fixtures.db
+        .select()
+        .from(pageHistoryTable)
+        .where(
+          and(eq(pageHistoryTable.siteId, fixtures.siteId), eq(pageHistoryTable.path, 'long-gone'))
+        )
+      assert.equal(orphanRows.length, 2)
+      const orphanTitles = orphanRows.map((row) => row.title).sort()
+      assert.deepEqual(orphanTitles, ['Long Gone (v1)', 'Long Gone (v2, deleted)'])
+      assert.equal(orphanRows[0]!.pageId, orphanRows[1]!.pageId)
+      assert.notEqual(orphanRows[0]!.pageId, newPageId)
     })
   }
 )

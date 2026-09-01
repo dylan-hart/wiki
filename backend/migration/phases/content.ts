@@ -1,16 +1,18 @@
 import { pageHistory as pageHistoryTable } from '../../db/schema.ts'
+import { sanitizeNavItemTargets } from '../../models/navigation.ts'
 import {
   buildContentStagingIndex,
   createContentStagingContext,
   extractContentStaging,
   extractNavigation
 } from '../content-staging.ts'
-import { backfillPageHistoryForPage } from '../page-history-import.ts'
+import { backfillPageHistory, backfillPageHistoryForPage } from '../page-history-import.ts'
 import { createPageImporter } from '../page-import.ts'
 import { importNavigation } from '../navigation-import.ts'
 import { definePhase } from './define-phase.ts'
 import type { Page } from '../../models/pages.ts'
 import type { ContentStagingOptions, StagedPage } from '../content-staging.ts'
+import type { PageHistoryInsertRow } from '../page-history-import.ts'
 import type { ImportPagesDeps, PageImportOutcome, PagesWriteModel } from '../page-import.ts'
 import type { NavigationImportDeps, NavigationWriteModel } from '../navigation-import.ts'
 import type { WriteRecorder } from '../recorder.ts'
@@ -111,6 +113,36 @@ async function routePageOutcome(
  * pure unit tests (`phases.test.ts`) have no live `WIKI`/db to read — so `existingEntry` reports "not
  * found" unconditionally under `dryRun`, same as every other dependency here, keeping a dry run fully
  * I/O-free rather than a live read plus a stubbed write.
+ *
+ * ## Navigation targets are sanitized before the real write (review fix)
+ *
+ * `navigation-import.ts`'s `mapNavigationItem()` carries an `'external'`/`'externalblank'` item's
+ * `target` through verbatim, unvalidated — a schemeless target, or a `javascript:`/`ftp:` URL from an
+ * old 2.x menu, passes straight through. But the real `models/navigation.ts#setNavItems()` calls
+ * `assertValidNavItems()`, which *throws* `CustomError('navigationInvalidTarget')` for exactly that
+ * shape. Since `importNavigation()`'s own write happens inside this phase's `navigation` entity —
+ * which runs strictly after every page has already been created — an uncaught throw there would have
+ * reached `define-phase.ts#readEntity()`'s catch, which only special-cases `NotYetImplementedError`;
+ * anything else propagates out of `run()` as `status: 'error'` with `emptyPhaseReport()`, discarding
+ * the whole phase's report for every page already successfully imported in the same run. The
+ * `navigationModel.writeSiteItems` adapter below therefore runs the resolved items through
+ * `models/navigation.ts#sanitizeNavItemTargets()` — the same function `copyNav()` already uses for the
+ * identical "items that predate this validation" case — before ever calling `setNavItems()`, and logs
+ * (via `ctx.log`) which items had their target blanked, since `sanitizeNavItemTargets()` itself reports
+ * nothing back beyond the sanitized array.
+ *
+ * ## Orphaned pageHistory is backfilled too (review fix)
+ *
+ * `stagingContext.orphanedHistory` (2.x `pageHistory` rows whose `pageId` names no current page — a
+ * deleted 2.x page, per `content-staging.ts`'s own doc) is only complete once `pages` has fully
+ * drained, same as `stagedPageRefs`. It has no single page to backfill against inline the way a live
+ * page's own history does (`pagesDeps.backfillHistory`, called per-page from inside
+ * `pageImporter.importOne()`), so it is drained here instead, in the `navigation` entity's classify —
+ * the only other hook that is guaranteed to run after `pages` has fully drained. Reuses
+ * `page-history-import.ts#backfillPageHistory()`'s batch form with an empty `pages` array (so only its
+ * orphaned-group loop runs — every live page's own history was already backfilled per-page above) to
+ * get its synthesized-shared-`pageId`-per-group behavior for free, rather than reimplementing the
+ * grouping here.
  */
 export const contentPhase = definePhase({
   id: 'content',
@@ -128,6 +160,14 @@ export const contentPhase = definePhase({
       fallbackActorId: ctx.operatorActorId
     }
     const stagingContext = createContentStagingContext()
+
+    // -> Shared between the per-page backfill below (pagesDeps.backfillHistory) and the orphaned-
+    //    history batch backfill (the navigation entity's classify) — same "compute for real, write
+    //    only when live" split every other dependency in this phase uses.
+    async function insertHistoryVersions(rows: PageHistoryInsertRow[]): Promise<void> {
+      if (ctx.dryRun) return
+      await WIKI.db.insert(pageHistoryTable).values(rows)
+    }
 
     const pagesModel: PagesWriteModel = {
       async createPage(siteId, input, actor) {
@@ -156,10 +196,7 @@ export const contentPhase = definePhase({
       },
       backfillHistory: (staged, newPageId) =>
         backfillPageHistoryForPage(staged, newPageId, ctx.siteId, {
-          async insertVersions(rows) {
-            if (ctx.dryRun) return
-            await WIKI.db.insert(pageHistoryTable).values(rows)
-          }
+          insertVersions: insertHistoryVersions
         })
     }
 
@@ -193,9 +230,31 @@ export const contentPhase = definePhase({
         await WIKI.models.navigation.ensureSiteNav(siteId, ctx.primaryLocale)
       },
       async writeSiteItems(siteId, items) {
+        // -> See the module doc comment's "Navigation targets are sanitized" section: setNavItems()
+        //    throws for an item whose target isn't a rooted path or a complete http(s)/mailto/tel
+        //    address, which a 2.x source's 'external'/'externalblank' item is never validated
+        //    against on the way in. Sanitizing here (2.x navigation is flat — see
+        //    navigation-import.ts's own doc comment — so there are never any `children` to recurse
+        //    into) is what keeps a single bad legacy target from throwing this deep into the phase,
+        //    after every page has already been written. Computed unconditionally (unlike the actual
+        //    write below) since it is pure, no-I/O classification, not a destination read/write — a
+        //    dry run should see which targets would be blanked too, the same "compute for real
+        //    either way" rule pagesModel.createPage follows.
+        const sanitized = sanitizeNavItemTargets(items)
+        for (const [index, item] of items.entries()) {
+          const original = item.target
+          const cleaned = sanitized[index]!.target
+          if (original !== cleaned) {
+            ctx.log?.(
+              `navigation item "${item.label ?? item.id}": target "${original}" is neither a rooted ` +
+                'path nor a complete http(s)/mailto/tel address (a 2.x menu item that predates this ' +
+                'validation) — blanked rather than written, to avoid failing the whole content phase.'
+            )
+          }
+        }
         if (ctx.dryRun) return
         const navId = await WIKI.models.navigation.ensureSiteNav(siteId, ctx.primaryLocale)
-        await WIKI.models.navigation.setNavItems(siteId, navId, items)
+        await WIKI.models.navigation.setNavItems(siteId, navId, sanitized)
       }
     }
     const navigationDeps: NavigationImportDeps = { navigationModel }
@@ -222,6 +281,25 @@ export const contentPhase = definePhase({
           yield { key: 'site-navigation' }
         },
         classify: async (_record, recorder) => {
+          // -> See the module doc comment's "Orphaned pageHistory is backfilled too" section.
+          //    `pages: []` means only backfillPageHistory()'s own orphaned-group loop runs — every
+          //    live page's own history was already backfilled per-page, inline, as `pages` streamed.
+          const orphanedResult = await backfillPageHistory(
+            [],
+            stagingContext.orphanedHistory,
+            pageImporter.pageIdMap,
+            ctx.siteId,
+            { insertVersions: insertHistoryVersions }
+          )
+          for (const warning of orphanedResult.warnings) {
+            ctx.log?.(warning)
+          }
+          for (const failure of orphanedResult.failed) {
+            ctx.log?.(
+              `orphaned pageHistory backfill failed for source page ${failure.oldId}: ${failure.message}`
+            )
+          }
+
           const staged = await extractNavigation(ctx.source)
           await importNavigation(
             staged,
