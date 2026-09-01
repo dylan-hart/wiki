@@ -484,6 +484,13 @@ describe(
       fixtures = await setupTestDb()
       ;({ auditLog: auditLogModel } = await import('../models/auditLog.ts'))
       ;(globalThis as any).WIKI.configSvc = configSvc
+      // -> `setupTestDb()`'s minimal `WIKI.config` is a bare `{}` -- `Security#getConfig()` reads
+      //    `WIKI.config.security ?? {}`, so without this, `Security#validate()`'s
+      //    `CORS_MODES.includes(merged.corsMode)` check fails on `undefined` and `PUT /security`
+      //    below 400s instead of exercising the asserted 200 path (OpenProject #2346). `'OFF'` is
+      //    the same default `base.yml` ships; the test's own payload never touches CSP/hostname/regex
+      //    so nothing else in `security` needs seeding.
+      ;(globalThis as any).WIKI.config.security = { corsMode: 'OFF' }
 
       app = fastify({
         ajv: {
@@ -491,6 +498,19 @@ describe(
         }
       })
       await app.register(fastifySensible)
+      // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.badRequest()`/etc. is a thrown
+      //    error, and without a handler that shapes it to `ApiError#`, Fastify's default handler
+      //    tries to serialize it against the route's declared error response schema (which requires
+      //    `ok`/`error`/`statusCode`/`message`), fails, and falls back to a 500 -- masking whichever
+      //    status code the route actually meant to send (OpenProject #2346).
+      app.setErrorHandler((error: any, req, reply) => {
+        reply.code(error.statusCode ?? 500).send({
+          ok: false,
+          error: error.name,
+          statusCode: error.statusCode ?? 500,
+          message: error.message
+        })
+      })
       app.addHook('onRequest', (req, _reply, done) => {
         ;(req as any).session = {
           authenticated: true,
@@ -517,12 +537,16 @@ describe(
       const res = await app.inject({
         method: 'PUT',
         url: '/security',
-        // -> `trustProxy`/`uploadScanSVG` are real `SECURITY_FIELDS`; `auth`/`mail` are not -- they
-        //    stand in for a caller trying to slip a secret-bearing blob through this route. The
+        // -> `disallowIframe`/`uploadScanSVG` are real `SECURITY_FIELDS`; `auth`/`mail` are not --
+        //    they stand in for a caller trying to slip a secret-bearing blob through this route. The
         //    schema has no `additionalProperties: false`, so these pass validation and reach the
         //    handler; `Security#pickFields` is what has to drop them before `detail` is built.
+        //    (Not `trustProxy`, despite it also being a real field: its schema is a genuinely
+        //    ambiguous `oneOf: [boolean, string]` that Fastify's default AJV `coerceTypes` fails to
+        //    resolve for a bare boolean -- OpenProject #2366 tracks that separately. Using it here
+        //    would make this audit-log test fail for an unrelated schema reason.)
         payload: {
-          trustProxy: true,
+          disallowIframe: true,
           uploadScanSVG: false,
           auth: { secret: 'super-secret-session-key' },
           mail: { host: 'smtp.example.com', auth: { user: 'bot', pass: 'hunter2' } }
@@ -537,8 +561,8 @@ describe(
 
       assert.equal(entry.actor.id, fixtures.userId)
       assert.equal(entry.actor.name, 'Fixture User')
-      assert.deepEqual(Object.keys(entry.detail).sort(), ['trustProxy', 'uploadScanSVG'])
-      assert.equal(entry.detail.trustProxy, true)
+      assert.deepEqual(Object.keys(entry.detail).sort(), ['disallowIframe', 'uploadScanSVG'])
+      assert.equal(entry.detail.disallowIframe, true)
       assert.equal(entry.detail.uploadScanSVG, false)
 
       const serializedDetail = JSON.stringify(entry.detail)
