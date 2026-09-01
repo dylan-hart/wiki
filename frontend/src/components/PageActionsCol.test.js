@@ -50,7 +50,6 @@ const PAGE_ACTIONS_MESSAGES = {
         history: 'Page History',
         duplicate: 'Duplicate Page',
         renameMove: 'Rename / Move Page',
-        convert: 'Convert Page',
         rerender: 'Rerender Page',
         viewBacklinks: 'View Backlinks',
         delete: 'Delete Page'
@@ -678,6 +677,25 @@ describe('PageActionsCol page actions menu', () => {
 
     expect(menuItemLabels()).not.toContain('Rerender Page')
     expect(menuItemLabels()).toContain('View Backlinks')
+  })
+
+  /**
+   * OpenProject #1921: the dead menu-conversion placeholder item (and the `hasPageActions` computed
+   * that existed only to keep this menu from opening empty for a guest) is gone entirely. This is the
+   * scenario that computed used to guard -- a guest with neither `write:pages` nor `manage:pages` --
+   * confirming the "..." trigger still renders and its menu still isn't empty, now on View Backlinks
+   * alone, with no disabled placeholder standing in for the deleted entry.
+   */
+  it('shows a non-empty menu with only View Backlinks for a guest with no page permissions', async () => {
+    ;({ wrapper } = await mountRailWithPageActions({ canWritePages: false }))
+
+    expect(wrapper.find('[aria-label="common.header.pageActions"]').exists()).toBe(true)
+
+    await wrapper.get('[aria-label="common.header.pageActions"]').trigger('click')
+    await flushPromises()
+
+    const labels = menuItemLabels()
+    expect(labels).toEqual(['View Backlinks'])
   })
 
   it('opens the backlinks side panel when View Backlinks is clicked', async () => {

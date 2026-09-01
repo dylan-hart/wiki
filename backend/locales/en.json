@@ -2197,7 +2197,6 @@
   "common.outdatedBrowserWarning": "Your browser is outdated. Upgrade to a {modernBrowser}.",
   "common.page.bookmark": "Bookmark",
   "common.page.contents": "Contents",
-  "common.page.convert": "Convert Page",
   "common.page.createFailed": "Failed to create page.",
   "common.page.createSuccess": "Page created successfully.",
   "common.page.delete": "Delete Page",

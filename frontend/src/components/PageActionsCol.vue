@@ -209,12 +209,7 @@
         </w-menu>
       </w-btn>
     </template>
-    <!-- -> `hasPageActions` takes the rule with it: a separator over a button that opens nothing is a
-            line drawn for its own sake -->
-    <template
-      v-if="
-        hasPageActions && !isRedirect && !(editorStore.isActive && editorStore.mode === `create`)
-      ">
+    <template v-if="!isRedirect && !(editorStore.isActive && editorStore.mode === `create`)">
       <w-separator class="my-2" inset />
       <w-btn
         class="h-12"
@@ -232,17 +227,6 @@
         -->
         <w-menu class="translucent-menu" anchor="top left" self="top right" auto-close>
           <w-list padding style="min-width: 225px">
-            <w-item
-              clickable
-              disabled
-              v-if="flagsStore.experimental && userStore.can(`manage:pages`)">
-              <w-item-section class="items-center" avatar>
-                <w-icon class="text-deep-orange-9" name="la:atom" size="sm" />
-              </w-item-section>
-              <w-item-section
-                ><w-item-label>{{ t('common.page.convert') }}</w-item-label></w-item-section
-              >
-            </w-item>
             <!-- -> Gated on `canRerenderPage`: needs Puppeteer, and the backend's `ensureCanRender`
                     rejects any editor but markdown -->
             <w-item clickable v-if="canRerenderPage" @click="rerenderPage">
@@ -335,7 +319,6 @@ import {
 } from '@/helpers/pendingAssetRename'
 
 import { useEditorStore } from '@/stores/editor'
-import { useFlagsStore } from '@/stores/flags'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
@@ -343,7 +326,6 @@ import { useUserStore } from '@/stores/user'
 // STORES
 
 const editorStore = useEditorStore()
-const flagsStore = useFlagsStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
@@ -433,17 +415,6 @@ const canRerenderPage = computed(
   () =>
     userStore.can('write:pages') && siteStore.pdfExportAvailable && pageStore.editor === 'markdown'
 )
-
-/**
- * Whether the "..." menu has anything to show.
- *
- * View Backlinks (OpenProject #1917) is unconditional -- unlike Rerender Page (behind
- * `canRerenderPage`) and Convert Page (still behind the experimental flag, plus `manage:pages`),
- * every reader who can see this rail at all can see it. So the menu can never come up empty any
- * more; this stays `true` rather than being deleted outright because OpenProject #1921 (deleting the
- * dead Convert Page entry) is the one that also removes this workaround for good.
- */
-const hasPageActions = computed(() => true)
 
 // METHODS
 
