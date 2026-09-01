@@ -237,6 +237,86 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
     })
     assert.deepEqual(approveSecond, { ok: false, reason: 'stale' })
   })
+
+  /**
+   * OpenProject #2349: the finalizing transaction commits `status: 'approved'` before `updatePage()`
+   * (deliberately non-transactional -- see that transaction's own comment) actually writes the page.
+   * A failure there used to leave the submission stuck `approved` forever with no write behind it and
+   * no retry path, since every other query here requires `status = 'open'` to act on a row.
+   */
+  test('reverts the submission back to open (not stuck approved) when updatePage() throws after the approval threshold is met', async () => {
+    const page = await makePage('approvals/write-failure', 'Original content')
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    const updatePage = mock.method(pagesModel, 'updatePage', async () => {
+      throw new Error('simulated write failure')
+    })
+    try {
+      await assert.rejects(
+        () =>
+          approvalsModel.approveSubmission({
+            siteId: fixtures.siteId,
+            submissionId: submission.id,
+            content: 'Suggested content',
+            render: '<p>Suggested content</p>',
+            actor
+          }),
+        /simulated write failure/
+      )
+    } finally {
+      updatePage.mock.restore()
+    }
+
+    const [row] = await fixtures.db
+      .select({ status: submissionsTable.status, resolvedBy: submissionsTable.resolvedBy })
+      .from(submissionsTable)
+      .where(eq(submissionsTable.id, submission.id))
+      .limit(1)
+    assert.equal(row!.status, 'open')
+    assert.equal(row!.resolvedBy, null)
+
+    const untouched = await pagesModel.getPage({
+      siteId: fixtures.siteId,
+      id: page.id,
+      withContent: true
+    })
+    assert.equal(untouched!.content, 'Original content')
+
+    // -> Visible in the reviewer queue again, and retriable: a later approve call is not blocked by a
+    //    permanently-resolved row that was never actually written.
+    const stillPending = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
+      groupIds: [],
+      reviewsAll: true,
+      pageId: page.id
+    })
+    assert.ok(stillPending.some((s) => s.id === submission.id))
+
+    const retried = await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Suggested content',
+      render: '<p>Suggested content</p>',
+      actor
+    })
+    assert.deepEqual(retried, {
+      ok: true,
+      finalized: true,
+      approvalsCount: 1,
+      approvalsRequired: 1
+    })
+    const written = await pagesModel.getPage({
+      siteId: fixtures.siteId,
+      id: page.id,
+      withContent: true
+    })
+    assert.equal(written!.content, 'Suggested content')
+  })
 })
 
 /**
@@ -1218,6 +1298,7 @@ describe(
     let fixtures: TestFixtures
     let pagesModel: typeof import('./pages.ts').pages
     let approvalsModel: typeof import('./approvals.ts').approvals
+    let groupsModel: typeof import('./groups.ts').groups
     let actor: PageActor
     let authorId: string
     let reviewerBId: string
@@ -1226,6 +1307,7 @@ describe(
       fixtures = await setupTestDb()
       ;({ pages: pagesModel } = await import('./pages.ts'))
       ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+      ;({ groups: groupsModel } = await import('./groups.ts'))
       actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
 
       const [author] = await fixtures.db
@@ -1238,6 +1320,34 @@ describe(
         })
         .returning({ id: usersTable.id })
       authorId = author!.id
+
+      // -> `models/pageWatching.ts#listWatchers` re-checks `read:pages` for each watcher's CURRENT
+      //    group membership before queuing anything (OpenProject #2173) -- a submission author with
+      //    no group at all would silently be filtered out of `updatePage()`'s own watcher notice,
+      //    which is exactly what the "does not double-notify" test below needs to see queued.
+      //    `fixtures.groupId` starts with empty `rules` (`test/db.ts`), so both the membership row
+      //    and the rule granting it have to be set up here.
+      await fixtures.db
+        .insert(userGroupsTable)
+        .values({ groupId: fixtures.groupId, userId: authorId })
+      await fixtures.db
+        .update(groupsTable)
+        .set({
+          rules: [
+            {
+              id: 'notify-author-read',
+              name: 'Notify author read access',
+              roles: ['read:pages'],
+              match: 'START',
+              mode: 'ALLOW',
+              path: '',
+              locales: [],
+              sites: []
+            } satisfies GroupRule
+          ]
+        })
+        .where(eq(groupsTable.id, fixtures.groupId))
+      await groupsModel.reloadCache()
 
       const [reviewerB] = await fixtures.db
         .insert(usersTable)

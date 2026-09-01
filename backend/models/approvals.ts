@@ -1279,6 +1279,17 @@ class Approvals {
       `updatePage` stays out of this transaction on purpose: it does its own history/watcher/search/
       hook/storage I/O and must not run while holding a row lock, per `deletePage`'s and
       `setUserGroups`' transactions below applying the identical rule.
+
+      Marking `status: 'approved'` here is therefore a CLAIM, not yet a fact -- it is what blocks a
+      concurrent reviewer from also entering the finalize branch below, before this call has actually
+      written the page. Everything from here down to the successful `updatePage()` call is obligated to
+      make that claim true or undo it: `revertFailedFinalization()` is the undo, called from the
+      `updatePage()` failure path below (OpenProject #2349) -- without it, a write failure after this
+      point leaves the row permanently `approved` with no write behind it and no retry path, since
+      every other query here (`getReviewableSubmissions`, `getOwnSubmission`, this method's own entry
+      guard and the `for('update')` re-check above) requires `status = 'open'` to act on a row. The
+      `write:pages` check itself runs before this transaction even starts (above), so a forbidden
+      actor never reaches this claim in the first place.
     */
     const decision = await WIKI.db.transaction(async (tx) => {
       const lockedRows = await tx
@@ -1380,13 +1391,30 @@ class Approvals {
     // -> A suggestion approved with no `render` (content-only) is exactly the case `updatePage()`
     //    itself now handles: it consults `ensureCanRender()` before the write and queues the
     //    re-render after, so there is nothing left for this call site to do (OpenProject #1716/#1723).
-    await WIKI.models.pages.updatePage(
-      siteId,
-      page.id,
-      { content, ...(render && { render }) },
-      actor,
-      submitterRenderPermissions
-    )
+    //
+    // -> OpenProject #2349: `updatePage()` runs after the finalizing transaction already committed
+    //    `status: 'approved'` (see that transaction's own comment on why it can't run inside it) --
+    //    if this throws, the submission must not be left stuck `approved` with no write behind it and
+    //    no retry path. `revertFailedFinalization()` undoes the claim before the error propagates, so
+    //    the submission reads back `open` (visible in the reviewer queue again, and to a repeat
+    //    `approveSubmission` call, exactly as if this attempt's votes were the only thing that
+    //    happened) instead of a silent permanent success record for content that never landed.
+    try {
+      await WIKI.models.pages.updatePage(
+        siteId,
+        page.id,
+        { content, ...(render && { render }) },
+        actor,
+        submitterRenderPermissions
+      )
+    } catch (err: any) {
+      await this.revertFailedFinalization(submissionId)
+      WIKI.logger.warn(
+        `Failed to write approved edit suggestion ${submissionId} onto page ${page.id}; ` +
+          `reverted the submission back to open for retry: ${err.message}`
+      )
+      throw err
+    }
     WIKI.logger.debug(`Approved edit suggestion ${submissionId} onto page ${page.id}`)
 
     // -> `skipIfWatching: true` -- the `updatePage()` call above already queued its own generic
@@ -1406,6 +1434,32 @@ class Approvals {
     )
 
     return decision
+  }
+
+  /**
+   * Undo `approveSubmission()`'s tentative `status: 'approved'` when the page write it was supposed
+   * to precede never actually happened -- `updatePage()` throwing (OpenProject #2349).
+   *
+   * The finalizing transaction commits `status: 'approved'` while still holding the row lock, purely
+   * to block a concurrent reviewer from also entering the finalize branch before this call's write has
+   * run -- it is a claim, not yet a fact. Without this compensating update, a write failure left that
+   * claim standing forever: every other query here (`getReviewableSubmissions`, `getOwnSubmission`,
+   * this method's own entry guard, the finalizing transaction's own re-check) only ever acts on
+   * `status = 'open'`, so a submission stuck `approved` with nothing written was both unfixable by a
+   * retry and invisible as broken -- it just read as resolved. The `write:pages` check itself runs
+   * before the finalizing transaction even starts, so a forbidden actor never makes this claim at all
+   * and needs no revert.
+   *
+   * Guarded on `status = 'approved'` in the `WHERE` clause so this only reverts the specific attempt
+   * that just failed: nothing else can move a row out of `'approved'` while it holds that status (the
+   * entry guard above refuses any concurrent call on a non-`'open'` row), so this is a defensive
+   * narrowing rather than a race this function itself needs to resolve.
+   */
+  private async revertFailedFinalization(submissionId: string): Promise<void> {
+    await WIKI.db
+      .update(submissionsTable)
+      .set({ status: 'open', resolvedBy: null, updatedAt: new Date() })
+      .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.status, 'approved')))
   }
 
   /**
