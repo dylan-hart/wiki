@@ -328,14 +328,47 @@ describe('compareAgainstDryRunReports', () => {
     assert.equal(users.status, 'no_report')
   })
 
-  test('sums pages+pageHistory+tags for the content phase, matching PhaseReport.found granularity', () => {
+  test('sums only pages (not pageHistory/tags) plus the site-navigation sentinel for the content phase, matching PhaseReport.found granularity post-Task-13', () => {
+    // -> Task 13's content-staging rewrite folded pageHistory/tags into the `pages` entity and added a
+    //    one-record `site-navigation` sentinel (see verify.ts's ENTITY_OWNING_PHASE and
+    //    PHASE_FOUND_SENTINEL_OFFSET doc comments) — so a real `content` PhaseReport.found is
+    //    `pagesFound + 1`, not `pages + pageHistory + tags`. pageHistory/tags carry large,
+    //    unrelated-scale live counts here specifically to prove they're no longer summed in.
     const results = compareAgainstDryRunReports(
-      { users: 0, groups: 0, pages: 4, pageHistory: 7, tags: 1, assets: 0, navigation: 0 },
-      [report('content', 12)]
+      { users: 0, groups: 0, pages: 4, pageHistory: 700, tags: 100, assets: 0, navigation: 0 },
+      [report('content', 5)]
     )
     const content = results.find((r) => r.phase === 'content')!
-    assert.equal(content.liveFound, 12)
+    assert.equal(content.liveFound, 5)
     assert.equal(content.status, 'match')
+  })
+
+  test('does not report live_not_implemented for the content phase when only pageHistory/tags are stubs, since neither is owned any more', () => {
+    const results = compareAgainstDryRunReports(
+      {
+        users: 0,
+        groups: 0,
+        pages: 4,
+        pageHistory: 'not_implemented',
+        tags: 'not_implemented',
+        assets: 0,
+        navigation: 0
+      },
+      [report('content', 5)]
+    )
+    const content = results.find((r) => r.phase === 'content')!
+    assert.equal(content.liveFound, 5)
+    assert.equal(content.status, 'match')
+  })
+
+  test('flags a real content-phase mismatch even with the sentinel offset applied', () => {
+    const results = compareAgainstDryRunReports(
+      { users: 0, groups: 0, pages: 4, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
+      [report('content', 999)]
+    )
+    const content = results.find((r) => r.phase === 'content')!
+    assert.equal(content.liveFound, 5)
+    assert.equal(content.status, 'mismatch')
   })
 
   test('covers every phase an entity is currently wired to (settings has none)', () => {

@@ -56,18 +56,48 @@ export const VERIFY_ENTITIES = [
 ] as const
 export type VerifyEntity = (typeof VERIFY_ENTITIES)[number]
 
-/** Which current `MigrationPhase` (see `phases/index.ts`) reads a given entity, when any does — this
- * is what lets a live count be cross-checked against a captured dry-run `PhaseReport`. `undefined`
- * means no phase currently owns it (`navigation`: the `settings` phase reads `settings()` only, not
- * `navigation()`, until Task 420 wires it up). */
+/** Which current `MigrationPhase` (see `phases/index.ts`) reads a given entity as its own dedicated,
+ * 1:1-countable `PhaseEntity` — this is what lets a live count be cross-checked against a captured
+ * dry-run `PhaseReport.found`. `undefined` means no phase owns it *this way*, either because nothing
+ * reads it yet or because a phase reads it but cannot report a matching per-record count for it (see
+ * below).
+ *
+ * `pageHistory`/`tags` are `undefined`, not `'content'`: as of Task 13's content-staging rewrite,
+ * `phases/content.ts` no longer gives either one its own entity — both are merged into `StagedPage`
+ * (`content-staging.ts`'s merge-join for history, its denormalized-tags-on-page-rows design for tags),
+ * so there is no separate `readEntity()` count for either any more (`content.ts`'s own doc comment:
+ * "there is no separate raw connector.pageHistory()/connector.tags() read left at the phase level to
+ * report a count for"). Summing `sourceCounts.pageHistory`/`sourceCounts.tags` into `content`'s
+ * `liveFound` would compare a raw per-row connector count against a `PhaseReport.found` that never
+ * counted either of them at all — not an off-by-one, a completely different quantity.
+ *
+ * `navigation` is `undefined` for a related but distinct reason: `phases/content.ts`'s `navigation`
+ * entity *does* read every `connector.navigation()` row now (via `extractNavigation`, Task 741) — this
+ * is no longer "nothing reads it yet" the way it was before Task 13. But that entity is a one-record
+ * sentinel (`{ key: 'site-navigation' }`) whose `classify` drains the real navigation rows internally
+ * and always reports exactly 1 to `readEntity()`'s count, regardless of how many navigation rows the
+ * source actually has (`report.ts`'s own doc comment on this). There is therefore still no 1:1
+ * `VerifyEntity` count to compare against `PhaseReport.found` for it — its constant contribution is
+ * handled separately, via `PHASE_FOUND_SENTINEL_OFFSET` below, not by owning `navigation` here. */
 export const ENTITY_OWNING_PHASE: Record<VerifyEntity, MigrationPhaseId | undefined> = {
   users: 'users',
   groups: 'users',
   pages: 'content',
-  pageHistory: 'content',
-  tags: 'content',
+  pageHistory: undefined,
+  tags: undefined,
   assets: 'assets',
   navigation: undefined
+}
+
+/** Constant amount to add to a phase's summed `ENTITY_OWNING_PHASE`-owned live counts before comparing
+ * against its captured dry-run `PhaseReport.found` — for a phase-level sentinel record that
+ * `readEntity()` counts but that has no corresponding `VerifyEntity` of its own (see
+ * `ENTITY_OWNING_PHASE`'s doc comment on `navigation`). `content` is the one case today: its
+ * `site-navigation` sentinel always contributes exactly 1 to `found`. Without this offset,
+ * `compareAgainstDryRunReports` reports a spurious mismatch on every real content-phase run, purely
+ * from this constant, not a real data problem. */
+const PHASE_FOUND_SENTINEL_OFFSET: Partial<Record<MigrationPhaseId, number>> = {
+  content: 1
 }
 
 /** A source-side count, or `'not_implemented'` when that entity's generator is still a
@@ -249,10 +279,11 @@ export interface PhaseReportComparison {
    * the same phase (should not happen in practice — `runMigration` never runs a phase twice — but
    * summing rather than taking the last is the safer default for a hand-edited or concatenated file). */
   reportFound: number
-  /** Sum of the live source counts for every entity this phase owns (`ENTITY_OWNING_PHASE`), or `null`
-   * if any of them is still `'not_implemented'` — a phase's `PhaseReport.found` is one aggregate
-   * number across all its entities, so a genuine per-entity comparison against it is not possible; this
-   * is the closest apples-to-apples total. */
+  /** Sum of the live source counts for every entity this phase owns (`ENTITY_OWNING_PHASE`), plus that
+   * phase's `PHASE_FOUND_SENTINEL_OFFSET` if any, or `null` if any owned entity is still
+   * `'not_implemented'` — a phase's `PhaseReport.found` is one aggregate number across all its
+   * entities (and sentinels), so a genuine per-entity comparison against it is not possible; this is
+   * the closest apples-to-apples total. */
   liveFound: number | null
   status: PhaseComparisonStatus
 }
@@ -261,8 +292,11 @@ export interface PhaseReportComparison {
  * Cross-checks each phase's live entity totals against what a previously captured dry-run report
  * (`--report-file`, task 744) said it found — task 748's "surfacing any discrepancy against the
  * dry-run report captured before the run". Deliberately phase-level, not entity-level: `PhaseReport`
- * only carries one `found` total per phase (e.g. the `content` phase's `found` is `pages` + `pageHistory`
- * + `tags` combined), so that is the finest grain this comparison can honestly make.
+ * only carries one `found` total per phase (e.g. the `content` phase's `found` is its `pages` entity's
+ * count plus its `site-navigation` sentinel's constant 1 — see `ENTITY_OWNING_PHASE`'s and
+ * `PHASE_FOUND_SENTINEL_OFFSET`'s doc comments — not `pages` + `pageHistory` + `tags`, which is what
+ * this compared before Task 13's content-staging rewrite folded both of those into `pages`), so that is
+ * the finest grain this comparison can honestly make.
  */
 export function compareAgainstDryRunReports(
   sourceCounts: SourceEntityCounts,
@@ -271,14 +305,18 @@ export function compareAgainstDryRunReports(
   const phasesWithEntities = new Set(
     Object.values(ENTITY_OWNING_PHASE).filter((phase): phase is MigrationPhaseId => Boolean(phase))
   )
+  for (const phase of Object.keys(PHASE_FOUND_SENTINEL_OFFSET) as MigrationPhaseId[]) {
+    phasesWithEntities.add(phase)
+  }
 
   return [...phasesWithEntities].map((phase) => {
     const reportsForPhase = dryRunReports.filter((report) => report.phase === phase)
     const ownedEntities = VERIFY_ENTITIES.filter((entity) => ENTITY_OWNING_PHASE[entity] === phase)
     const ownedCounts = ownedEntities.map((entity) => sourceCounts[entity])
+    const sentinelOffset = PHASE_FOUND_SENTINEL_OFFSET[phase] ?? 0
     const liveFound = ownedCounts.some((count) => count === 'not_implemented')
       ? null
-      : (ownedCounts as number[]).reduce((sum, count) => sum + count, 0)
+      : (ownedCounts as number[]).reduce((sum, count) => sum + count, 0) + sentinelOffset
 
     if (reportsForPhase.length === 0) {
       return { phase, reportFound: 0, liveFound, status: 'no_report' }
