@@ -181,8 +181,17 @@ export async function bootstrapMigrationRuntime(instanceId: string): Promise<Wik
   // never made the call. `loadFromDb()` alone (not `ensureSeeded()`) is correct here: the destination
   // is required to already be a real, previously-seeded 3.0 install (`migrate.ts`'s own
   // `getSiteById()` check refuses to proceed otherwise), so there is never a "needs seeding" case for
-  // this CLI to handle.
-  await WIKI.configSvc.loadFromDb()
+  // this CLI to handle. Its boolean return (`false` means the `settings` table was empty) must not be
+  // discarded — same failure `mcp/bootstrap.ts` already guards against for the same call — or
+  // `resolveUsersImportContext()` below would silently resolve `undefined` ids from an empty
+  // `WIKI.config.auth`, which `createUserGroupImporter()` then treats as "unresolvable" and quietly
+  // skips every source-Administrators/-Guests membership rather than erroring.
+  if (!(await WIKI.configSvc.loadFromDb())) {
+    throw new Error(
+      'No settings found in the destination database. The destination must be a previously-booted ' +
+        '3.0 install (run the main Wiki.js server against it at least once) before migrating into it.'
+    )
+  }
 
   return WIKI
 }
@@ -208,13 +217,31 @@ export function resolveUsersImportContext(WIKI: WikiGlobal): {
   systemGroupIds: SystemGroupIds
   operatorActorId: string
 } {
+  const localStrategyId = WIKI.data.systemIds.localAuthId
+  const adminGroupId = WIKI.config.auth?.rootAdminGroupId
+  const guestGroupId = WIKI.data.systemIds.guestsGroupId
+  const operatorActorId = WIKI.config.auth?.rootAdminUserId
+
+  // `WIKI.config.auth` is typed `any` (assembled at runtime from YAML + jsonb — see
+  // `types/global.d.ts`), so a missing/malformed `settings.auth` row would otherwise resolve
+  // `undefined` here silently: `createUserGroupImporter()` treats an unresolved `systemGroupIds.admin`/
+  // `.guest` as "not created" and quietly skips every membership pointing at the source's
+  // Administrators/Guests group, and a `content` phase handed `operatorActorId: undefined` has no
+  // working fallback author. `bootstrapMigrationRuntime()`'s own `loadFromDb()` check already refuses
+  // an empty `settings` table; this is the belt for a *present-but-malformed* one.
+  if (!localStrategyId || !adminGroupId || !guestGroupId || !operatorActorId) {
+    throw new Error(
+      'Could not resolve one or more of localStrategyId/systemGroupIds/operatorActorId from the ' +
+        'destination: base.yml systemIds or the settings.auth row is missing/malformed ' +
+        `(localStrategyId=${String(localStrategyId)}, adminGroupId=${String(adminGroupId)}, ` +
+        `guestGroupId=${String(guestGroupId)}, operatorActorId=${String(operatorActorId)}).`
+    )
+  }
+
   return {
-    localStrategyId: WIKI.data.systemIds.localAuthId,
-    systemGroupIds: {
-      admin: WIKI.config.auth.rootAdminGroupId,
-      guest: WIKI.data.systemIds.guestsGroupId
-    },
-    operatorActorId: WIKI.config.auth.rootAdminUserId
+    localStrategyId,
+    systemGroupIds: { admin: adminGroupId, guest: guestGroupId },
+    operatorActorId
   }
 }
 

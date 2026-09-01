@@ -49,6 +49,39 @@ function workingConnector(counts: Partial<Record<keyof SourceConnector, number>>
   } as SourceConnector
 }
 
+/** A `usersPhase` connector whose records genuinely convert and would be created — unlike
+ * `workingConnector`'s bare `{id: i}` fixtures, which never carry a `name`/`providerKey` and so are
+ * always `skipped`/`flagged` before reaching a writer call. Used (with `dryRun: true`, so
+ * `createDryRunWriter()` is the writer in play — see `phases/users.ts`) to exercise real per-record
+ * `'created'` outcomes, including write-capability signaling, with no real `WIKI`/db needed. */
+function creatableUsersGroupsConnector(): SourceConnector {
+  async function* groups(): AsyncGenerator<SourceRecord> {
+    yield { id: 1, name: 'Editors', isSystem: false, permissions: [], pageRules: [] }
+  }
+  async function* users(): AsyncGenerator<SourceRecord> {
+    yield {
+      id: 10,
+      email: 'alice@example.com',
+      name: 'Alice',
+      providerKey: 'local',
+      password: '$2a$12$fakehash',
+      isActive: true,
+      isVerified: true,
+      groups: [{ id: 1, name: 'Editors' }]
+    }
+    yield {
+      id: 11,
+      email: 'bob@example.com',
+      name: 'Bob',
+      providerKey: 'github',
+      isActive: true,
+      isVerified: true,
+      groups: []
+    }
+  }
+  return { ...stubConnector(), groups, users }
+}
+
 function contextWith(source: SourceConnector): MigrationContext {
   return {
     db: {} as any,
@@ -83,20 +116,29 @@ describe('migration phases', () => {
     assert.equal(result.phase, 'settings')
   })
 
-  test('usersPhase (Task 14: real write path) counts records from a working connector and reports ok', async () => {
-    const result = await usersPhase.run(contextWith(workingConnector({ users: 3, groups: 2 })))
+  test('usersPhase (Task 14): a working connector with genuinely creatable groups/users/userGroups reports ok', async () => {
+    const result = await usersPhase.run({
+      ...contextWith(creatableUsersGroupsConnector()),
+      dryRun: true
+    })
     assert.equal(result.status, 'ok')
-    // -> userGroups derives from a second read of `users()`; these bare `{id: i}` fixture records
-    //    carry no embedded `groups` array, so it resolves with zero pairs rather than failing.
-    assert.deepEqual(result.counts, { users: 3, groups: 2, userGroups: 0 })
+    assert.deepEqual(result.counts, { groups: 1, users: 2, userGroups: 1 })
     assert.equal(result.notImplemented, undefined)
   })
 
-  test('usersPhase is not_implemented only for the entity whose connector generator is still a stub — users/userGroups have a real write path now (Task 14)', async () => {
+  test('usersPhase: bare records with no name/providerKey never reach a real create, so a run producing none stays not_implemented even once every entity generator works (Task 14 review fix)', async () => {
+    // -> Before the review fix, `phases/users.ts` counted every record `recorder.create()` was
+    //    handed as a create regardless of the importer's real per-record outcome, so this run's
+    //    bare `{id: i}` fixtures (no `name`/`providerKey`, so every one is `skipped`/`flagged`, never
+    //    `created`) looked exactly like a phase with real write capability. Corrected, zero records
+    //    are genuinely created here, so `define-phase.ts`'s write-capability tracking (a per-run
+    //    signal, not a structural one — see `phases/users.ts`'s own doc on this) folds `users` and
+    //    `userGroups` in alongside `groups`, which is `not_implemented` anyway (its connector
+    //    generator is still a stub in this fixture).
     const result = await usersPhase.run(contextWith(workingConnector({ users: 5 })))
     assert.equal(result.status, 'not_implemented')
     assert.deepEqual(result.counts, { users: 5, userGroups: 0 })
-    assert.deepEqual(result.notImplemented, ['groups'])
+    assert.deepEqual(result.notImplemented, ['groups', 'users', 'userGroups'])
   })
 
   test('contentPhase counts pages, pageHistory and tags, but reports not_implemented — no phase has a write path yet', async () => {
@@ -131,26 +173,68 @@ describe('migration phases', () => {
   })
 
   test('report.found equals wouldCreate + unmappable.length when nothing is skipped/conflicting', async () => {
-    const result = await usersPhase.run(contextWith(workingConnector({ users: 3, groups: 2 })))
+    const result = await usersPhase.run({
+      ...contextWith(creatableUsersGroupsConnector()),
+      dryRun: true
+    })
     assert.ok(result.report)
-    assert.equal(result.report!.found, 5)
-    assert.equal(result.report!.wouldCreate, 5)
+    assert.equal(result.report!.found, 4)
+    assert.equal(result.report!.wouldCreate, 4)
     assert.equal(result.report!.wouldSkipExisting, 0)
     assert.deepEqual(result.report!.conflicts, [])
     assert.deepEqual(result.report!.unmappable, [])
   })
 
-  test('usersPhase classifies an unsupported auth provider as unmappable, not wouldCreate', async () => {
+  test('usersPhase classifies an unsupported auth provider as unmappable; a flagged record is not counted as wouldCreate either (Task 14 review fix)', async () => {
     async function* users(): AsyncGenerator<SourceRecord> {
+      // Alice: a local-provider user with no password hash to carry over -- `createLocalUserConverter`
+      // (`user-converters.ts`) flags rather than creates her. Before the review fix, `phases/users.ts`
+      // counted her as `wouldCreate` regardless (every `recorder.create()` call it made counted
+      // unconditionally, since the importer's real per-record outcome was discarded) -- this is the
+      // exact case the fix corrects.
       yield { id: 1, email: 'alice@example.com', providerKey: 'local' }
       yield { id: 2, email: 'bob@example.com', providerKey: 'azure' }
     }
     const connector = { ...stubConnector(), users, groups: () => recordsOf(0) }
     const result = await usersPhase.run(contextWith(connector))
+    // -> Neither Alice (flagged) nor Bob (unmappable) is ever created, so this particular run has no
+    //    genuine write-capability signal to give `define-phase.ts` -- see the `bare records...` test
+    //    above for the same, pre-existing, per-run (not structural) heuristic.
+    assert.equal(result.status, 'not_implemented')
+    assert.ok(result.report)
+    assert.equal(result.report!.found, 2)
+    assert.equal(result.report!.wouldCreate, 0)
+    assert.equal(result.report!.wouldSkipExisting, 1)
+    assert.deepEqual(result.report!.unmappable, [
+      {
+        identifier: 'bob@example.com',
+        reason: 'unsupported-auth-provider',
+        detail:
+          'providerKey "azure" has no matching 3.0 authentication module (confirmed no-destination — see docs/migration/2.5x-settings-auth-storage-field-mapping.md\'s Part 2 provider inventory).'
+      }
+    ])
+  })
+
+  test('usersPhase: a genuinely created record alongside an unmappable one both count correctly, and the phase reports ok', async () => {
+    async function* users(): AsyncGenerator<SourceRecord> {
+      yield {
+        id: 1,
+        email: 'alice@example.com',
+        name: 'Alice',
+        providerKey: 'local',
+        password: '$2a$12$fakehash',
+        isActive: true,
+        isVerified: true,
+        groups: []
+      }
+      yield { id: 2, email: 'bob@example.com', providerKey: 'azure' }
+    }
+    const connector = { ...stubConnector(), users, groups: () => recordsOf(0) }
+    const result = await usersPhase.run({ ...contextWith(connector), dryRun: true })
     assert.equal(result.status, 'ok')
     assert.ok(result.report)
     assert.equal(result.report!.found, 2)
-    assert.equal(result.report!.wouldCreate, 1)
+    assert.equal(result.report!.wouldCreate, 1) // -> Alice only; Bob is unmappable, never wouldCreate
     assert.deepEqual(result.report!.unmappable, [
       {
         identifier: 'bob@example.com',

@@ -446,8 +446,11 @@ function readSourceString(source: SourceRecord, column: string): string | undefi
  * instead hand back an ISO string. Either is accepted; anything else (missing column, `null`,
  * malformed string) degrades to `undefined` — the same "let the target column default rather than
  * fail the whole record" tolerance `page-import.ts`'s `normalizeStagedDate` gives a malformed staged
- * date — so one bad timestamp on one source row never blocks that user's import. */
-function readSourceDate(source: SourceRecord, column: string): Date | undefined {
+ * date — so one bad timestamp on one source row never blocks that user's import. Exported (not just
+ * used within this module) so `./user-converters.ts`'s `createLocalUserConverter` — the other real
+ * `UserConverter` in this engine, Task 14 — shares this exact tolerance rather than a second, drifting
+ * copy of it. */
+export function readSourceDate(source: SourceRecord, column: string): Date | undefined {
   const raw = source[column]
   if (raw instanceof Date) {
     return Number.isNaN(raw.getTime()) ? undefined : raw
@@ -709,7 +712,11 @@ function readSourceId(source: SourceRecord, column: string): number | undefined 
  * every `importOne()` call mutates — not snapshots — so a caller reading them after several calls
  * sees every group processed so far. */
 export interface GroupImporter {
-  importOne(source: SourceRecord): Promise<void>
+  /** Imports one source record, returning the exact `RecordStatus` it recorded onto `summary` for
+   * this record (Task 14 fix: a caller driving `importOne()` directly — `phases/users.ts` — needs
+   * this to route its own `WriteRecorder` call correctly; `importOne()` itself never throws for a
+   * bad/conflicting record, so the return value, not a caught exception, is the only signal). */
+  importOne(source: SourceRecord): Promise<RecordStatus>
   readonly summary: EntityImportSummary
   readonly idMap: Map<number, string>
 }
@@ -724,7 +731,7 @@ export function createGroupImporter(
   const summary = emptySummary()
   const idMap = new Map<number, string>()
 
-  async function importOne(sourceRecord: SourceRecord): Promise<void> {
+  async function importOne(sourceRecord: SourceRecord): Promise<RecordStatus> {
     const sourceId = readSourceId(sourceRecord, 'id')
     if (sourceId === undefined) {
       record(summary, {
@@ -732,7 +739,7 @@ export function createGroupImporter(
         status: 'skipped',
         message: 'missing or non-integer source id'
       })
-      return
+      return 'skipped'
     }
 
     if (isSystemSourceRecord(sourceRecord)) {
@@ -742,21 +749,23 @@ export function createGroupImporter(
         message:
           "system group (Administrators/Guests) -- an equivalent is already seeded by this install's own Groups.init(); not imported"
       })
-      return
+      return 'skipped'
     }
 
     const outcome = await convert(sourceRecord)
     if (outcome.status !== 'created') {
       record(summary, { sourceId, status: outcome.status, message: outcome.message })
-      return
+      return outcome.status
     }
 
     try {
       const { id: targetId } = await writer.insertGroup(outcome.row)
       idMap.set(sourceId, targetId)
       record(summary, { sourceId, targetId, status: 'created', message: outcome.message })
+      return 'created'
     } catch (err: any) {
       record(summary, { sourceId, status: 'conflicted', message: err.message })
+      return 'conflicted'
     }
   }
 
@@ -768,7 +777,9 @@ export function createGroupImporter(
  * live reference as `summary`/`idMap`: `createProviderFallbackUserConverter()`-produced accounts
  * accumulate onto it across every `importOne()` call. */
 export interface UserImporter {
-  importOne(source: SourceRecord): Promise<void>
+  /** See `GroupImporter#importOne`'s doc — same Task 14 contract: returns the `RecordStatus` it just
+   * recorded onto `summary`. */
+  importOne(source: SourceRecord): Promise<RecordStatus>
   readonly summary: EntityImportSummary
   readonly idMap: Map<number, string>
   readonly providerFallbacks: ProviderFallbackFlag[]
@@ -785,7 +796,7 @@ export function createUserImporter(
   const idMap = new Map<number, string>()
   const providerFallbacks: ProviderFallbackFlag[] = []
 
-  async function importOne(sourceRecord: SourceRecord): Promise<void> {
+  async function importOne(sourceRecord: SourceRecord): Promise<RecordStatus> {
     const sourceId = readSourceId(sourceRecord, 'id')
     if (sourceId === undefined) {
       record(summary, {
@@ -793,7 +804,7 @@ export function createUserImporter(
         status: 'skipped',
         message: 'missing or non-integer source id'
       })
-      return
+      return 'skipped'
     }
 
     if (isSystemSourceRecord(sourceRecord)) {
@@ -803,13 +814,13 @@ export function createUserImporter(
         message:
           "system user (Administrator/Guest) -- an equivalent is already seeded by this install's own Users.init(); not imported"
       })
-      return
+      return 'skipped'
     }
 
     const outcome = await convert(sourceRecord)
     if (outcome.status !== 'created') {
       record(summary, { sourceId, status: outcome.status, message: outcome.message })
-      return
+      return outcome.status
     }
 
     try {
@@ -819,8 +830,10 @@ export function createUserImporter(
       if (outcome.providerFallback) {
         providerFallbacks.push(outcome.providerFallback)
       }
+      return 'created'
     } catch (err: any) {
       record(summary, { sourceId, status: 'conflicted', message: err.message })
+      return 'conflicted'
     }
   }
 
@@ -832,7 +845,9 @@ export function createUserImporter(
  * loop. No field-mapping stub is needed here (see the module doc): once both ids resolve, there is
  * nothing left to convert. */
 export interface UserGroupImporter {
-  importOne(source: SourceRecord): Promise<void>
+  /** See `GroupImporter#importOne`'s doc — same Task 14 contract: returns the `RecordStatus` it just
+   * recorded onto `summary`. */
+  importOne(source: SourceRecord): Promise<RecordStatus>
   readonly summary: EntityImportSummary
 }
 
@@ -857,7 +872,7 @@ export function createUserGroupImporter(
 ): UserGroupImporter {
   const summary = emptySummary()
 
-  async function importOne(sourceRecord: SourceRecord): Promise<void> {
+  async function importOne(sourceRecord: SourceRecord): Promise<RecordStatus> {
     const sourceUserId = readSourceId(sourceRecord, 'userId')
     const sourceGroupId = readSourceId(sourceRecord, 'groupId')
     const label = `${sourceRecord.userId ?? '?'}:${sourceRecord.groupId ?? '?'}`
@@ -868,7 +883,7 @@ export function createUserGroupImporter(
         status: 'skipped',
         message: 'missing or non-integer userId/groupId'
       })
-      return
+      return 'skipped'
     }
 
     const targetUserId = userIdMap.get(sourceUserId)
@@ -893,7 +908,7 @@ export function createUserGroupImporter(
         status: 'skipped',
         message: `referenced ${missing} was not created, so this membership was not written`
       })
-      return
+      return 'skipped'
     }
 
     try {
@@ -910,12 +925,14 @@ export function createUserGroupImporter(
           ? `remapped from the source's system group ${sourceGroupId} onto this install's real system group, since the source row itself was not imported`
           : undefined
       })
+      return 'created'
     } catch (err: any) {
       record(summary, {
         sourceId: `${sourceUserId}:${sourceGroupId}`,
         status: 'conflicted',
         message: err.message
       })
+      return 'conflicted'
     }
   }
 

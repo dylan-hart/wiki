@@ -1,4 +1,5 @@
 import { coerceSourceBoolean } from '../source-coercion.ts'
+import { readSourceDate } from './users-groups.ts'
 import type { SourceRecord } from '../connector.ts'
 import type { NewUserRow, UserConverter } from './users-groups.ts'
 
@@ -17,27 +18,12 @@ import type { NewUserRow, UserConverter } from './users-groups.ts'
  * export-bundle connector represents 2.x's boolean columns as JSON `0`/`1` on engines whose knex/
  * Objection layer does that (MySQL/MariaDB/SQLite — see `source-coercion.ts`'s header, OpenProject
  * #1845/#1850), and a bare `=== true` would silently treat every such row as `false`. Timestamp
- * columns go through the same "real `Date` or an ISO string, else `undefined`" tolerance
- * `createProviderFallbackUserConverter`'s `readSourceDate` gives, for the same reason.
+ * columns go through `users-groups.ts`'s own exported `readSourceDate()` — the same "real `Date` or an
+ * ISO string, else `undefined`" tolerance `createProviderFallbackUserConverter` uses, shared rather
+ * than duplicated.
  */
 export interface LocalUserConverterOptions {
   localStrategyId: string
-}
-
-/** Reads a timestamp column off a source record — same tolerance as
- * `users-groups.ts`'s (private) `readSourceDate`: a live `PostgresSourceConnector` hands back a real
- * `Date`, an export-bundle/JSON-backed connector may hand back an ISO string instead. Anything else
- * degrades to `undefined` rather than failing the whole record. */
-function readDate(source: SourceRecord, column: string): Date | undefined {
-  const raw = source[column]
-  if (raw instanceof Date) {
-    return Number.isNaN(raw.getTime()) ? undefined : raw
-  }
-  if (typeof raw === 'string' && raw.length > 0) {
-    const millis = Date.parse(raw)
-    return Number.isNaN(millis) ? undefined : new Date(millis)
-  }
-  return undefined
 }
 
 export function createLocalUserConverter(options: LocalUserConverterOptions): UserConverter {
@@ -73,6 +59,13 @@ export function createLocalUserConverter(options: LocalUserConverterOptions): Us
       },
       isSystem: false,
       isActive: coerceSourceBoolean(source.isActive) ?? false,
+      // -> Defaults to `false`, not `true` (unlike `createProviderFallbackUserConverter`'s own
+      //    `isVerified` default): for a `local`-provider account this column genuinely tracks whether
+      //    2.x's own email-verification flow was completed, so a missing/malformed value is treated
+      //    conservatively as "not verified" rather than assumed. The fallback converter's `true`
+      //    default reflects a different case entirely -- an account whose provider (github/ldap/...)
+      //    already authenticated the email externally, so 2.x's local-only verification concept does
+      //    not really apply to it.
       isVerified: coerceSourceBoolean(source.isVerified) ?? false,
       meta: {
         location: typeof source.location === 'string' ? source.location : '',
@@ -86,9 +79,9 @@ export function createLocalUserConverter(options: LocalUserConverterOptions): Us
         appearance: typeof source.appearance === 'string' ? source.appearance : 'site',
         cvd: 'none'
       },
-      createdAt: readDate(source, 'createdAt'),
-      updatedAt: readDate(source, 'updatedAt'),
-      lastLoginAt: readDate(source, 'lastLoginAt')
+      createdAt: readSourceDate(source, 'createdAt'),
+      updatedAt: readSourceDate(source, 'updatedAt'),
+      lastLoginAt: readSourceDate(source, 'lastLoginAt')
     }
 
     return { status: 'created', row }

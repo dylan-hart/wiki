@@ -7,6 +7,7 @@ import {
   createGroupImporter,
   createProviderFallbackUserConverter,
   createUserGroupImporter,
+  createUserImporter,
   deriveUserGroupsFromEmbeddedGroups,
   importUsersAndGroups,
   needsProviderFallback,
@@ -944,6 +945,68 @@ describe('createGroupImporter / createUserGroupImporter (Task 12 extraction)', (
 
     assert.equal(importer.summary.created, 1)
     assert.equal(importer.summary.records[0].targetId, 'target-group-uuid')
+  })
+})
+
+/**
+ * Coverage for the Task 14 review fix: `createGroupImporter`/`createUserImporter`/
+ * `createUserGroupImporter`'s `importOne()` now RETURNS the exact `RecordStatus` it recorded onto
+ * `summary`, rather than discarding it (`Promise<void>` -> `Promise<RecordStatus>`) — this is what
+ * lets a caller driving `importOne()` directly (`phases/users.ts`) route its own `WriteRecorder` call
+ * to match the real per-record outcome, instead of unconditionally treating every processed record as
+ * a create.
+ */
+describe('importOne() return value (Task 14 review fix)', () => {
+  test("createGroupImporter's importOne() returns 'created' for a real conversion", async () => {
+    const importer = createGroupImporter(passthroughConvertGroup, createDryRunWriter())
+    assert.equal(await importer.importOne({ id: 1, name: 'Editors' }), 'created')
+  })
+
+  test("createGroupImporter's importOne() returns 'skipped' for a system row, without calling convert", async () => {
+    const importer = createGroupImporter(passthroughConvertGroup, createDryRunWriter())
+    assert.equal(
+      await importer.importOne({ id: 1, name: 'Administrators', isSystem: true }),
+      'skipped'
+    )
+  })
+
+  test("createGroupImporter's importOne() returns the converter's own status for a non-created outcome", async () => {
+    const importer = createGroupImporter(stubConvertGroup, createDryRunWriter())
+    assert.equal(await importer.importOne({ id: 1, name: 'Editors' }), 'flagged')
+  })
+
+  test("createGroupImporter's importOne() returns 'conflicted' when the writer throws", async () => {
+    const writer: UsersGroupsWriter = {
+      async insertGroup() {
+        throw new Error('duplicate key value violates unique constraint')
+      },
+      async insertUser() {
+        return { id: crypto.randomUUID() }
+      },
+      async insertUserGroup() {},
+      async assignUserToSystemGroup() {}
+    }
+    const importer = createGroupImporter(passthroughConvertGroup, writer)
+    assert.equal(await importer.importOne({ id: 1, name: 'Editors' }), 'conflicted')
+  })
+
+  test("createUserImporter's importOne() returns 'created' for a real conversion", async () => {
+    const importer = createUserImporter(passthroughConvertUser, createDryRunWriter())
+    assert.equal(await importer.importOne({ id: 10, email: 'a@example.com', name: 'A' }), 'created')
+  })
+
+  test("createUserImporter's importOne() returns 'flagged' for the default stub converter", async () => {
+    const importer = createUserImporter(stubConvertUser, createDryRunWriter())
+    assert.equal(await importer.importOne({ id: 10, email: 'a@example.com', name: 'A' }), 'flagged')
+  })
+
+  test("createUserGroupImporter's importOne() returns 'created' when both ids resolve, 'skipped' when one doesn't", async () => {
+    const userIdMap = new Map<number, string>([[10, 'target-user-uuid']])
+    const groupIdMap = new Map<number, string>([[1, 'target-group-uuid']])
+    const importer = createUserGroupImporter(userIdMap, groupIdMap, createDryRunWriter())
+
+    assert.equal(await importer.importOne({ id: 100, userId: 10, groupId: 1 }), 'created')
+    assert.equal(await importer.importOne({ id: 101, userId: 10, groupId: 999 }), 'skipped')
   })
 })
 
