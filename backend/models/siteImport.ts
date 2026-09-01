@@ -43,11 +43,13 @@ export interface UnresolvedRuleSite {
  * Each table below gets its own chunk size, `floor(MAX_BIND_PARAMETERS / boundColumnCount)`: `pages`
  * (`db/schema.ts`) declares 37 columns and `stripDerived` (`models/export.ts`) drops exactly three
  * (`ts`, `isSearchableComputed`, `searchContent`) before a row ever reaches export/import, leaving 34
- * bound per row. `tree` and `assets` each declare 14.
+ * bound per row. `tree`, `assets` and `pageHistory` each declare 14. `navigation` declares 5.
  */
 const MAX_BIND_PARAMETERS = 65535
 const PAGE_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 34)
 const TREE_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 14)
+const PAGE_HISTORY_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 14)
+const NAVIGATION_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 5)
 /**
  * Assets get a chunk size far smaller than their column count alone would call for: unlike pages and
  * tree rows, each asset row also carries the full `data`/`preview` bytea buffers as bind parameter
@@ -595,7 +597,7 @@ class ImportModel {
         }
 
         // -> Chunked under the bind-parameter limit (see the constants above) rather than one
-        //    `.values(array)` call per table -- all four loops still run inside this same
+        //    `.values(array)` call per table -- all five loops still run inside this same
         //    transaction, so a mid-import failure on any chunk rolls back everything, not just the
         //    chunk it was on.
         for (const batch of chunk(mappedPageRows, PAGE_INSERT_CHUNK_SIZE)) {
@@ -603,9 +605,10 @@ class ImportModel {
         }
 
         // -> Navigation before tree: a tree row's `navigationId` (a per-entry override) is a foreign
-        //    key into `navigation.id`, so the referenced row has to exist first.
-        if (mappedNavigationRows.length > 0) {
-          await tx.insert(navigationTable).values(mappedNavigationRows as any)
+        //    key into `navigation.id`, so the referenced row has to exist first. Chunking still
+        //    finishes the whole navigation loop before the tree loop begins, so this ordering holds.
+        for (const batch of chunk(mappedNavigationRows, NAVIGATION_INSERT_CHUNK_SIZE)) {
+          await tx.insert(navigationTable).values(batch as any)
         }
 
         for (const batch of chunk(mappedTreeRows, TREE_INSERT_CHUNK_SIZE)) {
@@ -616,8 +619,8 @@ class ImportModel {
           await tx.insert(assetsTable).values(batch as any)
         }
 
-        if (mappedPageHistoryRows.length > 0) {
-          await tx.insert(pageHistoryTable).values(mappedPageHistoryRows as any)
+        for (const batch of chunk(mappedPageHistoryRows, PAGE_HISTORY_INSERT_CHUNK_SIZE)) {
+          await tx.insert(pageHistoryTable).values(batch as any)
         }
       })
 
