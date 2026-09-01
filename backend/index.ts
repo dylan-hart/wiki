@@ -4,7 +4,7 @@
 // ===========================================
 
 import { randomUUID } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import semver from 'semver'
 import { customAlphabet } from 'nanoid'
@@ -58,6 +58,7 @@ import {
 import { buildErrorLogContext } from './helpers/requestLogContext.ts'
 import {
   corsOptions,
+  inlineScriptHashSources,
   parseCspDirectives,
   sessionCookieName,
   shouldBlockCrossOriginApiRequest
@@ -474,11 +475,38 @@ async function initHTTPServer() {
   //    change takes effect on the next restart — the view says as much.
   const security = WIKI.config.security
 
+  /*
+    The app shell (`assets/index.html`, served by `helpers/appShell.ts`) always ships two inline
+    `<script>` blocks with no `src` -- the Temporal-polyfill feature-detect check and
+    `temporalPolyfillChunkPlugin`'s substituted chunk-url assignment (see both files' own comments) --
+    which a `script-src 'self'` policy with no `'unsafe-inline'` (`base.yml`'s own shipped
+    `cspDirectives` default) refuses outright. `inlineScriptHashSources` turns their exact, built
+    content into the hash sources that let them through without loosening the policy for anything
+    else. Read once here rather than per-request, matching every other setting in this registration:
+    the app shell is a build artifact, so a rebuilt frontend needs the same restart a changed
+    `cspDirectives` value already does. Missing entirely (no `npm run build` yet, e.g. a fresh dev
+    checkout) just means no hash sources -- CSP still registers, the app shell's own inline scripts
+    are the only thing that would trip it.
+  */
+  const cspDirectives =
+    security.enforceCsp && security.cspDirectives
+      ? parseCspDirectives(security.cspDirectives)
+      : null
+  if (cspDirectives?.['script-src']) {
+    const cspAppShellPath = path.join(WIKI.ROOTPATH, 'assets/index.html')
+    if (existsSync(cspAppShellPath)) {
+      const appShellHtml = readFileSync(cspAppShellPath, 'utf8')
+      cspDirectives['script-src'] = [
+        ...cspDirectives['script-src'],
+        ...inlineScriptHashSources(appShellHtml)
+      ]
+    }
+  }
+
   app.register(fastifyHelmet, {
-    contentSecurityPolicy:
-      security.enforceCsp && security.cspDirectives
-        ? { directives: parseCspDirectives(security.cspDirectives), useDefaults: false }
-        : false,
+    contentSecurityPolicy: cspDirectives
+      ? { directives: cspDirectives, useDefaults: false }
+      : false,
     strictTransportSecurity:
       security.enforceHsts && security.hstsDuration > 0
         ? {
