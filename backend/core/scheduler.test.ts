@@ -10,6 +10,7 @@ import {
 } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { ensureTemporal } from '../test/temporal.ts'
+import { getJobExecutionContext } from '../helpers/jobExecutionContext.ts'
 
 let scheduler: any
 
@@ -796,6 +797,49 @@ describe('executeInProcess (fake WIKI)', () => {
     await assert.doesNotReject(
       scheduler.executeInProcess({ task: 'quick', payload: {}, id: 'job-2' })
     )
+  })
+
+  /**
+   * OpenProject #2351: `executeInProcess` must make the claim's attempt number available to the
+   * task via `helpers/jobExecutionContext.ts`, and a stale task's continuation -- still running
+   * after the timeout has already abandoned it -- must keep seeing the attempt it actually started
+   * under, not whatever a later reclaim of the same job id has since bumped it to.
+   */
+  test('the task runs with a job execution context carrying the claim id and attempt', async () => {
+    let seen: ReturnType<typeof getJobExecutionContext>
+    scheduler.tasks = {
+      readsContext: async () => {
+        seen = getJobExecutionContext()
+      }
+    }
+    await scheduler.executeInProcess({ task: 'readsContext', payload: {}, id: 'job-3', retries: 2 })
+    assert.deepEqual(seen, { jobId: 'job-3', attempt: 3 })
+  })
+
+  test('a stale task abandoned at the ceiling keeps its own captured attempt in its background continuation', async () => {
+    let seenByStaleContinuation: ReturnType<typeof getJobExecutionContext>
+    scheduler.tasks = {
+      // -> Resolves well after the ~50ms taskTimeout ceiling has already rejected the race below.
+      staleTask: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 150))
+        seenByStaleContinuation = getJobExecutionContext()
+      }
+    }
+
+    await assert.rejects(
+      scheduler.executeInProcess({ task: 'staleTask', payload: {}, id: 'job-4', retries: 0 }),
+      /did not complete within/
+    )
+
+    // -> Simulates the real scenario: the same job id gets reclaimed and completes its own, later
+    //    attempt while the stale continuation above is still running in the background.
+    scheduler.tasks.quickTask = async () => {}
+    await scheduler.executeInProcess({ task: 'quickTask', payload: {}, id: 'job-4', retries: 1 })
+
+    // -> Give the stale continuation time to resume and read the context back.
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    assert.deepEqual(seenByStaleContinuation, { jobId: 'job-4', attempt: 1 })
   })
 })
 

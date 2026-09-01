@@ -7,6 +7,7 @@ import { CronExpressionParser } from 'cron-parser'
 import crypto from 'node:crypto'
 import { createDeferred, type Deferred } from '../helpers/common.ts'
 import { connectListener, createNotifier, type ListenerHandle } from '../helpers/pubsub.ts'
+import { runWithJobExecutionContext } from '../helpers/jobExecutionContext.ts'
 import { camelCase } from 'es-toolkit/string'
 import { remove } from 'es-toolkit/array'
 import {
@@ -522,13 +523,28 @@ export default {
    * claiming new jobs at all. Racing the call against a timer here is what makes that finite: the job
    * is recorded failed and retried with the usual backoff, exactly as a thrown task already is,
    * `models/rendering.ts#drainQueue`'s `withRenderTimeout` is the in-repo precedent for this shape.
+   *
+   * The task itself runs inside `runWithJobExecutionContext()` (OpenProject #2351): since it cannot
+   * actually be cancelled, a task that calls `WIKI.models.jobs.setResult(jobId, ...)` after this
+   * ceiling has already given up on it does so from a "stale" continuation that outlives this call.
+   * The context carries the attempt number this specific claim is running as, so that late write can
+   * be fenced against a later retry's result -- see `helpers/jobExecutionContext.ts` for the full
+   * reasoning.
    */
-  async executeInProcess(job: { task: string; payload?: any; id?: string }): Promise<void> {
+  async executeInProcess(job: {
+    task: string
+    payload?: any
+    id?: string
+    retries?: number
+  }): Promise<void> {
     const timeoutMs = (WIKI.config.scheduler.taskTimeout ?? DEFAULT_TASK_TIMEOUT) * 1000
     let timer: NodeJS.Timeout | undefined
+    const runTask = () => this.tasks![job.task](job.payload, job.id)
     try {
       await Promise.race([
-        this.tasks![job.task](job.payload, job.id),
+        job.id
+          ? runWithJobExecutionContext({ jobId: job.id, attempt: (job.retries ?? 0) + 1 }, runTask)
+          : runTask(),
         new Promise<never>((_resolve, reject) => {
           timer = setTimeout(() => {
             reject(
