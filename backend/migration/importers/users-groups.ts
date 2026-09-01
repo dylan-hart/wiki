@@ -641,6 +641,34 @@ export function createDryRunWriter(): UsersGroupsWriter {
 }
 
 // ---------------------------------------------------------------------------
+// userGroups derivation (Task 14) — `PostgresSourceConnector.users()` (Task 8) denormalizes group
+// membership onto each user row as `groups: [{id, name}]` rather than exposing a separate
+// `userGroups()` generator (`SourceConnector` has none — see `connector.ts`'s own `users()` doc).
+// `deriveUserGroupsFromEmbeddedGroups()` re-expands that embedded shape into the flat
+// `{userId, groupId}` records `createUserGroupImporter()` consumes, so `phases/users.ts`'s
+// `userGroups` entity can read the same `users()` iterable a second time (a fresh call — each
+// connector call re-issues its own query, Task 8) and drive the join-table importer without either
+// connector kind ever needing its own `userGroups()` method.
+// ---------------------------------------------------------------------------
+
+/** Re-expands each user row's embedded `groups: [{id, name}]` array (`PostgresSourceConnector.users()`,
+ * Task 8) into one `{userId, groupId}` record per membership, in source order. A user with no
+ * memberships (`groups: []`) yields nothing for that user. */
+export async function* deriveUserGroupsFromEmbeddedGroups(
+  users: AsyncIterable<SourceRecord>
+): AsyncGenerator<SourceRecord> {
+  for await (const user of users) {
+    const userId = user.id
+    const groups = Array.isArray(user.groups) ? user.groups : []
+    for (const group of groups) {
+      if (group && typeof group === 'object' && 'id' in group) {
+        yield { userId, groupId: (group as { id: unknown }).id }
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Orchestration.
 // ---------------------------------------------------------------------------
 

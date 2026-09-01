@@ -18,7 +18,11 @@
  */
 
 import fs from 'node:fs/promises'
-import { bootstrapMigrationRuntime, buildSourceConnector } from '../migration/bootstrap.ts'
+import {
+  bootstrapMigrationRuntime,
+  buildSourceConnector,
+  resolveUsersImportContext
+} from '../migration/bootstrap.ts'
 import { parseMigrationArgs } from '../migration/cli.ts'
 import { MIGRATION_PHASES } from '../migration/phases/index.ts'
 import { runMigration } from '../migration/orchestrator.ts'
@@ -75,7 +79,8 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
       source,
       siteId: args.siteId,
       dryRun: args.dryRun,
-      log: (message) => WIKI.logger.info(message)
+      log: (message) => WIKI.logger.info(message),
+      ...resolveUsersImportContext(WIKI)
     }
 
     const results = await runMigration(MIGRATION_PHASES, ctx, { only: args.only })

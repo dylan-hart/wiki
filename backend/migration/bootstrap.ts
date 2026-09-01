@@ -20,6 +20,7 @@ import { ExportBundleSourceConnector } from './connectors/export-bundle.ts'
 import { PostgresSourceConnector } from './connectors/postgres.ts'
 import type { ParsedSource } from './source-args.ts'
 import type { SourceConnector } from './connector.ts'
+import type { SystemGroupIds } from './importers/users-groups.ts'
 
 /**
  * Only the models an import/verify phase actually reads/writes through, never the full 27-model
@@ -172,7 +173,49 @@ export async function bootstrapMigrationRuntime(instanceId: string): Promise<Wik
   WIKI.events = createEventsStub()
   WIKI.cache = createCacheStub()
 
+  // The `users` phase (Task 14) needs `WIKI.config.auth.rootAdminGroupId`/`rootAdminUserId` —
+  // real, per-install ids `Settings.init()` persisted to the `settings` table at seed time, not
+  // anything `configSvc.init()` above (config.yml + base.yml only) ever populates. `index.ts`'s
+  // `preBoot()` calls `configSvc.ensureSeeded()` (which calls `loadFromDb()` internally) for the
+  // same reason; this bootstrap previously had no caller that needed a DB-backed config value, so it
+  // never made the call. `loadFromDb()` alone (not `ensureSeeded()`) is correct here: the destination
+  // is required to already be a real, previously-seeded 3.0 install (`migrate.ts`'s own
+  // `getSiteById()` check refuses to proceed otherwise), so there is never a "needs seeding" case for
+  // this CLI to handle.
+  await WIKI.configSvc.loadFromDb()
+
   return WIKI
+}
+
+/**
+ * Resolves the three identifiers the `users` phase (Task 14) and the `content` phase (Task 13) need
+ * from the destination install but cannot derive from the 2.x source: this install's local-auth
+ * strategy id, its real system Administrators/Guests group ids, and the root admin user id to use as
+ * a fallback content author. Called once, after `bootstrapMigrationRuntime()` has returned, by
+ * whichever entry point actually builds a `MigrationContext` (`../tasks/migrate.ts`) — `bootstrap.ts`
+ * itself has no `MigrationContext` to populate, since it only ever builds the ambient `WIKI` global.
+ *
+ * `localStrategyId`/`guestsGroupId` are fixed constants every 3.0 install seeds identically from
+ * `base.yml`'s `systemIds` (`configSvc.init()` alone is enough to read them — no DB round trip).
+ * `rootAdminGroupId`/`rootAdminUserId` are per-install ids `Settings.init()` generated once and
+ * persisted under the `auth` settings key (`models/settings.ts`) — reading them requires the
+ * `WIKI.configSvc.loadFromDb()` call `bootstrapMigrationRuntime()` now makes. See
+ * `importers/users-groups.ts`'s own module doc (Task 731 paragraph) for the full trace of where the
+ * admin/guest group ids live at runtime.
+ */
+export function resolveUsersImportContext(WIKI: WikiGlobal): {
+  localStrategyId: string
+  systemGroupIds: SystemGroupIds
+  operatorActorId: string
+} {
+  return {
+    localStrategyId: WIKI.data.systemIds.localAuthId,
+    systemGroupIds: {
+      admin: WIKI.config.auth.rootAdminGroupId,
+      guest: WIKI.data.systemIds.guestsGroupId
+    },
+    operatorActorId: WIKI.config.auth.rootAdminUserId
+  }
 }
 
 /** Builds the configured `SourceConnector` (never connected yet — the caller still owns `connect()`/

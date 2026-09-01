@@ -21,6 +21,10 @@ function contextStub(overrides: Partial<MigrationContext> = {}): MigrationContex
     source: {} as any,
     siteId: 'test-site',
     dryRun: false,
+    // Task 14: required fields, unused by this orchestration-only suite.
+    localStrategyId: 'test-local-strategy-uuid',
+    systemGroupIds: { admin: 'test-admin-group-uuid', guest: 'test-guest-group-uuid' },
+    operatorActorId: 'test-operator-uuid',
     ...overrides
   }
 }

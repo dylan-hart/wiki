@@ -7,6 +7,7 @@ import {
   createGroupImporter,
   createProviderFallbackUserConverter,
   createUserGroupImporter,
+  deriveUserGroupsFromEmbeddedGroups,
   importUsersAndGroups,
   needsProviderFallback,
   stubConvertGroup,
@@ -15,6 +16,7 @@ import {
   type NewUserRow,
   type UsersGroupsWriter
 } from './users-groups.ts'
+import type { SourceRecord } from '../connector.ts'
 
 const TARGET_ADMIN_GROUP_ID = 'target-admin-group-uuid'
 const TARGET_GUEST_GROUP_ID = 'target-guest-group-uuid'
@@ -942,5 +944,62 @@ describe('createGroupImporter / createUserGroupImporter (Task 12 extraction)', (
 
     assert.equal(importer.summary.created, 1)
     assert.equal(importer.summary.records[0].targetId, 'target-group-uuid')
+  })
+})
+
+/**
+ * Coverage for `deriveUserGroupsFromEmbeddedGroups()` (Task 14) — re-expands
+ * `PostgresSourceConnector.users()`'s embedded `groups: [{id, name}]` shape (Task 8) into the flat
+ * `{userId, groupId}` records `createUserGroupImporter()` consumes.
+ */
+describe('deriveUserGroupsFromEmbeddedGroups', () => {
+  test('yields one pair per embedded group, in source order', async () => {
+    const users = (async function* (): AsyncGenerator<SourceRecord> {
+      yield {
+        id: 1,
+        groups: [
+          { id: 10, name: 'A' },
+          { id: 11, name: 'B' }
+        ]
+      }
+      yield { id: 2, groups: [] }
+    })()
+
+    const pairs: SourceRecord[] = []
+    for await (const pair of deriveUserGroupsFromEmbeddedGroups(users)) {
+      pairs.push(pair)
+    }
+
+    assert.deepEqual(pairs, [
+      { userId: 1, groupId: 10 },
+      { userId: 1, groupId: 11 }
+    ])
+  })
+
+  test('yields nothing for a user whose groups field is missing or not an array', async () => {
+    const users = (async function* (): AsyncGenerator<SourceRecord> {
+      yield { id: 1 }
+      yield { id: 2, groups: null }
+    })()
+
+    const pairs: SourceRecord[] = []
+    for await (const pair of deriveUserGroupsFromEmbeddedGroups(users)) {
+      pairs.push(pair)
+    }
+
+    assert.deepEqual(pairs, [])
+  })
+
+  test('skips a malformed embedded group entry (not an object, or missing id) rather than throwing', async () => {
+    const users = (async function* (): AsyncGenerator<SourceRecord> {
+      yield { id: 1, groups: [{ id: 10, name: 'A' }, null, { name: 'no id' }, 'not-an-object'] }
+    })()
+
+    const pairs: SourceRecord[] = []
+    for await (const pair of deriveUserGroupsFromEmbeddedGroups(users)) {
+      pairs.push(pair)
+    }
+
+    assert.deepEqual(pairs, [{ userId: 1, groupId: 10 }])
   })
 })

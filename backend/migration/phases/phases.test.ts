@@ -54,7 +54,15 @@ function contextWith(source: SourceConnector): MigrationContext {
     db: {} as any,
     source,
     siteId: 'test-site',
-    dryRun: false
+    dryRun: false,
+    // Task 14: real values, but never actually exercised by these tests -- every record `usersPhase`
+    // reads below either fails its own converter's requirements before a writer call (no `name`/no
+    // `providerKey`) or is routed to `recorder.unmappable()`, so nothing here ever reaches
+    // `createDrizzleWriter()`'s real `WIKI`/db-touching methods. See
+    // `phases/users.integration.test.ts` for coverage of the real write path against a real DB.
+    localStrategyId: 'test-local-strategy-uuid',
+    systemGroupIds: { admin: 'test-admin-group-uuid', guest: 'test-guest-group-uuid' },
+    operatorActorId: 'test-operator-uuid'
   }
 }
 
@@ -75,18 +83,20 @@ describe('migration phases', () => {
     assert.equal(result.phase, 'settings')
   })
 
-  test('usersPhase counts records from a working connector, but reports not_implemented — no phase has a write path yet', async () => {
+  test('usersPhase (Task 14: real write path) counts records from a working connector and reports ok', async () => {
     const result = await usersPhase.run(contextWith(workingConnector({ users: 3, groups: 2 })))
-    assert.equal(result.status, 'not_implemented')
-    assert.deepEqual(result.counts, { users: 3, groups: 2 })
-    assert.deepEqual(result.notImplemented, ['users', 'groups'])
+    assert.equal(result.status, 'ok')
+    // -> userGroups derives from a second read of `users()`; these bare `{id: i}` fixture records
+    //    carry no embedded `groups` array, so it resolves with zero pairs rather than failing.
+    assert.deepEqual(result.counts, { users: 3, groups: 2, userGroups: 0 })
+    assert.equal(result.notImplemented, undefined)
   })
 
-  test('usersPhase is not_implemented when only one entity generator works, listing both entities (the other via its own stub, this one via the no-write-path reclassification)', async () => {
+  test('usersPhase is not_implemented only for the entity whose connector generator is still a stub — users/userGroups have a real write path now (Task 14)', async () => {
     const result = await usersPhase.run(contextWith(workingConnector({ users: 5 })))
     assert.equal(result.status, 'not_implemented')
-    assert.deepEqual(result.counts, { users: 5 })
-    assert.deepEqual(result.notImplemented, ['groups', 'users'])
+    assert.deepEqual(result.counts, { users: 5, userGroups: 0 })
+    assert.deepEqual(result.notImplemented, ['groups'])
   })
 
   test('contentPhase counts pages, pageHistory and tags, but reports not_implemented — no phase has a write path yet', async () => {
@@ -137,7 +147,7 @@ describe('migration phases', () => {
     }
     const connector = { ...stubConnector(), users, groups: () => recordsOf(0) }
     const result = await usersPhase.run(contextWith(connector))
-    assert.equal(result.status, 'not_implemented')
+    assert.equal(result.status, 'ok')
     assert.ok(result.report)
     assert.equal(result.report!.found, 2)
     assert.equal(result.report!.wouldCreate, 1)

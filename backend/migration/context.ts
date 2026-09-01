@@ -1,5 +1,6 @@
 import type { WikiDb } from '../core/db.ts'
 import type { SourceConnector } from './connector.ts'
+import type { SystemGroupIds } from './importers/users-groups.ts'
 import type { PhaseReport } from './report.ts'
 
 /**
@@ -50,6 +51,27 @@ export interface MigrationContext {
   dryRun: boolean
   /** Optional progress sink; defaults to doing nothing so the harness is usable without a logger. */
   log?: (message: string) => void
+  /** This install's real local-auth strategy id (`WIKI.data.systemIds.localAuthId`), resolved once by
+   * `bootstrap.ts#resolveUsersImportContext()` — the `users` phase (Task 14) needs it to key every
+   * imported account's `auth` jsonb column, the same way `Settings.init()` does for a freshly-seeded
+   * install. */
+  localStrategyId: string
+  /** This install's real target Administrators/Guests group ids, resolved once by
+   * `bootstrap.ts#resolveUsersImportContext()` — see `importers/users-groups.ts`'s module doc (Task
+   * 731) for why the `userGroups` entity needs these: a membership pointing at the *source's* system
+   * group (skipped, not imported) remaps onto these instead of being dropped. */
+  systemGroupIds: SystemGroupIds
+  /** This install's root admin user id (`WIKI.config.auth.rootAdminUserId`), resolved once by
+   * `bootstrap.ts#resolveUsersImportContext()`. Not read by the `users` phase itself — carried here so
+   * the `content` phase (Task 13) has a real, always-valid fallback author for content whose source
+   * author could not be mapped onto an imported user. */
+  operatorActorId: string
+  /** Source-id -> destination-UUID map the `users` phase (Task 14) populates as a side effect of its
+   * own run (`userImporter.idMap`) — read by the `content` phase (Task 13, `dependsOn: ['users']`) to
+   * resolve a staged page/comment's author. Optional because it does not exist before the `users`
+   * phase has actually run (e.g. a hand-built `MigrationContext` in a test fixture that never runs
+   * that phase). */
+  userIdMap?: Map<number, string>
 }
 
 /** One phase in the sequence, plus the dependency ids it declares for documentation and future
