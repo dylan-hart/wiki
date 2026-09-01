@@ -329,6 +329,7 @@ test('POST /: rejects an unknown group id, without creating the user', async () 
     }
   })
   assert.equal(res.statusCode, 400)
+  assert.equal(res.json().message, 'ERR_UNKNOWN_GROUPS')
   assert.equal(createUserCalls.length, 0)
 })
 
@@ -356,6 +357,7 @@ test('PUT /:userId: rejects an unknown group id, without changing membership', a
     payload: { groups: [UNKNOWN_GROUP_ID] }
   })
   assert.equal(res.statusCode, 400)
+  assert.equal(res.json().message, 'ERR_UNKNOWN_GROUPS')
   assert.equal(setUserGroupsCalls.length, 0)
 })
 
