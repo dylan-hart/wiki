@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
@@ -17,6 +17,11 @@ import { useUserStore } from '@/stores/user'
 
 const messages = {
   en: {
+    common: {
+      actions: {
+        goback: 'Go Back'
+      }
+    },
     inbox: {
       title: 'Inbox',
       inbox: 'Inbox',
@@ -34,7 +39,10 @@ async function mountInboxLayout() {
     history: createMemoryHistory(),
     routes: [
       { path: '/login', component: { template: '<div />' } },
-      { path: '/_inbox/:path(.*)', component: { template: '<router-view />' } }
+      { path: '/_inbox/:path(.*)', component: { template: '<router-view />' } },
+      // -> Stand-in for whatever the reader was previously viewing (an admin page, a wiki page, home)
+      //    so a captured "Go Back" push resolves to a real route instead of warning on no match.
+      { path: '/:pathMatch(.*)*', component: { template: '<div />' } }
     ]
   })
   router.push('/_inbox/watching')
@@ -79,5 +87,48 @@ describe('InboxLayout sidenav', () => {
     const wrapper = await mountInboxLayout()
 
     expect(wrapper.vm.sidenav[1].key).toBe('review')
+  })
+})
+
+/**
+ * OpenProject #2334: clicking the bell in HeaderNav drops a reader into the Inbox with no way back to
+ * whatever page or admin area they were previously viewing. `InboxLayout` now captures the route the
+ * reader arrived from, once, on mount -- and offers it back as a "Go Back" rail entry.
+ */
+describe('InboxLayout go-back affordance', () => {
+  it('renders a "Go Back" entry ahead of the existing rail items', async () => {
+    window.history.pushState({ back: '/admin/dashboard' }, '', '/_inbox/watching')
+
+    const wrapper = await mountInboxLayout()
+    const labels = wrapper.findAll('.layout-inbox-sd .w-item-label').map((el) => el.text())
+
+    expect(labels[0]).toBe('Go Back')
+  })
+
+  it('returns to the route captured on entry, not wherever the reader is inside the inbox', async () => {
+    window.history.pushState({ back: '/admin/dashboard' }, '', '/_inbox/watching')
+
+    const wrapper = await mountInboxLayout()
+    const router = wrapper.vm.$router
+
+    // Simulate switching inbox tabs internally -- this must not overwrite the captured return path.
+    await router.push('/_inbox/review')
+
+    const pushSpy = vi.spyOn(router, 'push')
+    await wrapper.vm.goBack()
+
+    expect(pushSpy).toHaveBeenCalledWith('/admin/dashboard')
+  })
+
+  it('falls back to home when there is no captured browser history (e.g. a bookmarked/emailed link)', async () => {
+    window.history.pushState(null, '', '/_inbox/watching')
+
+    const wrapper = await mountInboxLayout()
+    const router = wrapper.vm.$router
+    const pushSpy = vi.spyOn(router, 'push')
+
+    await wrapper.vm.goBack()
+
+    expect(pushSpy).toHaveBeenCalledWith('/')
   })
 })
