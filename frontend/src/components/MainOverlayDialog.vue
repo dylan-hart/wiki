@@ -4,13 +4,15 @@
     class="main-overlay"
     persistent
     full-width
-    full-height>
+    full-height
+    :aria-label="overlayAriaLabel">
     <component :is="overlays[siteStore.overlay]" />
   </w-dialog>
 </template>
 
 <script setup>
-import { defineAsyncComponent } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { useSiteStore } from '../stores/site'
 
@@ -50,4 +52,28 @@ const overlays = {
 // STORES
 
 const siteStore = useSiteStore()
+
+// I18N
+
+const { t } = useI18n()
+
+// COMPUTED
+
+/**
+ * `overlays`' loaded child owns the only visible heading for this full-screen overlay (its own
+ * `<w-header class="card-header">`), so the accessible name is looked up here rather than duplicated
+ * as a prop threaded down -- each entry mirrors the exact translation key that child's own header
+ * already renders (OpenProject #2356).
+ */
+const OVERLAY_TITLES = {
+  BlockPicker: () => t('editor.blockPicker.title'),
+  EditorMarkdownConfig: () => t('editor.settings.markdown'),
+  FileManager: () => t('fileman.title'),
+  NavEdit: () => t('navEdit.editMenuItems'),
+  PageHistory: () => t('history.title'),
+  TableEditor: () => t('editor.tableEditor.title'),
+  Welcome: () => t('welcome.title')
+}
+
+const overlayAriaLabel = computed(() => OVERLAY_TITLES[siteStore.overlay]?.())
 </script>

@@ -1,5 +1,8 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    :aria-label="t('admin.glossary.importTitle')"
+    @hide="onDialogHide">
     <w-card class="glossary-import-dialog" style="width: 760px; max-width: 94vw">
       <w-card-section class="card-header">
         <w-icon name="la:file-import" size="sm" class="mr-2" />

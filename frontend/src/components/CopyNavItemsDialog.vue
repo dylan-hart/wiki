@@ -1,5 +1,5 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog v-model="dialogVisible" :aria-label="t('navEdit.copyFrom')" @hide="onDialogHide">
     <w-card style="width: 480px; max-width: 90vw">
       <w-card-section class="card-header">
         <w-icon name="mdi:import" size="sm" class="mr-2" />

@@ -1,6 +1,6 @@
 <template>
   <!-- Not `persistent`: nothing here is being filled in, so clicking away should just close it. -->
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog v-model="dialogVisible" :aria-label="t('history.viewSource')" @hide="onDialogHide">
     <w-card class="page-version-source" style="width: 1200px; max-width: 94vw">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-code.svg" left size="sm" />

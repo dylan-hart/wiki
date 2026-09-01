@@ -1,5 +1,8 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    :aria-label="props.title ?? t('linkPicker.title')"
+    @hide="onDialogHide">
     <w-card class="link-picker" style="width: 860px; max-width: 90vw">
       <w-card-section class="card-header">
         <w-icon name="la:link" size="sm" class="mr-2" />

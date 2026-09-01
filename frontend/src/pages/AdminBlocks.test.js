@@ -230,6 +230,28 @@ describe('AdminBlocks Configure affordance', () => {
 })
 
 /**
+ * OpenProject #2356: the per-block "Configure" dialog's `role="dialog"` panel gets a real accessible
+ * name via `WDialog`'s `aria-label`, reusing the exact expression already shown as the visible
+ * `text-h6` header -- rather than staying unnamed for assistive tech, as every `<w-dialog>` in the app
+ * did before WP #1617's infrastructure was actually wired up to a call site.
+ */
+describe('AdminBlocks configure dialog accessible name', () => {
+  it("gives the configure dialog's panel a non-empty aria-label naming the block", async () => {
+    const wrapper = await mountAdminBlocks(makeConfigureBlocks())
+
+    const configureBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text() === 'admin.blocks.configure')
+    await configureBtn.trigger('click')
+    await flushPromises()
+
+    const panel = document.body.querySelector('[role="dialog"]')
+    expect(panel).not.toBeNull()
+    expect(panel.getAttribute('aria-label')).toBeTruthy()
+  })
+})
+
+/**
  * OpenProject #868: the per-site block credentials list. `state.credentials` is loaded from
  * `GET sites/:siteId/block-credentials` inside `load()`, alongside the blocks list itself.
  */

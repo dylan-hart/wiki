@@ -166,7 +166,7 @@
     <!-- ----------------------- -->
     <!-- Add Set Dialog -->
     <!-- ----------------------- -->
-    <w-dialog v-model="state.addSetDialog">
+    <w-dialog v-model="state.addSetDialog" :aria-label="t('admin.icons.addSet')">
       <w-card style="width: 700px; max-width: 90vw">
         <w-card-section class="flex flex-wrap items-center pb-0">
           <div class="text-h6">{{ t('admin.icons.addSet') }}</div>

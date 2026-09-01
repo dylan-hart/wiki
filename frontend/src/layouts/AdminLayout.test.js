@@ -441,6 +441,65 @@ describe('AdminLayout toolbar hover treatment (task 822)', () => {
   })
 })
 
+/**
+ * OpenProject #2356: the admin `admin-overlay` `<w-dialog>` gets its accessible name from a small
+ * lookup map (`ADMIN_OVERLAY_TITLES`) keyed by which child `overlays` component is currently loaded --
+ * there is no title of its own to read, since the loaded child owns the only visible heading. A key
+ * present in one map but not the other is exactly the failure mode that would silently leave that one
+ * screen's dialog unnamed with no visible symptom, so this guards the two maps staying in lockstep
+ * rather than asserting against a full, heavier mount of each real (dynamically-imported) child
+ * overlay (`EditorMarkdownConfigOverlay`, `GroupEditOverlay`, `UserEditOverlay`).
+ */
+describe('AdminLayout admin-overlay accessible-name map', () => {
+  function topLevelKeys(source, constName) {
+    const declStart = source.indexOf(`const ${constName} = {`)
+    if (declStart === -1) {
+      throw new Error(`const ${constName} not found in AdminLayout.vue`)
+    }
+    const braceStart = source.indexOf('{', declStart)
+    let depth = 0
+    let braceEnd = -1
+    for (let i = braceStart; i < source.length; i++) {
+      if (source[i] === '{') depth++
+      if (source[i] === '}') {
+        depth--
+        if (depth === 0) {
+          braceEnd = i
+          break
+        }
+      }
+    }
+    // -> Strips `//`-to-end-of-line comments first: `overlays` has a commented-out
+    //    `MailTemplateEditorOverlay` entry (not yet implemented), which a purely textual `\w+:` scan
+    //    would otherwise still pick up as a real key.
+    const body = source
+      .slice(braceStart + 1, braceEnd)
+      .split('\n')
+      .map((line) => line.replace(/\/\/.*$/, ''))
+      .join('\n')
+    const keys = []
+    const keyPattern = /(\w+):/g
+    let match
+    while ((match = keyPattern.exec(body))) {
+      const before = body.slice(0, match.index)
+      const opens = (before.match(/[{(]/g) || []).length
+      const closes = (before.match(/[})]/g) || []).length
+      if (opens - closes === 0) {
+        keys.push(match[1])
+      }
+    }
+    return keys.sort()
+  }
+
+  it('ADMIN_OVERLAY_TITLES covers exactly the same keys as overlays', () => {
+    const source = readFileSync(join(import.meta.dirname, 'AdminLayout.vue'), 'utf-8')
+
+    // -> `MailTemplateEditorOverlay` is commented out in `overlays` (not yet implemented), so it
+    //    correctly appears in neither map.
+    expect(topLevelKeys(source, 'ADMIN_OVERLAY_TITLES')).toEqual(topLevelKeys(source, 'overlays'))
+  })
+})
+
 describe('AdminLayout nav count badge', () => {
   it('keeps the count badge on a logical (inline-end) border, not a physical one', () => {
     const dir = dirname(fileURLToPath(import.meta.url))

@@ -1,5 +1,8 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    :aria-label="isEdit ? t('admin.approval.editRule') : t('admin.approval.newRule')"
+    @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-inspection.svg" size="sm" class="mr-2" />
