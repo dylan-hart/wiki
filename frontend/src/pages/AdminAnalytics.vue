@@ -4,6 +4,7 @@
       <div class="flex-none">
         <w-icon
           name="img:/_assets/icons/fluent-bar-chart.svg"
+          size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
