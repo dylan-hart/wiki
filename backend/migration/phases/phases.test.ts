@@ -97,8 +97,7 @@ function contextWith(source: SourceConnector): MigrationContext {
     // `phases/users.integration.test.ts` for coverage of the real write path against a real DB.
     localStrategyId: 'test-local-strategy-uuid',
     systemGroupIds: { admin: 'test-admin-group-uuid', guest: 'test-guest-group-uuid' },
-    operatorActorId: 'test-operator-uuid',
-    primaryLocale: 'en'
+    operatorActorId: 'test-operator-uuid'
   }
 }
 
@@ -317,8 +316,16 @@ describe('migration phases', () => {
     //    every one fails 'read-error' before ever reaching a real upload() call -- routed to
     //    recorder.conflict(), never recorder.create(), so define-phase.ts's write-capability tracking
     //    correctly folds 'assets' in alongside 'comments', which is not_implemented anyway (its
-    //    connector generator is still a stub in this fixture).
-    const result = await assetsPhase.run(contextWith(workingConnector({ assets: 9 })))
+    //    connector generator is still a stub in this fixture). `dryRun: true` (unlike
+    //    `contextWith()`'s own `dryRun: false` default) for the same reason every other assetsPhase
+    //    test in this file uses it: it is what keeps `entities()` construction fully WIKI-free (see
+    //    `phases/assets.ts`'s own "Dry run" doc section, and `resolvePrimaryLocale()` in `context.ts`)
+    //    — this test has no live `WIKI` global to read from, and doesn't need one either way, since no
+    //    record here ever reaches a real write regardless of `dryRun`.
+    const result = await assetsPhase.run({
+      ...contextWith(workingConnector({ assets: 9 })),
+      dryRun: true
+    })
     assert.equal(result.status, 'not_implemented')
     assert.deepEqual(result.counts, { assets: 9 })
     assert.deepEqual(result.notImplemented, ['comments', 'assets'])

@@ -12,10 +12,14 @@ import type { PhaseReport } from './report.ts'
  */
 export type MigrationPhaseId = 'settings' | 'users' | 'content' | 'assets'
 
-/** How a phase came out. `notImplemented` covers the current state of every phase body: the entity
- * generators they read from (`SourceConnector`) are still `NotYetImplementedError` stubs until
- * Features 414/416/418/420 implement them — this harness only owns sequencing and result collection,
- * not the row-transformation logic those Features will fill in. */
+/** How a phase came out. `notImplemented` is set when one of a phase's entity generators (or its
+ * write path — see `phases/define-phase.ts#trackWriteCapability()`) is still a `NotYetImplementedError`
+ * stub for the connector kind actually in use. Every phase has a real generator and a real write path
+ * against a `PostgresSourceConnector` source now that Features 414/416/418/420 have all landed; this
+ * status is still the honest, non-crashing outcome for the entities `ExportBundleSourceConnector`
+ * leaves stubbed (`users`/`groups`/`settings`/`comments`/`assets` — bundle write support is explicitly
+ * out of this plan's scope, see `tasks/migrate.ts`'s own module doc), and for any hand-built
+ * `MigrationContext`/`SourceConnector` a test wires up with no write path at all. */
 export type PhaseStatus = 'ok' | 'not_implemented' | 'error'
 
 /** What one phase run reports back to the harness, instead of writing to global state itself. */
@@ -79,12 +83,6 @@ export interface MigrationContext {
    * owning page. Optional for the same reason `userIdMap` is: it does not exist before the `content`
    * phase has run. */
   pageIdMap?: IdMap<number>
-  /** This install's target site's own primary locale
-   * (`WIKI.sites[siteId].config.locales.primary`), resolved once by `bootstrap.ts`'s
-   * `resolveUsersImportContext()` (called with `siteId` now, for exactly this) — the `content` phase
-   * (Task 13) needs it to pick which one of 2.x's per-locale navigation trees becomes 3.0's single,
-   * locale-less site-wide menu (`navigation-import.ts`'s `NavigationImportOptions.locale`). */
-  primaryLocale: string
 }
 
 /** One phase in the sequence, plus the dependency ids it declares for documentation and future
@@ -95,4 +93,42 @@ export interface MigrationPhase {
   label: string
   dependsOn: MigrationPhaseId[]
   run(ctx: MigrationContext): Promise<PhaseResult>
+}
+
+/**
+ * Resolves the destination site's CURRENT primary locale — read fresh off `WIKI.sites`, never
+ * snapshotted once before any phase runs. `MigrationContext` used to carry a `primaryLocale` field,
+ * populated by `bootstrap.ts#resolveUsersImportContext()` before `runMigration()` ever started (whole-
+ * branch review Critical #1). That field always read the destination's PRE-migration locale, because
+ * the `settings` phase — which runs first (`dependsOn: []`) and can rewrite `WIKI.sites[siteId]
+ * .config.locales.primary` via `mapSiteSettings()`'s `siteConfigPatch.locales` (from 2.x's `lang.code`)
+ * — updates the destination through `WIKI.models.sites.updateSite()`, which the `content`/`assets`
+ * phases (both transitively `dependsOn: ['settings']`, via `content`'s `dependsOn: ['users']` and
+ * `users`' own `dependsOn: ['settings']`) never re-read: they kept using the stale value captured at
+ * the very start of the run. A non-English 2.x source therefore had every imported asset/nav write land
+ * under `'en'` — the destination's pre-migration default — instead of the locale `settings` had just
+ * set.
+ *
+ * `WIKI.models.sites.updateSite()` calls `broadcastReload()` -> `reloadCache()` synchronously before it
+ * resolves, so `WIKI.sites[siteId]` is already the post-`settings`-phase value by the time any later
+ * phase in `MIGRATION_PHASES`' sequential run order (`orchestrator.ts` awaits each phase fully before
+ * starting the next) actually calls this. Calling it before `settings` has run (a phase invoked in
+ * isolation via `--only`, or a hand-built `MigrationContext` in a unit test) simply reads whatever
+ * `WIKI.sites` already holds — the destination's real current config, same as any other live read.
+ *
+ * Falls back to `'en'` (never throws) under `ctx.dryRun`, without touching `WIKI` at all — the same
+ * "keep a dry run fully WIKI-free" choice `phases/content.ts`'s `existingEntry`/`pagesModel.createPage`
+ * already make purely for testability (see that file's own "Dry run" doc section): this phase's pure
+ * unit tests (`phases/phases.test.ts`) run with `dryRun: true` and no live `WIKI` global at all, so
+ * reading `WIKI.sites` unconditionally here would throw `ReferenceError: WIKI is not defined` in every
+ * one of them. The tradeoff only affects a dry run's own report-only navigation-locale-selection
+ * preview, never a real write, which never happens under `dryRun` regardless. A live run (`dryRun:
+ * false`) mirrors `models/assets.ts#getAssetByPath()`'s own `WIKI.sites[siteId]?.config?.locales
+ * ?.primary ?? 'en'` precedent for the same defensive fallback.
+ */
+export function resolvePrimaryLocale(ctx: Pick<MigrationContext, 'siteId' | 'dryRun'>): string {
+  if (ctx.dryRun) {
+    return 'en'
+  }
+  return WIKI.sites[ctx.siteId]?.config?.locales?.primary ?? 'en'
 }

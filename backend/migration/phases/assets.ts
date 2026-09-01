@@ -1,5 +1,6 @@
 import { importAsset } from '../importers/asset-import.ts'
 import { importComment } from '../importers/comment-import.ts'
+import { resolvePrimaryLocale } from '../context.ts'
 import { definePhase } from './define-phase.ts'
 import type { SourceAssetFile, SourceRecord } from '../connector.ts'
 import type {
@@ -115,7 +116,15 @@ export const assetsPhase = definePhase({
     const assetDeps: AssetImportDeps = { assetsModel, treeModel }
     const assetOptions: AssetImportOptions = {
       siteId: ctx.siteId,
-      locale: ctx.primaryLocale,
+      // -> Read fresh off WIKI.sites (not a ctx.primaryLocale value snapshotted before any phase ran)
+      //    — see context.ts's resolvePrimaryLocale() doc comment (whole-branch review Critical #1).
+      //    Resolved here, at entities()-construction time, rather than deferred into treeModel's own
+      //    dry-run-gated closure like content.ts's navigationModel does: resolvePrimaryLocale() already
+      //    internalizes the same "stay WIKI-free under dryRun" gate content.ts's dependencies apply by
+      //    hand, and this phase's own entities(ctx) is only ever called once the `settings`/`content`
+      //    phases it transitively depends on have already finished (MIGRATION_PHASES' sequential run
+      //    order — see resolvePrimaryLocale()'s own doc comment).
+      locale: resolvePrimaryLocale(ctx),
       userIdMap,
       fallbackActorId: ctx.operatorActorId
     }

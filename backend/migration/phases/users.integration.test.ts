@@ -104,8 +104,7 @@ describe(
         dryRun: false,
         localStrategyId: LOCAL_STRATEGY_ID,
         systemGroupIds: { admin: FAKE_ADMIN_GROUP_ID, guest: FAKE_GUEST_GROUP_ID },
-        operatorActorId: OPERATOR_ACTOR_ID,
-        primaryLocale: 'en'
+        operatorActorId: OPERATOR_ACTOR_ID
       }
 
       const result = await usersPhase.run(ctx)

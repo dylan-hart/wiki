@@ -248,7 +248,6 @@ describe(
         localStrategyId: 'unused-local-strategy',
         systemGroupIds: { admin: 'unused-admin-group', guest: 'unused-guest-group' },
         operatorActorId: fixtures.userId,
-        primaryLocale: 'en',
         // -> Stands in for a completed users-phase run: source user 555 resolves to the fixture user.
         userIdMap: new Map([[555, fixtures.userId]])
       }

@@ -138,7 +138,6 @@ describe(
         localStrategyId: 'unused-local-strategy',
         systemGroupIds: { admin: 'unused-admin-group', guest: 'unused-guest-group' },
         operatorActorId: fixtures.userId,
-        primaryLocale: 'en',
         userIdMap: new Map([[555, fixtures.userId]])
       }
       const contentResult = await contentPhase.run(contentCtx)
@@ -165,7 +164,6 @@ describe(
         localStrategyId: 'unused-local-strategy',
         systemGroupIds: { admin: 'unused-admin-group', guest: 'unused-guest-group' },
         operatorActorId: fixtures.userId,
-        primaryLocale: 'en',
         userIdMap: new Map([[555, fixtures.userId]]),
         // -> Reuses the real IdMap<number> the content-phase fixture setup above already populated,
         //    rather than a plain Map -- context.ts types MigrationContext.pageIdMap as the concrete

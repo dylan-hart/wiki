@@ -24,6 +24,7 @@ import {
   resolveUsersImportContext
 } from '../migration/bootstrap.ts'
 import { parseMigrationArgs } from '../migration/cli.ts'
+import { computeExitCode, notImplementedPhaseIds } from '../migration/exit-status.ts'
 import { MIGRATION_PHASES } from '../migration/phases/index.ts'
 import { runMigration } from '../migration/orchestrator.ts'
 import { formatReportTable, reportsToJson } from '../migration/render.ts'
@@ -80,7 +81,7 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
       siteId: args.siteId,
       dryRun: args.dryRun,
       log: (message) => WIKI.logger.info(message),
-      ...resolveUsersImportContext(WIKI, args.siteId)
+      ...resolveUsersImportContext(WIKI)
     }
 
     const results = await runMigration(MIGRATION_PHASES, ctx, { only: args.only })
@@ -111,7 +112,23 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
       WIKI.logger.info(`Report written to ${args.reportFile}`)
     }
 
-    process.exitCode = results.some((result) => result.status === 'error') ? 1 : 0
+    // -> Whole-branch review Important #4: a live (non-dry-run) run must exit non-zero, with a clear
+    //    message naming which phase(s), when any phase had no real write path at all against the
+    //    source in use — see `../migration/exit-status.ts`'s own doc comment for the full "why" (a
+    //    bundle source's still-stubbed phases used to silently exit 0 on a real, partial migration).
+    const notImplementedPhases = notImplementedPhaseIds(results)
+    if (!args.dryRun && notImplementedPhases.length > 0) {
+      WIKI.logger.error(
+        `Live migration incomplete: the following phase(s) had no real write path against this ` +
+          `source and did not write anything: ${notImplementedPhases.join(', ')}. Whatever phases DID ` +
+          `write above already made real changes to the destination — this is not a rollback, just a ` +
+          `signal that the migration is only partially done. Re-run with a source that implements ` +
+          `the missing phase(s) (a bundle source cannot import ${notImplementedPhases.join('/')} at ` +
+          `all yet), or pass --only to target just the phase(s) that need it.`
+      )
+    }
+
+    process.exitCode = computeExitCode(results, args.dryRun)
   } finally {
     await source.disconnect()
   }

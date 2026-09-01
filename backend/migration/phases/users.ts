@@ -38,10 +38,22 @@ async function routeOutcome(
   recorder: WriteRecorder,
   identifier: string,
   status: RecordStatus,
-  detail: string | undefined
+  detail: string | undefined,
+  log: ((message: string) => void) | undefined
 ): Promise<void> {
   switch (status) {
     case 'created':
+      // -> `detail` is set on an otherwise-successful `created` outcome for exactly one reason today:
+      //    `createGroupConverter()`'s dropped-permissions/rules note (its own doc comment: "When
+      //    anything was dropped, the outcome's message says what and how many — an otherwise-successful
+      //    created conversion, not a failure"). Neither `WriteRecorder`/`PhaseReport` has anywhere to
+      //    put a per-record note on a successful create (see `../report.ts`'s own doc comment on this
+      //    reporting-shape gap), so this was previously silently discarded — logged here instead
+      //    (whole-branch review Important #3), the same `ctx.log?.()` convention `phases/settings.ts`/
+      //    `phases/assets.ts` already established for a non-fatal, per-record note.
+      if (detail) {
+        log?.(`${identifier}: ${detail}`)
+      }
       // The real (or dry-run placeholder — see `entities()` below) write already happened inside
       // `importOne()`, so this `write` callback is a deliberate no-op, not a second write. It still
       // has to be a real function (not omitted): `define-phase.ts#trackWriteCapability()` reads
@@ -105,12 +117,6 @@ export const usersPhase = definePhase({
     // `userIdMap` for why this is a live Map reference, not a snapshot.
     ctx.userIdMap = userImporter.idMap
 
-    // `userImporter.providerFallbacks` (the admin-facing "these accounts need a password reset" list
-    // — see `createProviderFallbackUserConverter()`'s own doc) has no destination yet: neither
-    // `PhaseResult` nor `PhaseReport` has a field shaped for it, and adding one is the same
-    // larger-than-this-fix reporting-shape change `routeOutcome()`'s doc comment above describes.
-    // Tracked as a follow-up gap in this task's own report rather than wired in here.
-
     return {
       groups: {
         source: () => ctx.source.groups(),
@@ -118,11 +124,33 @@ export const usersPhase = definePhase({
           const source = record as SourceRecord
           const id = String(source.id ?? 'unknown')
           const status = await groupImporter.importOne(source)
-          await routeOutcome(recorder, id, status, groupImporter.summary.records.at(-1)?.message)
+          await routeOutcome(
+            recorder,
+            id,
+            status,
+            groupImporter.summary.records.at(-1)?.message,
+            ctx.log
+          )
         }
       },
       users: {
-        source: () => ctx.source.users(),
+        // -> `userImporter.providerFallbacks` (the admin-facing "these accounts need a password reset"
+        //    list — see `createProviderFallbackUserConverter()`'s own doc) is only complete once every
+        //    `users` record has actually been classified, so it is logged here, after `yield*`
+        //    delegates to the real source and returns — the same "drain fully, then report" point
+        //    `phases/content.ts`'s orphaned-pageHistory backfill uses (whole-branch review Important
+        //    #3). Neither `PhaseResult` nor `PhaseReport` has a field shaped for this list (the same
+        //    reporting-shape gap `routeOutcome()`'s own doc comment describes for a group's
+        //    dropped-permissions note), so `ctx.log?.()` is the only place it can go today.
+        source: async function* () {
+          yield* ctx.source.users()
+          for (const fallback of userImporter.providerFallbacks) {
+            ctx.log?.(
+              `user ${fallback.email}: imported through the local-provider fallback (source provider ` +
+                `'${fallback.sourceProvider}') — ${fallback.reason} — needs a password reset before use.`
+            )
+          }
+        },
         classify: async (record, recorder) => {
           const source = record as SourceRecord
           const unmappable = classifyUserAuthProvider(source)
@@ -133,7 +161,13 @@ export const usersPhase = definePhase({
           const id =
             typeof source.email === 'string' ? source.email : String(source.id ?? 'unknown')
           const status = await userImporter.importOne(source)
-          await routeOutcome(recorder, id, status, userImporter.summary.records.at(-1)?.message)
+          await routeOutcome(
+            recorder,
+            id,
+            status,
+            userImporter.summary.records.at(-1)?.message,
+            ctx.log
+          )
         }
       },
       userGroups: {
@@ -149,7 +183,8 @@ export const usersPhase = definePhase({
             recorder,
             id,
             status,
-            userGroupImporter.summary.records.at(-1)?.message
+            userGroupImporter.summary.records.at(-1)?.message,
+            ctx.log
           )
         }
       }

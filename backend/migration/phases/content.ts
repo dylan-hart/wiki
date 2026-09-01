@@ -9,6 +9,7 @@ import {
 import { backfillPageHistory, backfillPageHistoryForPage } from '../page-history-import.ts'
 import { createPageImporter } from '../page-import.ts'
 import { importNavigation } from '../navigation-import.ts'
+import { resolvePrimaryLocale } from '../context.ts'
 import { definePhase } from './define-phase.ts'
 import type { Page } from '../../models/pages.ts'
 import type { ContentStagingOptions, StagedPage } from '../content-staging.ts'
@@ -37,9 +38,21 @@ import type { WriteRecorder } from '../recorder.ts'
 async function routePageOutcome(
   recorder: WriteRecorder,
   identifier: string,
-  outcome: PageImportOutcome
+  outcome: PageImportOutcome,
+  warnings: string[],
+  log: ((message: string) => void) | undefined
 ): Promise<void> {
   if (outcome.status === 'created') {
+    // -> `warnings` (`pageImporter.succeeded`'s just-pushed entry — includes a page-history-backfill
+    //    failure, per page-import.ts's own `importOne()`) has nowhere else to go: `PageImportOutcome`'s
+    //    'created' variant carries only `pageId`, and neither `WriteRecorder`/`PhaseReport` has a
+    //    per-record note field (the same gap `phases/users.ts#routeOutcome()`'s doc comment describes
+    //    for a group's dropped-permissions note) — logged here instead (whole-branch review Important
+    //    #3), one line per warning so a long list of backfill failures doesn't collapse into one
+    //    unreadable line.
+    for (const warning of warnings) {
+      log?.(`page ${identifier}: ${warning}`)
+    }
     // -> The real (or dry-run placeholder — see entities() below) write already happened inside
     //    importOne(), so this write callback is a deliberate no-op, not a second write. It still has
     //    to be a real function (not omitted): define-phase.ts#trackWriteCapability() reads "was
@@ -227,7 +240,7 @@ export const contentPhase = definePhase({
     const navigationModel: NavigationWriteModel = {
       async ensureSiteNav(siteId) {
         if (ctx.dryRun) return
-        await WIKI.models.navigation.ensureSiteNav(siteId, ctx.primaryLocale)
+        await WIKI.models.navigation.ensureSiteNav(siteId, resolvePrimaryLocale(ctx))
       },
       async writeSiteItems(siteId, items) {
         // -> See the module doc comment's "Navigation targets are sanitized" section: setNavItems()
@@ -253,7 +266,7 @@ export const contentPhase = definePhase({
           }
         }
         if (ctx.dryRun) return
-        const navId = await WIKI.models.navigation.ensureSiteNav(siteId, ctx.primaryLocale)
+        const navId = await WIKI.models.navigation.ensureSiteNav(siteId, resolvePrimaryLocale(ctx))
         await WIKI.models.navigation.setNavItems(siteId, navId, sanitized)
       }
     }
@@ -270,7 +283,9 @@ export const contentPhase = definePhase({
         classify: async (record, recorder) => {
           const staged = record as StagedPage
           const outcome = await pageImporter.importOne(staged)
-          await routePageOutcome(recorder, String(staged.oldId), outcome)
+          const warnings =
+            outcome.status === 'created' ? (pageImporter.succeeded.at(-1)?.warnings ?? []) : []
+          await routePageOutcome(recorder, String(staged.oldId), outcome, warnings, ctx.log)
         }
       },
       navigation: {
@@ -301,13 +316,27 @@ export const contentPhase = definePhase({
           }
 
           const staged = await extractNavigation(ctx.source)
-          await importNavigation(
+          const navigationResult = await importNavigation(
             staged,
             stagingContext.stagedPageRefs,
             pageImporter.pageIdMap,
             navigationDeps,
-            { siteId: ctx.siteId, locale: ctx.primaryLocale }
+            { siteId: ctx.siteId, locale: resolvePrimaryLocale(ctx) }
           )
+          // -> importNavigation()'s own `dropped`/`warnings` (whole-branch review Important #3) had
+          //    nowhere to go before this — `navigation` is a one-record sentinel (see below), so there
+          //    is no per-item `WriteRecorder` call to attach either to. Logged here instead, the same
+          //    "one line per entry" convention this phase already uses for the sanitize-before-write
+          //    step's own blanked-target warning (`navigationModel.writeSiteItems` above) and for the
+          //    orphaned-history backfill's own warnings/failures just above.
+          for (const warning of navigationResult.warnings) {
+            ctx.log?.(`navigation: ${warning}`)
+          }
+          for (const dropped of navigationResult.dropped) {
+            ctx.log?.(
+              `navigation item "${dropped.title}" (target "${dropped.target}"): dropped — ${dropped.reason}`
+            )
+          }
           // -> importNavigation() always writes something (an empty items array is a valid,
           //    successful outcome) and never throws for a dropped item — those are folded into its
           //    own `dropped`/`warnings` instead — so 'created' is always the right outcome for this

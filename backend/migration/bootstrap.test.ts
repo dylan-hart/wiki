@@ -10,15 +10,12 @@ import {
 } from './bootstrap.ts'
 import type { TestFixtures } from '../test/db.ts'
 
-const FAKE_SITE_ID = 'site-1'
-
 /** A minimal `WikiGlobal`-shaped fake for `resolveUsersImportContext()` — a pure function of
- * `WIKI.data`/`WIKI.config`/`WIKI.sites`, so no real bootstrap/db/models are needed to exercise it. */
-function fakeWiki(overrides: { data?: any; config?: any; sites?: any } = {}): any {
+ * `WIKI.data`/`WIKI.config`, so no real bootstrap/db/models are needed to exercise it. */
+function fakeWiki(overrides: { data?: any; config?: any } = {}): any {
   return {
     data: { systemIds: { localAuthId: 'local-auth-uuid', guestsGroupId: 'guest-group-uuid' } },
     config: { auth: { rootAdminGroupId: 'admin-group-uuid', rootAdminUserId: 'admin-user-uuid' } },
-    sites: { [FAKE_SITE_ID]: { config: { locales: { primary: 'en' } } } },
     ...overrides
   }
 }
@@ -112,21 +109,25 @@ describe('migration bootstrap', () => {
  * never called, or found an empty `settings` table) previously produced `undefined` values typed as
  * `string`, which `createUserGroupImporter()` then treats as "not created" and silently skips every
  * source-Administrators/-Guests membership, with no error anywhere.
+ *
+ * This function used to also resolve/validate a `primaryLocale` fifth field (Task 13), keyed off a
+ * `siteId` parameter — removed by the whole-branch review's Critical #1 fix, which moved that
+ * resolution into `context.ts#resolvePrimaryLocale()`, read fresh by the phases that need it instead of
+ * captured once here before any phase had run. See that function's own doc comment.
  */
-describe('resolveUsersImportContext (Task 14 review fix; Task 13 added primaryLocale)', () => {
-  test('resolves all four fields from a fully-populated WIKI', () => {
-    const result = resolveUsersImportContext(fakeWiki(), FAKE_SITE_ID)
+describe('resolveUsersImportContext (Task 14 review fix)', () => {
+  test('resolves all three fields from a fully-populated WIKI', () => {
+    const result = resolveUsersImportContext(fakeWiki())
     assert.deepEqual(result, {
       localStrategyId: 'local-auth-uuid',
       systemGroupIds: { admin: 'admin-group-uuid', guest: 'guest-group-uuid' },
-      operatorActorId: 'admin-user-uuid',
-      primaryLocale: 'en'
+      operatorActorId: 'admin-user-uuid'
     })
   })
 
   test('throws when WIKI.config.auth.rootAdminGroupId is missing (e.g. loadFromDb() was never called, or found an empty settings table)', () => {
     assert.throws(
-      () => resolveUsersImportContext(fakeWiki({ config: { auth: {} } }), FAKE_SITE_ID),
+      () => resolveUsersImportContext(fakeWiki({ config: { auth: {} } })),
       /rootAdminGroupId|adminGroupId/
     )
   })
@@ -135,24 +136,14 @@ describe('resolveUsersImportContext (Task 14 review fix; Task 13 added primaryLo
     assert.throws(
       () =>
         resolveUsersImportContext(
-          fakeWiki({ config: { auth: { rootAdminGroupId: 'admin-group-uuid' } } }),
-          FAKE_SITE_ID
+          fakeWiki({ config: { auth: { rootAdminGroupId: 'admin-group-uuid' } } })
         ),
       /operatorActorId/
     )
   })
 
   test('throws when WIKI.data.systemIds is missing/malformed', () => {
-    assert.throws(() =>
-      resolveUsersImportContext(fakeWiki({ data: { systemIds: {} } }), FAKE_SITE_ID)
-    )
-  })
-
-  test('throws when the target site has no config.locales.primary (Task 13)', () => {
-    assert.throws(
-      () => resolveUsersImportContext(fakeWiki({ sites: {} }), FAKE_SITE_ID),
-      /primaryLocale/
-    )
+    assert.throws(() => resolveUsersImportContext(fakeWiki({ data: { systemIds: {} } })))
   })
 })
 
