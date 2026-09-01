@@ -235,7 +235,7 @@
       <template v-else>
         <w-card>
           <w-table
-            :rows="state.jobs"
+            :rows="historyRows"
             :columns="jobsHeaders"
             row-key="id"
             flat
@@ -286,8 +286,44 @@
             </template>
             <template v-slot:body-cell-task="props">
               <w-td :props="props">
-                <strong>{{ props.value }}</strong>
-                <div>
+                <!--
+                  A collapsed group's summary row (OpenProject #2337) -- clicking it expands the group
+                  in place to list every individual run beneath it. `w-unstyled` strips the default
+                  button chrome, matching WChip's own remove button.
+                -->
+                <button
+                  v-if="props.row.groupCount > 1"
+                  type="button"
+                  class="w-unstyled flex items-center gap-2 text-start"
+                  :aria-expanded="String(props.row.groupExpanded)"
+                  :aria-label="
+                    props.row.groupExpanded
+                      ? t('admin.scheduler.groupCollapse', { task: props.row.groupTask })
+                      : t('admin.scheduler.groupExpand', { task: props.row.groupTask })
+                  "
+                  @click="toggleGroup(props.row.groupTask)">
+                  <w-icon
+                    name="mdi:chevron-down"
+                    size="14px"
+                    class="shrink-0 transition-transform"
+                    :class="props.row.groupExpanded ? '' : '-rotate-90'" />
+                  <strong>{{ props.value }}</strong>
+                  <w-chip square dense size="xs" color="grey-8" text-color="white">
+                    {{
+                      t(
+                        'admin.scheduler.groupRuns',
+                        { count: props.row.groupCount },
+                        props.row.groupCount
+                      )
+                    }}
+                  </w-chip>
+                </button>
+                <strong
+                  v-else
+                  :class="props.row.groupChild ? 'inline-block pl-6 font-normal' : ''"
+                  >{{ props.value }}</strong
+                >
+                <div v-if="!props.row.groupChild">
                   <small class="text-grey">{{ props.row.id }}</small>
                 </div>
               </w-td>
@@ -368,9 +404,12 @@
                 <!-- the exact same rule it fails one under, so both states are withheld the same -->
                 <!-- way -- `failed` alone would leave the button live on a job the scheduler is -->
                 <!-- about to retry on its own. -->
+                <!-- `groupCount === 1` also withholds it on a collapsed group's synthetic summary -->
+                <!-- row (OpenProject #2337), which has no real job id behind it to retry -- expand -->
+                <!-- the group to retry one specific run instead. -->
                 <w-btn
                   class="acrylic-btn px-2"
-                  v-if="props.row.state !== `active`"
+                  v-if="props.row.state !== `active` && props.row.groupCount === 1"
                   flat
                   icon="la:undo-alt"
                   color="orange"
@@ -400,7 +439,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, watch } from 'vue'
+import { computed, onMounted, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useDark } from '@/composables/dark'
@@ -409,6 +448,7 @@ import { notify } from '@/composables/notify'
 
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDateWithSeconds, humanizeDuration, relativeDate } from '@/helpers/datetime'
+import { flattenJobHistoryRows } from '@/helpers/jobHistoryGrouping'
 
 // COMPOSABLES
 
@@ -432,7 +472,13 @@ const state = reactive({
   upcomingJobs: [],
   jobs: [],
   jobsTotal: 0,
-  loading: 0
+  loading: 0,
+  /**
+   * Task names currently expanded in the Active/Completed/Failed tabs' collapsed-by-task view
+   * (OpenProject #2337) -- keyed by task name rather than by tab, so re-expanding after a refresh, or
+   * seeing the same task expanded on both the Completed and Failed tabs, both fall out for free.
+   */
+  expandedGroups: new Set()
 })
 
 /** How many history entries a tab shows. The API caps this at 500. */
@@ -607,6 +653,15 @@ const jobsHeaders = [
   }
 ]
 
+// COMPUTED
+
+/**
+ * The Active/Completed/Failed tab's rows, with any task that ran more than once collapsed into one
+ * summary row -- see `helpers/jobHistoryGrouping.js` for why (OpenProject #2337:
+ * `storageSyncTick`'s every-minute cron tick was drowning out every other task in this list).
+ */
+const historyRows = computed(() => flattenJobHistoryRows(state.jobs, state.expandedGroups))
+
 // WATCHERS
 
 watch(
@@ -617,6 +672,14 @@ watch(
 )
 
 // METHODS
+
+function toggleGroup(task) {
+  if (state.expandedGroups.has(task)) {
+    state.expandedGroups.delete(task)
+  } else {
+    state.expandedGroups.add(task)
+  }
+}
 
 async function load() {
   state.loading++
