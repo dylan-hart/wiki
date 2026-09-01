@@ -42,3 +42,16 @@ security:
   #    `backend/helpers/rateLimit.test.ts`'s job, against a real policy), so there is nothing lost by
   #    turning it off for this suite's own repeated, legitimate logins.
   authRateLimitEnabled: false
+  # -> `base.yml`'s default (`true`) marks the session cookie `Secure` and names it with the
+  #    `__Host-` prefix (`index.ts`'s `fastifySession` registration, `helpers/security.ts`'s
+  #    `sessionCookieName()`) -- a browser refuses to store a `Secure` cookie at all over a
+  #    connection it sees as plain HTTP, and `playwright.config.js`'s `BASE_URL` is
+  #    `http://localhost:3000`, no TLS anywhere in the chain. Left at the default, every login
+  #    this suite drives "succeeds" server-side (the `PUT .../auth/login` response is a real
+  #    200) but the browser silently drops the `Set-Cookie` header, so the very next request is
+  #    unauthenticated -- which `Index.vue`'s route watcher reads as a guest visiting a pageless
+  #    site and bounces straight back to `/login`, the same redirect `multi-site.spec.js`'s own
+  #    root-based-assertion note describes. `security.cookieSecure: false` is `base.yml`'s own
+  #    documented escape hatch for exactly this shape of deployment (a plain-HTTP dev/test
+  #    instance) -- see its doc comment there and `index.ts`'s `secure: ... !== false` line.
+  cookieSecure: false
