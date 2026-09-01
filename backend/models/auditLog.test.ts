@@ -1,9 +1,12 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 import { actorFromRequest, AUDIT_EVENTS, AUDIT_TARGET_TYPES } from './auditLog.ts'
 import type { AuditEvent, AuditTargetType } from './auditLog.ts'
 import type { FastifyRequest } from 'fastify'
+
+await ensureTemporal()
 
 /**
  * OpenProject #2231/#2237: the system/security/flags/auditLog event vocabulary added to close the
@@ -282,7 +285,7 @@ describe('auditLog record/list/listActors/purge (DB-backed)', { skip: !hasTestDa
     this batched path instead of one `record()` call per page.
   */
   test('recordMany() writes N entries in one call, matching N record() calls', async () => {
-    const before = (await auditLogModel.list()).total
+    const before = (await auditLogModel.list({ event: 'page.classificationChanged' })).total
     await auditLogModel.recordMany([
       {
         event: 'page.classificationChanged',

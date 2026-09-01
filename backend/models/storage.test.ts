@@ -819,18 +819,21 @@ describe(
       await teardownTestDb()
     })
 
-    test('hasImplementation() flips true for s3, azure and gcs, and stays false for a config-only module', () => {
+    test('hasImplementation() flips true for s3, azure, gcs and sftp', () => {
       assert.equal(storage.getDefinition('s3')?.hasImplementation, true)
       assert.equal(storage.getDefinition('azure')?.hasImplementation, true)
       assert.equal(storage.getDefinition('gcs')?.hasImplementation, true)
-      // -> sftp ships only a definition.yml, no storage.ts — the contrast case proving the flip is a
-      //    real disk check and not a constant true.
-      assert.equal(storage.getDefinition('sftp')?.hasImplementation, false)
+      // -> Tasks 521/522/523 gave sftp a real storage.ts too (connection.ts + pages.ts + assets.ts,
+      //    orchestrated by exportAll) -- it is no longer the config-only contrast case it once was.
+      //    Every module under modules/storage now ships a real storage.ts (see CLAUDE.md's
+      //    `modules/` section), so there is no remaining config-only module to assert `false`
+      //    against here.
+      assert.equal(storage.getDefinition('sftp')?.hasImplementation, true)
     })
 
-    test('getSiteTargets() exposes the exportAll action for s3/azure/gcs, and none for sftp', async () => {
+    test('getSiteTargets() exposes the exportAll action for s3/azure/gcs/sftp', async () => {
       const targets = await storage.getSiteTargets(fixtures.siteId)
-      for (const key of ['s3', 'azure', 'gcs']) {
+      for (const key of ['s3', 'azure', 'gcs', 'sftp']) {
         const target = targets.find((t) => t.module === key)
         assert.ok(target, `expected a ${key} target row`)
         assert.ok(
@@ -838,9 +841,6 @@ describe(
           `expected ${key}'s actions to include exportAll`
         )
       }
-      const sftpTarget = targets.find((t) => t.module === 'sftp')
-      assert.ok(sftpTarget, 'expected an sftp target row')
-      assert.deepEqual(sftpTarget!.actions, [])
     })
 
     test('ensureModule() dynamically loads the real s3 module through the extension-sensitive import path', async () => {

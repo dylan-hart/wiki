@@ -142,7 +142,7 @@ export class BlockPdfElement extends LitElement {
         default: 1024
       },
       {
-        name: 'hideToolbar',
+        name: 'hide-toolbar',
         type: 'boolean',
         label: 'Hide Toolbar',
         hint: 'Leave out the page and zoom controls.',
@@ -433,9 +433,14 @@ export class BlockPdfElement extends LitElement {
 
       /**
        * Whether to leave out the page and zoom controls
+       *
+       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
+       *    dash inserted) would listen for `hidetoolbar` while the block picker — which writes the
+       *    literal `static definition.props[].name`, `hide-toolbar` — writes `hide-toolbar` into the
+       *    page.
        * @type {boolean}
        */
-      hideToolbar: boolean,
+      hideToolbar: { ...boolean, attribute: 'hide-toolbar' },
 
       // Internal Properties
       _error: { state: true },

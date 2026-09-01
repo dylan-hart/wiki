@@ -60,7 +60,7 @@ export class BlockIncludeElement extends LitElement {
         hint: "Locale of the page to include. This page's own locale when empty."
       },
       {
-        name: 'showTitle',
+        name: 'show-title',
         type: 'boolean',
         label: 'Show Title',
         hint: "Draw the included page's title above it.",
@@ -86,9 +86,13 @@ export class BlockIncludeElement extends LitElement {
 
       /**
        * Whether to draw the included page's title above it
+       *
+       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
+       *    dash inserted) would listen for `showtitle` while the block picker — which writes the
+       *    literal `static definition.props[].name`, `show-title` — writes `show-title` into the page.
        * @type {boolean}
        */
-      showTitle: boolean,
+      showTitle: { ...boolean, attribute: 'show-title' },
 
       // Internal Properties
       _loading: { state: true },

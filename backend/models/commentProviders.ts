@@ -42,9 +42,8 @@ export interface CommentProviderDefinition {
    * Whether a `comments.ts` sits next to the definition, i.e. whether this provider has server-side
    * code behind it. Only the `default` provider does today — every external provider is pure
    * client-side configuration (a shortname/instance URL passed to the vendor's own embed script), so
-   * it never needs one. Mirrors `StorageDefinition.hasImplementation` in `models/storage.ts`, but see
-   * `isSelectable()` below for why a comment provider cannot be gated on this field alone the way a
-   * storage target currently is.
+   * it never needs one. Mirrors `StorageDefinition.hasImplementation` in `models/storage.ts`, and — see
+   * `isSelectable()` below — is now the sole gate on selectability, the same as it is there.
    */
   hasImplementation: boolean
 }
@@ -452,13 +451,12 @@ class CommentProviders {
     if (!definition) {
       return null
     }
-    // -> A non-selectable module (no server-side implementation, and not declared as a client-side
-    //    `codeTemplate` embed) must never be stored as active in the first place -- see
-    //    `getActiveProvider` above for the read-side half of this, covering a module that becomes
-    //    non-selectable AFTER a site already activated it.
+    // -> A non-selectable module (no server-side implementation) must never be stored as active in the
+    //    first place -- see `getActiveProvider` above for the read-side half of this, covering a
+    //    module that becomes non-selectable AFTER a site already activated it.
     if (!this.isSelectable(definition)) {
       throw new Error(
-        `${definition.title} cannot be activated: it has no server-side implementation and does not declare codeTemplate.`
+        `${definition.title} cannot be activated: it has no server-side implementation.`
       )
     }
     const invalid = this.validateConfig(moduleKey, config)

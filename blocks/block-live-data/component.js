@@ -93,27 +93,27 @@ export class BlockLiveDataElement extends LitElement {
         required: true
       },
       {
-        name: 'jsonPath',
+        name: 'json-path',
         type: 'string',
         label: 'JSONPath',
         hint: 'Expression naming the one field to show, e.g. $.data.temperature.',
         default: '$'
       },
       {
-        name: 'credentialId',
+        name: 'credential-id',
         type: 'string',
         label: 'Credential ID',
         hint: "A stored credential's id, from this site's Content Blocks admin page. The url above must be within that credential's allowed domains, or the fetch is refused. Leave blank for an endpoint that takes no authentication."
       },
       {
-        name: 'refreshInterval',
+        name: 'refresh-interval',
         type: 'number',
         label: 'Refresh Interval (seconds)',
         hint: 'How often to re-fetch. The server clamps this to 10 seconds - 24 hours.',
         default: 60
       },
       {
-        name: 'displayMode',
+        name: 'display-mode',
         type: 'select',
         label: 'Display',
         options: ['value', 'sparkline', 'status'],
@@ -132,13 +132,13 @@ export class BlockLiveDataElement extends LitElement {
         hint: 'Shown after the value, e.g. °C or %.'
       },
       {
-        name: 'okMax',
+        name: 'ok-max',
         type: 'number',
         label: 'OK Threshold (status mode)',
         hint: 'A value at or below this is shown green.'
       },
       {
-        name: 'warnMax',
+        name: 'warn-max',
         type: 'number',
         label: 'Warning Threshold (status mode)',
         hint: 'A value at or below this (but above the OK threshold) is shown amber; above it, red.'
@@ -278,14 +278,31 @@ export class BlockLiveDataElement extends LitElement {
   static get properties() {
     return {
       url: { type: String },
-      jsonPath: { type: String },
-      credentialId: { type: String },
-      refreshInterval: { type: Number },
-      displayMode: { type: String },
+
+      /**
+       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
+       *    dash inserted) would listen for `jsonpath` while the block picker — which writes the
+       *    literal `static definition.props[].name`, `json-path` — writes `json-path` into the page.
+       */
+      jsonPath: { type: String, attribute: 'json-path' },
+
+      // -> Explicit `attribute`, for the same reason as `jsonPath` above.
+      credentialId: { type: String, attribute: 'credential-id' },
+
+      // -> Explicit `attribute`, for the same reason as `jsonPath` above.
+      refreshInterval: { type: Number, attribute: 'refresh-interval' },
+
+      // -> Explicit `attribute`, for the same reason as `jsonPath` above.
+      displayMode: { type: String, attribute: 'display-mode' },
+
       label: { type: String },
       unit: { type: String },
-      okMax: { type: Number },
-      warnMax: { type: Number },
+
+      // -> Explicit `attribute`, for the same reason as `jsonPath` above.
+      okMax: { type: Number, attribute: 'ok-max' },
+
+      // -> Explicit `attribute`, for the same reason as `jsonPath` above.
+      warnMax: { type: Number, attribute: 'warn-max' },
 
       // Internal properties
       _status: { state: true },

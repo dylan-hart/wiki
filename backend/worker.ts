@@ -4,13 +4,13 @@ import path from 'node:path'
 import configSvc from './core/config.ts'
 import logger from './core/logger.ts'
 import dbManager from './core/db.ts'
-
-// `Temporal` has been a real native global since Node 26.0.0 (see index.ts's own comment) — no
-// polyfill install is needed here either, on the real boot path.
+import { ensureTemporal } from './core/temporal.ts'
 
 // ----------------------------------------
 // Init Minimal Core
 // ----------------------------------------
+
+await ensureTemporal()
 
 const WIKI = {
   IS_DEBUG: process.env.NODE_ENV === 'development',

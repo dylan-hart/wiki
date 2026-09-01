@@ -197,7 +197,7 @@ Website: https://montreal.ca
         hint: 'Path or URL of a picture to show under the heading.'
       },
       {
-        name: 'imageCaption',
+        name: 'image-caption',
         type: 'string',
         label: 'Image Caption',
         hint: 'Shown under the picture.'
@@ -438,9 +438,14 @@ Website: https://montreal.ca
 
       /**
        * Caption under the picture
+       *
+       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
+       *    dash inserted) would listen for `imagecaption` while the block picker — which writes the
+       *    literal `static definition.props[].name`, `image-caption` — writes `image-caption` into
+       *    the page.
        * @type {string}
        */
-      imageCaption: { type: String },
+      imageCaption: { type: String, attribute: 'image-caption' },
 
       // Internal Properties
       _entries: { state: true },

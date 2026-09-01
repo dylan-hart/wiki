@@ -56,7 +56,8 @@ function stubBlocks(definitions: unknown[], enabled: Set<string>) {
     models: {
       blocks: {
         definitions,
-        getEnabledKeys: mock.fn(async () => enabled)
+        getEnabledKeys: mock.fn(async () => enabled),
+        getCustomBlockDefinitions: mock.fn(async () => [])
       }
     }
   }

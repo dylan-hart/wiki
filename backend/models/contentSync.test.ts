@@ -1,17 +1,11 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { asc, eq, sql } from 'drizzle-orm'
-import { drizzle } from 'drizzle-orm/node-postgres'
-import { Pool } from 'pg'
-import { relations } from '../db/relations.ts'
+import { eq, sql } from 'drizzle-orm'
 import {
   assets as assetsTable,
-  classificationLevels as classificationLevelsTable,
   pages as pagesTable,
-  sites as sitesTable,
-  storage as storageTable,
-  users as usersTable
+  storage as storageTable
 } from '../db/schema.ts'
 import {
   hasTestDatabase,
@@ -29,16 +23,27 @@ import { ensureTemporal } from '../test/temporal.ts'
  * correctness — the out-of-date query's LEFT JOIN/NULL handling and the upsert's conflict target are
  * exactly the kind of thing a mock of the query builder would not actually verify.
  *
- * Skipped unless `DATABASE_URL` points at a real database with this repo's migrations applied — see
- * `README` / `CLAUDE.md` for spinning up a throwaway one. Nothing here mutates outside a `siteId`
- * created and torn down by this file.
+ * Skipped unless `DATABASE_URL` is set. Uses `test/db.ts`'s `setupTestDb()`/`teardownTestDb()` --
+ * the same fresh, fully-migrated, per-run schema every other DB-backed suite in this repo uses (see
+ * `forgetContent via pages.deletePage (DB-backed)` below, which already followed this convention) --
+ * rather than hand-rolling a `Pool` against whatever happens to already be sitting in the target
+ * database's `public` schema. The latter used to be exactly what this file did, and it is what let a
+ * schema drift on a long-lived local/shared `DATABASE_URL` (a `public.contentSyncState` still holding
+ * the pre-#1650 naive `timestamp` column, missing migration `20260827090623`'s conversion to
+ * `timestamp with time zone`) go completely undetected until the TZ round-trip regression test below
+ * happened to catch its symptom: postgres-date's decoder falls back to interpreting an offset-less
+ * wire value in the *process's* local `TZ` (OpenProject #1639/#1650). `contentSync.ts`'s own
+ * Temporal/ISO-string handling was never the bug -- verified directly against a fresh, correctly
+ * `timestamptz`-typed schema, the round trip is exact under any process `TZ`. Isolating this suite's
+ * fixture the same way the rest of the codebase does removes the whole class of failure, not just
+ * today's symptom of it.
  */
 const DATABASE_URL = process.env.DATABASE_URL
 const skip = DATABASE_URL
   ? false
   : 'requires DATABASE_URL (a Postgres instance with migrations applied)'
 
-let pool: Pool
+let fixtures: TestFixtures
 let siteId: string
 let userId: string
 let pageTargetId: string
@@ -51,36 +56,11 @@ before(async () => {
   }
   await ensureTemporal()
 
-  pool = new Pool({ connectionString: DATABASE_URL })
-  const db = drizzle({ client: pool, relations })
-  global.WIKI = {
-    db,
-    logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
-  } as unknown as WikiGlobal
-
-  const [site] = await WIKI.db
-    .insert(sitesTable)
-    .values({ hostname: `contentsync-test-${Date.now()}.example.com`, config: {} })
-    .returning({ id: sitesTable.id })
-  siteId = site.id
-
-  const [user] = await WIKI.db
-    .insert(usersTable)
-    .values({ email: `contentsync-test-${Date.now()}@example.com`, name: 'Content Sync Test' })
-    .returning({ id: usersTable.id })
-  userId = user.id
-
-  // -> Not inserted: the real migration this schema was built from already seeds the three default
-  //    levels at fixed ids (`db/migrations/.../migration.sql`, mirroring
-  //    `models/classificationLevels.ts#init()`) -- the same "Public" a fresh install gets, and an
-  //    unconditional `INSERT` this test cannot duplicate without colliding with the seed's own
-  //    `sortOrder` unique index. Read back rather than inserted, matching `test/db.ts#setupTestDb()`.
-  const [classification] = await WIKI.db
-    .select({ id: classificationLevelsTable.id })
-    .from(classificationLevelsTable)
-    .orderBy(asc(classificationLevelsTable.sortOrder))
-    .limit(1)
-  classificationId = classification.id
+  fixtures = await setupTestDb()
+  await seedLocale(fixtures.db, { code: 'en' })
+  siteId = fixtures.siteId
+  userId = fixtures.userId
+  classificationId = fixtures.classificationId
 
   const targets = await WIKI.db
     .insert(storageTable)
@@ -97,16 +77,7 @@ after(async () => {
   if (!DATABASE_URL) {
     return
   }
-  // -> Children first: none of these foreign keys cascade from `sites`, and `storage` cascades
-  //    `contentSyncState` on its own way out.
-  await WIKI.db.delete(pagesTable).where(eq(pagesTable.siteId, siteId))
-  await WIKI.db.delete(assetsTable).where(eq(assetsTable.siteId, siteId))
-  await WIKI.db.delete(storageTable).where(eq(storageTable.siteId, siteId))
-  await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, siteId))
-  await WIKI.db.delete(usersTable).where(eq(usersTable.id, userId))
-  // -> The classification level itself is not this test's to delete -- it's the migration's own seed
-  //    row (see the `before()` comment above), shared with every other suite against this database.
-  await pool.end()
+  await teardownTestDb()
 })
 
 /** Inserts a page owned by the fixture site/user, returning its id. */

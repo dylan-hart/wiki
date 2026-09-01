@@ -42,7 +42,7 @@ export class BlockChecklistElement extends LitElement {
     icon: 'todo-list',
     props: [
       {
-        name: 'runKey',
+        name: 'run-key',
         type: 'string',
         label: 'Run Key',
         hint: "This checklist's run log identity. Keep it the same across page edits — changing it starts a brand new, empty log.",
@@ -166,8 +166,15 @@ export class BlockChecklistElement extends LitElement {
 
   static get properties() {
     return {
-      /** This checklist's run log identity. @type {string} */
-      runKey: { type: String },
+      /**
+       * This checklist's run log identity.
+       *
+       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
+       *    dash inserted) would listen for `runkey` while the block picker — which writes the literal
+       *    `static definition.props[].name`, `run-key` — writes `run-key` into the page.
+       * @type {string}
+       */
+      runKey: { type: String, attribute: 'run-key' },
 
       /** Shown above the checklist. @type {string} */
       heading: { type: String },

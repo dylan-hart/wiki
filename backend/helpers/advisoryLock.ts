@@ -130,22 +130,46 @@ let lockPool: Pool | null = null
  * Lazily build the dedicated advisory-lock pool from the same connection parameters the main pool was
  * built from (`WIKI.dbManager.config`, populated once `dbManager.init()` has run — always true by the
  * time any job dispatches a lock, since nothing during boot itself calls `withAdvisoryLock`).
+ *
+ * Every real boot path (`index.ts`, `mcp/bootstrap.ts`, `migration/bootstrap.ts`,
+ * `scripts/audit-site-scoped-rules.ts`) sets `WIKI.dbManager` to the real `core/db.ts` module and
+ * always calls `dbManager.init()` before `WIKI.db` is usable, so `WIKI.dbManager.config` is always
+ * present by the time production code gets here. A lightweight test harness can legitimately build
+ * `WIKI.db` directly (a plain `drizzle({ client: pool, ... })`) without ever running `dbManager.init()`
+ * — for that shape only, fall back to reusing `WIKI.db.$client` itself rather than throwing on
+ * `WIKI.dbManager` (or its `.config`) being absent. This is not a legacy shim: production always takes
+ * the primary branch, since `WIKI.dbManager` is unconditionally populated during boot.
  */
 function getLockPool(): Pool {
   if (!lockPool) {
-    lockPool = new Pool({
-      ...(WIKI.dbManager.config as PoolConfig),
-      application_name: `Wiki.js - ${WIKI.INSTANCE_ID}:LOCKS`,
-      max: LOCK_POOL_MAX
-    })
+    lockPool = WIKI.dbManager?.config
+      ? new Pool({
+          ...(WIKI.dbManager.config as PoolConfig),
+          application_name: `Wiki.js - ${WIKI.INSTANCE_ID}:LOCKS`,
+          max: LOCK_POOL_MAX
+        })
+      : (WIKI.db.$client as Pool)
   }
   return lockPool
 }
 
-/** Test-only: drop the cached pool so a suite can rebuild it against its own `DATABASE_URL`/config, and close it in `after()` so the process can exit. */
+/**
+ * Test-only: drop the cached pool so a suite can rebuild it against its own `DATABASE_URL`/config, and
+ * close it in `after()` so the process can exit.
+ *
+ * Tolerates a pool that has already been ended by whoever constructed it — the fallback branch of
+ * `getLockPool()` above can hand back a pool object a test owns and closes directly (e.g.
+ * `WIKI.db.$client`), so by the time a later test resets the cache, `.end()` on it may already have
+ * run. This only needs to guarantee the module-level cache itself is cleared, not that it is the one
+ * to close the connection.
+ */
 export async function _resetLockPoolForTests(): Promise<void> {
   if (lockPool) {
-    await lockPool.end()
+    try {
+      await lockPool.end()
+    } catch {
+      // -> Already ended elsewhere -- see doc comment above.
+    }
     lockPool = null
   }
 }

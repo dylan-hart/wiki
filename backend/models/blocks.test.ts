@@ -527,6 +527,14 @@ describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () =
       }
     ]
 
+    // -> This describe block's `before()`/`after()` run once for the whole block, so this test shares
+    //    its schema and `fixtures.siteId` with every other test here -- an earlier test already left a
+    //    'map' row behind. Clear it first so this insert exercises what the test actually means to set
+    //    up, instead of colliding with `blocks_composite_idx` on the leftover row.
+    await fixtures.db
+      .delete(blocksTable)
+      .where(and(eq(blocksTable.siteId, fixtures.siteId), eq(blocksTable.block, 'map')))
+
     const [row] = await fixtures.db
       .insert(blocksTable)
       .values({
@@ -562,6 +570,12 @@ describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () =
         config: [{ name: 'tileServerUrl', type: 'string' }]
       }
     ]
+
+    // -> Same shared-schema reason as the previous test: clear any 'map' row an earlier test in this
+    //    describe block left behind before inserting the one this test actually wants to act on.
+    await fixtures.db
+      .delete(blocksTable)
+      .where(and(eq(blocksTable.siteId, fixtures.siteId), eq(blocksTable.block, 'map')))
 
     const [row] = await fixtures.db
       .insert(blocksTable)
@@ -695,6 +709,15 @@ describe(
           config: [{ name: 'server', type: 'string' }]
         }
       ]
+      // -> This describe block's `before()`/`after()` also run once for the whole block, and
+      //    `assertValidConfig()` (`models/blocks.ts`) hardcodes the literal block key 'plantuml' to
+      //    validate against, so this test's row can't just be renamed per-test the way the other
+      //    describe blocks in this file give each test its own unique `block` key. Clear any row a
+      //    previous test in here left behind instead, so every call gets a fresh row rather than
+      //    colliding with `blocks_composite_idx`.
+      await fixtures.db
+        .delete(blocksTable)
+        .where(and(eq(blocksTable.siteId, fixtures.siteId), eq(blocksTable.block, 'plantuml')))
       const [row] = await fixtures.db
         .insert(blocksTable)
         .values({

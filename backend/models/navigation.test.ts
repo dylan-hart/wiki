@@ -2453,7 +2453,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         type: 'folder'
       })
 
-      const outerNavId = randomUUID()
+      const outerNavId = await createNavId()
       const outerBoundary = await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'cascade-f-root/outer',
@@ -2472,7 +2472,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         navigationId: null
       })
 
-      const belowInnerSentinel = randomUUID()
+      const belowInnerSentinel = await createNavId()
       const belowInner = await seedTreeEntry(fixtures.db, {
         siteId: fixtures.siteId,
         path: 'cascade-f-root/outer/inner/leaf',

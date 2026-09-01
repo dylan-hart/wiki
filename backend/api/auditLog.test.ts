@@ -7,7 +7,10 @@ import auditLogRoutes from './auditLog.ts'
 import { registerSchemas as registerAuditLogSchema } from './schemas/auditLog.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 import { AUDIT_LOG_RETENTION_DAYS_FLOOR } from '../models/auditLog.ts'
+
+await ensureTemporal()
 
 /**
  * DB-backed route test for OpenProject #2237: `PUT /_api/audit-log/settings` against a real,

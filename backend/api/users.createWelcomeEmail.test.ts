@@ -45,6 +45,9 @@ before(async () => {
           auditLogCalls.push(args)
         }
       },
+      groups: {
+        getAllGroups: async () => []
+      },
       mail: {
         isConfigured: () => mailConfigured,
         sendWelcomeEmail: async (args: any) => {

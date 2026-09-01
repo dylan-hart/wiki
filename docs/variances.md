@@ -22,9 +22,6 @@ carrying a marker isn't named here, so this list cannot silently drift out of da
 - **`backend/mcp/site.ts`** (TODO, via its own doc comment) — flags that the site type it re-exports is
   narrowed off `WIKI.sites`' `Record<string, any>` shape, standing on the same untightened type
   `backend/types/global.d.ts` tracks below rather than duplicating a separate fix.
-- **`backend/models/approvals.ts`** (`TODO(#375)`) — send the actual reviewer notification once
-  Feature 375 exposes a delivery primitive. Explicitly scoped to a real, tracked OpenProject item;
-  resolve by closing #375 and wiring this call, not by deleting the comment.
 - **`backend/types/global.d.ts`** (TODO) — `WIKI.sites` is typed `Record<string, any>` though `sites`
   has been a real Drizzle table for a while now; tightening it to the row type is a real but
   low-priority cleanup, not a design gap.

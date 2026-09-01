@@ -368,7 +368,10 @@ describe('the real api/index.ts, fully booted', () => {
   })
 
   test('a content route on a disabled site is refused 403', async () => {
-    const res = await app.inject({ method: 'GET', url: `/_api/sites/${DISABLED_SITE_ID}/pages` })
+    // -> GET PAGES tree (`/sites/:siteId/tree`), not `/sites/:siteId/pages` -- that exact path is
+    //    POST-only (CREATE PAGE), so a GET there 404s at the Fastify routing layer before
+    //    `siteEnabledPreHandler` ever runs, regardless of the site's `isEnabled` state.
+    const res = await app.inject({ method: 'GET', url: `/_api/sites/${DISABLED_SITE_ID}/tree` })
     assert.equal(res.statusCode, 403)
     assert.match(res.json().message, /disabled/i)
   })

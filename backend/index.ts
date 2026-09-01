@@ -34,6 +34,7 @@ import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import { registerUnhandledRejectionHandler, runBootPhaseOrExit } from './core/processGuards.ts'
 import scheduler from './core/scheduler.ts'
+import { ensureTemporal } from './core/temporal.ts'
 import { apiKeySitePinHook, isBearerAuthenticatedPath } from './helpers/apiKeySite.ts'
 import { resolveAppShellLocale, getTemplatedAppShell } from './helpers/appShell.ts'
 import { assertValidAuthSecret } from './helpers/authSecret.ts'
@@ -63,12 +64,6 @@ import {
   sessionCookieName,
   shouldBlockCrossOriginApiRequest
 } from './helpers/security.ts'
-
-// `Temporal` has been a real native global since Node 26.0.0 (unflagged, per Node's own release notes)
-// — the `engines` floor this repo requires — so the real boot path needs no polyfill install here.
-// `@js-temporal/polyfill` stays a devDependency purely for unit tests that still run under an older
-// local Node (see e.g. `models/security.test.ts`'s own local guard); that has nothing to do with this
-// file.
 
 const nanoid = customAlphabet('1234567890abcdef', 10)
 
@@ -144,6 +139,11 @@ if (existsSync('./package.json')) {
   console.error('ERROR: Must run server from the parent directory!')
   process.exit(1)
 }
+
+// Contrary to this repo's prior assumption, Node does not ship `Temporal` as an unflagged native
+// global even on Node 26 -- see `core/temporal.ts`'s doc comment. Must resolve before the `WIKI`
+// literal below, which calls `Temporal.Now.instant()` synchronously.
+await ensureTemporal()
 
 // The global is assembled progressively: the literal below holds what is known at startup, and
 // preBoot()/initHTTPServer() fill in db, models, cache, scheduler, events, app and server.

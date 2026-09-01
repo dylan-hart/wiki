@@ -3,19 +3,15 @@ import { after, before, describe, mock, test } from 'node:test'
 import crypto from 'node:crypto'
 import { eq, sql } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 import { pageviews as pageviewsTable } from '../db/schema.ts'
 import { hashVisitor, pageviews } from './pageviews.ts'
 import type { PageActor } from './pages.ts'
 
-// `Settings.init()` -> `generateSigningCertificates()` calls `Temporal.Now.instant()` unconditionally.
-// Node ships `Temporal` as a global from v26 -- but not every environment running this test has that
-// landed yet, and `@js-temporal/polyfill` (already pulled in transitively by drizzle-kit) is a
-// faithful ponyfill, so install it as the global only when it is genuinely missing, exactly as
-// `models/security.test.ts` does for the same reason.
-if (typeof Temporal === 'undefined') {
-  const { Temporal: TemporalPolyfill } = await import('@js-temporal/polyfill')
-  ;(globalThis as any).Temporal = TemporalPolyfill
-}
+// `Settings.init()` -> `generateSigningCertificates()` calls `Temporal.Now.instant()` unconditionally,
+// and `summary()` below calls `Date.prototype.toTemporalInstant()` -- `ensureTemporal()` installs both
+// the `Temporal` global and that Date method, not just the former (see its own doc comment).
+await ensureTemporal()
 
 /** A fixed test key so DB-backed tests below get deterministic, reproducible hashes. */
 const TEST_HASH_KEY = 'test-hash-key-0123456789abcdef'

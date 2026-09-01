@@ -221,6 +221,11 @@ describe(
         }
       })
       await app.register(fastifySensible)
+      // -> Mirrors `index.ts`'s real `setErrorHandler`: `groupsRoutes`' error responses
+      //    (`$ref: 'ApiError#'`) can't be serialized without this registered, and the schema-build
+      //    failure surfaces at `app.ready()` for every route in the plugin, not just the one under
+      //    test — see the sibling `describe` above for the fuller comment.
+      await registerErrorSchema(app)
       await registerUserSchema(app)
       await registerGroupSchema(app)
       await app.register(groupsRoutes)

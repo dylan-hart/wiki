@@ -27,7 +27,12 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { eq, sql } from 'drizzle-orm'
 import { relations } from '../db/relations.ts'
-import { siteAssets as siteAssetsTable, sites as sitesTable, userAvatars } from '../db/schema.ts'
+import {
+  siteAssets as siteAssetsTable,
+  sites as sitesTable,
+  userAvatars,
+  users as usersTable
+} from '../db/schema.ts'
 import { createExtensionsSerialized, hasTestDatabase } from './db.ts'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -88,7 +93,17 @@ describe('hash column backfill migration', { skip: !hasTestDatabase() }, () => {
       .values({ hostname: 'hash-backfill.localhost', isEnabled: true, config: {} })
       .returning({ id: sitesTable.id })
 
-    const avatarId = crypto.randomUUID()
+    // `userAvatars.id` is both its own primary key and a FK to `users.id` -- a real avatar row before
+    // #1846 always belonged to a real user, so seed one here instead of a fabricated, unowned UUID.
+    const [user] = await db
+      .insert(usersTable)
+      .values({
+        email: `hash-backfill-${crypto.randomUUID()}@example.com`,
+        name: 'Hash Backfill Test'
+      })
+      .returning({ id: usersTable.id })
+
+    const avatarId = user!.id
     const avatarData = Buffer.from('legacy-avatar-bytes')
     const assetData = Buffer.from('legacy-logo-bytes')
 

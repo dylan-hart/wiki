@@ -121,10 +121,10 @@ describe('cross-workspace permission vocabulary (OpenProject #1938)', () => {
     extractArrayLiteral(apiKeyScopesSrc, 'export const API_KEY_SCOPES = ')
   )
   const groupEditGlobalPermissions = extractKeyedPermissionLiterals(
-    extractArrayLiteral(groupEditOverlaySrc, 'const permissions = ')
+    extractArrayLiteral(groupEditOverlaySrc, 'const PERMISSIONS_DATA = ')
   )
   const groupEditRules = extractKeyedPermissionLiterals(
-    extractArrayLiteral(groupEditOverlaySrc, 'const rules = ')
+    extractArrayLiteral(groupEditOverlaySrc, 'const RULES_DATA = ')
   )
 
   test("apiKeyScopes.js's API_KEY_SCOPES matches ALL_PERMISSIONS (GLOBAL_PERMISSIONS + PAGE_PERMISSIONS) exactly", () => {

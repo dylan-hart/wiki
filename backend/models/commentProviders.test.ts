@@ -36,7 +36,10 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
         'vendor: Test',
         "website: ''",
         'isAvailable: true',
-        // -> Selectable via `codeTemplate`, same as Disqus/Commento/Artalk really are -- otherwise the
+        // -> `codeTemplate: true` is descriptive only -- since OpenProject #1958 it no longer grants
+        //    selectability on its own (see `isSelectable()`'s doc comment). This fixture is selectable
+        //    because it also gets its own `comments.ts` below, same as the real native `default`
+        //    provider does and the `default` fixture further down does too -- otherwise the
         //    OpenProject #1962 guard added to `setActiveProvider` would refuse every activation this
         //    describe block's other tests rely on, for a reason unrelated to what those tests cover.
         'codeTemplate: true',
@@ -52,6 +55,7 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
         '    sensitive: true'
       ].join('\n')
     )
+    await fs.writeFile(path.join(modulesDir, 'alpha', 'comments.ts'), 'export {}\n')
     await fs.mkdir(path.join(modulesDir, 'beta'), { recursive: true })
     await fs.writeFile(
       path.join(modulesDir, 'beta', 'definition.yml'),
@@ -67,6 +71,8 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
         'props: {}'
       ].join('\n')
     )
+    // -> Selectable for the same reason as `alpha` above: its own `comments.ts`, not `codeTemplate`.
+    await fs.writeFile(path.join(modulesDir, 'beta', 'comments.ts'), 'export {}\n')
     // -> Stands in for the real `default` provider: the only fixture module here with an actual
     //    `comments.ts` next to it, so `hasImplementation` is true and it is selectable on that basis
     //    alone, the same way the real native provider is. `getActiveProvider`'s fallback below

@@ -107,7 +107,7 @@ export class BlockGalleryElement extends LitElement {
     icon: 'image',
     props: [
       {
-        name: 'thumbnailSize',
+        name: 'thumbnail-size',
         type: 'number',
         label: 'Thumbnail Size',
         hint: 'Smallest a thumbnail may be, in pixels. The grid fits as many as the width allows.',
@@ -122,7 +122,7 @@ export class BlockGalleryElement extends LitElement {
         default: 'cover'
       },
       {
-        name: 'unlockAspectRatio',
+        name: 'unlock-aspect-ratio',
         type: 'boolean',
         label: 'Unlock Aspect Ratio',
         hint: 'Let each tile take the shape of its image, instead of holding every one square.',
@@ -361,9 +361,14 @@ https://example.com/photo-2.jpg`
     return {
       /**
        * Smallest a thumbnail may be, in pixels
+       *
+       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
+       *    dash inserted) would listen for `thumbnailsize` while the block picker — which writes the
+       *    literal `static definition.props[].name`, `thumbnail-size` — writes `thumbnail-size` into
+       *    the page.
        * @type {number}
        */
-      thumbnailSize: { type: Number },
+      thumbnailSize: { type: Number, attribute: 'thumbnail-size' },
 
       /**
        * How a thumbnail fills its tile: `cover` or `contain`
@@ -373,9 +378,14 @@ https://example.com/photo-2.jpg`
 
       /**
        * Whether a tile takes the shape of its image rather than being held square
+       *
+       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
+       *    dash inserted) would listen for `unlockaspectratio` while the block picker — which writes
+       *    the literal `static definition.props[].name`, `unlock-aspect-ratio` — writes
+       *    `unlock-aspect-ratio` into the page.
        * @type {boolean}
        */
-      unlockAspectRatio: boolean,
+      unlockAspectRatio: { ...boolean, attribute: 'unlock-aspect-ratio' },
 
       // Internal Properties
       _images: { state: true },

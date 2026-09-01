@@ -101,13 +101,13 @@ export class BlockMapElement extends LitElement {
         default: 'auto'
       },
       {
-        name: 'tileServerUrl',
+        name: 'tile-server-url',
         type: 'string',
         label: 'Tile Server URL',
         hint: "Overrides the default OpenStreetMap tiles for this map only. A site-wide tile server, set in this block's admin config, takes precedence over this."
       },
       {
-        name: 'apiKey',
+        name: 'api-key',
         type: 'string',
         label: 'API Key',
         hint: "Only needed for tile providers that require one. A site-wide key, set in this block's admin config, takes precedence over this."
@@ -277,16 +277,23 @@ export class BlockMapElement extends LitElement {
       /**
        * Overrides the default OpenStreetMap tiles for this one map. A site-wide tile server set in
        * this block's admin config takes precedence — see `resolveTileSettings`.
+       *
+       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
+       *    dash inserted) would listen for `tileserverurl` while the block picker — which writes the
+       *    literal `static definition.props[].name`, `tile-server-url` — writes `tile-server-url`
+       *    into the page.
        * @type {string}
        */
-      tileServerUrl: { type: String },
+      tileServerUrl: { type: String, attribute: 'tile-server-url' },
 
       /**
        * A tile provider's API key for this one map. A site-wide key set in this block's admin config
        * takes precedence — see `resolveTileSettings`.
+       *
+       * -> Explicit `attribute`, for the same reason as `tileServerUrl` above.
        * @type {string}
        */
-      apiKey: { type: String },
+      apiKey: { type: String, attribute: 'api-key' },
 
       // Internal Properties
       _error: { state: true }

@@ -472,8 +472,16 @@ Consequences worth knowing:
   failures into `{ ok, error, statusCode, message }` JSON.
 - **Schema changes**: edit `db/schema.ts`, then `npm run db-generate` and commit the generated
   migration. Never hand-edit an existing migration.
-- **Dates use the native `Temporal` API**, not luxon (no longer a backend dependency). `Temporal` is a
-  global in Node 26 and is typed by the TS 7 lib, so it needs no import. Four things to know:
+- **Dates use the `Temporal` API**, not luxon (no longer a backend dependency), and it is typed by the
+  TS 7 lib so it needs no type import. **It is not, however, a native global** — verified directly
+  against a real Node 26.7.0 binary: `typeof Temporal` is `undefined`, `Date.prototype.toTemporalInstant`
+  doesn't exist, and neither `--harmony-temporal` nor `--experimental-temporal` change that. `index.ts`
+  and `worker.ts` used to carry a comment claiming otherwise; both were wrong, and both call
+  `core/temporal.ts`'s `ensureTemporal()` (installing `@js-temporal/polyfill`, a real `dependencies`
+  entry, not just a test-only devDependency) as their first async step, before anything touches
+  `Temporal`. A new backend entry point (a script run outside `index.ts`/`worker.ts`, e.g. under
+  `scripts/` or `tasks/`) must call `ensureTemporal()` itself before using `Temporal` — it is not
+  ambiently available. Five things to know about the API itself:
   - `Temporal.Instant` accepts **exact time units only** — `add({ days: 1 })` throws. Since these are
     all UTC instants, use `{ hours: 24 }`.
   - Temporal types have no `valueOf`, so `a < b` **throws**. Compare with
@@ -481,9 +489,15 @@ Consequences worth knowing:
   - `Instant.toString()` defaults to nanosecond precision; pass
     `{ smallestUnit: 'millisecond' }` for values written to postgres or compared as strings, which is
     what the rest of the codebase emits.
-  - Converting: `date.toTemporalInstant()` from a `Date` (what drizzle returns for `timestamp`
-    columns), `Temporal.Instant.from(str)` for postgres-format strings (what raw `db.execute()`
-    returns), and `new Date(instant.epochMilliseconds)` going back the other way.
+  - Converting: `date.toTemporalInstant()` from a `Date` (what drizzle returns for a plain `timestamp`
+    **column** read), `Temporal.Instant.from(str)` for postgres-format strings (what raw
+    `db.execute()` returns, **and what a raw `sql` aggregate/expression substituted into `.select()`
+    returns too** — that path is not a plain column read and does not get a `Date` back, a distinction
+    `models/pageviews.ts`'s `summary()` got wrong until it was fixed), and
+    `new Date(instant.epochMilliseconds)` going back the other way.
+  - Test files install the polyfill themselves via `test/temporal.ts`'s `ensureTemporal()` — see
+    "Testing (backend)" for the convention; that copy is intentionally separate from
+    `core/temporal.ts`'s (test code should not import from the app's own boot path).
 
 ### Testing (backend)
 

@@ -42,7 +42,7 @@ export class BlockCountdownElement extends LitElement {
         hint: 'What is being counted down to. Shown above the numbers.'
       },
       {
-        name: 'expiredMsg',
+        name: 'expired-msg',
         type: 'string',
         label: 'Ended Message',
         hint: 'Shown once the target has passed.',
@@ -162,9 +162,13 @@ export class BlockCountdownElement extends LitElement {
 
       /**
        * Shown once the target has passed
+       *
+       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
+       *    dash inserted) would listen for `expiredmsg` while the block picker — which writes the
+       *    literal `static definition.props[].name`, `expired-msg` — writes `expired-msg` into the page.
        * @type {string}
        */
-      expiredMsg: { type: String },
+      expiredMsg: { type: String, attribute: 'expired-msg' },
 
       // Internal Properties
       _remaining: { state: true },

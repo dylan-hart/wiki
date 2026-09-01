@@ -191,10 +191,11 @@ class Pageviews {
         last24h: sql<number>`count(case when ${pageviewsTable.viewedAt} >= now() - interval '24 hours' then 1 end)::int`,
         last7d: sql<number>`count(case when ${pageviewsTable.viewedAt} >= now() - interval '7 days' then 1 end)::int`,
         distinctPages: sql<number>`count(distinct ${pageviewsTable.pageId})::int`,
-        // -> Left uncast: the pg driver decodes a `timestamptz` column/aggregate into a `Date`
-        //    already, same as any plain drizzle column read -- see `date.toTemporalInstant()` below,
-        //    matching CLAUDE.md's Temporal conversion convention.
-        mostRecentAt: sql<Date | null>`max(${pageviewsTable.viewedAt})`
+        // -> A raw `sql` aggregate expression, not a plain column read -- the driver returns it as a
+        //    postgres-format string (e.g. `2026-07-25 13:17:36.230177+00`), same as `db.execute()`,
+        //    not as a `Date`. Parsed below with `Temporal.Instant.from()`, matching `api/system.ts`'s
+        //    `getClusterNodes()`, per CLAUDE.md's Temporal conversion convention.
+        mostRecentAt: sql<string | null>`max(${pageviewsTable.viewedAt})`
       })
       .from(pageviewsTable)
 
@@ -208,7 +209,7 @@ class Pageviews {
       last7d: row.last7d,
       distinctPages: row.distinctPages,
       mostRecentAt: row.mostRecentAt
-        ? row.mostRecentAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
+        ? Temporal.Instant.from(row.mostRecentAt).toString({ smallestUnit: 'millisecond' })
         : null
     }
   }

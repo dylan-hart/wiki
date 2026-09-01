@@ -65,6 +65,7 @@
     "@google-cloud/storage": "8.0.1",
     "@gquittet/graceful-server": "6.1.0",
     "@iconify/utils": "3.1.4",
+    "@js-temporal/polyfill": "0.5.1",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@node-saml/node-saml": "5.1.0",
     "@simplewebauthn/server": "13.3.2",
@@ -110,7 +111,6 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@js-temporal/polyfill": "0.5.1",
     "@types/js-yaml": "4.0.9",
     "@types/markdown-it-emoji": "3.0.1",
     "@types/node": "26.2.0",

@@ -59,7 +59,7 @@ export class BlockAsciinemaElement extends LitElement {
         default: 'asciinema'
       },
       {
-        name: 'autoPlay',
+        name: 'auto-play',
         type: 'boolean',
         label: 'Play On Load',
         hint: 'Start as soon as the page is opened, rather than waiting to be asked.',
@@ -81,7 +81,7 @@ export class BlockAsciinemaElement extends LitElement {
         default: 1
       },
       {
-        name: 'idleTimeLimit',
+        name: 'idle-time-limit',
         type: 'number',
         label: 'Idle Time Limit',
         hint: 'Cap the pauses in the recording at this many seconds. Empty keeps them as recorded.'
@@ -135,9 +135,13 @@ export class BlockAsciinemaElement extends LitElement {
 
       /**
        * Whether to start without being asked
+       *
+       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
+       *    dash inserted) would listen for `autoplay` while the block picker — which writes the
+       *    literal `static definition.props[].name`, `auto-play` — writes `auto-play` into the page.
        * @type {boolean}
        */
-      autoPlay: boolean,
+      autoPlay: { ...boolean, attribute: 'auto-play' },
 
       /**
        * Whether to start again at the end
@@ -153,9 +157,12 @@ export class BlockAsciinemaElement extends LitElement {
 
       /**
        * Longest pause to play back, in seconds
+       *
+       * -> Explicit `attribute`, for the same reason as `autoPlay` above: the picker writes the
+       *    dashed `idle-time-limit`, not Lit's default lowercased `idletimelimit`.
        * @type {number}
        */
-      idleTimeLimit: { type: Number },
+      idleTimeLimit: { type: Number, attribute: 'idle-time-limit' },
 
       // Internal Properties
       _error: { state: true }

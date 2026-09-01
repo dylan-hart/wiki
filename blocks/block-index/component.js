@@ -74,14 +74,14 @@ export class BlockIndexElement extends LitElement {
         default: 10
       },
       {
-        name: 'orderBy',
+        name: 'order-by',
         type: 'select',
         label: 'Order By',
         options: ['title', 'fileName', 'createdAt', 'updatedAt'],
         default: 'title'
       },
       {
-        name: 'orderByDirection',
+        name: 'order-by-direction',
         type: 'select',
         label: 'Direction',
         options: ['asc', 'desc'],
@@ -103,7 +103,7 @@ export class BlockIndexElement extends LitElement {
         default: '2'
       },
       {
-        name: 'showIcons',
+        name: 'show-icons',
         type: 'boolean',
         label: 'Show Icons',
         hint: "Draw each page's icon to the left of its title.",
@@ -111,7 +111,7 @@ export class BlockIndexElement extends LitElement {
         default: false
       },
       {
-        name: 'noResultMsg',
+        name: 'no-result-msg',
         type: 'string',
         label: 'Empty Message',
         hint: 'Shown when the query matches no pages.',
@@ -306,15 +306,22 @@ export class BlockIndexElement extends LitElement {
 
       /**
        * Ordering (createdAt, fileName, title, updatedAt)
+       *
+       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
+       *    dash inserted) would listen for `orderby` while the block picker — which writes the
+       *    literal `static definition.props[].name`, `order-by` — writes `order-by` into the page.
        * @type {string}
        */
-      orderBy: { type: String },
+      orderBy: { type: String, attribute: 'order-by' },
 
       /**
        * Ordering direction (asc, desc)
+       *
+       * -> Explicit `attribute`, for the same reason as `orderBy` above: the picker writes the
+       *    dashed `order-by-direction`, not Lit's default lowercased `orderbydirection`.
        * @type {string}
        */
-      orderByDirection: { type: String },
+      orderByDirection: { type: String, attribute: 'order-by-direction' },
 
       /**
        * Maximum folder depth to fetch
@@ -324,9 +331,12 @@ export class BlockIndexElement extends LitElement {
 
       /**
        * A fallback message if no results are returned
+       *
+       * -> Explicit `attribute`, for the same reason as `orderBy` above: the picker writes the
+       *    dashed `no-result-msg`, not Lit's default lowercased `noresultmsg`.
        * @type {string}
        */
-      noResultMsg: { type: String },
+      noResultMsg: { type: String, attribute: 'no-result-msg' },
 
       /**
        * Most columns to lay the pages out in (1, 2, 3)
@@ -341,9 +351,13 @@ export class BlockIndexElement extends LitElement {
 
       /**
        * Whether each page's icon is drawn beside its title
+       *
+       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
+       *    dash inserted) would listen for `showicons` while the block picker — which writes the
+       *    literal `static definition.props[].name`, `show-icons` — writes `show-icons` into the page.
        * @type {boolean}
        */
-      showIcons: boolean,
+      showIcons: { ...boolean, attribute: 'show-icons' },
 
       // Internal Properties
       _loading: { state: true },

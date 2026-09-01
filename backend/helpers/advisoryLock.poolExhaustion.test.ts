@@ -1,12 +1,12 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { Pool } from 'pg'
-import { withAdvisoryLock } from './advisoryLock.ts'
+import { withAdvisoryLock, _resetLockPoolForTests } from './advisoryLock.ts'
 
 /**
  * Reproduction for OpenProject #2243 (child of #2242, from `docs/audit-2026-08-24/security/
  * 12-infrastructure-ops.md` §2): does a burst of concurrent `dispatchStorage` dispatches genuinely
- * exhaust the single shared Postgres pool and deadlock `recordSuccess`/`recordFailure`, or is the
+ * exhaust a single shared Postgres pool and deadlock `recordSuccess`/`recordFailure`, or is the
  * co-occurrence the audit flagged as unverified actually unreachable?
  *
  * Rather than standing up a full running instance with a real (deliberately stalled) git/SFTP target
@@ -15,12 +15,11 @@ import { withAdvisoryLock } from './advisoryLock.ts'
  * `withAdvisoryLock` unmodified against a real Postgres pool:
  *
  *   - `tasks/simple/dispatch-storage.ts` calls `withAdvisoryLock(key, fn)`, which checks a client out
- *     of the shared pool (`WIKI.db.$client as Pool`) for the *entire* duration of `fn` — not just the
- *     lock/unlock queries (`helpers/advisoryLock.ts`).
+ *     of a pool for the *entire* duration of `fn` — not just the lock/unlock queries
+ *     (`helpers/advisoryLock.ts`).
  *   - `fn` runs the storage module's handler (the slow part — a git push, an SFTP upload) and then,
  *     on success or failure, calls `contentSync.recordSuccess`/`recordFailure`, which is a second,
- *     independent query issued through `WIKI.db` against that *same* pool, from *inside* the still-
- *     held `fn`.
+ *     independent query issued from *inside* the still-held `fn`.
  *   - `core/scheduler.ts`'s `processJob` claims and runs up to `maxWorkers` jobs concurrently via
  *     `Promise.allSettled`. Because `dispatchStorage` is an in-process task, each concurrent job's
  *     `withAdvisoryLock` call checks out its own pool connection independently.
@@ -34,6 +33,18 @@ import { withAdvisoryLock } from './advisoryLock.ts'
  * no `connectionTimeoutMillis` are set, and pg's own default for the latter is `0` (wait forever) — a
  * real occurrence of this would hang the affected jobs (and the connections they hold) indefinitely,
  * not merely slow them down.
+ *
+ * `withAdvisoryLock`'s own dedicated lock pool (`getLockPool()`, `helpers/advisoryLock.ts`) normally
+ * clones a *separate*, small pool from `WIKI.dbManager.config` specifically so the lock-holding
+ * connection can never contend with request-serving traffic (OpenProject #2246) — which would decouple
+ * the outer lock connection from an inner query issued against a different pool entirely, and this
+ * reproduction wants both on the *same* pool, exactly as `dispatchStorage`'s handler-plus-recordSuccess
+ * sequence draws both from `WIKI.db`. `runConcurrentDispatches` below deliberately supplies only
+ * `WIKI.db.$client`, no `WIKI.dbManager` — `getLockPool()`'s documented fallback for that shape reuses
+ * `WIKI.db.$client` itself as the lock pool, rather than cloning a new one, so the outer connection and
+ * the inner "recordSuccess" query genuinely share the one pool this reproduction constructs and
+ * measures. `_resetLockPoolForTests()` clears that module-cached pool between the two tests below, each
+ * of which supplies its own differently-sized pool.
  *
  * The two tests below drive exactly that scenario against a real pool, with an explicit barrier (not
  * fixed sleeps) synchronizing every holder's entry to `fn` before any of them attempts its inner
@@ -65,6 +76,9 @@ const skip = DATABASE_URL
  */
 async function runConcurrentDispatches(pool: Pool, count: number) {
   ;(globalThis as any).WIKI = { db: { $client: pool } }
+  // -> `getLockPool()` caches its pool at module scope; without this, the second test in this file
+  //    would reuse the first test's already-`.end()`-ed pool instead of picking up its own.
+  await _resetLockPoolForTests()
 
   let entered = 0
   let releaseBarrier: () => void = () => {}

@@ -179,10 +179,16 @@ async function routes(app: FastifyInstance) {
       const folder = req.query.folderId
         ? await WIKI.models.tree.getFolderById(req.query.folderId, req.params.siteId)
         : null
-      // -> Site-checked before the permission check below evaluates against it, so a foreign-site id
-      //    can't make that check run against the wrong destination (matches tree.ts's own folder
-      //    routes: GET/RENAME/DELETE FOLDER)
-      if (req.query.folderId && (!folder || folder.siteId !== req.params.siteId)) {
+      // -> Only a resolved-but-wrong-site folder is refused outright (matches tree.ts's own folder
+      //    routes: GET/RENAME/DELETE FOLDER) -- `getFolderById` is itself already siteId-scoped in
+      //    SQL, so a genuinely unresolvable id (unknown, or belonging to another site) comes back as
+      //    a bare `null` in real use, and OpenProject #2131 wants that treated as "no folder to
+      //    attach to" rather than a hard 404: the upload still proceeds, just without a `folderId`,
+      //    the same as an empty `parentPath` uploads to the site root. This check exists purely as
+      //    defense-in-depth against a `getFolderById` that (bug, or a future caller) hands back a
+      //    row for the wrong site -- that row must never reach the permission check below or
+      //    `upload()`'s `folderId`.
+      if (req.query.folderId && folder && folder.siteId !== req.params.siteId) {
         return reply.notFound('This folder does not exist.')
       }
       const folderPath = folder ? (decodeTreePath(folder.folderPath ?? '') ?? '') : ''

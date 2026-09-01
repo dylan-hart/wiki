@@ -132,7 +132,7 @@ paths:
         hint: 'Fetched by the reader’s browser. Left empty, the block’s own body — a fenced YAML or JSON block — is read as the spec instead.'
       },
       {
-        name: 'tryItOut',
+        name: 'try-it-out',
         type: 'boolean',
         label: 'Enable "Try it out"',
         hint: 'Lets a reader send real requests at the API from this page, using the servers the spec declares.',
@@ -235,9 +235,13 @@ paths:
       /**
        * Whether the "Execute" button appears on every operation, letting a reader send a real
        * request at the API this spec describes from inside the wiki page.
+       *
+       * -> Explicit `attribute`, because Lit's default (a bare lowercasing of the property name, no
+       *    dash inserted) would listen for `tryitout` while the block picker — which writes the
+       *    literal `static definition.props[].name`, `try-it-out` — writes `try-it-out` into the page.
        * @type {boolean}
        */
-      tryItOut: { type: Boolean, ...boolean },
+      tryItOut: { type: Boolean, ...boolean, attribute: 'try-it-out' },
 
       // Internal Properties
       _error: { state: true }

@@ -7,9 +7,12 @@ import { inArray } from 'drizzle-orm'
 import { load } from 'js-yaml'
 import { settings as settingsTable } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 import { parseCspDirectives } from '../helpers/security.ts'
 import { securityCspSeed } from './settings.ts'
 import type { SystemIds } from './types.ts'
+
+await ensureTemporal()
 
 /**
  * `Settings.init()` (OpenProject #2005): the seeded `settings` rows a fresh install writes.

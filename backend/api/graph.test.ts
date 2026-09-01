@@ -563,7 +563,14 @@ describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, (
         groups: [fixtures.groupId],
         permissions: []
       }
-      const res = await app.inject({ method: 'GET', url: `/sites/${fixtures.siteId}/graph` })
+      // -> `?sizing=visits` (OpenProject #1863): without it `includeSizing` is false and the route
+      //    omits `pageviews` from every node entirely (see `includeSizing gate` above), which isn't
+      //    what this test is checking -- it wants the per-node `pageviews` object itself to be
+      //    genuinely all-zero, not merely absent.
+      const res = await app.inject({
+        method: 'GET',
+        url: `/sites/${fixtures.siteId}/graph?sizing=visits`
+      })
       assert.equal(res.statusCode, 200)
 
       // -> countsForGraph is still called once (the route calls it unconditionally) but its own
