@@ -26,6 +26,7 @@ import {
 } from '../db/schema.ts'
 import type { RecoveryCodeEntry } from './users.ts'
 import { ProvisionableLoginError } from './authentication.ts'
+import { AccountRateLimitedError } from '../helpers/rateLimit.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
 /**
@@ -1789,6 +1790,36 @@ describe('users.loginTFA', () => {
     assert.equal(result.nextAction, 'redirect')
   })
 
+  // -> OpenProject #2361: same typed-error requirement as `users.login`'s own rate-limit test above --
+  //    a refused account-keyed attempt on the 2FA step must throw `AccountRateLimitedError` (carrying
+  //    `retryAfter`), not a plain `Error('ERR_RATE_LIMITED')`, so the route handler can answer 429
+  //    instead of the generic `ERR_`-prefix 400. Refused after `validateToken` resolves the user (the
+  //    rate limit is keyed on `user.email`) but before the submitted code is ever verified.
+  test("a refused account-keyed rate limit throws AccountRateLimitedError with the verdict's retryAfter, before the code is verified", async (t) => {
+    const user = makeUser()
+    t.mock.method(users, 'validateToken', async () => ({ user, strategyId: 'strat' }))
+    t.mock.method(WIKI.models.rateLimits, 'consume', async () => ({
+      allowed: false,
+      hits: 999,
+      retryAfter: 17
+    }))
+    const verifyTfaCode = t.mock.method(users, 'verifyTfaCode', () => true)
+
+    await assert.rejects(
+      users.loginTFA(
+        { strategyId: 'strat', siteId: 'site-1', securityCode: '123456', continuationToken: 'tok' },
+        {}
+      ),
+      (err: any) => {
+        assert.ok(err instanceof AccountRateLimitedError)
+        assert.equal(err.retryAfter, 17)
+        assert.equal(err.message, 'ERR_RATE_LIMITED')
+        return true
+      }
+    )
+    assert.equal(verifyTfaCode.mock.callCount(), 0)
+  })
+
   test('a dash-shaped code is routed to verifyAndConsumeRecoveryCode, not verifyTfaCode', async (t) => {
     const user = makeUser({
       auth: { strat: { recoveryCodes: [{ hash: 'x', usedAt: null }] } }
@@ -2524,6 +2555,37 @@ describe('users.login (form-based provider auto-provisioning)', () => {
         { session: {} }
       ),
       /ERR_INVALID_STRATEGY/
+    )
+    assert.equal(findOrCreate.mock.calls.length, 0)
+  })
+
+  // -> OpenProject #2361: a refused account-keyed attempt must throw the typed
+  //    `AccountRateLimitedError` (carrying `retryAfter`), not a plain `Error('ERR_RATE_LIMITED')` --
+  //    the route handler (`api/authentication.ts`) tells the two apart to answer 429 instead of the
+  //    generic `ERR_`-prefix 400. Refused before `str.authenticate()` is ever reached, same as the
+  //    always-allowed stub in every other test in this block.
+  test("a refused account-keyed rate limit throws AccountRateLimitedError with the verdict's retryAfter, before authenticate() runs", async (t) => {
+    installWiki(async () => ({ id: strategyId, module: 'ldap', autoProvision: true, config: {} }))
+    ;(globalThis as any).WIKI.models.rateLimits.consume = async () => ({
+      allowed: false,
+      hits: 999,
+      retryAfter: 42
+    })
+    const findOrCreate = t.mock.method(users, 'findOrCreateProviderUser' as any, async () => {
+      throw new Error('should not be called')
+    })
+
+    await assert.rejects(
+      users.login(
+        { siteId: 'site-1', strategyId, username: 'ada', password: 'pw', ip: '127.0.0.1' },
+        { session: {} }
+      ),
+      (err: any) => {
+        assert.ok(err instanceof AccountRateLimitedError)
+        assert.equal(err.retryAfter, 42)
+        assert.equal(err.message, 'ERR_RATE_LIMITED')
+        return true
+      }
     )
     assert.equal(findOrCreate.mock.calls.length, 0)
   })

@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid'
 import { normalizeHostname } from '../helpers/common.ts'
-import { limitAuthAttempts } from '../helpers/rateLimit.ts'
+import { AccountRateLimitedError, limitAuthAttempts } from '../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
 import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
 import { sessionCookieName } from '../helpers/security.ts'
@@ -377,7 +377,12 @@ async function routes(app: FastifyInstance) {
         },
         response: {
           200: { $ref: 'AuthLoginResult#' },
-          400: { $ref: 'ApiError#' }
+          400: { $ref: 'ApiError#' },
+          429: {
+            $ref: 'ApiError#',
+            description:
+              'The account-keyed rate limit was exceeded (see `helpers/rateLimit.ts#consumeAccountAuthAttempt`).'
+          }
         }
       }
     },
@@ -401,6 +406,16 @@ async function routes(app: FastifyInstance) {
           ...result
         }
       } catch (err: any) {
+        if (err instanceof AccountRateLimitedError) {
+          // -> Matches `limitAuthAttempts`' own 429 + `Retry-After` contract, so the two rate
+          //    limiters guarding this endpoint (IP-keyed and account-keyed) signal exhaustion the
+          //    same way to API clients (OpenProject #2361). Checked before the generic `ERR_`-prefix
+          //    branch below, since this error's own message is still `ERR_RATE_LIMITED`.
+          reply.header('Retry-After', String(err.retryAfter))
+          return reply.tooManyRequests(
+            `Too many attempts. Try again in ${Math.ceil(err.retryAfter / 60)} minute(s).`
+          )
+        }
         if (err.message.startsWith('ERR_')) {
           return reply.badRequest(err.message)
         } else {
@@ -826,7 +841,12 @@ async function routes(app: FastifyInstance) {
         },
         response: {
           200: { $ref: 'AuthLoginResult#' },
-          400: { $ref: 'ApiError#' }
+          400: { $ref: 'ApiError#' },
+          429: {
+            $ref: 'ApiError#',
+            description:
+              'The account-keyed rate limit was exceeded (see `helpers/rateLimit.ts#consumeAccountAuthAttempt`).'
+          }
         }
       }
     },
@@ -848,6 +868,16 @@ async function routes(app: FastifyInstance) {
           ...result
         }
       } catch (err: any) {
+        if (err instanceof AccountRateLimitedError) {
+          // -> See the login route's own comment above (OpenProject #2361): matches
+          //    `limitAuthAttempts`' 429 + `Retry-After` contract instead of falling through to the
+          //    generic `ERR_`-prefix 400 branch below.
+          WIKI.models.flags.authDebug(`2FA verification rate-limited: ${err.message}`)
+          reply.header('Retry-After', String(err.retryAfter))
+          return reply.tooManyRequests(
+            `Too many attempts. Try again in ${Math.ceil(err.retryAfter / 60)} minute(s).`
+          )
+        }
         if (err.message.startsWith('ERR_')) {
           WIKI.models.flags.authDebug(`2FA verification rejected: ${err.message}`)
           return reply.badRequest(err.message)

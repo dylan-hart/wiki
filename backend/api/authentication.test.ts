@@ -9,6 +9,7 @@ import ajvFormats from 'ajv-formats'
 import authenticationRoutes from './authentication.ts'
 import { registerSchemas as registerAuthSchema } from './schemas/authentication.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { AccountRateLimitedError } from '../helpers/rateLimit.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 import { authentication as authenticationTable } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
@@ -1443,6 +1444,28 @@ describe('PUT login: password is required by the route schema', () => {
     assert.equal(loginMock.mock.calls.length, 1)
     const arg = loginMock.mock.calls[0].arguments[0] as any
     assert.equal(arg.password, 'correct-password')
+  })
+
+  // -> OpenProject #2361: the account-keyed limiter (`consumeAccountAuthAttempt`, consumed inside
+  //    `users.login()`) used to throw a plain `Error('ERR_RATE_LIMITED')`, which this route's
+  //    `ERR_`-prefix check mapped to a generic 400 -- unlike the IP-keyed `limitAuthAttempts` hook,
+  //    which answers 429 with `Retry-After`. `users.login` now throws the typed
+  //    `AccountRateLimitedError` instead, and the route must map *that* to the same 429 contract.
+  test('an account-keyed rate limit is answered as 429 with Retry-After, not 400', async () => {
+    loginMock = mock.fn(async () => {
+      throw new AccountRateLimitedError(55)
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: SITE_URL,
+      payload: { strategyId: STRATEGY_ID, username: 'ada', password: 'correct-password' }
+    })
+
+    assert.equal(res.statusCode, 429)
+    assert.equal(res.headers['retry-after'], '55')
+    const body = JSON.parse(res.body)
+    assert.equal(body.ok, false)
   })
 })
 

@@ -197,6 +197,25 @@ export async function consumeAccountAuthAttempt(identifier: string): Promise<Rat
 }
 
 /**
+ * Thrown by `models/users.ts#login`/`#loginTFA` when {@link consumeAccountAuthAttempt} refuses an
+ * attempt. Carries the verdict's `retryAfter` so the route handler (`api/authentication.ts`) can
+ * answer with the same 429 + `Retry-After` contract {@link limitAuthAttempts} already uses for the
+ * IP-keyed limiter, instead of falling through the generic `ERR_`-prefix convention's 400 — the two
+ * limiters used to disagree on this (OpenProject #2361). The message stays `ERR_RATE_LIMITED` (still
+ * `ERR_`-prefixed) purely for log/debug readability; callers must check `instanceof
+ * AccountRateLimitedError` *before* the generic prefix check, since the message alone would still
+ * match it.
+ */
+export class AccountRateLimitedError extends Error {
+  retryAfter: number
+
+  constructor(retryAfter: number) {
+    super('ERR_RATE_LIMITED')
+    this.retryAfter = retryAfter
+  }
+}
+
+/**
  * The configured policy for the general API limit. See {@link authPolicy} — same fallback shape,
  * different fields.
  */
