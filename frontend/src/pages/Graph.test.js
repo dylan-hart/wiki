@@ -14,6 +14,9 @@ import { useSiteStore } from '@/stores/site'
  *  component asking `t()` for these specific keys with these specific meanings. The two `tooltip.*`
  *  entries use vue-i18n's pipe-delimited plural syntax (`singular | plural`), same as the real file. */
 const GRAPH_MESSAGES = {
+  'graph.accessibleName.link': '{count} link | {count} links',
+  'graph.accessibleName.page': '{count} page | {count} pages',
+  'graph.accessibleName.summary': 'Knowledge graph: {pages}, {links}, grouped by {groupBy}',
   'graph.filters.tags': 'Tags',
   'graph.filters.folderDepth': 'Folder Depth',
   'graph.filters.locale': 'Locale',
@@ -803,6 +806,27 @@ describe('Graph.vue (OpenProject #891)', () => {
     await flushPromises()
 
     expect(wrapper.find('canvas').attributes('aria-label')).toContain('grouped by classification')
+  })
+
+  it('resolves the canvas accessible name through graph.* i18n keys, not a hardcoded English literal (OpenProject #1690, #2359)', async () => {
+    const wrapper = await mountGraph({
+      messageOverrides: {
+        'graph.accessibleName.page': '{count} xx-page | {count} xx-pages',
+        'graph.accessibleName.link': '{count} xx-link | {count} xx-links',
+        'graph.accessibleName.summary': 'xx-summary {pages} :: {links} :: {groupBy}'
+      }
+    })
+    await flushPromises()
+
+    const label = wrapper.find('canvas').attributes('aria-label')
+    const realPageCount = wrapper.vm.nodes.filter((node) => !node.synthetic).length
+    const linkCount = wrapper.vm.edges.length
+    const pageWord = realPageCount === 1 ? 'xx-page' : 'xx-pages'
+    const linkWord = linkCount === 1 ? 'xx-link' : 'xx-links'
+
+    expect(label).toBe(
+      `xx-summary ${realPageCount} ${pageWord} :: ${linkCount} ${linkWord} :: folder`
+    )
   })
 
   it('keeps node/edge arrays and node objects out of deep reactivity (OpenProject #1837)', async () => {
