@@ -64,6 +64,58 @@
           </w-card-section>
         </w-card>
       </div>
+      <div class="col-span-12" v-if="state.summary.totalViews === 0">
+        <w-card class="rounded" flat>
+          <w-card-section class="items-center" horizontal>
+            <w-card-section class="flex-none pr-0">
+              <w-icon name="la:chart-area" size="sm" />
+            </w-card-section>
+            <w-card-section>
+              {{ t('admin.pageviews.noViewsYet') }}
+            </w-card-section>
+          </w-card-section>
+        </w-card>
+      </div>
+      <template v-else>
+        <div class="col-span-6 sm:col-span-3">
+          <w-card class="rounded pageviews-stat" flat>
+            <w-card-section>
+              <div class="text-caption text-grey">{{ t('admin.pageviews.totalViews') }}</div>
+              <div class="text-h5">{{ state.summary.totalViews }}</div>
+            </w-card-section>
+          </w-card>
+        </div>
+        <div class="col-span-6 sm:col-span-3">
+          <w-card class="rounded pageviews-stat" flat>
+            <w-card-section>
+              <div class="text-caption text-grey">{{ t('admin.pageviews.last24h') }}</div>
+              <div class="text-h5">{{ state.summary.last24h }}</div>
+            </w-card-section>
+          </w-card>
+        </div>
+        <div class="col-span-6 sm:col-span-3">
+          <w-card class="rounded pageviews-stat" flat>
+            <w-card-section>
+              <div class="text-caption text-grey">{{ t('admin.pageviews.last7d') }}</div>
+              <div class="text-h5">{{ state.summary.last7d }}</div>
+            </w-card-section>
+          </w-card>
+        </div>
+        <div class="col-span-6 sm:col-span-3">
+          <w-card class="rounded pageviews-stat" flat>
+            <w-card-section>
+              <div class="text-caption text-grey">{{ t('admin.pageviews.distinctPages') }}</div>
+              <div class="text-h5">{{ state.summary.distinctPages }}</div>
+            </w-card-section>
+          </w-card>
+        </div>
+        <div class="col-span-12">
+          <div class="text-caption text-grey">
+            {{ t('admin.pageviews.mostRecentView') }}:
+            {{ relativeDate(state.summary.mostRecentAt) }}
+          </div>
+        </div>
+      </template>
     </div>
   </w-page>
 </template>
@@ -76,6 +128,7 @@ import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
+import { relativeDate } from '@/helpers/datetime'
 
 import { useAdminStore } from '@/stores/admin'
 import { apiErrorMessage } from '@/helpers/apiError'
@@ -103,7 +156,16 @@ useMeta(() => ({
 const state = reactive({
   enabled: false,
   loading: 0,
-  isToggleLoading: false
+  isToggleLoading: false,
+  // -> Instance-wide evidence that tracking is actually recording something (OpenProject #2335),
+  //    not just the on/off state above -- see `admin.pageviews.*` template block.
+  summary: {
+    totalViews: 0,
+    last24h: 0,
+    last7d: 0,
+    distinctPages: 0,
+    mostRecentAt: null
+  }
 })
 
 // METHODS
@@ -116,6 +178,13 @@ async function load() {
     state.enabled = resp?.isEnabled === true
     // -> Keeps the sidebar status light in step without another round trip
     adminStore.info.isPageviewsEnabled = state.enabled
+    state.summary = {
+      totalViews: resp?.summary?.totalViews ?? 0,
+      last24h: resp?.summary?.last24h ?? 0,
+      last7d: resp?.summary?.last7d ?? 0,
+      distinctPages: resp?.summary?.distinctPages ?? 0,
+      mostRecentAt: resp?.summary?.mostRecentAt ?? null
+    }
   } catch (err) {
     notify({
       type: 'negative',

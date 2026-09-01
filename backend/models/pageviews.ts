@@ -68,6 +68,26 @@ export function zeroPageviewCountsForGraph(): PageviewCountsForGraph {
 }
 
 /**
+ * Instance-wide evidence that pageview tracking is actually recording something -- what
+ * `AdminPageviews.vue` shows an admin instead of just the on/off toggle (OpenProject #2335).
+ */
+export interface PageviewSummary {
+  /** Row count within the 2-year retention window (see `purgeExpired()`) -- "all-time" for
+   *  practical purposes, the same equivalence `countsForGraph()`'s own doc comment notes. */
+  totalViews: number
+  last24h: number
+  last7d: number
+  /** Number of distinct pages with at least one surviving pageview row. */
+  distinctPages: number
+  /** ISO instant (millisecond precision) of the single most recent pageview, or null if none exist. */
+  mostRecentAt: string | null
+}
+
+function emptyPageviewSummary(): PageviewSummary {
+  return { totalViews: 0, last24h: 0, last7d: 0, distinctPages: 0, mostRecentAt: null }
+}
+
+/**
  * Never store a raw session id or API key id -- `visitorHash` only needs to tell two visitors apart,
  * not identify either one. Two different keys/sessions hash to two different visitors; the same one
  * reused is one visitor, which is exactly what a unique-visitor count needs and nothing more.
@@ -153,6 +173,43 @@ class Pageviews {
       })
     } catch (err: any) {
       WIKI.logger.warn(`Failed to record a pageview: ${err.message}`)
+    }
+  }
+
+  /**
+   * Instance-wide totals for `AdminPageviews.vue`'s stats panel -- OpenProject #2335: the admin page
+   * used to be a bare on/off toggle with no way to tell whether the write path (`record()` above) was
+   * actually inserting anything. Unlike `countsForGraph()`, this is NOT gated on
+   * `WIKI.config.pageviews.isEnabled` -- an admin who just turned tracking off (or is checking what
+   * was recorded before doing so) still needs to see the real counts, and this only runs when that one
+   * admin page is loaded, not on every page read the way the write path is.
+   */
+  async summary(): Promise<PageviewSummary> {
+    const rows = await WIKI.db
+      .select({
+        totalViews: sql<number>`count(*)::int`,
+        last24h: sql<number>`count(case when ${pageviewsTable.viewedAt} >= now() - interval '24 hours' then 1 end)::int`,
+        last7d: sql<number>`count(case when ${pageviewsTable.viewedAt} >= now() - interval '7 days' then 1 end)::int`,
+        distinctPages: sql<number>`count(distinct ${pageviewsTable.pageId})::int`,
+        // -> Left uncast: the pg driver decodes a `timestamptz` column/aggregate into a `Date`
+        //    already, same as any plain drizzle column read -- see `date.toTemporalInstant()` below,
+        //    matching CLAUDE.md's Temporal conversion convention.
+        mostRecentAt: sql<Date | null>`max(${pageviewsTable.viewedAt})`
+      })
+      .from(pageviewsTable)
+
+    const row = rows[0]
+    if (!row || row.totalViews === 0) {
+      return emptyPageviewSummary()
+    }
+    return {
+      totalViews: row.totalViews,
+      last24h: row.last24h,
+      last7d: row.last7d,
+      distinctPages: row.distinctPages,
+      mostRecentAt: row.mostRecentAt
+        ? row.mostRecentAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
+        : null
     }
   }
 

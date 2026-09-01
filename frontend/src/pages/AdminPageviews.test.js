@@ -74,4 +74,80 @@ describe('AdminPageviews', () => {
 
     wrapper.unmount()
   })
+
+  /**
+   * OpenProject #2335: the page used to be a bare toggle with no evidence tracking was actually
+   * recording anything. These cover the added `summary` block -- populated from the response, and
+   * rendered as real evidence rather than staying invisible.
+   */
+  it('load() populates state.summary from the response', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          isEnabled: true,
+          summary: {
+            totalViews: 42,
+            last24h: 3,
+            last7d: 10,
+            distinctPages: 7,
+            mostRecentAt: '2026-08-31T00:00:00.000Z'
+          }
+        })
+    })
+
+    const wrapper = mountPage()
+    await wrapper.vm.$nextTick()
+    await Promise.resolve()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.state.summary).toEqual({
+      totalViews: 42,
+      last24h: 3,
+      last7d: 10,
+      distinctPages: 7,
+      mostRecentAt: '2026-08-31T00:00:00.000Z'
+    })
+    expect(wrapper.text()).toContain('42')
+    expect(wrapper.find('.pageviews-stat').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('shows the empty state instead of stat tiles when no views have ever been recorded', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          isEnabled: true,
+          summary: { totalViews: 0, last24h: 0, last7d: 0, distinctPages: 0, mostRecentAt: null }
+        })
+    })
+
+    const wrapper = mountPage()
+    await wrapper.vm.$nextTick()
+    await Promise.resolve()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.pageviews-stat').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('load() falls back to a zeroed summary when the response has none', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ isEnabled: true }) })
+
+    const wrapper = mountPage()
+    await wrapper.vm.$nextTick()
+    await Promise.resolve()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.vm.state.summary).toEqual({
+      totalViews: 0,
+      last24h: 0,
+      last7d: 0,
+      distinctPages: 0,
+      mostRecentAt: null
+    })
+
+    wrapper.unmount()
+  })
 })

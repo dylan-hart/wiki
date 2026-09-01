@@ -307,6 +307,106 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
     )
   })
 
+  describe('summary', () => {
+    let summaryPageId: string
+    let otherPageId: string
+    // -> Earlier tests in this same DB-backed suite (record(), purgeExpired()) already left rows
+    //    behind in this table, and `summary()` has no page/site filter -- it aggregates the WHOLE
+    //    table by design. Asserting against a baseline captured right before this describe's own
+    //    inserts, rather than hardcoded absolute counts, is what keeps these tests correct
+    //    regardless of what earlier tests (or a re-ordered suite) left lying around.
+    let baseline: Awaited<ReturnType<typeof pageviewsModel.summary>>
+
+    before(async () => {
+      baseline = await pageviewsModel.summary()
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'pageviews-summary-test',
+          title: 'Pageviews Summary Test',
+          editor: 'markdown',
+          content: 'x'
+        },
+        actor
+      )
+      summaryPageId = page.id
+      const otherPage = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'pageviews-summary-other-test',
+          title: 'Pageviews Summary Other Test',
+          editor: 'markdown',
+          content: 'x'
+        },
+        actor
+      )
+      otherPageId = otherPage.id
+
+      await fixtures.db.insert(pageviewsTable).values([
+        // -> Within the last 24h -- counts toward last24h, last7d and totalViews.
+        {
+          siteId: fixtures.siteId,
+          pageId: summaryPageId,
+          clientType: 'browser',
+          visitorHash: hashVisitor('summary-visitor-1', TEST_HASH_KEY),
+          viewedAt: sql`now() - interval '1 hour'`
+        },
+        // -> Within the last 7d but not the last 24h -- counts toward last7d and totalViews only.
+        {
+          siteId: fixtures.siteId,
+          pageId: summaryPageId,
+          clientType: 'api',
+          visitorHash: hashVisitor('summary-visitor-2', TEST_HASH_KEY),
+          viewedAt: sql`now() - interval '3 days'`
+        },
+        // -> Older than 7d but within retention -- counts toward totalViews only, and toward
+        //    distinctPages via a second page.
+        {
+          siteId: fixtures.siteId,
+          pageId: otherPageId,
+          clientType: 'mcp',
+          visitorHash: hashVisitor('summary-visitor-3', TEST_HASH_KEY),
+          viewedAt: sql`now() - interval '30 days'`
+        }
+      ] as any)
+    })
+
+    test('aggregates totals across the retained window, distinct pages and the most recent view', async () => {
+      const summary = await pageviewsModel.summary()
+
+      assert.equal(summary.totalViews, baseline.totalViews + 3)
+      assert.equal(summary.last24h, baseline.last24h + 1)
+      assert.equal(summary.last7d, baseline.last7d + 2)
+      assert.equal(summary.distinctPages, baseline.distinctPages + 2)
+      assert.ok(summary.mostRecentAt, 'mostRecentAt must be set once rows exist')
+      if (baseline.mostRecentAt) {
+        assert.ok(
+          Temporal.Instant.compare(
+            Temporal.Instant.from(summary.mostRecentAt!),
+            Temporal.Instant.from(baseline.mostRecentAt)
+          ) >= 0,
+          'mostRecentAt must never move backwards as new pageviews are recorded'
+        )
+      }
+    })
+
+    test('is not gated on WIKI.config.pageviews.isEnabled -- still reflects history while disabled', async () => {
+      const previousConfig = WIKI.config.pageviews
+      WIKI.config.pageviews = { isEnabled: false }
+      try {
+        const summary = await pageviewsModel.summary()
+        assert.equal(
+          summary.totalViews,
+          baseline.totalViews + 3,
+          'existing rows must still be counted while tracking is off'
+        )
+      } finally {
+        WIKI.config.pageviews = previousConfig
+      }
+    })
+  })
+
   describe('countsForGraph', () => {
     let countsPageId: string
 
