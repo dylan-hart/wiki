@@ -300,7 +300,13 @@ test(
   async () => {
     const child = spawn(
       process.execPath,
-      ['--require', './backend/test/fixtures/spoofSupportedNodeVersion.cjs', 'backend'],
+      [
+        '--require',
+        './backend/test/fixtures/spoofSupportedNodeVersion.cjs',
+        '--require',
+        './backend/test/fixtures/polyfillTemporalForSpawnedBoot.cjs',
+        'backend'
+      ],
       {
         cwd: repoRoot,
         env: {
