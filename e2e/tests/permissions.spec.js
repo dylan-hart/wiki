@@ -40,19 +40,24 @@ test('a Users-group account can read a page but not write it, and is refused the
   await createDialog.getByLabel('Name', { exact: true }).fill(`E2E Permissions ${slug}`)
   await createDialog.getByLabel('Email', { exact: true }).fill(userEmail)
   await createDialog.getByLabel('Password', { exact: true }).fill(userPassword)
-  await createDialog.getByRole('combobox', { name: 'Groups' }).click()
+  const groupsCombobox = createDialog.getByRole('combobox', { name: 'Groups' })
+  await groupsCombobox.click()
   await page.getByRole('option', { name: 'Users', exact: true }).click()
-  // -> Multi-select stays open; close it by clicking elsewhere in the dialog rather than pressing
-  //    Escape -- WDialog's own Escape handler is a capture-phase `document` listener (WDialog.vue),
-  //    which always runs before WMenu's dropdown-close handler (bubble phase, since OpenProject
-  //    #2364) ever gets a turn, so an Escape meant only for the still-open Groups dropdown also
-  //    cancels this non-persistent dialog outright -- confirmed against a real run: the click on
-  //    "Create" below still resolved and reported success (a stale reference into a dialog already
-  //    mid-close), but no POST to `users` was ever made and no new row landed in the table. Real
-  //    product bug (OpenProject #2370), tracked separately from this suite; clicking the dialog's own
-  //    header text is an outside-click as far as the dropdown's click-away catcher is concerned
-  //    (`WMenu.vue`), closing it with no Escape keypress involved at all.
-  await createDialog.getByText('Create User', { exact: true }).click()
+  // -> Multi-select stays open; close it by clicking the trigger again (the same toggle path that
+  //    opened it -- WMenu.vue's `onTriggerClick`) rather than pressing Escape or clicking elsewhere
+  //    in the dialog. WDialog's own Escape handler is a capture-phase `document` listener
+  //    (WDialog.vue), which always runs before WMenu's dropdown-close handler (bubble phase, since
+  //    OpenProject #2364) ever gets a turn, so an Escape meant only for the still-open Groups
+  //    dropdown also cancels this non-persistent dialog outright -- confirmed against a real run:
+  //    the click on "Create" below still resolved and reported success (a stale reference into a
+  //    dialog already mid-close), but no POST to `users` was ever made and no new row landed in the
+  //    table. Real product bug (OpenProject #2370), tracked separately from this suite. Clicking
+  //    elsewhere in the dialog doesn't work either: WMenu's own full-viewport outside-click catcher
+  //    sits above the rest of the dialog while the dropdown is open, so any other target inside it
+  //    (the dialog's header text included) is itself obscured, and Playwright's actionability check
+  //    refuses to click through an intercepting element -- the trigger itself is the one thing in
+  //    the dialog guaranteed clickable regardless.
+  await groupsCombobox.click()
   await createDialog.getByRole('button', { name: 'Create', exact: true }).click()
   await expect(page.getByText('User created successfully!')).toBeVisible()
 
