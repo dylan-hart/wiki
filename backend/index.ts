@@ -34,7 +34,7 @@ import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import { registerUnhandledRejectionHandler, runBootPhaseOrExit } from './core/processGuards.ts'
 import scheduler from './core/scheduler.ts'
-import { apiKeySitePinHook } from './helpers/apiKeySite.ts'
+import { apiKeySitePinHook, isBearerAuthenticatedPath } from './helpers/apiKeySite.ts'
 import { resolveAppShellLocale, getTemplatedAppShell } from './helpers/appShell.ts'
 import { assertValidAuthSecret } from './helpers/authSecret.ts'
 import { authSecretSigner } from './helpers/authSecretSigner.ts'
@@ -747,10 +747,13 @@ async function initHTTPServer() {
   app.decorateRequest('apiKey', null)
 
   app.addHook('onRequest', async (req, reply) => {
-    // -> Bearer tokens authenticate API calls only; everything else is cookie-authenticated. Note
-    //    that the session is deliberately left untouched: writing to it would have @fastify/session
-    //    persist a session row for every scraped request.
-    if (!req.url.startsWith('/_api/')) {
+    // -> Bearer tokens authenticate `/_api/` calls, plus the handful of public, hostname-routed
+    //    controllers that accept an API key without a session (`/_files`, `/_site`, `/_thumb` --
+    //    see `helpers/apiKeySite.ts#isBearerAuthenticatedPath` for exactly which and why, OpenProject
+    //    #2339). Everything else is cookie-authenticated. Note that the session is deliberately left
+    //    untouched: writing to it would have @fastify/session persist a session row for every
+    //    scraped request.
+    if (!isBearerAuthenticatedPath(req.url)) {
       return
     }
     const header = req.headers.authorization
