@@ -1049,8 +1049,9 @@ outright — from `base.yml`, `models/settings.ts`, `models/security.ts`, `api/s
 `migration/mappers/site-settings.ts`'s `maxFiles -> uploadMaxFiles` rename was removed with it: a 2.x
 `uploads.maxFiles` value is now silently dropped on import, same as `mode`/`syncInterval` above.
 `security.uploadScanSVG`, the sibling key from the same audit finding, was implemented instead
-(`models/assets.ts#sanitizeSvgAsset`) rather than deleted, since sanitizing an uploaded SVG is real
-work a per-request file-count cap has no upload surface to attach to.
+(`helpers/images.ts#sanitizeSvg`, called inline from `models/assets.ts`'s asset-creation flow)
+rather than deleted, since sanitizing an uploaded SVG is real work a per-request file-count cap has
+no upload surface to attach to.
 
 **Closes when**: a 3.0 upload route accepts more than one file per request (a batch/multi-file
 upload feature). At that point a `uploadMaxFiles`-equivalent setting can be reintroduced and enforced
