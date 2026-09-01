@@ -116,6 +116,57 @@ describe('WMenu focus management', () => {
     expect(document.activeElement).toBe(trigger.element)
     wrapper.unmount()
   })
+
+  /**
+   * OpenProject #2364: a commit-on-blur field focused inside the panel must get its own Escape
+   * handler's turn (discard) before WMenu's Escape handler moves focus and fires a blur that would
+   * otherwise commit the in-progress value. See `PageActionsCol.vue`'s pending-asset rename field
+   * for the real call site this reproduces (`@keydown.esc="discard"` + `@blur="commit"`).
+   */
+  const EditableHost = defineComponent({
+    components: { WMenu },
+    data() {
+      return { editing: true, draft: 'typed value', committed: null }
+    },
+    methods: {
+      discard() {
+        this.editing = false
+        this.draft = ''
+      },
+      commit() {
+        if (!this.editing) {
+          return
+        }
+        this.committed = this.draft
+        this.editing = false
+      }
+    },
+    template: `
+      <button id="trigger" type="button">
+        Open
+        <w-menu :model-value="true">
+          <input id="field" v-model="draft" @keydown.esc="discard" @blur="commit" />
+        </w-menu>
+      </button>
+    `
+  })
+
+  it('discards a focused field on Escape instead of committing it on the resulting blur', async () => {
+    const wrapper = mount(EditableHost, { attachTo: document.body })
+    await flushPromises()
+
+    const field = document.getElementById('field')
+    expect(document.activeElement).toBe(field)
+
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+
+    expect(wrapper.vm.committed).toBeNull()
+    expect(wrapper.vm.editing).toBe(false)
+    expect(document.querySelector('.w-menu')).toBeNull()
+
+    wrapper.unmount()
+  })
 })
 
 /**

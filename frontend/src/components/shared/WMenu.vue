@@ -269,6 +269,22 @@ function onContentClick() {
   }
 }
 
+/*
+  Bubble phase, deliberately -- NOT the capture phase this used to run in (OpenProject #2364). A
+  capture-phase document listener fires before the event ever reaches whatever is focused inside the
+  panel, so an editable field's own `@keydown.esc` (its "discard the in-progress edit" handler) never
+  got a turn: this handler ran first, stopped propagation, and `hide()` -> `restoreFocus()`
+  synchronously blurred the field -- which committed its draft instead of discarding it, for any
+  field whose commit lives on blur (the app's standard pattern, see `PageHeader.vue`'s
+  `onEditableBlur` and `PageActionsCol.vue`'s pending-asset rename field).
+
+  Listening on the bubble phase instead means the normal DOM order applies: a focused field's own
+  Escape handler runs first (target phase), can discard/clear its own state, and only afterward does
+  the key bubble up to this document listener, which closes the menu and moves focus -- by which
+  point there is nothing left for a blur to commit. This also brings WMenu in line with the
+  cascading-Escape convention `WSelect`'s own dropdown already relies on (`ev.stopPropagation()` on
+  Escape to keep an outer popup from also closing on the same keypress).
+*/
 function onKeydown(ev) {
   if (ev.key === 'Escape' && shown.value) {
     ev.stopPropagation()
@@ -353,7 +369,7 @@ onMounted(() => {
     triggerEl.addEventListener('click', onTriggerClick)
     triggerEl.addEventListener('contextmenu', onTriggerContextMenu)
   }
-  document.addEventListener('keydown', onKeydown, true)
+  document.addEventListener('keydown', onKeydown)
   window.addEventListener('resize', hide)
 
   if (props.modelValue === true) {
@@ -366,7 +382,7 @@ onBeforeUnmount(() => {
     triggerEl.removeEventListener('click', onTriggerClick)
     triggerEl.removeEventListener('contextmenu', onTriggerContextMenu)
   }
-  document.removeEventListener('keydown', onKeydown, true)
+  document.removeEventListener('keydown', onKeydown)
   window.removeEventListener('resize', hide)
 })
 
