@@ -715,12 +715,13 @@ function cancelRenamePendingAsset() {
  * discard before its own handler ever ran. An invalid draft (sanitizes down to empty) is left as-is,
  * still editing, with `renameBaseNameRule` already showing why on the field itself.
  *
- * The menu's own `@hide="cancelRenamePendingAsset"` (see the template) matters for the same reason:
- * `WMenu`'s document-level Escape/click-away handler runs and closes the menu -- moving focus back
- * to its trigger -- before this field's own `@keydown.esc` ever gets a turn, and that focus change
- * blurs this field first. Cancelling on `hide` (which `WMenu.vue#hide()` fires before it restores
- * focus) clears `editingAssetId` ahead of that blur, so the guard below catches it and the closing
- * menu discards the in-progress edit instead of silently committing whatever was half-typed.
+ * The menu's own `@hide="cancelRenamePendingAsset"` (see the template) still matters even though
+ * `WMenu`'s own Escape handling now defers to this field's `@keydown.esc` first (OpenProject #2364)
+ * -- `hide` also fires from paths that never dispatch a keydown at all: an outside click, the
+ * catcher/resize close, or a second row's own action. Cancelling on `hide` (which `WMenu.vue#hide()`
+ * fires before it restores focus) clears `editingAssetId` ahead of the focus-restore blur for all of
+ * those paths, so the guard below catches it and the closing menu discards the in-progress edit
+ * instead of silently committing whatever was half-typed.
  */
 function commitRenamePendingAsset(item) {
   if (editingAssetId.value !== item.id) {
