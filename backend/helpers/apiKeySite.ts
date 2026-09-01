@@ -52,6 +52,33 @@ export function enforceApiKeySite(
 }
 
 /**
+ * The URL prefixes a Bearer token is actually verified against, in `index.ts`'s own `onRequest` hook
+ * (the one that sets `req.apiKey`). `/_api/` is the ordinary case. The other three are the
+ * hostname-resolved, no-`:siteId`-param controllers this file's own doc comment above names
+ * (`controllers/files.ts`, `controllers/site.ts`) plus `controllers/thumb.ts` — which reads
+ * `req.apiKey` indirectly, through `actorForRequest()`'s `AccessActor.siteId` and
+ * `groups.checkAccess()`'s `withinSitePin`, rather than calling `enforceApiKeySite()` itself, but
+ * depends on `req.apiKey` being populated exactly the same way (OpenProject #2339: before this
+ * existed, `req.apiKey` was always null outside `/_api/`, so every one of these checks was a
+ * permanent no-op for a Bearer-authenticated request against any of them).
+ *
+ * Deliberately excludes two look-alike public controllers: `controllers/render.ts` resolves no site
+ * at all (the served shell is identical for every site) and is only ever fetched by this instance's
+ * own headless browser, which carries no API key; `controllers/icons.ts` never reads `req.apiKey` —
+ * an icon carries no site-scoped permission of its own to check.
+ */
+const BEARER_AUTH_PREFIXES = ['/_api/', '/_files/', '/_site/', '/_thumb/']
+
+/**
+ * Whether `index.ts`'s API-key-verification hook should even look for a Bearer token on this
+ * request. Kept as a plain function of the URL, matching `helpers/rateLimit.ts#isPublicRateLimitedPath`'s
+ * own reasoning for being one: independently unit-testable, with no Fastify instance needed.
+ */
+export function isBearerAuthenticatedPath(url: string): boolean {
+  return BEARER_AUTH_PREFIXES.some((prefix) => url.startsWith(prefix))
+}
+
+/**
  * The literal prefix every `/sites/:siteId/...` REST route is mounted under: `api/index.ts` registers
  * every resource file (`pages.ts`, `assets.ts`, `sites.ts`, `tree.ts`, ...) under `/_api`, and each one
  * writes its own path starting with either `/sites/:siteId/...` or (`sites.ts` itself, whose file
