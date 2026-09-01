@@ -95,7 +95,64 @@ function contextWith(source: SourceConnector): MigrationContext {
     // `phases/users.integration.test.ts` for coverage of the real write path against a real DB.
     localStrategyId: 'test-local-strategy-uuid',
     systemGroupIds: { admin: 'test-admin-group-uuid', guest: 'test-guest-group-uuid' },
-    operatorActorId: 'test-operator-uuid'
+    operatorActorId: 'test-operator-uuid',
+    primaryLocale: 'en'
+  }
+}
+
+/** A minimally-valid 2.x page row — enough for `content-staging.ts#stagePage()` to produce a
+ * `StagedPage` whose `path` actually normalizes, unlike `recordsOf()`'s bare `{id: i}` fixtures (which
+ * stage to an empty `path` and always fail `normalizeMigratedPath()` with `'empty-path'`). */
+function fakeSourcePage(overrides: Partial<SourceRecord> = {}): SourceRecord {
+  return {
+    id: 1,
+    path: 'welcome',
+    localeCode: 'en',
+    title: 'Welcome',
+    hash: 'hash-1',
+    description: null,
+    content: '# Welcome',
+    render: '<h1>Welcome</h1>',
+    toc: null,
+    contentType: 'markdown',
+    isPrivate: false,
+    privateNS: null,
+    isPublished: true,
+    publishStartDate: null,
+    publishEndDate: null,
+    createdAt: '2024-01-01T00:00:00.000Z',
+    updatedAt: '2024-01-01T00:00:00.000Z',
+    extra: {},
+    editorKey: 'markdown',
+    tags: [],
+    authorId: null,
+    creatorId: null,
+    ...overrides
+  }
+}
+
+/** A `contentPhase` connector whose `pages()` row genuinely stages, normalizes and would be created —
+ * unlike `workingConnector`'s bare `{id: i}` fixtures, which always fail `normalizeMigratedPath()`
+ * with `'empty-path'` before ever reaching `createPage()`. `pageHistory()`/`navigation()` are working
+ * but empty, so both entities read cleanly with nothing to merge/import. Used (with `dryRun: true`, so
+ * every dependency's placeholder/no-op branch is in play — see `phases/content.ts`) to exercise real
+ * per-record `'created'` outcomes, including write-capability signaling, with no real `WIKI`/db
+ * needed. */
+function creatableContentConnector(pages: SourceRecord[] = [fakeSourcePage()]): SourceConnector {
+  async function* pagesGen(): AsyncGenerator<SourceRecord> {
+    yield* pages
+  }
+  async function* pageHistoryGen(): AsyncGenerator<SourceRecord> {
+    // -> Empty: no history rows to merge for this fixture.
+  }
+  async function* navigationGen(): AsyncGenerator<SourceRecord> {
+    // -> Empty: nothing for importNavigation() to map.
+  }
+  return {
+    ...stubConnector(),
+    pages: pagesGen,
+    pageHistory: pageHistoryGen,
+    navigation: navigationGen
   }
 }
 
@@ -141,13 +198,49 @@ describe('migration phases', () => {
     assert.deepEqual(result.notImplemented, ['groups', 'users', 'userGroups'])
   })
 
-  test('contentPhase counts pages, pageHistory and tags, but reports not_implemented — no phase has a write path yet', async () => {
-    const result = await contentPhase.run(
-      contextWith(workingConnector({ pages: 4, pageHistory: 7, tags: 1 }))
-    )
+  test('contentPhase reports not_implemented against the current connector stubs (both entities)', async () => {
+    const result = await contentPhase.run(contextWith(stubConnector()))
     assert.equal(result.status, 'not_implemented')
-    assert.deepEqual(result.counts, { pages: 4, pageHistory: 7, tags: 1 })
-    assert.deepEqual(result.notImplemented, ['pages', 'pageHistory', 'tags'])
+    assert.deepEqual(result.notImplemented, ['pages', 'navigation'])
+  })
+
+  test('contentPhase (Task 13): a working connector with a genuinely creatable page reports ok, and the navigation entity runs once pages has drained', async () => {
+    const result = await contentPhase.run({
+      ...contextWith(creatableContentConnector()),
+      dryRun: true
+    })
+    assert.equal(result.status, 'ok')
+    assert.deepEqual(result.counts, { pages: 1, navigation: 1 })
+    assert.equal(result.notImplemented, undefined)
+    assert.ok(result.report)
+    assert.equal(result.report!.found, 2)
+    assert.equal(result.report!.wouldCreate, 2)
+    assert.equal(result.report!.wouldSkipExisting, 0)
+    assert.deepEqual(result.report!.conflicts, [])
+  })
+
+  test("contentPhase: a page that fails to import (sibling-collision) is not misreported as wouldCreate (Task 13 proactive fix, mirroring Task 14's review fix for users)", async () => {
+    // -> Before this fix, blindly wrapping pageImporter.importOne() as recorder.create()'s own write
+    //    callback would have counted BOTH pages as wouldCreate, since importOne() never throws for a
+    //    failed page (it returns a 'failed' outcome instead) and create() counts unconditionally.
+    const pages = [
+      fakeSourcePage({ id: 1, path: 'FooBar' }),
+      fakeSourcePage({ id: 2, path: 'foobar' })
+    ]
+    const result = await contentPhase.run({
+      ...contextWith(creatableContentConnector(pages)),
+      dryRun: true
+    })
+    assert.equal(result.status, 'ok')
+    assert.ok(result.report)
+    // -> 2 pages + 1 navigation sentinel.
+    assert.equal(result.report!.found, 3)
+    // -> Page 1 (created) + navigation (created); page 2 is the sibling-collision conflict below.
+    assert.equal(result.report!.wouldCreate, 2)
+    assert.equal(result.report!.wouldSkipExisting, 0)
+    assert.equal(result.report!.conflicts.length, 1)
+    assert.equal(result.report!.conflicts[0]!.identifier, '2')
+    assert.match(result.report!.conflicts[0]!.detail, /sibling-collision|same tree location/)
   })
 
   test('assetsPhase counts assets, but reports not_implemented — no phase has a write path yet', async () => {

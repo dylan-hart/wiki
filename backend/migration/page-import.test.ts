@@ -725,4 +725,83 @@ describe('createPageImporter', () => {
     assert.equal(importer.failed[0].oldId, 2)
     assert.equal(importer.failed[0].reason, 'sibling-collision')
   })
+
+  describe('importOne() return value (Task 13 proactive fix)', () => {
+    // -> Before this fix, importOne() returned Promise<void> and never threw for a bad page (a
+    //    sibling-collision, an existing-entry-collision, a createPage() error — all folded into
+    //    failed[] internally instead), the exact same shape the pre-fix users/groups importers had.
+    //    A caller that blindly wrapped importOne() as recorder.create()'s own write callback (the way
+    //    phases/users.ts originally wrapped its own per-record importOne() calls, before its review
+    //    fix) would misreport every failed page as a successful wouldCreate. These assertions are
+    //    what phases/content.ts's routePageOutcome() now routes on.
+    test('resolves { status: "created", pageId } on success, matching pageIdMap and succeeded[]', async () => {
+      const pagesModel = new FakePagesModel()
+      const importer = createPageImporter(
+        { pagesModel, existingEntry: noExistingEntries },
+        { siteId: 'site-1', actorPermissions: [] }
+      )
+
+      const outcome = await importer.importOne(buildStagedPage({ oldId: 1, path: 'one' }))
+
+      assert.deepEqual(outcome, { status: 'created', pageId: 'page-1' })
+      assert.equal(importer.pageIdMap.get(1), 'page-1')
+    })
+
+    test('resolves { status: "failed", reason: "sibling-collision", message } for a colliding page, not a thrown error', async () => {
+      const pagesModel = new FakePagesModel()
+      const importer = createPageImporter(
+        { pagesModel, existingEntry: noExistingEntries },
+        { siteId: 'site-1', actorPermissions: [] }
+      )
+
+      await importer.importOne(buildStagedPage({ oldId: 1, path: 'FooBar' }))
+      const outcome = await importer.importOne(buildStagedPage({ oldId: 2, path: 'foobar' }))
+
+      assert.equal(outcome.status, 'failed')
+      assert.equal((outcome as { reason: string }).reason, 'sibling-collision')
+      assert.match((outcome as { message: string }).message, /same tree location/)
+    })
+
+    test('resolves { status: "failed", reason: "existing-entry-collision" } without throwing', async () => {
+      const pagesModel = new FakePagesModel()
+      const importer = createPageImporter(
+        { pagesModel, existingEntry: () => true },
+        { siteId: 'site-1', actorPermissions: [] }
+      )
+
+      const outcome = await importer.importOne(buildStagedPage({ oldId: 5, path: 'taken' }))
+
+      assert.deepEqual(outcome.status, 'failed')
+      assert.equal((outcome as { reason: string }).reason, 'existing-entry-collision')
+      assert.equal(pagesModel.created.length, 0)
+    })
+
+    test('resolves { status: "failed", reason: "create-error" } when createPage() throws', async () => {
+      const pagesModel = new FakePagesModel()
+      pagesModel.failNextCreate = 'A page cannot be empty.'
+      const importer = createPageImporter(
+        { pagesModel, existingEntry: noExistingEntries },
+        { siteId: 'site-1', actorPermissions: [] }
+      )
+
+      const outcome = await importer.importOne(buildStagedPage({ oldId: 1, path: 'empty-page' }))
+
+      assert.equal(outcome.status, 'failed')
+      assert.equal((outcome as { reason: string }).reason, 'create-error')
+      assert.match((outcome as { message: string }).message, /A page cannot be empty\./)
+    })
+
+    test('resolves { status: "failed", reason: "empty-path" } for a page whose path never normalizes', async () => {
+      const pagesModel = new FakePagesModel()
+      const importer = createPageImporter(
+        { pagesModel, existingEntry: noExistingEntries },
+        { siteId: 'site-1', actorPermissions: [] }
+      )
+
+      const outcome = await importer.importOne(buildStagedPage({ oldId: 6, path: '' }))
+
+      assert.equal(outcome.status, 'failed')
+      assert.equal((outcome as { reason: string }).reason, 'empty-path')
+    })
+  })
 })

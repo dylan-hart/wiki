@@ -197,12 +197,13 @@ export async function bootstrapMigrationRuntime(instanceId: string): Promise<Wik
 }
 
 /**
- * Resolves the three identifiers the `users` phase (Task 14) and the `content` phase (Task 13) need
+ * Resolves the four identifiers the `users` phase (Task 14) and the `content` phase (Task 13) need
  * from the destination install but cannot derive from the 2.x source: this install's local-auth
- * strategy id, its real system Administrators/Guests group ids, and the root admin user id to use as
- * a fallback content author. Called once, after `bootstrapMigrationRuntime()` has returned, by
- * whichever entry point actually builds a `MigrationContext` (`../tasks/migrate.ts`) — `bootstrap.ts`
- * itself has no `MigrationContext` to populate, since it only ever builds the ambient `WIKI` global.
+ * strategy id, its real system Administrators/Guests group ids, the root admin user id to use as a
+ * fallback content author, and the target site's own primary locale. Called once, after
+ * `bootstrapMigrationRuntime()` has returned, by whichever entry point actually builds a
+ * `MigrationContext` (`../tasks/migrate.ts`) — `bootstrap.ts` itself has no `MigrationContext` to
+ * populate, since it only ever builds the ambient `WIKI` global.
  *
  * `localStrategyId`/`guestsGroupId` are fixed constants every 3.0 install seeds identically from
  * `base.yml`'s `systemIds` (`configSvc.init()` alone is enough to read them — no DB round trip).
@@ -211,37 +212,53 @@ export async function bootstrapMigrationRuntime(instanceId: string): Promise<Wik
  * `WIKI.configSvc.loadFromDb()` call `bootstrapMigrationRuntime()` now makes. See
  * `importers/users-groups.ts`'s own module doc (Task 731 paragraph) for the full trace of where the
  * admin/guest group ids live at runtime.
+ *
+ * `primaryLocale` (Task 13) is the one identifier here that is per-*site* rather than per-install, so
+ * this now takes `siteId` — the caller (`../tasks/migrate.ts`) already has it by the time it calls
+ * this, from its own `getSiteById({ forceReload: true })` lookup, which is also what populates
+ * `WIKI.sites` in the first place (`models/sites.ts#reloadCache`) — this function does not reload it
+ * itself.
  */
-export function resolveUsersImportContext(WIKI: WikiGlobal): {
+export function resolveUsersImportContext(
+  WIKI: WikiGlobal,
+  siteId: string
+): {
   localStrategyId: string
   systemGroupIds: SystemGroupIds
   operatorActorId: string
+  primaryLocale: string
 } {
   const localStrategyId = WIKI.data.systemIds.localAuthId
   const adminGroupId = WIKI.config.auth?.rootAdminGroupId
   const guestGroupId = WIKI.data.systemIds.guestsGroupId
   const operatorActorId = WIKI.config.auth?.rootAdminUserId
+  const primaryLocale = WIKI.sites[siteId]?.config?.locales?.primary
 
   // `WIKI.config.auth` is typed `any` (assembled at runtime from YAML + jsonb — see
   // `types/global.d.ts`), so a missing/malformed `settings.auth` row would otherwise resolve
   // `undefined` here silently: `createUserGroupImporter()` treats an unresolved `systemGroupIds.admin`/
   // `.guest` as "not created" and quietly skips every membership pointing at the source's
   // Administrators/Guests group, and a `content` phase handed `operatorActorId: undefined` has no
-  // working fallback author. `bootstrapMigrationRuntime()`'s own `loadFromDb()` check already refuses
-  // an empty `settings` table; this is the belt for a *present-but-malformed* one.
-  if (!localStrategyId || !adminGroupId || !guestGroupId || !operatorActorId) {
+  // working fallback author, or `primaryLocale: undefined` has no locale to pick 2.x's navigation
+  // tree by. `bootstrapMigrationRuntime()`'s own `loadFromDb()` check already refuses an empty
+  // `settings` table; this is the belt for a *present-but-malformed* one (or, for `primaryLocale`, a
+  // site whose `config.locales.primary` was never set).
+  if (!localStrategyId || !adminGroupId || !guestGroupId || !operatorActorId || !primaryLocale) {
     throw new Error(
-      'Could not resolve one or more of localStrategyId/systemGroupIds/operatorActorId from the ' +
-        'destination: base.yml systemIds or the settings.auth row is missing/malformed ' +
+      'Could not resolve one or more of localStrategyId/systemGroupIds/operatorActorId/primaryLocale ' +
+        "from the destination: base.yml systemIds, the settings.auth row, or the target site's " +
+        'config.locales.primary is missing/malformed ' +
         `(localStrategyId=${String(localStrategyId)}, adminGroupId=${String(adminGroupId)}, ` +
-        `guestGroupId=${String(guestGroupId)}, operatorActorId=${String(operatorActorId)}).`
+        `guestGroupId=${String(guestGroupId)}, operatorActorId=${String(operatorActorId)}, ` +
+        `primaryLocale=${String(primaryLocale)}).`
     )
   }
 
   return {
     localStrategyId,
     systemGroupIds: { admin: adminGroupId, guest: guestGroupId },
-    operatorActorId
+    operatorActorId,
+    primaryLocale
   }
 }
 

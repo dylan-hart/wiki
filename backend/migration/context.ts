@@ -1,6 +1,7 @@
 import type { WikiDb } from '../core/db.ts'
 import type { SourceConnector } from './connector.ts'
 import type { SystemGroupIds } from './importers/users-groups.ts'
+import type { IdMap } from './id-map.ts'
 import type { PhaseReport } from './report.ts'
 
 /**
@@ -72,6 +73,18 @@ export interface MigrationContext {
    * phase has actually run (e.g. a hand-built `MigrationContext` in a test fixture that never runs
    * that phase). */
   userIdMap?: Map<number, string>
+  /** Old-`pages.id` -> destination-UUID map the `content` phase (Task 13) populates as a live
+   * reference (`pageImporter.pageIdMap`) once its `pages` entity has started running — handed to the
+   * assets/comments phase (Task 16, `dependsOn: ['content']`) to resolve a staged asset/comment's
+   * owning page. Optional for the same reason `userIdMap` is: it does not exist before the `content`
+   * phase has run. */
+  pageIdMap?: IdMap<number>
+  /** This install's target site's own primary locale
+   * (`WIKI.sites[siteId].config.locales.primary`), resolved once by `bootstrap.ts`'s
+   * `resolveUsersImportContext()` (called with `siteId` now, for exactly this) — the `content` phase
+   * (Task 13) needs it to pick which one of 2.x's per-locale navigation trees becomes 3.0's single,
+   * locale-less site-wide menu (`navigation-import.ts`'s `NavigationImportOptions.locale`). */
+  primaryLocale: string
 }
 
 /** One phase in the sequence, plus the dependency ids it declares for documentation and future

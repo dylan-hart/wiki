@@ -426,6 +426,24 @@ function streamedLocationKey(locale: string, parentPath: string, fileName: strin
   return `${locale} ${parentPath} ${fileName}`
 }
 
+/**
+ * What one `importOne()` call resolved to (Task 13's own proactive fix — see `phases/content.ts`'s
+ * `routePageOutcome()`, which mirrors `phases/users.ts`'s `routeOutcome()` convention Task 14's review
+ * round established for the exact same class of bug). Before this, `importOne()` returned `Promise<void>`
+ * and never threw for a bad page — a sibling-collision, an existing-entry-collision, a `createPage()`
+ * error, all folded into `failed[]` internally instead — so a caller that unconditionally wrapped
+ * `importOne()` as `recorder.create()`'s `write` callback (the way `phases/users.ts` originally wrapped
+ * `importOne()` for users/groups, before its own review fix) would have misreported every failed page as
+ * a successful `wouldCreate`, since the write never threw and `create()` counts unconditionally.
+ *
+ * Success carries the new page id (already recorded in `pageIdMap` before this returns); failure carries
+ * the same `reason`/`message` already pushed onto `failed` (see `PageImportFailure`), so a caller never
+ * has to re-derive it from `failed.at(-1)`.
+ */
+export type PageImportOutcome =
+  | { status: 'created'; pageId: string }
+  | { status: 'failed'; reason: PageImportFailureReason; message: string }
+
 /** Live, streaming per-page import — the extracted body of what used to be `importPages()`'s whole
  * `for await` loop (OpenProject #1818's own follow-up, so Task 13 can drive one `StagedPage` at a time
  * from a phase-classify callback instead of only ever being handed a whole iterable up front).
@@ -434,7 +452,7 @@ function streamedLocationKey(locale: string, parentPath: string, fileName: strin
  * page processed so far. See the module doc comment's "Streaming input and per-page sibling-collision
  * detection" and "History backfill, interleaved" for what `importOne()` does and why. */
 export interface PageImporter {
-  importOne(staged: StagedPage): Promise<void>
+  importOne(staged: StagedPage): Promise<PageImportOutcome>
   readonly succeeded: PageImportSuccess[]
   readonly failed: PageImportFailure[]
   readonly warnings: string[]
@@ -463,7 +481,7 @@ export function createPageImporter(
   //    the heavy StagedPage fields this streaming shape exists to avoid holding onto.
   const claimedLocations = new Map<string, number>()
 
-  async function importOne(staged: StagedPage): Promise<void> {
+  async function importOne(staged: StagedPage): Promise<PageImportOutcome> {
     const normalized = normalizeMigratedPath(staged.path)
 
     if ('reason' in normalized) {
@@ -474,7 +492,7 @@ export function createPageImporter(
         reason: normalized.reason,
         message: normalized.message
       })
-      return
+      return { status: 'failed', reason: normalized.reason, message: normalized.message }
     }
 
     const locationKey = streamedLocationKey(
@@ -484,17 +502,18 @@ export function createPageImporter(
     )
     const claimedByOldId = claimedLocations.get(locationKey)
     if (claimedByOldId !== undefined) {
+      const message =
+        `page ${staged.oldId} at "${normalized.path}" (locale "${staged.locale}") normalizes to the ` +
+        `same tree location as page ${claimedByOldId}, already imported earlier in this streaming run ` +
+        '— the earlier page was kept, this one was not.'
       failed.push({
         oldId: staged.oldId,
         path: normalized.path,
         locale: staged.locale,
         reason: 'sibling-collision',
-        message:
-          `page ${staged.oldId} at "${normalized.path}" (locale "${staged.locale}") normalizes to the ` +
-          `same tree location as page ${claimedByOldId}, already imported earlier in this streaming run ` +
-          '— the earlier page was kept, this one was not.'
+        message
       })
-      return
+      return { status: 'failed', reason: 'sibling-collision', message }
     }
 
     const treeExists = await deps.existingEntry(
@@ -504,14 +523,15 @@ export function createPageImporter(
       normalized.fileName
     )
     if (treeExists) {
+      const message = `page ${staged.oldId} at "${normalized.path}" (locale "${staged.locale}") already exists in the target site's tree — import failed for this page.`
       failed.push({
         oldId: staged.oldId,
         path: normalized.path,
         locale: staged.locale,
         reason: 'existing-entry-collision',
-        message: `page ${staged.oldId} at "${normalized.path}" (locale "${staged.locale}") already exists in the target site's tree — import failed for this page.`
+        message
       })
-      return
+      return { status: 'failed', reason: 'existing-entry-collision', message }
     }
 
     claimedLocations.set(locationKey, staged.oldId)
@@ -541,14 +561,15 @@ export function createPageImporter(
       )
       destId = created.id
     } catch (err: any) {
+      const message = `createPage() failed: ${err.message}`
       failed.push({
         oldId: staged.oldId,
         path: staged.path,
         locale: staged.locale,
         reason: 'create-error',
-        message: `createPage() failed: ${err.message}`
+        message
       })
-      return
+      return { status: 'failed', reason: 'create-error', message }
     }
 
     pageIdMap.set(staged.oldId, destId)
@@ -575,6 +596,7 @@ export function createPageImporter(
       warnings: pageWarnings,
       action: 'created'
     })
+    return { status: 'created', pageId: destId }
   }
 
   return { importOne, succeeded, failed, warnings, pageIdMap }

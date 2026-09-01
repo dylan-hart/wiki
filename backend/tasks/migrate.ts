@@ -80,7 +80,7 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
       siteId: args.siteId,
       dryRun: args.dryRun,
       log: (message) => WIKI.logger.info(message),
-      ...resolveUsersImportContext(WIKI)
+      ...resolveUsersImportContext(WIKI, args.siteId)
     }
 
     const results = await runMigration(MIGRATION_PHASES, ctx, { only: args.only })

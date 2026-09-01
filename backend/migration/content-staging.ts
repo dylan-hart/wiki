@@ -1,5 +1,9 @@
 import type { SourceConnector, SourceRecord } from './connector.ts'
 import { resolveActorId, type UserIdMap } from './id-map.ts'
+// -> Type-only, so this is erased entirely at load time (verbatimModuleSyntax) -- safe even though
+//    navigation-import.ts imports StagedNavigation back from this module, since neither import
+//    survives to become a real runtime circular dependency.
+import type { NavigationPageRef } from './navigation-import.ts'
 import type { PathAssignmentInput } from './path-normalization.ts'
 import { coerceSourceBoolean } from './source-coercion.ts'
 
@@ -183,10 +187,19 @@ export interface ContentStagingContext {
    * Only complete once the `extractContentStaging()` generator that was given this context has been
    * fully drained — sorted by `versionDate` ascending at that point, same as before streaming. */
   orphanedHistory: OrphanedPageHistoryEntry[]
+  /** Every staged page's lightweight `{oldId, path, locale}` identity (Task 13, WP #1790), appended to
+   * as `extractContentStaging()` yields each `StagedPage` — what `navigation-import.ts`'s
+   * `importNavigation()` needs to resolve a 2.x `'page'`-type nav target back onto a staged page.
+   * Complete once every page this run's `pages` entity yielded has actually been processed by its
+   * caller (`phases/content.ts`'s streaming `pages` entity fully drains before its `navigation` entity
+   * starts — see that file's own doc comment), the same "complete once the whole walk has finished"
+   * contract `orphanedHistory` already has, just driven by the consumer finishing the generator rather
+   * than the generator itself finishing internally. */
+  stagedPageRefs: NavigationPageRef[]
 }
 
 export function createContentStagingContext(): ContentStagingContext {
-  return { warnings: [], orphanedHistory: [] }
+  return { warnings: [], orphanedHistory: [], stagedPageRefs: [] }
 }
 
 export interface ContentStagingOptions {
@@ -476,6 +489,7 @@ export async function* extractContentStaging(
     }
 
     staged.history.sort(compareVersionDate)
+    context.stagedPageRefs.push({ oldId: staged.oldId, path: staged.path, locale: staged.locale })
     yield staged
   }
 
