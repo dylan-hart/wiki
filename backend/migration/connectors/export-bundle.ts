@@ -503,7 +503,10 @@ export class ExportBundleSourceConnector implements SourceConnector {
   }
 
   comments(): AsyncIterable<SourceRecord> {
-    throw new NotYetImplementedError('comments', 'a future task extending the export-bundle connector')
+    throw new NotYetImplementedError(
+      'comments',
+      'a future task extending the export-bundle connector'
+    )
   }
 
   assets(): AsyncIterable<SourceAssetFile> {
