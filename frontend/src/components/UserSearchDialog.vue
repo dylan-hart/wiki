@@ -1,5 +1,8 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    :aria-label="props.title || t('admin.users.selectUsers')"
+    @hide="onDialogHide">
     <w-card class="user-search-dialog" style="width: 600px; max-width: 90vw">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-account.svg" size="sm" class="mr-2" />

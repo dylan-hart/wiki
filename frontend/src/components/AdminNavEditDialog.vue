@@ -1,5 +1,11 @@
 <template>
-  <w-dialog v-model="dialogVisible" full-width full-height persistent @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    full-width
+    full-height
+    persistent
+    :aria-label="title || t(`navEdit.editMenuItems`)"
+    @hide="onDialogHide">
     <w-layout container>
       <w-header class="card-header px-4 py-2">
         <w-icon name="img:/_assets/icons/fluent-sidebar-menu.svg" left size="md" />

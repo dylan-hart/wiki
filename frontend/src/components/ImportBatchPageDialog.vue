@@ -1,5 +1,5 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog v-model="dialogVisible" :aria-label="t(`pages.importBatch.title`)" @hide="onDialogHide">
     <w-card class="import-batch-page-dialog" style="width: 760px; max-width: 94vw">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-document-in-folder.svg" size="sm" class="mr-2" />

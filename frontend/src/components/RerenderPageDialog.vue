@@ -1,5 +1,10 @@
 <template>
-  <w-dialog v-model="dialogVisible" position="bottom" persistent @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    position="bottom"
+    persistent
+    :aria-label="t('renderPageDialog.loading')"
+    @hide="onDialogHide">
     <w-card style="width: 350px">
       <w-linear-progress query />
       <w-card-section class="text-center">

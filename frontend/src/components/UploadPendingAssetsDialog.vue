@@ -1,5 +1,10 @@
 <template>
-  <w-dialog v-model="dialogVisible" max-width="450px" persistent @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    max-width="450px"
+    persistent
+    :aria-label="t(`editor.pendingAssetsUploading`)"
+    @hide="onDialogHide">
     <w-card style="min-width: 350px">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-upload.svg" size="sm" class="mr-2" />

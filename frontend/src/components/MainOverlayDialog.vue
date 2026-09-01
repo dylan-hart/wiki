@@ -4,13 +4,15 @@
     class="main-overlay"
     persistent
     full-width
-    full-height>
+    full-height
+    :aria-label="overlayTitle">
     <component :is="overlays[siteStore.overlay]" />
   </w-dialog>
 </template>
 
 <script setup>
-import { defineAsyncComponent } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { useSiteStore } from '../stores/site'
 
@@ -50,4 +52,29 @@ const overlays = {
 // STORES
 
 const siteStore = useSiteStore()
+
+// I18N
+
+const { t } = useI18n()
+
+/**
+ * Each overlay names itself in its own header once mounted -- but the header lives inside the
+ * async component this wraps, which isn't in the DOM yet the instant the dialog opens (and
+ * `WDialog` names the dialog itself, not whatever slot content eventually renders inside it). This
+ * mirrors, by key, the same i18n title each of `overlays` above shows in its own `w-header`.
+ */
+const overlayTitleKeys = {
+  BlockPicker: 'editor.blockPicker.title',
+  EditorMarkdownConfig: 'editor.settings.markdown',
+  FileManager: 'fileman.title',
+  NavEdit: 'navEdit.editMenuItems',
+  PageHistory: 'history.title',
+  TableEditor: 'editor.tableEditor.title',
+  Welcome: 'welcome.title'
+}
+
+const overlayTitle = computed(() => {
+  const key = overlayTitleKeys[siteStore.overlay]
+  return key ? t(key) : null
+})
 </script>

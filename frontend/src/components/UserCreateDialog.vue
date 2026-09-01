@@ -1,5 +1,5 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog v-model="dialogVisible" :aria-label="t(`admin.users.create`)" @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-plus-plus.svg" size="sm" class="mr-2" />

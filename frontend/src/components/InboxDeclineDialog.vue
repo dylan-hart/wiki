@@ -1,5 +1,5 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog v-model="dialogVisible" :aria-label="t(`inbox.reviewDecline`)" @hide="onDialogHide">
     <w-card style="min-width: 450px">
       <w-card-section class="card-header">
         <w-icon name="la:times" size="sm" class="mr-2" />

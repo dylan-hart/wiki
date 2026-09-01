@@ -1,5 +1,9 @@
 <template>
-  <w-dialog v-model="dialogVisible" max-width="450px" @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    max-width="450px"
+    :aria-label="t(`admin.groups.delete`)"
+    @hide="onDialogHide">
     <w-card style="min-width: 350px">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-delete-bin.svg" size="sm" class="mr-2" />

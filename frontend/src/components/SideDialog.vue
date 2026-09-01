@@ -3,7 +3,8 @@
     class="floating-sidepanel"
     v-model="siteStore.sideDialogShown"
     position="right"
-    full-height>
+    full-height
+    :aria-label="sideDialogTitle">
     <component :is="sideDialogs[siteStore.sideDialogComponent]" />
   </w-dialog>
 </template>
@@ -46,6 +47,21 @@ const route = useRoute()
 // I18N
 
 const { t } = useI18n()
+
+/**
+ * Same reasoning as `MainOverlayDialog.vue`'s own `overlayTitleKeys`: the side panel's dialog shell
+ * has no header of its own, so it names itself off whichever `sideDialogs` entry is currently
+ * mounted, matching that component's own `w-toolbar`/`w-card-section.card-header` title.
+ */
+const sideDialogTitleKeys = {
+  PageBacklinksDialog: 'editor.backlinks.title',
+  PagePropertiesDialog: 'editor.props.pageProperties'
+}
+
+const sideDialogTitle = computed(() => {
+  const key = sideDialogTitleKeys[siteStore.sideDialogComponent]
+  return key ? t(key) : null
+})
 
 // DATA
 
