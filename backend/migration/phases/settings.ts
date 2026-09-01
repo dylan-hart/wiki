@@ -78,13 +78,44 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
   const { siteConfigPatch, instanceSettings } = mapSiteSettings(settingsRows)
   await recorder.create('site-config', async () => {
     if (Object.keys(siteConfigPatch).length > 0) {
+      // -> `updateSite()` merges its own `config` patch onto the row already in the destination
+      //    (`models/sites.ts`'s own `mergeWith(current, patch, ...)`), so this is already safe against
+      //    the same wholesale-replace hazard `instanceSettings.mail`/`.security` below have to guard
+      //    against by hand.
       await WIKI.models.sites.updateSite(ctx.siteId, { config: siteConfigPatch })
     }
     if (instanceSettings.mail) {
-      await WIKI.models.settings.updateConfig('mail', instanceSettings.mail)
+      // -> `WIKI.models.settings.updateConfig(key, value)` is a raw `INSERT ... ON CONFLICT DO UPDATE`
+      //    that REPLACES the whole `mail` row wholesale — writing `instanceSettings.mail` straight
+      //    through it (as an earlier version of this code did) would silently delete every field the
+      //    2.x mapper's patch doesn't happen to produce (its own doc comment: `MAIL_FIELDS` has no
+      //    `defaultBaseURL`, so a 2.x source with mail configured would delete
+      //    `mail.defaultBaseURL` from the destination). The real admin route
+      //    (`api/mail.ts`'s PATCH handler) never calls `updateConfig()` directly for exactly this
+      //    reason: it shallow-merges the incoming patch onto `WIKI.config.mail` (already the
+      //    DB-loaded value — `bootstrap.ts`'s `configSvc.loadFromDb()` runs before any phase does)
+      //    and writes the merged whole back via `WIKI.configSvc.saveToDb(['mail'])`. Mirrored here
+      //    verbatim rather than reimplemented, so this stays byte-for-byte the same merge the admin
+      //    UI's own save button performs.
+      const previousMail = WIKI.config.mail
+      WIKI.config.mail = { ...previousMail, ...instanceSettings.mail }
+      if (!(await WIKI.configSvc.saveToDb(['mail']))) {
+        WIKI.config.mail = previousMail
+        throw new Error('failed to save mail configuration during migration')
+      }
     }
     if (instanceSettings.security) {
-      await WIKI.models.settings.updateConfig('security', instanceSettings.security)
+      // -> Same wholesale-replace hazard as `mail` above (any 3.0-only `security` field the mapper's
+      //    patch doesn't produce — `corsConfig`/`corsMode`/`cspDirectives`/`enforceCsp`/
+      //    `hstsDuration`/`uploadScanSVG`/`forceAssetDownload`/... — would be silently deleted). Unlike
+      //    `mail`, `security` already has a real model method that does the correct merge-then-save:
+      //    `WIKI.models.security.updateConfig(patch)` (`models/security.ts`) does the exact same
+      //    `{ ...previous, ...patch }` + `saveToDb(['security'])` `api/mail.ts` does for `mail`, so
+      //    this calls it directly instead of hand-rolling the merge a second time.
+      const saved = await WIKI.models.security.updateConfig(instanceSettings.security)
+      if (!saved) {
+        throw new Error('failed to save security configuration during migration')
+      }
     }
   })
 
@@ -92,6 +123,18 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
   //    `buildConfig` and `validateConfig` all match the narrow interface's signatures exactly (see
   //    `mappers/authentication.ts`'s own doc comment on why the interface exists at all).
   const authResolver: AuthModuleResolver = WIKI.models.authentication
+  // -> No `groupIdMap` is passed: `mapAuthenticationRows()`'s `autoEnrollGroups` remap
+  //    (`remapAutoEnrollGroups()`) needs old-group-id -> new-group-UUID entries that only exist once
+  //    the `users` phase has run (`ctx.userIdMap`'s own sibling for groups) — but `settings` runs
+  //    *before* `users` (`phases/users.ts`'s own `dependsOn: ['settings']`), so that map genuinely
+  //    cannot exist yet here. This is the same forced, documented-not-solved reporting gap Task 14
+  //    left for `userImporter.providerFallbacks` (`phases/users.ts:108-112`): every created
+  //    authentication row's `autoEnrollGroups` is silently `[]`, regardless of what the 2.x source
+  //    row actually had configured, and neither `PhaseResult` nor `PhaseReport` has a field shaped to
+  //    surface it. Fixing this for real would mean either re-ordering the phases (settings currently
+  //    has `dependsOn: []` specifically so it can run first — see this phase's own module doc) or a
+  //    second pass over already-created strategies after `users` has run — both out of this task's
+  //    scope.
   const authResult = await mapAuthenticationRows(authRows, { resolver: authResolver })
   for (const result of authResult.results) {
     switch (result.status) {
@@ -130,6 +173,15 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
         //    written, not an error. Mirrors `phases/users.ts#routeOutcome()`'s precedent: between
         //    the two "not written, not an error" buckets `WriteRecorder` offers, `skipExisting` is
         //    the closer fit, since `conflict()` is reserved for two records genuinely colliding.
+        //    `recorder.skipExisting()` itself takes no detail parameter (`report.ts`'s `PhaseReport`
+        //    tracks only a count for this bucket, not per-entry detail — the same gap
+        //    `wouldSkipExisting`'s own doc comment describes), so `result.message` — which module and
+        //    exactly why it wasn't carried across — would otherwise vanish entirely; logged via
+        //    `ctx.log?.()`, the same optional progress hook `phases/content.ts` already established
+        //    the convention for (its own "navigation item... blanked" warning).
+        ctx.log?.(
+          `authentication strategy '${result.sourceKey}' (module '${result.module}') not created: ${result.message}`
+        )
         recorder.skipExisting(result.sourceKey)
         break
       case 'conflict-skipped':
@@ -182,6 +234,17 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
           )
           break
         }
+        // -> `droppedFields` (`mappers/storage.ts`'s own doc comment: "this mapper reports whichever
+        //    of the two remain unconverted") is set only when `mode`/`syncInterval` had a real source
+        //    value that could not be converted to 3.0's shape — a real, silent loss otherwise, since
+        //    nothing in `StorageUpdatePayload` itself carries it through to a write. Logged here
+        //    (matching `phases/content.ts`'s `ctx.log?.()` convention for a non-fatal, per-record
+        //    warning) rather than dropped, even though the row itself still gets created.
+        if (result.droppedFields) {
+          ctx.log?.(
+            `storage target '${result.sourceKey}@${ctx.siteId}': could not convert ${Object.keys(result.droppedFields).join('/')} to 3.0's shape — left at the destination's existing/default value. Dropped: ${JSON.stringify(result.droppedFields)}`
+          )
+        }
         await recorder.create(identifier, () =>
           WIKI.models.storage
             .updateTarget(ctx.siteId, existing, {
@@ -206,7 +269,11 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
         break
       case 'flagged':
         // -> Same "not written, not an error" bucket as the authentication mapper's own 'flagged'
-        //    status above — a real 3.0 module, but its config failed validation after remapping.
+        //    status above — a real 3.0 module, but its config failed validation after remapping. See
+        //    that case's own comment on why `result.message` is logged rather than silently dropped.
+        ctx.log?.(
+          `storage target '${result.sourceKey}@${ctx.siteId}' (module '${result.module}') not updated: ${result.message}`
+        )
         recorder.skipExisting(result.sourceKey)
         break
     }

@@ -47,11 +47,29 @@ export interface UnmappableEntry {
  *
  * `wouldSkipExisting` is nonzero once a phase's `classify` checks the provenance/idempotency tracking
  * Feature 421 task 746 built (`../provenance.ts`'s `resolveExisting`/`lookupOrInsert`) — currently the
- * `users`, `content` (pages only) and `assets` phases; `settings`, `groups`, `pageHistory` and `tags`
- * still count every record into `wouldCreate` or `unmappable`, having no per-record idempotency rule
- * of their own yet. `conflicts` is always empty today — no phase has a rule yet for what makes two
- * records genuinely conflict rather than one simply superseding the other. Either way the invariant
- * holds: `found === wouldCreate + wouldSkipExisting + conflicts.length + unmappable.length`.
+ * `users`, `content` (pages only) and `assets` phases — or (Task 15) reports a `flagged`
+ * authentication/storage row whose module is real but whose config could not be safely carried
+ * across; `groups`, `pageHistory` and `tags` still count every record into `wouldCreate` or
+ * `unmappable`, having no per-record idempotency rule of their own yet. `conflicts` is empty for most
+ * phases today — no general rule yet for what makes two records genuinely conflict rather than one
+ * simply superseding the other — except the `settings` phase (Task 15), which uses it for both an
+ * authentication row's `conflict-skipped` multi-source collision and the (expected-never, defensive)
+ * case of a storage row naming a module with no matching per-site row already seeded.
+ *
+ * The `found === wouldCreate + wouldSkipExisting + conflicts.length + unmappable.length` invariant
+ * holds **per record** for every phase except `settings` (Task 15). That phase's single `settings`
+ * entity reads every `settings`/`authentication`/`storage`-tagged row off `ctx.source.settings()` as
+ * one raw count (`found`), but every `settings`-tagged row collapses into exactly one `site-config`
+ * sentinel `recorder.create()` call — regardless of whether there were zero, one, or a dozen of
+ * them — while each `authentication`/`storage`-tagged row still gets its own 1:1 recorder call. So
+ * `found` can legitimately exceed `wouldCreate + wouldSkipExisting + conflicts.length +
+ * unmappable.length` for this one phase whenever more than one `settings`-tagged row is read in the
+ * same run — see `phases/settings.ts`'s own module doc comment ("Why this drains the source itself").
+ * `phases/content.ts`'s `site-navigation` sentinel avoids this exact shape by giving itself a
+ * dedicated one-yield source entity, so its own `found` contribution is always exactly 1;
+ * `phases/settings.ts` does not do the same, since doing so would mean a second (or third) full pass
+ * over `ctx.source.settings()`'s tagged stream purely to filter it by tag, on top of the one
+ * `runSettingsImport()` already re-reads beyond `readEntity()`'s own counting pass.
  */
 export interface PhaseReport {
   phase: MigrationPhaseId

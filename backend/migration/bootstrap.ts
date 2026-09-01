@@ -38,6 +38,11 @@ import type { SystemGroupIds } from './importers/users-groups.ts'
  *   918,919,927`), the only page write path an importer calls today.
  * - `navigation` — called directly by `navigation-import.ts` (`WIKI.models.navigation.ensureSiteNav`
  *   et al.).
+ * - `security` — called directly by `phases/settings.ts` (Task 15's review fix): the settings phase's
+ *   `security`-keyed instance-settings patch goes through the real `WIKI.models.security.updateConfig()`
+ *   (the same merge-then-`saveToDb()` path `api/system.ts` uses), not a raw
+ *   `WIKI.models.settings.updateConfig('security', ...)` — the latter is a wholesale JSONB replace
+ *   that would silently delete every 3.0-only `security` field the 2.x mapper's patch doesn't produce.
  *
  * `glossary` is deliberately NOT included: it is only reached through `pages.ts`'s `updatePage`/
  * `movePage`/`deletePage`, and no importer built so far calls any of those. Add it here the moment
@@ -63,7 +68,8 @@ export async function loadModels(): Promise<WikiGlobal['models']> {
     { hooks },
     { flags },
     { classificationLevels },
-    { navigation }
+    { navigation },
+    { security }
   ] = await Promise.all([
     import('../models/sites.ts'),
     import('../models/settings.ts'),
@@ -82,7 +88,8 @@ export async function loadModels(): Promise<WikiGlobal['models']> {
     import('../models/hooks.ts'),
     import('../models/flags.ts'),
     import('../models/classificationLevels.ts'),
-    import('../models/navigation.ts')
+    import('../models/navigation.ts'),
+    import('../models/security.ts')
   ])
   return {
     sites,
@@ -102,7 +109,8 @@ export async function loadModels(): Promise<WikiGlobal['models']> {
     hooks,
     flags,
     classificationLevels,
-    navigation
+    navigation,
+    security
   } as WikiGlobal['models']
 }
 
@@ -145,6 +153,37 @@ export function createCacheStub(): WikiGlobal['cache'] {
 }
 
 /**
+ * The synchronous, no-I/O part of `WIKI` that `bootstrapMigrationRuntime()` builds before any of
+ * `configSvc.init()`/`dbManager.init()`/`loadModels()` run — pulled out as its own pure function so
+ * this exact shape can be asserted by a fast, DB-free unit test (`bootstrap.test.ts`).
+ *
+ * `auth` matters here specifically: `models/authentication.ts#activateStrategies()` — called
+ * unconditionally at the end of every `createStrategy()`/`updateStrategy()`/`deleteStrategy()` — does
+ * `WIKI.auth.strategies = {}` with no guard for it being unset. Before this function existed, this
+ * bootstrap's `WIKI` literal omitted `auth` entirely (unlike `index.ts` and
+ * `test/db.ts#installTestWiki()`, both of which already seed the same empty shape), because no caller
+ * had ever created an authentication strategy through this bootstrap before the `settings` phase
+ * (Task 15). The result (caught by Task 15's own review round): the auth row insert inside
+ * `createStrategy()` succeeds, then `activateStrategies()` throws
+ * `TypeError: Cannot set properties of undefined (setting 'strategies')`, which propagates out of the
+ * recorder's `write` callback and fails the whole `settings` phase with `status: 'error'` — and since
+ * `--dry-run` never invokes a `create()` write callback at all, this only ever surfaces on a real, live
+ * run, never during the rehearsal an operator would run first.
+ */
+export function buildWikiShell(
+  instanceId: string
+): Pick<WikiGlobal, 'IS_DEBUG' | 'ROOTPATH' | 'INSTANCE_ID' | 'SERVERPATH' | 'configSvc' | 'auth'> {
+  return {
+    IS_DEBUG: process.env.NODE_ENV === 'development',
+    ROOTPATH: process.cwd(),
+    INSTANCE_ID: instanceId,
+    SERVERPATH: path.join(process.cwd(), 'backend'),
+    configSvc,
+    auth: { groups: {}, strategies: {} }
+  }
+}
+
+/**
  * Sets up the ambient `WIKI` global and connects it to the 3.0 destination database: `configSvc`,
  * `logger`, then `dbManager.init()` (with `workerMode` defaulting to `false`, so this legitimately
  * runs `syncSchemas()` -> `checkForLegacyInstall()` + migrations against the 3.0 destination, same as
@@ -155,13 +194,7 @@ export function createCacheStub(): WikiGlobal['cache'] {
  * either needing to know about the other.
  */
 export async function bootstrapMigrationRuntime(instanceId: string): Promise<WikiGlobal> {
-  const WIKI = {
-    IS_DEBUG: process.env.NODE_ENV === 'development',
-    ROOTPATH: process.cwd(),
-    INSTANCE_ID: instanceId,
-    SERVERPATH: path.join(process.cwd(), 'backend'),
-    configSvc
-  } as unknown as WikiGlobal
+  const WIKI = buildWikiShell(instanceId) as unknown as WikiGlobal
   global.WIKI = WIKI
 
   await WIKI.configSvc.init()
