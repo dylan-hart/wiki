@@ -146,12 +146,22 @@ describe('docs/migration/2.5x-to-3.0-mapping.md', () => {
     })
   }
 
-  it('flags comments as the flagship NO DESTINATION YET row and cross-references the Comments epic', () => {
-    // backend/db/schema.ts really has no comments table to point at (confirmed, not assumed).
-    assert.doesNotMatch(schemaTs, /pgTable\(\s*'comments'/)
-    assert.match(mappingDoc, /comments[\s\S]{0,400}NO DESTINATION YET/)
-    assert.match(mappingDoc, /Comments.{0,40}epic/i)
-    assert.match(mappingDoc, /#?335\b/, 'expected the Comments epic id (335) to be cited')
+  it('documents the real comments import path (Task 16), not a stale NO IMPORT PATH claim', () => {
+    // backend/db/schema.ts really does have a comments table now (confirmed, not assumed) — Task 16
+    // gave this a real destination, so the doc must not claim otherwise.
+    assert.match(schemaTs, /pgTable\(\s*'comments'/)
+    assert.doesNotMatch(
+      mappingDoc,
+      /comments[\s\S]{0,50}NO IMPORT PATH YET/,
+      'mapping doc still claims comments have no import path, but PostgresSourceConnector#comments() ' +
+        'and importComment() are both real now'
+    )
+    assert.match(mappingDoc, /comments\.content/)
+    assert.match(mappingDoc, /importComment/)
+    // The two accepted gaps (docs/variances.md's asset-import-timestamps entry) must still be
+    // documented, not silently dropped now that the table has a real destination.
+    assert.match(mappingDoc, /replyTo[\s\S]{0,200}(DROPPED|dropped|not preserved|NOT PRESERVED)/i)
+    assert.match(mappingDoc, /variances\.md/)
   })
 
   it('flags pageLinks as its own distinct NO DESTINATION YET, not folded into pages.relations', () => {

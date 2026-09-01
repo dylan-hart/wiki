@@ -25,6 +25,8 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = join(HERE, '..', '..')
 const DOC_PATH = join(HERE, 'migration-runbook.md')
 const UNMAPPABLE_PATH = join(REPO_ROOT, 'backend', 'migration', 'unmappable.ts')
+const REPORT_PATH = join(REPO_ROOT, 'backend', 'migration', 'report.ts')
+const SETTINGS_PHASE_PATH = join(REPO_ROOT, 'backend', 'migration', 'phases', 'settings.ts')
 const CLI_PATH = join(REPO_ROOT, 'backend', 'migration', 'cli.ts')
 const VERIFY_CLI_PATH = join(REPO_ROOT, 'backend', 'migration', 'verify-cli.ts')
 const SOURCE_ARGS_PATH = join(REPO_ROOT, 'backend', 'migration', 'source-args.ts')
@@ -33,6 +35,8 @@ const DECISION_DOC_PATH = join(HERE, 'decision-source-scope.md')
 
 const doc = readFileSync(DOC_PATH, 'utf8')
 const unmappableSrc = readFileSync(UNMAPPABLE_PATH, 'utf8')
+const reportSrc = readFileSync(REPORT_PATH, 'utf8')
+const settingsPhaseSrc = readFileSync(SETTINGS_PHASE_PATH, 'utf8')
 const cliSrc = readFileSync(CLI_PATH, 'utf8')
 const verifyCliSrc = readFileSync(VERIFY_CLI_PATH, 'utf8')
 const sourceArgsSrc = readFileSync(SOURCE_ARGS_PATH, 'utf8')
@@ -84,10 +88,21 @@ describe('docs/migration/migration-runbook.md', () => {
   })
 
   it('documents the real migrate.ts flags for dry-run and reporting', () => {
-    for (const flag of ['--dry-run', '--report-file', '--site-id', '--only', '--update-existing']) {
+    for (const flag of ['--dry-run', '--report-file', '--site-id', '--only']) {
       assert.ok(cliSrc.includes(flag), `fixture assumption broken: cli.ts lacks ${flag}`)
       assert.ok(doc.includes(flag), `expected runbook to mention ${flag}`)
     }
+    // Re-run/idempotency support (--update-existing) was deliberately dropped once the destination
+    // was guaranteed to always start empty (see importers/users-groups.ts's own doc comment) — the
+    // runbook must not describe a flag the CLI no longer accepts.
+    assert.ok(
+      !cliSrc.includes('--update-existing'),
+      'fixture assumption broken: cli.ts has grown --update-existing back'
+    )
+    assert.ok(
+      !doc.includes('--update-existing'),
+      'expected runbook to no longer reference the removed --update-existing flag'
+    )
   })
 
   it('documents the real verify-migration.ts flags', () => {
@@ -106,16 +121,37 @@ describe('docs/migration/migration-runbook.md', () => {
     }
   })
 
-  it('cross-links the exact UnmappableReason strings unmappable.ts emits, and their meaning', () => {
-    for (const reason of ['unsupported-auth-provider', 'no-destination-table']) {
+  it('cross-links the exact UnmappableReason strings this branch actually emits, and their meaning', () => {
+    // 'unsupported-auth-provider' is still emitted directly by unmappable.ts (for a 2.x user row);
+    // 'unsupported-storage-module' is emitted by phases/settings.ts (for a 2.x storage row) instead —
+    // report.ts's UnmappableReason type is the one place all three reasons (including the currently-
+    // unemitted 'no-destination-table') are declared together.
+    assert.ok(
+      unmappableSrc.includes("'unsupported-auth-provider'"),
+      'fixture assumption broken: unmappable.ts no longer emits "unsupported-auth-provider"'
+    )
+    assert.ok(
+      settingsPhaseSrc.includes("'unsupported-storage-module'"),
+      'fixture assumption broken: phases/settings.ts no longer emits "unsupported-storage-module"'
+    )
+    for (const reason of [
+      'unsupported-auth-provider',
+      'no-destination-table',
+      'unsupported-storage-module'
+    ]) {
       assert.ok(
-        unmappableSrc.includes(`'${reason}'`),
-        `fixture assumption broken: unmappable.ts no longer emits "${reason}"`
+        reportSrc.includes(`'${reason}'`),
+        `fixture assumption broken: report.ts's UnmappableReason no longer declares "${reason}"`
       )
+    }
+    for (const reason of ['unsupported-auth-provider', 'unsupported-storage-module']) {
       assert.ok(doc.includes(reason), `expected runbook to name unmappable reason: ${reason}`)
     }
-    // The specific unsupported providers named in unmappable.ts's own Set literal.
-    for (const provider of ['ldap', 'saml', 'cas', 'auth0', 'okta']) {
+    // The specific unsupported providers named in unmappable.ts's own UNSUPPORTED_AUTH_PROVIDERS Set
+    // literal (confirmed against KNOWN_3_0_AUTH_MODULES: these five, and only these five, have no
+    // matching backend/modules/authentication/<key>/ directory — ldap/saml/cas/auth0/okta all do now
+    // and must NOT be described as unsupported).
+    for (const provider of ['azure', 'dropbox', 'facebook', 'firebase', 'rocketchat']) {
       assert.ok(
         unmappableSrc.toLowerCase().includes(provider),
         `fixture assumption broken: unmappable.ts no longer names ${provider}`
@@ -123,6 +159,13 @@ describe('docs/migration/migration-runbook.md', () => {
       assert.ok(
         doc.toLowerCase().includes(provider),
         `expected runbook to name unsupported provider: ${provider}`
+      )
+    }
+    // Providers 3.0 now DOES ship a module for must not be described as unsupported any more.
+    for (const provider of ['ldap', 'saml', 'cas', 'auth0', 'okta']) {
+      assert.ok(
+        unmappableSrc.toLowerCase().includes(provider),
+        `fixture assumption broken: unmappable.ts's KNOWN_3_0_AUTH_MODULES no longer lists ${provider}`
       )
     }
     assert.match(doc, /comments/i)

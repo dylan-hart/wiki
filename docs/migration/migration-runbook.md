@@ -7,33 +7,38 @@ by Feature 412 (`backend/migration/connectors/`, see
 [`decision-source-scope.md`](decision-source-scope.md) and
 [`2.5x-to-3.0-mapping.md`](2.5x-to-3.0-mapping.md)).
 
-Read this whole document before starting. The migration is safe to _attempt_ more than once — the
-import only ever reads the 2.x source and only ever writes to the 3.0 destination, and re-running it
-with `--update-existing` is designed to be idempotent (Feature 421 task 746) — but cutover itself (step 6) is the point after which real users may start writing to the 3.0 instance, and that step is not
-free to repeat casually. Do the dry run (step 3) and the verification pass (step 5) properly; they are
-what make step 6 a formality instead of a gamble.
+Read this whole document before starting. **This tool performs a real, one-shot import**: dropping
+`--dry-run` writes for real, straight through the same model-layer paths a live admin action takes
+(`createPage()`, `models/assets.ts#upload()`, `models/comments.ts#create()`, …) — but it is built to
+run exactly once, against a single, fresh, empty 3.0 install. There is no idempotent re-run support
+and no multi-source consolidation: re-running an already-run phase against a destination that already
+has rows in it is not a safe no-op, it is a fresh attempt to insert the same rows again, and will
+generally fail on a natural-key collision (a duplicate `users.email`, a duplicate page path) rather
+than silently doing nothing. **If anything goes wrong during a live run, the fix is to truncate the
+destination database and restart the import from step 1** — not to patch forward with `--only` against
+a partially-populated destination. Do the dry run (step 3) and the verification pass (step 5) properly;
+they are what make step 6 a formality instead of a gamble, precisely because there is no cheap way to
+correct course once real writes have started.
 
 ## Current status of the tooling (read this first)
 
-As of this branch, the CLI's orchestration, dry-run/report mode, provenance tracking, and
-verification tooling are all real and tested. Some entity readers behind `SourceConnector` are real
-too — the `content` phase's `pages`/`pageHistory`/`tags` generators genuinely query a live Postgres
-source or read a real export bundle — but **no phase has a destination write path yet**: every
-`recorder.create()` call site across every phase (`settings`, `users`, `content`, `assets`) still
-omits the optional `write` callback `backend/migration/recorder.ts` exists to take, because the
-importer logic that would build one (Features 414/416/418/420) has not landed. `definePhase`
-(`backend/migration/phases/define-phase.ts`) knows this and reports `not_implemented` for every phase
-regardless of whether its source reader worked — so `content`'s real generators do not produce a
-false `ok`, they just contribute real `found`/`wouldCreate` counts to an otherwise-honest
-`not_implemented` result.
+Every phase — `settings` (site config/auth/storage), `users` (groups/users/permissions), `content`
+(pages/page history/tags/navigation), `assets` (assets/comments) — is wired to a real destination
+write path today. `PostgresSourceConnector` (`backend/migration/connectors/postgres.ts`) implements
+every `SourceConnector` entity for real against a live 2.5.x-shaped Postgres source: `users`, `groups`,
+`pages`, `pageHistory`, `tags`, `navigation`, the tagged `settings`/`authentication`/`storage` stream,
+`comments`, and `assets`. `--dry-run` computes and reports what each phase _would_ do without writing
+anything; **omitting `--dry-run` performs the real import.**
 
-Because of this, **`backend/tasks/migrate.ts` refuses to run at all without `--dry-run`**: it prints a
-one-line refusal and exits non-zero before ever opening a connection to the 3.0 destination database,
-rather than let an operator believe a live run happened. Every command below still works exactly as
-shown as long as `--dry-run` stays on it; drop it today and the CLI stops you, on purpose. This
-runbook describes the real, intended procedure end to end so it is ready the moment those importer
-Features land — at which point `--dry-run`'s absence will start a real (and no longer refused) write,
-and this paragraph is what needs to be deleted.
+`ExportBundleSourceConnector` (the Export-to-Disk bundle path, step 2b below) is not at the same
+level: only its `pages()`/`pageHistory()`/`tags()`/`navigation()` generators are implemented for real.
+Its `users()`, `groups()`, `settings()`, `comments()`, and `assets()` generators still throw
+`NotYetImplementedError` — five of the nine `SourceConnector` entities. A phase whose source read hits
+that error is reported `not_implemented` for that entity rather than aborting the whole run, but a
+bundle-sourced run cannot complete a real, full migration today: it can only ever populate content
+(pages/history/tags/navigation), never settings, users/groups, assets, or comments. **Use the
+Postgres-direct path (2a below) for an actual cutover.** The bundle path remains useful for a dry-run
+content-only preview, or once those five generators are implemented.
 
 ## Step 1 — Freeze writes on the 2.5.x source
 
@@ -86,9 +91,10 @@ process did what you intended.
 
 Which of the two connector paths you use is decided by Feature 412's own source-scope decision
 ([`decision-source-scope.md`](decision-source-scope.md)) and depends only on which database engine
-the 2.5.x installation runs on:
+the 2.5.x installation runs on — but see "Current status of the tooling" above: only path 2a can
+complete a real import today.
 
-### 2a — 2.5.x runs on Postgres (direct connection, no export step)
+### 2a — 2.5.x runs on Postgres (direct connection, no export step) — use this for a real cutover
 
 No export step is needed at all. Both `migrate` and `verify-migration` accept the source directly via
 discrete `--source-*` flags, read-only, against the frozen instance:
@@ -109,7 +115,7 @@ npm run migrate -- \
 privileges on the source database if you can — the connector never needs more than that, and it is
 the cheapest possible defense-in-depth against a bug that would otherwise reach a write statement.
 
-### 2b — 2.5.x runs on MySQL, MariaDB, MSSQL, or SQLite (export bundle)
+### 2b — 2.5.x runs on MySQL, MariaDB, MSSQL, or SQLite (export bundle) — content-only today
 
 3.0's migration tooling has no live driver for these four engines by design
 ([`decision-source-scope.md`](decision-source-scope.md#why)) — 2.5.x already ships a tool that reads
@@ -131,6 +137,15 @@ npm run migrate -- \
 passing an incomplete set of `--source-*` fields, is rejected by argument parsing before anything
 connects to a database (`backend/migration/source-args.ts`'s `resolveSource`).
 
+**Only pages, page history, tags, and navigation are actually readable off a bundle today** — the
+`users`/`groups`/`settings`/`comments`/`assets` generators on `ExportBundleSourceConnector` still throw
+`NotYetImplementedError` (`backend/migration/connectors/export-bundle.ts`). A bundle-sourced run's
+`settings`/`users`/`assets` phases will report `not_implemented` for the entities they can't read, and
+`content` will still run (with authorship falling back to the operator account wherever a user id
+can't be resolved, since no users were imported to map against). This is enough for a content-only
+preview, not a real cutover — if you need users, permissions, settings, assets, or comments to come
+across, use 2a instead.
+
 ## Step 3 — Dry run: review the report before writing anything
 
 Always run once with `--dry-run` before ever running for real. As shown above, `--dry-run` computes
@@ -147,69 +162,93 @@ npm run migrate -- --site-id <id> [source flags] --dry-run --report-file /tmp/mi
 One `PhaseReport` per phase (`settings` → `users` → `content` → `assets`, Feature 421 task 742's
 dependency order). Every field is a count except `conflicts`/`unmappable`, which are itemized lists;
 the invariant `found === wouldCreate + wouldSkipExisting + conflicts.length + unmappable.length`
-always holds for a given phase (`backend/migration/report.ts`):
+holds per record for every phase except `settings` (whose single `settings` entity reads every
+`settings`/`authentication`/`storage`-tagged row as one raw count, but collapses every
+`settings`-tagged row into exactly one `site-config` sentinel write — see `report.ts`'s own doc
+comment):
 
-| Field               | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `found`             | Every record this phase read off the source.                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `wouldCreate`       | Records with no existing destination match — a real run creates these.                                                                                                                                                                                                                                                                                                                                                                           |
-| `wouldSkipExisting` | Records already imported in a prior run (matched via provenance tracking, task 746) — a real run leaves these alone unless `--update-existing` is also passed.                                                                                                                                                                                                                                                                                   |
-| `conflicts`         | Records where the source and an existing destination row disagree in a way the phase cannot resolve automatically. Empty in every phase as of this branch — no phase has a conflict rule yet, so this is not a sign your source is clean, only that the rule doesn't exist yet. Once it does, review every entry here **before** the real run; a conflict is exactly the kind of thing you do not want silently overwritten or silently skipped. |
-| `unmappable`        | Records this migration will never be able to write, dry run or not — see below.                                                                                                                                                                                                                                                                                                                                                                  |
+| Field               | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `found`             | Every record this phase read off the source.                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `wouldCreate`       | Records with no existing destination match — a real run creates these.                                                                                                                                                                                                                                                                                                                                                                        |
+| `wouldSkipExisting` | Records the phase already found a matching entry for at the destination and left alone (the `users`/`content`(pages only)/`assets` phases check this), or — in the `settings` phase — an authentication/storage row whose target module is real but whose config could not be safely carried across (a `flagged` row, logged but not written). This is **not** re-run idempotency: against a fresh destination it is nearly always zero. |
+| `conflicts`         | A write that was attempted and did not succeed — a genuine problem, not an idempotency skip. Covers a `users`/`groups`/`content`/`assets`/`comments` record whose write failed (a malformed source row, a real insert error, a page's sibling-path collision), and — in the `settings` phase specifically — two sources' rows claiming the same authentication module, or a storage row naming a module with no pre-seeded target row. Review every entry here before the real run.                                                          |
+| `unmappable`        | Records this migration will never be able to write, dry run or not — see below.                                                                                                                                                                                                                                                                                                                                                               |
 
 ### Unmappable records — what to do about each category
 
-`unmappable` entries carry a `reason` (`backend/migration/report.ts`'s `UnmappableReason`,
-implemented in `backend/migration/unmappable.ts`). There are exactly two:
+`unmappable` entries carry a `reason` (`backend/migration/report.ts`'s `UnmappableReason`). Three
+reasons are defined; two are actually emitted by this branch's phases:
 
-- **`unsupported-auth-provider`** — a 2.x user whose `providerKey` is `ldap`, `saml`, `cas`, `auth0`,
-  or `okta`. 3.0 ships exactly four authentication modules (`local`, `google`, `github`, `oidc` —
-  `backend/modules/authentication/`), and none of those five 2.x strategies has an automatic
-  equivalent yet (that mapping decision belongs to Feature 414, not to this tool). **Before
-  proceeding**: get the list of affected users from this section of the report and decide, per your
-  own deployment, whether they get a local-account password reset after cutover, an OIDC mapping if
-  your IdP is OIDC-compatible, or manual account recreation. Do not expect the import to solve this
-  for you — these users will not appear in the 3.0 destination at all until you've made that call.
-- **`no-destination-table`** — reported once per run, not per record: 3.0 has its own comments table,
-  model, and API route, but 2.5.x comments have no import path into them, because the
-  `SourceConnector` interface has no `comments()` generator to read them through yet. Comments are
-  **not** imported by this tool, full stop, regardless of dry-run or live. If comment continuity
-  matters for your cutover, that is a gap this migration cannot close — plan around it (e.g. keep the
-  frozen 2.5.x instance reachable read-only, for reference, alongside 3.0) rather than expecting a
-  later flag to fix it.
+- **`unsupported-auth-provider`** — a 2.x `users` row, or a 2.x `authentication` (strategy) row, whose
+  provider/module is one of the five 3.0 genuinely has no module directory for at all: `azure`,
+  `dropbox`, `facebook`, `firebase`, `rocketchat` (`backend/migration/unmappable.ts`'s
+  `UNSUPPORTED_AUTH_PROVIDERS`, cross-checked live against `backend/modules/authentication/` by
+  `unmappable.test.ts`). 3.0 now ships sixteen authentication modules — `auth0`, `cas`, `discord`,
+  `github`, `gitlab`, `google`, `keycloak`, `ldap`, `local`, `microsoft`, `oauth2`, `oidc`, `okta`,
+  `saml`, `slack`, `twitch` — so a 2.x user or strategy on `ldap`/`saml`/`cas`/`auth0`/`okta` is **not**
+  in this unmappable bucket any more; those five providers do have a 3.0 module. A user/strategy row
+  reported this way is dropped entirely: **no account or strategy is created for it at all.** Before
+  proceeding, get the list of affected users from this section of the report and decide, per your own
+  deployment, whether they get manual account recreation after cutover, or nothing.
+- **`unsupported-storage-module`** — a 2.x `storage` row whose `key` names a module 3.0 has no
+  directory for at all (`box`, `digitalocean`, `dropbox`, `gdrive`, `onedrive`, `s3generic` —
+  `docs/migration/2.5x-settings-auth-storage-field-mapping.md`'s Part 3). No storage target is
+  updated for that module; the site's default per-module storage target (seeded at site-creation
+  time) is simply left at its defaults.
+- **`no-destination-table`** — reserved for an entity with genuinely nowhere in 3.0's schema to land.
+  Nothing currently emits it: comments now have a real destination (`comments` table, imported
+  directly — see below), and no other entity has taken its place. Kept defined in case a future
+  entity needs it.
+
+**Provider-fallback accounts need a password reset — and the report does not currently tell you
+which ones.** A 2.x user whose provider is anything other than `local` **and** not one of the five
+unsupported providers above (i.e. every user on `google`, `github`, `oidc`, `ldap`, `saml`, `cas`,
+`auth0`, `okta`, `gitlab`, `keycloak`, `microsoft`, `oauth2`, `discord`, `slack`, or `twitch`) is still
+imported — just not through a real provider link. Because automatic OAuth/LDAP/SAML re-linking isn't
+built yet, every such user is created as a **local-strategy account with a random, unusable password
+and `mustChangePwd` forced to `true`.** This is tracked internally as the importer runs
+(`UsersGroupsImportResult.providerFallbacks`), but neither `PhaseReport` nor the JSON report file
+currently surfaces it — there is no CLI flag or report field that lists which accounts need a
+password reset. After a live `users` phase, query the destination directly instead
+(`SELECT email FROM users WHERE (auth -> '<local-strategy-uuid>' ->> 'mustChangePwd')::boolean = true`,
+substituting this install's local strategy id) to get that list before communicating cutover
+instructions to affected users.
 
 Do not proceed past this step until you've reviewed every `conflicts` and `unmappable` entry in the
 report and are comfortable with what each one means for your users.
 
 ## Step 4 — Run the real import
 
-**Not available yet.** Once the dry-run report looks right, the intended next step is to drop
-`--dry-run` and run the identical command for real:
+Once the dry-run report looks right, drop `--dry-run` and run the identical command for real:
 
 ```sh
 npm run migrate -- --site-id <id> [source flags] --report-file /tmp/migration-live-report.json
 ```
 
-As of this branch, the CLI itself refuses this — see "Current status of the tooling" above — with a
-one-line error and a non-zero exit, before it ever opens a connection to the 3.0 destination. That is
-not a bug to work around (no `--force`, no bypass flag): no phase has anywhere to write yet, so a live
-run would either do nothing or, before this fix, silently claim success while doing nothing. Wait for
-Features 414/416/418/420 to land before attempting this step; the flags below are what you will use
-once they have:
+This performs the real import: each phase (`settings` → `users` → `content` → `assets`, in that fixed
+order) writes straight through the same model-layer paths a live admin action takes —
+`WIKI.models.sites.updateSite()`/`WIKI.models.authentication.createStrategy()`/
+`WIKI.models.storage.updateTarget()` for `settings`; `WIKI.models.groups.createGroupFromImport()` and a
+direct `users`/`userGroups` insert for `users`; `WIKI.models.pages.createPage()` plus a direct
+`pageHistory` insert and `WIKI.models.navigation.setNavItems()` for `content`; `WIKI.models.tree.getFolder()`
++ `WIKI.models.assets.upload()` and `WIKI.models.comments.create()` for `assets`. Nothing here is a
+second, migration-only writer that could drift from what the live app does.
 
-- **`--only <phases>`** — re-run a subset of phases (comma-separated: `settings`, `users`, `content`,
-  `assets`) instead of everything. Handy for retrying just the phase that errored, without repeating
-  the ones that already succeeded.
-- **`--update-existing`** — if you need to re-run a phase against a source that has already been
-  partially imported (say, after fixing something and re-running), this updates an already-imported
-  row in place rather than leaving it untouched. Omit it for a normal first pass; the default
-  (`false`) makes a re-run a safe no-op against rows already imported, per Feature 421 task 746's
-  provenance tracking.
+- **`--only <phases>`** — run only a subset of phases (comma-separated: `settings`, `users`, `content`,
+  `assets`) instead of everything. Useful for exercising one phase in isolation against a scratch
+  destination while developing/testing a migration plan. **Not a safe way to resume a partially-failed
+  live run**: re-running a phase that already wrote some rows is a fresh attempt to insert the same
+  records again, and — since re-run/idempotency support was deliberately dropped once the destination
+  is guaranteed to always start empty — will generally fail on a natural-key collision rather than
+  cleanly skip what's already there. See the top of this document: a live-run failure means truncating
+  the destination and restarting from step 1, not patching forward with `--only`.
 - **`--report-file`** — keep doing this on the live run too. You want this exact JSON file for step 5.
 
-Once this step is available, the command will exit non-zero if any phase reports `status: 'error'` —
-check the printed summary and the JSON report for `errors` on any phase before moving on, and re-run
-with `--only <phase>` after fixing whatever caused it.
+The command exits non-zero if any phase reports `status: 'error'` — check the printed summary and the
+JSON report for `errors` on any phase before moving on. Per the note above, the correct recovery from
+a live-run error is to truncate the destination and restart the whole import, not to re-run just the
+failed phase.
 
 ## Step 5 — Verify, then spot-check by hand
 
@@ -234,19 +273,30 @@ This does two independent checks (`backend/migration/verify.ts`):
    migrated 3.0 page's own rendered content.
 
 The summary prints an overall outcome of **`pass`**, **`incomplete`**, or **`fail`** and exits non-zero
-only on `fail`. `incomplete` means at least one entity's source reader is still `not_implemented` (see
-"Current status" above) — expected today, not a sign of a bad import; `fail` means an actual count
-mismatch or a content hash mismatch was found and needs investigating before you go further.
+only on `fail`. `incomplete` means at least one entity's source reader is still `not_implemented` — for
+a Postgres-direct source (2a) this should not happen once every phase has completed; it is expected
+only for a bundle-sourced run (2b), whose `users`/`groups`/`settings`/`comments`/`assets` generators
+are still stubs (see "Current status of the tooling" above). `fail` means an actual count mismatch or
+a content hash mismatch was found and needs investigating before you go further.
 
 **Then, manually, in the 3.0 UI itself** (the automated checks above are necessary but not
 sufficient — they cannot tell you a page _reads right_, only that its hash matches):
 
 - Log in as a handful of migrated users (ideally covering more than one auth provider/group) and
-  confirm their identity, group membership, and permissions look right.
+  confirm their identity, group membership, and permissions look right. For anyone on a non-`local`
+  provider, confirm they were correctly flagged for a password reset (see step 3's provider-fallback
+  note) rather than silently left with an unusable random password nobody told them about.
 - Open a handful of pages spanning different content types/ages (including at least one with page
   history) and confirm they render correctly, with the right author/timestamps.
 - Open a handful of assets (images, attachments) referenced from those pages and confirm they
-  actually load, not just that a database row exists for them.
+  actually load, not just that a database row exists for them. Note that a migrated asset's
+  `createdAt`/`updatedAt` reflect the moment the import ran, not the 2.x source's real dates
+  (`docs/variances.md`'s asset-import-timestamps entry) — do not expect those dates to match 2.x.
+- If comments were in use on 2.x, open a page that had a comment thread and confirm the comments
+  themselves came across (they do — see [`2.5x-to-3.0-mapping.md`](2.5x-to-3.0-mapping.md#comments)),
+  keeping in mind reply structure is flattened (every migrated comment lands top-level, per the same
+  variances entry) and, same as assets, its timestamp reflects the import run rather than the 2.x
+  original.
 
 Do not proceed to step 6 until both the automated verification and this manual spot-check look right.
 A `pass` from `verify-migration` describes counts and hashes, not "a human looked at this and it's
@@ -276,10 +326,11 @@ above). The frozen 2.5.x installation is exactly as it was before this runbook s
    run can be lost" warning, now pointed at the post-cutover window instead of the pre-import one).
 3. Once 2.5.x is confirmed serving correctly again, lift the write-freeze on it (remove the
    reverse-proxy block, or restart the app server you stopped) and communicate the rollback.
-4. Investigate and fix whatever verification/spot-check step should have caught, then restart this
-   runbook from step 1. The 3.0 destination does not need to be discarded to retry: `--update-existing`
-   (step 4) lets a corrected re-run land on top of what's already there rather than starting over,
-   provided the site ID stays the same.
+4. **Discard the 3.0 destination and start over.** There is no supported way to patch a
+   partially-completed or already-cut-over 3.0 destination in place: create a fresh, empty 3.0
+   install (or fully truncate every table this importer writes to), investigate and fix whatever
+   verification/spot-check step should have caught, and restart this runbook from step 1 against
+   that clean destination.
 
 Rolling forward — fixing the problem in 3.0 directly instead of rolling back — is also a legitimate
 choice when the issue is minor and well understood; use judgment. The rollback plan above exists for
@@ -292,6 +343,7 @@ the case where it is not.
 - [`2.5x-export-bundle-format.md`](2.5x-export-bundle-format.md) — the bundle's exact table-by-table
   format, for step 2b.
 - [`2.5x-to-3.0-mapping.md`](2.5x-to-3.0-mapping.md) — column-level source→destination mapping,
-  including why comments have no destination table yet (step 3's `no-destination-table` reason).
+  including the real asset/comments/settings target mapping and every documented `NO DESTINATION YET`
+  gap.
 - [`2.5x-source-schema.md`](2.5x-source-schema.md) — the 2.5.x schema this connector reads, and the
   2.5.12 practical minimum source version.

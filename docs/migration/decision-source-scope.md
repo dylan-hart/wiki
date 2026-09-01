@@ -56,6 +56,12 @@ one file-parsing code path (the bundle), not five database-specific code paths. 
 the same [column-level mapping](2.5x-to-3.0-mapping.md) and produce the same target rows — the
 decision here is only about how source data is _read_, not about what it becomes.
 
+Implementation status, not a scope change: `PostgresSourceConnector` implements every
+`SourceConnector` entity for real; `ExportBundleSourceConnector` only has `pages()`/`pageHistory()`/
+`tags()`/`navigation()` implemented so far — its `users()`, `groups()`, `settings()`, `comments()`, and
+`assets()` still throw `NotYetImplementedError` (`backend/migration/connectors/export-bundle.ts`), so a
+real end-to-end migration today requires the Postgres-direct path.
+
 ## Read-only requirement
 
 The migration **must never write to the 2.x source database, and must never mutate the export
