@@ -1883,7 +1883,7 @@ async function routes(app: FastifyInstance) {
         )
       }
       if (await hasUnknownGroups(req.body.groups ?? [])) {
-        return reply.badRequest('One of the groups does not exist.')
+        return reply.badRequest('ERR_UNKNOWN_GROUPS')
       }
 
       try {
@@ -2074,7 +2074,7 @@ async function routes(app: FastifyInstance) {
       //    guards on the groups endpoint.
       if (req.body.groups !== undefined) {
         if (await hasUnknownGroups(req.body.groups)) {
-          return reply.badRequest('One of the groups does not exist.')
+          return reply.badRequest('ERR_UNKNOWN_GROUPS')
         }
 
         // -> The guest account must stay in the guests group and nowhere else. Resending the
