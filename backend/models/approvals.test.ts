@@ -2296,6 +2296,103 @@ describe(
       assert.equal(detail, null)
     })
 
+    /**
+     * OpenProject #2341: `getReviewableSubmissions()` was flagged by an automated review as running
+     * `checkAccess(actor, 'read:pages', ...)` twice per row -- once filtering `rows` into
+     * `matchedRows`, then again filtering the already-filtered `matchedRows` into `readableRows` --
+     * a redundant duplicate left over from merging two overlapping branches (#2150/#2160). Reading
+     * the current source shows `matchedRows` is filtered by `matchesPage()` (approval-rule path/tag
+     * matching, which never calls `checkAccess`) and only `readableRows` calls `checkAccess`, so the
+     * two filters are not duplicates of each other -- but this spies on the real `checkAccess` to
+     * prove it directly rather than trust a reading of the source: exactly one call per matched row,
+     * not two, is what distinguishes "already fixed" from "still redundant".
+     */
+    test('read:pages is checked exactly once per matched row, not filtered twice (OpenProject #2341)', async () => {
+      const pageOne = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'gating/single-check-one',
+          title: 'Single Check One',
+          editor: 'markdown',
+          content: 'Body one'
+        },
+        adminActor
+      )
+      const pageTwo = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'gating/single-check-two',
+          title: 'Single Check Two',
+          editor: 'markdown',
+          content: 'Body two'
+        },
+        adminActor
+      )
+      await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(pageOne),
+        baseContent: 'Body one',
+        content: 'Suggested one',
+        authorId: fixtures.userId
+      })
+      await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(pageTwo),
+        baseContent: 'Body two',
+        content: 'Suggested two',
+        authorId: fixtures.userId
+      })
+
+      const [readOnlyGroup] = await fixtures.db
+        .insert(groupsTable)
+        .values({
+          name: 'Filtering Test Single Check',
+          permissions: ['read:pages'],
+          rules: [
+            {
+              id: randomUUID(),
+              name: 'read:pages only',
+              roles: ['read:pages'],
+              match: 'START',
+              mode: 'ALLOW',
+              path: '',
+              locales: [],
+              sites: []
+            }
+          ]
+        })
+        .returning({ id: groupsTable.id })
+      await groupsModel.reloadCache()
+      const readOnlyActor: AccessActor = { groupIds: [readOnlyGroup!.id], permissions: [] }
+
+      // -> Spy on the real checkAccess rather than stub it out: this has to exercise the actual
+      //    matchedRows -> readableRows pipeline, only counting how many times it runs.
+      const originalCheckAccess = groupsModel.checkAccess.bind(groupsModel)
+      let callCount = 0
+      groupsModel.checkAccess = ((...args: Parameters<typeof originalCheckAccess>) => {
+        callCount++
+        return originalCheckAccess(...args)
+      }) as typeof groupsModel.checkAccess
+
+      let queue: Awaited<ReturnType<typeof approvalsModel.getReviewableSubmissions>>
+      try {
+        queue = await approvalsModel.getReviewableSubmissions(
+          fixtures.siteId,
+          readOnlyActor,
+          reviewerScope()
+        )
+      } finally {
+        groupsModel.checkAccess = originalCheckAccess
+      }
+
+      // -> readOnlyActor's rule ALLOWs read:pages everywhere, so every row `matchesPage()` matched
+      //    is also readable -- matchedRows.length === readableRows.length === queue.length here,
+      //    which is exactly what lets callCount === queue.length prove "once per row", not "twice".
+      assert.ok(queue.some((s) => s.page.id === pageOne.id))
+      assert.ok(queue.some((s) => s.page.id === pageTwo.id))
+      assert.equal(callCount, queue.length)
+    })
+
     test('a reviewer allowed read:pages but denied read:source sees the queue entry with no pageContent', async () => {
       const page = await pagesModel.createPage(
         fixtures.siteId,
