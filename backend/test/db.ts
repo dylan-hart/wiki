@@ -344,6 +344,13 @@ function installTestWiki(db: WikiDb, models: typeof import('../models/index.ts')
     config: {},
     data: {},
     db,
+    // -> `helpers/advisoryLock.ts#getLockPool()` lazily builds its dedicated lock pool from
+    //    `WIKI.dbManager.config` (a real boot populates this once `dbManager.init()` runs) --
+    //    a suite that exercises the real `withAdvisoryLock` (not the dependency-injected fakes
+    //    most task-level tests use) needs this present, or it crashes reading `.config` off
+    //    `undefined` (OpenProject #2347). Only `config.connectionString` is provided: nothing
+    //    under a DB-backed suite reaches `dbManager.pool`/`listenerPool`/etc. through this stub.
+    dbManager: { config: { connectionString: process.env.DATABASE_URL } },
     logger: createSilentLogger(),
     cache: createCacheStub(),
     events: createEventsStub(),
