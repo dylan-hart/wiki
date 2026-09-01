@@ -52,12 +52,25 @@ jobs:
           cache-dependency-path: |
             backend/package-lock.json
             frontend/package-lock.json
+            blocks/package-lock.json
             e2e/package-lock.json
 
       # -> The e2e suite boots the built, production-shaped stack -- backend on :3000 serving
       #    frontend/'s `vite build` output from `assets/` -- not the dev-mode Vite proxy.
       - name: Build frontend assets
         working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      # -> Missing here (unlike build.yml's own e2e leg, which this workflow's own header comment
+      #    says duplicates that one to avoid a second full run per push) left `blocks/compiled/`
+      #    absent, which `index.ts` warns about at boot ("root" path ".../blocks/compiled" must
+      #    exist) and serves as a 404 for every /_blocks/*.js request. csp.spec.js's own
+      #    self-contained-block coverage (block-checklist, block-tabs, block-infobox, ...) never
+      #    got past that 404 to actually exercise CSP against a real block render.
+      - name: Build blocks
+        working-directory: blocks
         run: |
           npm ci
           npm run build
