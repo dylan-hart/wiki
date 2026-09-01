@@ -192,6 +192,62 @@ describe('GET /info', () => {
 })
 
 /**
+ * OpenProject #2335: `GET /pageviews` used to answer just `{ isEnabled }`, leaving
+ * `AdminPageviews.vue` no way to show an admin real evidence that tracking is actually recording
+ * anything. It now also returns `summary`, sourced straight from `WIKI.models.pageviews.summary()`
+ * (that method's own DB-backed tests in `models/pageviews.test.ts` cover the aggregation itself --
+ * this route-level test stubs it, same as `GET /info`'s stubbed `WIKI.models.jobs` above, so it's
+ * only verifying the route wires the model's return value through unchanged).
+ */
+describe('GET /pageviews', () => {
+  let app: FastifyInstance
+  const FAKE_SUMMARY = {
+    totalViews: 42,
+    last24h: 3,
+    last7d: 10,
+    distinctPages: 7,
+    mostRecentAt: '2026-08-31T00:00:00.000Z'
+  }
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      config: { pageviews: { isEnabled: true } },
+      models: {
+        pageviews: {
+          summary: mock.fn(async () => FAKE_SUMMARY)
+        }
+      }
+    }
+
+    app = fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    await registerErrorSchema(app)
+    await registerFlagsSchema(app)
+    await registerSecuritySchema(app)
+    await registerExtensionSchema(app)
+    await app.register(systemRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('returns isEnabled from config and summary from WIKI.models.pageviews.summary()', async () => {
+    const res = await app.inject({ method: 'GET', url: '/pageviews' })
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.isEnabled, true)
+    assert.deepEqual(body.summary, FAKE_SUMMARY)
+  })
+})
+
+/**
  * Route-level test for `GET /system/extensions/status`.
  *
  * The frontend gates page-import on the Pandoc extension being installed (`PageNewMenu.vue` /
