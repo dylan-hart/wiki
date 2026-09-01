@@ -180,7 +180,14 @@
         <w-card-section>
           <div class="text-subtitle1">{{ t('admin.audit.retentionTitle') }}</div>
           <div class="text-caption text-grey mb-2">{{ t('admin.audit.retentionSubtitle') }}</div>
-          <div class="flex items-end gap-3">
+          <!--
+            `items-center`, not `items-end`: the days input carries `:rules`, so `w-input`
+            reserves a hint/error row below its visible box (see WInput.vue's `showsBottom`).
+            `items-end` was aligning the button to the bottom of that whole reserved area
+            instead of the visible field, which is what made it read as offset and too low
+            (OpenProject #2331).
+          -->
+          <div class="flex items-center gap-3 retention-actions">
             <div style="width: 160px">
               <w-input
                 ref="retentionInput"

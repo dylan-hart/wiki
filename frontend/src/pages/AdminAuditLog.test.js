@@ -195,4 +195,21 @@ describe('AdminAuditLog', () => {
 
     wrapper.unmount()
   })
+
+  it('aligns the retention Save button on items-center, not items-end (OpenProject #2331)', async () => {
+    API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve(undefined) }))
+
+    const wrapper = mountPage()
+    await flush(wrapper)
+
+    // The days input carries `:rules`, so `w-input` reserves a hint/error row below its visible
+    // box -- `items-end` would align the button to the bottom of that whole reserved area rather
+    // than the visible field, throwing off the alignment this row is meant to read as one row.
+    const row = wrapper.find('.retention-actions')
+    expect(row.exists()).toBe(true)
+    expect(row.classes()).toContain('items-center')
+    expect(row.classes()).not.toContain('items-end')
+
+    wrapper.unmount()
+  })
 })
