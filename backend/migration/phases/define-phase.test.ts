@@ -2,26 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import { definePhase } from './define-phase.ts'
 import type { MigrationContext } from '../context.ts'
-import type { ProvenanceStore } from '../provenance.ts'
 import type { WriteRecorder } from '../recorder.ts'
-
-/** A `ProvenanceStore` that never matches anything — no test here exercises idempotency, only the
- * write-capability reclassification `definePhase` itself owns. */
-const stubProvenanceStore: ProvenanceStore = {
-  async find() {
-    return undefined
-  },
-  async record() {},
-  async findExistingUserByEmail() {
-    return undefined
-  },
-  async findExistingPageByPath() {
-    return undefined
-  },
-  async findExistingAssetByFolderAndFilename() {
-    return undefined
-  }
-}
 
 function contextWith(overrides: Partial<MigrationContext> = {}): MigrationContext {
   return {
@@ -29,8 +10,6 @@ function contextWith(overrides: Partial<MigrationContext> = {}): MigrationContex
     source: {} as any,
     siteId: 'test-site',
     dryRun: false,
-    provenanceStore: stubProvenanceStore,
-    updateExisting: false,
     ...overrides
   }
 }
