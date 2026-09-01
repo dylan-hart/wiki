@@ -182,11 +182,16 @@
           <div class="text-subtitle1">{{ t('admin.audit.retentionTitle') }}</div>
           <div class="text-caption text-grey mb-2">{{ t('admin.audit.retentionSubtitle') }}</div>
           <!--
-            `items-center`, not `items-end`: the days input carries `:rules`, so `w-input`
-            reserves a hint/error row below its visible box (see WInput.vue's `showsBottom`).
-            `items-end` was aligning the button to the bottom of that whole reserved area
-            instead of the visible field, which is what made it read as offset and too low
-            (OpenProject #2331).
+            The days input carries `:rules`, so without `hide-bottom-space` `w-input` reserves a
+            hint/error row below its visible box even while empty (see WInput.vue's
+            `showsBottom`), making the field taller than the button beside it. Flex `items-center`
+            then centres each item on its own box -- the button on its actual height, the input on
+            its taller reserved-space-included height -- so the two visible controls land on
+            different horizontal lines even though both are "centred" (OpenProject #2331,
+            attempted with `items-center` alone; still visibly off). `hide-bottom-space` (the same
+            prop `GroupCreateDialog.vue`/`FolderCreateDialog.vue` use for the identical reason)
+            drops the reserved row until a real validation error sets it, which is what actually
+            equalises the two heights.
           -->
           <div class="flex items-center gap-3 retention-actions">
             <div style="width: 160px">
@@ -199,6 +204,7 @@
                 max="3650"
                 v-model.number="state.retentionDays"
                 :rules="retentionDaysRules"
+                hide-bottom-space
                 lazy-rules="ondemand"
                 :suffix="t('admin.audit.retentionDaysSuffix')"
                 :aria-label="t('admin.audit.retentionTitle')" />
