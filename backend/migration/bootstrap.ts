@@ -173,6 +173,17 @@ export async function bootstrapMigrationRuntime(instanceId: string): Promise<Wik
   WIKI.events = createEventsStub()
   WIKI.cache = createCacheStub()
 
+  // The `settings` phase (Task 15) reads/writes through `WIKI.models.authentication`/
+  // `WIKI.models.storage` as the mappers' own `AuthModuleResolver`/`StorageModuleResolver` — both
+  // resolve every module through `WIKI.data.authentication`/`WIKI.models.storage.definitions`, which
+  // start out empty (`{}`/`[]`) until something loads them from disk. `index.ts`'s `postBoot()` does
+  // exactly that for a real server boot (`refreshStrategiesFromDisk()`/`refreshFromDisk()`), but this
+  // minimal bootstrap had no caller that needed either populated before now — left unpopulated, every
+  // authentication/storage row the migration reads would resolve `getModule()`/`getDefinition()` as
+  // `null` and get misreported `unsupported`, regardless of the source module's real 3.0 support.
+  await WIKI.models.authentication.refreshStrategiesFromDisk()
+  await WIKI.models.storage.refreshFromDisk()
+
   // The `users` phase (Task 14) needs `WIKI.config.auth.rootAdminGroupId`/`rootAdminUserId` —
   // real, per-install ids `Settings.init()` persisted to the `settings` table at seed time, not
   // anything `configSvc.init()` above (config.yml + base.yml only) ever populates. `index.ts`'s
