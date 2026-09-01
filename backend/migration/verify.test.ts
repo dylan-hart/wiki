@@ -37,6 +37,7 @@ function stubConnector(): SourceConnector {
     tags: notImplemented('tags'),
     navigation: notImplemented('navigation'),
     settings: notImplemented('settings'),
+    comments: notImplemented('comments'),
     assets: notImplemented('assets')
   }
 }

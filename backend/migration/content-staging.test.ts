@@ -77,6 +77,10 @@ class FixtureSourceConnector implements SourceConnector {
     throw new NotYetImplementedError('settings', 'not exercised by this fixture')
   }
 
+  comments(): AsyncIterable<SourceRecord> {
+    throw new NotYetImplementedError('comments', 'not exercised by this fixture')
+  }
+
   assets(): AsyncIterable<SourceAssetFile> {
     throw new NotYetImplementedError('assets', 'not exercised by this fixture')
   }

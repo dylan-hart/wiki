@@ -246,6 +246,10 @@ export class PostgresSourceConnector implements SourceConnector {
     throw new NotYetImplementedError('settings', 'Task 420 (Settings/Auth/Storage importer)')
   }
 
+  comments(): AsyncIterable<SourceRecord> {
+    throw new NotYetImplementedError('comments', 'Task 9 (this plan)')
+  }
+
   assets(): AsyncIterable<SourceAssetFile> {
     throw new NotYetImplementedError('assets', 'Task 418 (Assets/Comments importer)')
   }
