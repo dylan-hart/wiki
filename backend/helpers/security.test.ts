@@ -157,10 +157,32 @@ describe('corsOrigin', () => {
       corsConfig: '^https://.*\\.example$'
     }) as RegExp
     // -> Not double-wrapped: a leading `^`/trailing `$` the operator already wrote is stripped
-    //    before re-anchoring, so the effective pattern is unchanged rather than `^^...$$`.
-    assert.equal(result.source, new RegExp('^https://.*\\.example$').source)
+    //    before re-anchoring, so the effective pattern is unchanged rather than `^^...$$`. The
+    //    body is still wrapped in a non-capturing group (see the alternation test below), so the
+    //    resulting source reflects that wrap even though the matched behavior is identical.
+    assert.equal(result.source, new RegExp('^(?:https://.*\\.example)$').source)
     assert.equal(result.test('https://wiki.example'), true)
     assert.equal(result.test('https://wiki.example.attacker.test'), false)
+  })
+
+  test('REGEX fully anchors a pattern with top-level alternation', () => {
+    // -> `^A|B$` only anchors the left edge of the first alternative and the right edge of the
+    //    last one — `B` alone is left unanchored and still substring-matchable anywhere in the
+    //    Origin header. Wrapping the whole pattern in a non-capturing group before anchoring
+    //    (`^(?:A|B)$`) fixes that: both alternatives are now fully anchored.
+    const result = corsOrigin({
+      corsMode: 'REGEX',
+      corsConfig: 'https://a\\.example|https://b\\.example'
+    }) as RegExp
+    assert.ok(result instanceof RegExp)
+    assert.equal(result.test('https://a.example'), true)
+    assert.equal(result.test('https://b.example'), true)
+    // -> Previously matched via the unanchored right-hand alternative's bare substring test.
+    assert.equal(result.test('https://evil.test/?x=https://b.example'), false)
+    assert.equal(result.test('https://b.example.attacker.test'), false)
+    // -> Previously matched via the unanchored left-hand alternative's bare substring test too,
+    //    since only ITS left edge was anchored, not its right edge.
+    assert.equal(result.test('https://a.example.attacker.test'), false)
   })
 
   test('REGEX falls back to same-origin only on an invalid pattern', () => {
