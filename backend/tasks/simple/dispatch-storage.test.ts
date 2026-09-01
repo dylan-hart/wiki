@@ -16,6 +16,7 @@ import { contentSync } from '../../models/contentSync.ts'
 import { withAdvisoryLock } from '../../helpers/advisoryLock.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../../test/db.ts'
 import type { WikiDb } from '../../core/db.ts'
+import { ensureTemporal } from '../../test/temporal.ts'
 
 /** A pass-through lock: these tests exercise the task's own control flow, not real Postgres locking. */
 const noopLock = async (_key: string, fn: () => Promise<any>) => fn()
@@ -307,6 +308,10 @@ describe('deadlock regression: recordSuccess after the lock, not inside it', () 
     if (!hasTestDatabase()) {
       return
     }
+    // `contentSync.recordSuccess` (exercised for real below, not the dependency-injected fake) calls
+    // `Temporal.Now.instant()` unconditionally -- this sandbox's Node lacks the native global. See
+    // `test/temporal.ts`'s header.
+    await ensureTemporal()
     fixtures = await setupTestDb()
     const [row] = await fixtures.db
       .insert(storageTable)
