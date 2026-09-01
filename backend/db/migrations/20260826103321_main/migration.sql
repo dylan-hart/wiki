@@ -1,1 +1,0 @@
-ALTER TABLE "authentication" ADD COLUMN "trustEmailForLinking" boolean DEFAULT false NOT NULL;

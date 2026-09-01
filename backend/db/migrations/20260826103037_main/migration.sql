@@ -1,1 +1,0 @@
-ALTER TABLE "authentication" ADD COLUMN "mappableGroups" uuid[] DEFAULT '{}'::uuid[];

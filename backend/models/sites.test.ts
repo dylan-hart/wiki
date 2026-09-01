@@ -13,7 +13,6 @@ import {
   commentProviders as commentProvidersTable,
   glossaryTerms as glossaryTermsTable,
   glossaryVersions as glossaryVersionsTable,
-  migrationRecords as migrationRecordsTable,
   navigation as navigationTable,
   pageHistory as pageHistoryTable,
   pageviews as pageviewsTable,
@@ -589,7 +588,6 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       pageWatchEventsRows,
       glossaryVersionsRows,
       approvalRulesRows,
-      migrationRecordsRows,
       apiKeysRows,
       tagsRows
     ] = await Promise.all([
@@ -615,10 +613,6 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
         .from(glossaryVersionsTable)
         .where(eq(glossaryVersionsTable.siteId, siteId)),
       fixtures.db.select().from(approvalRulesTable).where(eq(approvalRulesTable.siteId, siteId)),
-      fixtures.db
-        .select()
-        .from(migrationRecordsTable)
-        .where(eq(migrationRecordsTable.siteId, siteId)),
       fixtures.db.select().from(apiKeysTable).where(eq(apiKeysTable.siteId, siteId)),
       fixtures.db.select().from(tagsTable).where(eq(tagsTable.siteId, siteId))
     ])
@@ -633,7 +627,6 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       pageWatchEvents: pageWatchEventsRows.length,
       glossaryVersions: glossaryVersionsRows.length,
       approvalRules: approvalRulesRows.length,
-      migrationRecords: migrationRecordsRows.length,
       apiKeys: apiKeysRows.length,
       tags: tagsRows.length
     }
@@ -654,14 +647,6 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     //    this suite's existing convention for setup that has no dedicated model method.
     await fixtures.db.insert(glossaryVersionsTable).values({ siteId, snapshot: {}, termCount: 0 })
     await fixtures.db.insert(approvalRulesTable).values({ siteId })
-    await fixtures.db.insert(migrationRecordsTable).values({
-      siteId,
-      sourceSystem: 'test',
-      sourceTable: 'pages',
-      sourceId: '1',
-      destTable: 'pages',
-      destId: randomUUID()
-    })
     await fixtures.db.insert(pageWatchEventsTable).values({
       siteId,
       action: 'edited',
@@ -829,7 +814,7 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
    * for six non-content tables whose rows outlive the content they describe (`commentProviders`,
    * seeded per site by `createSite()`'s `commentProviders.syncSite()`, being the most immediate —
    * it blocked even a brand-new, otherwise-empty site) or that content routes were never meant to
-   * guard at all (`glossaryVersions`, `pageWatchEvents`, `approvalRules`, `migrationRecords`).
+   * guard at all (`glossaryVersions`, `pageWatchEvents`, `approvalRules`).
    * `tags` is deliberately NOT among them: OpenProject #1741's precheck already treats it as content
    * (alongside pages, assets and pageviews) and refuses the delete up front while a tag still
    * references the site, so a leftover tag row is covered by the "refused up front" test above, not
@@ -859,14 +844,6 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     //    site under test, so they're seeded directly to prove the cleanup covers them too.
     await fixtures.db.insert(glossaryVersionsTable).values({ siteId, snapshot: {}, termCount: 0 })
     await fixtures.db.insert(approvalRulesTable).values({ siteId })
-    await fixtures.db.insert(migrationRecordsTable).values({
-      siteId,
-      sourceSystem: 'test',
-      sourceTable: 'pages',
-      sourceId: '1',
-      destTable: 'pages',
-      destId: randomUUID()
-    })
     await fixtures.db.insert(pageWatchEventsTable).values({
       action: 'updated',
       pageId: randomUUID(),
@@ -909,12 +886,6 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .from(approvalRulesTable)
       .where(eq(approvalRulesTable.siteId, siteId))
     assert.equal(remainingApprovalRules.length, 0)
-
-    const remainingMigrationRecords = await fixtures.db
-      .select({ id: migrationRecordsTable.id })
-      .from(migrationRecordsTable)
-      .where(eq(migrationRecordsTable.siteId, siteId))
-    assert.equal(remainingMigrationRecords.length, 0)
   })
 })
 

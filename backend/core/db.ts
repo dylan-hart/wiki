@@ -45,11 +45,12 @@ const notifier = createNotifier(() => WIKI.dbManager?.pubsubClient ?? null, 'eve
  * `ltree` types the folder paths of the page tree and answers the ancestor queries the navigation is
  * built from; `pg_trgm` backs fuzzy text matching. `pgcrypto` was dropped from this list once for
  * `gen_random_uuid()` (core since Postgres 13, and 16 is the minimum this runs on) but is back for
- * `digest()`: the `userAvatars`/`siteAssets` hash-column migration
- * (`db/migrations/20260825203005_main`) backfills a sha1 hex digest of every existing row's blob, and
- * any future one-time backfill needing a digest can reach for it the same way. Listed here rather
- * than as a `CREATE EXTENSION` preamble hand-written into that migration's own SQL for the reason
- * explained below: a migration file cannot express it durably.
+ * `digest()`: a one-time backfill migration once used it to compute a sha1 hex digest of every
+ * existing `userAvatars`/`siteAssets` row's blob (squashed away in the genesis migration reset, task
+ * 2 — a fresh schema has no legacy rows left to backfill), and any future one-time backfill needing a
+ * digest can reach for it the same way. Listed here rather than as a `CREATE EXTENSION` preamble
+ * hand-written into a migration's own SQL for the reason explained below: a migration file cannot
+ * express it durably.
  */
 const REQUIRED_EXTENSIONS = ['ltree', 'pg_trgm', 'pgcrypto']
 

@@ -1,1 +1,0 @@
-ALTER TABLE "pageHistory" ADD COLUMN "via" varchar(16) DEFAULT 'editor' NOT NULL;

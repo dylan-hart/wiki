@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "307c9d77-f61e-490d-9b50-fc9249e260a2",
+  "id": "dfbabc6c-1a2c-4887-91e0-360c1aed2218",
   "prevIds": [
-    "4a2badd3-56f2-4894-9b56-218d72499d22"
+    "00000000-0000-0000-0000-000000000000"
   ],
   "ddl": [
     {
@@ -44,6 +44,16 @@
         "scheduled"
       ],
       "name": "pagePublishState",
+      "entityType": "enums",
+      "schema": "public"
+    },
+    {
+      "values": [
+        "open",
+        "approved",
+        "declined"
+      ],
+      "name": "submissionStatus",
       "entityType": "enums",
       "schema": "public"
     },
@@ -159,6 +169,12 @@
     },
     {
       "isRlsEnabled": false,
+      "name": "classificationLevels",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
       "name": "commentProviders",
       "entityType": "tables",
       "schema": "public"
@@ -243,12 +259,6 @@
     },
     {
       "isRlsEnabled": false,
-      "name": "migrationRecords",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
       "name": "navigation",
       "entityType": "tables",
       "schema": "public"
@@ -292,6 +302,12 @@
     {
       "isRlsEnabled": false,
       "name": "pages",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "pageviews",
       "entityType": "tables",
       "schema": "public"
     },
@@ -407,11 +423,11 @@
       "table": "apiKeys"
     },
     {
-      "type": "jsonb",
+      "type": "uuid",
       "typeSchema": null,
       "notNull": true,
-      "dimensions": 0,
-      "default": "'[]'",
+      "dimensions": 1,
+      "default": "'{}'",
       "generated": null,
       "identity": null,
       "name": "groups",
@@ -446,6 +462,19 @@
       "table": "apiKeys"
     },
     {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": "'null'",
+      "generated": null,
+      "identity": null,
+      "name": "allowedClassifications",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "apiKeys"
+    },
+    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": false,
@@ -459,7 +488,7 @@
       "table": "apiKeys"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -485,7 +514,7 @@
       "table": "apiKeys"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -498,7 +527,7 @@
       "table": "apiKeys"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -576,11 +605,11 @@
       "table": "approvalRules"
     },
     {
-      "type": "jsonb",
+      "type": "uuid",
       "typeSchema": null,
       "notNull": true,
-      "dimensions": 0,
-      "default": "'[]'",
+      "dimensions": 1,
+      "default": "'{}'",
       "generated": null,
       "identity": null,
       "name": "submitterGroups",
@@ -589,11 +618,11 @@
       "table": "approvalRules"
     },
     {
-      "type": "jsonb",
+      "type": "uuid",
       "typeSchema": null,
       "notNull": true,
-      "dimensions": 0,
-      "default": "'[]'",
+      "dimensions": 1,
+      "default": "'{}'",
       "generated": null,
       "identity": null,
       "name": "reviewerGroups",
@@ -615,7 +644,7 @@
       "table": "approvalRules"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -628,7 +657,7 @@
       "table": "approvalRules"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -758,7 +787,7 @@
       "table": "assets"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -771,7 +800,7 @@
       "table": "assets"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -966,7 +995,7 @@
       "table": "auditLog"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -1051,7 +1080,20 @@
       "default": "false",
       "generated": null,
       "identity": null,
-      "name": "registration",
+      "name": "selfRegistration",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "authentication"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "autoProvision",
       "entityType": "columns",
       "schema": "public",
       "table": "authentication"
@@ -1083,6 +1125,32 @@
       "table": "authentication"
     },
     {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "trustEmailForLinking",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "authentication"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 1,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "name": "mappableGroups",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "authentication"
+    },
+    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": true,
@@ -1109,7 +1177,7 @@
       "table": "blockCode"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -1181,13 +1249,13 @@
       "default": "ARRAY[]",
       "generated": null,
       "identity": null,
-      "name": "allowedDomains",
+      "name": "allowedOrigins",
       "entityType": "columns",
       "schema": "public",
       "table": "blockCredentials"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -1200,7 +1268,7 @@
       "table": "blockCredentials"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -1343,19 +1411,6 @@
       "table": "blocks"
     },
     {
-      "type": "varchar(255)",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "''",
-      "generated": null,
-      "identity": null,
-      "name": "elementTag",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "blocks"
-    },
-    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": true,
@@ -1434,7 +1489,7 @@
       "table": "checklistExecutions"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -1460,7 +1515,7 @@
       "table": "checklistExecutions"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
@@ -1538,7 +1593,7 @@
       "table": "checklistItemChecks"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -1549,6 +1604,71 @@
       "entityType": "columns",
       "schema": "public",
       "table": "checklistItemChecks"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "classificationLevels"
+    },
+    {
+      "type": "varchar(255)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "name",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "classificationLevels"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "sortOrder",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "classificationLevels"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "createdAt",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "classificationLevels"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updatedAt",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "classificationLevels"
     },
     {
       "type": "uuid",
@@ -1694,7 +1814,7 @@
       "table": "comments"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -1707,7 +1827,7 @@
       "table": "comments"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -1850,7 +1970,7 @@
       "table": "contentSyncState"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
@@ -1876,7 +1996,7 @@
       "table": "contentSyncState"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -1889,7 +2009,7 @@
       "table": "contentSyncState"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -1954,7 +2074,7 @@
       "table": "glossaryTerms"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -1967,7 +2087,7 @@
       "table": "glossaryTerms"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -2084,7 +2204,7 @@
       "table": "glossaryVersions"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -2201,7 +2321,7 @@
       "table": "groups"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -2214,7 +2334,7 @@
       "table": "groups"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -2357,7 +2477,7 @@
       "table": "hooks"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -2370,7 +2490,7 @@
       "table": "hooks"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -2448,7 +2568,7 @@
       "table": "iconSets"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
@@ -2461,7 +2581,7 @@
       "table": "iconSets"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -2604,7 +2724,7 @@
       "table": "icons"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -2747,7 +2867,7 @@
       "table": "jobHistory"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -2760,7 +2880,7 @@
       "table": "jobHistory"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -2773,7 +2893,7 @@
       "table": "jobHistory"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
@@ -2825,7 +2945,7 @@
       "table": "jobLock"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -2903,7 +3023,7 @@
       "table": "jobSchedule"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -2916,7 +3036,7 @@
       "table": "jobSchedule"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -3007,7 +3127,7 @@
       "table": "jobs"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
@@ -3046,7 +3166,7 @@
       "table": "jobs"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -3059,7 +3179,7 @@
       "table": "jobs"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -3189,7 +3309,7 @@
       "table": "locales"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -3202,7 +3322,7 @@
       "table": "locales"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -3213,110 +3333,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "locales"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "gen_random_uuid()",
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "migrationRecords"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "siteId",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "migrationRecords"
-    },
-    {
-      "type": "varchar(255)",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "sourceSystem",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "migrationRecords"
-    },
-    {
-      "type": "varchar(255)",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "sourceTable",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "migrationRecords"
-    },
-    {
-      "type": "varchar(255)",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "sourceId",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "migrationRecords"
-    },
-    {
-      "type": "varchar(255)",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "destTable",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "migrationRecords"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "destId",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "migrationRecords"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "importedAt",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "migrationRecords"
     },
     {
       "type": "uuid",
@@ -3397,7 +3413,7 @@
       "table": "pageEditSubmissionApprovals"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -3514,7 +3530,46 @@
       "table": "pageEditSubmissions"
     },
     {
-      "type": "timestamp",
+      "type": "submissionStatus",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'open'",
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pageEditSubmissions"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "resolvedReason",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pageEditSubmissions"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "resolvedBy",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pageEditSubmissions"
+    },
+    {
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -3527,7 +3582,7 @@
       "table": "pageEditSubmissions"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -3613,6 +3668,19 @@
       "generated": null,
       "identity": null,
       "name": "action",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pageHistory"
+    },
+    {
+      "type": "varchar(16)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'editor'",
+      "generated": null,
+      "identity": null,
+      "name": "via",
       "entityType": "columns",
       "schema": "public",
       "table": "pageHistory"
@@ -3709,7 +3777,7 @@
       "table": "pageHistory"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -3787,7 +3855,7 @@
       "table": "pageRenderQueue"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -3800,7 +3868,7 @@
       "table": "pageRenderQueue"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -3891,7 +3959,7 @@
       "table": "pageWatchEvents"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -3904,7 +3972,7 @@
       "table": "pageWatchEvents"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
@@ -3917,7 +3985,7 @@
       "table": "pageWatchEvents"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
@@ -4047,7 +4115,7 @@
       "table": "pageWatching"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -4268,7 +4336,7 @@
       "table": "pages"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
@@ -4281,7 +4349,7 @@
       "table": "pages"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
@@ -4463,22 +4531,6 @@
       "table": "pages"
     },
     {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": {
-        "as": "\"pages\".\"publishState\" != 'draft' AND \"pages\".\"isSearchable\"",
-        "type": "stored"
-      },
-      "identity": null,
-      "name": "isSearchableComputed",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "pages"
-    },
-    {
       "type": "varchar(255)",
       "typeSchema": null,
       "notNull": false,
@@ -4487,45 +4539,6 @@
       "generated": null,
       "identity": null,
       "name": "password",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "pages"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "0",
-      "generated": null,
-      "identity": null,
-      "name": "ratingScore",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "pages"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "ratingCount",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "pages"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "'{}'",
-      "generated": null,
-      "identity": null,
-      "name": "scripts",
       "entityType": "columns",
       "schema": "public",
       "table": "pages"
@@ -4544,7 +4557,7 @@
       "table": "pages"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -4557,7 +4570,7 @@
       "table": "pages"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -4622,6 +4635,97 @@
       "table": "pages"
     },
     {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "classification",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pages"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pageviews"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "siteId",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pageviews"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "pageId",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pageviews"
+    },
+    {
+      "type": "varchar(16)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "clientType",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pageviews"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "visitorHash",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pageviews"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "viewedAt",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pageviews"
+    },
+    {
       "type": "varchar(255)",
       "typeSchema": null,
       "notNull": true,
@@ -4648,7 +4752,7 @@
       "table": "rateLimits"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -4661,7 +4765,7 @@
       "table": "rateLimits"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
@@ -4674,7 +4778,7 @@
       "table": "rateLimits"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -4726,7 +4830,7 @@
       "table": "sessions"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -4739,7 +4843,7 @@
       "table": "sessions"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -4817,6 +4921,19 @@
       "table": "siteAssets"
     },
     {
+      "type": "varchar(255)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "hash",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "siteAssets"
+    },
+    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": true,
@@ -4869,7 +4986,7 @@
       "table": "sites"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -4986,7 +5103,7 @@
       "table": "storage"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
@@ -5077,7 +5194,7 @@
       "table": "tags"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -5090,7 +5207,7 @@
       "table": "tags"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -5150,19 +5267,6 @@
       "generated": null,
       "identity": null,
       "name": "fileName",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "tree"
-    },
-    {
-      "type": "varchar(255)",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "hash",
       "entityType": "columns",
       "schema": "public",
       "table": "tree"
@@ -5259,7 +5363,7 @@
       "table": "tree"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -5272,7 +5376,7 @@
       "table": "tree"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -5319,6 +5423,19 @@
       "generated": null,
       "identity": null,
       "name": "data",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "userAvatars"
+    },
+    {
+      "type": "varchar(255)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "hash",
       "entityType": "columns",
       "schema": "public",
       "table": "userAvatars"
@@ -5402,7 +5519,7 @@
       "table": "userKeys"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -5415,7 +5532,7 @@
       "table": "userKeys"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -5584,7 +5701,7 @@
       "table": "users"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
@@ -5597,7 +5714,7 @@
       "table": "users"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -5610,7 +5727,7 @@
       "table": "users"
     },
     {
-      "type": "timestamp",
+      "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
@@ -5841,14 +5958,21 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
+        },
+        {
+          "value": "block",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
         }
       ],
-      "isUnique": false,
+      "isUnique": true,
       "where": null,
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "blocks_siteId_idx",
+      "name": "blocks_composite_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "blocks"
@@ -5971,6 +6095,27 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "checklistItemChecks"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "sortOrder",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "classificationLevels_sortOrder_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "classificationLevels"
     },
     {
       "nameExplicit": true,
@@ -6170,27 +6315,6 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "glossaryTerms_siteId_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "glossaryTerms"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "siteId",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
         },
         {
           "value": "lower(\"term\")",
@@ -6209,27 +6333,6 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "glossaryTerms"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "siteId",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "glossaryVersions_siteId_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "glossaryVersions"
     },
     {
       "nameExplicit": true,
@@ -6305,6 +6408,76 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "startedAt",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "\"state\" = 'active'",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "jobHistory_active_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "jobHistory"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "task",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "jobSchedule_task_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "jobSchedule"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "waitUntil",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "createdAt",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "jobs_waitUntil_createdAt_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "jobs"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "language",
           "isExpression": false,
           "asc": true,
@@ -6333,97 +6506,6 @@
           "opclass": null
         },
         {
-          "value": "sourceSystem",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "sourceTable",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "sourceId",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "migrationRecords_source_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "migrationRecords"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "destTable",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "destId",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "migrationRecords_dest_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "migrationRecords"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "siteId",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "navigation_siteId_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "navigation"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "siteId",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
           "value": "locale",
           "isExpression": false,
           "asc": true,
@@ -6440,27 +6522,6 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "navigation"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "submissionId",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "pageEditSubmissionApprovals_submissionId_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "pageEditSubmissionApprovals"
     },
     {
       "nameExplicit": true,
@@ -6572,7 +6633,7 @@
         }
       ],
       "isUnique": true,
-      "where": "\"authorId\" IS NOT NULL",
+      "where": "\"authorId\" IS NOT NULL AND \"status\" = 'open'",
       "with": "",
       "method": "btree",
       "concurrently": false,
@@ -6907,7 +6968,7 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "siteId",
+          "value": "classification",
           "isExpression": false,
           "asc": true,
           "nullsFirst": false,
@@ -6919,7 +6980,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "pages_siteId_idx",
+      "name": "pages_classification_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "pages"
@@ -6962,27 +7023,6 @@
       "method": "gin",
       "concurrently": false,
       "name": "pages_tags_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "pages"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "isSearchableComputed",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "pages_isSearchableComputed_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "pages"
@@ -7085,6 +7125,76 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "siteId",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "pageId",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "clientType",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "viewedAt",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "visitorHash",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "pageviews_siteId_pageId_clientType_viewedAt_visitorHash_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "pageviews"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "viewedAt",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "pageviews_viewedAt_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "pageviews"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "updatedAt",
           "isExpression": false,
           "asc": true,
@@ -7160,27 +7270,6 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "tags_siteId_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "tags"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "siteId",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
         },
         {
           "value": "tag",
@@ -7246,6 +7335,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "(\"folderPath\" || \"fileName\")",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "gist",
+      "concurrently": false,
+      "name": "tree_folderpath_filename_gist_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "tree"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "fileName",
           "isExpression": false,
           "asc": true,
@@ -7259,27 +7369,6 @@
       "method": "btree",
       "concurrently": false,
       "name": "tree_fileName_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "tree"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "hash",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "tree_hash_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "tree"
@@ -7498,27 +7587,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "userId",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "userGroups_userId_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "userGroups"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "groupId",
           "isExpression": false,
           "asc": true,
@@ -7545,34 +7613,6 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
-        },
-        {
-          "value": "groupId",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "userGroups_composite_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "userGroups"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "userId",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
         }
       ],
       "isUnique": false,
@@ -7581,6 +7621,27 @@
       "method": "btree",
       "concurrently": false,
       "name": "userKeys_userId_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "userKeys"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "token",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "userKeys_token_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "userKeys"
@@ -8094,23 +8155,6 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
-      "name": "migrationRecords_siteId_sites_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "migrationRecords"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "siteId"
-      ],
-      "schemaTo": "public",
-      "tableTo": "sites",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "NO ACTION",
       "name": "navigation_siteId_sites_id_fkey",
       "entityType": "fks",
       "schema": "public",
@@ -8149,6 +8193,23 @@
       "entityType": "fks",
       "schema": "public",
       "table": "pageEditSubmissionApprovals"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "resolvedBy"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "pageEditSubmissions_resolvedBy_users_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "pageEditSubmissions"
     },
     {
       "nameExplicit": false,
@@ -8195,7 +8256,7 @@
         "id"
       ],
       "onUpdate": "NO ACTION",
-      "onDelete": "NO ACTION",
+      "onDelete": "CASCADE",
       "name": "pageEditSubmissions_authorId_users_id_fkey",
       "entityType": "fks",
       "schema": "public",
@@ -8459,6 +8520,57 @@
     {
       "nameExplicit": false,
       "columns": [
+        "classification"
+      ],
+      "schemaTo": "public",
+      "tableTo": "classificationLevels",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "name": "pages_classification_classificationLevels_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "pages"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "siteId"
+      ],
+      "schemaTo": "public",
+      "tableTo": "sites",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "pageviews_siteId_sites_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "pageviews"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "pageId"
+      ],
+      "schemaTo": "public",
+      "tableTo": "pages",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "pageviews_pageId_pages_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "pageviews"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "userId"
       ],
       "schemaTo": "public",
@@ -8518,11 +8630,28 @@
         "id"
       ],
       "onUpdate": "NO ACTION",
-      "onDelete": "NO ACTION",
+      "onDelete": "CASCADE",
       "name": "tags_siteId_sites_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "tags"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "navigationId"
+      ],
+      "schemaTo": "public",
+      "tableTo": "navigation",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "tree_navigationId_navigation_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "tree"
     },
     {
       "nameExplicit": false,
@@ -8540,6 +8669,23 @@
       "entityType": "fks",
       "schema": "public",
       "table": "tree"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "userAvatars_id_users_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "userAvatars"
     },
     {
       "nameExplicit": false,
@@ -8730,6 +8876,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "classificationLevels_pkey",
+      "schema": "public",
+      "table": "classificationLevels",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "commentProviders_pkey",
       "schema": "public",
       "table": "commentProviders",
@@ -8860,16 +9016,6 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "migrationRecords_pkey",
-      "schema": "public",
-      "table": "migrationRecords",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "navigation_pkey",
       "schema": "public",
       "table": "navigation",
@@ -8943,6 +9089,16 @@
       "name": "pages_pkey",
       "schema": "public",
       "table": "pages",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "pageviews_pkey",
+      "schema": "public",
+      "table": "pageviews",
       "entityType": "pks"
     },
     {

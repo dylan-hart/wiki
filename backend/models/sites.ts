@@ -10,7 +10,6 @@ import {
   commentProviders as commentProvidersTable,
   glossaryTerms as glossaryTermsTable,
   glossaryVersions as glossaryVersionsTable,
-  migrationRecords as migrationRecordsTable,
   navigation as navigationTable,
   pageHistory as pageHistoryTable,
   pages as pagesTable,
@@ -450,8 +449,8 @@ class Sites {
    * (`navigation.ensureSiteNav`'s row, addressed by its own `defaultRandom()` id, never `id ===
    * siteId`) plus any per-page override/hide row still standing. `commentProviders` (seeded per site
    * at creation and re-seeded at every boot), `pageHistory` (a `deleted` row is written before every
-   * page delete, so removing every page guarantees rows remain), `pageWatchEvents`, `glossaryVersions`,
-   * `approvalRules` and `migrationRecords` are the same story: none is content, none cascades, and
+   * page delete, so removing every page guarantees rows remain), `pageWatchEvents`, `glossaryVersions`
+   * and `approvalRules` are the same story: none is content, none cascades, and
    * nothing else ever deletes their rows. `apiKeys.siteId` is already nullable (OpenProject #2189 — a
    * null `siteId` is an ordinary, intentional "instance-wide" key, the pre-#2189 default every key
    * used to be), so a key scoped to this site is widened to instance-wide rather than destroyed: it is
@@ -508,7 +507,7 @@ class Sites {
       //    (`createSite()`'s `commentProviders.syncSite()`) and again at every boot, so it blocks even
       //    a brand-new, otherwise-empty site; `pageHistory` outlives every page it describes by design
       //    (`pages.deletePage()` writes a `deleted` row *before* removing the page); `glossaryVersions`,
-      //    `pageWatchEvents`, `approvalRules` and `migrationRecords` are all derived/audit data about
+      //    `pageWatchEvents` and `approvalRules` are all derived/audit data about
       //    the site rather than content, with no cascade and no other delete call site that would ever
       //    clear them on their own. `tags` and `pageviews` are deliberately NOT cleared here either —
       //    both cascade at the schema level (`db/schema.ts`), so Postgres removes them on its own once
@@ -518,7 +517,6 @@ class Sites {
       await tx.delete(glossaryVersionsTable).where(eq(glossaryVersionsTable.siteId, id))
       await tx.delete(pageWatchEventsTable).where(eq(pageWatchEventsTable.siteId, id))
       await tx.delete(approvalRulesTable).where(eq(approvalRulesTable.siteId, id))
-      await tx.delete(migrationRecordsTable).where(eq(migrationRecordsTable.siteId, id))
       // -> `apiKeys.siteId` is already nullable — null means instance-wide, not "no site" — so a key
       //    that was scoped to this site is widened to instance-wide rather than destroyed: it is a
       //    credential an administrator issued and may still want to use, not a record of the site

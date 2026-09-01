@@ -1,7 +1,0 @@
--- Merge-only migration: joins the two snapshot heads created independently on the
--- knowledge-graph branch (a0bc4d9e, adds pages.links) and the locale-structural branch
--- (cbfb5039, indexes/folderPath/pageLocale). Both parents' DDL is already applied by
--- their own migrations; this folder exists so the snapshot DAG has a single head again.
--- No schema change. (Generated with --ignore-conflicts, which re-emitted the parent's
--- ADD COLUMN "links" statement; stripped by hand per the established procedure --
--- see the docs/superpowers/plans locale-structural plan, Task 1.)

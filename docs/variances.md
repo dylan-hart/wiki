@@ -1629,43 +1629,6 @@ PDF export succeeds with the sandbox enabled inside the resulting container (chi
 done-when) requires a Docker build plus a live Puppeteer/Chromium run — deferred to this project's
 comprehensive after-merge verification pass rather than repeated per work package.
 
-## Migration `20260817165130_main` adds three NOT NULL columns with no DEFAULT (OpenProject #1665)
-
-**Date:** 2026-08-27
-**Severity:** low
-
-`backend/db/migrations/20260817165130_main/migration.sql` adds `pageWatchEvents.pageTitle`,
-`pageWatchEvents.pagePath` (both `text NOT NULL`) and `pageWatchEvents.notifyMode` (`varchar(16) NOT
-NULL`) with no `DEFAULT`. Postgres rejects `ALTER TABLE … ADD COLUMN x text NOT NULL` outright when
-the table already holds rows, unlike `20260821120434_main` (backfills `tree.folderPath` before
-tightening it) and `20260822152223_main` (seeds `classificationLevels` before adding
-`pages.classification` with a matching default) — the correct pattern exists elsewhere in this same
-migrations directory and was not applied here.
-
-Accepted as a one-off rather than hand-editing the recorded migration (forbidden — migration hashes
-are checked) or generating a corrective backfill migration: `notifyMode` has no obvious neutral
-default (`immediate` vs. `digest` both assert something false about history that never happened), and
-this table is new enough — first migrated 2026-08-17 — that no real deployment is expected to hold
-pre-existing rows yet.
-
-**Impact:** any database holding `pageWatchEvents` rows from before 2026-08-17 fails to boot —
-`backend/core/db.ts#syncSchemas` throws inside `migrate()` and `preBoot()` never completes. CI and
-e2e always start from an empty database, so this never surfaces there.
-
-**Workaround:** if a local/dev-container database hits this, drop and recreate it (a fresh install
-seeds no pre-existing `pageWatchEvents` rows, so the migration applies cleanly) rather than trying to
-patch around it in place.
-
-**Guarded against recurring:** `backend/db/schema.test.ts`'s `migration.sql NOT NULL columns require a
-DEFAULT` test scans every `backend/db/migrations/*/migration.sql` for `ADD COLUMN … NOT NULL` with no
-`DEFAULT`, allow-listing only `20260817165130_main`. A new occurrence anywhere else fails that test
-instead of a developer's boot.
-
-**Resolved when:** never, by design — this is a permanent one-off exception for a single already-
-recorded migration, not a task with a future fix. Delete this entry only if the migration is ever
-squashed/regenerated (e.g. a pre-3.0-release migration-history reset) such that `20260817165130_main`
-no longer exists.
-
 ## OpenProject #1906 — `frontend/vite.config.js`'s `chunkSizeWarningLimit` restored to (near) Rollup's default; three chunks still exceed it
 
 **Date:** 2026-08-30

@@ -275,15 +275,18 @@ describe('site-scoping-audit.md', () => {
 
 /**
  * Postgres rejects `ALTER TABLE … ADD COLUMN x text NOT NULL` outright once the table holds any
- * rows, so every such statement across `backend/db/migrations/*` needs a `DEFAULT` -- the pattern
- * `20260821120434_main` (backfill then tighten) and `20260822152223_main` (seed then add-with-default)
- * both follow. `20260817165130_main` is the sole recorded exception (OpenProject #1665, see
- * docs/variances.md) -- its migration hash is already committed, so it is allow-listed rather than
- * hand-edited. A new occurrence anywhere else should fail this test instead of a developer's boot.
+ * rows, so every such statement across `backend/db/migrations/*` needs a `DEFAULT` -- a migration
+ * that needs to add a NOT NULL column to an already-populated table should backfill (or seed) first,
+ * then add the column with a matching `DEFAULT`, the way `20260821120434_main`/`20260822152223_main`
+ * used to before the pre-3.0 migration-history squash (task 2) folded the whole incremental history
+ * into one genesis `CREATE TABLE` set, which needs no such pattern of its own. The one past exception
+ * this allow-list carried, `20260817165130_main` (OpenProject #1665), no longer exists post-squash --
+ * see `docs/variances.md`'s now-deleted entry for it. The allow-list stays empty until a future
+ * incremental migration genuinely needs one again.
  */
 
 const MIGRATIONS_DIR = path.join(HERE, 'migrations')
-const ADD_COLUMN_NOT_NULL_NO_DEFAULT_ALLOWLIST = new Set(['20260817165130_main'])
+const ADD_COLUMN_NOT_NULL_NO_DEFAULT_ALLOWLIST = new Set<string>([])
 
 async function migrationFoldersWithNotNullNoDefault(): Promise<Map<string, string[]>> {
   const offenders = new Map<string, string[]>()

@@ -1,1 +1,0 @@
-ALTER TABLE "storage" ADD COLUMN "lastTickAt" timestamp;

@@ -1,2 +1,0 @@
-CREATE TYPE "treeNavigationSource" AS ENUM('static', 'auto', 'mixed');--> statement-breakpoint
-ALTER TABLE "navigation" ADD COLUMN "mode" "treeNavigationSource" DEFAULT 'static'::"treeNavigationSource" NOT NULL;

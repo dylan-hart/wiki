@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX "classificationLevels_sortOrder_idx" ON "classificationLevels" ("sortOrder");
