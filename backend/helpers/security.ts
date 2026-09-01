@@ -277,7 +277,12 @@ export function corsOrigin(security: {
         //    `https://wiki.example.com.attacker.test` or `https://evil.test/?x=wiki.example.com`
         //    both satisfy a bare `wiki\.example\.com`). Anchor it on the operator's behalf,
         //    stripping any `^`/`$` they already added so a pattern they anchored themselves is
-        //    left as written rather than double-wrapped.
+        //    left as written rather than double-wrapped. The remaining body is wrapped in a
+        //    non-capturing group before anchoring — `^A|B$` only anchors the left edge of the
+        //    first alternative and the right edge of the last one, leaving every other
+        //    top-level `|` alternative (and the last one's left edge) unanchored and still
+        //    substring-matchable; `^(?:A|B)$` anchors the whole expression regardless of
+        //    top-level alternation.
         let pattern = security.corsConfig ?? ''
         if (pattern.startsWith('^')) {
           pattern = pattern.slice(1)
@@ -285,7 +290,7 @@ export function corsOrigin(security: {
         if (pattern.endsWith('$')) {
           pattern = pattern.slice(0, -1)
         }
-        return new RegExp(`^${pattern}$`)
+        return new RegExp(`^(?:${pattern})$`)
       } catch (err: any) {
         WIKI.logger.warn(
           `The CORS regex pattern is invalid (${err.message}) — falling back to same-origin only.`
