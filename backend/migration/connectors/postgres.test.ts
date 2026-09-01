@@ -275,7 +275,7 @@ describe('PostgresSourceConnector', () => {
     }
   )
 
-  test('users/groups/settings/assets generators remain deferred stubs (owned by other tasks)', () => {
+  test('settings/assets generators remain deferred stubs (owned by other tasks)', () => {
     const connector = new PostgresSourceConnector({
       host: HOST,
       port: PORT,
@@ -283,7 +283,7 @@ describe('PostgresSourceConnector', () => {
       user: USER,
       password: PASSWORD
     })
-    for (const method of ['users', 'groups', 'settings', 'assets'] as const) {
+    for (const method of ['settings', 'assets'] as const) {
       assert.throws(() => connector[method](), NotYetImplementedError)
     }
   })
@@ -296,7 +296,14 @@ describe('PostgresSourceConnector', () => {
       user: USER,
       password: PASSWORD
     })
-    for (const method of ['pages', 'pageHistory', 'tags', 'navigation'] as const) {
+    for (const method of [
+      'pages',
+      'pageHistory',
+      'tags',
+      'navigation',
+      'users',
+      'groups'
+    ] as const) {
       const iterable = connector[method]()
       await assert.rejects(async () => {
         for await (const _row of iterable) {
@@ -544,6 +551,148 @@ describe('PostgresSourceConnector', () => {
         assert.equal(rows.length, 1)
         assert.equal(rows[0].key, 'site')
         assert.deepEqual(rows[0].config, [{ id: 'home', label: 'Home' }])
+        await connector.disconnect()
+      })
+    }
+  )
+
+  describe(
+    'users()/groups() against a 2.5.x-shaped schema (Task 8)',
+    { skip: !dbAvailable && 'no test Postgres reachable' },
+    () => {
+      let admin: Client
+
+      async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
+        const out: T[] = []
+        for await (const item of iterable) out.push(item)
+        return out
+      }
+
+      before(async () => {
+        if (!dbAvailable) return
+        admin = new Client({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await admin.connect()
+        await admin.query('DROP TABLE IF EXISTS "userGroups", pages, users, groups')
+        // connect()'s checkShape() introspects pages too, even though this describe block never
+        // reads through pages() — see the "against a 2.5.x-shaped schema" describe above.
+        await admin.query(`
+          CREATE TABLE pages (
+            id serial PRIMARY KEY,
+            path varchar NOT NULL,
+            hash varchar NOT NULL,
+            "authorId" integer,
+            "creatorId" integer,
+            "contentType" varchar NOT NULL
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE users (
+            id serial PRIMARY KEY,
+            email varchar NOT NULL,
+            "providerKey" varchar NOT NULL DEFAULT 'local',
+            "tfaIsActive" boolean NOT NULL DEFAULT false
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE groups (
+            id serial PRIMARY KEY,
+            name varchar NOT NULL,
+            permissions json NOT NULL,
+            "pageRules" json NOT NULL,
+            "redirectOnLogin" varchar NOT NULL DEFAULT '/'
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE "userGroups" (
+            id serial PRIMARY KEY,
+            "userId" integer NOT NULL,
+            "groupId" integer NOT NULL
+          )
+        `)
+
+        await admin.query(`
+          INSERT INTO groups (id, name, permissions, "pageRules")
+          VALUES
+            (1, 'Administrators', '[]', '[]'),
+            (2, 'Editors', '[]', '[]')
+        `)
+        await admin.query(`
+          INSERT INTO users (id, email, "providerKey", "tfaIsActive")
+          VALUES
+            (1, 'both@example.com', 'local', false),
+            (2, 'none@example.com', 'local', false)
+        `)
+        // user 1 belongs to both groups (inserted out of id order, to prove the ORDER BY g.id inside
+        // json_agg is doing the sorting, not insertion order); user 2 belongs to none.
+        await admin.query(`
+          INSERT INTO "userGroups" (id, "userId", "groupId")
+          VALUES
+            (1, 1, 2),
+            (2, 1, 1)
+        `)
+      })
+
+      after(async () => {
+        if (!dbAvailable) return
+        await admin.query('DROP TABLE IF EXISTS "userGroups", pages, users, groups')
+        await admin.end()
+      })
+
+      test('groups() yields plain group rows ordered by id', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.groups())
+        assert.deepEqual(
+          rows.map((r) => r.id),
+          [1, 2]
+        )
+        assert.equal(rows[0].name, 'Administrators')
+        assert.equal(rows[1].name, 'Editors')
+        await connector.disconnect()
+      })
+
+      test("users() embeds each user's group membership as {id, name} pairs", async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.users())
+        const user1 = rows.find((r) => r.id === 1)!
+        assert.deepEqual(user1.groups, [
+          { id: 1, name: 'Administrators' },
+          { id: 2, name: 'Editors' }
+        ])
+        await connector.disconnect()
+      })
+
+      test('users() yields an empty groups array for a user with no group membership', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.users())
+        const user2 = rows.find((r) => r.id === 2)!
+        assert.deepEqual(user2.groups, [])
         await connector.disconnect()
       })
     }

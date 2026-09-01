@@ -41,10 +41,9 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
  * See `docs/migration/decision-source-scope.md` for why this is the only live-database connector kind
  * this connector supports, and for the read-only requirement `connect()` enforces defensively.
  *
- * `pages()`, `pageHistory()`, `tags()` and `navigation()` are implemented for real (Task 733, this
- * feature's own extraction scaffold) via plain SQL against the connected client — the rest
- * (`users()`, `groups()`, `settings()`, `assets()`) remain `NotYetImplementedError` stubs, deferred to
- * the tasks that own those entities.
+ * `pages()`, `pageHistory()`, `tags()`, `navigation()`, `users()` and `groups()` are implemented for
+ * real via plain SQL against the connected client — the rest (`settings()`, `assets()`) remain
+ * `NotYetImplementedError` stubs, deferred to the tasks that own those entities.
  */
 export class PostgresSourceConnector implements SourceConnector {
   readonly kind = 'postgres' as const
@@ -148,12 +147,34 @@ export class PostgresSourceConnector implements SourceConnector {
     }
   }
 
+  /** Batch size mirrors `PAGE_BATCH_SIZE`'s reasoning at a smaller row size, matching the
+   * export-bundle exporter's own 50/batch for `users.json.gz`
+   * (`docs/migration/2.5x-export-bundle-format.md`). */
+  private static readonly USER_BATCH_SIZE = 50
+
   users(): AsyncIterable<SourceRecord> {
-    throw new NotYetImplementedError('users', 'Task 414 (Users/Groups importer)')
+    // Embeds group membership the same way the export-bundle format's users.json.gz does
+    // (`{ groups: [{id, name}] }`) — see connector.ts's own doc comment on why users() carries this
+    // rather than exposing a separate userGroups() generator. Both connector kinds hand callers an
+    // identically-shaped users() row this way.
+    return this.paginatedQuery(
+      `SELECT u.*, COALESCE(
+         json_agg(json_build_object('id', g.id, 'name', g.name) ORDER BY g.id)
+           FILTER (WHERE g.id IS NOT NULL),
+         '[]'
+       ) AS groups
+       FROM users u
+       LEFT JOIN "userGroups" ug ON ug."userId" = u.id
+       LEFT JOIN groups g ON g.id = ug."groupId"
+       GROUP BY u.id
+       ORDER BY u.id`,
+      [],
+      PostgresSourceConnector.USER_BATCH_SIZE
+    )
   }
 
   groups(): AsyncIterable<SourceRecord> {
-    throw new NotYetImplementedError('groups', 'Task 414 (Users/Groups importer)')
+    return this.paginatedQuery(`SELECT * FROM groups ORDER BY id`, [], 100)
   }
 
   /**
