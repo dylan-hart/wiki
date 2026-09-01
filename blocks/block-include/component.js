@@ -187,10 +187,18 @@ export class BlockIncludeElement extends LitElement {
       //    and saying which one closes the loop is the part that helps
       this._error =
         chain.length === 1
-          ? 'This page includes itself.'
-          : `Including "${path}" here would loop: it is already open above.`
+          ? await t('blocks.include.errors.selfInclude', 'This page includes itself.')
+          : await t(
+              'blocks.include.errors.loop',
+              `Including "${path}" here would loop: it is already open above.`,
+              { path }
+            )
     } else if (chain.length > MAX_DEPTH) {
-      this._error = `Includes are nested more than ${MAX_DEPTH} pages deep.`
+      this._error = await t(
+        'blocks.include.errors.maxDepth',
+        `Includes are nested more than ${MAX_DEPTH} pages deep.`,
+        { maxDepth: MAX_DEPTH }
+      )
     } else {
       try {
         const params = new URLSearchParams({ path })
@@ -221,7 +229,11 @@ export class BlockIncludeElement extends LitElement {
             // -> Withheld by the server, which is the same answer this reader gets by opening the
             //    page. The unlock prompt lives there, so this points at it rather than asking for a
             //    password.
-            this._error = `The page "${path}" is password protected. Open it to enter the password.`
+            this._error = await t(
+              'blocks.include.errors.passwordProtected',
+              `The page "${path}" is password protected. Open it to enter the password.`,
+              { path }
+            )
           } else {
             this._title = page.title
             this._render = page.render

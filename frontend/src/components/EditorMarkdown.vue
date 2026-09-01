@@ -2124,7 +2124,20 @@ onMounted(async () => {
 
   // -> Post init
 
-  editor.focus()
+  /*
+    Monaco itself is a lazy chunk, and everything above this line -- the settings prefetch, the theme
+    registration, `monaco.editor.create()` -- runs asynchronously, so this can land well after the
+    editor has visibly mounted. Focusing unconditionally steals focus from wherever the author already
+    put it in that window: opening a new page and typing straight into the Title field (`PageHeader.vue`'s
+    contenteditable, which has no autofocus of its own -- this call is what a fresh mount has instead)
+    was seen losing every keystroke to the editor instead the moment Monaco's async init finally
+    resolved mid-type, leaving the title empty and the typed title text prepended into the page body.
+    Only claim focus when nothing else has it yet (a fresh mount's default `document.activeElement`
+    is `<body>`) -- the author who has already moved on to another field keeps their keystrokes there.
+  */
+  if (document.activeElement === document.body) {
+    editor.focus()
+  }
 
   nextTick(() => {
     processContent(pageStore.content)

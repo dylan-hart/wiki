@@ -3,7 +3,7 @@ import { after, before, beforeEach, describe, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
-import { apiKeySitePinHook, enforceApiKeySite } from './apiKeySite.ts'
+import { apiKeySitePinHook, enforceApiKeySite, isBearerAuthenticatedPath } from './apiKeySite.ts'
 import pagesRoutes from '../api/pages.ts'
 import assetsRoutes from '../api/assets.ts'
 import { registerSchemas as registerAssetSchema } from '../api/schemas/asset.ts'
@@ -20,6 +20,46 @@ import { registerSchemas as registerPageSchema } from '../api/schemas/page.ts'
 
 const SITE_A = '11111111-1111-4111-8111-111111111111'
 const SITE_B = '22222222-2222-4222-8222-222222222222'
+
+/**
+ * OpenProject #2339: `index.ts`'s Bearer-verification hook only ever populated `req.apiKey` for
+ * `/_api/` requests, which made `enforceApiKeySite()`'s calls in `controllers/files.ts` and
+ * `controllers/site.ts` (and the equivalent `actorForRequest()`-mediated check in
+ * `controllers/thumb.ts`) permanent no-ops -- a valid, site-pinned Bearer token sent to any of those
+ * three routes was silently ignored rather than verified. `isBearerAuthenticatedPath` is the pure
+ * function of the URL that decides whether the hook should even look for a token; this proves it
+ * covers exactly the intended surface and nothing more.
+ */
+describe('isBearerAuthenticatedPath', () => {
+  test('matches /_api/ requests', () => {
+    assert.equal(isBearerAuthenticatedPath('/_api/sites/current'), true)
+  })
+
+  test('matches the three hostname-resolved public controllers this closes the gap for', () => {
+    assert.equal(isBearerAuthenticatedPath('/_files/some/asset.png'), true)
+    assert.equal(isBearerAuthenticatedPath('/_site/current/logo'), true)
+    assert.equal(isBearerAuthenticatedPath(`/_thumb/${SITE_A}.webp`), true)
+  })
+
+  test('does not match a bare prefix with no trailing slash', () => {
+    assert.equal(isBearerAuthenticatedPath('/_files'), false)
+    assert.equal(isBearerAuthenticatedPath('/_site'), false)
+    assert.equal(isBearerAuthenticatedPath('/_thumb'), false)
+  })
+
+  test('does not match controllers/render.ts, which resolves no site and carries no API key', () => {
+    assert.equal(isBearerAuthenticatedPath('/_render/'), false)
+  })
+
+  test('does not match controllers/icons.ts, which never reads req.apiKey', () => {
+    assert.equal(isBearerAuthenticatedPath('/_icons/mdi.json'), false)
+  })
+
+  test('does not match an unrelated root-level path', () => {
+    assert.equal(isBearerAuthenticatedPath('/robots.txt'), false)
+    assert.equal(isBearerAuthenticatedPath('/'), false)
+  })
+})
 
 describe('enforceApiKeySite — the comparison itself', () => {
   let app: FastifyInstance

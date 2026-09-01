@@ -821,7 +821,6 @@ export const pages = pgTable(
     //    on write and checks a guess against it with `bcrypt.compare` on read; nothing reads this
     //    column back as a value to hand to a caller.
     password: varchar({ length: 255 }),
-    scripts: jsonb().notNull().default({}),
     historyData: jsonb().notNull().default({}),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),

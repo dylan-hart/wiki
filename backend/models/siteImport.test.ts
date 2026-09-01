@@ -851,4 +851,155 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .where(eq(pagesTable.siteId, failTargetSiteId))
     assert.equal(leftoverPages.length, 1)
   })
+
+  test('importSite chunks pageHistory/navigation inserts past one bind-parameter batch, and still rolls back atomically when a later chunk fails', async () => {
+    // -> A dedicated source site, same isolation reasoning as the pages/tree bulk test above.
+    const [bulkSourceSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: 'import-bulk-history-nav-source.localhost',
+        isEnabled: true,
+        config: { locales: { primary: 'en' } }
+      })
+      .returning({ id: sitesTable.id })
+    const bulkSourceSiteId = bulkSourceSite!.id
+    WIKI.sites[bulkSourceSiteId] = { id: bulkSourceSiteId, config: { locales: { primary: 'en' } } }
+
+    // -> One real page, created through the model so it auto-records one `pageHistory` row and (via
+    //    `models/navigation.ts#ensureSiteNav`) the site's one default `navigation` row -- both used as
+    //    templates for the synthetic bulk rows below.
+    await pagesModel.createPage(
+      bulkSourceSiteId,
+      { path: 'template', title: 'Template', editor: 'markdown', content: 'template content' },
+      { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    )
+    const { filePath: templateArchivePath } = await exportModel.exportSite(bulkSourceSiteId)
+    const templateEntries = await readArchiveEntries(templateArchivePath)
+    const [templatePageHistoryRow] = JSON.parse(
+      templateEntries['pageHistory.json']!.toString('utf8')
+    )
+    const [templateNavigationRow] = JSON.parse(templateEntries['navigation.json']!.toString('utf8'))
+
+    // -> One row more than a full `navigation` chunk (`NAVIGATION_INSERT_CHUNK_SIZE` = 13107): with the
+    //    same row count applied to `pageHistory` too, this also lands well past its own (smaller,
+    //    `PAGE_HISTORY_INSERT_CHUNK_SIZE` = 4681) chunk boundary, so one archive exercises multi-statement
+    //    chunking on both tables together.
+    const ROW_COUNT = 13108
+
+    /**
+     * Clones the template pageHistory/navigation rows into `rowCount` pairs, each with its own fresh
+     * id. `pageHistory` has no uniqueness constraint beyond its (always-freshly-randomized-on-import)
+     * id, so nothing about its clones can be made to collide from archive data alone -- the happy path
+     * below is what proves its chunking. `navigation` enforces a unique `(siteId, locale)` index, which
+     * `null` locales (the per-tree-entry-override shape) never trip; when `duplicateLocaleAtEnd` is set,
+     * the very first and very last navigation rows share one non-null locale instead, landing a unique
+     * violation in the last (and only the last) insert chunk once both are attempted -- so every earlier
+     * chunk has already been applied inside the transaction by the time it fails.
+     */
+    function buildBulkRows(rowCount: number, { duplicateLocaleAtEnd = false } = {}) {
+      const historyRows: Record<string, any>[] = []
+      const navRows: Record<string, any>[] = []
+      for (let i = 0; i < rowCount; i++) {
+        historyRows.push({ ...templatePageHistoryRow, id: crypto.randomUUID() })
+        const locale = duplicateLocaleAtEnd && (i === 0 || i === rowCount - 1) ? 'x-bulk-dup' : null
+        navRows.push({ ...templateNavigationRow, id: crypto.randomUUID(), locale })
+      }
+      return { historyRows, navRows }
+    }
+
+    async function writeBulkArchive(
+      fileName: string,
+      rowCount: number,
+      opts?: { duplicateLocaleAtEnd?: boolean }
+    ): Promise<string> {
+      const { historyRows, navRows } = buildBulkRows(rowCount, opts)
+      const archivePath = path.join(dataPath, fileName)
+      await writeArchive(archivePath, {
+        ...templateEntries,
+        'pageHistory.json': Buffer.from(JSON.stringify(historyRows)),
+        'navigation.json': Buffer.from(JSON.stringify(navRows))
+      })
+      return archivePath
+    }
+
+    // -> Every row lands: the archive's pageHistory/navigation counts are each larger than one chunk,
+    //    so this only passes if `importSite` actually loops over every chunk rather than stopping after
+    //    the first.
+    const [okTargetSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: 'import-bulk-history-nav-target-ok.localhost',
+        isEnabled: true,
+        config: { locales: { primary: 'en' } }
+      })
+      .returning({ id: sitesTable.id })
+    const okTargetSiteId = okTargetSite!.id
+
+    const okArchivePath = await writeBulkArchive('bulk-history-nav-ok.tar.gz', ROW_COUNT)
+    const okResult = await importModel.importSite(okArchivePath, okTargetSiteId, fixtures.userId)
+    assert.equal(okResult.pageHistory, ROW_COUNT)
+    assert.equal(okResult.navigation, ROW_COUNT)
+
+    const insertedHistory = await fixtures.db
+      .select({ id: pageHistoryTable.id })
+      .from(pageHistoryTable)
+      .where(eq(pageHistoryTable.siteId, okTargetSiteId))
+    assert.equal(insertedHistory.length, ROW_COUNT)
+
+    const insertedNav = await fixtures.db
+      .select({ id: navigationTable.id })
+      .from(navigationTable)
+      .where(eq(navigationTable.siteId, okTargetSiteId))
+    assert.equal(insertedNav.length, ROW_COUNT)
+
+    // -> Rolls back as a unit even when the failure lands in a later chunk: with `ROW_COUNT` = 13108,
+    //    the navigation insert splits into chunks of 13107/1 -- the duplicated locale's second half
+    //    falls in that last, one-row chunk, so the entire first chunk (13107 rows) is already applied
+    //    inside the transaction by the time the second chunk's unique-constraint violation aborts it.
+    //    If that first chunk weren't rolled back along with the failing one, the target site would be
+    //    left with 13107 stray navigation rows instead of just the one that was there before the
+    //    attempt.
+    const [failTargetSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: 'import-bulk-history-nav-target-fail.localhost',
+        isEnabled: true,
+        config: { locales: { primary: 'en' } }
+      })
+      .returning({ id: sitesTable.id })
+    const failTargetSiteId = failTargetSite!.id
+
+    const [preExistingNav] = await fixtures.db
+      .insert(navigationTable)
+      .values({
+        items: [{ id: 'must-survive', type: 'link', label: 'Must Survive', target: '/' }],
+        mode: 'static',
+        locale: 'must-survive',
+        siteId: failTargetSiteId
+      })
+      .returning({ id: navigationTable.id })
+
+    const failArchivePath = await writeBulkArchive('bulk-history-nav-fail.tar.gz', ROW_COUNT, {
+      duplicateLocaleAtEnd: true
+    })
+    await assert.rejects(importModel.importSite(failArchivePath, failTargetSiteId, fixtures.userId))
+
+    const [survivor] = await fixtures.db
+      .select()
+      .from(navigationTable)
+      .where(eq(navigationTable.id, preExistingNav!.id))
+    assert.ok(survivor)
+
+    const leftoverNav = await fixtures.db
+      .select({ id: navigationTable.id })
+      .from(navigationTable)
+      .where(eq(navigationTable.siteId, failTargetSiteId))
+    assert.equal(leftoverNav.length, 1)
+
+    const leftoverHistory = await fixtures.db
+      .select({ id: pageHistoryTable.id })
+      .from(pageHistoryTable)
+      .where(eq(pageHistoryTable.siteId, failTargetSiteId))
+    assert.equal(leftoverHistory.length, 0)
+  })
 })

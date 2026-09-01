@@ -1,5 +1,9 @@
 <template>
-  <w-dialog v-model="dialogVisible" max-width="450px" @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    max-width="450px"
+    :aria-label="props.targetState ? t(`admin.sites.activate`) : t(`admin.sites.deactivate`)"
+    @hide="onDialogHide">
     <w-card style="min-width: 350px">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-shutdown.svg" size="sm" class="mr-2" />

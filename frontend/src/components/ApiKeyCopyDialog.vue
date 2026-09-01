@@ -1,5 +1,9 @@
 <template>
-  <w-dialog v-model="dialogVisible" persistent @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    persistent
+    :aria-label="t(`${labelPrefix}.copyKeyTitle`)"
+    @hide="onDialogHide">
     <w-card style="min-width: 600px">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-key-2.svg" size="sm" class="mr-2" />

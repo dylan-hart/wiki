@@ -15,6 +15,19 @@ export function uniqueSlug() {
 }
 
 /**
+ * `.account-avbtn` (`AccountMenu.vue`) only renders above `HeaderNav.vue`'s 900px
+ * `isActionsCollapsed` breakpoint -- below it, the account/admin/notification buttons it would
+ * otherwise show are folded into `HeaderActionsMenu.vue`'s "More Actions" dropdown instead, whose
+ * trigger (`aria-label="common.header.moreActions"`) is what actually renders there. The two
+ * breakpoints are mutually exclusive, so waiting on either is a correct, viewport-agnostic signal
+ * that the authenticated header has rendered -- unlike a bare `.account-avbtn` wait, which
+ * `viewport-narrow.spec.js`'s sub-900px `test.use({ viewport })` timed out on outright (task 2114).
+ */
+function authenticatedShellMarker(page) {
+  return page.locator('.account-avbtn').or(page.getByRole('button', { name: 'More Actions' }))
+}
+
+/**
  * Flow 1's login, factored out because flow 2 and flow 3 both need an authenticated admin before
  * their own flow starts. Drives the real login form -- see `AuthLoginPanel.vue` -- rather than
  * seeding a session cookie directly, so every spec exercises the same login path flow 1 asserts on.
@@ -26,7 +39,7 @@ export async function loginAsAdmin(page) {
   await page.getByLabel('Email Address').fill(ADMIN_EMAIL)
   await page.getByLabel('Password').fill(ADMIN_PASSWORD)
   await page.getByRole('button', { name: 'Log In', exact: true }).click()
-  await expect(page.locator('.account-avbtn')).toBeVisible()
+  await expect(authenticatedShellMarker(page)).toBeVisible()
 }
 
 /**

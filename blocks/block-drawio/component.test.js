@@ -395,4 +395,28 @@ describe('mxgraph.js', () => {
     </root></mxGraphModel>`)
     expect(svg.match(/stroke-width="3"/g)).toHaveLength(4)
   })
+
+  // -> `Number(props.strokeWidth) || 1` treats a strokeWidth of `0` (a legitimate draw.io value
+  //    meaning "no visible stroke") as falsy and silently overrides it to `1`, drawing a stroke the
+  //    author explicitly asked to suppress. `strokeAttrs()` is shared by `paintAttrs()` (plain shapes)
+  //    and the cylinder/swimlane second stroke, so both paths are covered here (OpenProject #2343).
+  it('preserves an explicit strokeWidth of 0 instead of coercing it to 1', () => {
+    const { svg } = drawioToSvg(`<mxGraphModel><root>
+      <mxCell id="0" />
+      <mxCell id="1" parent="0" />
+      <mxCell id="r" style="rounded=0;strokeWidth=0" vertex="1" parent="1">
+        <mxGeometry x="0" y="0" width="60" height="30" as="geometry" />
+      </mxCell>
+      <mxCell id="cyl" style="cylinder;strokeWidth=0" vertex="1" parent="1">
+        <mxGeometry x="0" y="40" width="60" height="60" as="geometry" />
+      </mxCell>
+      <mxCell id="sl" value="Pool" style="swimlane;strokeWidth=0" vertex="1" parent="1">
+        <mxGeometry x="80" y="0" width="120" height="80" as="geometry" />
+      </mxCell>
+    </root></mxGraphModel>`)
+    // 1 from the rounded rectangle's single paintAttrs() stroke, plus 2 each from cylinder and
+    // swimlane's main stroke + their second, fill-less stroke.
+    expect(svg.match(/stroke-width="0"/g)).toHaveLength(5)
+    expect(svg).not.toContain('stroke-width="1"')
+  })
 })

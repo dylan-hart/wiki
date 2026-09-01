@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 /**
  * Helpers turning the security settings an operator edits in the admin area into the shapes the
  * HTTP plugins expect.
@@ -235,6 +237,37 @@ export function parseCspDirectives(value: string): Record<string, string[]> {
 }
 
 /**
+ * CSP `script-src` hash sources (`'sha256-<base64>'`, one per match) for every inline `<script>`
+ * block in `html` that carries no `src` attribute.
+ *
+ * The app shell always ships two of these — `frontend/index.html`'s own Temporal-polyfill
+ * feature-detect check, and `temporalPolyfillChunkPlugin`'s substituted chunk-url assignment
+ * (`frontend/src/build/temporalPolyfillChunk.js`) — and a `script-src 'self'` policy with no
+ * `'unsafe-inline'` (`base.yml`'s own shipped `cspDirectives` default) refuses both outright:
+ * `enforceCsp: true` broke the app shell itself, caught by `e2e/tests/csp.spec.js`. A hash source
+ * is exact per the CSP3 spec — the raw UTF-8 text content between the tags, unmodified — and needs
+ * no per-request machinery, since the app shell is a build artifact: `index.ts` computes this once,
+ * from the same built `assets/index.html` `helpers/appShell.ts` serves, which is why a change here
+ * needs the same restart every other setting in the CSP registration already does.
+ *
+ * Deliberately a plain regex over the raw HTML rather than a full parser: this only ever runs
+ * against `index.ts`'s own known-shape build output, not arbitrary/untrusted markup.
+ */
+export function inlineScriptHashSources(html: string): string[] {
+  const hashes: string[] = []
+  const scriptTagRe = /<script(?![^>]*\ssrc\s*=)[^>]*>([\s\S]*?)<\/script>/gi
+  for (const match of html.matchAll(scriptTagRe)) {
+    const content = match[1]
+    if (!content) {
+      continue
+    }
+    const hash = createHash('sha256').update(content, 'utf8').digest('base64')
+    hashes.push(`'sha256-${hash}'`)
+  }
+  return hashes
+}
+
+/**
  * The `origin` option for `@fastify/cors`, from the configured mode.
  *
  * `false` means no CORS headers at all, i.e. same-origin only, which is both the `OFF` mode and what
@@ -277,7 +310,12 @@ export function corsOrigin(security: {
         //    `https://wiki.example.com.attacker.test` or `https://evil.test/?x=wiki.example.com`
         //    both satisfy a bare `wiki\.example\.com`). Anchor it on the operator's behalf,
         //    stripping any `^`/`$` they already added so a pattern they anchored themselves is
-        //    left as written rather than double-wrapped.
+        //    left as written rather than double-wrapped. The remaining body is wrapped in a
+        //    non-capturing group before anchoring — `^A|B$` only anchors the left edge of the
+        //    first alternative and the right edge of the last one, leaving every other
+        //    top-level `|` alternative (and the last one's left edge) unanchored and still
+        //    substring-matchable; `^(?:A|B)$` anchors the whole expression regardless of
+        //    top-level alternation.
         let pattern = security.corsConfig ?? ''
         if (pattern.startsWith('^')) {
           pattern = pattern.slice(1)
@@ -285,7 +323,7 @@ export function corsOrigin(security: {
         if (pattern.endsWith('$')) {
           pattern = pattern.slice(0, -1)
         }
-        return new RegExp(`^${pattern}$`)
+        return new RegExp(`^(?:${pattern})$`)
       } catch (err: any) {
         WIKI.logger.warn(
           `The CORS regex pattern is invalid (${err.message}) — falling back to same-origin only.`

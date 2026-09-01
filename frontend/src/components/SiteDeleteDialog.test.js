@@ -80,6 +80,25 @@ async function typeConfirmText(text) {
   await flushPromises()
 }
 
+/**
+ * OpenProject #2356: `WDialog`'s `aria-label`/`labelledBy` infrastructure (WP #1617) was never wired
+ * up at any real call site, leaving every dialog's `role="dialog"` panel unnamed for assistive tech.
+ * `SiteDeleteDialog` is representative of the ~50 simple dialogs fixed the same mechanical way: the
+ * `<w-dialog>` now carries `:aria-label` set to the exact same expression already shown in its visible
+ * header, so the accessible name can never drift from what's on screen.
+ */
+describe('SiteDeleteDialog accessible name', () => {
+  it("gives the panel a non-empty aria-label matching the visible header's text", async () => {
+    mountDialog()
+    await flushPromises()
+
+    const panel = document.body.querySelector('[role="dialog"]')
+    expect(panel).not.toBeNull()
+    expect(panel.getAttribute('aria-label')).toBe('admin.sites.delete')
+    expect(panel.textContent).toContain('admin.sites.delete')
+  })
+})
+
 describe('SiteDeleteDialog confirm()', () => {
   it('surfaces the server-provided message from the "last site" 409, not ky\'s generic text', async () => {
     API_CLIENT.delete.mockImplementationOnce(() => {

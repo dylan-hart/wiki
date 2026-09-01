@@ -1,6 +1,7 @@
 import { describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import fastify from 'fastify'
 import fastifyCors from '@fastify/cors'
@@ -10,6 +11,7 @@ import { load } from 'js-yaml'
 import {
   corsOrigin,
   corsOptions,
+  inlineScriptHashSources,
   isSameOriginHeader,
   needsSvgCsp,
   parseCspDirectives,
@@ -98,6 +100,60 @@ describe('parseCspDirectives', () => {
   })
 })
 
+/**
+ * Regression coverage for the app shell's own two inline `<script>` blocks (the Temporal-polyfill
+ * feature-detect check and `temporalPolyfillChunkPlugin`'s substituted chunk-url assignment) tripping
+ * a `script-src 'self'` policy with no `'unsafe-inline'` -- the shipped default -- and breaking the
+ * app shell outright the moment `enforceCsp` is turned on (caught by `e2e/tests/csp.spec.js`).
+ */
+describe('inlineScriptHashSources', () => {
+  test('hashes an inline script with no src, matching a manual SHA-256/base64 computation', () => {
+    const content = "window.__wikiTemporalPolyfillUrl = '/assets/global.esm-abc123.js'"
+    const html = `<html><head><script>${content}</script></head></html>`
+    const expected = `'sha256-${createHash('sha256').update(content, 'utf8').digest('base64')}'`
+
+    assert.deepEqual(inlineScriptHashSources(html), [expected])
+  })
+
+  test('skips a script tag that carries a src attribute', () => {
+    const html = '<html><head><script src="/_assets/main.js"></script></head></html>'
+    assert.deepEqual(inlineScriptHashSources(html), [])
+  })
+
+  test('skips a module script that carries a src attribute, other attributes present', () => {
+    const html = '<script type="module" crossorigin src="/_assets/main-abc.js"></script>'
+    assert.deepEqual(inlineScriptHashSources(html), [])
+  })
+
+  test('hashes every inline script block, in document order', () => {
+    const first = "var a = 'one'"
+    const second = "var b = 'two'"
+    const html = `<script>${first}</script><div>x</div><script type="text/javascript">${second}</script>`
+
+    assert.deepEqual(inlineScriptHashSources(html), [
+      `'sha256-${createHash('sha256').update(first, 'utf8').digest('base64')}'`,
+      `'sha256-${createHash('sha256').update(second, 'utf8').digest('base64')}'`
+    ])
+  })
+
+  test('returns an empty array for html with no script tags', () => {
+    assert.deepEqual(inlineScriptHashSources('<html><body>Hello</body></html>'), [])
+  })
+
+  test('the built app shell (if present) yields at least the two known inline scripts', () => {
+    const appShellPath = path.join(import.meta.dirname, '../../assets/index.html')
+    let html: string
+    try {
+      html = readFileSync(appShellPath, 'utf8')
+    } catch {
+      // -> No `npm run build` has produced `assets/index.html` in this environment -- the general
+      //    cases above already cover the hashing logic itself.
+      return
+    }
+    assert.ok(inlineScriptHashSources(html).length >= 2)
+  })
+})
+
 describe('corsOrigin', () => {
   test('OFF (and unrecognized) modes deny cross-origin', () => {
     assert.equal(corsOrigin({ corsMode: 'OFF' }), false)
@@ -157,10 +213,32 @@ describe('corsOrigin', () => {
       corsConfig: '^https://.*\\.example$'
     }) as RegExp
     // -> Not double-wrapped: a leading `^`/trailing `$` the operator already wrote is stripped
-    //    before re-anchoring, so the effective pattern is unchanged rather than `^^...$$`.
-    assert.equal(result.source, new RegExp('^https://.*\\.example$').source)
+    //    before re-anchoring, so the effective pattern is unchanged rather than `^^...$$`. The
+    //    body is still wrapped in a non-capturing group (see the alternation test below), so the
+    //    resulting source reflects that wrap even though the matched behavior is identical.
+    assert.equal(result.source, new RegExp('^(?:https://.*\\.example)$').source)
     assert.equal(result.test('https://wiki.example'), true)
     assert.equal(result.test('https://wiki.example.attacker.test'), false)
+  })
+
+  test('REGEX fully anchors a pattern with top-level alternation', () => {
+    // -> `^A|B$` only anchors the left edge of the first alternative and the right edge of the
+    //    last one — `B` alone is left unanchored and still substring-matchable anywhere in the
+    //    Origin header. Wrapping the whole pattern in a non-capturing group before anchoring
+    //    (`^(?:A|B)$`) fixes that: both alternatives are now fully anchored.
+    const result = corsOrigin({
+      corsMode: 'REGEX',
+      corsConfig: 'https://a\\.example|https://b\\.example'
+    }) as RegExp
+    assert.ok(result instanceof RegExp)
+    assert.equal(result.test('https://a.example'), true)
+    assert.equal(result.test('https://b.example'), true)
+    // -> Previously matched via the unanchored right-hand alternative's bare substring test.
+    assert.equal(result.test('https://evil.test/?x=https://b.example'), false)
+    assert.equal(result.test('https://b.example.attacker.test'), false)
+    // -> Previously matched via the unanchored left-hand alternative's bare substring test too,
+    //    since only ITS left edge was anchored, not its right edge.
+    assert.equal(result.test('https://a.example.attacker.test'), false)
   })
 
   test('REGEX falls back to same-origin only on an invalid pattern', () => {

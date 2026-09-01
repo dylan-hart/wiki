@@ -1,5 +1,8 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    :aria-label="t(`common.page.suggestIdentifyTitle`)"
+    @hide="onDialogHide">
     <w-card style="min-width: 550px">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-inspection.svg" size="sm" class="mr-2" />

@@ -79,7 +79,16 @@ async function boot(): Promise<void> {
     config: {},
     data: {},
     db,
-    dbManager: { pool },
+    // -> `collab.init()` LISTENs on `WIKI.dbManager.listenerPool`, a dedicated pool kept separate
+    //    from the main `pool` (`core/db.ts`'s own `init()`) -- not present here without this, so
+    //    `helpers/pubsub.ts#connectListener`'s `pool.connect()` throws on `undefined`, gets caught by
+    //    its own resilience loop (`reconnect()`'s `while (!closed)`, meant for a genuinely dropped
+    //    connection re-establishing on its own) and retries forever, every `retryDelayMs` (3s),
+    //    logged nowhere since `logger.warn` below is a no-op -- `collab.init()` never resolves, and
+    //    this worker never posts back the ready message `startInstance()` is awaiting with no
+    //    timeout of its own. Reusing the same `pool` is fine here: this worker's own test scenarios
+    //    have no reason to keep the two pools genuinely separate the way a real instance does.
+    dbManager: { pool, listenerPool: pool },
     logger: { error: noop, warn: noop, info: noop, debug: noop, verbose: noop, silly: noop },
     cache: createCacheStub(),
     events: createEventsStub(),

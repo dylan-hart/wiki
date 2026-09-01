@@ -150,28 +150,18 @@ export interface ReviewableSubmissionDetail extends ReviewableSubmission {
  * `'stale'` is the one case that boolean could not express -- the page moved since the reviewer's
  * `baseHash` was taken, so nothing was written and the caller has to decide what to do about it,
  * rather than the write silently going ahead over whatever changed in between.
- * `'forbidden'` is the finalizing approve reaching its threshold for a reviewer who does not hold
- * `write:pages` on the target page -- approval-rule membership alone is not enough to write a page,
- * since accepting a suggestion is still a write. The submission is left pending (not deleted) rather
- * than partially applied; an approval already recorded towards the threshold by this call stays
- * recorded, since the vote itself is harmless -- only the write is refused.
- *
  * `'forbidden'` (OpenProject #2160/#2165) is the reviewer-queue gate and page-rule permissions
  * disagreeing: an approval rule made this reviewer one of the page's reviewers, but their own
  * `write:pages` grant does not cover it (or covers it more narrowly than the rule's `reviewerGroups`
  * implied) -- accepting a suggestion writes the page, and should never take less permission than a
- * direct save does.
+ * direct save does. Checked before anything is recorded, so a refusal here leaves the page, the
+ * submission, and its existing vote tally completely untouched -- there is nothing to partially apply.
  *
  * `ok: true` no longer means the page was written: with a `minApprovals` above 1, one reviewer's
  * approve only records their sign-off towards the threshold. `finalized` says which happened --
  * `false` is "recorded, still waiting on more approvers", `true` is "threshold reached, page written,
  * submission closed out" -- and `approvalsCount`/`approvalsRequired` are what a caller shows for
  * either one.
- *
- * `'forbidden'` (OpenProject #2165) is the threshold-reached case refused for lack of `write:pages` on
- * the target page -- the vote up to that point still stands (a lower-privilege act than the write
- * itself), but the page is left untouched and the submission stays open rather than being partially
- * applied.
  */
 export type ApproveSubmissionResult =
   | { ok: true; finalized: boolean; approvalsCount: number; approvalsRequired: number }
@@ -1289,6 +1279,17 @@ class Approvals {
       `updatePage` stays out of this transaction on purpose: it does its own history/watcher/search/
       hook/storage I/O and must not run while holding a row lock, per `deletePage`'s and
       `setUserGroups`' transactions below applying the identical rule.
+
+      Marking `status: 'approved'` here is therefore a CLAIM, not yet a fact -- it is what blocks a
+      concurrent reviewer from also entering the finalize branch below, before this call has actually
+      written the page. Everything from here down to the successful `updatePage()` call is obligated to
+      make that claim true or undo it: `revertFailedFinalization()` is the undo, called from the
+      `updatePage()` failure path below (OpenProject #2349) -- without it, a write failure after this
+      point leaves the row permanently `approved` with no write behind it and no retry path, since
+      every other query here (`getReviewableSubmissions`, `getOwnSubmission`, this method's own entry
+      guard and the `for('update')` re-check above) requires `status = 'open'` to act on a row. The
+      `write:pages` check itself runs before this transaction even starts (above), so a forbidden
+      actor never reaches this claim in the first place.
     */
     const decision = await WIKI.db.transaction(async (tx) => {
       const lockedRows = await tx
@@ -1332,10 +1333,22 @@ class Approvals {
       //    was approved and onto which page; `pageEditSubmissionApprovals`'s votes are no longer
       //    cascaded away with the row, but they also no longer matter to anything -- `approvalCountsFor`
       //    and `getReviewableSubmissions` only ever look at `open` submissions.
-      await tx
+      //
+      // -> The `status = 'open'` guard mirrors `rejectSubmission`'s own final UPDATE
+      //    (OpenProject #2354): the `for('update')` re-check just above already serializes this
+      //    against a concurrent writer at the Postgres level, so this is defense-in-depth rather than
+      //    the only thing preventing a resolved row from being flipped back to 'approved' -- but it
+      //    keeps this write from ever being the one place that trusts the lock alone. A 0-rowcount
+      //    result (the row resolved by some path this lock did not anticipate) is treated the same as
+      //    the `for('update')` check above: not-found, not a silent "finalized" claim over content
+      //    that was never actually written.
+      const updateResult = await tx
         .update(submissionsTable)
         .set({ status: 'approved', resolvedBy: actor.id, updatedAt: new Date() })
-        .where(eq(submissionsTable.id, submissionId))
+        .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.status, 'open')))
+      if ((updateResult.rowCount ?? 0) === 0) {
+        return { ok: false as const, reason: 'not-found' as const }
+      }
       return { ok: true as const, finalized: true as const, approvalsCount, approvalsRequired }
     })
 
@@ -1365,25 +1378,6 @@ class Approvals {
       return decision
     }
 
-    // -> Approval-rule membership (checked in `getSubmissionForReview`/`reviewerFor`, upstream of
-    //    this call) is what gates who may REVIEW a submission at all, not what it takes to WRITE a
-    //    page. Accepting a suggestion is still a write, so it takes the same `write:pages` a direct
-    //    save would -- otherwise a reviewer on a broad `match: 'START', path: ''` rule could push
-    //    arbitrary content to any page with a pending suggestion, bypassing `write:pages` and any
-    //    classification DENY. Refusing here leaves the submission pending rather than partially
-    //    applied: the approval already recorded above still counts, only the write is refused.
-    if (
-      !WIKI.models.groups.checkAccess(actor, 'write:pages', {
-        path: page.path,
-        locale: page.locale,
-        siteId,
-        classification: page.classification ?? null,
-        tags: page.tags ?? []
-      })
-    ) {
-      return { ok: false, reason: 'forbidden' }
-    }
-
     /*
       The markup being sanitized here is the SUBMITTER's, not the reviewer's -- `updatePage()` is
       called with `actor: reviewer` below because the reviewer is who performed the write (page
@@ -1409,13 +1403,30 @@ class Approvals {
     // -> A suggestion approved with no `render` (content-only) is exactly the case `updatePage()`
     //    itself now handles: it consults `ensureCanRender()` before the write and queues the
     //    re-render after, so there is nothing left for this call site to do (OpenProject #1716/#1723).
-    await WIKI.models.pages.updatePage(
-      siteId,
-      page.id,
-      { content, ...(render && { render }) },
-      actor,
-      submitterRenderPermissions
-    )
+    //
+    // -> OpenProject #2349: `updatePage()` runs after the finalizing transaction already committed
+    //    `status: 'approved'` (see that transaction's own comment on why it can't run inside it) --
+    //    if this throws, the submission must not be left stuck `approved` with no write behind it and
+    //    no retry path. `revertFailedFinalization()` undoes the claim before the error propagates, so
+    //    the submission reads back `open` (visible in the reviewer queue again, and to a repeat
+    //    `approveSubmission` call, exactly as if this attempt's votes were the only thing that
+    //    happened) instead of a silent permanent success record for content that never landed.
+    try {
+      await WIKI.models.pages.updatePage(
+        siteId,
+        page.id,
+        { content, ...(render && { render }) },
+        actor,
+        submitterRenderPermissions
+      )
+    } catch (err: any) {
+      await this.revertFailedFinalization(submissionId)
+      WIKI.logger.warn(
+        `Failed to write approved edit suggestion ${submissionId} onto page ${page.id}; ` +
+          `reverted the submission back to open for retry: ${err.message}`
+      )
+      throw err
+    }
     WIKI.logger.debug(`Approved edit suggestion ${submissionId} onto page ${page.id}`)
 
     // -> `skipIfWatching: true` -- the `updatePage()` call above already queued its own generic
@@ -1435,6 +1446,32 @@ class Approvals {
     )
 
     return decision
+  }
+
+  /**
+   * Undo `approveSubmission()`'s tentative `status: 'approved'` when the page write it was supposed
+   * to precede never actually happened -- `updatePage()` throwing (OpenProject #2349).
+   *
+   * The finalizing transaction commits `status: 'approved'` while still holding the row lock, purely
+   * to block a concurrent reviewer from also entering the finalize branch before this call's write has
+   * run -- it is a claim, not yet a fact. Without this compensating update, a write failure left that
+   * claim standing forever: every other query here (`getReviewableSubmissions`, `getOwnSubmission`,
+   * this method's own entry guard, the finalizing transaction's own re-check) only ever acts on
+   * `status = 'open'`, so a submission stuck `approved` with nothing written was both unfixable by a
+   * retry and invisible as broken -- it just read as resolved. The `write:pages` check itself runs
+   * before the finalizing transaction even starts, so a forbidden actor never makes this claim at all
+   * and needs no revert.
+   *
+   * Guarded on `status = 'approved'` in the `WHERE` clause so this only reverts the specific attempt
+   * that just failed: nothing else can move a row out of `'approved'` while it holds that status (the
+   * entry guard above refuses any concurrent call on a non-`'open'` row), so this is a defensive
+   * narrowing rather than a race this function itself needs to resolve.
+   */
+  private async revertFailedFinalization(submissionId: string): Promise<void> {
+    await WIKI.db
+      .update(submissionsTable)
+      .set({ status: 'open', resolvedBy: null, updatedAt: new Date() })
+      .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.status, 'approved')))
   }
 
   /**

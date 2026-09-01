@@ -333,6 +333,126 @@ describe('migration.sql NOT NULL columns require a DEFAULT', () => {
 })
 
 /**
+ * OpenProject #2350: an automated review of an external (pre-merge) diff flagged
+ * `jobs_waitUntil_createdAt_idx` as created by two separate migrations
+ * (`20260825202921_main` from WP #2081 and a `20260825203757_main` cited against WP #1364).
+ * Neither the duplicate migration folder nor a second `CREATE INDEX` for that name exists
+ * anywhere in this branch's history -- the finding was against a branch/diff state that never
+ * reached trunk, not a live defect -- but the underlying failure mode is real and worth guarding
+ * against directly: two migrations independently emitting `CREATE INDEX "<same name>"` for the
+ * same index would make a fresh install's migration run fail outright the moment the second one
+ * ran (Postgres rejects a duplicate relation name), and a hand-fix to "just drop the redundant
+ * one" without checking first is exactly how the sole legitimate index WP #2081 added to `jobs`
+ * (fixing the sequential-scan-on-every-poll cost `core/scheduler.ts#processJob`'s claim query
+ * paid) could get deleted by mistake. This walks every `migration.sql` in filename (i.e.
+ * chronological) order, tracking which named indexes are currently live, and fails if any
+ * `CREATE [UNIQUE] INDEX` names one that is already live -- a `DROP INDEX` of the same name
+ * first legitimately clears it for a later migration to recreate.
+ */
+
+const CREATE_INDEX_RE =
+  /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?"([^"]+)"/gi
+const DROP_INDEX_RE = /DROP\s+INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+EXISTS\s+)?"([^"]+)"/gi
+
+type IndexNameEvent = { migration: string; kind: 'create' | 'drop'; name: string }
+
+async function indexNameEventsInMigrationOrder(): Promise<IndexNameEvent[]> {
+  const entries = await readdir(MIGRATIONS_DIR, { withFileTypes: true })
+  const folders = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+
+  const events: IndexNameEvent[] = []
+  for (const folder of folders) {
+    const sqlPath = path.join(MIGRATIONS_DIR, folder, 'migration.sql')
+    let contents: string
+    try {
+      contents = await readFile(sqlPath, 'utf8')
+    } catch {
+      continue // not every folder necessarily has a migration.sql (none currently don't, but be safe)
+    }
+
+    // A single migration.sql can interleave CREATE/DROP INDEX statements across several
+    // statement-breakpoints, so walk it once in source order rather than matching each regex
+    // independently and losing the relative ordering between the two kinds.
+    const matches: { index: number; kind: 'create' | 'drop'; name: string }[] = []
+    for (const m of contents.matchAll(CREATE_INDEX_RE)) {
+      matches.push({ index: m.index!, kind: 'create', name: m[1] })
+    }
+    for (const m of contents.matchAll(DROP_INDEX_RE)) {
+      matches.push({ index: m.index!, kind: 'drop', name: m[1] })
+    }
+    matches.sort((a, b) => a.index - b.index)
+    for (const m of matches) events.push({ migration: folder, kind: m.kind, name: m.name })
+  }
+  return events
+}
+
+function findDuplicateIndexCreations(
+  events: IndexNameEvent[]
+): Array<{ name: string; firstMigration: string; duplicateMigration: string }> {
+  const live = new Map<string, string>() // index name -> migration folder that created it
+  const findings: Array<{ name: string; firstMigration: string; duplicateMigration: string }> = []
+  for (const event of events) {
+    if (event.kind === 'drop') {
+      live.delete(event.name)
+      continue
+    }
+    const existing = live.get(event.name)
+    if (existing) {
+      findings.push({
+        name: event.name,
+        firstMigration: existing,
+        duplicateMigration: event.migration
+      })
+    } else {
+      live.set(event.name, event.migration)
+    }
+  }
+  return findings
+}
+
+describe('migration.sql duplicate index creation (OpenProject #2350)', () => {
+  test('no migration CREATEs an index name that is already live from an earlier migration', async () => {
+    const events = await indexNameEventsInMigrationOrder()
+    const findings = findDuplicateIndexCreations(events)
+    assert.deepEqual(
+      findings,
+      [],
+      `duplicate index creation(s) found: ${findings
+        .map((f) => `"${f.name}" created by both ${f.firstMigration} and ${f.duplicateMigration}`)
+        .join('; ')}`
+    )
+  })
+
+  test('the fixture itself walks more than one migration creating a named index, so this cannot pass vacuously', async () => {
+    const events = await indexNameEventsInMigrationOrder()
+    const creates = events.filter((e) => e.kind === 'create')
+    assert.ok(creates.length > 1)
+  })
+
+  test('findDuplicateIndexCreations (pure helper) flags a same-named CREATE with no intervening DROP', () => {
+    const findings = findDuplicateIndexCreations([
+      { migration: 'a', kind: 'create', name: 'jobs_waitUntil_createdAt_idx' },
+      { migration: 'b', kind: 'create', name: 'jobs_waitUntil_createdAt_idx' }
+    ])
+    assert.deepEqual(findings, [
+      { name: 'jobs_waitUntil_createdAt_idx', firstMigration: 'a', duplicateMigration: 'b' }
+    ])
+  })
+
+  test('findDuplicateIndexCreations (pure helper) does not flag a DROP then re-CREATE of the same name', () => {
+    const findings = findDuplicateIndexCreations([
+      { migration: 'a', kind: 'create', name: 'jobs_waitUntil_createdAt_idx' },
+      { migration: 'b', kind: 'drop', name: 'jobs_waitUntil_createdAt_idx' },
+      { migration: 'c', kind: 'create', name: 'jobs_waitUntil_createdAt_idx' }
+    ])
+    assert.deepEqual(findings, [])
+  })
+})
+
+/**
  * OpenProject #1646: every `timestamp` column must be `timestamptz` (`withTimezone: true`).
  * node-postgres decodes a naive `timestamp` (oid 1114) in the Node process's *local* timezone via
  * `postgres-date`, while Drizzle writes a JS `Date` as `.toISOString()` (UTC) and `defaultNow()`

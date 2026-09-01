@@ -355,8 +355,12 @@ const localeOptions = computed(() => filterOptions.value.locales)
  *  among the loaded nodes -- `showMenu` alone says nothing about how many locales the site has, so a
  *  single-locale site with the menu enabled would otherwise render a `w-select` whose one option is
  *  always a no-op, the same class of dead control `groupBy` already avoids for site grouping (see
- *  that const's own doc comment above). Derived from `localeOptions`, not site config, so the
- *  control also disappears once the current filter set leaves only one locale represented. */
+ *  that const's own doc comment above). Derived from `localeOptions`, which is itself derived from
+ *  `allNodes` (the full loaded graph, not the currently-filtered set -- see `filterOptions`' own
+ *  doc comment two computeds above), so this reacts to how many locales the full graph actually
+ *  has, not to the currently-narrowed tags/folderDepth/locale filters: picking a locale, or any
+ *  other filter, never makes this control disappear on its own. It only hides once the underlying
+ *  graph itself is reloaded down to a single locale, or the site setting is off. */
 const showLocaleFilter = computed(
   () => siteStore.locales.showMenu && localeOptions.value.length > 1
 )
@@ -377,12 +381,19 @@ function groupKeyFor(node) {
  *  state, no separate computation -- and excludes synthetic hub/root nodes (`applyFilters()`'s
  *  `edgeMode`-driven stand-ins, never real pages) from the page count. `groupBy`'s own values
  *  ('folder'/'tag'/'classification') already read as the words used here, so no separate label
- *  lookup is needed; a real focusable text alternative (per-node links) is #1686's larger scope,
- *  and moving this string into a `graph.*` i18n key is #1690's. */
+ *  lookup is needed for that part; a real focusable text alternative (per-node links) is #1686's
+ *  larger scope. The sentence is sourced from `graph.*` i18n keys (OpenProject #1690, #2359) --
+ *  split into three pieces rather than one interpolated template because it carries two
+ *  independently-pluralized counts, the same `"{count} x | {count} xs"` pipe convention
+ *  `graph.tooltip.*` already uses for the hover tooltip below. */
 const graphAccessibleName = computed(() => {
   const pageCount = nodes.value.filter((node) => !node.synthetic).length
   const linkCount = edges.value.length
-  return `Knowledge graph: ${pageCount} page${pageCount === 1 ? '' : 's'}, ${linkCount} link${linkCount === 1 ? '' : 's'}, grouped by ${groupBy.value}`
+  return t('graph.accessibleName.summary', {
+    pages: t('graph.accessibleName.page', pageCount, { count: pageCount }),
+    links: t('graph.accessibleName.link', linkCount, { count: linkCount }),
+    groupBy: groupBy.value
+  })
 })
 
 /*

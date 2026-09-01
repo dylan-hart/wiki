@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm'
 import { JOB_SCHEDULE_SEED, jobs } from './jobs.ts'
 import { jobHistory as jobHistoryTable, jobLock as jobLockTable } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { runWithJobExecutionContext } from '../helpers/jobExecutionContext.ts'
 
 /**
  * `JOB_SCHEDULE_SEED` is what `init()` inserts into `jobSchedule` on first boot -- asserted on
@@ -320,5 +321,134 @@ describe('countFailed (DB-backed)', { skip: !hasTestDatabase() }, () => {
     ])
 
     assert.equal(await jobs.countFailed(), 2)
+  })
+})
+
+/**
+ * OpenProject #2351: `setResult()` fences its write against `helpers/jobExecutionContext.ts`'s
+ * attempt number so a stale, timed-out `executeInProcess` task's late call cannot clobber a later
+ * retry's result. See `core/scheduler.test.ts`'s `executeInProcess (fake WIKI)` suite for coverage
+ * of the context itself surviving a stale continuation; this suite covers the actual `UPDATE`
+ * fencing against the database.
+ */
+describe('setResult (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+
+  before(async () => {
+    fixtures = await setupTestDb()
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('writes the result when the calling context has no captured job id', async () => {
+    const [row] = await fixtures.db
+      .insert(jobHistoryTable)
+      .values({
+        task: 'exportContent',
+        state: 'active',
+        useWorker: false,
+        wasScheduled: false,
+        attempt: 1,
+        maxRetries: 0,
+        createdAt: new Date()
+      })
+      .returning()
+
+    await jobs.setResult(row!.id, { fileSize: 42 })
+
+    const [after] = await fixtures.db
+      .select({ result: jobHistoryTable.result })
+      .from(jobHistoryTable)
+      .where(eq(jobHistoryTable.id, row!.id))
+    assert.deepEqual(after!.result, { fileSize: 42 })
+  })
+
+  test('writes the result when the captured attempt still matches jobHistory.attempt', async () => {
+    const [row] = await fixtures.db
+      .insert(jobHistoryTable)
+      .values({
+        task: 'exportContent',
+        state: 'active',
+        useWorker: false,
+        wasScheduled: false,
+        attempt: 2,
+        maxRetries: 3,
+        createdAt: new Date()
+      })
+      .returning()
+
+    await runWithJobExecutionContext({ jobId: row!.id, attempt: 2 }, () =>
+      jobs.setResult(row!.id, { fileSize: 7 })
+    )
+
+    const [after] = await fixtures.db
+      .select({ result: jobHistoryTable.result })
+      .from(jobHistoryTable)
+      .where(eq(jobHistoryTable.id, row!.id))
+    assert.deepEqual(after!.result, { fileSize: 7 })
+  })
+
+  test('drops a stale write once a later reclaim has moved jobHistory.attempt past it', async () => {
+    const [row] = await fixtures.db
+      .insert(jobHistoryTable)
+      .values({
+        task: 'exportContent',
+        state: 'active',
+        useWorker: false,
+        wasScheduled: false,
+        // -> Models `processJob`'s reclaim: the row started at attempt 1, timed out, and was
+        //    reclaimed and completed as attempt 2 -- carrying that attempt's real result -- before
+        //    the abandoned attempt-1 task's own, stale `setResult()` call ever arrives.
+        attempt: 2,
+        maxRetries: 3,
+        createdAt: new Date(),
+        result: { fileSize: 999 }
+      })
+      .returning()
+
+    // -> The stale task was launched under attempt 1, so its captured context still says 1 even
+    //    though the row has since moved to 2.
+    await runWithJobExecutionContext({ jobId: row!.id, attempt: 1 }, () =>
+      jobs.setResult(row!.id, { fileSize: 1 })
+    )
+
+    const [after] = await fixtures.db
+      .select({ result: jobHistoryTable.result })
+      .from(jobHistoryTable)
+      .where(eq(jobHistoryTable.id, row!.id))
+    assert.deepEqual(
+      after!.result,
+      { fileSize: 999 },
+      'the later retry result must survive the stale write'
+    )
+  })
+
+  test('a stale write for one job id never touches a different job id', async () => {
+    const [row] = await fixtures.db
+      .insert(jobHistoryTable)
+      .values({
+        task: 'exportContent',
+        state: 'active',
+        useWorker: false,
+        wasScheduled: false,
+        attempt: 1,
+        maxRetries: 0,
+        createdAt: new Date()
+      })
+      .returning()
+
+    // -> A context captured for some other job id must not fence (or otherwise affect) a write
+    //    aimed at this one.
+    await runWithJobExecutionContext({ jobId: 'unrelated-job-id', attempt: 1 }, () =>
+      jobs.setResult(row!.id, { fileSize: 5 })
+    )
+
+    const [after] = await fixtures.db
+      .select({ result: jobHistoryTable.result })
+      .from(jobHistoryTable)
+      .where(eq(jobHistoryTable.id, row!.id))
+    assert.deepEqual(after!.result, { fileSize: 5 })
   })
 })

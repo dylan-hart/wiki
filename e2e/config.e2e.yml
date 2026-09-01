@@ -31,3 +31,27 @@ security:
   #    on purpose: `base.yml`'s own default is what `securityCspSeed` falls back to, so this spec
   #    is proving the SHIPPED string, not a copy of it duplicated into this file.
   enforceCsp: true
+  # -> `base.yml`'s default (10 attempts per 2m, then a 15m ban -- `helpers/rateLimit.ts`'s
+  #    `AUTH_DEFAULTS`) is sized for a person signing in, not this suite: every spec that needs an
+  #    authenticated admin calls `loginAsAdmin` (`helpers/admin.js`), which submits the real login
+  #    form -- 20+ submissions across the full run, all from the same runner IP and the same
+  #    `admin@example.com` account, comfortably tripping both the IP-keyed (`limitAuthAttempts`) and
+  #    account-keyed (`consumeAccountAuthAttempt`) counters well inside one 2-minute window. Once
+  #    tripped, the 15-minute ban outlasts the rest of the job, so every later spec's login hangs on
+  #    a 429 the frontend has no retry path for. No spec here exercises the limiter itself (that is
+  #    `backend/helpers/rateLimit.test.ts`'s job, against a real policy), so there is nothing lost by
+  #    turning it off for this suite's own repeated, legitimate logins.
+  authRateLimitEnabled: false
+  # -> `base.yml`'s default (`true`) marks the session cookie `Secure` and names it with the
+  #    `__Host-` prefix (`index.ts`'s `fastifySession` registration, `helpers/security.ts`'s
+  #    `sessionCookieName()`) -- a browser refuses to store a `Secure` cookie at all over a
+  #    connection it sees as plain HTTP, and `playwright.config.js`'s `BASE_URL` is
+  #    `http://localhost:3000`, no TLS anywhere in the chain. Left at the default, every login
+  #    this suite drives "succeeds" server-side (the `PUT .../auth/login` response is a real
+  #    200) but the browser silently drops the `Set-Cookie` header, so the very next request is
+  #    unauthenticated -- which `Index.vue`'s route watcher reads as a guest visiting a pageless
+  #    site and bounces straight back to `/login`, the same redirect `multi-site.spec.js`'s own
+  #    root-based-assertion note describes. `security.cookieSecure: false` is `base.yml`'s own
+  #    documented escape hatch for exactly this shape of deployment (a plain-HTTP dev/test
+  #    instance) -- see its doc comment there and `index.ts`'s `secure: ... !== false` line.
+  cookieSecure: false

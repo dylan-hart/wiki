@@ -1,5 +1,8 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    :aria-label="t('editor.blockParams.title', { name: definition.name })"
+    @hide="onDialogHide">
     <w-card style="width: 550px">
       <w-card-section class="card-header">
         <w-icon

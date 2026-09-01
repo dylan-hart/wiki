@@ -209,12 +209,7 @@
         </w-menu>
       </w-btn>
     </template>
-    <!-- -> `hasPageActions` takes the rule with it: a separator over a button that opens nothing is a
-            line drawn for its own sake -->
-    <template
-      v-if="
-        hasPageActions && !isRedirect && !(editorStore.isActive && editorStore.mode === `create`)
-      ">
+    <template v-if="!isRedirect && !(editorStore.isActive && editorStore.mode === `create`)">
       <w-separator class="my-2" inset />
       <w-btn
         class="h-12"
@@ -232,17 +227,6 @@
         -->
         <w-menu class="translucent-menu" anchor="top left" self="top right" auto-close>
           <w-list padding style="min-width: 225px">
-            <w-item
-              clickable
-              disabled
-              v-if="flagsStore.experimental && userStore.can(`manage:pages`)">
-              <w-item-section class="items-center" avatar>
-                <w-icon class="text-deep-orange-9" name="la:atom" size="sm" />
-              </w-item-section>
-              <w-item-section
-                ><w-item-label>{{ t('common.page.convert') }}</w-item-label></w-item-section
-              >
-            </w-item>
             <!-- -> Gated on `canRerenderPage`: needs Puppeteer, and the backend's `ensureCanRender`
                     rejects any editor but markdown -->
             <w-item clickable v-if="canRerenderPage" @click="rerenderPage">
@@ -335,7 +319,6 @@ import {
 } from '@/helpers/pendingAssetRename'
 
 import { useEditorStore } from '@/stores/editor'
-import { useFlagsStore } from '@/stores/flags'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
@@ -343,7 +326,6 @@ import { useUserStore } from '@/stores/user'
 // STORES
 
 const editorStore = useEditorStore()
-const flagsStore = useFlagsStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
@@ -433,17 +415,6 @@ const canRerenderPage = computed(
   () =>
     userStore.can('write:pages') && siteStore.pdfExportAvailable && pageStore.editor === 'markdown'
 )
-
-/**
- * Whether the "..." menu has anything to show.
- *
- * View Backlinks (OpenProject #1917) is unconditional -- unlike Rerender Page (behind
- * `canRerenderPage`) and Convert Page (still behind the experimental flag, plus `manage:pages`),
- * every reader who can see this rail at all can see it. So the menu can never come up empty any
- * more; this stays `true` rather than being deleted outright because OpenProject #1921 (deleting the
- * dead Convert Page entry) is the one that also removes this workaround for good.
- */
-const hasPageActions = computed(() => true)
 
 // METHODS
 
@@ -715,12 +686,13 @@ function cancelRenamePendingAsset() {
  * discard before its own handler ever ran. An invalid draft (sanitizes down to empty) is left as-is,
  * still editing, with `renameBaseNameRule` already showing why on the field itself.
  *
- * The menu's own `@hide="cancelRenamePendingAsset"` (see the template) matters for the same reason:
- * `WMenu`'s document-level Escape/click-away handler runs and closes the menu -- moving focus back
- * to its trigger -- before this field's own `@keydown.esc` ever gets a turn, and that focus change
- * blurs this field first. Cancelling on `hide` (which `WMenu.vue#hide()` fires before it restores
- * focus) clears `editingAssetId` ahead of that blur, so the guard below catches it and the closing
- * menu discards the in-progress edit instead of silently committing whatever was half-typed.
+ * The menu's own `@hide="cancelRenamePendingAsset"` (see the template) still matters even though
+ * `WMenu`'s own Escape handling now defers to this field's `@keydown.esc` first (OpenProject #2364)
+ * -- `hide` also fires from paths that never dispatch a keydown at all: an outside click, the
+ * catcher/resize close, or a second row's own action. Cancelling on `hide` (which `WMenu.vue#hide()`
+ * fires before it restores focus) clears `editingAssetId` ahead of the focus-restore blur for all of
+ * those paths, so the guard below catches it and the closing menu discards the in-progress edit
+ * instead of silently committing whatever was half-typed.
  */
 function commitRenamePendingAsset(item) {
   if (editingAssetId.value !== item.id) {

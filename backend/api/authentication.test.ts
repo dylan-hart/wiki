@@ -4,13 +4,16 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import fastifyFormBody from '@fastify/formbody'
+import fastifyCookie from '@fastify/cookie'
 import ajvFormats from 'ajv-formats'
 import authenticationRoutes from './authentication.ts'
 import { registerSchemas as registerAuthSchema } from './schemas/authentication.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { AccountRateLimitedError } from '../helpers/rateLimit.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 import { authentication as authenticationTable } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { SESSION_COOKIE_NAME, SESSION_COOKIE_NAME_INSECURE } from '../helpers/security.ts'
 
 /**
  * `POST /auth/:strategyId/callback` is the form-POST counterpart of the existing GET callback, for a
@@ -1010,6 +1013,97 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
 })
 
 /**
+ * #2336: logout's `clearCookie` must carry the same `Path`/`Secure`/`SameSite` attributes as the
+ * cookie's registration in `index.ts`, or a real HTTPS deployment's browser rejects the clearing
+ * `Set-Cookie` outright (the `__Host-` prefix requires `Secure` on every `Set-Cookie` for that name)
+ * and the stale session cookie is never actually removed from the browser.
+ */
+describe('POST /sites/:siteId/auth/logout — clearCookie attributes', () => {
+  let app: FastifyInstance
+  let destroyMock: ReturnType<typeof mock.fn>
+
+  async function buildApp(cookieSecure: boolean) {
+    ;(globalThis as any).WIKI = {
+      config: { security: { cookieSecure } },
+      models: {
+        flags: { authDebug: () => {} },
+        users: {
+          getLogoutRedirect: async () => '/'
+        },
+        hooks: {
+          emit: async () => 0
+        }
+      }
+    }
+
+    const built = fastify()
+    await built.register(fastifyCookie)
+    await built.register(fastifySensible)
+    await registerErrorSchema(built)
+    await registerAuthSchema(built)
+    // -> Stand-in for `@fastify/session`: a plain mutable session object with a `destroy()` spy,
+    //    same pattern as the "local account lifecycle" describe above.
+    built.addHook('onRequest', async (req) => {
+      ;(req as any).session = {
+        authenticated: false,
+        destroy: destroyMock
+      }
+    })
+    await built.register(authenticationRoutes)
+    await built.ready()
+    return built
+  }
+
+  beforeEach(() => {
+    destroyMock = mock.fn(async () => {})
+  })
+
+  after(async () => {
+    if (app) await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('secure deployment (default): Set-Cookie clears the __Host- cookie with Path=/, Secure, SameSite=Lax', async () => {
+    app = await buildApp(true)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/sites/11111111-1111-1111-1111-111111111111/auth/logout'
+    })
+
+    assert.equal(res.statusCode, 200)
+    const setCookie = res.headers['set-cookie']
+    assert.ok(setCookie, 'expected a Set-Cookie header clearing the session cookie')
+    const header = Array.isArray(setCookie) ? setCookie.join('\n') : String(setCookie)
+    assert.ok(header.includes(`${SESSION_COOKIE_NAME}=`), 'clears the __Host- cookie by name')
+    assert.match(header, /Path=\//)
+    assert.match(header, /Secure/)
+    assert.match(header, /SameSite=Lax/i)
+  })
+
+  test('security.cookieSecure: false — clears the insecure cookie name, still SameSite=Lax, no Secure', async () => {
+    app = await buildApp(false)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/sites/11111111-1111-1111-1111-111111111111/auth/logout'
+    })
+
+    assert.equal(res.statusCode, 200)
+    const setCookie = res.headers['set-cookie']
+    assert.ok(setCookie, 'expected a Set-Cookie header clearing the session cookie')
+    const header = Array.isArray(setCookie) ? setCookie.join('\n') : String(setCookie)
+    assert.ok(
+      header.includes(`${SESSION_COOKIE_NAME_INSECURE}=`),
+      'clears the plain cookie by name'
+    )
+    assert.match(header, /Path=\//)
+    assert.match(header, /SameSite=Lax/i)
+    assert.ok(!header.includes('Secure'), 'plain-HTTP mode must not mark the cookie Secure')
+  })
+})
+
+/**
  * #1616: `POST /authentication/strategies` used to answer an unknown `module` with a hardcoded
  * English sentence, which surfaced verbatim in the UI instead of translating like the rest of a
  * `t(key, fallback)` screen. Assert the coded `ERR_*` shape rather than any particular wording.
@@ -1350,6 +1444,28 @@ describe('PUT login: password is required by the route schema', () => {
     assert.equal(loginMock.mock.calls.length, 1)
     const arg = loginMock.mock.calls[0].arguments[0] as any
     assert.equal(arg.password, 'correct-password')
+  })
+
+  // -> OpenProject #2361: the account-keyed limiter (`consumeAccountAuthAttempt`, consumed inside
+  //    `users.login()`) used to throw a plain `Error('ERR_RATE_LIMITED')`, which this route's
+  //    `ERR_`-prefix check mapped to a generic 400 -- unlike the IP-keyed `limitAuthAttempts` hook,
+  //    which answers 429 with `Retry-After`. `users.login` now throws the typed
+  //    `AccountRateLimitedError` instead, and the route must map *that* to the same 429 contract.
+  test('an account-keyed rate limit is answered as 429 with Retry-After, not 400', async () => {
+    loginMock = mock.fn(async () => {
+      throw new AccountRateLimitedError(55)
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: SITE_URL,
+      payload: { strategyId: STRATEGY_ID, username: 'ada', password: 'correct-password' }
+    })
+
+    assert.equal(res.statusCode, 429)
+    assert.equal(res.headers['retry-after'], '55')
+    const body = JSON.parse(res.body)
+    assert.equal(body.ok, false)
   })
 })
 

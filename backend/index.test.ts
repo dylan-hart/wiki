@@ -11,9 +11,11 @@ import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import {
   isPublicRateLimitedPath,
+  limitApiKey,
   limitApiRequests,
   limitPublicRequests
 } from './helpers/rateLimit.ts'
+import { isBearerAuthenticatedPath } from './helpers/apiKeySite.ts'
 
 /**
  * OpenProject #2274: `index.ts` itself runs its boot sequence at import time (`await preBoot()` etc.
@@ -117,6 +119,146 @@ describe('rate limiter hook wiring (index.ts)', () => {
 })
 
 /**
+ * OpenProject #2339: `index.ts`'s "API Key Authentication" `onRequest` hook only ever looked for a
+ * Bearer token when `req.url.startsWith('/_api/')`, so `req.apiKey` stayed null for every request to
+ * `controllers/files.ts` (`/_files`), `controllers/site.ts` (`/_site`) and `controllers/thumb.ts`
+ * (`/_thumb`) regardless of whether a valid token was sent — silently defeating those controllers'
+ * own `enforceApiKeySite()` calls (`files.ts`, `site.ts`) and `actorForRequest()`-mediated site-pin
+ * check (`thumb.ts`). Wired here exactly as `index.ts` wires it (same `isBearerAuthenticatedPath`
+ * gate, same header parsing, same `WIKI.models.apiKeys.verify()` and `limitApiKey()` calls), so the
+ * only thing under test is the wiring: that `req.apiKey` now actually gets populated on the three
+ * newly-covered prefixes, and still doesn't on a route this fix deliberately leaves alone.
+ */
+describe('API-key population hook wiring (index.ts)', () => {
+  let app: FastifyInstance
+  let verifyCalls: string[]
+  let verifyResult: any
+  let verifyShouldThrow: boolean
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      models: {
+        apiKeys: {
+          verify: async (token: string) => {
+            verifyCalls.push(token)
+            if (verifyShouldThrow) {
+              throw new Error('Invalid or expired API key')
+            }
+            return verifyResult
+          }
+        },
+        rateLimits: {
+          consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
+        }
+      },
+      logger: { debug: () => {} }
+    }
+
+    app = fastify()
+    await app.register(fastifySensible)
+    app.decorateRequest('apiKey', null)
+
+    // -> Mirrors index.ts's own "API Key Authentication" onRequest hook verbatim, using the same
+    //    exported gate (`isBearerAuthenticatedPath`) and the same `limitApiKey` helper.
+    app.addHook('onRequest', async (req, reply) => {
+      if (!isBearerAuthenticatedPath(req.url)) {
+        return
+      }
+      const header = req.headers.authorization
+      if (!header?.startsWith('Bearer ')) {
+        return
+      }
+      const token = header.slice('Bearer '.length).trim()
+      if (!token) {
+        return
+      }
+      try {
+        ;(req as any).apiKey = await WIKI.models.apiKeys.verify(token)
+      } catch (err: any) {
+        return reply.unauthorized(err.message)
+      }
+      return limitApiKey(req, reply)
+    })
+
+    const echoApiKey = async (req: any) => ({ ok: true, apiKey: req.apiKey })
+    app.get('/_files/some/asset.png', echoApiKey)
+    app.get('/_site/current/logo', echoApiKey)
+    app.get('/_thumb/some-id.webp', echoApiKey)
+    // -> Deliberately NOT covered by this fix -- render.ts resolves no site and is never fetched
+    //    with an API key; a plain route stands in for "everything else stays cookie-authenticated".
+    app.get('/_render/', echoApiKey)
+    app.get('/login', echoApiKey)
+
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    verifyCalls = []
+    verifyShouldThrow = false
+    verifyResult = { id: 'key-1', permissions: ['read:pages'], siteId: 'site-a' }
+  })
+
+  for (const url of ['/_files/some/asset.png', '/_site/current/logo', '/_thumb/some-id.webp']) {
+    test(`populates req.apiKey for a valid Bearer token against ${url}`, async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url,
+        headers: { authorization: 'Bearer valid-token' }
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(verifyCalls.length, 1)
+      assert.equal(verifyCalls[0], 'valid-token')
+      assert.deepEqual(res.json().apiKey, verifyResult)
+    })
+
+    test(`refuses with 401 and never sets req.apiKey when the token is rejected, against ${url}`, async () => {
+      verifyShouldThrow = true
+      const res = await app.inject({
+        method: 'GET',
+        url,
+        headers: { authorization: 'Bearer bad-token' }
+      })
+      assert.equal(res.statusCode, 401)
+      assert.equal(verifyCalls.length, 1)
+    })
+
+    test(`leaves req.apiKey null with no Authorization header, against ${url}`, async () => {
+      const res = await app.inject({ method: 'GET', url })
+      assert.equal(res.statusCode, 200)
+      assert.equal(verifyCalls.length, 0)
+      assert.equal(res.json().apiKey, null)
+    })
+  }
+
+  test('does not verify a Bearer token against /_render/, which carries no API key by design', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/_render/',
+      headers: { authorization: 'Bearer valid-token' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(verifyCalls.length, 0)
+    assert.equal(res.json().apiKey, null)
+  })
+
+  test('does not verify a Bearer token against an ordinary cookie-authenticated route', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/login',
+      headers: { authorization: 'Bearer valid-token' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(verifyCalls.length, 0)
+    assert.equal(res.json().apiKey, null)
+  })
+})
+
+/**
  * OpenProject #2048: `WIKI.db = await dbManager.init()` used to run *before* `preBoot()`'s
  * `try` opened, and nothing in `backend/` installs an `unhandledRejection` handler -- so a
  * migration or connection failure at boot killed the process with a bare unhandled-rejection
@@ -158,7 +300,13 @@ test(
   async () => {
     const child = spawn(
       process.execPath,
-      ['--require', './backend/test/fixtures/spoofSupportedNodeVersion.cjs', 'backend'],
+      [
+        '--require',
+        './backend/test/fixtures/spoofSupportedNodeVersion.cjs',
+        '--require',
+        './backend/test/fixtures/polyfillTemporalForSpawnedBoot.cjs',
+        'backend'
+      ],
       {
         cwd: repoRoot,
         env: {

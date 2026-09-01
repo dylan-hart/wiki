@@ -80,9 +80,9 @@ function parseIPv6Groups(address: string): number[] {
 }
 
 /**
- * Whether an IPv6 literal falls in a private, loopback, link-local, or IPv4-mapped-private range,
- * tested against a canonical binary form (the address's eight 16-bit groups) rather than string
- * prefixes.
+ * Whether an IPv6 literal falls in a private, loopback, link-local, or IPv4-embedded-private range
+ * (both the IPv4-mapped and the legacy IPv4-compatible embeddings), tested against a canonical
+ * binary form (the address's eight 16-bit groups) rather than string prefixes.
  *
  * String-prefix matching against `address.split(':')[0]` cannot see through `::` collapse: the WHATWG
  * URL parser (what actually produces `url.hostname`) always normalises an IPv4-mapped IPv6 literal into
@@ -125,6 +125,24 @@ function isPrivateIPv6(address: string): boolean {
     groups[3] === 0 &&
     groups[4] === 0 &&
     groups[5] === 0xffff
+  ) {
+    const embeddedIPv4 = [groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff].join(
+      '.'
+    )
+    return isPrivateIPv4(embeddedIPv4)
+  }
+  // ::a.b.c.d/96 -- legacy IPv4-compatible embedding (RFC 4291, deprecated but still accepted by
+  // net.isIP and normalised into hex-group form by the WHATWG URL parser the same way the mapped
+  // form above is): the top 96 bits (groups 1-6) are all zero, with no 0xffff marker in group 6,
+  // and the last two groups embed the IPv4 address the same way the mapped form does. `::` and
+  // `::1` are already handled above, so this cannot re-match either of those.
+  if (
+    groups[0] === 0 &&
+    groups[1] === 0 &&
+    groups[2] === 0 &&
+    groups[3] === 0 &&
+    groups[4] === 0 &&
+    groups[5] === 0
   ) {
     const embeddedIPv4 = [groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff].join(
       '.'

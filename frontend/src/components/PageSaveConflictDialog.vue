@@ -1,5 +1,11 @@
 <template>
-  <w-dialog v-model="dialogVisible" persistent full-width max-width="900px" @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    persistent
+    full-width
+    max-width="900px"
+    :aria-label="t(`editor.collab.saveConflict.title`)"
+    @hide="onDialogHide">
     <w-card style="min-width: 450px">
       <w-card-section class="card-header">
         <w-icon name="mdi:source-branch-sync" size="sm" class="mr-2" />

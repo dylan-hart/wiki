@@ -502,6 +502,7 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
 
   let app: FastifyInstance
   let lastSetNavItemsCall: { siteId: string; navId: string; items: any[] } | null = null
+  let getNavRouteDescription: string | undefined
 
   before(async () => {
     ;(globalThis as any).WIKI = {
@@ -553,6 +554,17 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
     })
     app.addHook('onRequest', testSessionOnRequest)
     app.addHook('preHandler', permissionPreHandler)
+    // -> Captures the GET .../navigation/:navId route's OpenAPI `description` as it's registered,
+    //    so a test below can assert on its actual text (OpenProject #2342) without needing
+    //    `@fastify/swagger` wired into this lightweight test app.
+    app.addHook('onRoute', (routeOptions) => {
+      if (
+        routeOptions.method === 'GET' &&
+        routeOptions.url === '/sites/:siteId/navigation/:navId'
+      ) {
+        getNavRouteDescription = (routeOptions.schema as any)?.description
+      }
+    })
     await registerErrorSchema(app)
     await registerNavigationSchema(app)
     await app.register(navigationRoutes)
@@ -632,6 +644,16 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
       url: `/sites/${SITE_ID}/navigation/${NAV_ID}?full=true`
     })
     assert.equal(res.statusCode, 403)
+  })
+
+  // -> OpenProject #2342: the route's OpenAPI description used to claim the per-item `read:pages`
+  //    filter "runs regardless of `full`" -- the opposite of what `getNav`'s `unfiltered ? null :
+  //    actor` actually does (skips it, same as the visibility-group filter). This pins the
+  //    corrected wording so the two can't silently drift apart again.
+  test('the OpenAPI description documents that `full` skips read:pages filtering, not the reverse', () => {
+    assert.ok(getNavRouteDescription, 'expected the GET .../navigation/:navId route to be captured')
+    assert.doesNotMatch(getNavRouteDescription!, /read:pages.*regardless of `full`/s)
+    assert.match(getNavRouteDescription!, /it skips the per-item `read:pages` check too/)
   })
 
   test('an anonymous request may still read the filtered menu', async () => {

@@ -2,7 +2,10 @@
   <w-page class="admin-api">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
-        <w-icon name="img:/_assets/icons/fluent-graph.svg" class="admin-icon animated fadeInLeft" />
+        <w-icon
+          name="img:/_assets/icons/fluent-graph.svg"
+          size="64px"
+          class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <h1 class="text-h5 text-primary animated fadeInLeft">{{ t('admin.metrics.title') }}</h1>

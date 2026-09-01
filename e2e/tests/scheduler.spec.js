@@ -8,6 +8,14 @@ import {
   seedCompletedHistory,
   withDb
 } from '../helpers/db.js'
+// -> The source of truth for what a fresh instance's Schedule tab lists -- see `rtl.spec.js`'s own
+//    header comment for why importing straight from `backend/` works from this workspace (bare
+//    specifiers inside the imported file resolve against `backend/`'s own `node_modules`, not this
+//    one's). Asserting against this directly, rather than a hardcoded count/list duplicated here, is
+//    what keeps this test from going stale the way it already had: it still expected the original
+//    four entries (and `updateLocales`'s original, since-changed cron) long after `JOB_SCHEDULE_SEED`
+//    had grown to sixteen.
+import { JOB_SCHEDULE_SEED } from '../../backend/models/jobs.ts'
 
 /**
  * End-to-end verification of AdminScheduler.vue's tabs against a real backend/database -- Schedule
@@ -23,22 +31,15 @@ test.describe('admin scheduler', () => {
     await page.goto('/_admin/scheduler')
   })
 
-  test('Schedule tab lists the four seeded cron entries with correct cron/type/timestamps', async ({
+  test('Schedule tab lists every seeded cron entry with correct cron/type/timestamps', async ({
     page
   }) => {
     await page.getByRole('radio', { name: 'Schedule' }).click()
 
     const rows = page.locator('table tbody tr')
-    await expect(rows).toHaveCount(4)
+    await expect(rows).toHaveCount(JOB_SCHEDULE_SEED.length)
 
-    const expected = {
-      checkVersion: '0 0 * * *',
-      cleanJobHistory: '5 0 * * *',
-      purgeRateLimits: '10 * * * *',
-      updateLocales: '0 0 * * *'
-    }
-
-    for (const [task, cron] of Object.entries(expected)) {
+    for (const { task, cron } of JOB_SCHEDULE_SEED) {
       const row = page.locator('table tbody tr', { hasText: task })
       await expect(row).toHaveCount(1)
       await expect(row).toContainText(cron)

@@ -4,6 +4,7 @@
       <div class="flex-none">
         <w-icon
           name="img:/_assets/icons/fluent-spring.svg"
+          size="64px"
           class="admin-icon admin-icons-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
@@ -166,7 +167,7 @@
     <!-- ----------------------- -->
     <!-- Add Set Dialog -->
     <!-- ----------------------- -->
-    <w-dialog v-model="state.addSetDialog">
+    <w-dialog v-model="state.addSetDialog" :aria-label="t('admin.icons.addSet')">
       <w-card style="width: 700px; max-width: 90vw">
         <w-card-section class="flex flex-wrap items-center pb-0">
           <div class="text-h6">{{ t('admin.icons.addSet') }}</div>

@@ -1,5 +1,5 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog v-model="dialogVisible" :aria-label="t('common.page.unlockTitle')" @hide="onDialogHide">
     <w-card style="width: 450px; max-width: 90vw">
       <w-card-section class="card-header">
         <w-icon name="la:lock" size="sm" class="mr-2" />

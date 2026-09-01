@@ -4,7 +4,10 @@
   /pages/classification-report/:levelId`), paginated newest-updated first.
 -->
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    :aria-label="t('admin.classification.reportTitle', { level: props.levelName })"
+    @hide="onDialogHide">
     <w-card style="min-width: 550px; max-width: 700px">
       <w-card-section class="card-header">
         <w-icon name="la:list" size="sm" class="mr-2" />

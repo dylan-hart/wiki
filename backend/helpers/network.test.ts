@@ -65,6 +65,23 @@ describe('isPrivateAddress', () => {
     assert.equal(isPrivateAddress(hostname), true)
   })
 
+  // -> The legacy IPv4-compatible embedding (RFC 4291, no 0xffff marker group) is a second,
+  //    distinct embedded-IPv4 form from the IPv4-mapped one above -- `net.isIP` accepts it and the
+  //    WHATWG URL parser normalises it into hex-group form the same way, so `::169.254.169.254`
+  //    becomes `::a9fe:a9fe`, not `::ffff:a9fe:a9fe` (OpenProject #2345).
+  test('flags a legacy IPv4-compatible IPv6 address in the hex-group form URL.hostname actually emits', () => {
+    assert.equal(isPrivateAddress('::a9fe:a9fe'), true) // ::169.254.169.254
+    assert.equal(isPrivateAddress('::7f00:1'), true) // ::127.0.0.1
+    assert.equal(isPrivateAddress('::c0a8:1'), true) // ::192.168.0.1
+    assert.equal(isPrivateAddress('::808:808'), false) // ::8.8.8.8 -- public, not flagged
+  })
+
+  test('a bracketed legacy IPv4-compatible URL hostname round-trips into a rejection', () => {
+    const hostname = new URL('http://[::169.254.169.254]/').hostname.replace(/^\[|\]$/g, '')
+    assert.equal(hostname, '::a9fe:a9fe')
+    assert.equal(isPrivateAddress(hostname), true)
+  })
+
   test('a non-IP-literal hostname is not itself flagged -- callers must resolve first', () => {
     assert.equal(isPrivateAddress('example.com'), false)
     assert.equal(isPrivateAddress('localhost'), false)

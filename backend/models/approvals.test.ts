@@ -237,6 +237,86 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
     })
     assert.deepEqual(approveSecond, { ok: false, reason: 'stale' })
   })
+
+  /**
+   * OpenProject #2349: the finalizing transaction commits `status: 'approved'` before `updatePage()`
+   * (deliberately non-transactional -- see that transaction's own comment) actually writes the page.
+   * A failure there used to leave the submission stuck `approved` forever with no write behind it and
+   * no retry path, since every other query here requires `status = 'open'` to act on a row.
+   */
+  test('reverts the submission back to open (not stuck approved) when updatePage() throws after the approval threshold is met', async () => {
+    const page = await makePage('approvals/write-failure', 'Original content')
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    const updatePage = mock.method(pagesModel, 'updatePage', async () => {
+      throw new Error('simulated write failure')
+    })
+    try {
+      await assert.rejects(
+        () =>
+          approvalsModel.approveSubmission({
+            siteId: fixtures.siteId,
+            submissionId: submission.id,
+            content: 'Suggested content',
+            render: '<p>Suggested content</p>',
+            actor
+          }),
+        /simulated write failure/
+      )
+    } finally {
+      updatePage.mock.restore()
+    }
+
+    const [row] = await fixtures.db
+      .select({ status: submissionsTable.status, resolvedBy: submissionsTable.resolvedBy })
+      .from(submissionsTable)
+      .where(eq(submissionsTable.id, submission.id))
+      .limit(1)
+    assert.equal(row!.status, 'open')
+    assert.equal(row!.resolvedBy, null)
+
+    const untouched = await pagesModel.getPage({
+      siteId: fixtures.siteId,
+      id: page.id,
+      withContent: true
+    })
+    assert.equal(untouched!.content, 'Original content')
+
+    // -> Visible in the reviewer queue again, and retriable: a later approve call is not blocked by a
+    //    permanently-resolved row that was never actually written.
+    const stillPending = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
+      groupIds: [],
+      reviewsAll: true,
+      pageId: page.id
+    })
+    assert.ok(stillPending.some((s) => s.id === submission.id))
+
+    const retried = await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Suggested content',
+      render: '<p>Suggested content</p>',
+      actor
+    })
+    assert.deepEqual(retried, {
+      ok: true,
+      finalized: true,
+      approvalsCount: 1,
+      approvalsRequired: 1
+    })
+    const written = await pagesModel.getPage({
+      siteId: fixtures.siteId,
+      id: page.id,
+      withContent: true
+    })
+    assert.equal(written!.content, 'Suggested content')
+  })
 })
 
 /**
@@ -966,6 +1046,82 @@ describe('approvals concurrent finalisation (DB-backed)', { skip: !hasTestDataba
       false
     )
   })
+
+  /**
+   * OpenProject #2354: `approveSubmission`'s finalizing UPDATE had no `status = 'open'` guard on its
+   * WHERE clause, unlike `rejectSubmission`'s. The `for('update')` row lock re-check just above it
+   * already serializes a concurrent approve/decline pair at the Postgres level, so this exercises
+   * that the pairing still resolves to exactly one winner with the guard in place -- never both a
+   * finalized approve AND a successful decline for the same submission.
+   */
+  test('a concurrent approve and reject on the same submission resolve to exactly one winner', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'approvals/concurrent/approve-vs-reject',
+        title: 'Concurrent Approve vs Reject',
+        editor: 'markdown',
+        content: 'Original content'
+      },
+      actor
+    )
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: {
+        id: page.id,
+        path: page.path,
+        locale: 'en',
+        tags: [],
+        allowContributions: true,
+        classification: null
+      },
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    const [approveResult, rejectResult] = await Promise.all([
+      approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested content',
+        render: '<p>Suggested content</p>',
+        actor
+      }),
+      approvalsModel.rejectSubmission(fixtures.siteId, submission.id, 'no thanks', fixtures.userId)
+    ])
+
+    const approveWon = approveResult.ok && approveResult.finalized
+    const rejectWon = rejectResult === true
+    // -> Exactly one side prevails -- never both (the page written AND the row left declined), and
+    //    never neither (both losing to a state the other side never actually reached).
+    assert.notEqual(
+      approveWon,
+      rejectWon,
+      'approve and reject must not both win, and must not both lose'
+    )
+
+    const finalPage = await pagesModel.getPage({
+      siteId: fixtures.siteId,
+      id: page.id,
+      withContent: true
+    })
+    const finalRows = await WIKI.db
+      .select({ status: submissionsTable.status })
+      .from(submissionsTable)
+      .where(eq(submissionsTable.id, submission.id))
+      .limit(1)
+
+    if (approveWon) {
+      assert.equal(finalPage!.content, 'Suggested content')
+      assert.equal(finalRows[0]!.status, 'approved')
+      assert.equal(rejectResult, false, 'the losing reject call must report no-op, not success')
+    } else {
+      assert.equal(finalPage!.content, 'Original content')
+      assert.equal(finalRows[0]!.status, 'declined')
+      assert.equal(approveResult.ok, false, 'the losing approve call must not report ok')
+    }
+  })
 })
 
 /**
@@ -1218,6 +1374,7 @@ describe(
     let fixtures: TestFixtures
     let pagesModel: typeof import('./pages.ts').pages
     let approvalsModel: typeof import('./approvals.ts').approvals
+    let groupsModel: typeof import('./groups.ts').groups
     let actor: PageActor
     let authorId: string
     let reviewerBId: string
@@ -1226,6 +1383,7 @@ describe(
       fixtures = await setupTestDb()
       ;({ pages: pagesModel } = await import('./pages.ts'))
       ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+      ;({ groups: groupsModel } = await import('./groups.ts'))
       actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
 
       const [author] = await fixtures.db
@@ -1238,6 +1396,34 @@ describe(
         })
         .returning({ id: usersTable.id })
       authorId = author!.id
+
+      // -> `models/pageWatching.ts#listWatchers` re-checks `read:pages` for each watcher's CURRENT
+      //    group membership before queuing anything (OpenProject #2173) -- a submission author with
+      //    no group at all would silently be filtered out of `updatePage()`'s own watcher notice,
+      //    which is exactly what the "does not double-notify" test below needs to see queued.
+      //    `fixtures.groupId` starts with empty `rules` (`test/db.ts`), so both the membership row
+      //    and the rule granting it have to be set up here.
+      await fixtures.db
+        .insert(userGroupsTable)
+        .values({ groupId: fixtures.groupId, userId: authorId })
+      await fixtures.db
+        .update(groupsTable)
+        .set({
+          rules: [
+            {
+              id: 'notify-author-read',
+              name: 'Notify author read access',
+              roles: ['read:pages'],
+              match: 'START',
+              mode: 'ALLOW',
+              path: '',
+              locales: [],
+              sites: []
+            } satisfies GroupRule
+          ]
+        })
+        .where(eq(groupsTable.id, fixtures.groupId))
+      await groupsModel.reloadCache()
 
       const [reviewerB] = await fixtures.db
         .insert(usersTable)
@@ -2294,6 +2480,103 @@ describe(
         reviewerScope()
       )
       assert.equal(detail, null)
+    })
+
+    /**
+     * OpenProject #2341: `getReviewableSubmissions()` was flagged by an automated review as running
+     * `checkAccess(actor, 'read:pages', ...)` twice per row -- once filtering `rows` into
+     * `matchedRows`, then again filtering the already-filtered `matchedRows` into `readableRows` --
+     * a redundant duplicate left over from merging two overlapping branches (#2150/#2160). Reading
+     * the current source shows `matchedRows` is filtered by `matchesPage()` (approval-rule path/tag
+     * matching, which never calls `checkAccess`) and only `readableRows` calls `checkAccess`, so the
+     * two filters are not duplicates of each other -- but this spies on the real `checkAccess` to
+     * prove it directly rather than trust a reading of the source: exactly one call per matched row,
+     * not two, is what distinguishes "already fixed" from "still redundant".
+     */
+    test('read:pages is checked exactly once per matched row, not filtered twice (OpenProject #2341)', async () => {
+      const pageOne = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'gating/single-check-one',
+          title: 'Single Check One',
+          editor: 'markdown',
+          content: 'Body one'
+        },
+        adminActor
+      )
+      const pageTwo = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'gating/single-check-two',
+          title: 'Single Check Two',
+          editor: 'markdown',
+          content: 'Body two'
+        },
+        adminActor
+      )
+      await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(pageOne),
+        baseContent: 'Body one',
+        content: 'Suggested one',
+        authorId: fixtures.userId
+      })
+      await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(pageTwo),
+        baseContent: 'Body two',
+        content: 'Suggested two',
+        authorId: fixtures.userId
+      })
+
+      const [readOnlyGroup] = await fixtures.db
+        .insert(groupsTable)
+        .values({
+          name: 'Filtering Test Single Check',
+          permissions: ['read:pages'],
+          rules: [
+            {
+              id: randomUUID(),
+              name: 'read:pages only',
+              roles: ['read:pages'],
+              match: 'START',
+              mode: 'ALLOW',
+              path: '',
+              locales: [],
+              sites: []
+            }
+          ]
+        })
+        .returning({ id: groupsTable.id })
+      await groupsModel.reloadCache()
+      const readOnlyActor: AccessActor = { groupIds: [readOnlyGroup!.id], permissions: [] }
+
+      // -> Spy on the real checkAccess rather than stub it out: this has to exercise the actual
+      //    matchedRows -> readableRows pipeline, only counting how many times it runs.
+      const originalCheckAccess = groupsModel.checkAccess.bind(groupsModel)
+      let callCount = 0
+      groupsModel.checkAccess = ((...args: Parameters<typeof originalCheckAccess>) => {
+        callCount++
+        return originalCheckAccess(...args)
+      }) as typeof groupsModel.checkAccess
+
+      let queue: Awaited<ReturnType<typeof approvalsModel.getReviewableSubmissions>>
+      try {
+        queue = await approvalsModel.getReviewableSubmissions(
+          fixtures.siteId,
+          readOnlyActor,
+          reviewerScope()
+        )
+      } finally {
+        groupsModel.checkAccess = originalCheckAccess
+      }
+
+      // -> readOnlyActor's rule ALLOWs read:pages everywhere, so every row `matchesPage()` matched
+      //    is also readable -- matchedRows.length === readableRows.length === queue.length here,
+      //    which is exactly what lets callCount === queue.length prove "once per row", not "twice".
+      assert.ok(queue.some((s) => s.page.id === pageOne.id))
+      assert.ok(queue.some((s) => s.page.id === pageTwo.id))
+      assert.equal(callCount, queue.length)
     })
 
     test('a reviewer allowed read:pages but denied read:source sees the queue entry with no pageContent', async () => {

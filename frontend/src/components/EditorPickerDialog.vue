@@ -1,5 +1,5 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog v-model="dialogVisible" :aria-label="t('editor.picker.title')" @hide="onDialogHide">
     <w-card class="editor-picker" style="width: 460px; max-width: 90vw">
       <w-card-section class="card-header">
         <w-icon name="la:edit" size="sm" class="mr-2" />

@@ -31,7 +31,7 @@ import { nanoid } from 'nanoid'
 import { flatten, uniq } from 'es-toolkit/array'
 import { detectImageMime, resizeImageToSquareJpeg } from '../helpers/images.ts'
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from '../helpers/totp.ts'
-import { consumeAccountAuthAttempt } from '../helpers/rateLimit.ts'
+import { AccountRateLimitedError, consumeAccountAuthAttempt } from '../helpers/rateLimit.ts'
 import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
 import {
   generateRecoveryCodes,
@@ -1949,7 +1949,7 @@ class Users {
           WIKI.models.flags.authDebug(
             `Rate limit: refused login for account "${username}", ${verdict.retryAfter}s left of its ban.`
           )
-          throw new Error('ERR_RATE_LIMITED')
+          throw new AccountRateLimitedError(verdict.retryAfter)
         }
       }
 
@@ -2716,7 +2716,7 @@ class Users {
       WIKI.models.flags.authDebug(
         `Rate limit: refused 2FA attempt for user ${user.id} <${user.email}>, ${verdict.retryAfter}s left of its ban.`
       )
-      throw new Error('ERR_RATE_LIMITED')
+      throw new AccountRateLimitedError(verdict.retryAfter)
     }
     if (strategyId !== expectedStrategyId) {
       throw new Error('ERR_INVALID_STRATEGY')

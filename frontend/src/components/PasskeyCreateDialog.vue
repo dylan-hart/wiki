@@ -1,5 +1,9 @@
 <template>
-  <w-dialog v-model="dialogVisible" persistent @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    persistent
+    :aria-label="t(`profile.passkeysAdd`)"
+    @hide="onDialogHide">
     <w-card style="min-width: 650px">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-add-key.svg" size="sm" class="mr-2" />

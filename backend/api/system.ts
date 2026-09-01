@@ -810,7 +810,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get the pageview tracking state',
         description:
-          'Whether page views are logged at all (OpenProject #1238). While this is off, neither write path -- the page-read route nor the MCP `get_page` tool -- inserts a row, so this is the switch behind the knowledge graph\'s "size by page visit volume" control (OpenProject #1140).',
+          'Whether page views are logged at all (OpenProject #1238). While this is off, neither write path -- the page-read route nor the MCP `get_page` tool -- inserts a row, so this is the switch behind the knowledge graph\'s "size by page visit volume" control (OpenProject #1140). Also returns instance-wide totals (OpenProject #2335) so the admin page can show real evidence tracking is working, not just the switch itself -- these are NOT gated on `isEnabled`, so a recently-disabled instance still shows what was already recorded.',
         tags: ['System'],
         response: {
           200: {
@@ -819,6 +819,16 @@ async function routes(app: FastifyInstance) {
             properties: {
               isEnabled: {
                 type: 'boolean'
+              },
+              summary: {
+                type: 'object',
+                properties: {
+                  totalViews: { type: 'number' },
+                  last24h: { type: 'number' },
+                  last7d: { type: 'number' },
+                  distinctPages: { type: 'number' },
+                  mostRecentAt: { type: 'string', nullable: true }
+                }
               }
             }
           },
@@ -828,7 +838,10 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return { isEnabled: WIKI.config.pageviews.isEnabled === true }
+      return {
+        isEnabled: WIKI.config.pageviews.isEnabled === true,
+        summary: await WIKI.models.pageviews.summary()
+      }
     }
   )
 

@@ -278,3 +278,64 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     assert.equal(deleteRuleCalls.length, 0)
   })
 })
+
+describe('approve/reject submission routes — response schema covers reachable statuses (task 2355)', () => {
+  /**
+   * The approve/reject submission routes deliberately declare no route-level `config.permissions`
+   * (the actor check is in-handler instead, via `actorFrom`/`reviewerFor` — see the "No route-level
+   * permissions" convention in CLAUDE.md) so `responseErrors.test.ts`'s blanket 401/403 check, which
+   * only scans routes with a non-empty `config.permissions`, can never catch a missing 401 on either
+   * of them. OpenProject #2355: the reject route's response schema once omitted 401 even though its
+   * handler can (defensively) return `reply.unauthorized()`, the same shape the approve route above
+   * it already had. This is a narrow regression guard for exactly that gap, using the same
+   * recording-stub technique as `responseErrors.test.ts` rather than booting a real Fastify instance.
+   */
+
+  function createRecordingApp() {
+    const routes: { method: string; path: string; options: any }[] = []
+    const app: any = {
+      addContentTypeParser: () => {},
+      addHook: () => {},
+      register: () => app
+    }
+    for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
+      app[method] = (routePath: string, options?: any) => {
+        routes.push({ method, path: routePath, options })
+        return app
+      }
+    }
+    return { app, routes }
+  }
+
+  /** Whether a response entry is (or resolves through `allOf`/`oneOf` to) `{ $ref: 'ApiError#' }`. */
+  function referencesApiError(entry: any): boolean {
+    if (!entry) return false
+    if (entry.$ref === 'ApiError#') return true
+    return [...(entry.allOf ?? []), ...(entry.oneOf ?? [])].some(referencesApiError)
+  }
+
+  test('approve and reject routes both declare 401 and 404 as ApiError', async () => {
+    const { app, routes } = createRecordingApp()
+    await approvalsRoutes(app as unknown as FastifyInstance)
+
+    const target = routes.filter((r) => r.path.endsWith('/approve') || r.path.endsWith('/reject'))
+    assert.equal(
+      target.length,
+      2,
+      `expected exactly 2 approve/reject routes, found ${target.length}`
+    )
+
+    for (const route of target) {
+      const response = route.options?.schema?.response ?? {}
+      const label = `${route.method.toUpperCase()} ${route.path}`
+      assert.ok(
+        referencesApiError(response['401']),
+        `${label} is missing a 401 ApiError response entry`
+      )
+      assert.ok(
+        referencesApiError(response['404']),
+        `${label} is missing a 404 ApiError response entry`
+      )
+    }
+  })
+})

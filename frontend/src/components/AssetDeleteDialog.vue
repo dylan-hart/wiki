@@ -1,5 +1,9 @@
 <template>
-  <w-dialog v-model="dialogVisible" max-width="850px" @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    max-width="850px"
+    :aria-label="t(`fileman.assetDelete`)"
+    @hide="onDialogHide">
     <w-card style="min-width: 550px">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-delete-bin.svg" size="sm" class="mr-2" />

@@ -1,5 +1,8 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog
+    v-model="dialogVisible"
+    :aria-label="props.hookId ? t(`admin.webhooks.edit`) : t(`admin.webhooks.new`)"
+    @hide="onDialogHide">
     <w-card class="relative" style="min-width: 850px">
       <w-card-section class="card-header">
         <template v-if="props.hookId">

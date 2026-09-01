@@ -7,6 +7,15 @@
       <div class="layout-inbox-card">
         <div class="layout-inbox-sd">
           <w-list>
+            <w-item clickable @click="goBack">
+              <w-item-section side>
+                <w-icon name="la:arrow-circle-left" />
+              </w-item-section>
+              <w-item-section>
+                <w-item-label>{{ t('common.actions.goback') }}</w-item-label>
+              </w-item-section>
+            </w-item>
+            <w-separator inset spaced="sm" />
             <w-item
               v-for="navItem of sidenav"
               :key="navItem.key"
@@ -31,7 +40,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 
 import { useMeta } from '@/composables/meta'
@@ -59,6 +68,25 @@ const userStore = useUserStore()
 
 const router = useRouter()
 const route = useRoute()
+
+// -> Where "Go Back" returns to. Captured once, in onMounted rather than read fresh at click time --
+//    this layout's own route component is shared by both `/_inbox/watching` and `/_inbox/review`
+//    (see router/routes.js), so Vue Router reuses the same instance across those two child routes and
+//    onMounted only fires again on a real re-entry from outside `/_inbox`. Reading history state at
+//    click time instead would drift to `/_inbox/watching` once the reader had switched inbox tabs --
+//    the Inbox has no natural "up" location the way Admin's sidebar does, so this is the one chance to
+//    remember where the reader actually came from. Same fallback idiom as Index.vue/Search.vue's own
+//    goBack(): no captured history (a direct/bookmarked/emailed link) goes home instead.
+const returnPath = ref('/')
+
+onMounted(() => {
+  const back = window.history.state?.back
+  returnPath.value = typeof back === 'string' ? back : '/'
+})
+
+function goBack() {
+  router.push(returnPath.value)
+}
 
 // I18N
 

@@ -300,7 +300,11 @@
         </w-form>
       </w-card-section>
     </w-scroll-area>
-    <w-dialog v-model="state.showRelationDialog">
+    <w-dialog
+      v-model="state.showRelationDialog"
+      :aria-label="
+        state.editRelationId ? t('editor.pageRel.titleEdit') : t('editor.pageRel.title')
+      ">
       <page-relation-dialog
         :edit-id="state.editRelationId"
         @close="state.showRelationDialog = false" />

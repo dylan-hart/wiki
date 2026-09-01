@@ -97,18 +97,20 @@ function addCodeCopyButtons(root, t) {
     // -> Marks the block as done, and is what the stylesheet keys the button's position off
     pre.dataset.codeCopy = ''
 
+    const restingLabel = t('common.renderedContent.copyCode')
+
     const button = document.createElement('button')
     button.type = 'button'
     button.className = 'code-copy'
-    setLabel(button, 'Copy code')
+    setLabel(button, restingLabel)
     button.innerHTML = iconSvg(ICON_COPY)
     button.addEventListener('click', () =>
       copyWithFeedback({
         text: codeOf(pre),
         control: button,
-        restingLabel: 'Copy code',
+        restingLabel,
         restingHtml: iconSvg(ICON_COPY),
-        doneLabel: 'Copied',
+        doneLabel: t('common.renderedContent.copyCodeDone'),
         t
       })
     )
@@ -143,20 +145,22 @@ function addHeadingAnchors(root, t) {
     }
     heading.dataset.headingAnchor = ''
 
+    const restingLabel = t('common.renderedContent.copyHeadingLink')
+
     const button = document.createElement('button')
     button.type = 'button'
     button.className = 'heading-anchor'
     // -> Declares that this control has a tooltip; `setLabel` keeps the two in step
     button.dataset.tooltip = ''
-    setLabel(button, 'Copy link to this section')
+    setLabel(button, restingLabel)
     button.textContent = PILCROW
     button.addEventListener('click', () =>
       copyWithFeedback({
         text: headingUrl(heading.id),
         control: button,
-        restingLabel: 'Copy link to this section',
+        restingLabel,
         restingHtml: PILCROW,
-        doneLabel: 'Link copied',
+        doneLabel: t('common.renderedContent.copyHeadingLinkDone'),
         t
       })
     )

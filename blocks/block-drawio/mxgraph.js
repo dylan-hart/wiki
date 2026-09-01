@@ -496,11 +496,16 @@ function labelSvg(label, box, props) {
  * duplicating the color/width handling (and its escaping) at each call site. `strokeWidth` is coerced
  * with `Number()`, the same idiom `startSize` uses just below, rather than interpolated as a string:
  * `style` comes from `parseStyle()` splitting `cell.style` on `;`/`=` with no validation at all, so an
- * unescaped numeric-looking property is exactly as attacker-controlled as any other.
+ * unescaped numeric-looking property is exactly as attacker-controlled as any other. The fallback to
+ * `1` triggers only on a non-finite result (an absent/malicious `strokeWidth`, e.g. the XSS payload
+ * above coercing to `NaN`) via `Number.isFinite`, not on falsy-ness — `Number(props.strokeWidth) || 1`
+ * previously also caught the legitimate draw.io value `0` ("no visible stroke"), silently drawing a
+ * 1px stroke instead of none (OpenProject #2343).
  */
 function strokeAttrs(props) {
   const stroke = colorOr(props.strokeColor, '#000000')
-  const strokeWidth = Number(props.strokeWidth) || 1
+  const strokeWidthNum = Number(props.strokeWidth)
+  const strokeWidth = Number.isFinite(strokeWidthNum) ? strokeWidthNum : 1
   return `stroke="${escapeXml(stroke)}" stroke-width="${strokeWidth}"`
 }
 

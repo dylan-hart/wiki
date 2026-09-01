@@ -40,9 +40,37 @@ test('a Users-group account can read a page but not write it, and is refused the
   await createDialog.getByLabel('Name', { exact: true }).fill(`E2E Permissions ${slug}`)
   await createDialog.getByLabel('Email', { exact: true }).fill(userEmail)
   await createDialog.getByLabel('Password', { exact: true }).fill(userPassword)
-  await createDialog.getByRole('combobox', { name: 'Groups' }).click()
+  const groupsCombobox = createDialog.getByRole('combobox', { name: 'Groups' })
+  await groupsCombobox.click()
   await page.getByRole('option', { name: 'Users', exact: true }).click()
-  await page.keyboard.press('Escape') // -> multi-select stays open; close it before submitting
+  /*
+    Multi-select stays open by design ("several options in one go") -- state.userGroups is already
+    committed at this point regardless (WSelect.vue's select() emits update:modelValue immediately on
+    option click, not on close). Closing it before clicking "Create" is still necessary, though: while
+    it's open, WMenu's own full-viewport outside-click catcher (`<div class="fixed inset-0">`) sits
+    above the ENTIRE dialog, so a normal, actionability-checked click on "Create" would wait out its
+    full timeout retrying against an element that never stops being obscured.
+
+    None of the ways tried to close it first worked against a real run:
+      - Escape cancels the whole non-persistent dialog instead of just the dropdown -- WDialog's own
+        Escape handler is a capture-phase `document` listener (WDialog.vue), which always runs before
+        WMenu's own dropdown-close handler (bubble phase, since OpenProject #2364) ever gets a turn.
+      - Clicking the trigger again, or anything else in the dialog, is obscured by the very same
+        catcher it's trying to get past.
+      - Tab, which WSelect.vue's own onKeydown closes the dropdown on directly with no click involved
+        (`case 'Tab': isOpen.value = false`), didn't visibly take effect either -- most likely raced by
+        WDialog's own capture-phase Tab-trap (`trapTab()`) refocusing the panel's first field before
+        WSelect's target-phase handler gets a turn, the same capture-vs-bubble ordering problem as the
+        Escape case (OpenProject #2370 covers all of this).
+
+    What does work, confirmed against a real run: a `{ force: true }` click skips the actionability
+    wait and lands wherever the real cursor position would -- on the catcher, same as a genuine
+    "click outside to dismiss" would, which closes the dropdown as a side effect without touching
+    WDialog's Escape/Tab handling at all. It does NOT reach "Create" itself that first time (the
+    catcher, not the button, receives it) -- a second, ordinary click right after is what actually
+    submits, now that nothing is left obscuring the button.
+  */
+  await createDialog.getByRole('button', { name: 'Create', exact: true }).click({ force: true })
   await createDialog.getByRole('button', { name: 'Create', exact: true }).click()
   await expect(page.getByText('User created successfully!')).toBeVisible()
 

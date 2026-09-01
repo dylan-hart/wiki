@@ -4,6 +4,7 @@
       <div class="flex-none">
         <w-icon
           name="img:/_assets/icons/fluent-plugin.svg"
+          size="64px"
           class="admin-icon animated fadeInLeft" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
@@ -244,7 +245,11 @@
         <div class="p-4 text-grey" v-else>{{ t('admin.blocks.credentialsEmpty') }}</div>
       </w-card>
     </div>
-    <w-dialog v-model="state.configDialog.open">
+    <w-dialog
+      v-model="state.configDialog.open"
+      :aria-label="
+        t('admin.blocks.configureTitle', { blockName: state.configDialog.block?.name ?? '' })
+      ">
       <w-card style="width: 500px; max-width: 90vw">
         <w-card-section class="flex flex-wrap items-center pb-0">
           <div class="text-h6">

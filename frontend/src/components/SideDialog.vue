@@ -3,7 +3,8 @@
     class="floating-sidepanel"
     v-model="siteStore.sideDialogShown"
     position="right"
-    full-height>
+    full-height
+    :aria-label="sideDialogAriaLabel">
     <component :is="sideDialogs[siteStore.sideDialogComponent]" />
   </w-dialog>
 </template>
@@ -59,6 +60,21 @@ const state = reactive({
   tocExpanded: ['h1-0', 'h1-1'],
   tocSelected: []
 })
+
+// COMPUTED
+
+/**
+ * `sideDialogs`' loaded child owns the only visible heading for this panel (its own `<w-header
+ * class="card-header">`), so the panel's accessible name is looked up here rather than duplicated as
+ * a prop threaded down -- each entry mirrors the exact translation key that child's own header
+ * already renders (OpenProject #2356).
+ */
+const SIDE_DIALOG_TITLES = {
+  PageBacklinksDialog: () => t('editor.backlinks.title'),
+  PagePropertiesDialog: () => t('editor.props.pageProperties')
+}
+
+const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDialogComponent]?.())
 </script>
 
 <style lang="scss">

@@ -242,6 +242,7 @@ describe('update-locales.task (unit, no DB)', () => {
   let insertValues: ReturnType<typeof mock.fn>
   let onConflictDoUpdate: ReturnType<typeof mock.fn>
   let loggerWarn: ReturnType<typeof mock.fn>
+  let broadcastReload: ReturnType<typeof mock.fn>
 
   before(() => {
     previousWiki = (globalThis as any).WIKI
@@ -257,13 +258,17 @@ describe('update-locales.task (unit, no DB)', () => {
     onConflictDoUpdate = mock.fn(async () => true)
     insertValues = mock.fn(() => ({ onConflictDoUpdate }))
     loggerWarn = mock.fn()
+    broadcastReload = mock.fn(async () => {})
     ;(globalThis as any).WIKI = {
       config: {},
       logger: { info: mock.fn(), error: mock.fn(), warn: loggerWarn, debug: mock.fn() },
       db: { insert: () => ({ values: insertValues }) },
       // -> `task()` calls `WIKI.models.locales.broadcastReload()` once `anyUpdated` (OpenProject
       //    #2032) -- stubbed the same way `models.locales.reloadCache` is elsewhere in this file.
-      models: { locales: { broadcastReload: mock.fn(async () => {}) } }
+      //    Deliberately no `reloadCache` method here (OpenProject #2352): if `task()` ever called
+      //    `WIKI.models.locales.reloadCache()` directly instead of routing through the HA
+      //    cache-broadcast path, that call would throw rather than silently succeed.
+      models: { locales: { broadcastReload } }
     }
   })
 
@@ -346,6 +351,11 @@ describe('update-locales.task (unit, no DB)', () => {
 
     assert.equal(insertValues.mock.callCount(), 0)
     assert.equal(loggerWarn.mock.callCount(), 1)
+    assert.equal(
+      broadcastReload.mock.callCount(),
+      0,
+      'a rejected, non-inserted payload should not trigger a cache broadcast'
+    )
   })
 
   test('accepts a genuinely flat string map', async () => {
@@ -360,5 +370,41 @@ describe('update-locales.task (unit, no DB)', () => {
 
     assert.equal(insertValues.mock.callCount(), 1)
     assert.equal(onConflictDoUpdate.mock.callCount(), 1)
+  })
+
+  // -----------------------------------------------------------------------------------------
+  // OpenProject #2352: `task()` must route a real update through
+  // `WIKI.models.locales.broadcastReload()` -- which reloads this instance's own cache AND
+  // notifies every other cluster instance to do the same -- rather than a plain, local-only
+  // `reloadCache()` call. The mock WIKI above has no `reloadCache` method at all, so a
+  // regression here would surface as `task()` throwing, but these assertions prove the correct
+  // *positive* behavior directly rather than relying on that absence alone.
+  // -----------------------------------------------------------------------------------------
+
+  test('routes a real update through the HA cache-broadcast path exactly once', async () => {
+    globalThis.fetch = mock.fn(async (url: string) => {
+      if (url.includes('metadata.json')) {
+        return new Response(JSON.stringify({ languages: [makeLang()] }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ welcome: 'Bienvenue' }), { status: 200 })
+    }) as unknown as typeof fetch
+
+    await task()
+
+    assert.equal(broadcastReload.mock.callCount(), 1)
+  })
+
+  test('does not broadcast a cache reload when no strings file was found', async () => {
+    globalThis.fetch = mock.fn(async (url: string) => {
+      if (url.includes('metadata.json')) {
+        return new Response(JSON.stringify({ languages: [makeLang()] }), { status: 200 })
+      }
+      return new Response('Not Found', { status: 404 })
+    }) as unknown as typeof fetch
+
+    await task()
+
+    assert.equal(insertValues.mock.callCount(), 0)
+    assert.equal(broadcastReload.mock.callCount(), 0)
   })
 })

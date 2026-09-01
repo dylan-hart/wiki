@@ -200,6 +200,38 @@ describe('docs/operations.md — operations reference', () => {
   })
 })
 
+describe('admin.utilities.exportExclusions hint references a real doc (OpenProject #2360)', () => {
+  const LOCALES_EN = path.join(REPO_ROOT, 'backend/locales/en.json')
+  const locales = JSON.parse(fs.readFileSync(LOCALES_EN, 'utf8'))
+  const hint: string = locales['admin.utilities.exportExclusions']
+
+  test('the hint string exists', () => {
+    assert.ok(
+      hint,
+      'expected admin.utilities.exportExclusions to be defined in backend/locales/en.json'
+    )
+  })
+
+  test('the doc path it names actually exists in the repo', () => {
+    // Parse the referenced path out of the hint itself, rather than hardcoding
+    // 'docs/operations.md' here -- a future edit that points the hint at a different (or
+    // misspelled) path should fail this check, not silently pass because the assertion was
+    // pinned to the string this test happened to be written against.
+    const match = hint.match(/\bdocs\/[\w/-]+\.md\b/)
+    assert.ok(
+      match,
+      `expected admin.utilities.exportExclusions to reference a docs/*.md path, got: "${hint}"`
+    )
+
+    const referencedDoc = path.join(REPO_ROOT, match![0])
+    assert.ok(
+      fs.existsSync(referencedDoc),
+      `admin.utilities.exportExclusions references "${match![0]}", which does not exist -- ` +
+        'the export-exclusions hint must not point admins at a nonexistent doc (OpenProject #2360)'
+    )
+  })
+})
+
 describe('README.md links docs/operations.md', () => {
   const readmeRaw = fs.readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8')
 
