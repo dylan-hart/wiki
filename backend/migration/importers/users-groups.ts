@@ -71,13 +71,15 @@ import { KNOWN_3_0_AUTH_MODULES } from '../unmappable.ts'
  * in `models/groups.ts`.
  *
  * Task 731 adds system-row exclusion and admin/guest membership remapping:
- * - `importGroups()`/`importUsers()` now skip any source record flagged `isSystem: true` -- 2.5.x
- *   id 1 (Administrators)/id 2 (Guests) groups and id 1 (Administrator)/id 2 (Guest) users -- BEFORE
- *   calling `convert()` at all, regardless of which converter is plugged in. Every 3.0 install already
- *   seeds its own equivalents once (`Groups.init()`/`Users.init()`), so creating a second copy from the
- *   source would be a duplicate, not an import.
- * - Skipping those source rows must not also drop the *membership* they implied. `importUserGroups()`
- *   now takes an optional `systemGroupIds` (this install's real target admin/guest group ids): when an
+ * - `createGroupImporter()`'s/`createUserImporter()`'s `importOne()` now skip any source record
+ *   flagged `isSystem: true` -- 2.5.x id 1 (Administrators)/id 2 (Guests) groups and id 1
+ *   (Administrator)/id 2 (Guest) users -- BEFORE calling `convert()` at all, regardless of which
+ *   converter is plugged in. Every 3.0 install already seeds its own equivalents once
+ *   (`Groups.init()`/`Users.init()`), so creating a second copy from the source would be a
+ *   duplicate, not an import.
+ * - Skipping those source rows must not also drop the *membership* they implied.
+ *   `createUserGroupImporter()` now takes an optional `systemGroupIds` (this install's real target
+ *   admin/guest group ids): when an
  *   ordinary (non-system) imported user's source membership pointed at the source's system
  *   Administrators (id 1) or Guests (id 2) group -- which was skipped, so the normal groupIdMap lookup
  *   misses -- the row is remapped onto the supplied target id via the new `UsersGroupsWriter.
@@ -168,9 +170,9 @@ const SOURCE_SYSTEM_GROUP_ADMIN_ID = 1
 const SOURCE_SYSTEM_GROUP_GUEST_ID = 2
 
 /** This install's real target ids for the system Administrators/Guests groups, supplied by the caller
- * so `importUserGroups()` can remap a membership that pointed at the *source's* now-skipped system
- * group onto the equivalent that already exists here -- see the module doc's Task 731 paragraph for
- * where these ids actually live at runtime. */
+ * so `createUserGroupImporter()` can remap a membership that pointed at the *source's* now-skipped
+ * system group onto the equivalent that already exists here -- see the module doc's Task 731
+ * paragraph for where these ids actually live at runtime. */
 export interface SystemGroupIds {
   admin: string
   guest: string
@@ -578,7 +580,7 @@ export interface UsersGroupsWriter {
   insertUser(row: NewUserRow): Promise<{ id: string }>
   insertUserGroup(userId: string, groupId: string): Promise<void>
   /** Assigns a user to one of THIS install's real system groups (Administrators/Guests) -- used only
-   * by the Task 731 remap path in `importUserGroups()`, never for an ordinary imported group. Distinct
+   * by the Task 731 remap path in `createUserGroupImporter()`, never for an ordinary imported group. Distinct
    * from `insertUserGroup()` because the real writer must go through `Groups.assignUserToGroup()`
    * rather than a raw insert: that model method runs `guestMembershipViolation()` and de-duplicates via
    * `onConflictDoNothing()`, both of which matter for a system group in a way they don't for a fresh,
@@ -657,9 +659,9 @@ export interface UsersGroupsImportInput {
   convertGroup?: GroupConverter
   convertUser?: UserConverter
   /** This install's real target admin/guest group ids, for the Task 731 membership-remap fallback in
-   * `importUserGroups()`. Omitted entirely, a membership that pointed at the source's system group
-   * falls back to the pre-731 behavior of being reported `skipped` -- see the module doc's Task 731
-   * paragraph for where the future #421 CLI actually sources these two ids from at runtime. */
+   * `createUserGroupImporter()`. Omitted entirely, a membership that pointed at the source's system
+   * group falls back to the pre-731 behavior of being reported `skipped` -- see the module doc's
+   * Task 731 paragraph for where the future #421 CLI actually sources these two ids from at runtime. */
   systemGroupIds?: SystemGroupIds
 }
 
@@ -672,15 +674,29 @@ function readSourceId(source: SourceRecord, column: string): number | undefined 
   return Number.isInteger(n) ? n : undefined
 }
 
-async function importGroups(
-  source: AsyncIterable<SourceRecord>,
+/** Live, per-record group import — the extracted body of what used to be `importGroups()`'s whole
+ * `for await` loop (Task 12, following Task 11's `PageImporter` pattern), so Task 14 can drive one
+ * source group at a time from its own phase entity instead of only ever being handed a whole
+ * iterable up front. `summary`/`idMap` are live references into the same closure-scoped bindings
+ * every `importOne()` call mutates — not snapshots — so a caller reading them after several calls
+ * sees every group processed so far. */
+export interface GroupImporter {
+  importOne(source: SourceRecord): Promise<void>
+  readonly summary: EntityImportSummary
+  readonly idMap: Map<number, string>
+}
+
+/** Builds a `GroupImporter` — the stateful factory `importUsersAndGroups()` itself is now a thin
+ * composition of (see below). Never throws for one bad or conflicting record; each becomes a
+ * `RecordResult` on `summary` instead, so one group's bad data cannot abort the whole run. */
+export function createGroupImporter(
   convert: GroupConverter,
   writer: UsersGroupsWriter
-): Promise<{ summary: EntityImportSummary; idMap: Map<number, string> }> {
+): GroupImporter {
   const summary = emptySummary()
   const idMap = new Map<number, string>()
 
-  for await (const sourceRecord of source) {
+  async function importOne(sourceRecord: SourceRecord): Promise<void> {
     const sourceId = readSourceId(sourceRecord, 'id')
     if (sourceId === undefined) {
       record(summary, {
@@ -688,7 +704,7 @@ async function importGroups(
         status: 'skipped',
         message: 'missing or non-integer source id'
       })
-      continue
+      return
     }
 
     if (isSystemSourceRecord(sourceRecord)) {
@@ -698,13 +714,13 @@ async function importGroups(
         message:
           "system group (Administrators/Guests) -- an equivalent is already seeded by this install's own Groups.init(); not imported"
       })
-      continue
+      return
     }
 
     const outcome = await convert(sourceRecord)
     if (outcome.status !== 'created') {
       record(summary, { sourceId, status: outcome.status, message: outcome.message })
-      continue
+      return
     }
 
     try {
@@ -716,23 +732,32 @@ async function importGroups(
     }
   }
 
-  return { summary, idMap }
+  return { importOne, summary, idMap }
 }
 
-async function importUsers(
-  source: AsyncIterable<SourceRecord>,
+/** Live, per-record user import — same shape and rationale as `GroupImporter` above, extracted from
+ * what used to be `importUsers()`'s whole `for await` loop. `providerFallbacks` is the same kind of
+ * live reference as `summary`/`idMap`: `createProviderFallbackUserConverter()`-produced accounts
+ * accumulate onto it across every `importOne()` call. */
+export interface UserImporter {
+  importOne(source: SourceRecord): Promise<void>
+  readonly summary: EntityImportSummary
+  readonly idMap: Map<number, string>
+  readonly providerFallbacks: ProviderFallbackFlag[]
+}
+
+/** Builds a `UserImporter` — the stateful factory `importUsersAndGroups()` itself is now a thin
+ * composition of (see below). Never throws for one bad or conflicting record; each becomes a
+ * `RecordResult` on `summary` instead, so one user's bad data cannot abort the whole run. */
+export function createUserImporter(
   convert: UserConverter,
   writer: UsersGroupsWriter
-): Promise<{
-  summary: EntityImportSummary
-  idMap: Map<number, string>
-  providerFallbacks: ProviderFallbackFlag[]
-}> {
+): UserImporter {
   const summary = emptySummary()
   const idMap = new Map<number, string>()
   const providerFallbacks: ProviderFallbackFlag[] = []
 
-  for await (const sourceRecord of source) {
+  async function importOne(sourceRecord: SourceRecord): Promise<void> {
     const sourceId = readSourceId(sourceRecord, 'id')
     if (sourceId === undefined) {
       record(summary, {
@@ -740,7 +765,7 @@ async function importUsers(
         status: 'skipped',
         message: 'missing or non-integer source id'
       })
-      continue
+      return
     }
 
     if (isSystemSourceRecord(sourceRecord)) {
@@ -750,13 +775,13 @@ async function importUsers(
         message:
           "system user (Administrator/Guest) -- an equivalent is already seeded by this install's own Users.init(); not imported"
       })
-      continue
+      return
     }
 
     const outcome = await convert(sourceRecord)
     if (outcome.status !== 'created') {
       record(summary, { sourceId, status: outcome.status, message: outcome.message })
-      continue
+      return
     }
 
     try {
@@ -771,29 +796,40 @@ async function importUsers(
     }
   }
 
-  return { summary, idMap, providerFallbacks }
+  return { importOne, summary, idMap, providerFallbacks }
 }
 
-/** Translates and writes `userGroups` join rows, strictly after both id maps are fully populated —
- * the ordering `importUsersAndGroups()` exists to guarantee. No field-mapping stub is needed here (see
- * the module doc): once both ids resolve, there is nothing left to convert.
+/** Live, per-record `userGroups` join-row import — same shape and rationale as `GroupImporter`/
+ * `UserImporter` above, extracted from what used to be `importUserGroups()`'s whole `for await`
+ * loop. No field-mapping stub is needed here (see the module doc): once both ids resolve, there is
+ * nothing left to convert. */
+export interface UserGroupImporter {
+  importOne(source: SourceRecord): Promise<void>
+  readonly summary: EntityImportSummary
+}
+
+/** Builds a `UserGroupImporter`. Takes `userIdMap`/`groupIdMap` directly rather than building them
+ * itself — the caller (Task 14's phase wiring, or `importUsersAndGroups()`'s own composition below)
+ * passes the SAME `Map` instances `createGroupImporter()`/`createUserImporter()` populate, exactly as
+ * `importUsersAndGroups()` already threaded `groupsResult.idMap`/`usersResult.idMap` before this
+ * extraction — so a membership resolved here always reflects every group/user imported so far,
+ * including ones imported after this importer was constructed.
  *
  * Task 731: a `groupId` that doesn't resolve in `groupIdMap` is not automatically "the group was
  * never created" -- it may be the source's own system Administrators (`SOURCE_SYSTEM_GROUP_ADMIN_ID`)
- * or Guests (`SOURCE_SYSTEM_GROUP_GUEST_ID`) group, which `importGroups()` deliberately skips rather
- * than creates. When `systemGroupIds` is supplied, that specific case is remapped onto this install's
- * real target group via `writer.assignUserToSystemGroup()` instead of being dropped. An ordinary group
- * id that resolves normally through `groupIdMap` never reaches this fallback at all. */
-async function importUserGroups(
-  source: AsyncIterable<SourceRecord>,
+ * or Guests (`SOURCE_SYSTEM_GROUP_GUEST_ID`) group, which `createGroupImporter()` deliberately skips
+ * rather than creates. When `systemGroupIds` is supplied, that specific case is remapped onto this
+ * install's real target group via `writer.assignUserToSystemGroup()` instead of being dropped. An
+ * ordinary group id that resolves normally through `groupIdMap` never reaches this fallback at all. */
+export function createUserGroupImporter(
   userIdMap: Map<number, string>,
   groupIdMap: Map<number, string>,
   writer: UsersGroupsWriter,
   systemGroupIds?: SystemGroupIds
-): Promise<EntityImportSummary> {
+): UserGroupImporter {
   const summary = emptySummary()
 
-  for await (const sourceRecord of source) {
+  async function importOne(sourceRecord: SourceRecord): Promise<void> {
     const sourceUserId = readSourceId(sourceRecord, 'userId')
     const sourceGroupId = readSourceId(sourceRecord, 'groupId')
     const label = `${sourceRecord.userId ?? '?'}:${sourceRecord.groupId ?? '?'}`
@@ -804,7 +840,7 @@ async function importUserGroups(
         status: 'skipped',
         message: 'missing or non-integer userId/groupId'
       })
-      continue
+      return
     }
 
     const targetUserId = userIdMap.get(sourceUserId)
@@ -829,7 +865,7 @@ async function importUserGroups(
         status: 'skipped',
         message: `referenced ${missing} was not created, so this membership was not written`
       })
-      continue
+      return
     }
 
     try {
@@ -855,7 +891,7 @@ async function importUserGroups(
     }
   }
 
-  return summary
+  return { importOne, summary }
 }
 
 /**
@@ -863,6 +899,11 @@ async function importUserGroups(
  * only that order, because `userGroups` translation needs both id maps fully built first (a group
  * referenced by a not-yet-imported user, or vice versa, is impossible by construction here since
  * neither map is read until its own phase has completely finished).
+ *
+ * A thin composition of `createGroupImporter()`/`createUserImporter()`/`createUserGroupImporter()`
+ * (Task 12, following Task 11's `importPages()`/`createPageImporter()` split): Task 14 drives the
+ * same three per-record importers directly via `importOne()` instead of three whole iterables, for
+ * phase wiring that can't hand this function a single `AsyncIterable` per entity up front.
  */
 export async function importUsersAndGroups(
   input: UsersGroupsImportInput
@@ -870,20 +911,30 @@ export async function importUsersAndGroups(
   const convertGroup = input.convertGroup ?? stubConvertGroup
   const convertUser = input.convertUser ?? stubConvertUser
 
-  const groupsResult = await importGroups(input.source.groups, convertGroup, input.writer)
-  const usersResult = await importUsers(input.source.users, convertUser, input.writer)
-  const userGroupsSummary = await importUserGroups(
-    input.source.userGroups,
-    usersResult.idMap,
-    groupsResult.idMap,
+  const groupImporter = createGroupImporter(convertGroup, input.writer)
+  for await (const sourceRecord of input.source.groups) {
+    await groupImporter.importOne(sourceRecord)
+  }
+
+  const userImporter = createUserImporter(convertUser, input.writer)
+  for await (const sourceRecord of input.source.users) {
+    await userImporter.importOne(sourceRecord)
+  }
+
+  const userGroupImporter = createUserGroupImporter(
+    userImporter.idMap,
+    groupImporter.idMap,
     input.writer,
     input.systemGroupIds
   )
+  for await (const sourceRecord of input.source.userGroups) {
+    await userGroupImporter.importOne(sourceRecord)
+  }
 
   return {
-    groups: groupsResult.summary,
-    users: usersResult.summary,
-    userGroups: userGroupsSummary,
-    providerFallbacks: usersResult.providerFallbacks
+    groups: groupImporter.summary,
+    users: userImporter.summary,
+    userGroups: userGroupImporter.summary,
+    providerFallbacks: userImporter.providerFallbacks
   }
 }

@@ -4,7 +4,9 @@ import {
   createDrizzleWriter,
   createDryRunWriter,
   createGroupConverter,
+  createGroupImporter,
   createProviderFallbackUserConverter,
+  createUserGroupImporter,
   importUsersAndGroups,
   needsProviderFallback,
   stubConvertGroup,
@@ -897,5 +899,48 @@ describe('system-row exclusion (Task 731)', () => {
     } finally {
       ;(globalThis as any).WIKI = previous
     }
+  })
+})
+
+/**
+ * Coverage for the Task 12 extraction: `createGroupImporter()`/`createUserImporter()`/
+ * `createUserGroupImporter()` expose a per-record `importOne()` that Task 14's phase wiring drives
+ * one source record at a time, instead of only ever being handed a whole iterable up front (as
+ * `importUsersAndGroups()` still does, now as a thin composition of these three factories).
+ */
+describe('createGroupImporter / createUserGroupImporter (Task 12 extraction)', () => {
+  test('createGroupImporter accumulates idMap across multiple importOne() calls', async () => {
+    const writer = createDryRunWriter()
+    const importer = createGroupImporter(passthroughConvertGroup, writer)
+
+    await importer.importOne({ id: 1, name: 'Editors' })
+    await importer.importOne({ id: 2, name: 'Reviewers' })
+
+    assert.equal(importer.idMap.size, 2)
+    assert.ok(importer.idMap.has(1))
+    assert.ok(importer.idMap.has(2))
+    assert.notEqual(importer.idMap.get(1), importer.idMap.get(2))
+    assert.equal(importer.summary.created, 2)
+    assert.equal(importer.summary.records.length, 2)
+  })
+
+  test('createUserGroupImporter uses the exact idMap instances passed in, not copies', async () => {
+    const userIdMap = new Map<number, string>()
+    const groupIdMap = new Map<number, string>()
+    const writer = createDryRunWriter()
+
+    const importer = createUserGroupImporter(userIdMap, groupIdMap, writer)
+
+    // Mutate the maps AFTER construction, before importOne() -- proves the importer holds a live
+    // reference to the same Map instances rather than a snapshot taken at construction time, which
+    // is exactly what Task 14's phase wiring depends on (groups/users importers mutate these same
+    // maps as their own phases run, interleaved with this importer's own construction).
+    userIdMap.set(10, 'target-user-uuid')
+    groupIdMap.set(1, 'target-group-uuid')
+
+    await importer.importOne({ id: 100, userId: 10, groupId: 1 })
+
+    assert.equal(importer.summary.created, 1)
+    assert.equal(importer.summary.records[0].targetId, 'target-group-uuid')
   })
 })
