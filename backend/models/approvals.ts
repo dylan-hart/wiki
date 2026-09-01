@@ -1333,10 +1333,22 @@ class Approvals {
       //    was approved and onto which page; `pageEditSubmissionApprovals`'s votes are no longer
       //    cascaded away with the row, but they also no longer matter to anything -- `approvalCountsFor`
       //    and `getReviewableSubmissions` only ever look at `open` submissions.
-      await tx
+      //
+      // -> The `status = 'open'` guard mirrors `rejectSubmission`'s own final UPDATE
+      //    (OpenProject #2354): the `for('update')` re-check just above already serializes this
+      //    against a concurrent writer at the Postgres level, so this is defense-in-depth rather than
+      //    the only thing preventing a resolved row from being flipped back to 'approved' -- but it
+      //    keeps this write from ever being the one place that trusts the lock alone. A 0-rowcount
+      //    result (the row resolved by some path this lock did not anticipate) is treated the same as
+      //    the `for('update')` check above: not-found, not a silent "finalized" claim over content
+      //    that was never actually written.
+      const updateResult = await tx
         .update(submissionsTable)
         .set({ status: 'approved', resolvedBy: actor.id, updatedAt: new Date() })
-        .where(eq(submissionsTable.id, submissionId))
+        .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.status, 'open')))
+      if ((updateResult.rowCount ?? 0) === 0) {
+        return { ok: false as const, reason: 'not-found' as const }
+      }
       return { ok: true as const, finalized: true as const, approvalsCount, approvalsRequired }
     })
 

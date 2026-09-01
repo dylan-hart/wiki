@@ -1046,6 +1046,82 @@ describe('approvals concurrent finalisation (DB-backed)', { skip: !hasTestDataba
       false
     )
   })
+
+  /**
+   * OpenProject #2354: `approveSubmission`'s finalizing UPDATE had no `status = 'open'` guard on its
+   * WHERE clause, unlike `rejectSubmission`'s. The `for('update')` row lock re-check just above it
+   * already serializes a concurrent approve/decline pair at the Postgres level, so this exercises
+   * that the pairing still resolves to exactly one winner with the guard in place -- never both a
+   * finalized approve AND a successful decline for the same submission.
+   */
+  test('a concurrent approve and reject on the same submission resolve to exactly one winner', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'approvals/concurrent/approve-vs-reject',
+        title: 'Concurrent Approve vs Reject',
+        editor: 'markdown',
+        content: 'Original content'
+      },
+      actor
+    )
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: {
+        id: page.id,
+        path: page.path,
+        locale: 'en',
+        tags: [],
+        allowContributions: true,
+        classification: null
+      },
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    const [approveResult, rejectResult] = await Promise.all([
+      approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested content',
+        render: '<p>Suggested content</p>',
+        actor
+      }),
+      approvalsModel.rejectSubmission(fixtures.siteId, submission.id, 'no thanks', fixtures.userId)
+    ])
+
+    const approveWon = approveResult.ok && approveResult.finalized
+    const rejectWon = rejectResult === true
+    // -> Exactly one side prevails -- never both (the page written AND the row left declined), and
+    //    never neither (both losing to a state the other side never actually reached).
+    assert.notEqual(
+      approveWon,
+      rejectWon,
+      'approve and reject must not both win, and must not both lose'
+    )
+
+    const finalPage = await pagesModel.getPage({
+      siteId: fixtures.siteId,
+      id: page.id,
+      withContent: true
+    })
+    const finalRows = await WIKI.db
+      .select({ status: submissionsTable.status })
+      .from(submissionsTable)
+      .where(eq(submissionsTable.id, submission.id))
+      .limit(1)
+
+    if (approveWon) {
+      assert.equal(finalPage!.content, 'Suggested content')
+      assert.equal(finalRows[0]!.status, 'approved')
+      assert.equal(rejectResult, false, 'the losing reject call must report no-op, not success')
+    } else {
+      assert.equal(finalPage!.content, 'Original content')
+      assert.equal(finalRows[0]!.status, 'declined')
+      assert.equal(approveResult.ok, false, 'the losing approve call must not report ok')
+    }
+  })
 })
 
 /**
