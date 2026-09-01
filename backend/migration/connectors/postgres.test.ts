@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
 import { randomBytes } from 'node:crypto'
 import { Client } from 'pg'
-import { NotYetImplementedError } from '../connector.ts'
 import { PostgresSourceConnector } from './postgres.ts'
 
 /**
@@ -275,20 +274,7 @@ describe('PostgresSourceConnector', () => {
     }
   )
 
-  test('assets() generator remains a deferred stub (owned by another task)', () => {
-    const connector = new PostgresSourceConnector({
-      host: HOST,
-      port: PORT,
-      database: DATABASE,
-      user: USER,
-      password: PASSWORD
-    })
-    for (const method of ['assets'] as const) {
-      assert.throws(() => connector[method](), NotYetImplementedError)
-    }
-  })
-
-  test('pages()/pageHistory()/tags()/navigation()/users()/groups()/settings()/comments() reject when called before connect()', async () => {
+  test('pages()/pageHistory()/tags()/navigation()/users()/groups()/settings()/comments()/assets() reject when called before connect()', async () => {
     const connector = new PostgresSourceConnector({
       host: HOST,
       port: PORT,
@@ -304,7 +290,8 @@ describe('PostgresSourceConnector', () => {
       'users',
       'groups',
       'settings',
-      'comments'
+      'comments',
+      'assets'
     ] as const) {
       const iterable = connector[method]()
       await assert.rejects(async () => {
@@ -874,6 +861,230 @@ describe('PostgresSourceConnector', () => {
         )
         assert.equal(rows[0].content, 'first comment')
         assert.equal(rows[1].content, 'second comment')
+        await connector.disconnect()
+      })
+    }
+  )
+
+  describe(
+    'assets() against a 2.5.x-shaped schema (Task 10)',
+    { skip: !dbAvailable && 'no test Postgres reachable' },
+    () => {
+      let admin: Client
+
+      async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
+        const out: T[] = []
+        for await (const item of iterable) out.push(item)
+        return out
+      }
+
+      async function readAll(stream: NodeJS.ReadableStream): Promise<Buffer> {
+        const chunks: Buffer[] = []
+        for await (const chunk of stream) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+        }
+        return Buffer.concat(chunks)
+      }
+
+      const nestedAssetBytes = Buffer.from('nested asset bytes')
+      const rootAssetBytes = Buffer.from('root asset bytes')
+
+      before(async () => {
+        if (!dbAvailable) return
+        admin = new Client({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await admin.connect()
+        await admin.query(
+          'DROP TABLE IF EXISTS "assetData", assets, "assetFolders", pages, users, groups'
+        )
+        // connect()'s checkShape() introspects pages/users/groups too, even though this describe
+        // block never reads through those generators — see the "against a 2.5.x-shaped schema"
+        // describe above.
+        await admin.query(`
+          CREATE TABLE pages (
+            id serial PRIMARY KEY,
+            path varchar NOT NULL,
+            hash varchar NOT NULL,
+            "authorId" integer,
+            "creatorId" integer,
+            "contentType" varchar NOT NULL
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE users (
+            id serial PRIMARY KEY,
+            email varchar NOT NULL,
+            "providerKey" varchar NOT NULL DEFAULT 'local',
+            "tfaIsActive" boolean NOT NULL DEFAULT false
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE groups (
+            id serial PRIMARY KEY,
+            name varchar NOT NULL,
+            permissions json NOT NULL,
+            "pageRules" json NOT NULL,
+            "redirectOnLogin" varchar NOT NULL DEFAULT '/'
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE "assetFolders" (
+            id serial PRIMARY KEY,
+            name varchar NOT NULL,
+            slug varchar NOT NULL,
+            "parentId" integer
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE assets (
+            id serial PRIMARY KEY,
+            filename varchar NOT NULL,
+            hash varchar NOT NULL,
+            ext varchar NOT NULL,
+            kind varchar NOT NULL DEFAULT 'binary',
+            mime varchar NOT NULL DEFAULT 'application/octet-stream',
+            "fileSize" integer,
+            metadata json,
+            "createdAt" varchar NOT NULL,
+            "updatedAt" varchar NOT NULL,
+            "folderId" integer,
+            "authorId" integer
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE "assetData" (
+            id integer PRIMARY KEY,
+            data bytea NOT NULL
+          )
+        `)
+
+        // Two folders: a root-level 'docs', and 'sub' nested inside it -- id 2's parentId chains
+        // through id 1, proving buildAssetFolderPaths() actually walks the adjacency list rather than
+        // only handling a single level.
+        await admin.query(`
+          INSERT INTO "assetFolders" (id, name, slug, "parentId")
+          VALUES
+            (1, 'docs', 'docs', NULL),
+            (2, 'sub', 'sub', 1)
+        `)
+        await admin.query(
+          `INSERT INTO assets (id, filename, hash, ext, mime, "createdAt", "updatedAt", "folderId", "authorId")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            10,
+            'file.png',
+            'hash-10',
+            '.png',
+            'image/png',
+            '2020-01-01T00:00:00.000Z',
+            '2020-01-02T00:00:00.000Z',
+            2,
+            5
+          ]
+        )
+        await admin.query(
+          `INSERT INTO assets (id, filename, hash, ext, mime, "createdAt", "updatedAt", "folderId", "authorId")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            11,
+            'root.txt',
+            'hash-11',
+            '.txt',
+            'text/plain',
+            '2020-01-03T00:00:00.000Z',
+            '2020-01-03T00:00:00.000Z',
+            null,
+            null
+          ]
+        )
+        await admin.query(`INSERT INTO "assetData" (id, data) VALUES ($1, $2)`, [
+          10,
+          nestedAssetBytes
+        ])
+        await admin.query(`INSERT INTO "assetData" (id, data) VALUES ($1, $2)`, [
+          11,
+          rootAssetBytes
+        ])
+      })
+
+      after(async () => {
+        if (!dbAvailable) return
+        await admin.query(
+          'DROP TABLE IF EXISTS "assetData", assets, "assetFolders", pages, users, groups'
+        )
+        await admin.end()
+      })
+
+      test('assets() resolves a nested folder path from assetFolders', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.assets())
+        const nested = rows.find((r) => r.filename === 'file.png')!
+        assert.equal(nested.relativePath, 'docs/sub/file.png')
+        await connector.disconnect()
+      })
+
+      test('assets() yields a bare filename for a root-level asset', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.assets())
+        const root = rows.find((r) => r.filename === 'root.txt')!
+        assert.equal(root.relativePath, 'root.txt')
+        await connector.disconnect()
+      })
+
+      test('assets() carries authorId/mimeType/createdAt/updatedAt from the source row', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.assets())
+        const nested = rows.find((r) => r.filename === 'file.png')!
+        assert.equal(nested.authorId, 5)
+        assert.equal(nested.mimeType, 'image/png')
+        assert.deepEqual(nested.createdAt, new Date('2020-01-01T00:00:00.000Z'))
+        assert.deepEqual(nested.updatedAt, new Date('2020-01-02T00:00:00.000Z'))
+        await connector.disconnect()
+      })
+
+      test('assets() streams the joined assetData blob', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.assets())
+        const nested = rows.find((r) => r.filename === 'file.png')!
+        const bytes = await readAll(nested.stream)
+        assert.ok(bytes.equals(nestedAssetBytes))
+
+        const root = rows.find((r) => r.filename === 'root.txt')!
+        const rootBytes = await readAll(root.stream)
+        assert.ok(rootBytes.equals(rootAssetBytes))
         await connector.disconnect()
       })
     }

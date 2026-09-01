@@ -1,7 +1,8 @@
 import { Client } from 'pg'
 import type { ClientConfig } from 'pg'
+import Cursor from 'pg-cursor'
+import { Readable } from 'node:stream'
 import {
-  NotYetImplementedError,
   type SourceAssetFile,
   type SourceConnector,
   type SourceDescription,
@@ -41,9 +42,10 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
  * See `docs/migration/decision-source-scope.md` for why this is the only live-database connector kind
  * this connector supports, and for the read-only requirement `connect()` enforces defensively.
  *
- * `pages()`, `pageHistory()`, `tags()`, `navigation()`, `users()`, `groups()`, `settings()` and
- * `comments()` are implemented for real via plain SQL against the connected client — only
- * `assets()` remains a `NotYetImplementedError` stub, deferred to the task that owns that entity.
+ * Every `SourceConnector` method is implemented for real against the connected client: `pages()`,
+ * `pageHistory()`, `tags()`, `navigation()`, `users()`, `groups()`, `settings()` and `comments()` via
+ * plain SQL, and `assets()` via a streaming Postgres cursor joined against the resolved
+ * `assetFolders` path for each row.
  */
 export class PostgresSourceConnector implements SourceConnector {
   readonly kind = 'postgres' as const
@@ -298,7 +300,78 @@ export class PostgresSourceConnector implements SourceConnector {
     return this.paginatedQuery(`SELECT * FROM comments ORDER BY id`, [], 100)
   }
 
-  assets(): AsyncIterable<SourceAssetFile> {
-    throw new NotYetImplementedError('assets', 'Task 418 (Assets/Comments importer)')
+  /** Resolves 2.x `assetFolders`' self-referential adjacency list (id -> {name, parentId}) into a
+   * folderId -> full relative path map, the live-Postgres equivalent of what the 2.x export bundle's
+   * own `getAllPaths()` computes server-side (`docs/migration/2.5x-export-bundle-format.md`'s
+   * `assets` section). Reads the whole (typically small) `assetFolders` table into memory once — no
+   * install has enough folders for this to matter the way `pages`/`assetData` volume does. */
+  private async buildAssetFolderPaths(): Promise<Map<number, string>> {
+    if (!this.client) {
+      throw new Error('Entity generator called before a successful connect().')
+    }
+    const res = await this.client.query<{ id: number; name: string; parentId: number | null }>(
+      `SELECT id, name, "parentId" FROM "assetFolders"`
+    )
+    const byId = new Map(res.rows.map((row) => [row.id, row]))
+    const pathCache = new Map<number, string>()
+
+    const resolve = (id: number): string => {
+      const cached = pathCache.get(id)
+      if (cached !== undefined) return cached
+      const folder = byId.get(id)
+      if (!folder) return ''
+      const path = folder.parentId ? `${resolve(folder.parentId)}/${folder.name}` : folder.name
+      pathCache.set(id, path)
+      return path
+    }
+
+    for (const id of byId.keys()) resolve(id)
+    return pathCache
+  }
+
+  async *assets(): AsyncIterable<SourceAssetFile> {
+    if (!this.client) {
+      throw new Error('Entity generator called before a successful connect().')
+    }
+    const folderPaths = await this.buildAssetFolderPaths()
+
+    // Single unbatched streaming cursor, matching the 2.x exporter's own choice for this entity
+    // (docs/migration/2.5x-export-bundle-format.md: "assets uses a single unbatched streaming DB
+    // cursor, no .limit() at all") — asset bytes are the one thing in this migration too large to
+    // ever paginate through a plain SELECT.
+    const cursor = this.client.query(
+      new Cursor(
+        `SELECT a.id, a.filename, a.mime, a."authorId", a."createdAt", a."updatedAt", a."folderId",
+                d.data
+         FROM assets a
+         JOIN "assetData" d ON d.id = a.id
+         ORDER BY a.id`
+      )
+    )
+    try {
+      for (;;) {
+        const rows = await new Promise<any[]>((resolve, reject) => {
+          cursor.read(1, (err: Error | undefined, rows: any[]) =>
+            err ? reject(err) : resolve(rows)
+          )
+        })
+        if (rows.length === 0) break
+        const row = rows[0]
+        const folderPath = row.folderId ? folderPaths.get(row.folderId) : undefined
+        const relativePath = folderPath ? `${folderPath}/${row.filename}` : row.filename
+        yield {
+          relativePath,
+          filename: row.filename,
+          size: row.data?.length,
+          stream: Readable.from(row.data ? [row.data] : []),
+          authorId: row.authorId ?? undefined,
+          mimeType: row.mime ?? undefined,
+          createdAt: row.createdAt ? new Date(row.createdAt) : undefined,
+          updatedAt: row.updatedAt ? new Date(row.updatedAt) : undefined
+        }
+      }
+    } finally {
+      await new Promise<void>((resolve) => cursor.close(() => resolve()))
+    }
   }
 }
