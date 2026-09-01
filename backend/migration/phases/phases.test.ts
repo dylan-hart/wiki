@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict'
+import { Readable } from 'node:stream'
 import { describe, test } from 'node:test'
 import { NotYetImplementedError } from '../connector.ts'
+import { IdMap } from '../id-map.ts'
 import { assetsPhase } from './assets.ts'
 import { contentPhase } from './content.ts'
 import { settingsPhase } from './settings.ts'
 import { usersPhase } from './users.ts'
 import { MIGRATION_PHASES, MIGRATION_PHASE_IDS } from './index.ts'
 import type { MigrationContext } from '../context.ts'
-import type { SourceConnector, SourceRecord } from '../connector.ts'
+import type { SourceAssetFile, SourceConnector, SourceRecord } from '../connector.ts'
 
 /** Yields `count` bare records — enough for a phase to count, nothing about their shape matters. */
 async function* recordsOf(count: number): AsyncGenerator<SourceRecord> {
@@ -156,6 +158,36 @@ function creatableContentConnector(pages: SourceRecord[] = [fakeSourcePage()]): 
   }
 }
 
+/** An `assetsPhase` connector whose `assets()`/`comments()` rows genuinely import (Task 16): one
+ * nested-folder asset with a mapped author, and two comments — one on an already-imported page, one
+ * whose `pageId` names a page that was never imported. Used with `dryRun: true` (so `phases/assets.ts`'s
+ * `assetsModel`/`treeModel`/`commentsModel` closures take their placeholder-id branch, never touching
+ * the ambient `WIKI`) to exercise real per-record `'success'`/`'failure'` outcomes with no real `WIKI`/db
+ * needed. */
+function creatableAssetsConnector(): SourceConnector {
+  async function* assetsGen(): AsyncGenerator<SourceAssetFile> {
+    yield {
+      relativePath: 'docs/sub/diagram.png',
+      filename: 'diagram.png',
+      stream: Readable.from([Buffer.from('fake-image-bytes')]),
+      authorId: 42,
+      mimeType: 'image/png'
+    }
+  }
+  async function* commentsGen(): AsyncGenerator<SourceRecord> {
+    yield { id: 1, pageId: 100, authorId: 42, content: 'Great page!' }
+    yield {
+      id: 2,
+      pageId: 999,
+      authorId: null,
+      content: 'Orphaned comment',
+      name: 'Guest',
+      email: 'guest@example.com'
+    }
+  }
+  return { ...stubConnector(), assets: assetsGen, comments: commentsGen }
+}
+
 describe('migration phases', () => {
   test('phase order and declared dependencies match Feature 421 task 742', () => {
     assert.deepEqual(MIGRATION_PHASE_IDS, ['settings', 'users', 'content', 'assets'])
@@ -280,11 +312,72 @@ describe('migration phases', () => {
     )
   })
 
-  test('assetsPhase counts assets, but reports not_implemented — no phase has a write path yet', async () => {
+  test('assetsPhase (Task 16): bare records with no real stream/pageId never reach a real write, so a run producing none stays not_implemented (mirroring the same Task 14 review-fix pattern for users)', async () => {
+    // -> workingConnector's bare `{id: i}` fixtures have no `stream` for importAsset() to read, so
+    //    every one fails 'read-error' before ever reaching a real upload() call -- routed to
+    //    recorder.conflict(), never recorder.create(), so define-phase.ts's write-capability tracking
+    //    correctly folds 'assets' in alongside 'comments', which is not_implemented anyway (its
+    //    connector generator is still a stub in this fixture).
     const result = await assetsPhase.run(contextWith(workingConnector({ assets: 9 })))
     assert.equal(result.status, 'not_implemented')
     assert.deepEqual(result.counts, { assets: 9 })
-    assert.deepEqual(result.notImplemented, ['assets'])
+    assert.deepEqual(result.notImplemented, ['comments', 'assets'])
+  })
+
+  test('assetsPhase (Task 16): a working connector with a genuinely importable asset and comments reports ok, correctly distinguishing success from failure per record', async () => {
+    const pageIdMap = new IdMap<number>()
+    pageIdMap.set(100, 'fixture-page-uuid')
+    const result = await assetsPhase.run({
+      ...contextWith(creatableAssetsConnector()),
+      dryRun: true,
+      userIdMap: new Map([[42, 'fixture-user-uuid']]),
+      pageIdMap
+    })
+    assert.equal(result.status, 'ok')
+    assert.deepEqual(result.counts, { assets: 1, comments: 2 })
+    assert.equal(result.notImplemented, undefined)
+    assert.ok(result.report)
+    // -> 1 asset + 2 comments.
+    assert.equal(result.report!.found, 3)
+    // -> the asset (mapped author, nested folder) + the comment on the already-imported page.
+    assert.equal(result.report!.wouldCreate, 2)
+    assert.equal(result.report!.wouldSkipExisting, 0)
+    // -> the second comment's pageId (999) was never imported.
+    assert.equal(result.report!.conflicts.length, 1)
+    assert.equal(result.report!.conflicts[0]!.identifier, '2')
+    assert.match(result.report!.conflicts[0]!.detail, /pageId 999 was never imported/)
+    assert.deepEqual(result.report!.unmappable, [])
+  })
+
+  test('assetsPhase (Task 16): an asset whose authorId has no entry in the user id map falls back to the operator actor with a logged warning, rather than failing the import', async () => {
+    async function* assetsGen(): AsyncGenerator<SourceAssetFile> {
+      yield {
+        relativePath: 'orphan.txt',
+        filename: 'orphan.txt',
+        stream: Readable.from([Buffer.from('hello')]),
+        authorId: 777 // -> not in userIdMap
+      }
+    }
+    async function* commentsGen(): AsyncGenerator<SourceRecord> {
+      // -> Empty: this test is only about the asset entity's fallback warning.
+    }
+    const connector = { ...stubConnector(), assets: assetsGen, comments: commentsGen }
+    const logs: string[] = []
+    const result = await assetsPhase.run({
+      ...contextWith(connector),
+      dryRun: true,
+      log: (message) => logs.push(message)
+    })
+    assert.equal(result.status, 'ok')
+    assert.equal(result.report!.wouldCreate, 1)
+    assert.equal(result.report!.conflicts.length, 0)
+    assert.ok(
+      logs.some(
+        (message) =>
+          message.includes('orphan.txt') && message.includes('falling back to the operator actor')
+      ),
+      'the operator-fallback warning was logged'
+    )
   })
 
   test('a real (non-stub) error surfaces as status "error" rather than not_implemented', async () => {
@@ -371,19 +464,6 @@ describe('migration phases', () => {
         reason: 'unsupported-auth-provider',
         detail:
           'providerKey "azure" has no matching 3.0 authentication module (confirmed no-destination — see docs/migration/2.5x-settings-auth-storage-field-mapping.md\'s Part 2 provider inventory).'
-      }
-    ])
-  })
-
-  test('assetsPhase always reports comments as unmappable (no connector read path)', async () => {
-    const result = await assetsPhase.run(contextWith(stubConnector()))
-    assert.ok(result.report)
-    assert.deepEqual(result.report!.unmappable, [
-      {
-        identifier: 'comments',
-        reason: 'no-destination-table',
-        detail:
-          'Wiki.js 3.0 has its own comments table, model, and API route, but this migration does not import 2.5.x comments because the SourceConnector interface has no comments() generator to read them through yet.'
       }
     ])
   })

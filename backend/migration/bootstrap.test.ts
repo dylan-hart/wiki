@@ -43,6 +43,7 @@ const EXPECTED_MODEL_NAMES = [
   'pages',
   'pageHistory',
   'assets',
+  'comments',
   'locales',
   'rendering',
   'search',

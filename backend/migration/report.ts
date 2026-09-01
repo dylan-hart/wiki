@@ -8,9 +8,10 @@ import type { MigrationPhaseId } from './context.ts'
  * for (LDAP/SAML/CAS/Auth0/Okta and friends — see `unmappable.ts`'s `KNOWN_3_0_AUTH_MODULES` for the
  * sixteen modules 3.0 actually ships, `backend/modules/authentication/`).
  *
- * `no-destination-table`: an entity 3.0's schema has nowhere to put yet — today that is exactly
- * comments (`backend/db/schema.ts` has no comments table until the sibling Comments epic, #335,
- * lands; see `docs/migration/2.5x-to-3.0-mapping.md`'s "comments" section).
+ * `no-destination-table`: an entity 3.0's schema has nowhere to put at all. No phase currently emits
+ * this reason — comments were the original example (before Task 16 built a real `comments()` ->
+ * `models/comments.ts#create()` import path), and nothing else has taken its place — but the category
+ * stays defined for the next entity that turns out to have no 3.0 destination.
  *
  * `unsupported-storage-module`: a 2.x `storage` row (`mappers/storage.ts`, Task 15) whose `key` names
  * a module 3.0 has no directory for at all (`box`/`digitalocean`/`dropbox`/`gdrive`/`onedrive`/

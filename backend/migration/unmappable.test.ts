@@ -2,11 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { describe, test } from 'node:test'
-import {
-  COMMENTS_UNMAPPABLE,
-  KNOWN_3_0_AUTH_MODULES,
-  classifyUserAuthProvider
-} from './unmappable.ts'
+import { KNOWN_3_0_AUTH_MODULES, classifyUserAuthProvider } from './unmappable.ts'
 
 describe('KNOWN_3_0_AUTH_MODULES', () => {
   test('matches the real backend/modules/authentication/ directory listing exactly', async () => {
@@ -63,13 +59,5 @@ describe('classifyUserAuthProvider', () => {
   test('falls back to id when email is missing', () => {
     const result = classifyUserAuthProvider({ providerKey: 'firebase', id: 42 })
     assert.equal(result?.identifier, '42')
-  })
-})
-
-describe('COMMENTS_UNMAPPABLE', () => {
-  test('is a static no-destination-table entry', () => {
-    assert.equal(COMMENTS_UNMAPPABLE.identifier, 'comments')
-    assert.equal(COMMENTS_UNMAPPABLE.reason, 'no-destination-table')
-    assert.match(COMMENTS_UNMAPPABLE.detail, /comments\(\) generator/)
   })
 })

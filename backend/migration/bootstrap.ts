@@ -33,6 +33,8 @@ import type { SystemGroupIds } from './importers/users-groups.ts'
  * they call directly:
  * - `sites`, `settings`, `users`, `groups`, `authentication`, `storage`, `tags`, `tree`, `pages`,
  *   `pageHistory`, `assets` — called directly by `importers/users-groups.ts` and `page-import.ts`.
+ * - `comments` — called directly by `importers/comment-import.ts` (Task 16), via `phases/assets.ts`'s
+ *   `commentsModel.create()`.
  * - `locales`, `rendering`, `search`, `hooks`, `flags`, `classificationLevels` — reached
  *   transitively via `WIKI.models.pages.createPage()` (`models/pages.ts:681,688,697,728,766,825,
  *   918,919,927`), the only page write path an importer calls today.
@@ -62,6 +64,7 @@ export async function loadModels(): Promise<WikiGlobal['models']> {
     { pages },
     { pageHistory },
     { assets },
+    { comments },
     { locales },
     { rendering },
     { search },
@@ -82,6 +85,7 @@ export async function loadModels(): Promise<WikiGlobal['models']> {
     import('../models/pages.ts'),
     import('../models/pageHistory.ts'),
     import('../models/assets.ts'),
+    import('../models/comments.ts'),
     import('../models/locales.ts'),
     import('../models/rendering.ts'),
     import('../models/search.ts'),
@@ -103,6 +107,7 @@ export async function loadModels(): Promise<WikiGlobal['models']> {
     pages,
     pageHistory,
     assets,
+    comments,
     locales,
     rendering,
     search,

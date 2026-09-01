@@ -67,18 +67,3 @@ export function classifyUserAuthProvider(record: SourceRecord): UnmappableEntry 
     detail: `providerKey "${providerKey}" has no matching 3.0 authentication module (confirmed no-destination — see docs/migration/2.5x-settings-auth-storage-field-mapping.md's Part 2 provider inventory).`
   }
 }
-
-/**
- * 3.0 has its own comments table, model, and API route (`backend/db/schema.ts`'s `comments` table,
- * `backend/models/comments.ts`, `backend/api/comments.ts`) — what has no destination is the *import
- * path* into them: the `SourceConnector` interface (Feature 412) deliberately has no `comments()`
- * generator to read 2.x comments through in the first place, so there is nothing per-record to
- * classify. This is a structural fact about the connector interface, not the 3.0 schema, so it is
- * reported once per run rather than enumerated per row.
- */
-export const COMMENTS_UNMAPPABLE: UnmappableEntry = {
-  identifier: 'comments',
-  reason: 'no-destination-table',
-  detail:
-    'Wiki.js 3.0 has its own comments table, model, and API route, but this migration does not import 2.5.x comments because the SourceConnector interface has no comments() generator to read them through yet.'
-}
