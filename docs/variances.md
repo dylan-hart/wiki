@@ -111,7 +111,7 @@ provider with no implementation. Carried out in #1958: `isAvailable: false` on t
 `backend/modules/comments/{disqus,commento,artalk}/definition.yml` files, `codeTemplate` dropped from
 `isSelectable()` in `backend/models/commentProviders.ts`. The dead-end case (a site whose already-
 stored `activeProvider` is one of the three) is #1962's, not this addendum's — it must keep resolving
-to *something* rather than silently breaking, per `backend/api/comments.ts:290`'s "no provider active
+to _something_ rather than silently breaking, per `backend/api/comments.ts:290`'s "no provider active
 is not a supported state."
 
 ## Storage targets: Box, Dropbox, Google Drive, OneDrive omitted (no 3.x storage module)
