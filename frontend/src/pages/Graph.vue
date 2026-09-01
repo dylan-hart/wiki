@@ -381,12 +381,19 @@ function groupKeyFor(node) {
  *  state, no separate computation -- and excludes synthetic hub/root nodes (`applyFilters()`'s
  *  `edgeMode`-driven stand-ins, never real pages) from the page count. `groupBy`'s own values
  *  ('folder'/'tag'/'classification') already read as the words used here, so no separate label
- *  lookup is needed; a real focusable text alternative (per-node links) is #1686's larger scope,
- *  and moving this string into a `graph.*` i18n key is #1690's. */
+ *  lookup is needed for that part; a real focusable text alternative (per-node links) is #1686's
+ *  larger scope. The sentence is sourced from `graph.*` i18n keys (OpenProject #1690, #2359) --
+ *  split into three pieces rather than one interpolated template because it carries two
+ *  independently-pluralized counts, the same `"{count} x | {count} xs"` pipe convention
+ *  `graph.tooltip.*` already uses for the hover tooltip below. */
 const graphAccessibleName = computed(() => {
   const pageCount = nodes.value.filter((node) => !node.synthetic).length
   const linkCount = edges.value.length
-  return `Knowledge graph: ${pageCount} page${pageCount === 1 ? '' : 's'}, ${linkCount} link${linkCount === 1 ? '' : 's'}, grouped by ${groupBy.value}`
+  return t('graph.accessibleName.summary', {
+    pages: t('graph.accessibleName.page', pageCount, { count: pageCount }),
+    links: t('graph.accessibleName.link', linkCount, { count: linkCount }),
+    groupBy: groupBy.value
+  })
 })
 
 /*
