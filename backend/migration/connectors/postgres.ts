@@ -41,9 +41,9 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
  * See `docs/migration/decision-source-scope.md` for why this is the only live-database connector kind
  * this connector supports, and for the read-only requirement `connect()` enforces defensively.
  *
- * `pages()`, `pageHistory()`, `tags()`, `navigation()`, `users()` and `groups()` are implemented for
- * real via plain SQL against the connected client — the rest (`settings()`, `assets()`) remain
- * `NotYetImplementedError` stubs, deferred to the tasks that own those entities.
+ * `pages()`, `pageHistory()`, `tags()`, `navigation()`, `users()`, `groups()`, `settings()` and
+ * `comments()` are implemented for real via plain SQL against the connected client — only
+ * `assets()` remains a `NotYetImplementedError` stub, deferred to the task that owns that entity.
  */
 export class PostgresSourceConnector implements SourceConnector {
   readonly kind = 'postgres' as const
@@ -263,12 +263,39 @@ export class PostgresSourceConnector implements SourceConnector {
     return this.paginatedQuery(`SELECT * FROM navigation ORDER BY key`, [], 100)
   }
 
-  settings(): AsyncIterable<SourceRecord> {
-    throw new NotYetImplementedError('settings', 'Task 420 (Settings/Auth/Storage importer)')
+  /** Yields every row of 2.x's three config tables this migration cares about (`settings`,
+   * `authentication`, `storage`), each tagged with `entity` so a caller routing rows to the three
+   * different mappers (`mappers/site-settings.ts`, `mappers/authentication.ts`,
+   * `mappers/storage.ts`) can dispatch without re-querying — the interface only has one settings()
+   * generator (see connector.ts's own doc comment), so this is the "exact grouping" that comment
+   * defers to this task. None of these three tables is large (each is a small, singleton-per-key
+   * config table per `2.5x-source-schema.md`), so a plain `SELECT *` with no pagination is correct
+   * here — this mirrors `tags()`/`navigation()`'s existing unpaginated pattern in this same file,
+   * not `pages()`'s batched one. */
+  async *settings(): AsyncIterable<SourceRecord> {
+    if (!this.client) {
+      throw new Error('Entity generator called before a successful connect().')
+    }
+    const settingsRes = await this.client.query<SourceRecord>(`SELECT * FROM settings ORDER BY key`)
+    for (const row of settingsRes.rows) {
+      yield { entity: 'settings', ...row }
+    }
+
+    const authRes = await this.client.query<SourceRecord>(
+      `SELECT * FROM authentication ORDER BY key`
+    )
+    for (const row of authRes.rows) {
+      yield { entity: 'authentication', ...row }
+    }
+
+    const storageRes = await this.client.query<SourceRecord>(`SELECT * FROM storage ORDER BY key`)
+    for (const row of storageRes.rows) {
+      yield { entity: 'storage', ...row }
+    }
   }
 
   comments(): AsyncIterable<SourceRecord> {
-    throw new NotYetImplementedError('comments', 'Task 9 (this plan)')
+    return this.paginatedQuery(`SELECT * FROM comments ORDER BY id`, [], 100)
   }
 
   assets(): AsyncIterable<SourceAssetFile> {

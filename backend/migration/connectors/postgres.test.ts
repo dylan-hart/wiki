@@ -275,7 +275,7 @@ describe('PostgresSourceConnector', () => {
     }
   )
 
-  test('settings/assets generators remain deferred stubs (owned by other tasks)', () => {
+  test('assets() generator remains a deferred stub (owned by another task)', () => {
     const connector = new PostgresSourceConnector({
       host: HOST,
       port: PORT,
@@ -283,12 +283,12 @@ describe('PostgresSourceConnector', () => {
       user: USER,
       password: PASSWORD
     })
-    for (const method of ['settings', 'assets'] as const) {
+    for (const method of ['assets'] as const) {
       assert.throws(() => connector[method](), NotYetImplementedError)
     }
   })
 
-  test('pages()/pageHistory()/tags()/navigation() reject when called before connect()', async () => {
+  test('pages()/pageHistory()/tags()/navigation()/users()/groups()/settings()/comments() reject when called before connect()', async () => {
     const connector = new PostgresSourceConnector({
       host: HOST,
       port: PORT,
@@ -302,7 +302,9 @@ describe('PostgresSourceConnector', () => {
       'tags',
       'navigation',
       'users',
-      'groups'
+      'groups',
+      'settings',
+      'comments'
     ] as const) {
       const iterable = connector[method]()
       await assert.rejects(async () => {
@@ -693,6 +695,185 @@ describe('PostgresSourceConnector', () => {
         const rows = await collect(connector.users())
         const user2 = rows.find((r) => r.id === 2)!
         assert.deepEqual(user2.groups, [])
+        await connector.disconnect()
+      })
+    }
+  )
+
+  describe(
+    'settings()/comments() against a 2.5.x-shaped schema (Task 9)',
+    { skip: !dbAvailable && 'no test Postgres reachable' },
+    () => {
+      let admin: Client
+
+      async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
+        const out: T[] = []
+        for await (const item of iterable) out.push(item)
+        return out
+      }
+
+      before(async () => {
+        if (!dbAvailable) return
+        admin = new Client({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await admin.connect()
+        await admin.query(
+          'DROP TABLE IF EXISTS comments, settings, authentication, storage, pages, users, groups'
+        )
+        // connect()'s checkShape() introspects pages/users/groups too, even though this describe
+        // block never reads through those generators — see the "against a 2.5.x-shaped schema"
+        // describe above.
+        await admin.query(`
+          CREATE TABLE pages (
+            id serial PRIMARY KEY,
+            path varchar NOT NULL,
+            hash varchar NOT NULL,
+            "authorId" integer,
+            "creatorId" integer,
+            "contentType" varchar NOT NULL
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE users (
+            id serial PRIMARY KEY,
+            email varchar NOT NULL,
+            "providerKey" varchar NOT NULL DEFAULT 'local',
+            "tfaIsActive" boolean NOT NULL DEFAULT false
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE groups (
+            id serial PRIMARY KEY,
+            name varchar NOT NULL,
+            permissions json NOT NULL,
+            "pageRules" json NOT NULL,
+            "redirectOnLogin" varchar NOT NULL DEFAULT '/'
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE settings (
+            key varchar PRIMARY KEY,
+            value json,
+            "updatedAt" varchar NOT NULL
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE authentication (
+            key varchar PRIMARY KEY,
+            "isEnabled" boolean NOT NULL DEFAULT false,
+            config json NOT NULL,
+            "selfRegistration" boolean NOT NULL DEFAULT false,
+            "domainWhitelist" json NOT NULL,
+            "autoEnrollGroups" json NOT NULL,
+            "order" integer NOT NULL DEFAULT 0,
+            "strategyKey" varchar NOT NULL DEFAULT '',
+            "displayName" varchar NOT NULL DEFAULT ''
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE storage (
+            key varchar PRIMARY KEY,
+            "isEnabled" boolean NOT NULL DEFAULT false,
+            mode varchar NOT NULL DEFAULT 'push',
+            config json,
+            "syncInterval" varchar,
+            state json
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE comments (
+            id serial PRIMARY KEY,
+            content text NOT NULL,
+            "createdAt" varchar NOT NULL,
+            "updatedAt" varchar NOT NULL,
+            "pageId" integer,
+            "authorId" integer,
+            render text NOT NULL DEFAULT '',
+            name varchar NOT NULL DEFAULT '',
+            email varchar NOT NULL DEFAULT '',
+            ip varchar NOT NULL DEFAULT '',
+            "replyTo" integer NOT NULL DEFAULT 0
+          )
+        `)
+
+        await admin.query(`
+          INSERT INTO settings (key, value, "updatedAt")
+          VALUES ('title', '"My Wiki"', '2020-01-01T00:00:00.000Z')
+        `)
+        await admin.query(`
+          INSERT INTO authentication (key, "isEnabled", config, "selfRegistration", "domainWhitelist", "autoEnrollGroups", "order", "strategyKey", "displayName")
+          VALUES ('local', true, '{}', false, '[]', '[]', 0, 'local', 'Local Authentication')
+        `)
+        await admin.query(`
+          INSERT INTO storage (key, "isEnabled", mode, config, "syncInterval", state)
+          VALUES ('disk', true, 'sync', '{}', null, '{}')
+        `)
+        await admin.query(`
+          INSERT INTO comments (id, content, "createdAt", "updatedAt", "pageId", "authorId")
+          VALUES
+            (2, 'second comment', '2020-01-02T00:00:00.000Z', '2020-01-02T00:00:00.000Z', 1, 1),
+            (1, 'first comment', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', 1, 1)
+        `)
+      })
+
+      after(async () => {
+        if (!dbAvailable) return
+        await admin.query(
+          'DROP TABLE IF EXISTS comments, settings, authentication, storage, pages, users, groups'
+        )
+        await admin.end()
+      })
+
+      test('settings() yields tagged rows from settings, authentication, and storage in that order', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.settings())
+        assert.deepEqual(
+          rows.map((r) => r.entity),
+          ['settings', 'authentication', 'storage']
+        )
+        const settingsRow = rows[0]
+        assert.equal(settingsRow.key, 'title')
+        assert.equal(settingsRow.value, 'My Wiki')
+
+        const authRow = rows[1]
+        assert.equal(authRow.key, 'local')
+        assert.equal(authRow.isEnabled, true)
+        assert.equal(authRow.displayName, 'Local Authentication')
+
+        const storageRow = rows[2]
+        assert.equal(storageRow.key, 'disk')
+        assert.equal(storageRow.mode, 'sync')
+        await connector.disconnect()
+      })
+
+      test('comments() yields plain comment rows ordered by id', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.comments())
+        assert.deepEqual(
+          rows.map((r) => r.id),
+          [1, 2]
+        )
+        assert.equal(rows[0].content, 'first comment')
+        assert.equal(rows[1].content, 'second comment')
         await connector.disconnect()
       })
     }
