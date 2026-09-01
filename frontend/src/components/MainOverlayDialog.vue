@@ -5,7 +5,7 @@
     persistent
     full-width
     full-height
-    :aria-label="overlayTitle">
+    :aria-label="overlayAriaLabel">
     <component :is="overlays[siteStore.overlay]" />
   </w-dialog>
 </template>
@@ -57,24 +57,23 @@ const siteStore = useSiteStore()
 
 const { t } = useI18n()
 
+// COMPUTED
+
 /**
- * Each overlay names itself in its own header once mounted -- but the header lives inside the
- * async component this wraps, which isn't in the DOM yet the instant the dialog opens (and
- * `WDialog` names the dialog itself, not whatever slot content eventually renders inside it). This
- * mirrors, by key, the same i18n title each of `overlays` above shows in its own `w-header`.
+ * `overlays`' loaded child owns the only visible heading for this full-screen overlay (its own
+ * `<w-header class="card-header">`), so the accessible name is looked up here rather than duplicated
+ * as a prop threaded down -- each entry mirrors the exact translation key that child's own header
+ * already renders (OpenProject #2356).
  */
-const overlayTitleKeys = {
-  BlockPicker: 'editor.blockPicker.title',
-  EditorMarkdownConfig: 'editor.settings.markdown',
-  FileManager: 'fileman.title',
-  NavEdit: 'navEdit.editMenuItems',
-  PageHistory: 'history.title',
-  TableEditor: 'editor.tableEditor.title',
-  Welcome: 'welcome.title'
+const OVERLAY_TITLES = {
+  BlockPicker: () => t('editor.blockPicker.title'),
+  EditorMarkdownConfig: () => t('editor.settings.markdown'),
+  FileManager: () => t('fileman.title'),
+  NavEdit: () => t('navEdit.editMenuItems'),
+  PageHistory: () => t('history.title'),
+  TableEditor: () => t('editor.tableEditor.title'),
+  Welcome: () => t('welcome.title')
 }
 
-const overlayTitle = computed(() => {
-  const key = overlayTitleKeys[siteStore.overlay]
-  return key ? t(key) : null
-})
+const overlayAriaLabel = computed(() => OVERLAY_TITLES[siteStore.overlay]?.())
 </script>

@@ -58,6 +58,38 @@ function testButton() {
   )
 }
 
+/**
+ * OpenProject #2356: `WDialog`'s `aria-label` (WP #1617) was never wired up here, so the dialog's
+ * `role="dialog"` panel stayed unnamed for assistive tech regardless of which of the two headers
+ * (`admin.webhooks.new` / `admin.webhooks.edit`) the `v-if="props.hookId"` template branch shows. The
+ * fix mirrors that same branch as a plain ternary on `:aria-label`, so both forms get a real,
+ * matching accessible name. Each test unmounts its own wrapper -- `WDialog` teleports into the real
+ * `document.body`, which nothing in this file otherwise clears between tests.
+ */
+describe('WebhookEditDialog accessible name', () => {
+  it("gives the panel a non-empty aria-label matching the create form's visible header", async () => {
+    const wrapper = mountDialog(null)
+    await flushPromises()
+
+    const panel = document.body.querySelector('[role="dialog"]')
+    expect(panel).not.toBeNull()
+    expect(panel.getAttribute('aria-label')).toBe('admin.webhooks.new')
+
+    wrapper.unmount()
+  })
+
+  it("gives the panel a non-empty aria-label matching the edit form's visible header", async () => {
+    const wrapper = mountDialog('hook-1')
+    await flushPromises()
+
+    const panel = document.body.querySelector('[role="dialog"]')
+    expect(panel).not.toBeNull()
+    expect(panel.getAttribute('aria-label')).toBe('admin.webhooks.edit')
+
+    wrapper.unmount()
+  })
+})
+
 describe('WebhookEditDialog - send test event', () => {
   it('disables the button while the url fails validation, on the create form', async () => {
     mountDialog(null)

@@ -484,7 +484,13 @@
       <router-view v-slot="{ Component }"><component :is="Component" /></router-view>
       <w-footer><footer-nav generic /></w-footer>
     </w-page-container>
-    <w-dialog class="admin-overlay" v-model="overlayIsShown" persistent full-width full-height>
+    <w-dialog
+      class="admin-overlay"
+      v-model="overlayIsShown"
+      persistent
+      full-width
+      full-height
+      :aria-label="overlayAriaLabel">
       <component :is="overlays[adminStore.overlay]" />
     </w-dialog>
   </w-layout>
@@ -584,6 +590,20 @@ const isWideViewport = useMinWidth(1024)
 const localeMenu = computed(() =>
   directionalAnchor(direction.isRTL ? 'rtl' : 'ltr', 'bottom right', 'top right')
 )
+
+/**
+ * `overlays`' loaded child owns the only visible heading for this full-screen overlay (its own
+ * `<w-header class="card-header">`), so the accessible name is looked up here rather than duplicated
+ * as a prop threaded down -- each entry mirrors the exact translation key that child's own header
+ * already renders (OpenProject #2356).
+ */
+const ADMIN_OVERLAY_TITLES = {
+  EditorMarkdownConfig: () => t('admin.editors.markdownName'),
+  GroupEditOverlay: () => t('admin.groups.edit'),
+  UserEditOverlay: () => t('admin.users.edit')
+}
+
+const overlayAriaLabel = computed(() => ADMIN_OVERLAY_TITLES[adminStore.overlay]?.())
 
 /**
  * Whether the sidebar is on screen: always on a wide viewport, and only once asked for on a narrow one.

@@ -8,9 +8,9 @@
 <template>
   <w-dialog
     v-model="dialogVisible"
-    @hide="onDialogHide"
     persistent
-    :aria-label="t('editor.classification.conflictsTitle')">
+    :aria-label="t('editor.classification.conflictsTitle')"
+    @hide="onDialogHide">
     <w-card style="min-width: 500px; max-width: 650px">
       <w-card-section class="card-header">
         <w-icon name="la:exclamation-triangle" size="sm" class="mr-2" />

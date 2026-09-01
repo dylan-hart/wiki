@@ -4,7 +4,7 @@
     v-model="siteStore.sideDialogShown"
     position="right"
     full-height
-    :aria-label="sideDialogTitle">
+    :aria-label="sideDialogAriaLabel">
     <component :is="sideDialogs[siteStore.sideDialogComponent]" />
   </w-dialog>
 </template>
@@ -48,21 +48,6 @@ const route = useRoute()
 
 const { t } = useI18n()
 
-/**
- * Same reasoning as `MainOverlayDialog.vue`'s own `overlayTitleKeys`: the side panel's dialog shell
- * has no header of its own, so it names itself off whichever `sideDialogs` entry is currently
- * mounted, matching that component's own `w-toolbar`/`w-card-section.card-header` title.
- */
-const sideDialogTitleKeys = {
-  PageBacklinksDialog: 'editor.backlinks.title',
-  PagePropertiesDialog: 'editor.props.pageProperties'
-}
-
-const sideDialogTitle = computed(() => {
-  const key = sideDialogTitleKeys[siteStore.sideDialogComponent]
-  return key ? t(key) : null
-})
-
 // DATA
 
 const state = reactive({
@@ -75,6 +60,21 @@ const state = reactive({
   tocExpanded: ['h1-0', 'h1-1'],
   tocSelected: []
 })
+
+// COMPUTED
+
+/**
+ * `sideDialogs`' loaded child owns the only visible heading for this panel (its own `<w-header
+ * class="card-header">`), so the panel's accessible name is looked up here rather than duplicated as
+ * a prop threaded down -- each entry mirrors the exact translation key that child's own header
+ * already renders (OpenProject #2356).
+ */
+const SIDE_DIALOG_TITLES = {
+  PageBacklinksDialog: () => t('editor.backlinks.title'),
+  PagePropertiesDialog: () => t('editor.props.pageProperties')
+}
+
+const sideDialogAriaLabel = computed(() => SIDE_DIALOG_TITLES[siteStore.sideDialogComponent]?.())
 </script>
 
 <style lang="scss">
