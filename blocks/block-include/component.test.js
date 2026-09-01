@@ -250,6 +250,63 @@ describe('block-include', () => {
       expect(el.textContent).toContain('Il n’y a pas de page à cette adresse.')
       expect(el.textContent).not.toContain('There is no page at')
     })
+
+    it('asks the resolver for the self-include key, with no params', async () => {
+      stubFetch({ pathname: '/same-page' })
+      await mountInclude({ path: 'same-page' })
+
+      expect(i18nT).toHaveBeenCalledWith(
+        'blocks.include.errors.selfInclude',
+        'This page includes itself.'
+      )
+    })
+
+    it('asks the resolver for the loop key, with the path as an interpolation param', async () => {
+      stubFetch()
+      const outer = await mountInclude({ path: '/Ancestor-Page/' })
+      await mountInclude({ path: 'ancestor-page', parent: outer })
+
+      expect(i18nT).toHaveBeenCalledWith(
+        'blocks.include.errors.loop',
+        'Including "ancestor-page" here would loop: it is already open above.',
+        { path: 'ancestor-page' }
+      )
+    })
+
+    it('asks the resolver for the max-depth key, with maxDepth as an interpolation param', async () => {
+      stubFetch({ pathname: '/root' })
+      let current = document.body
+      for (let i = 0; i < 3; i++) {
+        const el = document.createElement('block-include')
+        el.setAttribute('path', `level-${i}`)
+        current.appendChild(el)
+        await el.updateComplete
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        current = el
+      }
+      const tooDeep = document.createElement('block-include')
+      tooDeep.setAttribute('path', 'level-3')
+      current.appendChild(tooDeep)
+      await tooDeep.updateComplete
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(i18nT).toHaveBeenCalledWith(
+        'blocks.include.errors.maxDepth',
+        'Includes are nested more than 3 pages deep.',
+        { maxDepth: 3 }
+      )
+    })
+
+    it('asks the resolver for the password-protected key, with the path as an interpolation param', async () => {
+      stubFetch({ page: stubPage({ isLocked: true }) })
+      await mountInclude({ path: 'locked-page' })
+
+      expect(i18nT).toHaveBeenCalledWith(
+        'blocks.include.errors.passwordProtected',
+        'The page "locked-page" is password protected. Open it to enter the password.',
+        { path: 'locked-page' }
+      )
+    })
   })
 
   /*
