@@ -954,3 +954,41 @@ describe('EditorMarkdown list continuation on Enter (OpenProject #802)', () => {
     expect(fakeModel.getValue()).toBe('- one\n')
   })
 })
+
+/*
+ * Mount-time `editor.focus()` (`// -> Post init`) used to run unconditionally, which raced an
+ * author who clicked into the page Title field (`PageHeader.vue`'s contenteditable -- it has no
+ * autofocus of its own) and started typing before Monaco's async `onMounted` -- it awaits a
+ * settings/site-blocks prefetch before ever creating the editor -- had finished: the moment Monaco
+ * mounted, its focus() call stole focus mid-type, and every keystroke meant for the title landed in
+ * the editor instead, leaving the title empty. Caught by the Playwright smoke suite's
+ * `page-publish.spec.js`, which types the title and blurs it well before this component's async
+ * mount settles on a loaded CI runner.
+ */
+describe('EditorMarkdown does not steal focus already given to another field on mount', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('focuses itself when nothing else has focus yet, matching the previous default', async () => {
+    const { wrapper } = await mountEditor('')
+    expect(fakeEditor.focus).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('leaves focus alone when another field was already focused before mount finished', async () => {
+    const titleInput = document.createElement('input')
+    document.body.appendChild(titleInput)
+    titleInput.focus()
+
+    const { wrapper } = await mountEditor('')
+
+    expect(fakeEditor.focus).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(titleInput)
+    wrapper.unmount()
+  })
+})
