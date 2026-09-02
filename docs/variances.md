@@ -417,7 +417,7 @@ for how both are now enforced by default: `audience` falls back to the strategy'
 disabling the check, and `validateInResponseTo` is pinned `always` against an AuthnRequest id carried
 on the session, via `singleRequestCacheProvider`. `maxAssertionAgeMs` is likewise pinned to a fixed
 ceiling — never configurable, never left at the library's own `0` default of "no cap beyond the
-assertion's own `NotOnOrAfter`" — matched to `AUTH_FLOW_MINUTES` in `api/authentication.ts` (see
+assertion's own `NotOnOrAfter`" — matched to `AUTH_FLOW_MINUTES` in `api/auth/provider.ts` (see
 `buildSaml()`'s `MAX_ASSERTION_AGE_MS` comment).
 
 ### `mappingPicture` (LDAP, SAML) and CAS's `baseUrl` are present in config but inert
@@ -432,7 +432,7 @@ assertion's own `NotOnOrAfter`" — matched to `AUTH_FLOW_MINUTES` in `api/authe
   gap is framework-wide and pre-existing.
 - CAS's `baseUrl` mirrors 2.5.x's field set (the wiki's own public base URL) but is not read anywhere
   in this module: the callback/service URL the framework needs is already built per-request by
-  `callbackUrl()` in `api/authentication.ts`, so no administrator-supplied base URL is needed. Kept
+  `callbackUrl()` in `api/auth/provider.ts`, so no administrator-supplied base URL is needed. Kept
   only so the admin form matches 2.5.x's field set one-for-one; documented in the field's own hint.
 
 ### Admin-flow and full-login verification done against mocks/hand-rolled servers, not a live dev instance
@@ -653,7 +653,7 @@ Mermaid.
 
 **API surface and its auth model.** `POST /_api/diagrams/render` requires a session
 (`req.session.authenticated`) but no specific permission: the request touches no page and no
-group-wide capability, the same shape `/profile` in `api/users.ts` already uses for "logged in is
+group-wide capability, the same shape `/profile` in `api/users/profile.ts` already uses for "logged in is
 enough." Deliberately not anonymous, unlike reading a public page: a Mermaid request opens a full
 headless Chromium per call, the same cost `helpers/rateLimit.ts#limitRenders` already exists to
 bound (reused here rather than adding a second limiter), and letting that run unauthenticated would
@@ -667,7 +667,7 @@ about the model's shape forecloses wiring it in later. `GET /sites/:siteId/pages
 reconciliation in "PDF export: two competing implementations reconciled at merge-review time" below.
 
 **Reconciled with PDF export (OpenProject #2258/#2262).** Until the 2026-08-24 audit, `GET
-/sites/:siteId/pages/:pageId/export/pdf` (`api/pages.ts`) disagreed with this route and with the page
+/sites/:siteId/pages/:pageId/export/pdf` (`api/pages/export.ts`) disagreed with this route and with the page
 re-render route beside it: it let an anonymous request through to launch Puppeteer, since page
 permissions are page-rule-scoped rather than group-wide and the guests group holds `read:pages` on an
 ordinary public wiki — an accident of how that route's permission check was wired, not a considered
@@ -714,7 +714,7 @@ naming nicety left for a future pass rather than bundled into this reconciliatio
 
 **Anonymous access reconciled (task 2262).** The route originally answered an anonymous caller for
 any published, unlocked page — `read:pages` was checked, but nothing else — while the re-render route
-directly above it in `api/pages.ts`, and `POST /_api/diagrams/render` (see task 785's entry above),
+directly above it in `api/pages/write.ts`, and `POST /_api/diagrams/render` (see task 785's entry above),
 both refuse an anonymous session outright, on the stated grounds that a per-request headless browser
 launch is too cheap for an anonymous caller to repeat and too expensive for the instance to keep
 absorbing for free. PDF export drives the exact same kind of launch — the _full_ SPA page view, not
@@ -845,7 +845,7 @@ gain — a bare regression risk with no user-facing benefit.
 
 What task #549's core intent already has, unchanged in shape: a `SearchModule` interface every engine
 implements (`models/search.ts`), the postgres logic refactored into one such implementation with zero
-behavior change (`modules/search/db/search.ts`), and every existing caller (`api/pages.ts`,
+behavior change (`modules/search/db/search.ts`), and every existing caller (`api/pages/read.ts`,
 `models/pages.ts`, `tasks/simple/rebuild-search-index.ts`) going through the dispatcher rather than a
 specific engine. The one literal gap — a public `getActiveEngine(siteId)` resolver, as opposed to the
 equivalent-but-private `engineFor()` the dispatcher already used internally — was closed by making
@@ -1132,7 +1132,7 @@ sends data nowhere, and the reset button spins a fresh id with no receiver to ob
 strictly worse than not having the panel — a control that appears to work but silently doesn't is
 the kind of half-referenced state this task exists to eliminate, not a lesser version of it.
 
-The existing `GET`/`PUT /_api/system/metrics` route pair (`backend/api/system.ts`) is the precedent
+The existing `GET`/`PUT /_api/system/metrics` route pair (`backend/api/system/settings.ts`) is the precedent
 for how this fork already handles an analogous "the collector isn't implemented yet" situation: it
 stores the toggle state and says so plainly in the route's OpenAPI description ("the endpoint itself
 is not implemented yet"). Telemetry has no equivalent honest middle ground, because the missing half
@@ -1257,7 +1257,7 @@ six do not apply, each for a different, specific reason tied to how this fork's 
   report describes.
 - **Item 7 (upstream #2381) — git-sync writes racing a live editor session.** Cross-checked against
   the closed concurrent-edit-safety work: the `expectedUpdatedAt`/409 optimistic-concurrency check
-  (`api/pages.ts`) already covers a _human_ editor racing a sync-driven `updatePage()` correctly (the
+  (`api/pages/write.ts`) already covers a _human_ editor racing a sync-driven `updatePage()` correctly (the
   sync's write bumps `updatedAt`, the editor's stale save 409s, the existing conflict UI handles it).
   What was genuinely unguarded is a different race the same upstream report describes: the scheduler
   claims and runs several jobs concurrently (`processJob`'s `Promise.allSettled`), and a wiki normally
@@ -1411,7 +1411,7 @@ build-time-guard these imports instead.
 credential goes through. `login.success` is recorded once, centrally, in `afterLoginChecks()`, which
 every login path (local, OAuth/OIDC provider, passkey, and the 2FA/change-password continuations)
 funnels through on success — so success coverage is complete. Failure coverage is not: an OAuth/OIDC
-provider callback that errors (`api/authentication.ts`'s `/login/:strategyId/callback` catch), a wrong
+provider callback that errors (`api/auth/provider.ts`'s `/login/:strategyId/callback` catch), a wrong
 TFA code (`loginTFA()`), and a failed passkey assertion never reach `login()`'s catch at all, so none
 of those record `login.failed`.
 
@@ -1598,7 +1598,7 @@ second look if some deployment this fork still wants to support genuinely has no
 `models/security.ts`'s `insecureCookieRiskAt` diagnostic (task 833) is repointed accordingly: it no
 longer means the session cookie came out weak (that path is closed now, unconditionally), only that
 this instance's `request.protocol` is wrong, which still misdirects the OAuth/SAML callback URL
-(`api/authentication.ts#callbackUrl()`) and the sitemap/robots URLs (`controllers/seo.ts`).
+(`api/auth/provider.ts#callbackUrl()`) and the sitemap/robots URLs (`controllers/seo.ts`).
 
 ## OpenProject #2244/#2250/#2247 — headless Chromium's `--no-sandbox` flipped to an opt-in fallback: two competing implementations reconciled
 

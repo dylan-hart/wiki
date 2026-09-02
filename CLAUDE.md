@@ -649,8 +649,7 @@ Consequences worth knowing:
   note under Temporal below: neither path is a plain column read.
 - **Exactly one `unhandledRejection` handler exists**, `core/processGuards.ts`'s, registered by
   `index.ts` immediately after `logger.init()` with `exit: (code) => process.exit(code)`. Do not add
-  a second: Node runs listeners in registration order and an exiting one silences everything after
-  it, which is exactly the bug that removed the duplicate.
+  a second: Node runs listeners in registration order and an exiting one silences everything after it.
 
 #### Shared backend helpers — one owner per question
 
@@ -682,7 +681,7 @@ regression the split existed to prevent.
   implementing `reloadCache()`. Never write your own `broadcastReload()`/`subscribeToEvents()`. Two
   rules the base class encodes: a mutator calls `broadcastReload()`, never `reloadCache()` directly;
   and `reloadCache()` never emits, or the event echoes around the cluster forever. `groups`,
-  `sites`, `approvals`, `classificationLevels` and `locales` are on it; `glossary` and `navigation`
+  `sites`, `approvalRules`, `classificationLevels` and `locales` are on it; `glossary` and `navigation`
   are deliberately not (theirs are per-site invalidates, not whole-cache reloads).
 - **Telling the outside world about a page or asset write**: `models/hooks.ts#announce` — webhook
   emit then storage dispatch, both awaited, in that order. It is a module function, not a `Hooks`
@@ -814,11 +813,14 @@ separate transpile or worker config.
   `cache.set.mock.calls` directly), rather than reaching for the real `NodeCache`/`Emittery` instances
   the app boots with. Follow the same pattern for any other `WIKI` member a future model test
   needs present but does not care about.
-  - **A test never writes a `WIKI = {…}` literal.** `installTestWiki(overrides)` installs
+  - **A new test never writes a `WIKI = {…}` literal.** `installTestWiki(overrides)` installs
     `createWikiStub(overrides)` as the global and returns a `{ restore() }` to call in
     `after()`/`afterEach()` — `node --test` isolates each matched FILE into its own process but not
     each suite within one, so a file that installs a global and walks away leaves it standing.
-    `setupTestDb()` is a caller of the same builder.
+    `setupTestDb()` is a caller of the same builder. The pre-harness `models/*.test.ts` suites (30
+    files as of this writing, `assetServing.test.ts` among them) still write their own `WIKI = {…}`
+    literal directly — they predate `installTestWiki` and are converted as each is next touched, not
+    as a standalone sweep.
   - **`createWikiStub` defaults `models` to `{}` on purpose**: an absent member throwing is coverage
     (`modules/storage/disk/storage.test.ts` relies on it to prove the module never reaches for a
     model it should not), so a suite names exactly the methods its code path calls. `data.systemIds`
@@ -999,8 +1001,7 @@ lang="scss">` blocks reach for a bare `$primary` / `$grey-9` / ... (`PageToc.vue
   coverage and a break in it fails as itself rather than as a hundred unrelated component failures.
   - **The suites split by concern, so a filename names what it covers**: `stores/page.{save,load,
     lifecycle,derived}`, `pages/Graph.{rendering,sizing,tooltip,i18n,layout,fallback}`,
-    `components/EditorMarkdown.{content,preview,resize,assets,lifecycle}`, and so on. No test file
-    under `frontend/src` is over ~530 lines.
+    `components/EditorMarkdown.{content,preview,resize,assets,lifecycle}`, and so on.
   - **A cross-component assertion is a `describe.each`, not a copy** —
     `components/editorMarkupShared.test.js` and `components/apiKeyScopeTree.test.js` hold what is
     identical between two components; what genuinely differs stays in each component's own suite.
@@ -1299,12 +1300,10 @@ store; no SVG is ever written into content.
     (Quasar bundled the underlying webfonts and rendered the class string directly, no Iconify
     translation involved), and nothing in this fork — nor the planned 2.5.x migration importer
     (`Migration & Upgrade Path from 2.5.x` epic, "Importer Engine: Content" feature) — has ever
-    produced or plans to carry forward that format into a `w-icon` name. The last such leftover is
-    gone (`AdminStorage.vue`'s delivery graph drew its content-type and missing-origin nodes as
-    `{ icon: 'las', iconText: '&#xf1c5;' }`, i.e. as tofu; they carry `/_assets/icons/*.svg` paths
-    now, and the graph's `<text>` render branch went with them). `grep -rn "'las'" frontend/src`
-    is empty — a new `las`/`mdi-`-style name anywhere in `frontend/src` is a regression, not merely
-    discouraged.
+    produced or plans to carry forward that format into a `w-icon` name. `grep -rn "'las'"
+    frontend/src` turns up only `helpers/storageDeliveryGraph.js`'s own comment documenting this
+    rule — a new `las`/`mdi-`-style name used (not merely mentioned in a comment) anywhere in
+    `frontend/src` is a regression, not merely discouraged.
 - Picking an icon calls `POST /_api/icons/materialize`, which is what guarantees the wiki can serve it
   afterwards without the Iconify API.
 - **Per-action glyphs are settled, not a majority to re-derive.** An add/create action (a button, menu

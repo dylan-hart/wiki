@@ -521,7 +521,7 @@ async function handleLoginResponse(resp) {
         /*
           `resp.redirect` is a group's `redirectOnLogin` (`models/users.ts`), validated server-side on
           the way in (`api/groups.ts`) -- but checked again here, the same defence-in-depth reasoning
-          `api/authentication.ts#finishProviderLogin` applies server-side, against a row written before
+          `api/auth/provider.ts#finishProviderLogin` applies server-side, against a row written before
           that validation existed. `javascript:…` parses as a valid `URL` with no error, so this cannot
           be a bare try/catch around `new URL()` -- it has to look at what scheme came back
           (OpenProject #1360/#2208, 2026-08-24 security audit §2, §9).
@@ -623,7 +623,7 @@ async function loginWithPasskey() {
  * Always shows the same generic message, whatever the backend actually did behind it -- an unknown
  * address, a strategy with resets turned off and a real match all answer the same 200. Branching this
  * on the response would turn the form into exactly the account-enumeration oracle it exists to avoid
- * being (see `POST /sites/:siteId/auth/forgotPassword`'s doc comment in `backend/api/authentication.ts`).
+ * being (see `POST /sites/:siteId/auth/forgotPassword`'s doc comment in `backend/api/auth/site.ts`).
  */
 async function forgotPassword() {
   loading.show({

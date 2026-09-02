@@ -10,7 +10,7 @@ import { mountWithApp } from '../../test/mount.js'
  * AdminCluster.vue, state.instances -> state.nodes, admin.instances.* -> admin.cluster.*).
  *
  * `<w-table row-key="name">` was wired to a property no row object has — `getClusterNodes()` in
- * `backend/api/system.ts` returns `id`/`activeConnections`/`dbUser`/... with no `name` field at all.
+ * `backend/api/system/info.ts` returns `id`/`activeConnections`/`dbUser`/... with no `name` field at all.
  * Every row therefore keyed on the same `undefined`.
  *
  * That is a real bug of intent (the prop's own docstring says it wants "a row property holding a

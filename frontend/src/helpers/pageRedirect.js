@@ -99,9 +99,9 @@ export function isFollowable({ kind, target } = {}) {
  * rooted path that does not begin `//` or `/\` (both resolve to a scheme-relative, i.e. off-origin,
  * URL), or a complete `http://`/`https://` URL to anywhere.
  *
- * The frontend twin of `backend/helpers/redirect.ts#isFollowableRedirect` (OpenProject #1360/#2208,
- * 2026-08-24 security audit §2, §9): a redirect target the backend already validated on the way in
- * (a group's `redirectOnLogin`, the login response's own `redirect`) still has to be checked again
+ * The frontend twin of `backend/helpers/redirectTarget.ts#isFollowableRedirectTarget` (OpenProject
+ * #1360/#2208, 2026-08-24 security audit §2, §9): a redirect target the backend already validated
+ * on the way in (a group's `redirectOnLogin`, the login response's own `redirect`) still has to be checked again
  * here before `window.location.replace()` — the backend guarantee only covers rows written or fields
  * set AFTER that validation existed, and this is the sink a stale row (or, for `AuthLoginPanel.vue`'s
  * now-deleted `loginRedirect` COOKIE read, a value this app never even wrote) would otherwise reach

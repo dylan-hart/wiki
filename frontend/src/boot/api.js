@@ -7,12 +7,12 @@ import { useUserStore } from '@/stores/user'
  * rather than the session having expired -- handling either as a session expiry would misfire.
  *
  * `sites/:siteId/auth/login` answers a bad password with a `400` (`ERR_LOGIN_FAILED`), not a `401`
- * -- see `backend/api/authentication.ts` -- but is exempted anyway as a defensive belt-and-braces
+ * -- see `backend/api/auth/site.ts` -- but is exempted anyway as a defensive belt-and-braces
  * measure per OpenProject #2096, since a `401` from the login screen's own request is never a
  * session that just expired and redirecting it back to `/login` would only loop.
  *
  * `sites/:siteId/pages/:pageIdOrHash/unlock` genuinely does answer a wrong page password with a
- * `401` (`backend/api/pages.ts`), which `PageUnlockDialog.vue` reports inline as
+ * `401` (`backend/api/pages/read.ts`), which `PageUnlockDialog.vue` reports inline as
  * `common.page.lockedWrongPassword` -- treating it as a session expiry would bounce the reader off
  * the very page they were trying to unlock instead of leaving the dialog up to try again.
  */

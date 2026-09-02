@@ -7,7 +7,7 @@ import { createTestI18n } from '../../test/i18n.js'
 import { stubApi } from '../../test/mocks.js'
 
 /**
- * OpenProject #1874: `GET /users/profile/tfa/recovery-codes` (`backend/api/users.ts`) was a
+ * OpenProject #1874: `GET /users/profile/tfa/recovery-codes` (`backend/api/users/profile.ts`) was a
  * finished, tested route with no caller -- `ProfileAuth.vue` only ever POSTed the same path to
  * regenerate. This locks in the fetch-and-display: the count is pulled once the auth methods load,
  * only for a local-strategy method with 2FA active, and rendered as an "N of M remaining" line with

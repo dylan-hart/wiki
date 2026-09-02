@@ -9,7 +9,7 @@ import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Task 1275: the profile Groups tab's "Other groups" section is admin-gated entirely on the backend
- * (`GET /profile/groups`'s response shape -- see that route's doc comment in `backend/api/users.ts`)
+ * (`GET /profile/groups`'s response shape -- see that route's doc comment in `backend/api/users/profile.ts`)
  * rather than on anything this component decides for itself, so what is tested here is purely how the
  * component reacts to each response shape: a plain array (the section stays absent) versus
  * `{ groups, otherGroups }` (the section renders, subdued).

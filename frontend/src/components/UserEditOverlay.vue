@@ -744,7 +744,7 @@ const timezones = Intl.supportedValuesOf('timeZone')
 
 /*
   `read:users` opens this overlay read-only: every write below needs `manage:users` (see
-  `api/users.ts`), so the actions that perform one are hidden rather than left to fail at the API.
+  `api/users/admin.ts`), so the actions that perform one are hidden rather than left to fail at the API.
   The fields stay as they are -- without Save there is nowhere for a typed change to go.
 */
 const canManage = computed(() => userStore.can('manage:users'))

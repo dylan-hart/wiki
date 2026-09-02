@@ -134,7 +134,7 @@ into 3.x for the first time is a different, one-time procedure with its own tool
 
 ### Certificate rotation invalidates every API key
 
-`POST /_api/system/certificates` (`backend/api/system.ts`, requires `manage:system`) generates a new
+`POST /_api/system/certificates` (`backend/api/system/maintenance.ts`, requires `manage:system`) generates a new
 API-key signing keypair and passphrase. This is a legitimate recovery action — the way to take back a
 key that has leaked and cannot be revoked individually — but its blast radius is total and immediate:
 **every API key ever issued, on every instance sharing this database, stops authenticating at once.**

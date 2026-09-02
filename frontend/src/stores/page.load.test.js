@@ -91,8 +91,8 @@ describe('page store: pageLoad()', () => {
     await pageStore.pageLoad({ path: '/my page' })
 
     const [url] = API_CLIENT.get.mock.calls[0]
-    // -> `normalizePagePath('/my page')` -> `'my-page'`, matching `backend/api/pages.ts`'s by-path
-    //    lookup for the same input. A drifted local copy that skipped the whitespace-to-hyphen step
+    // -> `normalizePagePath('/my page')` -> `'my-page'`, matching `backend/api/pages/read.ts`'s
+    //    by-path lookup for the same input. A drifted local copy that skipped the whitespace-to-hyphen step
     //    would hash `'my page'` instead, resolving to a hash the server never assigns.
     expect(url).toBe(`sites/site-1/pages/${pagePathHash('my-page')}`)
   })

@@ -217,7 +217,7 @@ export async function loadPageForRoute(
             permission, so a cold load's empty `pagePermissions` can only ever answer this
             truthfully for `manage:system`. Asked at `'home'`, not `pagePath` (which is just `/`
             here): page rules are written against real page paths, and `'home'` is what the server
-            already treats the root as everywhere else (e.g. `backend/api/pages.ts`'s own
+            already treats the root as everywhere else (e.g. `backend/api/pages/read.ts`'s own
             `path || 'home'`). OpenProject #2063.
           */
           await userStore.fetchPagePermissions('home', pageLocale)

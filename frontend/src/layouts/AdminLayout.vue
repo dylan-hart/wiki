@@ -668,7 +668,7 @@ const siteSectionShown = computed(() => {
   )
 })
 /*
-  `read:*` grants the list and detail routes without the write ones (see `api/users.ts` /
+  `read:*` grants the list and detail routes without the write ones (see `api/users/admin.ts` /
   `api/groups.ts`), so the nav entry has to open for it too -- otherwise the permission grants access
   to pages nothing links to.
 */

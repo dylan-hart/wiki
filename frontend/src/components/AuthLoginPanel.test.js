@@ -321,7 +321,7 @@ describe('AuthLoginPanel verified landing', () => {
 /**
  * `forgotPassword()` used to be a stub (`// TODO: Implement forgot password`). The route it now calls
  * (`POST sites/:siteId/auth/forgotPassword`) always answers the same generic 200 whatever it did behind
- * the scenes -- see the route's own doc comment in `backend/api/authentication.ts` -- so this only
+ * the scenes -- see the route's own doc comment in `backend/api/auth/site.ts` -- so this only
  * checks the request shape and that the UI shows the fixed success message, never that it branches on
  * the response.
  */
