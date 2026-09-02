@@ -198,7 +198,7 @@ export async function makeImageThumbnail(
 
 /**
  * Presentation attributes shared by the SVG elements `sanitizeSvg` allows below. Kept apart from, but
- * deliberately mirroring, `models/rendering.ts`'s `SVG_ATTRIBUTES` -- that one sanitizes an inline
+ * deliberately mirroring, `helpers/htmlSanitizePolicy.ts`'s `SVG_ATTRIBUTES` -- that one sanitizes an inline
  * `<svg>` fragment pasted into a page, this one sanitizes a whole uploaded SVG file, so the two lists
  * are independent, but both exist for the same reason and should be kept in step.
  */

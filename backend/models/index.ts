@@ -35,6 +35,7 @@ import { pageviews } from './pageviews.ts'
 import { passkeys } from './passkeys.ts'
 import { pdfExport } from './pdfExport.ts'
 import { rateLimits } from './rateLimits.ts'
+import { renderQueue } from './renderQueue.ts'
 import { rendering } from './rendering.ts'
 import { search } from './search.ts'
 import { security } from './security.ts'
@@ -84,6 +85,7 @@ export default {
   passkeys,
   pdfExport,
   rateLimits,
+  renderQueue,
   rendering,
   search,
   security,

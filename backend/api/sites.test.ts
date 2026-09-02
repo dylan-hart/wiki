@@ -53,7 +53,7 @@ async function getSiteBlocks(_siteId: string) {
 
 let app: FastifyInstance
 
-/** Toggled per-test to drive `WIKI.models.rendering.isAvailable()`'s stubbed answer. */
+/** Toggled per-test to drive `WIKI.models.renderQueue.isAvailable()`'s stubbed answer. */
 let renderingAvailable = true
 
 /**
@@ -187,7 +187,7 @@ before(async () => {
       locales: {
         getLocales: async () => [{ code: 'en' }]
       },
-      rendering: {
+      renderQueue: {
         isAvailable: async () => renderingAvailable
       },
       blocks: {
@@ -913,7 +913,7 @@ test('userPermissions returns an empty array for an anonymous caller', async () 
 })
 
 /**
- * Task 500: `pdfExportAvailable` surfaces `WIKI.models.rendering.isAvailable()` (whether the
+ * Task 500: `pdfExportAvailable` surfaces `WIKI.models.renderQueue.isAvailable()` (whether the
  * Puppeteer extension is installed) on the same payload `siteStore.loadSite` already fetches, so the
  * frontend can gate the PDF export option without a second round trip.
  */

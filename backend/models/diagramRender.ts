@@ -154,7 +154,7 @@ export async function extractDiagramScript(
  * and the design this settles on.
  *
  * MERMAID drives Puppeteer, sharing `helpers/puppeteer.ts` with `models/pdfExport.ts` and
- * `models/rendering.ts` for the browser itself: `block-diagram` draws with the `mermaid` library,
+ * `models/renderQueue.ts` for the browser itself: `block-diagram` draws with the `mermaid` library,
  * which needs a real DOM to lay out and paint into, so there is no way to produce its SVG without one.
  * Rather than reimplementing that pipeline against a bare `mermaid` import (a second copy of the
  * dependency, liable to drift from what `block-diagram` actually ships), this mounts the block's own

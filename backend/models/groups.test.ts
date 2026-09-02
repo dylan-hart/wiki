@@ -225,7 +225,7 @@ describe('groups.actorForRequest', () => {
 })
 
 /**
- * OpenProject #1127: the actor `models/rendering.ts`'s background re-render job passes to
+ * OpenProject #1127: the actor `models/renderQueue.ts`'s background re-render job passes to
  * `glossary.getCachedTerms` when reprocessing already-published content with no specific reader to
  * speak for.
  */

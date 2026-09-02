@@ -317,7 +317,7 @@ class Groups extends ClusterReloaded {
 
   /**
    * The actor for a caller that speaks for no specific requester (OpenProject #1127) — the one caller
-   * today is `models/rendering.ts`'s background re-render job, which reprocesses already-published
+   * today is `models/renderQueue.ts`'s background re-render job, which reprocesses already-published
    * content generically rather than on behalf of any one reader. It resolves permission-gated content
    * (a glossary term's canonical-page link) the same way an anonymous visitor's own request would,
    * rather than skipping the check entirely.

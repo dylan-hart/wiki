@@ -1,7 +1,7 @@
 import { CustomError } from '../helpers/common.ts'
 
 /**
- * `ensureCanRender()` (`models/rendering.ts`) throws `renderUnsupportedEditor`/`renderPuppeteerMissing`
+ * `ensureCanRender()` (`models/renderQueue.ts`) throws `renderUnsupportedEditor`/`renderPuppeteerMissing`
  * -- via `createPage()`/`updatePage()` (OpenProject #1716) -- when a render-less write can't be safely
  * accepted. `create_page`/`update_page` (`mcp/tools/createPage.ts`, `mcp/tools/updatePage.ts`) already
  * forward `err.message` as an `McpToolError`, but an agent calling either tool has no `render` argument

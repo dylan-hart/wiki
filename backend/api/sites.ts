@@ -108,7 +108,7 @@ function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
 /**
  * Assemble the payload a site's config alone doesn't cover: the row fields (`id`, `hostname`,
  * `isEnabled`) plus `pdfExportAvailable`, which isn't something a site chooses — it's whether this
- * whole instance ever installed the Puppeteer extension, per `WIKI.models.rendering.isAvailable()`,
+ * whole instance ever installed the Puppeteer extension, per `WIKI.models.renderQueue.isAvailable()`,
  * the same check `renderPdf` itself gates on before ever launching a browser. Surfaced here, on the
  * payload the frontend already loads per-site (`sites/:siteIdorHostname` via `siteStore.loadSite`)
  * and reused by `bootstrap` for the same payload at app load, so the PDF export control can hide or
@@ -139,7 +139,7 @@ export async function buildSitePayload(site: {
     id: site.id,
     hostname: site.hostname,
     isEnabled: site.isEnabled,
-    pdfExportAvailable: await WIKI.models.rendering.isAvailable(),
+    pdfExportAvailable: await WIKI.models.renderQueue.isAvailable(),
     docsBase: WIKI.config.docsBase,
     blocksConfig,
     blocksIndex,

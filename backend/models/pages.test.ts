@@ -67,7 +67,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     //    tests supply a `render`. Stubbed to succeed here; the refusal itself, and the queued
     //    rerender it unlocks, get their own dedicated tests further down with a narrower override
     //    (OpenProject #1716).
-    ensureCanRenderMock = mock.method(WIKI.models.rendering, 'ensureCanRender', async () => {})
+    ensureCanRenderMock = mock.method(WIKI.models.renderQueue, 'ensureCanRender', async () => {})
   })
 
   after(async () => {
@@ -2528,7 +2528,7 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
     await WIKI.models.groups.reloadCache()
     // -> Same reasoning as the describe block above: none of these tests supply a `render`, and
     //    Puppeteer is never installed here (OpenProject #1716).
-    mock.method(WIKI.models.rendering, 'ensureCanRender', async () => {})
+    mock.method(WIKI.models.renderQueue, 'ensureCanRender', async () => {})
   })
 
   after(async () => {

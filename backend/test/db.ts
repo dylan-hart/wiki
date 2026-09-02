@@ -332,7 +332,7 @@ function installDbTestWiki(db: WikiDb, models: typeof import('../models/index.ts
   //    about server-side rendering doesn't have to mock it just to call `createPage()` with plain
   //    content. A suite that DOES care (`models/pages.test.ts`'s own describe block) re-wraps this
   //    with `mock.method()`, which fully replaces this implementation rather than layering on it.
-  models.rendering.ensureCanRender = async () => {}
+  models.renderQueue.ensureCanRender = async () => {}
   wikiHandle = installTestWiki({
     db,
     // -> `helpers/advisoryLock.ts#getLockPool()` lazily builds its dedicated lock pool from

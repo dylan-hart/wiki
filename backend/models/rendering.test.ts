@@ -1,8 +1,8 @@
-import { describe, test } from 'node:test'
+import { after, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import sanitizeHtml from 'sanitize-html'
+import { rendering } from './rendering.ts'
+import { installTestWiki } from '../test/mocks.ts'
 import type { BlockDefinition } from './blocks.ts'
-import type { RenderPermissions } from './rendering.ts'
 
 /*
  * `Rendering.postProcess` is what a save (and a headless server-side re-render, which drives the
@@ -15,6 +15,9 @@ import type { RenderPermissions } from './rendering.ts'
  * than logic worth exercising here, so it is the one thing stubbed -- `WIKI.models.blocks.definitions`
  * itself is a plain in-memory array (read from the compiled manifest at boot, not a query), so it is
  * given real fixtures shaped exactly like the three diagram blocks' own `static definition.props`.
+ *
+ * The allowlists those blocks are sanitized against are `helpers/htmlSanitizePolicy.ts`'s, and are
+ * covered on their own in `helpers/htmlSanitizePolicy.test.ts`.
  */
 
 const DIAGRAM_BLOCKS: BlockDefinition[] = [
@@ -84,9 +87,9 @@ let enabledBlocks = new Set<string>()
 /** Custom blocks (OpenProject #2132) -- the shape `models/blocks.ts#getCustomBlockDefinitions()` returns. */
 let customBlocks: { block: string; props: { name: string }[] }[] = []
 
-// -> A minimal stub rather than `test/db.ts`'s full `installTestWiki`: nothing under test here
+// -> A `createWikiStub()` global rather than `test/db.ts`'s `setupTestDb()`: nothing under test here
 //    reaches the database, so the only real dependency is `WIKI.models.blocks` itself
-;(global as any).WIKI = {
+const wiki = installTestWiki({
   models: {
     blocks: {
       definitions: [...DIAGRAM_BLOCKS, ...CAMEL_PROP_BLOCKS],
@@ -98,31 +101,8 @@ let customBlocks: { block: string; props: { name: string }[] }[] = []
       }
     }
   }
-}
-
-const { rendering } = await import('./rendering.ts')
-
-/**
- * What the model's own `sanitize()` used to be: `sanitizeOptions()` fed straight to `sanitize-html`.
- *
- * The model no longer carries that wrapper -- `postProcess` calls `sanitizeOptions()` directly so its
- * two passes share one options object, and nothing but this file ever wanted the one-shot form. Both
- * `sanitizeOptions` and `blockAllowances` are private, hence the cast.
- *
- * `permissions` is `Partial` because these tests only ever name the flag under test: `sanitizeOptions`
- * reads each one for truthiness, so an omitted flag behaves exactly like `false`.
- */
-function sanitize(
-  html: string,
-  permissions: Partial<RenderPermissions>,
-  enabledBlockKeys: Set<string>
-): string {
-  const model = rendering as any
-  return sanitizeHtml(
-    html,
-    model.sanitizeOptions(permissions, model.blockAllowances(enabledBlockKeys, []))
-  )
-}
+})
+after(() => wiki.restore())
 
 /** The shape markdown-it-mdc + `highlight()` actually leave behind for a fenced diagram inside a block. */
 function blockHtml(tag: string, attrs: string, lang: string, escapedSource: string): string {
@@ -311,63 +291,6 @@ describe('rendering.postProcess: internal link extraction (OpenProject #881)', (
   })
 })
 
-/**
- * Sanitization is what a page's HTML has to survive to be stored -- and since Task 624
- * (`renderers/markdown.js`'s `$…$`/`$$…$$` TeX authoring) resolves straight to literal KaTeX
- * HTML/MathML at render time, that markup is now something a real page can carry, not just something
- * `block-katex` draws inside a shadow root the sanitiser never sees.
- *
- * `sanitizeOptions()`'s block-allowance pass reads `WIKI.models.blocks.definitions`; no page block is
- * involved in typesetting a formula, so its content doesn't matter for these tests -- reuses the
- * same `WIKI` stub the diagram-block suite above already installed.
- */
-
-describe('rendering sanitizeOptions -- KaTeX MathML from inline TeX authoring', () => {
-  test('keeps the accent/variant/thickness attributes KaTeX writes onto MathML tags', () => {
-    // -> A minimal stand-in for what `katex.renderToString({ output: 'htmlAndMathml' })` actually
-    //    emits for `\vec{v}`, `\binom{n}{k}` and a variant-styled identifier -- real output, trimmed
-    //    to the four attributes this test exists to protect (see the task's PR description for the
-    //    full battery that found them: `mover:accent`, `munder:accentunder`, `mfrac:linethickness`,
-    //    `mi:mathvariant` all silently dropped before `BASE_ALLOWED_ATTRIBUTES` named them).
-    const html =
-      '<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics>' +
-      '<mover accent="true"><mi>v</mi><mo>⃗</mo></mover>' +
-      '<munder accentunder="true"><mi>x</mi><mo>_</mo></munder>' +
-      '<mfrac linethickness="0"><mi>n</mi><mi>k</mi></mfrac>' +
-      '<mi mathvariant="normal">mod</mi>' +
-      '<annotation encoding="application/x-tex">\\vec{v}</annotation>' +
-      '</semantics></math>'
-
-    const clean = sanitize(html, {}, new Set())
-
-    assert.match(clean, /<mover accent="true">/)
-    assert.match(clean, /<munder accentunder="true">/)
-    assert.match(clean, /<mfrac linethickness="0">/)
-    assert.match(clean, /<mi mathvariant="normal">/)
-  })
-})
-
-/*
-  Task 629's audit: verify the allowlist against each engine's *actual* output rather than trusting
-  what is already declared, using mhchem (`\ce{}`/`\pu{}`) specifically because chemical notation
-  exercises MathML shapes a plain algebraic formula does not -- `mpadded`, `mphantom` and `msub` used
-  together for the isotope/coefficient overlap trick, `mo[stretchy][minsize]` for the reaction arrow,
-  and `mstyle[scriptlevel][displaystyle]` wrapping a unit fraction.
-
-  These two strings are captured byte-for-byte from a real `katex.renderToString(source, { output:
-  'htmlAndMathml' })` run with `katex/contrib/mhchem` loaded (the same import `block-katex/component.js`
-  makes) -- not reconstructed by hand. Both come back from sanitization with their `<math>…</math>`
-  identical to the byte, so this records a clean audit result, not a fix: every tag and attribute
-  mhchem's MathML writer uses was already covered by what Task 624 added.
-
-  mhchem is NOT wired into `renderers/markdown.js`'s literal `$…$`/`$$…$$` path today -- only plain
-  `katex` is imported there, so `\ce{}` in inline TeX currently throws ("Undefined control sequence")
-  and falls to the error panel, same as any other unrecognised command. This test is not exercising a
-  path that is live in the app; it is insurance for the allowlist itself, which is live (the plain-
-  algebra MathML this same sanitiser sees every time an author writes `$x^2$` uses many of the same
-  tags). If a later task wires mhchem into the literal path -- or `\ce{}` support becomes part of
-  "Engine Selection" -- this confirms the allowlist will not need touching to carry it.
-*/
 /*
   OpenProject #829, item 1: upstream issue #1839 ("Mermaid renders in the live edit preview but not
   on the saved/reloaded page") and discussion #6446 (the identical pattern for KaTeX formulas) both
@@ -390,16 +313,16 @@ describe('rendering sanitizeOptions -- KaTeX MathML from inline TeX authoring', 
      again on every future view -- so the stored/reloaded page needs no client-side re-render step
      for a formula to appear at all, unlike a design where "render" and "display" are separate
      passes that can disagree. This test's job is to confirm `postProcess`'s sanitize step is what
-     the earlier `describe` block already proved in isolation -- keeps that literal markup byte-for-
-     byte -- when it runs alongside a diagram block in the same document, not just alone.
+     `helpers/htmlSanitizePolicy.test.ts` already proved in isolation -- keeps that literal markup
+     byte-for-byte -- when it runs alongside a diagram block in the same document, not just alone.
 */
 describe('rendering.postProcess -- render, save, reload (OpenProject #829)', () => {
   test('keeps a mermaid diagram block and a resolved inline KaTeX formula both intact through the same save-time pass a reload replays', async () => {
     enabledBlocks = new Set(['diagram'])
     // -> A trimmed but structurally real `katex.renderToString(..., { output: 'htmlAndMathml' })`
-    //    shape: the MathML the earlier describe block already proved survives sanitization on its
-    //    own, now alongside a diagram block in one document -- the actual "did the editor's own
-    //    HTML come back out the other end of a save" question this item asks.
+    //    shape: the MathML the policy suite already proved survives sanitization on its own, now
+    //    alongside a diagram block in one document -- the actual "did the editor's own HTML come
+    //    back out the other end of a save" question this item asks.
     const katexHtml =
       '<span class="katex"><span class="katex-mathml">' +
       '<math xmlns="http://www.w3.org/1998/Math/MathML"><semantics>' +
@@ -431,144 +354,6 @@ describe('rendering.postProcess -- render, save, reload (OpenProject #829)', () 
   })
 })
 
-describe('rendering sanitizeOptions -- KaTeX MathML from mhchem (\\ce{}/\\pu{})', () => {
-  test('keeps every tag and attribute a real \\ce{} render writes into MathML', () => {
-    const math =
-      '<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow>' +
-      '<mrow><mi mathvariant="normal">C</mi><mi mathvariant="normal">O</mi></mrow>' +
-      '<msub><mpadded width="0px"><mphantom><mi>X</mi></mphantom></mpadded>' +
-      '<mpadded height="0px"><mn>2</mn></mpadded></msub>' +
-      '<mrow></mrow><mo>+</mo><mrow></mrow><mi mathvariant="normal">C</mi>' +
-      '<mover><mo stretchy="true" minsize="3.0em">→</mo>' +
-      '<mpadded width="+0.6em" lspace="0.3em"><mrow></mrow></mpadded></mover>' +
-      '<mn>2</mn><mtext> </mtext>' +
-      '<mrow><mi mathvariant="normal">C</mi><mi mathvariant="normal">O</mi></mrow>' +
-      '</mrow><annotation encoding="application/x-tex">\\ce{CO2 + C -&gt; 2 CO}</annotation>' +
-      '</semantics></math>'
-
-    const clean = sanitize(`<p>${math}</p>`, {}, new Set())
-
-    assert.ok(clean.includes(math), 'the whole <math>…</math> survived sanitization unchanged')
-  })
-
-  test('keeps every tag and attribute a real \\pu{} render writes into MathML', () => {
-    const math =
-      '<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow>' +
-      '<mn>123</mn><mtext> </mtext>' +
-      '<mstyle scriptlevel="0" displaystyle="false"><mfrac>' +
-      '<mrow><mi mathvariant="normal">k</mi><mi mathvariant="normal">J</mi></mrow>' +
-      '<mrow><mi mathvariant="normal">m</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">l</mi></mrow>' +
-      '</mfrac></mstyle></mrow>' +
-      '<annotation encoding="application/x-tex">\\pu{123 kJ//mol}</annotation>' +
-      '</semantics></math>'
-
-    const clean = sanitize(`<p>${math}</p>`, {}, new Set())
-
-    assert.ok(clean.includes(math), 'the whole <math>…</math> survived sanitization unchanged')
-  })
-})
-
-/**
- * OpenProject #1360/#2180 (2026-08-24 security audit §3): `style` was in `BASE_ALLOWED_ATTRIBUTES`
- * unconditionally, with no declaration-level filtering — `sanitizeHtml`'s `allowedStyles` was simply
- * never passed, so any CSS survived verbatim on any element regardless of `write:styles`. An author
- * without the permission could write `style="position:fixed;inset:0;z-index:999"` and cover the
- * whole viewport from inside ordinary page content, since nothing about a scroll container's own
- * ancestor chain clips a `position: fixed` box. `permissions: {}` throughout (no `styles: true`) is
- * the author-without-`write:styles` case these tests are about.
- */
-describe('rendering sanitizeOptions -- allowedStyles (OpenProject #2180)', () => {
-  test('drops position:fixed, inset and z-index for an author without write:styles', () => {
-    const html = '<div style="position:fixed;inset:0;z-index:999;color:red;">x</div>'
-    const clean = sanitize(html, {}, new Set())
-
-    assert.doesNotMatch(clean, /position:\s*fixed/)
-    assert.doesNotMatch(clean, /inset/)
-    assert.doesNotMatch(clean, /z-index/)
-    // -> Not a blanket style strip: an unrelated, harmless declaration on the very same attribute
-    //    survives, proving this is allowlist filtering rather than a `style`-attribute-wide gate.
-    assert.match(clean, /color:\s*red/)
-  })
-
-  test('drops position:absolute and position:sticky the same way as fixed', () => {
-    for (const value of ['absolute', 'sticky']) {
-      const clean = sanitize(`<div style="position:${value};">x</div>`, {}, new Set())
-      assert.doesNotMatch(clean, new RegExp(`position:\\s*${value}`))
-    }
-  })
-
-  test('keeps position:relative, real KaTeX output (verified against katex.renderToString)', () => {
-    const clean = sanitize('<span style="position:relative;">x</span>', {}, new Set())
-    assert.match(clean, /position:\s*relative/)
-  })
-
-  test('drops transform, opacity, pointer-events and content', () => {
-    const html =
-      '<div style="transform:scale(2);opacity:0.5;pointer-events:none;content:\'x\';top:1em;">x</div>'
-    const clean = sanitize(html, {}, new Set())
-
-    assert.doesNotMatch(clean, /transform/)
-    assert.doesNotMatch(clean, /opacity/)
-    assert.doesNotMatch(clean, /pointer-events/)
-    assert.doesNotMatch(clean, /content/)
-    // -> `top` alone (no `position: fixed`) is inert layout-wise and is real KaTeX output, so it
-    //    survives.
-    assert.match(clean, /top:\s*1em/)
-  })
-
-  test('keeps every declaration a real katex.renderToString({ output: "html" }) run emits', () => {
-    /*
-      Captured from a real KaTeX 0.16 `renderToString('\\frac{a}{b} + x^2 - \\sqrt{y}', { output:
-      'html' })` run (frontend/blocks dependency; not importable from backend, so the exact
-      declarations are reproduced here as a fixture) -- the same style the audit asked this task to
-      validate against, covering fractions, roots, exponents, and the negative-em offsets KaTeX
-      relies on throughout.
-    */
-    const declarations = [
-      'height:1.0404em;vertical-align:-0.345em;',
-      'height:0.6954em;',
-      'top:-2.655em;',
-      'height:3em;',
-      'border-bottom-width:0.04em;',
-      'top:-3.23em;',
-      'top:-3.394em;',
-      'height:0.345em;',
-      'margin-right:0.2222em;',
-      'height:0.8974em;vertical-align:-0.0833em;',
-      'height:0.8141em;',
-      'top:-3.063em;margin-right:0.05em;',
-      'height:2.7em;',
-      'height:1.04em;vertical-align:-0.3369em;',
-      'height:0.7031em;',
-      'top:-3em;',
-      'padding-left:0.833em;',
-      'margin-right:0.0359em;',
-      'top:-2.6631em;',
-      'min-width:0.853em;height:1.08em;'
-    ]
-    for (const style of declarations) {
-      const clean = sanitize(`<span style="${style}">x</span>`, {}, new Set())
-      for (const decl of style.split(';').filter(Boolean)) {
-        const [prop, value] = decl.split(':')
-        assert.match(
-          clean,
-          new RegExp(`${prop}:\\s*${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
-          `expected "${decl}" to survive sanitization unchanged`
-        )
-      }
-    }
-  })
-
-  test('an author with write:styles is not filtered at all -- style="…" survives verbatim', () => {
-    const html = '<div style="position:fixed;inset:0;z-index:999;">x</div>'
-    const clean = sanitize(html, { styles: true }, new Set())
-
-    assert.match(clean, /position:\s*fixed/)
-    assert.match(clean, /inset/)
-    assert.match(clean, /z-index/)
-  })
-})
-
 /*
  * `postProcess` used to sanitize before `inlineIcons()`, so the last step that draws more
  * markup into the document (an icon's SVG body, resolved from a third party) ran AFTER the only step
@@ -586,7 +371,7 @@ describe('rendering sanitizeOptions -- allowedStyles (OpenProject #2180)', () =>
 describe('rendering.postProcess: re-sanitizes after inlineIcons (OpenProject #2139)', () => {
   const resolvedIcons = new Map<string, { body: string }>()
 
-  ;(global as any).WIKI.models.icons = {
+  ;(WIKI.models as any).icons = {
     parseRef(ref: string) {
       const [prefix, name] = `${ref}`.split(':')
       return prefix && name ? { prefix, name } : null
@@ -638,97 +423,5 @@ describe('rendering.postProcess: re-sanitizes after inlineIcons (OpenProject #21
 
     assert.match(result.render, /<svg viewBox="0 0 24 24"[^>]*>/)
     assert.match(result.render, /<path d="M12 2L2 7l10 5 10-5-10-5z" fill="currentColor">/)
-  })
-})
-
-/**
- * OpenProject #2183: `sanitizeOptions()` now passes `allowedStyles` to `sanitize-html`, gating which inline
- * `style` *declarations* survive (not just whether the attribute itself is present) on `write:styles`
- * -- `position: fixed` with no clipping ancestor is what lets an author without the permission cover
- * the viewport or hide content from readers while it stays in the source and search index.
- */
-describe('rendering sanitizeOptions -- allowedStyles gates inline CSS by write:styles (OpenProject #2183)', () => {
-  test('drops position/inset/z-index declarations for an author without write:styles, keeping an unrelated color declaration', () => {
-    const html = '<div style="position: fixed; inset: 0; z-index: 9999; color: red;">x</div>'
-
-    const clean = sanitize(html, { scripts: false, styles: false }, new Set())
-
-    assert.doesNotMatch(clean, /position/)
-    assert.doesNotMatch(clean, /inset/)
-    assert.doesNotMatch(clean, /z-index/)
-    assert.match(clean, /color:\s*red/)
-  })
-
-  test('keeps position/inset/z-index declarations for an author with write:styles', () => {
-    const html = '<div style="position: fixed; inset: 0; z-index: 9999; color: red;">x</div>'
-
-    const clean = sanitize(html, { scripts: false, styles: true }, new Set())
-
-    assert.match(clean, /position:\s*fixed/)
-    assert.match(clean, /inset:\s*0/)
-    assert.match(clean, /z-index:\s*9999/)
-    assert.match(clean, /color:\s*red/)
-  })
-
-  test('keeps the KaTeX-sized safe properties for an author without write:styles, so no formula loses its layout', () => {
-    // -> The shape KaTeX actually writes onto formula spans: sizing, fine positioning within a
-    //    relatively-positioned ancestor, and colour -- none of it needs `write:styles` to render.
-    const html =
-      '<span style="height: 0.8em; width: 1.2em; margin-right: 0.05em; ' +
-      'padding-left: 0.1em; top: -0.3em; left: 0.02em; vertical-align: -0.2em; ' +
-      'font-size: 1.2em; border-color: red; background-color: yellow; text-align: center;">x</span>'
-
-    const clean = sanitize(html, { scripts: false, styles: false }, new Set())
-
-    for (const declaration of [
-      'height:0.8em',
-      'width:1.2em',
-      'margin-right:0.05em',
-      'padding-left:0.1em',
-      'top:-0.3em',
-      'left:0.02em',
-      'vertical-align:-0.2em',
-      'font-size:1.2em',
-      'border-color:red',
-      'background-color:yellow',
-      'text-align:center'
-    ]) {
-      assert.ok(clean.includes(declaration), `expected "${declaration}" to survive, got: ${clean}`)
-    }
-  })
-
-  test('drops the style attribute entirely once every declaration it carried is disallowed', () => {
-    const html = '<div style="position: fixed; transform: translateX(10px);">x</div>'
-
-    const clean = sanitize(html, { scripts: false, styles: false }, new Set())
-
-    assert.doesNotMatch(clean, /style=/)
-  })
-})
-
-/*
- * `resolveSiteOrigin` is what carries the site's real hostname into the headless renderer's context
- * (OpenProject #1751), so `isExternalHref` in `frontend/src/renderers/markdown.js` classifies an
- * absolute same-site link the same way whether it was just saved by the editor or re-rendered
- * headlessly afterwards. Mirrors `models/mail.ts`'s `resolveMailBaseURL` -- same `https://<hostname>`
- * assumption, same `*`-catch-all/unresolvable-siteId fallback.
- */
-describe('rendering.resolveSiteOrigin (OpenProject #1751)', () => {
-  test('builds https://<hostname> for a real site', () => {
-    ;(global as any).WIKI.sites = { site1: { hostname: 'wiki.example.com' } }
-
-    assert.equal((rendering as any).resolveSiteOrigin('site1'), 'https://wiki.example.com')
-  })
-
-  test('returns undefined for the "*" catch-all site, which has no hostname of its own', () => {
-    ;(global as any).WIKI.sites = { site1: { hostname: '*' } }
-
-    assert.equal((rendering as any).resolveSiteOrigin('site1'), undefined)
-  })
-
-  test('returns undefined for a siteId with no cached site', () => {
-    ;(global as any).WIKI.sites = {}
-
-    assert.equal((rendering as any).resolveSiteOrigin('missing'), undefined)
   })
 })

@@ -19,7 +19,8 @@ import { invalidateGraphCache } from '../helpers/graphCache.ts'
 import { announce } from './hooks.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import type { PageHistoryVia } from './pageHistory.ts'
-import type { RenderPermissions, TocNode } from './rendering.ts'
+import type { RenderPermissions } from '../helpers/htmlSanitizePolicy.ts'
+import type { TocNode } from './rendering.ts'
 import { pageIsVisible } from './tree.ts'
 import type { DeletedEntry } from './tree.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
@@ -1068,7 +1069,7 @@ class Pages {
     */
     const hasRenderInput = input.render !== undefined
     if (!hasRenderInput) {
-      await WIKI.models.rendering.ensureCanRender(editor)
+      await WIKI.models.renderQueue.ensureCanRender(editor)
     }
 
     const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
@@ -1313,7 +1314,7 @@ class Pages {
     const hasRenderInput = patch.render !== undefined
     const needsRerenderQueue = patch.content !== undefined && !hasRenderInput
     if (needsRerenderQueue) {
-      await WIKI.models.rendering.ensureCanRender(existing.editor)
+      await WIKI.models.renderQueue.ensureCanRender(existing.editor)
     }
 
     // -> A render only means anything next to the content it came from, so the two move together --
@@ -1947,7 +1948,7 @@ class Pages {
    * did — and there is nobody with the page open to re-save it. The rendering goes through the very
    * same frontend pipeline, driven in a headless browser, so the result is what the editor would have
    * produced; because that costs a browser it is queued rather than done here, one page at a time
-   * across the whole instance. See `models/rendering.ts`.
+   * across the whole instance. See `models/renderQueue.ts`.
    *
    * What the render may carry is settled here, while there is still an actor to ask, and travels with
    * the queued request.
@@ -1971,7 +1972,7 @@ class Pages {
     if (!page) {
       return false
     }
-    await WIKI.models.rendering.ensureCanRender(page.editor)
+    await WIKI.models.renderQueue.ensureCanRender(page.editor)
     await this.enqueueRerender(siteId, page, actor, renderPermissions)
     return true
   }
@@ -1988,7 +1989,7 @@ class Pages {
     actor: PageActor,
     renderPermissions?: RenderPermissions
   ): Promise<void> {
-    await WIKI.models.rendering.queuePage({
+    await WIKI.models.renderQueue.queuePage({
       siteId,
       pageId: page.id,
       permissions: renderPermissions ?? {

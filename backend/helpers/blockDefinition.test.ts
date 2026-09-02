@@ -217,7 +217,7 @@ describe('extractBlockDefinition', () => {
   })
 
   /*
-   * OpenProject #2132: `models/rendering.ts#blockAllowances()` now admits a custom block's `props`
+   * OpenProject #2132: `helpers/htmlSanitizePolicy.ts#blockAllowances()` now admits a custom block's `props`
    * straight into the sanitizer's per-tag attribute allowlist, trusting each `name` unvalidated --
    * sanitize-html matches attribute names with `*`-glob support, so an uploaded prop named `on*` or
    * `*` would otherwise silently open inline event handlers (or every attribute at all) on that

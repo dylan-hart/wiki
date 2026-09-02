@@ -1366,7 +1366,7 @@ export const pageviews = pgTable(
  * The markdown pipeline lives in the frontend, so rendering a page here means driving a headless
  * browser — too heavy to hold a request open for, and ruinous to do several times at once. A row is a
  * request for a render, and the `renderPages` task drains the table one page at a time through a
- * single browser (`models/rendering.ts`).
+ * single browser (`models/renderQueue.ts`).
  *
  * A row IS the request, so asking twice for the same page updates the row instead of adding a second:
  * what gets rendered is the content as it stands when the browser reaches it, and rendering it twice

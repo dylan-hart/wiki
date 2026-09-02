@@ -103,11 +103,11 @@ export async function blockSettleScript(maxRounds: number): Promise<void> {
  *
  * Exports a page to PDF by driving Puppeteer against this instance's own real, live page view — the
  * SPA route a reader's browser would land on — rather than the bare `/_render` shell
- * `models/rendering.ts` uses. `/_render` hosts nothing but the markdown-to-HTML pipeline: no
+ * `models/renderQueue.ts` uses. `/_render` hosts nothing but the markdown-to-HTML pipeline: no
  * stylesheet, no theme, no block components. A PDF export is a reader-facing artifact, so it has to
  * go through the page reading itself would go through.
  *
- * Shares `helpers/puppeteer.ts` with `models/rendering.ts` and `models/diagramRender.ts` for the
+ * Shares `helpers/puppeteer.ts` with `models/renderQueue.ts` and `models/diagramRender.ts` for the
  * browser itself (same flags, same `extensions.noteLoadFailure` tracking, and — since OpenProject
  * #2258/#2259 — the same process-wide concurrency ceiling that helper now enforces across all three),
  * but everything past opening a tab is different: there is no renderer bundle to wait on, no queue of
@@ -180,7 +180,7 @@ class PdfExport {
    * instance). What actually decides which site answers is this instance's own hostname→site mapping
    * (`WIKI.sitesMappings`, read off `req.hostname` on every request — see `index.ts`), so the caller's
    * own hostname is sent as a spoofed `Host` header via `page.setExtraHTTPHeaders` instead: reachable
-   * over loopback like `models/rendering.ts`'s `/_render` shell, but resolving to the same site the
+   * over loopback like `models/renderQueue.ts`'s `/_render` shell, but resolving to the same site the
    * export was asked against.
    *
    * LOAD: one browser opened and closed per call at this model's own level — see the class comment.

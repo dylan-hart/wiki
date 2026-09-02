@@ -38,7 +38,7 @@ function exportFilenameStem(path: string): string {
 }
 
 /**
- * `ensureCanRender()` (`models/rendering.ts`) throws these two named errors -- via `createPage()`/
+ * `ensureCanRender()` (`models/renderQueue.ts`) throws these two named errors -- via `createPage()`/
  * `updatePage()` (OpenProject #1716) -- when a render-less write can't be safely accepted: an editor
  * this server has no renderer for, or a markdown page with no Puppeteer extension to render it. Maps
  * each to a `@fastify/sensible` error carrying `ensureCanRender()`'s own message (which names the

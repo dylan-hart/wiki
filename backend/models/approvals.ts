@@ -12,7 +12,7 @@ import {
 import type { AccessActor } from './groups.ts'
 import { hasPermission } from './pages.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
-import type { RenderPermissions } from './rendering.ts'
+import type { RenderPermissions } from '../helpers/htmlSanitizePolicy.ts'
 import { escapeHtml } from './mail.ts'
 import { ClusterReloaded } from '../helpers/clusterCache.ts'
 import { approvalMatchModes } from '../helpers/approvalMatch.ts'

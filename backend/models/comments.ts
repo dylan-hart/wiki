@@ -156,7 +156,7 @@ const DEFAULT_GUEST_PII_RETENTION_DAYS = 90
  *   (`mayOnPage` in `helpers/pageAccess.ts`, `api/watching.ts` calling `pageWatching.watch()`). This file
  *   follows the same layering: no `FastifyRequest` import, no embedded access check.
  * - **No `render` population.** This codebase's page-rendering pipeline is a headless-browser render
- *   queue (`models/rendering.ts`) — far too heavy to hold a request open for a short synchronous
+ *   queue (`models/renderQueue.ts`) — far too heavy to hold a request open for a short synchronous
  *   comment post. `render` stays nullable and untouched here for 2.5.x row-shape parity and so a
  *   future provider has somewhere to put sanitized HTML; actually populating it (markdown-it +
  *   DOMPurify, mirroring 2.5.x's `comment.js`) is Feature 390's default-provider job, not this one's.

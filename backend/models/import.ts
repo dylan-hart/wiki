@@ -53,7 +53,7 @@ const importErrorLength = 800
  * concurrent batch imports could still fork ~240 pandoc children between them (OpenProject #2209,
  * audit `09-dos-resource.md` §10). Gating here, in front of every caller of {@link Import.runPandoc}
  * — the batch route and the single-file route both funnel through it — covers both in one place.
- * `models/rendering.ts`'s single-browser render queue is the same idea taken to a stricter
+ * `models/renderQueue.ts`'s single-browser render queue is the same idea taken to a stricter
  * one-at-a-time ceiling; a pandoc process is far cheaper than a full browser, so a small concurrency
  * window is the right trade here rather than a strict queue.
  */
@@ -195,7 +195,7 @@ export interface ImportConversionResult {
  * and, if present, splitting a leading YAML front-matter header into title/description/tags
  * (OpenProject #1092). Every other supported format is converted by shelling out to Pandoc — an
  * extension like Puppeteer, not a bundled dependency, and one this instance may not have.
- * `ensureCanImport` is the same kind of guard `models/rendering.ts`'s `ensureCanRender` is for
+ * `ensureCanImport` is the same kind of guard `models/renderQueue.ts`'s `ensureCanRender` is for
  * Puppeteer: asked before any pandoc-backed work starts, so a missing tool is reported as a clean 503
  * rather than discovered mid-conversion — the markdown pass-through never calls it, since it has
  * nothing to be missing.

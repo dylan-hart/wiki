@@ -113,7 +113,7 @@ function propertyKeyName(key: Expression | PrivateIdentifier, label: string): st
 /**
  * What a prop's `name` is allowed to look like: a plain, dash-separated lowercase identifier.
  *
- * `backend/models/rendering.ts#blockAllowances()` (OpenProject #2132) admits a custom block's `props`
+ * `backend/helpers/htmlSanitizePolicy.ts#blockAllowances()` (OpenProject #2132) admits a custom block's `props`
  * straight into the sanitizer's per-tag attribute allowlist, trusting the name unvalidated — sanitize-html
  * matches attribute names with `*`-glob support, so a prop named `on*` or `*` would silently open inline
  * event handlers (or every attribute at all) on that element for every author on every page using the

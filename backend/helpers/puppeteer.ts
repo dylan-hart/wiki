@@ -149,7 +149,7 @@ export async function launchUnderSemaphore(
  * rather than claim the extension is ready to use in a process that already tried and failed to load
  * its module.
  *
- * Shared by `models/rendering.ts` (re-rendering a page's markdown from a headless shell),
+ * Shared by `models/renderQueue.ts` (re-rendering a page's markdown from a headless shell),
  * `models/pdfExport.ts` (driving the live page view to produce a PDF) and `models/diagramRender.ts`
  * (drawing a Mermaid diagram) — three different reasons to open a browser that should still open the
  * exact same browser, and all three funnel through the one semaphore here.
