@@ -563,3 +563,38 @@ sentences are now incomplete rather than wrong.
   `controllers/render.ts` and `migration/`'s prose, because a 60-file mechanical sweep would both
   escape this task's workspace and collide with a concurrent writer. Needs a follow-up sweep — these
   now name files that do not exist at all, which is worse than a stale-but-real path.
+
+- **Task A20 (search/storage contract runners, core test splits).** Six things CLAUDE.md should now
+  say:
+  - **Two shared module-contract runners live under `backend/test/`.**
+    `test/searchModuleContract.ts#runSearchModuleContract(name, { makeModule, config, siteConfig })`
+    emits the thirteen claims every `modules/search/*` engine owes `models/search.ts`;
+    `test/storageModuleContract.ts#runStorageModuleContract(name, { makeTarget, stubSdk })` emits the
+    ten asset-lifecycle claims every blob storage module owes `models/storage.ts`. Each engine/module
+    test file supplies a harness translating those claims into its own vendor shapes and keeps only
+    what is genuinely vendor-specific. "Testing (backend)" should say that a NEW search engine or blob
+    storage module is wired to its runner rather than restating the contract, and that `test/` is
+    where a contract runner lives — alongside the existing "shared fixture code" sentence.
+  - **The `db` search engine is deliberately outside the search contract runner**, for the same
+    reason `modules/search/externalBase.ts` gives for it not extending `ExternalSearchModule`: no
+    vendor client, genuinely different `deleted`/`renamed`, and a DB-backed suite. Worth one clause
+    wherever the runner is described, so nobody "fixes" the omission.
+  - **`*.db.test.ts` is now the marker for a DB-backed backend test file** —
+    `core/scheduler.reaping.db`, `core/scheduler.schema.db`, `core/collab.crossInstance.db` and
+    `models/storage.db`. The convention CLAUDE.md documents today is only "co-located `*.test.ts`"
+    plus a per-describe `{ skip: !hasTestDatabase() }`; the suffix makes the pure/DB boundary visible
+    from the filename and lets a developer run just the pure half. Both halves still gate exactly as
+    before — the suffix is a naming convention, not a mechanism.
+  - **`test/collabWorker.ts` is a worker-thread ENTRY POINT and must not be imported by a test.** It
+    destructures `workerData` and calls `boot()` at import time. The shared collab test helpers
+    (`FakeSocket`, `makeInstance`, `wire`, `STORED_PAGE`, `installCollabHarness`) therefore live in a
+    separate `test/collabHarness.ts`. Worth a sentence so the next reader does not try to merge them.
+  - **`makeIndexablePage` (`test/builders.ts`) is the page fixture in all four external search engine
+    suites now**, and `stubPageStreamDb` / `makeRebuildPageSource` the rebuild fixtures. None of the
+    engine files carries its own `fakePage`/`basePage`/`fakeDb`/`fakePageSource` any more.
+  - **Still deferred: doc-comment prose naming `helpers/common.ts` inside `backend/api/**`.** Five
+    references (`api/tree.ts:224`, `api/auth/site.ts:103`, `api/assets.test.ts:215`,
+    `api/bootstrap.test.ts:97`, `api/pages/index.test.ts:352`) name
+    `siteEnabledPreHandler`/`guardSiteEnabled` as living in `helpers/common.ts`; both are in
+    `helpers/siteResolution.ts`. Left for D1 rather than edited from this task, since `backend/api/**`
+    was another agent's concurrent workspace.
