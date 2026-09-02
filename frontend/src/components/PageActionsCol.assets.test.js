@@ -1,11 +1,13 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
+// -> `PageActionsCol.vue` imports `browser-fs-access` at module scope, so the module graph needs a
+//    stand-in even in the shards that never assert on `fileSave` -- only `PageActionsCol.export`
+//    reads its calls.
 vi.mock('browser-fs-access', () => ({
   fileSave: vi.fn().mockResolvedValue(undefined)
 }))
 
-import { fileSave } from 'browser-fs-access'
 import { clickByLabel, mountRailWithPendingAssets, typeInto } from './pageActionsHarness.js'
 
 describe('PageActionsCol pending asset rename', () => {
