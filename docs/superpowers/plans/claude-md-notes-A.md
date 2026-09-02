@@ -59,3 +59,11 @@
     `getState`/`getStatesForTarget` (both deleted); it now says the row's own `lastError` still
     stands in `contentSyncState`. No CLAUDE.md change follows from it — noted so the next reader of
     that entry knows the wording moved deliberately.
+
+- **Task A5 (duplicate-test cleanup and relocations, TEST-F13).** No CLAUDE.md content change
+  follows — this task was purely test-file reorganisation (merged duplicate describes, relocated
+  two misplaced suites, deleted one root-level co-location violation) with zero behaviour or
+  production-code touched. `backend/locales-en.test.ts`'s deletion is itself an instance of the
+  "Testing (backend)" section's existing co-location rule doing its job (a root-level test for a
+  co-located source file, folded into `backend/locales/en.test.ts`), not evidence that rule needs
+  restating or amending.
