@@ -237,3 +237,28 @@ in one pass at the end of the consolidation (agents must not edit `CLAUDE.md` mi
 - **`WInput` puts `aria-label` on the `<input>` itself**, so a test selects it as
   `input[aria-label="X"]`, never `[aria-label="X"] input`. The seven assertions using the ancestor form
   (`AdminAnalytics` 1, `AdminMail` 3, `AdminSearch` 3, flagged as pre-existing red by B1–B4) are fixed.
+- **`stubs` defaults to `{ teleport: true }`, and a suite that asserts against `document.body` opts
+  out with `stubs: {}`.** `w-dialog`/`w-menu`/`WTooltip` really teleport their body out of the
+  wrapper, so the seven suites that look for it there (`ApiKeyCreateDialog`,
+  `ProfileApiKeyCreateDialog`, `ImportPageDialog`, `TreeBrowserDialog`, `WebhookHistoryDialog`,
+  `InboxWatching`, `AdminTheme`) each carry that opt-out with a one-line reason.
+- **A test-only sibling module is a plain `.js`, never a `*.test.js`.** `pages/graphFixtures.js`,
+  `components/editorMarkdownHarness.js` and `components/pageActionsHarness.js` join
+  `frontend/test/`'s helpers as the accepted shape for per-component shared fixtures:
+  `vitest.config.js` collects only `*.test.js`, so these are imported and never run as a suite. A
+  `vi.mock(...)` call must still live in each test file (it is hoisted per file) — the harness
+  exports the factory (`monacoMock()`) it is handed.
+- **The suites split by concern**, so a filename now names what it covers: `stores/page.{save,load,
+  lifecycle,derived}`, `pages/Graph.{rendering,sizing,tooltip,i18n,layout,fallback}`,
+  `components/EditorMarkdown.{content,preview,resize,assets,lifecycle}`, `pages/Index.{view,blocks,
+  routing,missingPage}`, `App.{theme,locale,prefetch,navGuard,logout,beforeunload}`,
+  `components/PageActionsCol.{buttons,export,assets,menu}`,
+  `components/HeaderSearch.{entry,preview,suggest}`. No `frontend/src` test file is over ~530 lines.
+- **A cross-component assertion is a `describe.each`, not a copy.**
+  `components/editorMarkupShared.test.js` (EditorAsciidoc ≡ EditorCode) and
+  `components/apiKeyScopeTree.test.js` (the two key-create dialogs) hold what is byte-identical
+  between two components; what genuinely differs stays in each component's own suite.
+- **One `docsBase` gate, not seven.** `src/docsBaseGate.test.js` lists the fork-invented surfaces that
+  must carry no `docsBase` help button and checks each with `describe.each`, plus an existence check
+  so a rename cannot retire a guard silently. `pages/{AdminFlags,AdminApprovals,AdminTerminal}.test.js`
+  held nothing else and are gone.
