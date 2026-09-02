@@ -645,7 +645,7 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — pageview session write resp
  * `mayOnPage(req, 'read:pages', { path: target.path })` never saw a locale or any tags — a
  * locale- or tag-scoped page rule could never be evaluated for a page reached through its alias,
  * only a path-based one, silently. Fixed by selecting `locale`/`tags` too (`models/pages.ts`) and
- * threading both through into the `mayOnPage` call (`api/pages.ts`).
+ * threading both through into the `mayOnPage` call (`api/pages/read.ts`).
  *
  * `WIKI.models.groups.checkAccess` is wired to the real `resolvePageRule` from `helpers/pageRules.ts`
  * rather than a canned true/false, so a passing test here proves the actual rule-matching mechanism

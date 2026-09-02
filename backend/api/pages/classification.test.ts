@@ -90,7 +90,7 @@ describe('pages API — classification (OpenProject #1080)', () => {
         pages: {
           getPage: async ({ id }: { id: string }) =>
             PAGE_FIXTURES[id] ? { ...PAGE_FIXTURES[id], updatedAt: new Date() } : null,
-          // -> OpenProject #1902: the batched select `api/pages.ts`'s resolve route now calls instead
+          // -> OpenProject #1902: the batched select `api/pages/classification.ts`'s resolve route now calls instead
           //    of a per-id `getPage` loop. One call per request regardless of how many ids are asked
           //    for -- `getPagesByIdsCalls.length` is what the "query count does not grow with N" tests
           //    below assert against.

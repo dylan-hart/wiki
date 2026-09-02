@@ -11,7 +11,7 @@ import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
  * Driving a real headless browser is `models/pdfExport.ts`'s job — `pdfExport.test.ts` covers the
  * browser-launch guard and the block-settle wait without a real browser. What belongs to the route,
  * and what this file checks, is the wiring: an anonymous caller is refused before anything else runs,
- * exactly like the page re-render route above it in `api/pages.ts` and `POST /diagrams/render` beside
+ * exactly like the page re-render route above it in `api/pages/write.ts` and `POST /diagrams/render` beside
  * it (task 2262 — see `docs/variances.md`'s "Anonymous access reconciled" entry, reconciling this
  * route against those two siblings, which both refuse anonymous the same way for the same reason,
  * regardless of whether the page itself is one an anonymous reader could otherwise see),

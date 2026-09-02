@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
-import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../../test/db.ts'
 import {
   groups as groupsTable,
   sessions as sessionsTable,
   userGroups as userGroupsTable,
   users as usersTable
-} from '../db/schema.ts'
-import groupsRoutes from './groups.ts'
-import usersRoutes from './users.ts'
-import { buildTestApp, closeTestApp } from '../test/fastify.ts'
+} from '../../db/schema.ts'
+import groupsRoutes from '../groups.ts'
+import usersRoutes from './index.ts'
+import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
 /**
  * OpenProject #936: `session.groups`/`session.permissions` are snapshots taken at login, otherwise

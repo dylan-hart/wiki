@@ -1,4 +1,4 @@
-import { whoAmI } from './users.ts'
+import { whoAmI } from './users/admin.ts'
 import { buildSitePayload } from './sites.ts'
 import { guardSiteEnabled } from '../helpers/siteResolution.ts'
 import type { FastifyInstance } from 'fastify'

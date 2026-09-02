@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { after, afterEach, before, test } from 'node:test'
 import { mock } from 'node:test'
 import type { FastifyInstance } from 'fastify'
-import usersRoutes from './users.ts'
-import { buildTestApp, closeTestApp } from '../test/fastify.ts'
+import usersRoutes from './index.ts'
+import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
 /**
  * OpenProject #788: the self-service `/users/profile/api-keys*` routes — list/create/revoke a

@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
-import usersRoutes from './users.ts'
-import { createSilentLogger } from '../test/mocks.ts'
-import { buildTestApp, closeTestApp } from '../test/fastify.ts'
+import usersRoutes from './index.ts'
+import { createSilentLogger } from '../../test/mocks.ts'
+import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
 /**
  * Regression test for the `GET /whoami` response schema gap: with no `response` block, the generated
  * OpenAPI document has no concrete schema for the 200 response. `whoAmI()` (the handler, exported from
- * `./users.ts`) returns `{ authenticated: false }` for a guest, and the session's profile fields plus
+ * `./admin.ts`) returns `{ authenticated: false }` for a guest, and the session's profile fields plus
  * `permissions` for a logged in user, so both shapes are exercised here via `app.inject`'s `session`.
  */
 

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
-import usersRoutes from './users.ts'
-import { buildTestApp, closeTestApp } from '../test/fastify.ts'
+import usersRoutes from './index.ts'
+import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
 /**
  * `POST /` (create user)'s `sendWelcomeEmail` handling (OpenProject #961): the route used to refuse
