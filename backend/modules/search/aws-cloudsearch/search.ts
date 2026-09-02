@@ -13,18 +13,19 @@ import {
   SearchCommand,
   UploadDocumentsCommand
 } from '@aws-sdk/client-cloudsearch-domain'
+import { ExternalSearchModule } from '../externalBase.ts'
 import {
   defaultPageSource,
   HL_START,
   HL_STOP,
+  localePageStream,
   normalizeMarkers,
-  REBUILD_BATCH_SIZE
+  SCAN_CAP
 } from '../shared.ts'
 import type { RebuildPageSource } from '../shared.ts'
 import type {
   RebuildResult,
   SearchIndexablePage,
-  SearchModule,
   SearchOrderBy,
   SearchPagesParams,
   SearchPagesResult,
@@ -55,25 +56,40 @@ const SUGGESTER_NAME = 'wiki_title_suggester'
 /** A CloudSearch index field type this module ever declares. */
 type CloudSearchFieldType = 'literal' | 'text' | 'literal-array'
 
-/** Narrowed field options this module ever sets — a subset of the SDK's own per-type `*Options`. */
-export interface CloudSearchFieldOptions {
-  facetEnabled?: boolean
-  searchEnabled?: boolean
-  returnEnabled?: boolean
-  analysisScheme?: string
+/** The `literal`/`literal-array` options this module ever sets, in the SDK's own casing. */
+export interface CloudSearchLiteralOptions {
+  SearchEnabled?: boolean
+  FacetEnabled?: boolean
+  ReturnEnabled?: boolean
+}
+
+/** The `text` options this module ever sets, in the SDK's own casing. */
+export interface CloudSearchTextOptions {
+  ReturnEnabled?: boolean
+  AnalysisScheme?: string
 }
 
 /**
- * One field this module wants defined on the domain, in the shape `init()` compares against what
- * `DescribeIndexFieldsCommand` reports back — a pure, testable description rather than the SDK's own
- * `IndexField` request shape, which splits options across a differently-named property per type
- * (`LiteralOptions`/`TextOptions`/`LiteralArrayOptions`) that `defaultAdminClient` below translates to
- * and from when it actually talks to AWS.
+ * One field this module wants defined on the domain — declared in the SDK's own `IndexField` shape,
+ * which is also the shape `DescribeIndexFieldsCommand` reports each field back in (as
+ * `IndexFieldStatus.Options`), so `init()` compares like with like and `defineIndexField` passes it
+ * straight through.
+ *
+ * This module used to declare its own flat `{ name, type, options: { searchEnabled, ... } }` shape
+ * and translate to and from the SDK's per-type option bags (`LiteralOptions`/`TextOptions`/
+ * `LiteralArrayOptions`) in both directions — 117 lines of translation whose only product was two
+ * spellings of the same field list. The `DefineIndexField` requests are unchanged by dropping it:
+ * where the translation set an option this module has no opinion about to `undefined`, this
+ * declaration simply omits the key, and the SDK's query serializer emits neither — verified against
+ * the real serializer for `updatedAt` and `hasPassword`, the only two fields where the shapes differ
+ * at all.
  */
-export interface CloudSearchFieldSpec {
-  name: string
-  type: CloudSearchFieldType
-  options: CloudSearchFieldOptions
+export interface CloudSearchIndexField {
+  IndexFieldName: string
+  IndexFieldType: CloudSearchFieldType
+  LiteralOptions?: CloudSearchLiteralOptions
+  TextOptions?: CloudSearchTextOptions
+  LiteralArrayOptions?: CloudSearchLiteralOptions
 }
 
 /**
@@ -91,89 +107,113 @@ export interface CloudSearchFieldSpec {
  * facet-enabled from the start so a caller gets the same filtering surface the `db` and `azure-search`
  * engines already offer, once task #562 wires a query adapter that can use it.
  */
-export function buildIndexFields(analysisScheme: string): CloudSearchFieldSpec[] {
+export function buildIndexFields(analysisScheme: string): CloudSearchIndexField[] {
   return [
     {
-      name: 'id',
-      type: 'literal',
+      IndexFieldName: 'id',
+      IndexFieldType: 'literal',
       // -> Document key by convention (uploaded documents carry their `id` under this same field
       //    name); indexing/faceting on it would be meaningless.
-      options: { searchEnabled: false, facetEnabled: false, returnEnabled: true }
+      LiteralOptions: { SearchEnabled: false, FacetEnabled: false, ReturnEnabled: true }
     },
     {
-      name: 'siteId',
-      type: 'literal',
+      IndexFieldName: 'siteId',
+      IndexFieldType: 'literal',
       // -> OpenProject #2108: what `buildFilterQuery()` unconditionally terms every query against, so
       //    a query never returns another site's rows even when two sites' engine config happens to
-      //    point at the same domain. Same treatment as `hasPassword`/`classification` above: a literal
-      //    field is filterable via a `term` clause regardless of `searchEnabled`/`facetEnabled`, so
+      //    point at the same domain. Same treatment as `hasPassword`/`classification` below: a literal
+      //    field is filterable via a `term` clause regardless of `SearchEnabled`/`FacetEnabled`, so
       //    neither is needed here, and the value is never surfaced to a caller — `SearchResult` has no
       //    `siteId` of its own — so it is not returned either.
-      options: { searchEnabled: false, facetEnabled: false, returnEnabled: false }
-    },
-    { name: 'path', type: 'text', options: { returnEnabled: true, analysisScheme } },
-    { name: 'locale', type: 'text', options: { returnEnabled: true, analysisScheme } },
-    { name: 'title', type: 'text', options: { returnEnabled: true, analysisScheme } },
-    { name: 'description', type: 'text', options: { returnEnabled: true, analysisScheme } },
-    { name: 'content', type: 'text', options: { returnEnabled: false, analysisScheme } },
-    {
-      name: 'tags',
-      type: 'literal-array',
-      options: { facetEnabled: true, searchEnabled: true, returnEnabled: true }
+      LiteralOptions: { SearchEnabled: false, FacetEnabled: false, ReturnEnabled: false }
     },
     {
-      name: 'editor',
-      type: 'literal',
-      options: { facetEnabled: true, searchEnabled: true, returnEnabled: true }
+      IndexFieldName: 'path',
+      IndexFieldType: 'text',
+      TextOptions: { ReturnEnabled: true, AnalysisScheme: analysisScheme }
     },
     {
-      name: 'publishState',
-      type: 'literal',
-      options: { facetEnabled: true, searchEnabled: true, returnEnabled: true }
+      IndexFieldName: 'locale',
+      IndexFieldType: 'text',
+      TextOptions: { ReturnEnabled: true, AnalysisScheme: analysisScheme }
     },
     {
-      name: 'updatedAt',
-      type: 'literal',
+      IndexFieldName: 'title',
+      IndexFieldType: 'text',
+      TextOptions: { ReturnEnabled: true, AnalysisScheme: analysisScheme }
+    },
+    {
+      IndexFieldName: 'description',
+      IndexFieldType: 'text',
+      TextOptions: { ReturnEnabled: true, AnalysisScheme: analysisScheme }
+    },
+    {
+      IndexFieldName: 'content',
+      IndexFieldType: 'text',
+      TextOptions: { ReturnEnabled: false, AnalysisScheme: analysisScheme }
+    },
+    {
+      IndexFieldName: 'tags',
+      IndexFieldType: 'literal-array',
+      LiteralArrayOptions: { SearchEnabled: true, FacetEnabled: true, ReturnEnabled: true }
+    },
+    {
+      IndexFieldName: 'editor',
+      IndexFieldType: 'literal',
+      LiteralOptions: { SearchEnabled: true, FacetEnabled: true, ReturnEnabled: true }
+    },
+    {
+      IndexFieldName: 'publishState',
+      IndexFieldType: 'literal',
+      LiteralOptions: { SearchEnabled: true, FacetEnabled: true, ReturnEnabled: true }
+    },
+    {
+      IndexFieldName: 'updatedAt',
+      IndexFieldType: 'literal',
       // -> Task #562's own addition (this module's `query()`/hooks), same reasoning task #557 gave for
       //    adding fields to `azure-search`'s `buildIndexSchema`: an ISO-8601 string sorts
       //    lexicographically in chronological order, so a plain literal field is enough to satisfy
       //    `orderBy: 'updatedAt'` — CloudSearch has no dedicated field type this module needs beyond that.
-      options: { returnEnabled: true }
+      LiteralOptions: { ReturnEnabled: true }
     },
     {
-      name: 'icon',
-      type: 'literal',
+      IndexFieldName: 'icon',
+      IndexFieldType: 'literal',
       // -> Task #562's own addition. Same reasoning as `id`: carried through purely so `query()` can
       //    put it on `SearchResult.icon`, never searched or faceted.
-      options: { searchEnabled: false, facetEnabled: false, returnEnabled: true }
+      LiteralOptions: { SearchEnabled: false, FacetEnabled: false, ReturnEnabled: true }
     },
     {
-      name: 'hasPassword',
-      type: 'literal',
+      IndexFieldName: 'hasPassword',
+      IndexFieldType: 'literal',
       // -> Task #562's own addition. Stored as the literal strings `'true'`/`'false'` — CloudSearch has
       //    no boolean field type. Routes a document into the public or protected half of the
       //    `hideProtectedContent` split query (see `runProtectedSplitQuery` below), the same job
       //    `azure-search`'s own boolean `hasPassword` field does (task #557's design decision #1): an
       //    external index has no `password IS NULL` to check per-row the way postgres does. Never
       //    returned to a caller — `query()` only ever filters on it.
-      options: { searchEnabled: false, returnEnabled: false }
+      LiteralOptions: { SearchEnabled: false, ReturnEnabled: false }
     },
     {
-      name: 'classification',
-      type: 'literal',
+      IndexFieldName: 'classification',
+      IndexFieldType: 'literal',
       // -> OpenProject #1125: what `query()` checks a CLASSIFICATION rule against, populated at
       //    index time from `pages.classification` the same way `tags`/`editor`/`publishState` already
       //    are. Never searched or faceted, same treatment as `id`/`icon` above.
-      options: { searchEnabled: false, facetEnabled: false, returnEnabled: true }
+      LiteralOptions: { SearchEnabled: false, FacetEnabled: false, ReturnEnabled: true }
     }
   ]
 }
 
-/** One field as `DescribeIndexFieldsCommand` reports it back, narrowed to what `fieldMatches` compares. */
-export interface DescribedCloudSearchField {
-  name: string
-  type: string
-  options: CloudSearchFieldOptions
+/**
+ * The option bag a field of this type carries — exactly one of the three is ever set, so the first
+ * one present is the field's own.
+ */
+function optionsOf(field: CloudSearchIndexField): Record<string, unknown> {
+  return (field.LiteralOptions ?? field.TextOptions ?? field.LiteralArrayOptions ?? {}) as Record<
+    string,
+    unknown
+  >
 }
 
 /**
@@ -183,20 +223,19 @@ export interface DescribedCloudSearchField {
  * actually changed, so calling it unconditionally on every boot would mean an unconditional reindex
  * trigger too, defeating the point of checking at all.
  *
- * Only the keys `desired.options` sets are compared: `describedOptions` (built from the SDK's real
- * response by `defaultAdminClient` below) carries every option CloudSearch tracks for that field type,
- * most of them defaults this module never set and has no opinion about.
+ * Only the keys the desired field's options set are compared: what the domain reports back carries
+ * every option CloudSearch tracks for that field type, most of them defaults this module never set
+ * and has no opinion about.
  */
 export function fieldMatches(
-  desired: CloudSearchFieldSpec,
-  described: DescribedCloudSearchField | undefined
+  desired: CloudSearchIndexField,
+  described: CloudSearchIndexField | undefined
 ): boolean {
-  if (!described || described.type !== desired.type) {
+  if (!described || described.IndexFieldType !== desired.IndexFieldType) {
     return false
   }
-  return Object.entries(desired.options).every(
-    ([key, value]) => described.options[key as keyof CloudSearchFieldOptions] === value
-  )
+  const describedOptions = optionsOf(described)
+  return Object.entries(optionsOf(desired)).every(([key, value]) => describedOptions[key] === value)
 }
 
 /** One analysis scheme, as `DescribeAnalysisSchemesCommand` reports it back. */
@@ -222,69 +261,13 @@ export interface DescribedSuggester {
  * test never touches them directly.
  */
 export interface CloudSearchAdminClient {
-  describeIndexFields(domainName: string): Promise<DescribedCloudSearchField[]>
-  defineIndexField(domainName: string, field: CloudSearchFieldSpec): Promise<void>
+  describeIndexFields(domainName: string): Promise<CloudSearchIndexField[]>
+  defineIndexField(domainName: string, field: CloudSearchIndexField): Promise<void>
   describeAnalysisSchemes(domainName: string, name: string): Promise<DescribedAnalysisScheme[]>
   defineAnalysisScheme(domainName: string, name: string, language: string): Promise<void>
   describeSuggesters(domainName: string, name: string): Promise<DescribedSuggester[]>
   defineSuggester(domainName: string, name: string, sourceField: string): Promise<void>
   indexDocuments(domainName: string): Promise<void>
-}
-
-/** Turns this module's own field options into the SDK's per-type `*Options` request shape. */
-function toSdkIndexField(field: CloudSearchFieldSpec): {
-  IndexFieldName: string
-  IndexFieldType: CloudSearchFieldType
-  LiteralOptions?: { SearchEnabled?: boolean; FacetEnabled?: boolean; ReturnEnabled?: boolean }
-  TextOptions?: { ReturnEnabled?: boolean; AnalysisScheme?: string }
-  LiteralArrayOptions?: { SearchEnabled?: boolean; FacetEnabled?: boolean; ReturnEnabled?: boolean }
-} {
-  const base = { IndexFieldName: field.name, IndexFieldType: field.type }
-  switch (field.type) {
-    case 'text':
-      return {
-        ...base,
-        TextOptions: {
-          ReturnEnabled: field.options.returnEnabled,
-          AnalysisScheme: field.options.analysisScheme
-        }
-      }
-    case 'literal-array':
-      return {
-        ...base,
-        LiteralArrayOptions: {
-          SearchEnabled: field.options.searchEnabled,
-          FacetEnabled: field.options.facetEnabled,
-          ReturnEnabled: field.options.returnEnabled
-        }
-      }
-    default:
-      return {
-        ...base,
-        LiteralOptions: {
-          SearchEnabled: field.options.searchEnabled,
-          FacetEnabled: field.options.facetEnabled,
-          ReturnEnabled: field.options.returnEnabled
-        }
-      }
-  }
-}
-
-/** Turns the SDK's per-type `*Options` response shape back into this module's own field options. */
-function fromSdkIndexField(status: any): DescribedCloudSearchField {
-  const opts = status.Options ?? {}
-  const type = opts.IndexFieldType as string
-  const sdkOptions = opts.LiteralOptions ?? opts.TextOptions ?? opts.LiteralArrayOptions ?? {}
-  return {
-    name: opts.IndexFieldName,
-    type,
-    options: {
-      searchEnabled: sdkOptions.SearchEnabled,
-      facetEnabled: sdkOptions.FacetEnabled,
-      returnEnabled: sdkOptions.ReturnEnabled,
-      analysisScheme: sdkOptions.AnalysisScheme
-    }
-  }
 }
 
 /** Builds the real SDK admin client from a site's stored `region`/`accessKeyId`/`secretAccessKey` config. */
@@ -299,14 +282,13 @@ function defaultAdminClientFactory(config: Record<string, any>): CloudSearchAdmi
   return {
     async describeIndexFields(domainName) {
       const res = await client.send(new DescribeIndexFieldsCommand({ DomainName: domainName }))
-      return (res.IndexFields ?? []).map(fromSdkIndexField)
+      // -> `IndexFieldStatus.Options` is the SDK's own `IndexField`, which is the shape
+      //    `buildIndexFields()` already declares, so there is nothing to translate here
+      return (res.IndexFields ?? []).map((f) => f.Options as CloudSearchIndexField)
     },
     async defineIndexField(domainName, field) {
       await client.send(
-        new DefineIndexFieldCommand({
-          DomainName: domainName,
-          IndexField: toSdkIndexField(field) as any
-        })
+        new DefineIndexFieldCommand({ DomainName: domainName, IndexField: field as any })
       )
     },
     async describeAnalysisSchemes(domainName, name) {
@@ -585,15 +567,6 @@ const PROTECTED_SEARCH_FIELDS = ['title', 'description']
 /** Fields `highlight` requests a fragment from — title is excluded, matching `azure-search`'s own choice. */
 const HIGHLIGHT_FIELDS = ['content', 'description']
 
-/**
- * Ceiling on how many of CloudSearch's own matches `query()` scans (per half, when split) before
- * deriving `totalHits` and the requested page from what survives `checkAccess()` (OpenProject
- * #2156, mirroring `db/search.ts`'s own `SCAN_CAP`). Bounded rather than unbounded, since page-rule
- * filtering cannot be expressed as a CloudSearch `filterQuery` and has to run per-row in this
- * process.
- */
-const SCAN_CAP = 500
-
 /** The `highlight` request parameter: one fragment each from `content`/`description`, as plain text. */
 function highlightOption(): string {
   const options: Record<string, { format: 'text'; pre_tag: string; post_tag: string }> = {}
@@ -737,7 +710,7 @@ function defaultQueryClientFactory(config: Record<string, any>): CloudSearchQuer
  * real AWS domain, network call, or credential involved — there is no local CloudSearch emulator either
  * (Feature #381).
  */
-export class AwsCloudSearchModule implements SearchModule {
+export class AwsCloudSearchModule extends ExternalSearchModule {
   private readonly clientFactory: (config: Record<string, any>) => CloudSearchAdminClient
   private readonly queryClientFactory: (config: Record<string, any>) => CloudSearchQueryClient
   private readonly pageSource: RebuildPageSource
@@ -766,6 +739,7 @@ export class AwsCloudSearchModule implements SearchModule {
     ) => CloudSearchQueryClient = defaultQueryClientFactory,
     pageSource: RebuildPageSource = defaultPageSource()
   ) {
+    super()
     this.clientFactory = clientFactory
     this.queryClientFactory = queryClientFactory
     this.pageSource = pageSource
@@ -834,9 +808,9 @@ export class AwsCloudSearchModule implements SearchModule {
     }
 
     const described = await client.describeIndexFields(domain)
-    const describedByName = new Map(described.map((f) => [f.name, f]))
+    const describedByName = new Map(described.map((f) => [f.IndexFieldName, f]))
     for (const field of buildIndexFields(ANALYSIS_SCHEME_NAME)) {
-      if (!fieldMatches(field, describedByName.get(field.name))) {
+      if (!fieldMatches(field, describedByName.get(field.IndexFieldName))) {
         await client.defineIndexField(domain, field)
         changed = true
       }
@@ -875,53 +849,27 @@ export class AwsCloudSearchModule implements SearchModule {
   /**
    * Write (or overwrite) one page's document in the index.
    *
-   * Never throws: a page that saved correctly must not report failure because its index entry could
-   * not be written — the same contract `indexPage` gives `models/search.ts`'s dispatcher in the `db`
-   * and `azure-search` engines. A later `rebuild()` (task #564) puts a missed write right.
+   * Never throws — see `ExternalSearchModule#neverThrows`: a page that saved correctly must not
+   * report failure because its index entry could not be written. A later `rebuild()` puts a missed
+   * write right.
    */
-  private async indexPage(page: SearchIndexablePage): Promise<void> {
-    try {
-      await this.uploadBatch(page.siteId, [toIndexDocument(page)])
-    } catch (err: any) {
-      WIKI.logger.warn(
-        `Failed to update the AWS CloudSearch index for page ${page.id}: ${err.message}`
-      )
-    }
+  protected async indexPage(page: SearchIndexablePage): Promise<void> {
+    await this.neverThrows(
+      async () => {
+        await this.uploadBatch(page.siteId, [toIndexDocument(page)])
+      },
+      (message) => `Failed to update the AWS CloudSearch index for page ${page.id}: ${message}`
+    )
   }
 
   /** Remove one page's document from the index. Never throws — same contract as `indexPage`. */
-  private async removePage(siteId: string, pageId: string): Promise<void> {
-    try {
-      await this.uploadBatch(siteId, [{ type: 'delete', id: pageId }])
-    } catch (err: any) {
-      WIKI.logger.warn(
-        `Failed to remove page ${pageId} from the AWS CloudSearch index: ${err.message}`
-      )
-    }
-  }
-
-  async created(page: SearchIndexablePage): Promise<void> {
-    await this.indexPage(page)
-  }
-
-  async updated(page: SearchIndexablePage): Promise<void> {
-    await this.indexPage(page)
-  }
-
-  async deleted(siteId: string, pageId: string): Promise<void> {
-    await this.removePage(siteId, pageId)
-  }
-
-  /**
-   * `previousPath` goes unused: the document's key is the page's `id`, not its `path`, so a move is
-   * just a normal reindex of the (now differently-pathed) document rather than a delete-then-recreate
-   * under a new key. Same reasoning `azure-search`'s own `renamed` documents — unlike the `db` engine,
-   * whose `ts` vector never stores the path at all, this module's index does store `path` as a
-   * filterable field, so it does need rewriting here. A locale change is rewritten by the same
-   * reindex, which is why this module needs no `previousLocale` of its own either.
-   */
-  async renamed(siteId: string, page: SearchIndexablePage, _previousPath: string): Promise<void> {
-    await this.indexPage(page)
+  protected async removePage(siteId: string, pageId: string): Promise<void> {
+    await this.neverThrows(
+      async () => {
+        await this.uploadBatch(siteId, [{ type: 'delete', id: pageId }])
+      },
+      (message) => `Failed to remove page ${pageId} from the AWS CloudSearch index: ${message}`
+    )
   }
 
   /** Runs one search against a site's domain. */
@@ -1189,20 +1137,14 @@ export class AwsCloudSearchModule implements SearchModule {
     const result: RebuildResult = { pages: 0, locales: [] }
 
     for (const locale of locales) {
-      let offset = 0
       let localePages = 0
-      let batch: SearchIndexablePage[]
-      do {
-        batch = await this.pageSource.pageBatch(siteId, locale, offset, REBUILD_BATCH_SIZE)
-        if (batch.length > 0) {
-          await this.uploadBatch(siteId, batch.map(toIndexDocument))
-          for (const page of batch) {
-            uploadedIds.add(page.id)
-          }
-          localePages += batch.length
-          offset += batch.length
+      for await (const batch of localePageStream(this.pageSource, siteId, locale)) {
+        await this.uploadBatch(siteId, batch.map(toIndexDocument))
+        for (const page of batch) {
+          uploadedIds.add(page.id)
         }
-      } while (batch.length === REBUILD_BATCH_SIZE)
+        localePages += batch.length
+      }
 
       result.pages += localePages
       result.locales.push({ locale, pages: localePages })

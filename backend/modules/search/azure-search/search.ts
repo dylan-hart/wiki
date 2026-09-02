@@ -1,18 +1,20 @@
 import { AzureKeyCredential, SearchClient, SearchIndexClient } from '@azure/search-documents'
 import { chunk } from 'es-toolkit/array'
+import { ExternalSearchModule } from '../externalBase.ts'
 import {
   defaultPageSource,
   HL_START,
   HL_STOP,
+  localePageStream,
   normalizeMarkers,
-  REBUILD_BATCH_SIZE
+  REBUILD_BATCH_SIZE,
+  SCAN_CAP
 } from '../shared.ts'
 import type { SearchIndex } from '@azure/search-documents'
 import type { RebuildPageSource } from '../shared.ts'
 import type {
   RebuildResult,
   SearchIndexablePage,
-  SearchModule,
   SearchOrderBy,
   SearchPagesParams,
   SearchPagesResult,
@@ -40,14 +42,6 @@ const PROTECTED_SEARCH_FIELDS = ['title', 'description']
 /** `highlightFields` value: one fragment each from `content` and `description`, matching the `db`
  *  engine's `ts_headline` call (`MaxFragments=1`). */
 const HIGHLIGHT_FIELDS = 'content-1,description-1'
-
-/**
- * Ceiling on how many of Azure's own matches `query()` scans (per half, when split) before deriving
- * `totalHits` and the requested page from what survives `checkAccess()` (OpenProject #2156,
- * mirroring `db/search.ts`'s own `SCAN_CAP`). Bounded rather than unbounded, since page-rule
- * filtering cannot be expressed as an OData `$filter` and has to run per-row in this process.
- */
-const SCAN_CAP = 500
 
 /**
  * The subset of `SearchIndexClient` this module actually calls.
@@ -364,7 +358,7 @@ function compareRows(
  * client with no real Azure resource, network call, or credential involved — there is no local Azure
  * AI Search emulator (Feature #381).
  */
-export class AzureSearchModule implements SearchModule {
+export class AzureSearchModule extends ExternalSearchModule {
   private readonly clientFactory: (config: Record<string, any>) => AzureSearchIndexClient
   private readonly searchClientFactory: (config: Record<string, any>) => AzureSearchQueryClient
   private readonly pageSource: RebuildPageSource
@@ -390,6 +384,7 @@ export class AzureSearchModule implements SearchModule {
     ) => AzureSearchQueryClient = defaultSearchClientFactory,
     pageSource: RebuildPageSource = defaultPageSource()
   ) {
+    super()
     this.clientFactory = clientFactory
     this.searchClientFactory = searchClientFactory
     this.pageSource = pageSource
@@ -455,55 +450,29 @@ export class AzureSearchModule implements SearchModule {
   /**
    * Write (or overwrite) one page's document in the index.
    *
-   * Never throws: a page that saved correctly must not report failure because its index entry could
-   * not be written — the same contract `indexPage` gives `models/search.ts`'s dispatcher in the `db`
-   * engine. A later `rebuild()` (task #564) puts a missed write right.
+   * Never throws — see `ExternalSearchModule#neverThrows`: a page that saved correctly must not
+   * report failure because its index entry could not be written. A later `rebuild()` puts a missed
+   * write right.
    */
-  private async indexPage(page: SearchIndexablePage): Promise<void> {
-    try {
-      const client = this.queryClientFor(page.siteId, this.configFor(page.siteId))
-      await client.mergeOrUploadDocuments([toIndexDocument(page)])
-    } catch (err: any) {
-      WIKI.logger.warn(
-        `Failed to update the Azure AI Search index for page ${page.id}: ${err.message}`
-      )
-    }
+  protected async indexPage(page: SearchIndexablePage): Promise<void> {
+    await this.neverThrows(
+      async () => {
+        const client = this.queryClientFor(page.siteId, this.configFor(page.siteId))
+        await client.mergeOrUploadDocuments([toIndexDocument(page)])
+      },
+      (message) => `Failed to update the Azure AI Search index for page ${page.id}: ${message}`
+    )
   }
 
   /** Remove one page's document from the index. Never throws — same contract as `indexPage`. */
-  private async removePage(siteId: string, pageId: string): Promise<void> {
-    try {
-      const client = this.queryClientFor(siteId, this.configFor(siteId))
-      await client.deleteDocuments('id', [pageId])
-    } catch (err: any) {
-      WIKI.logger.warn(
-        `Failed to remove page ${pageId} from the Azure AI Search index: ${err.message}`
-      )
-    }
-  }
-
-  async created(page: SearchIndexablePage): Promise<void> {
-    await this.indexPage(page)
-  }
-
-  async updated(page: SearchIndexablePage): Promise<void> {
-    await this.indexPage(page)
-  }
-
-  async deleted(siteId: string, pageId: string): Promise<void> {
-    await this.removePage(siteId, pageId)
-  }
-
-  /**
-   * `previousPath` goes unused: the document's key is the page's `id`, not its `path`, so a move is
-   * just a normal reindex of the (now differently-pathed) document rather than a delete-then-recreate
-   * under a new key. Unlike the `db` engine — whose `ts` vector never stores the path at all, making a
-   * path-only rename a genuine no-op there — this module's index does store `path` as a filterable
-   * field, so it does need rewriting here. A locale change is rewritten by the same reindex, which is
-   * why this module needs no `previousLocale` of its own.
-   */
-  async renamed(siteId: string, page: SearchIndexablePage, _previousPath: string): Promise<void> {
-    await this.indexPage(page)
+  protected async removePage(siteId: string, pageId: string): Promise<void> {
+    await this.neverThrows(
+      async () => {
+        const client = this.queryClientFor(siteId, this.configFor(siteId))
+        await client.deleteDocuments('id', [pageId])
+      },
+      (message) => `Failed to remove page ${pageId} from the Azure AI Search index: ${message}`
+    )
   }
 
   /** Runs one search and drains its result iterator into a plain array. */
@@ -779,20 +748,14 @@ export class AzureSearchModule implements SearchModule {
     const result: RebuildResult = { pages: 0, locales: [] }
 
     for (const locale of locales) {
-      let offset = 0
       let localePages = 0
-      let batch: SearchIndexablePage[]
-      do {
-        batch = await this.pageSource.pageBatch(siteId, locale, offset, REBUILD_BATCH_SIZE)
-        if (batch.length > 0) {
-          await client.mergeOrUploadDocuments(batch.map(toIndexDocument))
-          for (const page of batch) {
-            uploadedIds.add(page.id)
-          }
-          localePages += batch.length
-          offset += batch.length
+      for await (const batch of localePageStream(this.pageSource, siteId, locale)) {
+        await client.mergeOrUploadDocuments(batch.map(toIndexDocument))
+        for (const page of batch) {
+          uploadedIds.add(page.id)
         }
-      } while (batch.length === REBUILD_BATCH_SIZE)
+        localePages += batch.length
+      }
 
       result.pages += localePages
       result.locales.push({ locale, pages: localePages })

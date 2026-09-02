@@ -1,5 +1,6 @@
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, eq, gt } from 'drizzle-orm'
 import { pages as pagesTable } from '../../db/schema.ts'
+import type { SQL } from 'drizzle-orm'
 import type { SearchIndexablePage } from '../../models/search.ts'
 
 /**
@@ -268,5 +269,96 @@ export function buildSearchDocument(page: SearchIndexablePage): SearchDocument {
     classification: page.classification,
     updatedAt,
     ...(page.password ? {} : { content: page.searchContent ?? '' })
+  }
+}
+
+/**
+ * A site's pages, one window at a time, walked by keyset pagination on `id`.
+ *
+ * The shape `algolia` and `elasticsearch` both use to feed `rebuild()` (`WIKI.db` queries replacing
+ * 2.5.x's `WIKI.models.knex(...).stream()`), previously written out in full in each of them — the
+ * same column list, the same `cursor`/`gt(id, cursor)` condition, the same two termination checks.
+ *
+ * A generator rather than a callback so the consumer's own work stays *between* two reads: the next
+ * window is only queried once the caller asks for it, which is what keeps a rebuild's working set
+ * one batch wide however large the site is — the property the old knex stream had, and the one
+ * `elasticsearch/search.test.ts`'s "never reads the next page of rows while a batch upload is still
+ * in flight" pins.
+ *
+ * The columns are named explicitly rather than taken as `select()`: this is the exact set
+ * `buildSearchDocument` reads, so a column added to `pages` never silently starts travelling to a
+ * third-party index.
+ */
+export async function* pageStream(
+  siteId: string,
+  { pageSize = REBUILD_BATCH_SIZE }: { pageSize?: number } = {}
+): AsyncGenerator<SearchIndexablePage[]> {
+  let cursor: string | null = null
+  for (;;) {
+    const condition: SQL = cursor
+      ? and(eq(pagesTable.siteId, siteId), gt(pagesTable.id, cursor))!
+      : eq(pagesTable.siteId, siteId)
+    const rows = await WIKI.db
+      .select({
+        id: pagesTable.id,
+        siteId: pagesTable.siteId,
+        locale: pagesTable.locale,
+        path: pagesTable.path,
+        title: pagesTable.title,
+        description: pagesTable.description,
+        icon: pagesTable.icon,
+        tags: pagesTable.tags,
+        editor: pagesTable.editor,
+        publishState: pagesTable.publishState,
+        isSearchable: pagesTable.isSearchable,
+        classification: pagesTable.classification,
+        password: pagesTable.password,
+        searchContent: pagesTable.searchContent,
+        updatedAt: pagesTable.updatedAt
+      })
+      .from(pagesTable)
+      .where(condition)
+      .orderBy(asc(pagesTable.id))
+      .limit(pageSize)
+
+    if (rows.length === 0) {
+      return
+    }
+    yield rows as unknown as SearchIndexablePage[]
+    if (rows.length < pageSize) {
+      return
+    }
+    cursor = rows[rows.length - 1]!.id
+  }
+}
+
+/**
+ * One locale's pages of one site, one batch at a time, through an injected `RebuildPageSource`.
+ *
+ * The shape `azure-search` and `aws-cloudsearch` both use: unlike `pageStream` above they rebuild
+ * locale by locale (each reports its own `RebuildResult.locales` entry and its own progress line as
+ * it goes), and they read through a `RebuildPageSource` rather than `WIKI.db` directly so a test can
+ * exercise the pagination and per-locale counting with no real postgres — see that interface's own
+ * doc comment.
+ *
+ * A generator for the same reason `pageStream` is one: the next batch is only read once the caller
+ * has finished uploading the previous one.
+ */
+export async function* localePageStream(
+  source: RebuildPageSource,
+  siteId: string,
+  locale: string,
+  { batchSize = REBUILD_BATCH_SIZE }: { batchSize?: number } = {}
+): AsyncGenerator<SearchIndexablePage[]> {
+  let offset = 0
+  for (;;) {
+    const batch = await source.pageBatch(siteId, locale, offset, batchSize)
+    if (batch.length > 0) {
+      yield batch
+      offset += batch.length
+    }
+    if (batch.length !== batchSize) {
+      return
+    }
   }
 }

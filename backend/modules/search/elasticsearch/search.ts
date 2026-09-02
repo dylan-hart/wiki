@@ -1,7 +1,5 @@
 import fs from 'node:fs'
 import { Client } from '@elastic/elasticsearch'
-import { and, asc, eq, gt } from 'drizzle-orm'
-import { pages as pagesTable } from '../../../db/schema.ts'
 import { search } from '../../../models/search.ts'
 import { ExternalSearchModule } from '../externalBase.ts'
 import {
@@ -9,10 +7,10 @@ import {
   buildSearchDocument,
   MAX_INDEXING_BYTES,
   MAX_INDEXING_COUNT,
+  pageStream,
   SCAN_CAP
 } from '../shared.ts'
 import type { ConnectionOptions as TlsConnectionOptions } from 'node:tls'
-import type { SQL } from 'drizzle-orm'
 import type { SearchDocument } from '../shared.ts'
 import type {
   RebuildResult,
@@ -432,42 +430,11 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
 
     const pageCounts: Record<string, number> = {}
     let total = 0
-    let cursor: string | null = null
 
-    for (;;) {
-      const condition: SQL = cursor
-        ? and(eq(pagesTable.siteId, siteId), gt(pagesTable.id, cursor))!
-        : eq(pagesTable.siteId, siteId)
-      const rows = await WIKI.db
-        .select({
-          id: pagesTable.id,
-          siteId: pagesTable.siteId,
-          locale: pagesTable.locale,
-          path: pagesTable.path,
-          title: pagesTable.title,
-          description: pagesTable.description,
-          icon: pagesTable.icon,
-          tags: pagesTable.tags,
-          editor: pagesTable.editor,
-          publishState: pagesTable.publishState,
-          isSearchable: pagesTable.isSearchable,
-          classification: pagesTable.classification,
-          password: pagesTable.password,
-          searchContent: pagesTable.searchContent,
-          updatedAt: pagesTable.updatedAt
-        })
-        .from(pagesTable)
-        .where(condition)
-        .orderBy(asc(pagesTable.id))
-        .limit(PAGE_SIZE)
-
-      if (rows.length === 0) {
-        break
-      }
-
+    for await (const rows of pageStream(siteId, { pageSize: PAGE_SIZE })) {
       const ops = rows.map((row) => ({
         id: row.id,
-        document: buildSearchDocument(row as unknown as SearchIndexablePage)
+        document: buildSearchDocument(row)
       }))
       for (const batch of batchOperations(ops)) {
         await client.bulk({
@@ -482,11 +449,6 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
       }
       for (const row of rows) {
         pageCounts[row.locale] = (pageCounts[row.locale] ?? 0) + 1
-      }
-
-      cursor = rows[rows.length - 1]!.id
-      if (rows.length < PAGE_SIZE) {
-        break
       }
     }
 

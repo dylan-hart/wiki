@@ -7,11 +7,14 @@ import {
   escapeHtml,
   HL_START,
   HL_STOP,
+  localePageStream,
   normalizeMarkers,
+  pageStream,
   REBUILD_BATCH_SIZE,
   SCAN_CAP
 } from './shared.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
+import type { RebuildPageSource } from './shared.ts'
 import type { SearchIndexablePage } from '../../models/search.ts'
 
 /**
@@ -259,5 +262,135 @@ describe('batchBySize()', () => {
       [1]
     )
     assert.deepEqual(oversized, [])
+  })
+})
+
+describe('pageStream()', () => {
+  let previousDb: any
+
+  before(() => {
+    ;(globalThis as any).WIKI = (globalThis as any).WIKI ?? {}
+    previousDb = (globalThis as any).WIKI.db
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI.db = previousDb
+  })
+
+  /** A fake `WIKI.db` serving successive keyset windows, recording the cursor conditions it saw. */
+  function fakeDb(windows: any[][]) {
+    const calls: number[] = []
+    ;(globalThis as any).WIKI.db = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            orderBy: () => ({
+              limit: async (limit: number) => {
+                calls.push(limit)
+                return windows.shift() ?? []
+              }
+            })
+          })
+        })
+      })
+    }
+    return calls
+  }
+
+  test('yields each full window and stops on the first short one, without a further query', async () => {
+    const calls = fakeDb([[{ id: 'a' }, { id: 'b' }], [{ id: 'c' }]])
+
+    const seen: any[][] = []
+    for await (const batch of pageStream('site-1', { pageSize: 2 })) {
+      seen.push(batch)
+    }
+
+    assert.deepEqual(seen, [[{ id: 'a' }, { id: 'b' }], [{ id: 'c' }]])
+    // -> Two queries, not three: the short second window is the end of the set
+    assert.deepEqual(calls, [2, 2])
+  })
+
+  test('an empty first window yields nothing at all', async () => {
+    fakeDb([[]])
+    const seen: any[][] = []
+    for await (const batch of pageStream('site-1', { pageSize: 2 })) {
+      seen.push(batch)
+    }
+    assert.deepEqual(seen, [])
+  })
+
+  test('an exactly-full last window costs one more query, which comes back empty', async () => {
+    const calls = fakeDb([[{ id: 'a' }, { id: 'b' }], []])
+    const seen: any[][] = []
+    for await (const batch of pageStream('site-1', { pageSize: 2 })) {
+      seen.push(batch)
+    }
+    assert.deepEqual(seen, [[{ id: 'a' }, { id: 'b' }]])
+    assert.deepEqual(calls, [2, 2])
+  })
+
+  test('never reads the next window while the consumer is still working on this one', async () => {
+    const calls = fakeDb([[{ id: 'a' }], [{ id: 'b' }]])
+    let inFlight = 0
+    for await (const _batch of pageStream('site-1', { pageSize: 1 })) {
+      // -> One query has been made per batch consumed so far, never one ahead
+      inFlight += 1
+      assert.equal(calls.length, inFlight)
+      if (inFlight === 2) {
+        break
+      }
+    }
+  })
+})
+
+describe('localePageStream()', () => {
+  /** A fake `RebuildPageSource` recording the (locale, offset, limit) it was asked for. */
+  function fakeSource(rows: SearchIndexablePage[]) {
+    const asked: { locale: string; offset: number; limit: number }[] = []
+    const source: RebuildPageSource = {
+      async locales() {
+        return ['en']
+      },
+      async pageBatch(_siteId, locale, offset, limit) {
+        asked.push({ locale, offset, limit })
+        return rows.slice(offset, offset + limit)
+      }
+    }
+    return { source, asked }
+  }
+
+  const page = (id: string) => ({ id }) as unknown as SearchIndexablePage
+
+  test('walks one locale by increasing offset until a short batch ends it', async () => {
+    const { source, asked } = fakeSource([page('a'), page('b'), page('c')])
+
+    const seen: string[][] = []
+    for await (const batch of localePageStream(source, 'site-1', 'en', { batchSize: 2 })) {
+      seen.push(batch.map((p) => p.id))
+    }
+
+    assert.deepEqual(seen, [['a', 'b'], ['c']])
+    assert.deepEqual(asked, [
+      { locale: 'en', offset: 0, limit: 2 },
+      { locale: 'en', offset: 2, limit: 2 }
+    ])
+  })
+
+  test('a locale with no rows yields nothing, after exactly one call', async () => {
+    const { source, asked } = fakeSource([])
+    const seen: unknown[] = []
+    for await (const batch of localePageStream(source, 'site-1', 'en', { batchSize: 2 })) {
+      seen.push(batch)
+    }
+    assert.deepEqual(seen, [])
+    assert.equal(asked.length, 1)
+  })
+
+  test('defaults to REBUILD_BATCH_SIZE when no batch size is given', async () => {
+    const { source, asked } = fakeSource([])
+    for await (const _batch of localePageStream(source, 'site-1', 'en')) {
+      // -> nothing to consume; the assertion is on what was asked for
+    }
+    assert.equal(asked[0]!.limit, REBUILD_BATCH_SIZE)
   })
 })

@@ -16,10 +16,10 @@ import {
   toIndexDocument,
   type CloudSearchAdminClient,
   type CloudSearchHit,
+  type CloudSearchIndexField,
   type CloudSearchQueryClient,
   type CloudSearchSearchRequest,
   type DescribedAnalysisScheme,
-  type DescribedCloudSearchField,
   type DescribedSuggester,
   type SdfDocument
 } from './search.ts'
@@ -75,7 +75,7 @@ before(() => ensureTemporal())
 function fakeClient(
   overrides: Partial<{
     schemes: DescribedAnalysisScheme[]
-    fields: DescribedCloudSearchField[]
+    fields: CloudSearchIndexField[]
     suggesters: DescribedSuggester[]
   }> = {}
 ): CloudSearchAdminClient & {
@@ -97,8 +97,8 @@ function fakeClient(
     async describeIndexFields() {
       return state.fields
     },
-    async defineIndexField(_domainName: string, field: { name: string }) {
-      client.defineIndexFieldCalls.push(field.name)
+    async defineIndexField(_domainName: string, field: CloudSearchIndexField) {
+      client.defineIndexFieldCalls.push(field.IndexFieldName)
     },
     async describeAnalysisSchemes() {
       return state.schemes
@@ -132,7 +132,7 @@ describe('aws-cloudsearch module: buildIndexFields', () => {
   const fields = buildIndexFields('wiki_analysis_scheme')
 
   test('declares one field per name, with no duplicates', () => {
-    const names = fields.map((f) => f.name)
+    const names = fields.map((f) => f.IndexFieldName)
     assert.deepEqual(new Set(names).size, names.length)
     assert.deepEqual(
       names.sort(),
@@ -155,48 +155,60 @@ describe('aws-cloudsearch module: buildIndexFields', () => {
     )
   })
 
+  const byName = (name: string) => fields.find((f) => f.IndexFieldName === name)!
+
   test('id is a literal field with search and facet disabled', () => {
-    const id = fields.find((f) => f.name === 'id')!
-    assert.equal(id.type, 'literal')
-    assert.equal(id.options.searchEnabled, false)
-    assert.equal(id.options.facetEnabled, false)
+    const id = byName('id')
+    assert.equal(id.IndexFieldType, 'literal')
+    assert.equal(id.LiteralOptions!.SearchEnabled, false)
+    assert.equal(id.LiteralOptions!.FacetEnabled, false)
   })
 
   test('siteId is a literal field, filterable but never searched, faceted or returned (OpenProject #2108/#2113)', () => {
-    const siteId = fields.find((f) => f.name === 'siteId')!
-    assert.equal(siteId.type, 'literal')
-    assert.equal(siteId.options.searchEnabled, false)
-    assert.equal(siteId.options.facetEnabled, false)
-    assert.equal(siteId.options.returnEnabled, false)
+    const siteId = byName('siteId')
+    assert.equal(siteId.IndexFieldType, 'literal')
+    assert.equal(siteId.LiteralOptions!.SearchEnabled, false)
+    assert.equal(siteId.LiteralOptions!.FacetEnabled, false)
+    assert.equal(siteId.LiteralOptions!.ReturnEnabled, false)
   })
 
   test('path, locale, title, description and content are text fields referencing the analysis scheme', () => {
     for (const name of ['path', 'locale', 'title', 'description', 'content']) {
-      const field = fields.find((f) => f.name === name)!
-      assert.equal(field.type, 'text')
-      assert.equal(field.options.analysisScheme, 'wiki_analysis_scheme')
+      const field = byName(name)
+      assert.equal(field.IndexFieldType, 'text')
+      assert.equal(field.TextOptions!.AnalysisScheme, 'wiki_analysis_scheme')
     }
   })
 
   test('content is not returned in results, unlike title/description/path/locale', () => {
-    assert.equal(fields.find((f) => f.name === 'content')!.options.returnEnabled, false)
+    assert.equal(byName('content').TextOptions!.ReturnEnabled, false)
     for (const name of ['path', 'locale', 'title', 'description']) {
-      assert.equal(fields.find((f) => f.name === name)!.options.returnEnabled, true)
+      assert.equal(byName(name).TextOptions!.ReturnEnabled, true)
     }
   })
 
   test('tags is a literal-array, facet-enabled field', () => {
-    const tags = fields.find((f) => f.name === 'tags')!
-    assert.equal(tags.type, 'literal-array')
-    assert.equal(tags.options.facetEnabled, true)
+    const tags = byName('tags')
+    assert.equal(tags.IndexFieldType, 'literal-array')
+    assert.equal(tags.LiteralArrayOptions!.FacetEnabled, true)
   })
 
   test('editor and publishState are facet-enabled literal fields', () => {
     for (const name of ['editor', 'publishState']) {
-      const field = fields.find((f) => f.name === name)!
-      assert.equal(field.type, 'literal')
-      assert.equal(field.options.facetEnabled, true)
+      const field = byName(name)
+      assert.equal(field.IndexFieldType, 'literal')
+      assert.equal(field.LiteralOptions!.FacetEnabled, true)
     }
+  })
+
+  test('is declared in the SDK request shape, so nothing translates it before it is sent', () => {
+    // -> The exact object `DefineIndexFieldCommand`'s `IndexField` takes: no per-module field
+    //    vocabulary in between (CORE-F5 phase 3).
+    assert.deepEqual(byName('updatedAt'), {
+      IndexFieldName: 'updatedAt',
+      IndexFieldType: 'literal',
+      LiteralOptions: { ReturnEnabled: true }
+    })
   })
 
   test('is a pure function of the analysis scheme name: same name in, identical fields out', () => {
@@ -207,14 +219,20 @@ describe('aws-cloudsearch module: buildIndexFields', () => {
 
 describe('aws-cloudsearch module: fieldMatches', () => {
   test('false when nothing is described yet', () => {
-    assert.equal(fieldMatches({ name: 'id', type: 'literal', options: {} }, undefined), false)
+    assert.equal(
+      fieldMatches(
+        { IndexFieldName: 'id', IndexFieldType: 'literal', LiteralOptions: {} },
+        undefined
+      ),
+      false
+    )
   })
 
   test('false when the described type differs', () => {
     assert.equal(
       fieldMatches(
-        { name: 'tags', type: 'literal-array', options: {} },
-        { name: 'tags', type: 'literal', options: {} }
+        { IndexFieldName: 'tags', IndexFieldType: 'literal-array', LiteralArrayOptions: {} },
+        { IndexFieldName: 'tags', IndexFieldType: 'literal', LiteralOptions: {} }
       ),
       false
     )
@@ -223,8 +241,16 @@ describe('aws-cloudsearch module: fieldMatches', () => {
   test('false when a desired option differs from what is described', () => {
     assert.equal(
       fieldMatches(
-        { name: 'editor', type: 'literal', options: { facetEnabled: true } },
-        { name: 'editor', type: 'literal', options: { facetEnabled: false } }
+        {
+          IndexFieldName: 'editor',
+          IndexFieldType: 'literal',
+          LiteralOptions: { FacetEnabled: true }
+        },
+        {
+          IndexFieldName: 'editor',
+          IndexFieldType: 'literal',
+          LiteralOptions: { FacetEnabled: false }
+        }
       ),
       false
     )
@@ -233,8 +259,16 @@ describe('aws-cloudsearch module: fieldMatches', () => {
   test('true when every desired option matches, ignoring options the description carries but this module never set', () => {
     assert.equal(
       fieldMatches(
-        { name: 'editor', type: 'literal', options: { facetEnabled: true } },
-        { name: 'editor', type: 'literal', options: { facetEnabled: true, searchEnabled: true } }
+        {
+          IndexFieldName: 'editor',
+          IndexFieldType: 'literal',
+          LiteralOptions: { FacetEnabled: true }
+        },
+        {
+          IndexFieldName: 'editor',
+          IndexFieldType: 'literal',
+          LiteralOptions: { FacetEnabled: true, SearchEnabled: true }
+        }
       ),
       true
     )
@@ -274,11 +308,7 @@ describe('aws-cloudsearch module: init()', () => {
   test('on an already-provisioned domain, defines nothing and skips the reindex', async () => {
     const client = fakeClient({
       schemes: [{ name: 'wiki_analysis_scheme', language: 'en' }],
-      fields: buildIndexFields('wiki_analysis_scheme').map((f) => ({
-        name: f.name,
-        type: f.type,
-        options: f.options
-      })),
+      fields: buildIndexFields('wiki_analysis_scheme'),
       suggesters: [{ name: 'wiki_title_suggester' }]
     })
     const module = new AwsCloudSearchModule(() => client)
@@ -293,11 +323,7 @@ describe('aws-cloudsearch module: init()', () => {
   test('redefines only the analysis scheme when the configured language changed, and still reindexes', async () => {
     const client = fakeClient({
       schemes: [{ name: 'wiki_analysis_scheme', language: 'en' }],
-      fields: buildIndexFields('wiki_analysis_scheme').map((f) => ({
-        name: f.name,
-        type: f.type,
-        options: f.options
-      })),
+      fields: buildIndexFields('wiki_analysis_scheme'),
       suggesters: [{ name: 'wiki_title_suggester' }]
     })
     const module = new AwsCloudSearchModule(() => client)
@@ -310,11 +336,11 @@ describe('aws-cloudsearch module: init()', () => {
   })
 
   test('redefines only the field whose options actually differ, and still reindexes', async () => {
-    const currentFields = buildIndexFields('wiki_analysis_scheme').map((f) => ({
-      name: f.name,
-      type: f.type,
-      options: f.name === 'editor' ? { ...f.options, facetEnabled: false } : f.options
-    }))
+    const currentFields = buildIndexFields('wiki_analysis_scheme').map((f) =>
+      f.IndexFieldName === 'editor'
+        ? { ...f, LiteralOptions: { ...f.LiteralOptions, FacetEnabled: false } }
+        : f
+    )
     const client = fakeClient({
       schemes: [{ name: 'wiki_analysis_scheme', language: 'en' }],
       fields: currentFields,
@@ -335,11 +361,7 @@ describe('aws-cloudsearch module: init()', () => {
     // -> Simulate the domain now reporting back exactly what the first call defined.
     const provisioned = fakeClient({
       schemes: [{ name: 'wiki_analysis_scheme', language: 'en' }],
-      fields: buildIndexFields('wiki_analysis_scheme').map((f) => ({
-        name: f.name,
-        type: f.type,
-        options: f.options
-      })),
+      fields: buildIndexFields('wiki_analysis_scheme'),
       suggesters: [{ name: 'wiki_title_suggester' }]
     })
     const secondModule = new AwsCloudSearchModule(() => provisioned)
