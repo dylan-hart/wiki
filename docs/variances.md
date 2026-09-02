@@ -25,10 +25,6 @@ carrying a marker isn't named here, so this list cannot silently drift out of da
 - **`backend/types/global.d.ts`** (TODO) — `WIKI.sites` is typed `Record<string, any>` though `sites`
   has been a real Drizzle table for a while now; tightening it to the row type is a real but
   low-priority cleanup, not a design gap.
-- **`frontend/src/helpers/monacoTypes.js`** (TODO, in a commented-out line) — `this._edits =
-coalesce(this._edits)` is dead code left commented out with a bare `TODO`, ported through from
-  Monaco's own upstream type-definition source this file adapts. Not this project's own deferred
-  work; left as-is rather than deleted so this file stays traceable against the upstream it mirrors.
 
 **Resolved when:** a file above no longer carries its marker (fixed for real, or the deferred work
 ships), remove its bullet; a newly-marker-carrying file the drift test flags gets a bullet added here

@@ -61,18 +61,7 @@
           :aria-label="menuItem.title"
           :disabled="menuItem.disabled && menuItem.disabled()" />
       </template>
-      <!-- q-space -->
-      <!-- q-btn( -->
-      <!-- size='sm' -->
-      <!-- unelevated -->
-      <!-- color='red' -->
-      <!-- label='Test' -->
-      <!-- @click='snapshot' -->
-      <!-- ) -->
     </div>
-    <!-- q-scroll-area( -->
-    <!-- style='height: 100%;' -->
-    <!-- ) -->
     <editor-content :editor="editor" />
   </div>
 </template>
@@ -975,13 +964,6 @@ function insertAssetClb(opts) {
       .setLink({ href })
       .run()
   }
-}
-
-function insertTable() {
-  // this.ql.getModule('table').insertTable(3, 3)
-}
-function snapshot() {
-  // console.info(Y.encodeStateVector(this.ydoc))
 }
 
 // MOUNTED

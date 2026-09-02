@@ -284,49 +284,6 @@
       </div>
       <div class="col-span-12 lg:col-span-5">
         <!-- ----------------------- -->
-        <!-- MAIL TEMPLATES -->
-        <!-- Descoped: this section drives MailTemplateEditorOverlay.vue, UI for a DB-backed
-             editable-template system that was never built (there is no template-storage table in
-             db/schema.ts). Left behind the experimental flag on purpose; see backend/models/mail.ts
-             for the plain inline-HTML templates actually in use. -->
-        <!-- ----------------------- -->
-        <w-card class="pb-2 mb-4" v-if="flagStore.experimental">
-          <w-card-header>{{ t('admin.mail.templates') }}</w-card-header>
-          <w-list>
-            <w-item>
-              <blueprint-icon icon="resume-template" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.mail.templateWelcome`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section side>
-                <w-btn
-                  outline
-                  no-caps
-                  icon="la:edit"
-                  color="primary"
-                  @click="editTemplate(`welcome`)"
-                  :label="t(`common.actions.edit`)" />
-              </w-item-section>
-            </w-item>
-            <w-separator inset />
-            <w-item>
-              <blueprint-icon icon="resume-template" />
-              <w-item-section>
-                <w-item-label>{{ t(`admin.mail.templateResetPwd`) }}</w-item-label>
-              </w-item-section>
-              <w-item-section side>
-                <w-btn
-                  outline
-                  no-caps
-                  icon="la:edit"
-                  color="primary"
-                  @click="editTemplate(`pwdreset`)"
-                  :label="t(`common.actions.edit`)" />
-              </w-item-section>
-            </w-item>
-          </w-list>
-        </w-card>
-        <!-- ----------------------- -->
         <!-- SMTP TEST -->
         <!-- ----------------------- -->
         <w-card class="pb-2">
@@ -368,7 +325,6 @@ import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
-import { useFlagsStore } from '@/stores/flags'
 import { useSiteStore } from '@/stores/site'
 
 import { toMerged } from 'es-toolkit/object'
@@ -376,7 +332,6 @@ import { toMerged } from 'es-toolkit/object'
 // STORES
 
 const adminStore = useAdminStore()
-const flagStore = useFlagsStore()
 const siteStore = useSiteStore()
 
 // I18N
@@ -481,13 +436,6 @@ async function save() {
     })
   }
   state.loading--
-}
-
-function editTemplate(tmplId) {
-  adminStore.$patch({
-    overlayOpts: { id: tmplId },
-    overlay: 'MailTemplateEditorOverlay'
-  })
 }
 
 async function sendTest() {

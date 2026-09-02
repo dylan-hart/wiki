@@ -659,58 +659,11 @@
                 :width="(config.radius - 5) * scale * 2"
                 :height="(config.radius - 5) * scale * 2"
                 :xlink:href="state.deliveryNodes[nodeId].icon" />
-              <text
-                v-if="state.deliveryNodes[nodeId].icon && state.deliveryNodes[nodeId].iconText"
-                :class="state.deliveryNodes[nodeId].icon"
-                :font-size="22 * scale"
-                fill="#ffffff"
-                text-anchor="middle"
-                dominant-baseline="central"
-                v-html="state.deliveryNodes[nodeId].iconText" />
             </template>
           </v-network-graph>
         </w-card>
       </div>
     </div>
-    <!-- .overline.my-5 {{t('admin.storage.syncDirection')}} -->
-    <!-- .body-2.ml-3 {{t('admin.storage.syncDirectionSubtitle')}} -->
-    <!-- .pr-3.pt-3 -->
-    <!-- v-radio-group.ml-3.py-0(v-model='target.mode') -->
-    <!-- v-radio( -->
-    <!-- :label='t(`admin.storage.syncDirBi`)' -->
-    <!-- color='primary' -->
-    <!-- value='sync' -->
-    <!-- :disabled='target.supportedModes.indexOf(`sync`) < 0' -->
-    <!-- ) -->
-    <!-- v-radio( -->
-    <!-- :label='t(`admin.storage.syncDirPush`)' -->
-    <!-- color='primary' -->
-    <!-- value='push' -->
-    <!-- :disabled='target.supportedModes.indexOf(`push`) < 0' -->
-    <!-- ) -->
-    <!-- v-radio( -->
-    <!-- :label='t(`admin.storage.syncDirPull`)' -->
-    <!-- color='primary' -->
-    <!-- value='pull' -->
-    <!-- :disabled='target.supportedModes.indexOf(`pull`) < 0' -->
-    <!-- ) -->
-    <!-- .body-2.ml-3 -->
-    <!-- strong {{t('admin.storage.syncDirBi')}} #[em.red--text.text--lighten-2(v-if='target.supportedModes.indexOf(`sync`) < 0') {{t('admin.storage.unsupported')}}] -->
-    <!-- .pb-3 {{t('admin.storage.syncDirBiHint')}} -->
-    <!-- strong {{t('admin.storage.syncDirPush')}} #[em.red--text.text--lighten-2(v-if='target.supportedModes.indexOf(`push`) < 0') {{t('admin.storage.unsupported')}}] -->
-    <!-- .pb-3 {{t('admin.storage.syncDirPushHint')}} -->
-    <!-- strong {{t('admin.storage.syncDirPull')}} #[em.red--text.text--lighten-2(v-if='target.supportedModes.indexOf(`pull`) < 0') {{t('admin.storage.unsupported')}}] -->
-    <!-- .pb-3 {{t('admin.storage.syncDirPullHint')}} -->
-    <!-- template(v-if='target.hasSchedule') -->
-    <!-- v-divider.mt-3 -->
-    <!-- .overline.my-5 {{t('admin.storage.syncSchedule')}} -->
-    <!-- .body-2.ml-3 {{t('admin.storage.syncScheduleHint')}} -->
-    <!-- .pa-3 -->
-    <!-- duration-picker(v-model='target.syncInterval') -->
-    <!-- i18next.caption.mt-3(path='admin.storage.syncScheduleCurrent', tag='div') -->
-    <!-- strong(place='schedule') {{getDefaultSchedule(target.syncInterval)}} -->
-    <!-- i18next.caption(path='admin.storage.syncScheduleDefault', tag='div') -->
-    <!-- strong(place='schedule') {{getDefaultSchedule(target.syncIntervalDefault)}} -->
   </w-page>
 </template>
 
@@ -1010,13 +963,6 @@ async function loadSyncStatus() {
   }
 }
 
-function configIfCheck(ifs) {
-  if (!ifs || ifs.length < 1) {
-    return true
-  }
-  return ifs.every((s) => state.target.config[s.key]?.value === s.eq)
-}
-
 /**
  * A target as the API expects it. Read-only props are left out: the server keeps whatever is stored
  * for them, so sending them back would be pretending they can be set. The `config` reduction itself
@@ -1228,30 +1174,33 @@ async function setupDestroy() {
 }
 
 function generateGraph() {
+  /*
+    Every node icon is an SVG under `/_assets/icons/`, the same form the `user` and `pages_wiki`
+    nodes below already use. These four (and `pages`/`missingOrigin` further down) were Line Awesome
+    webfont glyphs -- `icon: 'las'` plus a raw codepoint rendered into a `<text class="las">` -- and
+    no Line Awesome font is loaded anywhere in this app, so they drew as blank tofu boxes. See
+    CLAUDE.md's Icons section: a webfont-style class name has never resolved to anything here.
+  */
   const types = [
     {
       key: 'images',
       label: t('admin.storage.contentTypeImages'),
-      icon: 'las',
-      iconText: '&#xf1c5;'
+      icon: '/_assets/icons/ultraviolet-image.svg'
     },
     {
       key: 'documents',
       label: t('admin.storage.contentTypeDocuments'),
-      icon: 'las',
-      iconText: '&#xf1c1;'
+      icon: '/_assets/icons/fluent-binder.svg'
     },
     {
       key: 'others',
       label: t('admin.storage.contentTypeOthers'),
-      icon: 'las',
-      iconText: '&#xf15b;'
+      icon: '/_assets/icons/ultraviolet-binary-file.svg'
     },
     {
       key: 'large',
       label: t('admin.storage.contentTypeLargeFiles'),
-      icon: 'las',
-      iconText: '&#xf1c6;'
+      icon: '/_assets/icons/ultraviolet-archive-folder.svg'
     }
   ]
 
@@ -1266,8 +1215,7 @@ function generateGraph() {
     pages: {
       name: t('admin.storage.contentTypePages'),
       color: '#3f51b5',
-      icon: 'las',
-      iconText: '&#xf15c;'
+      icon: '/_assets/icons/fluent-document-in-folder.svg'
     },
     pages_wiki: { name: 'Wiki.js', icon: '/_assets/logo-wikijs.svg', color: '#161b22' }
   }
@@ -1289,8 +1237,7 @@ function generateGraph() {
     state.deliveryNodes[tp.key] = {
       name: tp.label,
       color: '#3f51b5',
-      icon: tp.icon,
-      iconText: tp.iconText
+      icon: tp.icon
     }
     state.deliveryEdges[`user_${tp.key}`] = { source: 'user', target: tp.key }
     state.deliveryLayouts.nodes[tp.key] = { x: 0, y: (i + 1) * 15 }
@@ -1388,8 +1335,7 @@ function generateGraph() {
       state.deliveryNodes[`${tp.key}_wiki`] = {
         name: t('admin.storage.missingOrigin'),
         color: '#f03a47',
-        icon: 'las',
-        iconText: '&#xf071;'
+        icon: '/_assets/icons/fluent-unavailable.svg'
       }
       state.deliveryLayouts.nodes[`${tp.key}_wiki`] = { x: 60, y: (i + 1) * 15 }
       state.deliveryEdges[`${tp.key}_db_in`] = {

@@ -469,9 +469,9 @@ describe('AdminLayout admin-overlay accessible-name map', () => {
         }
       }
     }
-    // -> Strips `//`-to-end-of-line comments first: `overlays` has a commented-out
-    //    `MailTemplateEditorOverlay` entry (not yet implemented), which a purely textual `\w+:` scan
-    //    would otherwise still pick up as a real key.
+    // -> Strips `//`-to-end-of-line comments first: a commented-out entry in either map (an overlay
+    //    that is not yet implemented, say) would otherwise still be picked up as a real key by a
+    //    purely textual `\w+:` scan.
     const body = source
       .slice(braceStart + 1, braceEnd)
       .split('\n')
@@ -494,8 +494,6 @@ describe('AdminLayout admin-overlay accessible-name map', () => {
   it('ADMIN_OVERLAY_TITLES covers exactly the same keys as overlays', () => {
     const source = readFileSync(join(import.meta.dirname, 'AdminLayout.vue'), 'utf-8')
 
-    // -> `MailTemplateEditorOverlay` is commented out in `overlays` (not yet implemented), so it
-    //    correctly appears in neither map.
     expect(topLevelKeys(source, 'ADMIN_OVERLAY_TITLES')).toEqual(topLevelKeys(source, 'overlays'))
   })
 })

@@ -90,9 +90,5 @@ export function initializeApi(router) {
     }
   })
 
-  if (import.meta.env.SSR) {
-    global.API_CLIENT = client
-  } else {
-    window.API_CLIENT = client
-  }
+  window.API_CLIENT = client
 }

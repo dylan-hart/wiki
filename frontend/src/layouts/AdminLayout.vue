@@ -379,15 +379,6 @@
                   :color="adminStore.info.isPageviewsEnabled ? `positive` : `negative`" />
               </w-item-section>
             </w-item>
-            <w-item
-              to="/_admin/rendering"
-              active-class="bg-primary text-white"
-              v-if="flagsStore.experimental">
-              <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-rich-text-converter.svg" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.rendering.title') }}</w-item-section>
-            </w-item>
             <w-item to="/_admin/scheduler" active-class="bg-primary text-white">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-bot.svg" />
@@ -509,7 +500,6 @@ import { directionalAnchor } from '@/helpers/directionalAnchor'
 
 import { useAdminStore } from '@/stores/admin'
 import { useCommonStore } from '@/stores/common'
-import { useFlagsStore } from '@/stores/flags'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
@@ -528,7 +518,6 @@ const overlays = {
     loader: () => import('../components/GroupEditOverlay.vue'),
     loadingComponent: LoadingGeneric
   }),
-  // MailTemplateEditorOverlay: defineAsyncComponent({ loader: () => import('../components/MailTemplateEditorOverlay.vue'), loadingComponent: LoadingGeneric }),
   UserEditOverlay: defineAsyncComponent({
     loader: () => import('../components/UserEditOverlay.vue'),
     loadingComponent: LoadingGeneric
@@ -539,7 +528,6 @@ const overlays = {
 
 const adminStore = useAdminStore()
 const commonStore = useCommonStore()
-const flagsStore = useFlagsStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 

@@ -107,10 +107,3 @@ export function contrastRatio(hexA, hexB) {
  * used anywhere in this codebase's contrast checks, so it isn't exported here.
  */
 export const WCAG_AA_CONTRAST = 4.5
-
-/**
- * Whether `hexA` against `hexB` clears the WCAG AA contrast threshold for normal text.
- */
-export function meetsWcagAA(hexA, hexB) {
-  return contrastRatio(hexA, hexB) >= WCAG_AA_CONTRAST
-}

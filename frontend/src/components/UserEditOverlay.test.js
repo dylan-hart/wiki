@@ -5,6 +5,7 @@ import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import UserEditOverlay from './UserEditOverlay.vue'
+import UserDeleteDialog from './UserDeleteDialog.vue'
 import BlueprintIcon from './BlueprintIcon.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
@@ -305,18 +306,18 @@ describe('UserEditOverlay unassignGroup', () => {
 })
 
 /**
- * Regression coverage for OpenProject #798, still true after OpenProject #961 implemented welcome
- * mail for user *creation* (`UserCreateDialog.vue`, `POST /_api/users`): resending a welcome email
- * to an *existing* user has no backend endpoint at all, so this overlay's own "Send Welcome Email"
- * proceed button (which calls a no-op `sendWelcomeEmail()` stub) must still render disabled with an
- * explanatory caption rather than appearing actionable.
+ * The operations panel's "Delete user" proceed button was wired to `async function deleteUser() {}`
+ * -- a live, `canManage`-gated button that did nothing at all when clicked. It now opens the same
+ * `UserDeleteDialog` the users list opens (`pages/AdminUsers.vue#deleteUser`), which owns the
+ * confirmation, the optional content reassignment and the `DELETE /_api/users/:id` itself.
  */
-describe('UserEditOverlay operations panel send welcome email', () => {
-  it('renders the proceed button disabled', async () => {
+describe('UserEditOverlay operations panel delete user', () => {
+  it('opens UserDeleteDialog for the user being edited', async () => {
     setActivePinia(createPinia())
 
     const adminStore = useAdminStore()
     adminStore.overlayOpts = { id: USER.id }
+    adminStore.overlay = 'UserEditOverlay'
 
     const userStore = useUserStore()
     userStore.permissions = ['manage:users']
@@ -348,11 +349,25 @@ describe('UserEditOverlay operations panel send welcome email', () => {
     })
     await flushPromises()
 
-    // -> Under the empty test i18n bundle, `t()` falls back to the raw message key.
-    const proceedButton = wrapper
+    // -> Every other proceed button in this panel is `color="primary"`; the delete card's is the one
+    //    `WBtn` paints from `--color-negative` (an inline style, not a class -- see `WBtn.vue`).
+    const deleteButton = wrapper
       .findAll('button')
-      .find((b) => b.text().includes('common.actions.proceed'))
-    expect(proceedButton.attributes('disabled')).not.toBeUndefined()
+      .find((b) => (b.attributes('style') ?? '').includes('--color-negative'))
+    expect(deleteButton).toBeDefined()
+
+    const openBefore = openDialogs.length
+    await deleteButton.trigger('click')
+
+    expect(openDialogs.length).toBe(openBefore + 1)
+    const opened = openDialogs[openDialogs.length - 1]
+    expect(opened.component).toBe(UserDeleteDialog)
+    expect(opened.props.user.id).toBe(USER.id)
+
+    // -> Closing the overlay is what makes the list page reload; the dialog itself owns the delete.
+    expect(adminStore.overlay).not.toBe('')
+    await opened.handlers.ok[0]()
+    expect(adminStore.overlay).toBe('')
 
     wrapper.unmount()
   })

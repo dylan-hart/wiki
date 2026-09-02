@@ -17,11 +17,6 @@ import { localizedPagePath, parseLocalePrefix } from './pagePaths'
  */
 export const REDIRECT_INTERSTITIAL_MS = 2500
 
-/** An empty redirection, which is what a page being created starts as. */
-export function emptyRedirect() {
-  return { kind: 'page', target: '', showInterstitial: false }
-}
-
 /**
  * Read a stored redirection. Never throws: content that is missing or unparseable comes back as an
  * empty redirection, which the editor opens on and the page view reports as having nowhere to go.

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  contrastRatio,
-  getAccessibleColor,
-  meetsWcagAA,
-  WCAG_AA_CONTRAST
-} from './accessibility.js'
+import { contrastRatio, getAccessibleColor, WCAG_AA_CONTRAST } from './accessibility.js'
+
+// -> `accessibility.js` exported this composition of its own two exports, with no non-test caller
+//    anywhere in the app (`AdminTheme.vue` compares `contrastRatio` against the threshold inline).
+//    It is an assertion helper, so it lives with the assertions.
+const meetsWcagAA = (hexA, hexB) => contrastRatio(hexA, hexB) >= WCAG_AA_CONTRAST
 
 const CVD_TYPES = ['protanopia', 'deuteranopia', 'tritanopia']
 
@@ -53,7 +53,7 @@ describe('getAccessibleColor()', () => {
   })
 })
 
-describe('contrastRatio() / meetsWcagAA()', () => {
+describe('contrastRatio()', () => {
   it('gives black on white the maximum ratio of 21:1', () => {
     expect(contrastRatio('#000000', '#ffffff')).toBeCloseTo(21, 0)
   })

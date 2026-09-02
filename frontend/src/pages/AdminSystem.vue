@@ -377,23 +377,13 @@ const platformLogo = computed(() => {
       return 'washing-machine'
   }
 })
-const clientBrowser = computed(() => {
-  return !import.meta.env.SSR ? navigator.userAgent : ''
-})
-const clientPlatform = computed(() => {
-  return !import.meta.env.SSR ? navigator.platform : ''
-})
-const clientLanguage = computed(() => {
-  return !import.meta.env.SSR ? navigator.language : ''
-})
-const clientCookies = computed(() => {
-  return !import.meta.env.SSR ? navigator.cookieEnabled : ''
-})
-const clientViewport = computed(() => {
-  return !import.meta.env.SSR
-    ? `${document.documentElement.clientWidth}x${document.documentElement.clientHeight}`
-    : ''
-})
+const clientBrowser = computed(() => navigator.userAgent)
+const clientPlatform = computed(() => navigator.platform)
+const clientLanguage = computed(() => navigator.language)
+const clientCookies = computed(() => navigator.cookieEnabled)
+const clientViewport = computed(
+  () => `${document.documentElement.clientWidth}x${document.documentElement.clientHeight}`
+)
 
 // METHODS
 

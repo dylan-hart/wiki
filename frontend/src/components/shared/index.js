@@ -48,7 +48,6 @@ import WPageScroller from './WPageScroller.vue'
 import WPagination from './WPagination.vue'
 import WRadio from './WRadio.vue'
 import WRange from './WRange.vue'
-import WRating from './WRating.vue'
 import WScrollArea from './WScrollArea.vue'
 import WSelect from './WSelect.vue'
 import WSeparator from './WSeparator.vue'
@@ -65,7 +64,6 @@ import WToggle from './WToggle.vue'
 import WToolbar from './WToolbar.vue'
 import WToolbarTitle from './WToolbarTitle.vue'
 import WTooltip from './WTooltip.vue'
-import WTree from './WTree.vue'
 
 export const sharedComponents = {
   WAvatar,
@@ -108,7 +106,6 @@ export const sharedComponents = {
   WPagination,
   WRadio,
   WRange,
-  WRating,
   WScrollArea,
   WSelect,
   WSeparator,
@@ -124,8 +121,7 @@ export const sharedComponents = {
   WToggle,
   WToolbar,
   WToolbarTitle,
-  WTooltip,
-  WTree
+  WTooltip
 }
 
 /** @param {import('vue').App} app */

@@ -588,30 +588,6 @@
               <w-card class="shadow-1 pb-2">
                 <w-card-header>{{ t('admin.users.operations') }}</w-card-header>
                 <w-item>
-                  <blueprint-icon icon="email-open" :hue-rotate="45" />
-                  <w-item-section>
-                    <w-item-label>{{ t(`admin.users.sendWelcomeEmail`) }}</w-item-label>
-                    <w-item-label caption>{{
-                      t(`admin.users.sendWelcomeEmailAltHint`)
-                    }}</w-item-label>
-                    <w-item-label caption class="text-orange-8">{{
-                      t(`admin.users.sendWelcomeEmailUnavailable`)
-                    }}</w-item-label>
-                  </w-item-section>
-                  <w-item-section side>
-                    <w-btn
-                      class="acrylic-btn"
-                      flat
-                      icon="la:arrow-circle-right"
-                      color="primary"
-                      v-if="canManage"
-                      disabled
-                      @click="sendWelcomeEmail"
-                      :label="t(`common.actions.proceed`)" />
-                  </w-item-section>
-                </w-item>
-                <w-separator class="my-2" inset />
-                <w-item>
                   <blueprint-icon icon="apply" :hue-rotate="45" />
                   <w-item-section>
                     <w-item-label>{{
@@ -714,6 +690,7 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate } from '@/helpers/datetime'
 
 import UserChangePwdDialog from './UserChangePwdDialog.vue'
+import UserDeleteDialog from './UserDeleteDialog.vue'
 import UtilCodeEditor from './UtilCodeEditor.vue'
 
 // COMPOSABLES
@@ -1009,8 +986,6 @@ function revokePasskey(pkey) {
   })
 }
 
-async function sendWelcomeEmail() {}
-
 function toggleVerified() {
   state.user.isVerified = !state.user.isVerified
   save(
@@ -1031,7 +1006,17 @@ function toggleBan() {
   )
 }
 
-async function deleteUser() {}
+// -> Opens the same `UserDeleteDialog` the users list opens (`pages/AdminUsers.vue`), which owns the
+//    confirmation, the optional content reassignment and the DELETE itself. On success the user this
+//    overlay is editing no longer exists, so the overlay closes -- the list page reloads off that.
+function deleteUser() {
+  dialog({
+    component: UserDeleteDialog,
+    componentProps: {
+      user: state.user
+    }
+  }).onOk(close)
+}
 
 // MOUNTED
 

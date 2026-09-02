@@ -19,15 +19,7 @@ export const useEditorStore = defineStore('editor', {
     editor: '',
     originPageId: '',
     mode: 'edit',
-    activeModal: '',
-    activeModalData: null,
     hideSideNav: false,
-    media: {
-      folderTree: [],
-      currentFolderId: 0,
-      currentFileId: null
-    },
-    checkoutDateActive: '',
     lastSaveTimestamp: null,
     lastChangeTimestamp: null,
     editors: {},

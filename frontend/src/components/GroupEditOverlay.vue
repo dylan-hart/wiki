@@ -271,13 +271,6 @@
                               @update:model-value="toggleOption(opt)"
                               :aria-label="opt.label" />
                           </w-item-section>
-                          <!-- q-item-section(side, style='flex-basis: 150px;') -->
-                          <!-- q-chip.text-caption( -->
-                          <!-- square -->
-                          <!-- color='teal' -->
-                          <!-- text-color='white' -->
-                          <!-- dense -->
-                          <!-- ) {{opt.permission}} -->
                           <w-item-section>
                             <w-item-label>{{ opt.title }}</w-item-label>
                             <w-item-label caption>{{ opt.hint }}</w-item-label>
