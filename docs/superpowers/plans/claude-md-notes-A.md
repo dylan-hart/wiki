@@ -134,3 +134,19 @@
     `WIKI.models.sites.getSiteById` — for its unknown-site cases to mean anything. Eight suites do
     this now (`approvals`, `authentication`, `blockCredentials`, `blocks`, `comments`,
     `comments.admin`, `glossary`, `liveData`, `search`). This belongs in "Testing (backend)".
+
+- **Task A7, step 2 (shared `params` schemas, finding API-F4).** CLAUDE.md's "Backend patterns" and
+  "Testing (backend)" sections should now say:
+  - **`params:` reaches for a `$ref` like every other schema slot.** `api/schemas/params.ts`
+    registers `SiteIdParams`, `SitePageParams`, `SiteFolderParams`, `SiteTagParams` and
+    `SitePageCommentParams` (via `registerParamsSchemas`, wired in `api/index.ts` alongside the 33
+    `registerSchemas` calls); a site-scoped route writes `params: { $ref: 'SiteIdParams#' }` rather
+    than a fresh object literal. 85 literals and eleven per-file `const siteIdParam`/`pageIdParam`/
+    `folderIdParam`/`pageParams`/`siteIdTagParam` declarations are gone.
+  - **A route whose params carry anything else keeps its literal** — a `kind`, an `alias`, an
+    `action`, a `pageIdOrHash` with its own description, or any of the one-off `:xId` pairs
+    (`ruleId`, `credentialId`, `navId`, `termId`, `versionId`, `assetId`, `commentId`, …). The
+    shared ids cover the shapes that recur, not every combination.
+  - **A test suite that mounts one route plugin alone must call `registerParamsSchemas(app)`** in
+    its `buildApp`, next to the `registerSchemas` calls it already makes — otherwise `app.ready()`
+    throws `FST_ERR_SCH_*` on the unresolvable `$ref`. 25 suites do this now.

@@ -8,6 +8,7 @@ import sitesRoutes from './sites.ts'
 import { registerSchemas as registerSiteSchema } from './schemas/site.ts'
 import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * Regression test for `GET /_api/sites/:siteIdorHostname`'s `strict` querystring flag: the handler
@@ -255,6 +256,7 @@ before(async () => {
     }
     done()
   })
+  await registerParamsSchemas(app)
   await app.register(sitesRoutes)
   await app.ready()
 })

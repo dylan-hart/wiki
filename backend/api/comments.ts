@@ -30,33 +30,6 @@ import type { AdminPageRef, ThreadedComment } from '../models/comments.ts'
  * `resolveAuthorName` below fills that gap for the POST/PATCH responses at the route layer rather than
  * widening every model method's query, since it's needed in exactly two places.
  */
-const siteIdParam = {
-  type: 'object',
-  properties: {
-    siteId: { type: 'string', format: 'uuid' }
-  },
-  required: ['siteId']
-}
-
-const pageIdParam = {
-  type: 'object',
-  properties: {
-    siteId: { type: 'string', format: 'uuid' },
-    pageId: { type: 'string', format: 'uuid' }
-  },
-  required: ['siteId', 'pageId']
-}
-
-const pageCommentIdParam = {
-  type: 'object',
-  properties: {
-    siteId: { type: 'string', format: 'uuid' },
-    pageId: { type: 'string', format: 'uuid' },
-    commentId: { type: 'string', format: 'uuid' }
-  },
-  required: ['siteId', 'pageId', 'commentId']
-}
-
 const commentIdParam = {
   type: 'object',
   properties: {
@@ -219,16 +192,7 @@ async function routes(app: FastifyInstance) {
         description:
           'One entry per comments module installed in `modules/comments`, whether or not it has ever been enabled — same pattern as `GET /sites/:siteId/storage/targets`. At most one entry has `isEnabled` true: comments have a single active provider per site, not several simultaneous targets.',
         tags: ['Comments'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'List of comment providers',
@@ -259,16 +223,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Activates the named module and stores its config values, disabling whichever provider was active before. There is exactly one active provider per site at any time; there is no endpoint to turn comments off short of activating a module and leaving its config at defaults, since "no provider active" is not itself a supported state past initial site creation.',
         tags: ['Comments'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: { $ref: 'CommentProviderInput#' },
         response: {
           200: {
@@ -325,7 +280,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Every comment on every page the requesting actor holds `manage:comments` on, across the whole site — distinct from `GET .../pages/:pageId/comments`, which is scoped to one page and needs only `read:comments`. Nothing here is granted by a single site-wide flag: a comment is included only after the page it lives on individually passes a `manage:comments` check, so two administrators with different rules see different, correctly scoped lists from the same request shape.\n\nPaginated (`offset`/`limit`, `totalHits` ignores both) and filterable by page path (prefix match), author (substring match against the account name or guest name), and a `createdAt` date range.',
         tags: ['Comments'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -467,7 +422,7 @@ async function routes(app: FastifyInstance) {
         description:
           "The full threaded comment list for a page, oldest first at every level. `authorEmail` is always null here — this endpoint is read by anonymous visitors as often as logged in ones, so a commenter's address is never published through it.",
         tags: ['Comments'],
-        params: pageIdParam,
+        params: { $ref: 'SitePageParams#' },
         response: {
           200: {
             description: 'Comments on this page, threaded',
@@ -527,7 +482,7 @@ async function routes(app: FastifyInstance) {
           'Refused with 403 when the site has comments turned off (`features.comments`) or this page ' +
           'does (`allowComments`) — both otherwise only hide the form client-side.',
         tags: ['Comments'],
-        params: pageIdParam,
+        params: { $ref: 'SitePageParams#' },
         body: { $ref: 'CommentInput#' },
         response: {
           200: {
@@ -654,7 +609,7 @@ async function routes(app: FastifyInstance) {
           '`manage:comments` on this page. A guest-authored comment (no account behind it) can only ' +
           'be edited via `manage:comments`.',
         tags: ['Comments'],
-        params: pageCommentIdParam,
+        params: { $ref: 'SitePageCommentParams#' },
         body: { $ref: 'CommentUpdateInput#' },
         response: {
           200: {
@@ -734,7 +689,7 @@ async function routes(app: FastifyInstance) {
           '`manage:comments` on this page. A guest-authored comment (no account behind it) can only ' +
           'be deleted via `manage:comments`.',
         tags: ['Comments'],
-        params: pageCommentIdParam,
+        params: { $ref: 'SitePageCommentParams#' },
         response: {
           204: {
             description: 'The comment was deleted',

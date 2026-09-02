@@ -9,6 +9,7 @@ import commentsRoutes from './comments.ts'
 import { registerSchemas as registerCommentSchema } from './schemas/comment.ts'
 import { registerSchemas as registerCommentProviderSchema } from './schemas/commentProvider.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * Two independently-built route test suites merged at merge-review time (see `comments.ts`'s own
@@ -88,6 +89,7 @@ describe('comment provider routes', () => {
     // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
     //    plugin-only app has to register it to answer that case the way the real app does.
     app.addHook('preHandler', siteEnabledPreHandler)
+    await registerParamsSchemas(app)
     await app.register(commentsRoutes)
     await app.ready()
   })
@@ -490,6 +492,7 @@ describe('page-scoped comment routes', () => {
     await registerErrorSchema(app)
     await registerCommentSchema(app)
     await registerCommentProviderSchema(app)
+    await registerParamsSchemas(app)
     await app.register(commentsRoutes)
     await app.ready()
   })

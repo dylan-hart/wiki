@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import notificationRoutes from './notifications.ts'
 import { registerSchemas as registerNotificationSchemas } from './schemas/notification.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * Task 535's API surface: `GET /sites/:siteId/notifications`, `GET
@@ -63,6 +64,7 @@ before(async () => {
     req.session = session
   })
   await registerNotificationSchemas(app)
+  await registerParamsSchemas(app)
   await app.register(notificationRoutes)
   await app.ready()
 })

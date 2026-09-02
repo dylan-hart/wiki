@@ -101,16 +101,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Built-in blocks are registered from the compiled block manifest, so the list reflects what is actually installed. This is what the editor builds its block picker from, so it is available to page authors and to anyone an approval rule lets suggest an edit — guests included, where a site takes public suggestions — as well as to site administrators.',
         tags: ['Blocks'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'List of site blocks',
@@ -166,16 +157,7 @@ async function routes(app: FastifyInstance) {
         description: `The body is the block component's raw \`component.js\` source, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round((WIKI.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB. The declared \`Content-Type\` decides nothing: the source is parsed for a static \`definition\`, the same way the \`blocks/\` build itself does, and anything that fails to parse or whose definition is not plain literals is rejected with a message naming what was wrong.\n\nThe definition's \`block\` becomes this block's tag — the element it renders as is \`<block-{tag}>\` — and is checked against every other block already on this site, built-in or custom. A collision is rejected rather than silently letting one block shadow another. The source must itself call \`customElements.define("block-{tag}", ...)\` with that exact name; a mismatch is rejected too, since a block that does not register the tag it promises renders nothing on every page that uses it.`,
         tags: ['Blocks'],
         consumes: ['*/*'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Custom block uploaded successfully',
@@ -261,16 +243,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Only the blocks listed are affected; any others keep their current state. A state may also carry a `config` object of site-level values for that block (e.g. the "Server" field block-kroki and block-plantuml offer) — omitted, its row keeps whatever config it already has; given, for a built-in block it is sanitized against the block\'s declared `config` fields (stale keys stripped) and replaces the row wholesale, while a custom block (no declared fields) is written as-is.\n\nRequires `manage:sites`, or `site:blocks` on this site.',
         tags: ['Blocks'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['states'],

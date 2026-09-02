@@ -11,6 +11,7 @@ import routes from './assets.ts'
 import { mayOnAsset } from '../helpers/pageAccess.ts'
 import { siteEnabledPreHandler } from '../helpers/common.ts'
 import { SVG_CSP } from '../helpers/security.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 describe('download route: byte-serving behavior', () => {
   /**
@@ -86,6 +87,7 @@ describe('download route: byte-serving behavior', () => {
     })
     await registerSchemas(app)
     await registerErrorSchema(app)
+    await registerParamsSchemas(app)
     await app.register(routes)
     await app.ready()
     return app
@@ -302,6 +304,7 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
     })
     await registerSchemas(app)
     await registerErrorSchema(app)
+    await registerParamsSchemas(app)
     await app.register(routes)
     await app.ready()
   })
@@ -595,6 +598,7 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
     })
     await registerSchemas(app)
     await registerErrorSchema(app)
+    await registerParamsSchemas(app)
     await app.register(routes)
     await app.ready()
   })

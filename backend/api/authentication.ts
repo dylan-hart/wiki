@@ -185,16 +185,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Ordered by the position configured for the site. `activeStrategy` holds the per-instance settings, nested under it `strategy` holds the module definition.',
         tags: ['Authentication'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -342,15 +333,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Login',
         tags: ['Authentication'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          }
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           // -> `password` is required here too, not just checked deeper in `users.login()`: an
@@ -448,16 +431,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Creates an account under a strategy configured to accept new users. When that strategy's `emailValidation` setting is on (the local strategy's default), the account starts unverified and this answers `nextAction: 'verify'` rather than logging in — a link mailed to the address is what finishes it, at `GET /auth/verify/:token`. With `emailValidation` off, this logs the account straight in like any other successful auth attempt. Submitting an address that already has a verified account under such a strategy answers the same generic `nextAction: 'verify'` rather than an error — that account's owner is emailed a notice instead — so this endpoint cannot be used to test which addresses are already registered.",
         tags: ['Authentication'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['strategyId', 'name', 'email', 'password'],
@@ -535,15 +509,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Change Password From Login',
         tags: ['Authentication'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          }
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['strategyId', 'continuationToken', 'newPassword'],
@@ -630,16 +596,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Always answers the same generic success, regardless of whether `email` matches an account or the strategy allows resets at all -- so this can never be used to test whether an address has an account. When it does match, and the strategy's `allowForgotPassword` setting is on, a link is mailed to it pointing at `PUT /sites/:siteId/auth/resetPassword`.",
         tags: ['Authentication'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['strategyId', 'email'],
@@ -703,16 +660,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Sets the new password and, on success, logs the account straight in -- like every other token-continuation flow in this file -- except that 2FA is still required first when the account has it active, since a mailed reset token alone never proves a second factor was checked.',
         tags: ['Authentication'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['strategyId', 'token', 'newPassword'],
@@ -802,16 +750,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Answers like the login route does, since the same checks continue afterwards: a user who also owes a password change is asked for one next. A wrong code can be retried a few times before the continuation token is discarded and the login has to be started again.',
         tags: ['Authentication'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['strategyId', 'continuationToken', 'securityCode'],
@@ -909,16 +848,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Pass the result to the browser's WebAuthn API, then send what the authenticator produces to `PUT /sites/:siteId/auth/passkey/login`. No credential list is sent and no user is named: passkeys are registered as discoverable credentials, so the authenticator offers whichever ones it holds for this hostname and the assertion identifies the account.",
         tags: ['Authentication'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Passkey challenge generated',
@@ -974,16 +904,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Verifies what the authenticator signed and, if it holds up, logs the user in. A passkey establishes both identity and presence, so no password or 2FA code is asked for on top of it.',
         tags: ['Authentication'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['authResponse'],
@@ -1324,16 +1245,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Destroys the current session and answers with where to send the user next: the first of the user's groups that sets a logout redirect, otherwise the site's own setting, otherwise the site root. A request that was not logged in gets the same answer rather than an error, so that a client acting on a session the server has already forgotten still ends up somewhere sensible.",
         tags: ['Authentication'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Logged out successfully',

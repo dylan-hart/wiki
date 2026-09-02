@@ -8,6 +8,7 @@ import treeRoutes from './tree.ts'
 import { mayOnFolder, visibleTreeItems } from '../helpers/pageAccess.ts'
 import { registerSchemas as registerTreeSchema } from './schemas/tree.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * Regression tests for task 676: `visibleTreeItems` and `mayOnFolder` take an explicit `siteId` and
@@ -103,6 +104,7 @@ before(async () => {
   })
   await registerTreeSchema(app)
   await registerErrorSchema(app)
+  await registerParamsSchemas(app)
   await app.register(treeRoutes)
   await app.ready()
 })

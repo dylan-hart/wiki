@@ -15,6 +15,7 @@ import sitesRoutes from './sites.ts'
 import { registerSchemas as registerSiteSchema } from './schemas/site.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import type { PageActor } from '../models/pages.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * DB-backed route test for `PUT /:siteId`'s locale-deactivation guard (Task 995, decision doc Option
@@ -80,6 +81,7 @@ describe(
       app.addHook('onRequest', async (req) => {
         ;(req as any).session = testSession
       })
+      await registerParamsSchemas(app)
       await app.register(sitesRoutes)
       await app.ready()
     })

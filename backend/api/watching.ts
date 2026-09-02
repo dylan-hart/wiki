@@ -11,15 +11,6 @@ import type { FastifyInstance } from 'fastify'
  */
 const WATCHER_REQUIRED = 'Watching a page requires a logged in user.'
 
-const pageParams = {
-  type: 'object',
-  properties: {
-    siteId: { type: 'string', format: 'uuid' },
-    pageId: { type: 'string', format: 'uuid' }
-  },
-  required: ['siteId', 'pageId']
-}
-
 /**
  * Page Watching API Routes
  *
@@ -42,7 +33,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Records that the caller wants to hear about changes to this page. Watching a page already watched changes nothing and still answers 200, so the button can be pressed twice without it meaning anything different — including a preference in the body of a repeat call is therefore also a no-op; use PATCH on this same route to change the preference of a watch that already exists.',
         tags: ['Pages'],
-        params: pageParams,
+        params: { $ref: 'SitePageParams#' },
         body: { $ref: 'WatchPreferenceInput#' },
         response: {
           200: {
@@ -98,7 +89,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Sets how the caller wants to hear about changes to a page they are already watching. Fields left out of the body are left as they were. There is nothing to set a preference ON for a page the caller is not watching, so this answers 404 rather than creating a watch as a side effect — call PUT first.',
         tags: ['Pages'],
-        params: pageParams,
+        params: { $ref: 'SitePageParams#' },
         body: { $ref: 'WatchPreferenceInput#' },
         response: {
           200: {
@@ -142,7 +133,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Forgets that the caller wanted to hear about this page. A page that was not being watched answers the same way, since the outcome asked for — no longer watching it — already holds.',
         tags: ['Pages'],
-        params: pageParams,
+        params: { $ref: 'SitePageParams#' },
         response: {
           200: {
             description: 'The page is no longer being watched',
@@ -183,13 +174,7 @@ async function routes(app: FastifyInstance) {
         description:
           'The watch list of the caller on this site, most recently watched first. Titles and paths come from the pages themselves, so a page that has been renamed or moved is listed where it is now.',
         tags: ['Pages'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Watched pages',

@@ -147,14 +147,7 @@ async function routes(app: FastifyInstance) {
         description:
           "The id of the menu this page falls back to while it inherits: the nearest ancestor that overrides one, or the site-wide menu when no ancestor does.\n\nWhat the navigation editor asks so that a page which inherits can edit the sidebar it shows without being opened on the ancestor that owns it. Null when the nearest ancestor hides the sidebar, which leaves nothing to inherit — and nothing to edit. Not the same question as the page's own `navigationId`, which is what the CURRENT mode resolved to.\n\nRequires `manage:navigation`, or `site:navigation` on this site.",
         tags: ['Navigation'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' },
-            pageId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId', 'pageId']
-        },
+        params: { $ref: 'SitePageParams#' },
         response: {
           200: {
             description: 'The inherited menu',
@@ -200,13 +193,7 @@ async function routes(app: FastifyInstance) {
         description:
           "The site-wide default menu's own row id for one locale — created empty on demand, exactly like editing a page into it would. Not the site id: the default menu is identified by `(siteId, locale)` rather than by an id equal to the site's own, since a site with more than one active locale has one such menu per locale. What an admin screen editing the default menu directly (rather than through a page) asks for, since it otherwise has no way to learn that id.\n\nRequires `manage:navigation`, or `site:navigation` on this site.",
         tags: ['Navigation'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -255,13 +242,7 @@ async function routes(app: FastifyInstance) {
         description:
           "The site-wide default menu's own row id for every one of this site's active locales (`site.config.locales.active`) — created empty on demand, exactly like `GET .../navigation/default` does for a single locale. What a 'copy from' picker lists so an admin can choose a source menu by locale, or by site via `GET /sites` followed by this same call against the chosen site, without needing to know a raw navigation uuid up front.\n\nDeliberately scoped to the site-wide default only, not every override — copying a specific page-level override across sites isn't a use case this covers; see `GET .../navigation/overrides` for those.\n\nRequires `manage:navigation`, or `site:navigation` on this site.",
         tags: ['Navigation'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: "This site's default menu roots, one per active locale",
@@ -302,13 +283,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Every tree entry in the site whose navigation mode is not `inherit` — the pages and folders that override or hide the sidebar, rather than falling back to whatever an ancestor decides. A flat list across the whole site, not scoped to one subtree, which is what an admin screen managing overrides needs to show them all at once.\n\n`locale` restricts it to one locale; every locale comes back when omitted.\n\nRequires `manage:navigation`, or `site:navigation` on this site.',
         tags: ['Navigation'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -515,14 +490,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Records the mode on the tree entry and repoints every descendant that still inherits, stopping at any that overrides or hides in between.\n\nSending `items` stores them as the menu the mode resolves to, and leaving them out changes only the mode. With `inherit` that menu belongs to an ancestor — the same one `navigation/pages/{pageId}/inherited` names — so editing a menu from a page that inherits it edits it where it lives, for every page using it; for the home page that is the site-wide menu, which is what every other page inherits by default. Refused when the mode is `inherit` and the sidebar above the page is hidden, since then there is no menu to store items in.\n\n`mode` and `menuMode` are different axes: `mode` is this ENTRY's cascade setting (how it and its descendants pick a menu), `menuMode` is the RESOLVED MENU's own source (`static`/`auto`/`mixed` — whether its items are hand-authored, tree-generated, or both). Sending `menuMode` sets it on the same row `items` would write to; either can be sent without the other.\n\nRequires `manage:navigation`, or `site:navigation` on this site.",
         tags: ['Navigation'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' },
-            pageId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId', 'pageId']
-        },
+        params: { $ref: 'SitePageParams#' },
         body: {
           type: 'object',
           required: ['mode'],

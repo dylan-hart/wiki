@@ -6,6 +6,7 @@ import fastifySensible from '@fastify/sensible'
 import navigationRoutes from './navigation.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { registerSchemas as registerNavigationSchema } from './schemas/navigation.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * Task #683: `GET .../navigation/pages/:pageId/inherited` and `PUT .../navigation/pages/:pageId`
@@ -97,6 +98,7 @@ before(async () => {
     currentSitePermissionHeader = req.headers['x-test-site-permissions']
     done()
   })
+  await registerParamsSchemas(app)
   await app.register(navigationRoutes)
   await app.ready()
 })
@@ -567,6 +569,7 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
     })
     await registerErrorSchema(app)
     await registerNavigationSchema(app)
+    await registerParamsSchemas(app)
     await app.register(navigationRoutes)
     await app.ready()
   })

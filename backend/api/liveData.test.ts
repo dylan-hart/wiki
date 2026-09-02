@@ -6,6 +6,7 @@ import fastifySensible from '@fastify/sensible'
 import { siteEnabledPreHandler } from '../helpers/common.ts'
 import liveDataRoutes from './liveData.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * A unit-level test of the route's own wiring — the shared site preHandler, the block-enabled gate,
@@ -67,6 +68,7 @@ describe('POST /sites/:siteId/live-data/resolve', () => {
     // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
     //    plugin-only app has to register it to answer that case the way the real app does.
     app.addHook('preHandler', siteEnabledPreHandler)
+    await registerParamsSchemas(app)
     await app.register(liveDataRoutes)
     await app.ready()
   })

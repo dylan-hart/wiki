@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto'
 import storageRoutes from './storage.ts'
 import { registerSchemas as registerStorageSchema } from './schemas/storage.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * Task 545: prove `POST /sites/:siteId/storage/targets/:targetId/actions/exportAll` actually calls
@@ -74,6 +75,7 @@ before(async () => {
   })
   await registerErrorSchema(app)
   await registerStorageSchema(app)
+  await registerParamsSchemas(app)
   await app.register(storageRoutes)
   await app.ready()
 })

@@ -10,6 +10,7 @@ import tagsRoutes from './tags.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import type { GroupRule } from '../models/groups.ts'
 import type { PageActor } from '../models/pages.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * DB-backed route test for `PATCH`/`DELETE /sites/:siteId/tags/:tag` (OpenProject #1873).
@@ -63,6 +64,7 @@ describe('PATCH/DELETE /sites/:siteId/tags/:tag (DB-backed)', { skip: !hasTestDa
         })
     })
     await registerErrorSchema(app)
+    await registerParamsSchemas(app)
     await app.register(tagsRoutes)
     await app.ready()
   })

@@ -9,6 +9,7 @@ import { registerSchemas as registerPageSchema } from './schemas/page.ts'
 import { registerSchemas as registerApprovalSchema } from './schemas/approval.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * Route-wiring tests for `GET /sites/:siteId/pages/:pageId/backlinks` (OpenProject #1914).
@@ -119,6 +120,7 @@ before(async () => {
       })
     }
   })
+  await registerParamsSchemas(app)
   await app.register(pagesRoutes)
   await app.ready()
 })

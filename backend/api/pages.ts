@@ -65,32 +65,6 @@ function replyForRenderRefusal(err: any, reply: FastifyReply): FastifyReply | nu
   return null
 }
 
-const siteIdParam = {
-  type: 'object',
-  properties: {
-    siteId: {
-      type: 'string',
-      format: 'uuid'
-    }
-  },
-  required: ['siteId']
-}
-
-const pageIdParam = {
-  type: 'object',
-  properties: {
-    siteId: {
-      type: 'string',
-      format: 'uuid'
-    },
-    pageId: {
-      type: 'string',
-      format: 'uuid'
-    }
-  },
-  required: ['siteId', 'pageId']
-}
-
 /**
  * Logs a best-effort pageview for the page-read route below (OpenProject #1238) -- the REST half of
  * the two write paths #1140's graph sizing needs; `mcp/tools/getPage.ts`'s `get_page` tool is the
@@ -263,7 +237,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Postgres full-text search over the pages of a site, ranked by relevance. `query` may be left out, in which case the filters alone decide the results — which is what a search for nothing but tags is.\n\nReadable without a session, for the same reason reading a page is: an anonymous request only matches published pages. Drafts are included only for someone who may write pages. A page marked as not searchable never appears, whoever is asking.\n\nA password-protected page is listed like any other — its title and description are not what the password covers — but for a searcher who would have to enter that password it can only be matched on those two, never on the text behind the lock, and it comes back with no `highlight`.\n\n`highlight` is an excerpt with the matched terms wrapped in `<b>`, and is the only field carrying markup — the excerpt is escaped before those are added. It is absent unless term highlighting is enabled in the search settings.',
         tags: ['Pages'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -414,7 +388,7 @@ async function routes(app: FastifyInstance) {
         description:
           "What an include block needs to draw another page inside the one being read: its title and its stored render, addressed by path rather than by ID, since a path is what an author writes into the page.\n\nThe reader's own access decides the answer, exactly as it would if they opened the page themselves — an anonymous request only ever sees published pages, and a password-protected page comes back with `isLocked: true` and no body unless this session has already unlocked it. So an include can never show content its reader could not have reached on their own.",
         tags: ['Pages'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           required: ['path'],
@@ -698,7 +672,7 @@ async function routes(app: FastifyInstance) {
         description:
           'The content is the source and `render` is the HTML the editor produced from it. The render is sanitized against what the author may embed, stripped of editor scaffolding, given heading anchors, and reduced to a table of contents and search text — so read the response rather than assuming what was sent is what was stored.',
         tags: ['Pages'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         body: {
           allOf: [
             { $ref: 'PageInput#' },
@@ -787,7 +761,7 @@ async function routes(app: FastifyInstance) {
         description: `The body is the file itself, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round(MAX_IMPORT_SIZE / 1024 / 1024)} MB. \`fileName\`'s extension decides the format (OpenProject #1209) unless \`format\` overrides it; the result is GitHub-flavored Markdown, ready to hand to the markdown editor or POST as a new page's \`content\` — this endpoint only converts, it does not save anything.\n\n\`format: 'markdown'\` (OpenProject #1092) is a pass-through — the file's own bytes, with a leading YAML front-matter block (if any) split off into \`title\`/\`description\`/\`tags\` — and needs no Pandoc extension. Every other format still needs Pandoc, and answers 503 without it. \`path\` is not written to, only checked: converting content requires \`write:pages\` on wherever the caller says they intend to save it.`,
         tags: ['Pages'],
         consumes: ['*/*'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -880,7 +854,7 @@ async function routes(app: FastifyInstance) {
         description: `A \`multipart/form-data\` sibling of \`POST .../pages/import\` (OpenProject #849): several files in one request (field name \`files\`, repeated), each file's format autodetected from its own extension (OpenProject #1209; field name \`formats\`, repeated in the same order as \`files\`, overrides a single file's detection when non-empty). At most ${MAX_IMPORT_BATCH_FILES} files, each at most ${Math.round(MAX_IMPORT_SIZE / 1024 / 1024)} MB, and at most ${Math.round(MAX_IMPORT_BATCH_BYTES / 1024 / 1024)} MB combined (OpenProject #2204) — a batch over that aggregate ceiling is refused outright (400), not partially converted. The response carries one result per file, in the order they were sent — a bad file in the batch does not stop the rest from converting, so check each entry's own \`ok\`. Convert-only, exactly like the single-file endpoint: nothing is saved here, which is what lets the caller assign each result its own destination and review it before saving.\n\n\`format: 'markdown'\` (OpenProject #1092) is a pass-through and needs no Pandoc extension — every other format still does, and answers 503 without it. A file whose extension is not recognized fails only its own entry, same as any other per-file conversion failure. \`path\` is not written to, only checked: converting content requires \`write:pages\` on wherever the caller says they intend to save it.`,
         tags: ['Pages'],
         consumes: ['multipart/form-data'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -1070,7 +1044,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Accepts any subset of the fields. Sending `render` replaces the stored HTML, its table of contents and its search text; sending `content` without it leaves the previous render in place, which is what a source-only edit means.',
         tags: ['Pages'],
-        params: pageIdParam,
+        params: { $ref: 'SitePageParams#' },
         body: { $ref: 'PageInput#' },
         response: {
           200: {
@@ -1298,7 +1272,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Resolves the descendants a classification-resolution-dialog conflict listed, by setting each to the chosen level. Every id must belong to this site and the caller must hold write:pages on each; lowering one below its current level also needs manage:classification on it, the same declassification guardrail the PATCH route enforces. The chosen level may never leave a page below its own immediate parent's floor.",
         tags: ['Pages'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['pageIds', 'classification'],
@@ -1534,7 +1508,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Also renames it when a title is given, and re-homes it into another locale of the same site when one is given. The tree entry moves with it, and any folder the new path needs is created. A destination another page already occupies -- including one that wins a race against this same request -- answers `pageDuplicatePath` (409), the same JSON error shape every other page-creation failure uses, not a generic 500; a locale the site does not have enabled answers `pageInvalidLocale` (400).\n\nThe caller needs `manage:pages` on the page as it is now AND `write:pages` on where it is going -- the same destination check `POST .../deleted/:versionId/recover` makes, since arriving somewhere is a write there whether the page came from a fresh create or from moving out of another branch.\n\n`includeTranslations` cascades the path change to every other locale's page sharing this page's current path (its translations -- see docs/decisions/locale-translation-linking.md). All-or-nothing: the caller needs `manage:pages` on each twin's own path AND `write:pages` on the shared destination, and a 409 or 403 on any single translation aborts the whole batch, naming which locale it was.",
         tags: ['Pages'],
-        params: pageIdParam,
+        params: { $ref: 'SitePageParams#' },
         body: {
           type: 'object',
           required: ['path'],
@@ -1689,7 +1663,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Other locales' pages sharing this page's path -- the translation link this data model uses (see docs/decisions/locale-translation-linking.md). What the move/rename dialog queries to offer `includeTranslations`, and what that option cascades a path change to.\n\nNeeds `manage:pages` on this page, the same permission moving it needs.",
         tags: ['Pages'],
-        params: pageIdParam,
+        params: { $ref: 'SitePageParams#' },
         response: {
           200: {
             description: "This page's translations, one entry per other locale sharing its path",
@@ -1752,7 +1726,7 @@ async function routes(app: FastifyInstance) {
         description:
           'For when a stored render has gone stale and nobody has the page open to re-save it. The markdown pipeline lives in the frontend, so the server drives it in a headless browser and the result matches what the editor would produce — which means this needs the Puppeteer extension, and answers 503 without it.\n\nAnswers 202: a browser is far too heavy to hold a request open for, so the page joins a queue that is drained one page at a time and its render is replaced when its turn comes. Asking twice for the same page is one render of whatever the content has become by then. Rate limited, to bound how fast the queue can be filled.',
         tags: ['Pages'],
-        params: pageIdParam,
+        params: { $ref: 'SitePageParams#' },
         response: {
           202: {
             description: 'Page queued for rendering',
@@ -1840,7 +1814,7 @@ async function routes(app: FastifyInstance) {
         description:
           "For the admin page inventory's row selection. Every id is looked up and permission-checked on its own — `delete:pages` for `delete`, `write:pages` for `render`/`retag` — so a page the caller may not act on is reported back as `skipped` rather than refusing the whole request. An id that does not exist on this site comes back `notFound`; an action that threw while running (e.g. re-rendering a page this instance cannot render) comes back `error` with its message. `retag` needs at least one of `addTags`/`removeTags`, applied against each page's own existing tags rather than replacing them outright.",
         tags: ['Pages'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['pageIds', 'action'],
@@ -2008,7 +1982,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Drives Puppeteer against this instance's own live page view — not the stored render — so the PDF matches what a reader sees: theme, layout and block components (Mermaid diagrams, PlantUML, …) included, once their own async drawing has settled. Needs the Puppeteer extension, and answers 503 without it.\n\nNeeds `read:pages` ON THIS PAGE, on the same terms as reading it: a password-protected page answers only once the session has satisfied `POST …/unlock`. Requires a logged in user (session or personal access token) on top of that, the same rule the page re-render route above and `POST /diagrams/render` already apply to every other route that launches a headless browser — an anonymous request never reaches Puppeteer, however readable the page itself is (OpenProject #2258/#2262; see `docs/variances.md`). The export runs as whoever asked for it — nothing more.",
         tags: ['Pages'],
-        params: pageIdParam,
+        params: { $ref: 'SitePageParams#' },
         response: {
           200: {
             description: 'The page as a PDF file',
@@ -2067,7 +2041,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Delete a page',
         tags: ['Pages'],
-        params: pageIdParam,
+        params: { $ref: 'SitePageParams#' },
         response: {
           204: {
             description: 'Page deleted successfully'
@@ -2118,7 +2092,7 @@ async function routes(app: FastifyInstance) {
         description:
           "One page of recorded versions of the page, newest first — the first entry of the first page is the page as it stands now.\n\nKeyset-paginated on `versionDate` rather than offset-based, so a deep history stays cheap to page through: pass the previous response's `nextCursor` back as `cursor` to fetch the next page, and stop once `nextCursor` comes back null. Needs `read:history` ON THIS PAGE, granted by a group rule — the permission that says who may see what a page used to contain. Reading the page itself is required on top, so a page the caller could not open answers 404 and a password-protected one answers only once the session has satisfied `POST …/unlock`.",
         tags: ['Pages'],
-        params: pageIdParam,
+        params: { $ref: 'SitePageParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -2233,7 +2207,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Every page on this site whose content links to this one, as extracted from the rendered HTML on save (`models/rendering.ts#extractInternalLinks`, stored in `pages.links`). Needs `read:pages` on the target page to see the list at all; each row in the response also needs `read:pages` ON THAT PAGE -- a linking page the caller may not read is silently dropped rather than counted.',
         tags: ['Pages'],
-        params: pageIdParam,
+        params: { $ref: 'SitePageParams#' },
         response: {
           200: {
             description: 'Pages linking to this one, filtered to what the caller may read',
@@ -2288,7 +2262,7 @@ async function routes(app: FastifyInstance) {
         description:
           'The page as a file download rather than JSON, so a plain link to this URL is all a client needs — no client-side Blob assembly.\n\n`format=markdown` is the raw stored source and needs `read:source` on top of `read:pages`. `format=html` is the stored `render` HTML and needs only `read:pages`, on the same terms as the PDF export. Either way a password-protected page answers 403 until the session has satisfied `POST …/unlock`.',
         tags: ['Pages'],
-        params: pageIdParam,
+        params: { $ref: 'SitePageParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -2353,7 +2327,7 @@ async function routes(app: FastifyInstance) {
         description:
           'One row per deleted path still recoverable: the most recent `deleted` version at a path with no live page there now. A path that was recovered, or reused by an unrelated new page, drops off this list on its own — there is no flag to set or clear.\n\nEach row needs `read:history` at the path and locale it was deleted from, using the tags and classification the deleted version itself carried — so a TAG/TAGALL/CLASSIFICATION-scoped rule narrows this listing the same way it would a live page — granted by a group rule. Rows the caller may not read are dropped from `items` after each page is fetched, which can make `items` shorter than `limit` even mid-list; only `nextCursor` says whether more remain, so keep paging while it is non-null regardless of how many rows came back on any one page.',
         tags: ['Pages'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -2594,7 +2568,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Which page permissions the caller holds AT THIS PATH, as their groups' rules decide. This is what the interface hides its controls by, so it answers the same question the endpoints themselves do rather than a broader one.\n\nAn administrator holds all of them. Everybody else gets whatever their rules grant, which for a path nobody wrote a rule for is nothing at all.",
         tags: ['Pages'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['path'],

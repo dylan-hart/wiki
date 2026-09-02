@@ -9,6 +9,7 @@ import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
 import pagesRoutes from './pages.ts'
 import { ensureTemporal } from '../test/temporal.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * OpenProject #1080: the PATCH route's declassification guardrail (lowering a page's classification
@@ -206,6 +207,7 @@ describe('pages API — classification (OpenProject #1080)', () => {
     await registerSchemas(app)
     await registerErrorSchema(app)
     await registerPageImportSchema(app)
+    await registerParamsSchemas(app)
     await app.register(pagesRoutes)
     await app.ready()
   })

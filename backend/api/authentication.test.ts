@@ -15,6 +15,7 @@ import { ensureTemporal } from '../test/temporal.ts'
 import { authentication as authenticationTable } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { SESSION_COOKIE_NAME, SESSION_COOKIE_NAME_INSECURE } from '../helpers/security.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * `POST /auth/:strategyId/callback` is the form-POST counterpart of the existing GET callback, for a
@@ -112,6 +113,7 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
     app.addHook('onRequest', async (req) => {
       ;(req as any).session = session
     })
+    await registerParamsSchemas(app)
     await app.register(authenticationRoutes)
     await app.ready()
   })
@@ -327,6 +329,7 @@ describe('GET /auth/:strategyId/authorize (open redirect on the redirect query p
     app.addHook('onRequest', async (req) => {
       ;(req as any).session = session
     })
+    await registerParamsSchemas(app)
     await app.register(authenticationRoutes)
     await app.ready()
   })
@@ -440,6 +443,7 @@ describe('GET /auth/:strategyId/authorize — redirect query validation', () => 
     app.addHook('onRequest', async (req) => {
       ;(req as any).session = session
     })
+    await registerParamsSchemas(app)
     await app.register(authenticationRoutes)
     await app.ready()
   })
@@ -565,6 +569,7 @@ describe('GET/POST /auth/:strategyId/callback — result.redirect validation', (
     app.addHook('onRequest', async (req) => {
       ;(req as any).session = session
     })
+    await registerParamsSchemas(app)
     await app.register(authenticationRoutes)
     await app.ready()
   })
@@ -686,6 +691,7 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
     })
     await registerErrorSchema(app)
     await registerAuthSchema(app)
+    await registerParamsSchemas(app)
     await app.register(authenticationRoutes)
     await app.ready()
   })
@@ -1050,6 +1056,7 @@ describe('POST /sites/:siteId/auth/logout — clearCookie attributes', () => {
         destroy: destroyMock
       }
     })
+    await registerParamsSchemas(built)
     await built.register(authenticationRoutes)
     await built.ready()
     return built
@@ -1136,6 +1143,7 @@ describe('POST /authentication/strategies (unknown module)', () => {
     })
     await registerErrorSchema(app)
     await registerAuthSchema(app)
+    await registerParamsSchemas(app)
     await app.register(authenticationRoutes)
     await app.ready()
   })
@@ -1237,6 +1245,7 @@ describe('GET /sites/:siteId/auth/strategies', () => {
     await app.register(fastifySensible)
     await registerErrorSchema(app)
     await registerAuthSchema(app)
+    await registerParamsSchemas(app)
     await app.register(authenticationRoutes)
     await app.ready()
   })
@@ -1307,6 +1316,7 @@ describe('GET /sites/:siteId/auth/strategies (unknown siteId)', () => {
     await registerErrorSchema(app)
     await registerAuthSchema(app)
     app.addHook('preHandler', siteEnabledPreHandler)
+    await registerParamsSchemas(app)
     await app.register(authenticationRoutes)
     await app.ready()
   })
@@ -1393,6 +1403,7 @@ describe('PUT login: password is required by the route schema', () => {
     })
     await registerErrorSchema(app)
     await registerAuthSchema(app)
+    await registerParamsSchemas(app)
     await app.register(authenticationRoutes)
     await app.ready()
   })
@@ -1528,6 +1539,7 @@ describe(
       app.addHook('onRequest', async (req) => {
         req.session = { user: { id: fixtures.userId, name: 'Fixture User' } } as any
       })
+      await registerParamsSchemas(app)
       await app.register(authenticationRoutes)
       await app.ready()
     })

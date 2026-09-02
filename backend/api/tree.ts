@@ -33,32 +33,6 @@ interface FolderBody {
   locale?: string
 }
 
-const siteIdParam = {
-  type: 'object',
-  properties: {
-    siteId: {
-      type: 'string',
-      format: 'uuid'
-    }
-  },
-  required: ['siteId']
-}
-
-const folderIdParam = {
-  type: 'object',
-  properties: {
-    siteId: {
-      type: 'string',
-      format: 'uuid'
-    },
-    folderId: {
-      type: 'string',
-      format: 'uuid'
-    }
-  },
-  required: ['siteId', 'folderId']
-}
-
 /** A folder's own slash-separated path, which is what a rule over that branch addresses. */
 function folderPathOf(folder: { folderPath?: string | null; fileName: string }): string {
   const parent = decodeTreePath(folder.folderPath ?? '') ?? ''
@@ -89,7 +63,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Lists the contents of one folder. `parentId` and `parentPath` both address the folder to list, the ID winning when both are given; neither means the site root. `includeAncestors` and `includeRootFolders` add the folders above the one being listed, so that a client opening a deep folder can draw the whole branch from a single request — those entries come back with `isAncestor` set.',
         tags: ['Tree'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -201,7 +175,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Lists one folder for the sidebar's browse menu: the pages a reader may open and the folders holding some, with assets, hidden pages and dead-end folders left out.\n\nA page and a folder can share a path — `/foo/bar` alongside the folder of pages under it — and such a pair comes back as a single entry with both `isPage` and `isFolder` set, since a reader sees one name with two ways in.\n\nReadable without a session, because a wiki is browsed by people who are not logged in — an anonymous request sees only published pages with no password on them, which is exactly what the page view itself would serve them. Requires the site's `browse` feature to be on.",
         tags: ['Tree'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -309,7 +283,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Lists the pages under a path, ordered and limited, for an index block drawn inside a page. Folders are not part of the answer — this is a list of pages, at `depth` folders below the path when asked for.\n\nReadable without a session, because the page holding the block is: an anonymous request sees only published pages, the same set the page view would serve it. Unlike `/tree/browse` it is not gated on the site's `browse` feature, which governs the sidebar's browse menu rather than what a page may render.",
         tags: ['Tree'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -402,7 +376,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get a single folder',
         tags: ['Tree'],
-        params: folderIdParam,
+        params: { $ref: 'SiteFolderParams#' },
         response: {
           200: { $ref: 'Folder#' },
           404: { $ref: 'ApiError#' }
@@ -442,7 +416,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Any folder missing between the site root and the new one is created along with it, so a path can be filled in from the middle out.',
         tags: ['Tree'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         body: {
           allOf: [
             { $ref: 'FolderInput#' },
@@ -549,7 +523,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Everything under the folder moves with it. Sending the current path name back changes only the title, and leaves every descendant untouched.',
         tags: ['Tree'],
-        params: folderIdParam,
+        params: { $ref: 'SiteFolderParams#' },
         body: {
           allOf: [{ $ref: 'FolderInput#' }, { type: 'object', required: ['pathName', 'title'] }]
         },
@@ -665,7 +639,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Everything under the folder goes with it, pages and assets included. Each deleted page is recorded in its history first, so the branch can be recovered from there.\n\nAll-or-nothing, the same shape the page move route's `includeTranslations` uses: the caller needs `manage:pages` on the folder's own path, `delete:pages` on every descendant page (judged on its own real path, tags and classification, not the folder's), and `manage:assets` on every descendant asset. A single unauthorized descendant refuses the whole request (403) and deletes nothing.",
         tags: ['Tree'],
-        params: folderIdParam,
+        params: { $ref: 'SiteFolderParams#' },
         response: {
           204: {
             description: 'Folder deleted successfully'

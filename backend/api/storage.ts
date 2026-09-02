@@ -21,16 +21,7 @@ async function routes(app: FastifyInstance) {
         description:
           'One target per storage module installed in `modules/storage`, whether or not it has ever been enabled. Configuration values include any credentials a module stores, hence the `manage:system` requirement. A module that only implements explicit actions (e.g. disk, sftp) never runs a background sync, but every module ships an implementation an enabled target can call.',
         tags: ['Storage'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'List of storage targets',
@@ -109,16 +100,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Only the targets listed are affected, and within each of them only the fields provided. Every target is validated before any of them is written, so a rejected request changes nothing.',
         tags: ['Storage'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['targets'],

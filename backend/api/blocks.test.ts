@@ -8,6 +8,7 @@ import { siteEnabledPreHandler } from '../helpers/common.ts'
 import blocksRoutes from './blocks.ts'
 import { registerSchemas as registerBlockSchema } from './schemas/block.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 describe('POST /sites/:siteId/blocks (custom block upload)', () => {
   /**
@@ -75,6 +76,7 @@ customElements.define('block-widget', BlockWidget)
     // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
     //    plugin-only app has to register it to answer that case the way the real app does.
     app.addHook('preHandler', siteEnabledPreHandler)
+    await registerParamsSchemas(app)
     await app.register(blocksRoutes)
     await app.ready()
   })
@@ -235,6 +237,7 @@ export class BlockWidget extends HTMLElement {
     await smallApp.register(fastifySensible)
     await registerBlockSchema(smallApp)
     await registerErrorSchema(smallApp)
+    await registerParamsSchemas(smallApp)
     await smallApp.register(blocksRoutes)
     await smallApp.ready()
     try {
@@ -350,6 +353,7 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
     })
     // -> See the upload describe above: the unknown-site 404 is this hook's job now (spec D1).
     app.addHook('preHandler', siteEnabledPreHandler)
+    await registerParamsSchemas(app)
     await app.register(blocksRoutes)
     await app.ready()
   })
@@ -471,6 +475,7 @@ describe('PUT /sites/:siteId/blocks (per-block config passthrough)', () => {
     await registerBlockSchema(app)
     // -> See the upload describe above: the unknown-site 404 is this hook's job now (spec D1).
     app.addHook('preHandler', siteEnabledPreHandler)
+    await registerParamsSchemas(app)
     await app.register(blocksRoutes)
     await app.ready()
   })

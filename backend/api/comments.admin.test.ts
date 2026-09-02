@@ -17,6 +17,7 @@ import { registerSchemas as registerCommentProviderSchema } from './schemas/comm
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import type { GroupRule } from '../models/groups.ts'
 import type { PageActor } from '../models/pages.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * DB-backed route test for `GET/DELETE /sites/:siteId/comments` (Task 625, Feature 394).
@@ -59,6 +60,7 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
     // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
     //    plugin-only app has to register it to answer that case the way the real app does.
     app.addHook('preHandler', siteEnabledPreHandler)
+    await registerParamsSchemas(app)
     await app.register(commentsRoutes)
     await app.ready()
   })

@@ -7,6 +7,7 @@ import { siteEnabledPreHandler } from '../helpers/common.ts'
 import blockCredentialsRoutes from './blockCredentials.ts'
 import { registerSchemas as registerBlockCredentialSchema } from './schemas/blockCredential.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * A unit-level test of the route's own wiring — the shared site preHandler, the `manage:sites`/
@@ -127,6 +128,7 @@ describe('block credentials API (site-scoped delegation)', () => {
     // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
     //    plugin-only app has to register it to answer that case the way the real app does.
     app.addHook('preHandler', siteEnabledPreHandler)
+    await registerParamsSchemas(app)
     await app.register(blockCredentialsRoutes)
     await app.ready()
   })

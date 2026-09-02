@@ -345,16 +345,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Which `site:*` permissions (see `helpers/siteRules.ts`) the caller holds on this site. This is what the interface hides the nine site-scoped admin pages by. Deliberately does not fold in `manage:sites` / `manage:theme` / `manage:navigation` -- see `sitePermissionsFor`'s own comment for why.",
         tags: ['Sites'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Site-admin permissions the current user holds for this site',
@@ -517,16 +508,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Requires `manage:sites`, or — per key touched — the matching `site:*` permission on this site: `site:general` for `hostname`/`title`/`description`/`company`/`contentLicense`/`footerExtra`/`pageExtensions`/`logoText`/`sitemap`/`discoverable`/`defaults`/`features`/`robots`/`uploads`, `site:theme` for `theme`, `site:login` for `auth`/`authStrategies`, `site:locale` for `locales`, `site:editors` for `editors`. `isEnabled` is not delegable and always requires `manage:sites`. The instance-wide `manage:theme` permission (see task #681) also covers a patch that touches nothing but `theme`.',
         tags: ['Sites'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           properties: {
@@ -996,16 +978,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Delete a site',
         tags: ['Sites'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           204: {
             description: 'Site deleted successfully'

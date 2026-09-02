@@ -40,11 +40,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Names and ids only — never the secret. Requires `manage:sites`, or `site:blocks` on this site.',
         tags: ['Blocks'],
-        params: {
-          type: 'object',
-          properties: { siteId: { type: 'string', format: 'uuid' } },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'List of block credentials',
@@ -78,11 +74,7 @@ async function routes(app: FastifyInstance) {
         description:
           'The secret is written once, here — it is never returned by this or any other route again. `allowedOrigins` must name at least one origin: an empty list would mean the credential can never actually be used (see `models/liveData.ts`), which is never a state worth creating on purpose. Requires `manage:sites`, or `site:blocks` on this site.',
         tags: ['Blocks'],
-        params: {
-          type: 'object',
-          properties: { siteId: { type: 'string', format: 'uuid' } },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['name', 'secret', 'allowedOrigins'],

@@ -8,6 +8,7 @@ import { siteEnabledPreHandler } from '../helpers/common.ts'
 import searchRoutes from './search.ts'
 import { registerSchemas as registerSearchSchema } from './schemas/search.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * Route-level tests for the engine-picker endpoints added on top of `api/search.ts` (task #570):
@@ -98,6 +99,7 @@ before(async () => {
   // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
   //    plugin-only app has to register it to answer that case the way the real app does.
   app.addHook('preHandler', siteEnabledPreHandler)
+  await registerParamsSchemas(app)
   await app.register(searchRoutes)
   await app.ready()
 })

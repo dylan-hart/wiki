@@ -10,6 +10,7 @@ import { registerSchemas as registerPageSchema } from './schemas/page.ts'
 import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * Route-level test for `GET /sites/:siteId/pages/:pageId/export/pdf` — OpenProject #2258/#2262.
@@ -98,6 +99,7 @@ before(async () => {
   await registerApprovalSchema(app)
   await registerPageSchema(app)
   await registerPageImportSchema(app)
+  await registerParamsSchemas(app)
   await app.register(pagesRoutes)
   await app.ready()
 })

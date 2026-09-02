@@ -21,14 +21,6 @@ import type { FastifyInstance } from 'fastify'
  * live row to check permissions against) is handled.
  */
 
-const siteIdParam = {
-  type: 'object',
-  properties: {
-    siteId: { type: 'string', format: 'uuid' }
-  },
-  required: ['siteId']
-}
-
 async function routes(app: FastifyInstance) {
   /**
    * LIST UNREAD NOTIFICATIONS
@@ -41,7 +33,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Every unread page-watch notification for the caller on this site, most recent change first. A notification disappears from this list once marked read — see PATCH on this same collection — the same way InboxReview lists only pending submissions.',
         tags: ['Pages'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Unread notifications',
@@ -99,7 +91,7 @@ async function routes(app: FastifyInstance) {
         description:
           "A single number, for a badge that needs no page permission check and no page's worth of rows to answer.",
         tags: ['Pages'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Unread count',

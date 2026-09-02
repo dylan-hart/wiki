@@ -7,6 +7,7 @@ import ajvFormats from 'ajv-formats'
 import watchingRoutes from './watching.ts'
 import { registerSchemas as registerPageSchemas } from './schemas/page.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 describe('watch preference routes (task 530)', () => {
   /**
@@ -66,6 +67,7 @@ describe('watch preference routes (task 530)', () => {
     })
     await registerPageSchemas(app)
     await registerErrorSchema(app)
+    await registerParamsSchemas(app)
     await app.register(watchingRoutes)
     await app.ready()
   })
@@ -228,6 +230,7 @@ describe('WATCH route — siteId threading (task 673)', () => {
     })
     await registerPageSchemas(app)
     await registerErrorSchema(app)
+    await registerParamsSchemas(app)
     await app.register(watchingRoutes)
     await app.ready()
   })

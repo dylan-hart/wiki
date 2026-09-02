@@ -7,6 +7,7 @@ import { siteEnabledPreHandler } from '../helpers/common.ts'
 import approvalsRoutes from './approvals.ts'
 import { registerSchemas as registerApprovalSchema } from './schemas/approval.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683)', () => {
   /**
@@ -128,6 +129,7 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
     //    plugin-only app has to register it to answer that case the way the real app does.
     app.addHook('preHandler', siteEnabledPreHandler)
+    await registerParamsSchemas(app)
     await app.register(approvalsRoutes)
     await app.ready()
   })

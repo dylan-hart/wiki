@@ -17,6 +17,7 @@ import {
 import { groups as groupsTable } from '../db/schema.ts'
 import type { GroupRule } from '../models/groups.ts'
 import type { PageActor, PageInput } from '../models/pages.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 function makeRow(overrides: Partial<GraphPageRow> = {}): GraphPageRow {
   // -> `id` defaults to `path` (not a fixed constant) so a test giving several rows distinct
@@ -468,6 +469,7 @@ describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, (
     })
     await registerErrorSchema(app)
     await registerGraphSchema(app)
+    await registerParamsSchemas(app)
     await app.register(graphRoutes)
     await app.ready()
   })
@@ -831,6 +833,7 @@ describe('GET /sites/:siteId/graph — actor hoisted out of the per-row filter (
     await app.register(fastifySensible)
     await registerErrorSchema(app)
     await registerGraphSchema(app)
+    await registerParamsSchemas(app)
     await app.register(graphRoutes)
     await app.ready()
   })

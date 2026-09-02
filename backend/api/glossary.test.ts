@@ -8,6 +8,7 @@ import { siteEnabledPreHandler } from '../helpers/common.ts'
 import glossaryRoutes from './glossary.ts'
 import { registerSchemas as registerGlossarySchema } from './schemas/glossaryTerm.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * Route-level coverage for `api/glossary.ts` (OpenProject #870), against a fake `WIKI.models.glossary`
@@ -55,6 +56,7 @@ before(async () => {
   // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
   //    plugin-only app has to register it to answer that case the way the real app does.
   app.addHook('preHandler', siteEnabledPreHandler)
+  await registerParamsSchemas(app)
   await app.register(glossaryRoutes)
   await app.ready()
 

@@ -32,6 +32,10 @@ async function routes(app: FastifyInstance) {
   await import('./schemas/notification.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/page.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/pageImport.ts').then((m) => m.registerSchemas(app))
+  // -> Named `registerParamsSchemas` rather than `registerSchemas` like its 33 neighbours: this file
+  //    registers path-PARAMETER shapes, not an entity, and the distinct name is what keeps a route
+  //    file's `params: { $ref: 'SiteIdParams#' }` traceable to it.
+  await import('./schemas/params.ts').then((m) => m.registerParamsSchemas(app))
   await import('./schemas/scheduler.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/search.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/security.ts').then((m) => m.registerSchemas(app))

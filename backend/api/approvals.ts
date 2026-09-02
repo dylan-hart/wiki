@@ -189,16 +189,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Each rule says which pages accept edit suggestions, which groups may submit them, and which groups review them. A page matched by no rule accepts none, so a site with no rules has the feature off.\n\nRequires `manage:sites`, or `site:approvals` on this site.',
         tags: ['Approvals'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'List of approval rules',
@@ -234,16 +225,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Rules are not ordered: a page is covered when any rule matches it, so a new one only ever adds coverage.\n\nRequires `manage:sites`, or `site:approvals` on this site.',
         tags: ['Approvals'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           allOf: [
             { $ref: 'ApprovalRuleInput#' },
@@ -446,13 +428,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Scoped by the approval rules: a suggestion appears here when an enabled rule covers its page and names a group the caller is in. Oldest first, which is the order a queue is worked through. `manage:system` sees the whole site’s queue.',
         tags: ['Approvals'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Suggestions awaiting review',
@@ -715,14 +691,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Answers `canSubmit: false` for a page no enabled rule opens to this reader, which is what hides the button. With `withContent`, also returns the source the editor should open with: the caller's own pending suggestion when they have one, so that they carry on where they left off, otherwise the page as it stands. The source is only ever included when `canSubmit` holds.",
         tags: ['Approvals'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' },
-            pageId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId', 'pageId']
-        },
+        params: { $ref: 'SitePageParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -813,14 +782,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Stores the suggested source together with a patch against the page as it stands, so that suggestions to different parts of a page can each be accepted later. A logged in author has one open suggestion per page and submitting again replaces it. An anonymous submitter has no account to attribute it to and has to give a name and an email address instead.',
         tags: ['Approvals'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' },
-            pageId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId', 'pageId']
-        },
+        params: { $ref: 'SitePageParams#' },
         body: {
           type: 'object',
           required: ['content'],
