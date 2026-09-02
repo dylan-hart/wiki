@@ -9,8 +9,6 @@ import { useSiteStore } from '@/stores/site'
 import { queue } from '@/composables/notify'
 import { AsciidocRenderer } from '@/renderers/asciidoc'
 
-import WTooltip from '@/components/shared/WTooltip.vue'
-
 import { createTestI18n } from '../../test/i18n.js'
 
 /**
@@ -173,15 +171,6 @@ describe('EditorAsciidoc', () => {
     expect(pageStore.content).toBe('original')
   })
 
-  it('opens the file manager in insert mode from the sidebar button', async () => {
-    const { wrapper, siteStore } = mountEditor('')
-
-    await wrapper.find('[aria-label="editor.markup.insertAssets"]').trigger('click')
-
-    expect(siteStore.overlay).toBe('FileManager')
-    expect(siteStore.overlayOpts).toEqual({ insertMode: true })
-  })
-
   it('inserts AsciiDoc image macro syntax for an image asset picked from the file manager', () => {
     mountEditor('')
 
@@ -233,45 +222,10 @@ describe('EditorAsciidoc', () => {
     expect(edits[0].text).toBe('link:/docs/getting-started[Getting Started]')
   })
 
-  it('stops listening for insertAsset and disposes the editor on unmount', () => {
-    const { wrapper } = mountEditor('')
-
-    wrapper.unmount()
-    expect(fakeEditor.dispose).toHaveBeenCalledTimes(1)
-
-    EVENT_BUS.emit('insertAsset', { type: 'asset', mimeType: 'image/png', title: 'x' })
-    expect(fakeEditor.executeEdits).not.toHaveBeenCalled()
-  })
-
-  /**
-   * OpenProject #834 (discussion #1738's editor-toolbar-mirroring gap): the side toolbar's tooltip
-   * used to pop outward toward a hardcoded physical `right`, which is the reading-START edge of the
-   * `Insert Assets` button only under LTR -- under RTL that edge is the visual left, and a tooltip
-   * still anchored `right` pops away from the toolbar instead of back toward it. Same bug
-   * `EditorMarkdown.vue`'s own `sideToolbarTooltip` already covers; this editor was outside task
-   * 721/727's audit.
-   */
-  describe('side toolbar tooltip mirroring', () => {
-    afterEach(() => {
-      document.documentElement.removeAttribute('dir')
-    })
-
-    it('anchors outward to the right under ltr (the default)', () => {
-      document.documentElement.dir = 'ltr'
-      const { wrapper } = mountEditor('')
-
-      const tooltip = wrapper.findComponent(WTooltip)
-      expect(tooltip.props('anchor')).toBe('center right')
-      expect(tooltip.props('self')).toBe('center left')
-    })
-
-    it('mirrors outward to the left under rtl', () => {
-      document.documentElement.dir = 'rtl'
-      const { wrapper } = mountEditor('')
-
-      const tooltip = wrapper.findComponent(WTooltip)
-      expect(tooltip.props('anchor')).toBe('center left')
-      expect(tooltip.props('self')).toBe('center right')
-    })
-  })
+  /*
+    `opens the file manager in insert mode from the sidebar button`, `stops listening for insertAsset
+    and disposes the editor on unmount` and the whole `side toolbar tooltip mirroring` describe are
+    byte-identical between this suite and its sibling markup editor's, so they live once, as a
+    `describe.each` over both components, in `editorMarkupShared.test.js`.
+  */
 })

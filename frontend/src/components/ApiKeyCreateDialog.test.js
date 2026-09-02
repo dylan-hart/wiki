@@ -283,48 +283,12 @@ describe('ApiKeyCreateDialog scope tree', () => {
     return [...body().findAll('[role="checkbox"]')].find((el) => el.text().includes(scope))
   }
 
-  it('renders the closed scope vocabulary as one group per verb, including a single-member group', async () => {
-    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
-    mountDialog()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(groupCheckbox('manage').exists()).toBe(true)
-    expect(groupCheckbox('read').exists()).toBe(true)
-    // -> `review:pages` is the only `review:*` scope today -- still its own group, not folded away
-    expect(groupCheckbox('review').exists()).toBe(true)
-  })
-
-  it('toggling one leaf scope checkbox narrows keyScope to just that scope', async () => {
-    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
-    const wrapper = mountDialog()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    await groupToggleButton('manage').trigger('click')
-    await leafCheckbox('manage:users').trigger('click')
-
-    expect(wrapper.vm.state.keyScope).toEqual(['manage:users'])
-  })
-
-  it('clicking a group checkbox selects every scope in that group, and a second click deselects them', async () => {
-    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
-    const wrapper = mountDialog()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    await groupCheckbox('read').trigger('click')
-    expect(wrapper.vm.state.keyScope).toEqual(
-      expect.arrayContaining([
-        'read:pages',
-        'read:source',
-        'read:history',
-        'read:assets',
-        'read:comments'
-      ])
-    )
-    expect(groupCheckbox('read').attributes('aria-checked')).toBe('true')
-
-    await groupCheckbox('read').trigger('click')
-    expect(wrapper.vm.state.keyScope).toEqual([])
-  })
+  /*
+    The three assertions about how the scope picker groups, toggles and narrows are byte-identical
+    between this suite and its sibling key-create dialog's, so they live once, as a `describe.each`
+    over both dialogs, in `apiKeyScopeTree.test.js`. The one below is not shared: it asserts on the
+    route and body THIS dialog posts, which is what differs between the two.
+  */
 
   it('shows the group checkbox as mixed once only some of its scopes are checked, and sends the narrowed list on create', async () => {
     stubApi({ groups: [{ id: 'group-1', name: 'Editors' }] }, { fallback: [] })
