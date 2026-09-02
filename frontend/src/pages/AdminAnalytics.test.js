@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 import AdminAnalytics from './AdminAnalytics.vue'
-import { useAdminStore } from '@/stores/admin'
-
 import { mountWithApp } from '../../test/mount.js'
 
 /**

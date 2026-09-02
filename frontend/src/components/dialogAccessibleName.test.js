@@ -1,6 +1,6 @@
-import { dirname, join, relative } from 'node:path'
+import { dirname, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 import { listSourceFiles } from '../../test/sourceFiles.js'
@@ -29,7 +29,6 @@ import { listSourceFiles } from '../../test/sourceFiles.js'
  * the literal string `<w-dialog` in mock template strings, which would otherwise produce false
  * negatives (a `.test.js` "usage" that never reaches `WDialog.vue` at all) or mask a real one.
  */
-
 const componentsDir = dirname(fileURLToPath(import.meta.url))
 
 /**

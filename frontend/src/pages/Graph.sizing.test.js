@@ -1,15 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
-import { isReactive } from 'vue'
-
-import { drawLabels, LABEL_GAP } from './graphDraw.js'
-import {
-  FIXTURE_GRAPH,
-  FIXTURE_GRAPH_TRUNCATED,
-  GRAPH_MESSAGES,
-  mountGraph,
-  NESTED_FIXTURE_GRAPH
-} from './graphFixtures.js'
+import { drawLabels } from './graphDraw.js'
+import { mountGraph } from './graphFixtures.js'
 
 /*
  * How a node's radius is derived -- which counter it reads (contributors vs pageviews), which

@@ -1,42 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 import { usePageStore } from './page.js'
 import { useEditorStore } from './editor.js'
 import { useSiteStore } from './site.js'
-import { pagePathHash } from '@/helpers/pagePaths'
-
-function stubPageResponse(overrides = {}) {
-  return {
-    json: vi.fn().mockResolvedValue({
-      id: 'page-1',
-      relations: [],
-      tocDepth: { min: 1, max: 2 },
-      ...overrides
-    })
-  }
-}
 
 beforeEach(() => {
   setActivePinia(createPinia())
 })
-/** A site with two active locales, `en` primary — the shape `useLocales` and the prefix rule need. */
-function makeMultiLocaleSite({ forcePrefix = false } = {}) {
-  const siteStore = useSiteStore()
-  siteStore.$patch({
-    id: 'site-1',
-    locales: {
-      primary: 'en',
-      showMenu: true,
-      forcePrefix,
-      active: [
-        { code: 'en', language: 'en', name: 'English', nativeName: 'English' },
-        { code: 'fr', language: 'fr', name: 'French', nativeName: 'Français' }
-      ]
-    }
-  })
-  return siteStore
-}
 
 describe('page store: pageSave() concurrency', () => {
   it('sends expectedUpdatedAt on the PATCH body when saving an existing page', async () => {

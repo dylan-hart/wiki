@@ -1,10 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises } from '@vue/test-utils'
-
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useEditorStore } from '@/stores/editor'
-import WBtn from '@/components/shared/WBtn.vue'
-
-import { mountWithApp } from '../../test/mount.js'
 import {
   clickInsertFootnote,
   editorState,
@@ -23,6 +18,7 @@ vi.mock('y-monaco', () => ({ MonacoBinding: vi.fn() }))
 const EditorMarkdown = (await import('./EditorMarkdown.vue')).default
 
 const mountEditor = (initialContent) => mountEditorMarkdown(EditorMarkdown, initialContent)
+
 /*
   `pageStore.pageSave()` (`stores/page.js`) calls `editorStore.contentFlusher()` immediately before
   reading `content`/`render`, rather than trusting whatever the debounced `onDidChangeModelContent`
@@ -33,6 +29,7 @@ const mountEditor = (initialContent) => mountEditorMarkdown(EditorMarkdown, init
   again on unmount -- the store-level tests in `stores/page.test.js` only prove `pageSave()` calls
   whatever is registered, not that this component is the thing registering it.
 */
+
 /*
   OpenProject #1889: `flushEditorContent()` used to call `processContent(value)` unconditionally on
   every 500ms debounced edit -- running the full markdown-it + KaTeX + highlight.js pipeline over the
@@ -43,6 +40,7 @@ const mountEditor = (initialContent) => mountEditorMarkdown(EditorMarkdown, init
   `flushEditorContentForSave`) still renders a stale document before `pageStore.pageSave()` reads
   `render` -- see that call site in `stores/page.js`.
 */
+
 /*
   OpenProject #806 follow-up: every browser hands a clipboard-pasted file the same literal name,
   "image.png" -- so `addPendingAsset` mints a fresh unique name for a pasted `File`, but a dropped
@@ -51,6 +49,7 @@ const mountEditor = (initialContent) => mountEditorMarkdown(EditorMarkdown, init
   `onEditorDrop`'s `drop` listener on the Monaco host itself) actually threads the right flag down to
   `insertFilesAsAssets` -- `stores/editor.test.js` covers the naming logic itself directly.
 */
+
 /*
   OpenProject #804 follow-up: `onDividerPointerDown`'s `dragSign` was inverted, so dragging the
   divider toward the preview pane GREW it and dragging away SHRANK it -- backwards in both of the
@@ -60,38 +59,18 @@ const mountEditor = (initialContent) => mountEditorMarkdown(EditorMarkdown, init
   rects otherwise) and drag in both directions, asserting the resulting `--preview-width` moved the
   correct way in each -- rather than only re-asserting the sign formula itself, which would pass
   right back on the pre-fix code if copied from it by mistake.
-*/
-function mockRect(el, { left, width }) {
-  vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
-    left,
-    width,
-    top: 0,
-    height: 0,
-    right: left + width,
-    bottom: 0,
-    x: left,
-    y: 0,
-    toJSON: () => ({})
-  })
-}
 
 /*
   Reads the live width the divider drag writes onto the preview pane's inline style
   (`previewInlineStyle`'s `flex: 0 0 <px>px`). happy-dom's `CSSStyleDeclaration` expands that
   shorthand into `flex-basis` (plus `flex-grow`/`flex-shrink`) when serializing the `style`
   attribute, so read the longhand rather than the shorthand written in the component.
-*/
-function previewFlexWidth(preview) {
-  const match = preview.attributes('style')?.match(/flex-basis:\s*(\d+(?:\.\d+)?)px/)
-  return match ? Number(match[1]) : null
-}
-
-async function dragDivider(wrapper, { down, move }) {
   const divider = wrapper.find('.editor-markdown-divider')
   await divider.trigger('pointerdown', { clientX: down, pointerId: 1 })
   await divider.trigger('pointermove', { clientX: move, pointerId: 1 })
   return wrapper.find('.editor-markdown-preview')
 }
+
 /*
   OpenProject #809: dragging the divider down past `PREVIEW_HIDE_THRESHOLD_PX` used to leave
   `state.previewWidth` at the tiny in-drag value for the whole close animation, only restoring the
@@ -107,6 +86,7 @@ async function dragDivider(wrapper, { down, move }) {
   drag ended on. Whether the animation itself visually covers the right distance, with no earlier pop,
   is a live-browser concern outside what this suite can see.
 */
+
 /*
   OpenProject #809 follow-up: `previewShown` used to start `true` (on a wide-enough viewport) before
   `onMounted` had this user's saved width back from the async settings fetch -- so the pane appeared
@@ -117,6 +97,7 @@ async function dragDivider(wrapper, { down, move }) {
   first entrance use a distinct, faster transition (matching the side nav's own `0.2s` close) without
   changing the toggle-button transition a reader triggers later.
 */
+
 /*
   OpenProject #808: both `onDidChangeModelContent` and `onDidChangeCursorPosition` are registered
   wrapped in a 500ms `debounce()`, with no reference kept to cancel either. `onBeforeUnmount` disposes
@@ -125,6 +106,7 @@ async function dragDivider(wrapper, { down, move }) {
   disposed Monaco editor's `getPosition()` returns `null` (reproduced by `fakeEditor.getPosition`
   above via the `disposed` flag `dispose()` sets).
 */
+
 /*
  * Mount-time `editor.focus()` (`// -> Post init`) used to run unconditionally, which raced an
  * author who clicked into the page Title field (`PageHeader.vue`'s contenteditable -- it has no
@@ -135,7 +117,6 @@ async function dragDivider(wrapper, { down, move }) {
  * `page-publish.spec.js`, which types the title and blurs it well before this component's async
  * mount settles on a loaded CI runner.
  */
-
 describe('EditorMarkdown insertFootnote (OpenProject #803)', () => {
   beforeEach(() => {
     vi.clearAllMocks()

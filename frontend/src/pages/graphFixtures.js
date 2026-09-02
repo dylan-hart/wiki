@@ -8,11 +8,10 @@
  * `graphForces.js` next to it: `vitest.config.js` only collects `*.test.js`, so this is imported,
  * never run as a suite of its own.
  */
+
 import { flushPromises } from '@vue/test-utils'
 
 import Graph from './Graph.vue'
-import { useSiteStore } from '@/stores/site'
-
 import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
@@ -67,6 +66,7 @@ export function createGraphI18n(messageOverrides = {}) {
 }
 
 export const ZERO_TOTAL_PAGEVIEW_WINDOW = { browser: 0, api: 0, mcp: 0, all: 0 }
+
 export const ZERO_PAGEVIEW_WINDOW = {
   browser: 0,
   api: 0,
@@ -74,6 +74,7 @@ export const ZERO_PAGEVIEW_WINDOW = {
   all: 0,
   total: ZERO_TOTAL_PAGEVIEW_WINDOW
 }
+
 export const ZERO_PAGEVIEWS = {
   last30d: ZERO_PAGEVIEW_WINDOW,
   last6mo: ZERO_PAGEVIEW_WINDOW,

@@ -39,9 +39,6 @@ import * as monaco from 'monaco-editor'
 import { fileSave } from 'browser-fs-access'
 
 import PageHistoryOverlay from './PageHistoryOverlay.vue'
-import { usePageStore } from '@/stores/page'
-import { useSiteStore } from '@/stores/site'
-import { useUserStore } from '@/stores/user'
 import { openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
 

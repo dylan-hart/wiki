@@ -1,15 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { flushPromises } from '@vue/test-utils'
 import { isReactive } from 'vue'
 
 import { drawLabels, LABEL_GAP } from './graphDraw.js'
-import {
-  FIXTURE_GRAPH,
-  FIXTURE_GRAPH_TRUNCATED,
-  GRAPH_MESSAGES,
-  mountGraph,
-  NESTED_FIXTURE_GRAPH
-} from './graphFixtures.js'
+import { mountGraph } from './graphFixtures.js'
 
 /*
  * OpenProject #1837/#2296/#2297: what stays out of deep reactivity, which of `relayout()`/

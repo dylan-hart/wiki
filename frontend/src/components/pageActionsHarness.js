@@ -19,7 +19,6 @@ import { mountWithApp } from '../../test/mount.js'
  * `vi.mock('browser-fs-access', ...)` stays in each suite that needs `fileSave` -- `vi.mock` is
  * hoisted per file and cannot be moved here.
  */
-
 export const HOMEPAGE_GUARD_MESSAGES = {
   en: {
     pages: {
@@ -183,6 +182,7 @@ export async function mountRailWithHistory({ pageId = 'page-1', creating = false
  * the rail's disabled "Page Data" button (behind `flagsStore.experimental`, with a hardcoded
  * `disable`) and its `togglePageData` handler are gone entirely, not just re-hidden.
  */
+
 /**
  * OpenProject #858: Rerender Page can't just check `write:pages` -- the backend also refuses the
  * request when Puppeteer isn't installed (503) or the page's editor isn't markdown

@@ -4,16 +4,9 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import Index from './Index.vue'
 import { useCommonStore } from '@/stores/common'
-import { useEditorStore } from '@/stores/editor'
-import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
-import { useUserStore } from '@/stores/user'
-import { isActive as loadingIsActive } from '@/composables/loading'
-import { queue as notifyQueue } from '@/composables/notify'
-
 import { createTestI18n } from '../../test/i18n.js'
-import { buildTestRouter, createTestRouter } from '../../test/router.js'
-import { mountWithApp } from '../../test/mount.js'
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * Regression coverage for task 633's wiring: `PageComments.vue` is mounted inside the article
@@ -66,102 +59,6 @@ afterEach(() => {
   activeWrapper = null
 })
 
-async function mountIndex() {
-  setActivePinia(createPinia())
-
-  const router = await createTestRouter(['/'])
-
-  // -> Real English messages for the couple of keys these tests assert the rendered text of
-  //    (`common.page.unpublished`, `common.page.lastModifiedOn`); every other `t()` call in the
-  //    component renders as its bare key, same as before this list existed, which none of these
-  //    tests reads.
-  const i18n = createTestI18n({
-    common: {
-      page: { unpublished: 'Unpublished', lastModifiedOn: 'Last modified on' }
-    }
-  })
-
-  const wrapper = mount(Index, {
-    global: {
-      plugins: [router, i18n],
-      stubs: {
-        PageHeader: true,
-        PageActionsCol: true,
-        PageToc: true,
-        PageTags: true,
-        SideDialog: true,
-        PageRedirect: true,
-        FooterNav: true,
-        PageComments: true
-      }
-    }
-  })
-  activeWrapper = wrapper
-
-  return {
-    wrapper,
-    pageStore: usePageStore(),
-    siteStore: useSiteStore(),
-    editorStore: useEditorStore()
-  }
-}
-/**
- * Regression test for task 515's entry point out of the missing-page screen.
- *
- * A path that 404s is also what a deleted page's own address does once nothing is left to answer for
- * it, so this is "wherever a reader currently lands when a page's path no longer resolves" — the
- * landing spot task 515 names as one acceptable place for a lightweight link into the new Recently
- * Deleted admin view. It is gated on TWO permissions rather than shown unconditionally: `read:history`
- * at this exact path is what a row for this path would need to appear on that list at all (see
- * `GET sites/:siteId/pages/deleted`'s per-row `mayOnPage` filter), and the global `access:admin` is
- * what `AdminLayout` itself checks on arrival -- without it the link would only bounce the reader to
- * the unauthorized screen. A group can grant either without the other, so both are asserted here.
- */
-async function mountAtMissingPath({ pagePermissions, permissions = [] }) {
-  // -> `stores/common.js` reads `localStorage` at store setup. Node's own experimental global
-  //    shadows happy-dom's in this sandbox and throws on `.getItem` with no backing file
-  //    configured; stubbed locally so this test does not depend on either implementation.
-  vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} })
-
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
-  siteStore.id = 'site-1'
-  siteStore.editors.markdown = false // -> Keeps the screen on the simpler "go back" branch
-
-  const userStore = useUserStore()
-  userStore.permissions = permissions
-
-  // -> `pageLoad`'s GET resolves to `undefined` by default (the stub's plain response), which is
-  //    exactly what makes it throw ERR_PAGE_NOT_FOUND and take the missing-page path below
-  globalThis.API_CLIENT.post.mockReturnValue({
-    json: vi.fn().mockResolvedValue(pagePermissions)
-  })
-
-  const router = buildTestRouter([{ path: '/:pathMatch(.*)*', component: Index }])
-
-  const i18n = createTestI18n()
-
-  const wrapper = mount(Index, {
-    global: {
-      plugins: [router, i18n],
-      stubs: {
-        PageHeader: true,
-        PageActionsCol: true,
-        PageRedirect: true,
-        PageTags: true,
-        PageToc: true,
-        FooterNav: true,
-        SideDialog: true
-      }
-    }
-  })
-
-  router.push('/deleted/page')
-  await router.isReady()
-  await flushPromises()
-
-  return { wrapper, userStore }
-}
 /*
  * OpenProject #829, item 1: upstream issue #1839 ("Mermaid renders in the live edit preview but not
  * on the saved/reloaded page") and discussion #6446 (the identical pattern for KaTeX). This is the
@@ -180,7 +77,6 @@ async function mountAtMissingPath({ pagePermissions, permissions = [] }) {
  * so it also covers the very first load of a page, not only navigating between two already-open
  * ones) picks the diagram up, with no live editor ever having been open in this test at all.
  */
-
 describe('Index.vue: read-path block loading for a directly-loaded/reloaded page (OpenProject #829 item 1)', () => {
   it('loads a block found only in the stored page render, never having gone through the live editor preview', async () => {
     setActivePinia(createPinia())

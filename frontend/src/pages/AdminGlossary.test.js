@@ -5,7 +5,6 @@ import AdminGlossary from './AdminGlossary.vue'
 import GlossaryImportDialog from '@/components/GlossaryImportDialog.vue'
 import GlossaryTermDialog from '@/components/GlossaryTermDialog.vue'
 import GlossaryVersionHistoryDialog from '@/components/GlossaryVersionHistoryDialog.vue'
-import { useAdminStore } from '@/stores/admin'
 import { dialog, confirm } from '@/composables/dialog'
 
 import { mountWithApp } from '../../test/mount.js'

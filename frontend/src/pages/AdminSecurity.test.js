@@ -23,8 +23,6 @@ function mountSecurity() {
   return mount(AdminSecurity, {
     global: {
       plugins: [i18n]
-      // -> Registered globally by `boot/components.js` in the real app; not part of the
-      //    `sharedComponents` map `test/setup.js` wires up, so it needs registering here.
     }
   })
 }

@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-
+import { flushPromises } from '@vue/test-utils'
 import TreeBrowserDialog from './TreeBrowserDialog.vue'
 import { queue as notifyQueue } from '@/composables/notify'
-import { useSiteStore } from '@/stores/site'
-
 import { mountWithApp } from '../../test/mount.js'
 
 /**

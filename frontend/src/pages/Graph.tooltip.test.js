@@ -1,15 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
-import { isReactive } from 'vue'
-
-import { drawLabels, LABEL_GAP } from './graphDraw.js'
-import {
-  FIXTURE_GRAPH,
-  FIXTURE_GRAPH_TRUNCATED,
-  GRAPH_MESSAGES,
-  mountGraph,
-  NESTED_FIXTURE_GRAPH
-} from './graphFixtures.js'
+import { mountGraph } from './graphFixtures.js'
 
 /*
  * The hover tooltip's noun (OpenProject #2293): it must name what the CURRENT sizing mode actually

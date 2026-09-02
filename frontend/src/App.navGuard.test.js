@@ -15,10 +15,9 @@
 // calls it on every repeat trigger without piling up duplicate DOM nodes — which is exactly the shape
 // of bug this feature started from (a saved setting with zero rendered effect). Every assertion below
 // is written to fail if that wiring regresses, not merely to prove the helper module works.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 import { isNavigationFailure, NavigationFailureType } from 'vue-router'
 
 import App from './App.vue'
@@ -32,43 +31,9 @@ import { useCommonStore } from './stores/common'
 
 import { createTestI18n } from '../test/i18n.js'
 
-import { buildTestRouter, createTestRouter } from '../test/router.js'
+import { buildTestRouter } from '../test/router.js'
+
 let currentWrapper
-
-/**
- * Mounts the real `App.vue` against a fresh pinia + a memory router already settled on `/`, so
- * `applyTheme()` can be driven through the same `EVENT_BUS` event a real admin save fires, without
- * booting bootstrap fetches, real routes, or the router's own first-navigation init path.
- *
- * The router navigates to `/` and resolves BEFORE `App` is mounted, so `App.vue`'s own
- * `router.afterEach` guard (registered when its `<script setup>` runs, i.e. at mount) never actually
- * fires here — it would otherwise try to remove a `.init-loading` element this test harness has no
- * reason to render. Theme application is triggered explicitly instead, below.
- */
-async function mountApp() {
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
-
-  const router = await createTestRouter(['/'])
-
-  const i18n = createTestI18n()
-
-  currentWrapper = mount(App, {
-    global: { plugins: [router, i18n] }
-  })
-
-  return siteStore
-}
-
-/**
- * Fires the same `EVENT_BUS` event `AdminTheme.vue`'s `save()` fires, then lets `applyTheme()`'s
- * trailing `await applyCodeBlocksTheme()` settle — `EVENT_BUS.emit()` itself does not await its
- * listener.
- */
-async function triggerApplyTheme() {
-  EVENT_BUS.emit('applyTheme')
-  await new Promise((resolve) => setTimeout(resolve, 0))
-}
 
 afterEach(() => {
   currentWrapper?.unmount()
@@ -81,13 +46,13 @@ afterEach(() => {
   document.querySelectorAll('link[data-theme-font]').forEach((el) => el.remove())
   document.documentElement.style.removeProperty('--font-sans')
 })
+
 /**
  * Regression coverage for feature 413 ("RTL support end-to-end"), task 716: `App.vue`'s
  * `applyLocale()` must set `dir`/`lang` on `<html>` for the active locale, and must do so
  * immediately -- ahead of `router.afterEach` removing `.init-loading` -- rather than waiting on the
  * (possibly slow, possibly never-resolving in this test) locale-strings fetch.
  */
-
 beforeEach(() => {
   setActivePinia(createPinia())
   // -> Mirrors index.html's structure: router.afterEach() unconditionally removes this element
@@ -99,41 +64,6 @@ afterEach(() => {
   document.documentElement.removeAttribute('lang')
   document.body.innerHTML = ''
 })
-
-async function mountAppWithLocale(localeCode) {
-  const siteStore = useSiteStore()
-  const flagsStore = useFlagsStore()
-  const userStore = useUserStore()
-  const commonStore = useCommonStore()
-
-  // -> Bootstrap already "loaded", so the router guard's loadBootstrap() branch is skipped and this
-  //    hand-set locale data survives navigation untouched
-  siteStore.$patch({
-    id: 'site-1',
-    locales: {
-      primary: 'en',
-      showMenu: true,
-      active: [
-        { code: 'en', language: 'en', name: 'English', nativeName: 'English', isRTL: false },
-        { code: 'ar', language: 'ar', name: 'Arabic', nativeName: 'العربية', isRTL: true }
-      ]
-    }
-  })
-  flagsStore.loaded = true
-  userStore.profileLoaded = true
-  commonStore.setLocale(localeCode)
-
-  // -> Never resolves: proves the dir/lang flip does not wait on the locale-strings request
-  API_CLIENT.get.mockImplementationOnce(() => new Promise(() => {}))
-
-  const router = buildTestRouter(['/'])
-  const i18n = createTestI18n()
-
-  mount(App, { global: { plugins: [router, i18n] } })
-
-  await router.push('/')
-  await router.isReady()
-}
 
 /**
  * Regression coverage for OpenProject #816: nothing guarded against navigating away from an editor

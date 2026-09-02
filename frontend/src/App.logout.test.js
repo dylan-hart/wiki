@@ -14,12 +14,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 import App from './App.vue'
-import { useFlagsStore } from '@/stores/flags'
-import { useSiteStore } from '@/stores/site'
-import { useUserStore } from '@/stores/user'
-
-import { createTestI18n } from '../test/i18n.js'
-
 import { buildTestRouter } from '../test/router.js'
 
 import { mountWithApp } from '../test/mount.js'

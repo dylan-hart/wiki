@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 import ProfileInfo from './ProfileInfo.vue'
-import { useSiteStore } from '@/stores/site'
-
 import { mountWithApp } from '../../test/mount.js'
 
 /**

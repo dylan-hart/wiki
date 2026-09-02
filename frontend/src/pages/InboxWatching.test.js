@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import InboxWatching from './InboxWatching.vue'
-import { useSiteStore } from '@/stores/site'
 import { queue as notifyQueue } from '@/composables/notify'
 
 import { createTestRouter } from '../../test/router.js'

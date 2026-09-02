@@ -6,8 +6,6 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 import AdminLayout from './AdminLayout.vue'
-import { useAdminStore } from '@/stores/admin'
-import { useFlagsStore } from '@/stores/flags'
 import { useUserStore } from '@/stores/user'
 import { useDirection } from '@/composables/direction'
 import WMenu from '@/components/shared/WMenu.vue'

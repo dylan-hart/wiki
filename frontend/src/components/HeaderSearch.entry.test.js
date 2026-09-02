@@ -1,13 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import HeaderSearch from './HeaderSearch.vue'
-import { useSiteStore } from '@/stores/site'
 import { copyToClipboard } from '@/helpers/clipboard'
-import { queue as notifyQueue } from '@/composables/notify'
-
-import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
@@ -43,35 +36,6 @@ async function mountWithTags(tags) {
   await wrapper.find('.header-search-input').trigger('focus')
 
   return wrapper
-}
-/**
- * The debounced live-preview fetch: typing into the focused field, once the query reaches the
- * 2-character floor `searchHint`'s copy already promises, should fetch a handful of matching pages
- * from `sites/:id/pages/search` and land them in `state.previewResults` -- without ever letting a
- * slower, earlier request clobber a faster, later one, and without leaving a request in flight past
- * `clearSearch()` or unmount.
- */
-async function mountForPreview() {
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
-  siteStore.id = 'site1'
-  siteStore.features.search = true
-  siteStore.tagsLoaded = true
-  siteStore.tags = []
-
-  const router = await createTestRouter(['/'])
-
-  const i18n = createTestI18n()
-
-  const wrapper = mount(HeaderSearch, {
-    global: {
-      plugins: [router, i18n]
-    }
-  })
-
-  await wrapper.find('.header-search-input').trigger('focus')
-
-  return { wrapper, siteStore }
 }
 
 /**

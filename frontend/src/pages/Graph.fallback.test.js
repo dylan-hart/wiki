@@ -1,14 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises } from '@vue/test-utils'
-import { isReactive } from 'vue'
-
 import Graph from './Graph.vue'
 
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
-import { drawLabels, LABEL_GAP } from './graphDraw.js'
 import {
   FIXTURE_GRAPH,
   FIXTURE_GRAPH_TRUNCATED,

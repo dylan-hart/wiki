@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { describe, expect, it, vi, afterEach } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 vi.mock('browser-fs-access', () => ({
@@ -6,27 +6,7 @@ vi.mock('browser-fs-access', () => ({
 }))
 
 import { fileSave } from 'browser-fs-access'
-import { usePageStore } from '@/stores/page'
-import { useSiteStore } from '@/stores/site'
-import { useUserStore } from '@/stores/user'
-import { useEditorStore } from '@/stores/editor'
-import { useFlagsStore } from '@/stores/flags'
-import { queue as notifyQueue } from '@/composables/notify'
-import { closeDialog, openDialogs } from '@/composables/dialog'
-
-import {
-  clickByLabel,
-  clickMenuItem,
-  HOMEPAGE_GUARD_MESSAGES,
-  menuItemLabels,
-  mountRail,
-  mountRailForGuard,
-  mountRailWithHistory,
-  mountRailWithPageActions,
-  mountRailWithPendingAssets,
-  PAGE_ACTIONS_MESSAGES,
-  typeInto
-} from './pageActionsHarness.js'
+import { clickByLabel, mountRailWithPendingAssets, typeInto } from './pageActionsHarness.js'
 
 describe('PageActionsCol pending asset rename', () => {
   let wrapper

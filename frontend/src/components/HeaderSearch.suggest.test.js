@@ -1,78 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-
-import HeaderSearch from './HeaderSearch.vue'
-import { useSiteStore } from '@/stores/site'
 import { copyToClipboard } from '@/helpers/clipboard'
 import { queue as notifyQueue } from '@/composables/notify'
 
-import { createTestI18n } from '../../test/i18n.js'
-import { createTestRouter } from '../../test/router.js'
-import { mountWithApp } from '../../test/mount.js'
+import { mountForPreview } from './headerSearchHarness.js'
 
 vi.mock('@/helpers/clipboard', () => ({
   copyToClipboard: vi.fn()
 }))
-
-/**
- * Regression test for the `popularTags` computed (not part of the backend `FIXME:` list this branch's
- * test infra otherwise regression-tests — see CLAUDE.md's "Testing (backend)" section — this is the
- * fifth, frontend bug the epic separately tracks). It must sort by usage count DESCENDING, most-used
- * first: `orderBy(siteStore.tags, ['usageCount', 'desc'], ['asc', 'asc'])` passed the string `'desc'`
- * as a second sort KEY (es-toolkit's `orderBy(collection, iteratees[], orders[])` has no such
- * property on a tag) rather than as the ORDER for `usageCount`, so every tag sorted ascending by
- * usage — the opposite of "popular" — regardless of what order strings were written after it.
- */
-async function mountWithTags(tags) {
-  const router = await createTestRouter(['/'])
-
-  const { wrapper } = mountWithApp(HeaderSearch, {
-    router,
-    stores: {
-      site: (store) => {
-        store.features.search = true
-        store.tagsLoaded = true
-        store.tags = tags
-      }
-    }
-  })
-
-  // -> The panel (and the popular-tags list inside it) only renders once the field is focused --
-  //    mirrors what a real user does, rather than reaching into component internals for the flag.
-  await wrapper.find('.header-search-input').trigger('focus')
-
-  return wrapper
-}
-/**
- * The debounced live-preview fetch: typing into the focused field, once the query reaches the
- * 2-character floor `searchHint`'s copy already promises, should fetch a handful of matching pages
- * from `sites/:id/pages/search` and land them in `state.previewResults` -- without ever letting a
- * slower, earlier request clobber a faster, later one, and without leaving a request in flight past
- * `clearSearch()` or unmount.
- */
-async function mountForPreview() {
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
-  siteStore.id = 'site1'
-  siteStore.features.search = true
-  siteStore.tagsLoaded = true
-  siteStore.tags = []
-
-  const router = await createTestRouter(['/'])
-
-  const i18n = createTestI18n()
-
-  const wrapper = mount(HeaderSearch, {
-    global: {
-      plugins: [router, i18n]
-    }
-  })
-
-  await wrapper.find('.header-search-input').trigger('focus')
-
-  return { wrapper, siteStore }
-}
 
 /**
  * "Did you mean": the backend's `pages/search` response carries a `suggestion` (closest page title

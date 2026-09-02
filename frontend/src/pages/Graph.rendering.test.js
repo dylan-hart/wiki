@@ -1,22 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises } from '@vue/test-utils'
-import { isReactive } from 'vue'
-
 import Graph from './Graph.vue'
 
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 
-import { drawLabels, LABEL_GAP } from './graphDraw.js'
-import {
-  FIXTURE_GRAPH,
-  FIXTURE_GRAPH_TRUNCATED,
-  GRAPH_MESSAGES,
-  ZERO_PAGEVIEWS,
-  mountGraph,
-  NESTED_FIXTURE_GRAPH
-} from './graphFixtures.js'
+import { FIXTURE_GRAPH, GRAPH_MESSAGES, ZERO_PAGEVIEWS, mountGraph } from './graphFixtures.js'
 
 /*
  * Asserting actual pixel output is out of practical reach for a unit test -- a real

@@ -2,8 +2,6 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 import AdminLocale from './AdminLocale.vue'
-import { useAdminStore } from '@/stores/admin'
-import { useUserStore } from '@/stores/user'
 import { queue } from '@/composables/notify'
 
 import { createTestRouter } from '../../test/router.js'

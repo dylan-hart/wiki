@@ -3,7 +3,6 @@ import { DOMWrapper, flushPromises } from '@vue/test-utils'
 import { TimeoutError } from 'ky'
 
 import ImportPageDialog from './ImportPageDialog.vue'
-import { useSiteStore } from '@/stores/site'
 import { queue as notifyQueue } from '@/composables/notify'
 
 import { buildTestRouter } from '../../test/router.js'

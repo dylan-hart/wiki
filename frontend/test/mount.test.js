@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { getActivePinia } from 'pinia'
 
+import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
+
 import { createTestRouter } from './router.js'
 import { mountWithApp } from './mount.js'
 import { seedAdmin, seedPage, seedSite, seedUser, stubRouter } from './fixtures.js'
@@ -18,6 +21,10 @@ import { seedAdmin, seedPage, seedSite, seedUser, stubRouter } from './fixtures.
 const Probe = {
   props: { label: { type: String, default: '' } },
   template: '<div class="probe">{{ label }}{{ $t("probe.title") }}</div>'
+}
+
+const Teleporting = {
+  template: '<teleport to="body"><span class="inside">x</span></teleport>'
 }
 
 describe('mountWithApp', () => {
@@ -83,16 +90,18 @@ describe('mountWithApp', () => {
   })
 
   it('applies each named seed onto its store BEFORE the component mounts', () => {
+    /*
+      Reads the seeded values in `setup()` -- i.e. during mount, not after it. A component that
+      branches on store state at setup time (which most of the pages under test do) is the case this
+      ordering exists for: `Object.assign`ing the stores after `mount()` would leave it having
+      already rendered the unseeded branch.
+    */
     const Reader = {
-      template: '<div>{{ seen }}</div>',
-      setup: () => ({ seen: '' }),
-      data() {
-        return {}
-      }
+      setup: () => ({ seen: `${useSiteStore().id}/${useUserStore().permissions.join(',')}` }),
+      template: '<div class="seen">{{ seen }}</div>'
     }
-    const { siteStore, userStore, pageStore, adminStore, editorStore, flagsStore } = mountWithApp(
-      Reader,
-      {
+    const { wrapper, siteStore, userStore, pageStore, adminStore, editorStore, flagsStore } =
+      mountWithApp(Reader, {
         stores: {
           site: seedSite(),
           user: seedUser({ permissions: ['manage:sites'] }),
@@ -101,8 +110,9 @@ describe('mountWithApp', () => {
           editor: { mode: 'edit' },
           flags: { loaded: true }
         }
-      }
-    )
+      })
+    // -> The component saw the seeded values as it rendered, not just afterwards.
+    expect(wrapper.find('.seen').text()).toBe('site-1/manage:sites')
     expect(siteStore.id).toBe('site-1')
     expect(userStore.permissions).toEqual(['manage:sites'])
     expect(pageStore.id).toBe('page-1')
@@ -126,16 +136,16 @@ describe('mountWithApp', () => {
   })
 
   it('stubs teleport by default, so a dialog renders inline where a suite can find it', () => {
-    const Teleporting = {
-      template: '<teleport to="body"><span class="inside">x</span></teleport>'
-    }
     const { wrapper } = mountWithApp(Teleporting)
     expect(wrapper.find('.inside').exists()).toBe(true)
+    expect(document.body.querySelector('.inside')).toBe(null)
   })
 
-  it('lets a caller replace the default stubs', () => {
-    const { wrapper } = mountWithApp(Probe, { stubs: {} })
-    expect(wrapper.find('.probe').exists()).toBe(true)
+  it('lets a caller replace the default stubs, so a teleport really teleports', () => {
+    const { wrapper } = mountWithApp(Teleporting, { stubs: {} })
+    expect(wrapper.find('.inside').exists()).toBe(false)
+    expect(document.body.querySelector('.inside')).not.toBe(null)
+    wrapper.unmount()
   })
 
   it('registers extra components globally for the mount', () => {

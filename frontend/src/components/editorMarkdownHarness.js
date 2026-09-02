@@ -205,3 +205,14 @@ export async function clickInsertFootnote(wrapper) {
     .find((candidate) => candidate.props('icon') === 'mdi:book-plus')
   await button.trigger('click')
 }
+
+/*
+  Reads the preview pane's resolved width back off the DOM. happy-dom normalises the `flex`
+  shorthand into `flex-basis` (plus `flex-grow`/`flex-shrink`) when serializing the `style`
+  attribute, so read the longhand rather than the shorthand written in the component. Lives here
+  because the preview and resize shards both assert on it.
+*/
+export function previewFlexWidth(preview) {
+  const match = preview.attributes('style')?.match(/flex-basis:\s*(\d+(?:\.\d+)?)px/)
+  return match ? Number(match[1]) : null
+}

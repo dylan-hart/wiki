@@ -7,9 +7,6 @@ import UserSearchDialog from './UserSearchDialog.vue'
 import WConfirmDialog from './shared/WConfirmDialog.vue'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
-import { useAdminStore } from '@/stores/admin'
-import { useUserStore } from '@/stores/user'
-
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 

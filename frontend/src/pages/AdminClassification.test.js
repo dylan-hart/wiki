@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 import AdminClassification from './AdminClassification.vue'
-import { useSiteStore } from '@/stores/site'
 import { confirm, dialog } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
 

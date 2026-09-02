@@ -15,24 +15,15 @@
 // calls it on every repeat trigger without piling up duplicate DOM nodes — which is exactly the shape
 // of bug this feature started from (a saved setting with zero rendered effect). Every assertion below
 // is written to fail if that wiring regresses, not merely to prove the helper module works.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { isNavigationFailure, NavigationFailureType } from 'vue-router'
-
 import App from './App.vue'
-import { closeDialog, openDialogs } from '@/composables/dialog'
-import { queue as notifyQueue } from '@/composables/notify'
 import { useSiteStore } from '@/stores/site'
-import { useEditorStore } from '@/stores/editor'
-import { useFlagsStore } from '@/stores/flags'
-import { useUserStore } from '@/stores/user'
-import { useCommonStore } from './stores/common'
-
 import { createTestI18n } from '../test/i18n.js'
 
-import { buildTestRouter, createTestRouter } from '../test/router.js'
+import { createTestRouter } from '../test/router.js'
+
 let currentWrapper
 
 /**
@@ -81,13 +72,13 @@ afterEach(() => {
   document.querySelectorAll('link[data-theme-font]').forEach((el) => el.remove())
   document.documentElement.style.removeProperty('--font-sans')
 })
+
 /**
  * Regression coverage for feature 413 ("RTL support end-to-end"), task 716: `App.vue`'s
  * `applyLocale()` must set `dir`/`lang` on `<html>` for the active locale, and must do so
  * immediately -- ahead of `router.afterEach` removing `.init-loading` -- rather than waiting on the
  * (possibly slow, possibly never-resolving in this test) locale-strings fetch.
  */
-
 beforeEach(() => {
   setActivePinia(createPinia())
   // -> Mirrors index.html's structure: router.afterEach() unconditionally removes this element
@@ -99,41 +90,6 @@ afterEach(() => {
   document.documentElement.removeAttribute('lang')
   document.body.innerHTML = ''
 })
-
-async function mountAppWithLocale(localeCode) {
-  const siteStore = useSiteStore()
-  const flagsStore = useFlagsStore()
-  const userStore = useUserStore()
-  const commonStore = useCommonStore()
-
-  // -> Bootstrap already "loaded", so the router guard's loadBootstrap() branch is skipped and this
-  //    hand-set locale data survives navigation untouched
-  siteStore.$patch({
-    id: 'site-1',
-    locales: {
-      primary: 'en',
-      showMenu: true,
-      active: [
-        { code: 'en', language: 'en', name: 'English', nativeName: 'English', isRTL: false },
-        { code: 'ar', language: 'ar', name: 'Arabic', nativeName: 'العربية', isRTL: true }
-      ]
-    }
-  })
-  flagsStore.loaded = true
-  userStore.profileLoaded = true
-  commonStore.setLocale(localeCode)
-
-  // -> Never resolves: proves the dir/lang flip does not wait on the locale-strings request
-  API_CLIENT.get.mockImplementationOnce(() => new Promise(() => {}))
-
-  const router = buildTestRouter(['/'])
-  const i18n = createTestI18n()
-
-  mount(App, { global: { plugins: [router, i18n] } })
-
-  await router.push('/')
-  await router.isReady()
-}
 
 describe('App.vue applyTheme()', () => {
   it('injectCSS: renders the configured rule as a <style> element', async () => {

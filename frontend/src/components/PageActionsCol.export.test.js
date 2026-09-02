@@ -6,27 +6,7 @@ vi.mock('browser-fs-access', () => ({
 }))
 
 import { fileSave } from 'browser-fs-access'
-import { usePageStore } from '@/stores/page'
-import { useSiteStore } from '@/stores/site'
-import { useUserStore } from '@/stores/user'
-import { useEditorStore } from '@/stores/editor'
-import { useFlagsStore } from '@/stores/flags'
-import { queue as notifyQueue } from '@/composables/notify'
-import { closeDialog, openDialogs } from '@/composables/dialog'
-
-import {
-  clickByLabel,
-  clickMenuItem,
-  HOMEPAGE_GUARD_MESSAGES,
-  menuItemLabels,
-  mountRail,
-  mountRailForGuard,
-  mountRailWithHistory,
-  mountRailWithPageActions,
-  mountRailWithPendingAssets,
-  PAGE_ACTIONS_MESSAGES,
-  typeInto
-} from './pageActionsHarness.js'
+import { clickMenuItem, menuItemLabels, mountRail } from './pageActionsHarness.js'
 
 describe('PageActionsCol export menu', () => {
   let wrapper

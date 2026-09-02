@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import InboxLayout from './InboxLayout.vue'
-import { useUserStore } from '@/stores/user'
-
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 

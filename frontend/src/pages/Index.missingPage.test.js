@@ -3,17 +3,10 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 import Index from './Index.vue'
-import { useCommonStore } from '@/stores/common'
-import { useEditorStore } from '@/stores/editor'
-import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
-import { isActive as loadingIsActive } from '@/composables/loading'
-import { queue as notifyQueue } from '@/composables/notify'
-
 import { createTestI18n } from '../../test/i18n.js'
-import { buildTestRouter, createTestRouter } from '../../test/router.js'
-import { mountWithApp } from '../../test/mount.js'
+import { buildTestRouter } from '../../test/router.js'
 
 /**
  * Regression coverage for task 633's wiring: `PageComments.vue` is mounted inside the article
@@ -66,45 +59,6 @@ afterEach(() => {
   activeWrapper = null
 })
 
-async function mountIndex() {
-  setActivePinia(createPinia())
-
-  const router = await createTestRouter(['/'])
-
-  // -> Real English messages for the couple of keys these tests assert the rendered text of
-  //    (`common.page.unpublished`, `common.page.lastModifiedOn`); every other `t()` call in the
-  //    component renders as its bare key, same as before this list existed, which none of these
-  //    tests reads.
-  const i18n = createTestI18n({
-    common: {
-      page: { unpublished: 'Unpublished', lastModifiedOn: 'Last modified on' }
-    }
-  })
-
-  const wrapper = mount(Index, {
-    global: {
-      plugins: [router, i18n],
-      stubs: {
-        PageHeader: true,
-        PageActionsCol: true,
-        PageToc: true,
-        PageTags: true,
-        SideDialog: true,
-        PageRedirect: true,
-        FooterNav: true,
-        PageComments: true
-      }
-    }
-  })
-  activeWrapper = wrapper
-
-  return {
-    wrapper,
-    pageStore: usePageStore(),
-    siteStore: useSiteStore(),
-    editorStore: useEditorStore()
-  }
-}
 /**
  * Regression test for task 515's entry point out of the missing-page screen.
  *
@@ -162,6 +116,7 @@ async function mountAtMissingPath({ pagePermissions, permissions = [] }) {
 
   return { wrapper, userStore }
 }
+
 /*
  * OpenProject #829, item 1: upstream issue #1839 ("Mermaid renders in the live edit preview but not
  * on the saved/reloaded page") and discussion #6446 (the identical pattern for KaTeX). This is the
@@ -180,7 +135,6 @@ async function mountAtMissingPath({ pagePermissions, permissions = [] }) {
  * so it also covers the very first load of a page, not only navigating between two already-open
  * ones) picks the diagram up, with no live editor ever having been open in this test at all.
  */
-
 describe('Index missing-page screen: Recently Deleted entry link', () => {
   it('shows the link when both access:admin and read:history at this path are granted', async () => {
     const { wrapper } = await mountAtMissingPath({

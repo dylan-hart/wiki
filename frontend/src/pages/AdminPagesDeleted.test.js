@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 import AdminPagesDeleted from './AdminPagesDeleted.vue'
-import { useAdminStore } from '@/stores/admin'
 import { openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
 

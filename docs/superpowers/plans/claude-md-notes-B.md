@@ -262,3 +262,22 @@ in one pass at the end of the consolidation (agents must not edit `CLAUDE.md` mi
   must carry no `docsBase` help button and checks each with `describe.each`, plus an existence check
   so a rename cannot retire a guard silently. `pages/{AdminFlags,AdminApprovals,AdminTerminal}.test.js`
   held nothing else and are gone.
+
+### Follow-ups this task surfaced but did not close
+
+- **The frontend's `.oxlintrc.json` sets `no-unused-vars: "off"`, so nothing in CI catches a dead
+  import.** That is what let B6's own suite splits ship ~130 unused imports and 5 dead helpers past a
+  green `oxlint --deny-warnings` (found in review, fixed in a follow-up commit). The backend's config
+  leaves the rule on and catches exactly this. Worth turning on for `frontend/` — at minimum
+  `"no-unused-vars": ["error", { "args": "none", "varsIgnorePattern": "^_" }]` — and fixing whatever
+  it turns up in one pass; until then a reviewer has to spot dead imports by eye. (The `import` plugin
+  is separately off for a documented reason — the Vite `?worker` specifiers in `boot/monaco.js` — but
+  `no-unused-vars` is an `eslint`-plugin rule and is unaffected by that.)
+- **The two `admin.storage.destroyConfirm` / `destroyConfirmInfo` keys were deleted from
+  `backend/locales/en.json` only.** Their translations still exist in the other locale files, which
+  are Localazy-managed output — the next sync prunes them. Same situation B2 recorded for the
+  `admin.users.pwdStrength*` set; no manual edit to the translated files is wanted.
+- **`frontend/src/assets/{emoji,icons}.generated.js` are deliberately unformatted and must stay that
+  way.** Both are in `.oxfmtrc.json`'s `ignorePatterns`, and both are byte-compared against their
+  generator's own output by `npm run icons:check` / `emoji:check` (a `quality.yml` step) — running
+  `oxfmt` on either would change the bytes and turn that gate red while fixing nothing.

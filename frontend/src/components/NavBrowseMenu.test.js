@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
 import NavBrowseMenu from './NavBrowseMenu.vue'
-import { usePageStore } from '@/stores/page'
-import { useSiteStore } from '@/stores/site'
-
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 

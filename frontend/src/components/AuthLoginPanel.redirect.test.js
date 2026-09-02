@@ -2,8 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 import AuthLoginPanel from './AuthLoginPanel.vue'
-import { useSiteStore } from '@/stores/site'
-
 import { mountWithApp } from '../../test/mount.js'
 
 /**

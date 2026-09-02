@@ -2,11 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 
 import AdminTheme from './AdminTheme.vue'
-import { useAdminStore } from '@/stores/admin'
-import { useUserStore } from '@/stores/user'
 import { contrastRatio, getAccessibleColor } from '@/helpers/accessibility'
 
-import { createTestI18n } from '../../test/i18n.js'
 import { createTestRouter } from '../../test/router.js'
 import { mountWithApp } from '../../test/mount.js'
 import { stubApi } from '../../test/mocks.js'
