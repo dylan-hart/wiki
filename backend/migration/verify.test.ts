@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
 import { Readable } from 'node:stream'
-import { NotYetImplementedError } from './connector.ts'
 import {
   compareAgainstDryRunReports,
   compareEntityCounts,
@@ -22,29 +21,7 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 import { pages as pagesTable } from '../db/schema.ts'
 import { assetsPhase } from './phases/assets.ts'
 import { usersPhase } from './phases/users.ts'
-
-/** Every entity generator throws, matching both real connectors' current stub state — same pattern
- * `phases/phases.test.ts` uses. */
-function stubConnector(): SourceConnector {
-  const notImplemented = (method: string) => () => {
-    throw new NotYetImplementedError(method, 'some later task')
-  }
-  return {
-    kind: 'postgres',
-    connect: async () => {},
-    disconnect: async () => {},
-    describe: async () => ({ kind: 'postgres', location: 'stub', notes: [] }),
-    users: notImplemented('users'),
-    groups: notImplemented('groups'),
-    pages: notImplemented('pages'),
-    pageHistory: notImplemented('pageHistory'),
-    tags: notImplemented('tags'),
-    navigation: notImplemented('navigation'),
-    settings: notImplemented('settings'),
-    comments: notImplemented('comments'),
-    assets: notImplemented('assets')
-  }
-}
+import { stubSourceConnector } from '../test/migrationFixtures.ts'
 
 async function* recordsOf(count: number): AsyncGenerator<SourceRecord> {
   for (let i = 0; i < count; i++) {
@@ -53,7 +30,7 @@ async function* recordsOf(count: number): AsyncGenerator<SourceRecord> {
 }
 
 function workingConnector(counts: Partial<Record<keyof SourceConnector, number>>): SourceConnector {
-  const base = stubConnector()
+  const base = stubSourceConnector()
   return {
     ...base,
     ...Object.fromEntries(
@@ -76,7 +53,7 @@ function fakeDestinationCounter(counts: Partial<Record<string, number>>): Destin
 
 describe('countSourceEntities', () => {
   test('reports not_implemented for every entity against the current connector stubs', async () => {
-    const counts = await countSourceEntities(stubConnector())
+    const counts = await countSourceEntities(stubSourceConnector())
     for (const entity of VERIFY_ENTITIES) {
       assert.equal(counts[entity], 'not_implemented')
     }
@@ -96,7 +73,7 @@ describe('countSourceEntities', () => {
   })
 
   test('a real (non-stub) error propagates rather than being swallowed', async () => {
-    const connector = stubConnector()
+    const connector = stubSourceConnector()
     connector.users = () => {
       throw new Error('connection reset')
     }
@@ -108,7 +85,7 @@ describe('countSourceEntities', () => {
  * cover — see `PhaseOnlySourceCounts`'s own doc comment in `verify.ts`. */
 describe('countPhaseOnlySourceCounts', () => {
   test('reports not_implemented for both counts against the current connector stubs', async () => {
-    const counts = await countPhaseOnlySourceCounts(stubConnector())
+    const counts = await countPhaseOnlySourceCounts(stubSourceConnector())
     assert.equal(counts.userGroups, 'not_implemented')
     assert.equal(counts.comments, 'not_implemented')
   })
@@ -125,7 +102,7 @@ describe('countPhaseOnlySourceCounts', () => {
       yield { id: 2, groups: [{ id: 1, name: 'Editors' }] }
       yield { id: 3, groups: [] }
     }
-    const connector = { ...stubConnector(), users }
+    const connector = { ...stubSourceConnector(), users }
     const counts = await countPhaseOnlySourceCounts(connector)
     assert.equal(counts.userGroups, 3, '2 memberships from user 1 + 1 from user 2 + 0 from user 3')
   })
@@ -135,7 +112,7 @@ describe('countPhaseOnlySourceCounts', () => {
       yield { id: 1, pageId: 1, authorId: null, content: 'a' }
       yield { id: 2, pageId: 1, authorId: null, content: 'b' }
     }
-    const connector = { ...stubConnector(), comments }
+    const connector = { ...stubSourceConnector(), comments }
     const counts = await countPhaseOnlySourceCounts(connector)
     assert.equal(counts.comments, 2)
   })
@@ -144,14 +121,14 @@ describe('countPhaseOnlySourceCounts', () => {
     async function* comments(): AsyncGenerator<SourceRecord> {
       yield { id: 1, pageId: 1, authorId: null, content: 'a' }
     }
-    const connector = { ...stubConnector(), comments }
+    const connector = { ...stubSourceConnector(), comments }
     const counts = await countPhaseOnlySourceCounts(connector)
     assert.equal(counts.userGroups, 'not_implemented')
     assert.equal(counts.comments, 1)
   })
 
   test('a real (non-stub) error propagates rather than being swallowed', async () => {
-    const connector = stubConnector()
+    const connector = stubSourceConnector()
     connector.comments = () => {
       throw new Error('connection reset')
     }
@@ -547,24 +524,7 @@ describe('compareAgainstDryRunReports derived from the real phases (regression c
         groups: [{ id: 1, name: 'Editors' }]
       }
     }
-    const notImplemented = (method: string) => () => {
-      throw new NotYetImplementedError(method, 'not needed by this test')
-    }
-    const connector: SourceConnector = {
-      kind: 'postgres',
-      connect: async () => {},
-      disconnect: async () => {},
-      describe: async () => ({ kind: 'postgres', location: 'fake', notes: [] }),
-      groups,
-      users,
-      pages: notImplemented('pages'),
-      pageHistory: notImplemented('pageHistory'),
-      tags: notImplemented('tags'),
-      navigation: notImplemented('navigation'),
-      settings: notImplemented('settings'),
-      comments: notImplemented('comments'),
-      assets: notImplemented('assets')
-    }
+    const connector = stubSourceConnector({ groups, users })
 
     const phaseResult = await usersPhase.run({
       db: {} as any,
@@ -606,24 +566,7 @@ describe('compareAgainstDryRunReports derived from the real phases (regression c
       yield { id: 1, pageId: 100, authorId: null, content: 'Nice page!' }
       yield { id: 2, pageId: 100, authorId: null, content: 'Agreed!' }
     }
-    const notImplemented = (method: string) => () => {
-      throw new NotYetImplementedError(method, 'not needed by this test')
-    }
-    const connector: SourceConnector = {
-      kind: 'postgres',
-      connect: async () => {},
-      disconnect: async () => {},
-      describe: async () => ({ kind: 'postgres', location: 'fake', notes: [] }),
-      users: notImplemented('users'),
-      groups: notImplemented('groups'),
-      pages: notImplemented('pages'),
-      pageHistory: notImplemented('pageHistory'),
-      tags: notImplemented('tags'),
-      navigation: notImplemented('navigation'),
-      settings: notImplemented('settings'),
-      comments,
-      assets
-    }
+    const connector = stubSourceConnector({ comments, assets })
 
     const pageIdMap = new Map<number, string>()
     pageIdMap.set(100, 'fixture-page-uuid')
@@ -706,7 +649,7 @@ describe('runContentSpotCheck', () => {
   }
 
   test('reports source_not_implemented against the current connector stubs', async () => {
-    const results = await runContentSpotCheck(stubConnector(), fakeLookup({}), {
+    const results = await runContentSpotCheck(stubSourceConnector(), fakeLookup({}), {
       siteId: 'site-1',
       sampleSize: 5
     })
@@ -717,7 +660,7 @@ describe('runContentSpotCheck', () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
       yield { id: 1, path: 'en/home', localeCode: 'en', content: '# hello' }
     }
-    const connector = { ...stubConnector(), pages }
+    const connector = { ...stubSourceConnector(), pages }
     const results = await runContentSpotCheck(connector, fakeLookup({ 'en/home': '# hello' }), {
       siteId: 'site-1',
       paths: ['en/home']
@@ -731,7 +674,7 @@ describe('runContentSpotCheck', () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
       yield { id: 1, path: 'en/home', localeCode: 'en', content: '# hello world' }
     }
-    const connector = { ...stubConnector(), pages }
+    const connector = { ...stubSourceConnector(), pages }
     const results = await runContentSpotCheck(connector, fakeLookup({ 'en/home': '# hello' }), {
       siteId: 'site-1',
       paths: ['en/home']
@@ -743,7 +686,7 @@ describe('runContentSpotCheck', () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
       yield { id: 1, path: 'en/home', localeCode: 'en', content: '# hello' }
     }
-    const connector = { ...stubConnector(), pages }
+    const connector = { ...stubSourceConnector(), pages }
     const results = await runContentSpotCheck(connector, fakeLookup({}), {
       siteId: 'site-1',
       paths: ['en/home']
@@ -755,7 +698,7 @@ describe('runContentSpotCheck', () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
       yield { id: 1, path: 'en/home', localeCode: 'en', content: '# hello' }
     }
-    const connector = { ...stubConnector(), pages }
+    const connector = { ...stubSourceConnector(), pages }
     const results = await runContentSpotCheck(connector, fakeLookup({}), {
       siteId: 'site-1',
       paths: ['en/does-not-exist']
@@ -771,7 +714,7 @@ describe('runContentSpotCheck', () => {
         yield { id: i, path: `en/page-${i}`, localeCode: 'en', content: `body-${i}` }
       }
     }
-    const connector = { ...stubConnector(), pages }
+    const connector = { ...stubSourceConnector(), pages }
     const results = await runContentSpotCheck(connector, fakeLookup({}), {
       siteId: 'site-1',
       sampleSize: 5,
@@ -790,7 +733,7 @@ describe('runContentSpotCheck', () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
       yield { id: 1, path: 'en/home', localeCode: 'en', content: 'x' }
     }
-    const connector: SourceConnector = { ...stubConnector(), pages }
+    const connector: SourceConnector = { ...stubSourceConnector(), pages }
     assert.throws(() => connector.assets() as AsyncIterable<SourceAssetFile>)
     const results = await runContentSpotCheck(connector, fakeLookup({ 'en/home': 'x' }), {
       siteId: 'site-1',
@@ -807,7 +750,7 @@ describe('runContentSpotCheck', () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
       yield { id: 1, path: 'Guide/Getting_Started', localeCode: 'en', content: '# intro' }
     }
-    const connector = { ...stubConnector(), pages }
+    const connector = { ...stubSourceConnector(), pages }
     const results = await runContentSpotCheck(
       connector,
       fakeLookup({ 'guide/getting-started': '# intro' }),
@@ -822,7 +765,7 @@ describe('runContentSpotCheck', () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
       yield { id: 1, path: '///', localeCode: 'en', content: '# unreachable' }
     }
-    const connector = { ...stubConnector(), pages }
+    const connector = { ...stubSourceConnector(), pages }
     const results = await runContentSpotCheck(connector, fakeLookup({}), {
       siteId: 'site-1',
       paths: ['///']

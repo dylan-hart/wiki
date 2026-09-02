@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
 import { describe, test } from 'node:test'
-import { NotYetImplementedError } from '../connector.ts'
 import { assetsPhase } from './assets.ts'
 import { contentPhase } from './content.ts'
 import { settingsPhase } from './settings.ts'
@@ -9,6 +8,7 @@ import { usersPhase } from './users.ts'
 import { MIGRATION_PHASES, MIGRATION_PHASE_IDS } from './index.ts'
 import type { MigrationContext } from '../context.ts'
 import type { SourceAssetFile, SourceConnector, SourceRecord } from '../connector.ts'
+import { stubSourceConnector } from '../../test/migrationFixtures.ts'
 
 /** Yields `count` bare records — enough for a phase to count, nothing about their shape matters. */
 async function* recordsOf(count: number): AsyncGenerator<SourceRecord> {
@@ -19,24 +19,7 @@ async function* recordsOf(count: number): AsyncGenerator<SourceRecord> {
 
 /** Every entity generator throws, matching both real connectors' current stub state. */
 function stubConnector(): SourceConnector {
-  const notImplemented = (method: string) => () => {
-    throw new NotYetImplementedError(method, 'some later task')
-  }
-  return {
-    kind: 'postgres',
-    connect: async () => {},
-    disconnect: async () => {},
-    describe: async () => ({ kind: 'postgres', location: 'stub', notes: [] }),
-    users: notImplemented('users'),
-    groups: notImplemented('groups'),
-    pages: notImplemented('pages'),
-    pageHistory: notImplemented('pageHistory'),
-    tags: notImplemented('tags'),
-    navigation: notImplemented('navigation'),
-    settings: notImplemented('settings'),
-    comments: notImplemented('comments'),
-    assets: notImplemented('assets')
-  }
+  return stubSourceConnector()
 }
 
 /** A connector with working generators, so a phase's `run()` can be exercised to `status: 'ok'`. */

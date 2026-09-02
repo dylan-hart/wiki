@@ -3,6 +3,7 @@ import { after, before, describe, test } from 'node:test'
 import { randomBytes } from 'node:crypto'
 import { Client } from 'pg'
 import { PostgresSourceConnector } from './postgres.ts'
+import { LEGACY_SCHEMA_DDL } from '../../test/migrationFixtures.ts'
 
 /**
  * Smoke coverage for `PostgresSourceConnector`, scoped to exactly what this task builds: the
@@ -200,39 +201,10 @@ describe('PostgresSourceConnector', () => {
         })
         await admin.connect()
         await admin.query('DROP TABLE IF EXISTS pages, users, groups, knex_migrations')
-        await admin.query(`
-        CREATE TABLE pages (
-          id serial PRIMARY KEY,
-          path varchar NOT NULL,
-          hash varchar NOT NULL,
-          "authorId" integer,
-          "creatorId" integer,
-          "contentType" varchar NOT NULL
-        )
-      `)
-        await admin.query(`
-        CREATE TABLE users (
-          id serial PRIMARY KEY,
-          email varchar NOT NULL,
-          "providerKey" varchar NOT NULL DEFAULT 'local',
-          "tfaIsActive" boolean NOT NULL DEFAULT false
-        )
-      `)
-        await admin.query(`
-        CREATE TABLE groups (
-          id serial PRIMARY KEY,
-          name varchar NOT NULL,
-          permissions json NOT NULL,
-          "pageRules" json NOT NULL,
-          "redirectOnLogin" varchar NOT NULL DEFAULT '/'
-        )
-      `)
-        await admin.query(`
-        CREATE TABLE knex_migrations (
-          id serial PRIMARY KEY,
-          name varchar NOT NULL
-        )
-      `)
+        await admin.query(LEGACY_SCHEMA_DDL.pages!)
+        await admin.query(LEGACY_SCHEMA_DDL.users!)
+        await admin.query(LEGACY_SCHEMA_DDL.groups!)
+        await admin.query(LEGACY_SCHEMA_DDL.knexMigrations!)
         await admin.query(`INSERT INTO knex_migrations (name) VALUES ('2.4.61.js'), ('2.5.12.js')`)
       })
 
@@ -330,74 +302,14 @@ describe('PostgresSourceConnector', () => {
         // connect()'s checkShape() introspects users/groups too, even though this describe block
         // never reads through those two generators — see the "against a 2.5.x-shaped schema" describe
         // above, whose own `after` already dropped the tables it created there.
-        await admin.query(`
-          CREATE TABLE users (
-            id serial PRIMARY KEY,
-            email varchar NOT NULL,
-            "providerKey" varchar NOT NULL DEFAULT 'local',
-            "tfaIsActive" boolean NOT NULL DEFAULT false
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE groups (
-            id serial PRIMARY KEY,
-            name varchar NOT NULL,
-            permissions json NOT NULL,
-            "pageRules" json NOT NULL,
-            "redirectOnLogin" varchar NOT NULL DEFAULT '/'
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE pages (
-            id serial PRIMARY KEY,
-            path varchar NOT NULL,
-            "localeCode" varchar NOT NULL DEFAULT 'en',
-            hash varchar NOT NULL,
-            title varchar NOT NULL,
-            "contentType" varchar NOT NULL,
-            "authorId" integer,
-            "creatorId" integer
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE "pageHistory" (
-            id serial PRIMARY KEY,
-            "pageId" integer,
-            path varchar NOT NULL,
-            "localeCode" varchar NOT NULL DEFAULT 'en',
-            title varchar NOT NULL,
-            action varchar NOT NULL DEFAULT 'updated',
-            "versionDate" varchar NOT NULL,
-            "authorId" integer
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE tags (
-            id serial PRIMARY KEY,
-            tag varchar NOT NULL UNIQUE,
-            title varchar
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE "pageTags" (
-            id serial PRIMARY KEY,
-            "pageId" integer,
-            "tagId" integer
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE "pageHistoryTags" (
-            id serial PRIMARY KEY,
-            "pageId" integer,
-            "tagId" integer
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE navigation (
-            key varchar PRIMARY KEY,
-            config json
-          )
-        `)
+        await admin.query(LEGACY_SCHEMA_DDL.users!)
+        await admin.query(LEGACY_SCHEMA_DDL.groups!)
+        await admin.query(LEGACY_SCHEMA_DDL.pagesFull!)
+        await admin.query(LEGACY_SCHEMA_DDL.pageHistory!)
+        await admin.query(LEGACY_SCHEMA_DDL.tags!)
+        await admin.query(LEGACY_SCHEMA_DDL.pageTags!)
+        await admin.query(LEGACY_SCHEMA_DDL.pageHistoryTags!)
+        await admin.query(LEGACY_SCHEMA_DDL.navigation!)
 
         await admin.query(`
           INSERT INTO pages (id, path, "localeCode", hash, title, "contentType", "authorId", "creatorId")
@@ -570,40 +482,10 @@ describe('PostgresSourceConnector', () => {
         await admin.query('DROP TABLE IF EXISTS "userGroups", pages, users, groups')
         // connect()'s checkShape() introspects pages too, even though this describe block never
         // reads through pages() — see the "against a 2.5.x-shaped schema" describe above.
-        await admin.query(`
-          CREATE TABLE pages (
-            id serial PRIMARY KEY,
-            path varchar NOT NULL,
-            hash varchar NOT NULL,
-            "authorId" integer,
-            "creatorId" integer,
-            "contentType" varchar NOT NULL
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE users (
-            id serial PRIMARY KEY,
-            email varchar NOT NULL,
-            "providerKey" varchar NOT NULL DEFAULT 'local',
-            "tfaIsActive" boolean NOT NULL DEFAULT false
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE groups (
-            id serial PRIMARY KEY,
-            name varchar NOT NULL,
-            permissions json NOT NULL,
-            "pageRules" json NOT NULL,
-            "redirectOnLogin" varchar NOT NULL DEFAULT '/'
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE "userGroups" (
-            id serial PRIMARY KEY,
-            "userId" integer NOT NULL,
-            "groupId" integer NOT NULL
-          )
-        `)
+        await admin.query(LEGACY_SCHEMA_DDL.pages!)
+        await admin.query(LEGACY_SCHEMA_DDL.users!)
+        await admin.query(LEGACY_SCHEMA_DDL.groups!)
+        await admin.query(LEGACY_SCHEMA_DDL.userGroups!)
 
         await admin.query(`
           INSERT INTO groups (id, name, permissions, "pageRules")
@@ -715,78 +597,13 @@ describe('PostgresSourceConnector', () => {
         // connect()'s checkShape() introspects pages/users/groups too, even though this describe
         // block never reads through those generators — see the "against a 2.5.x-shaped schema"
         // describe above.
-        await admin.query(`
-          CREATE TABLE pages (
-            id serial PRIMARY KEY,
-            path varchar NOT NULL,
-            hash varchar NOT NULL,
-            "authorId" integer,
-            "creatorId" integer,
-            "contentType" varchar NOT NULL
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE users (
-            id serial PRIMARY KEY,
-            email varchar NOT NULL,
-            "providerKey" varchar NOT NULL DEFAULT 'local',
-            "tfaIsActive" boolean NOT NULL DEFAULT false
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE groups (
-            id serial PRIMARY KEY,
-            name varchar NOT NULL,
-            permissions json NOT NULL,
-            "pageRules" json NOT NULL,
-            "redirectOnLogin" varchar NOT NULL DEFAULT '/'
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE settings (
-            key varchar PRIMARY KEY,
-            value json,
-            "updatedAt" varchar NOT NULL
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE authentication (
-            key varchar PRIMARY KEY,
-            "isEnabled" boolean NOT NULL DEFAULT false,
-            config json NOT NULL,
-            "selfRegistration" boolean NOT NULL DEFAULT false,
-            "domainWhitelist" json NOT NULL,
-            "autoEnrollGroups" json NOT NULL,
-            "order" integer NOT NULL DEFAULT 0,
-            "strategyKey" varchar NOT NULL DEFAULT '',
-            "displayName" varchar NOT NULL DEFAULT ''
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE storage (
-            key varchar PRIMARY KEY,
-            "isEnabled" boolean NOT NULL DEFAULT false,
-            mode varchar NOT NULL DEFAULT 'push',
-            config json,
-            "syncInterval" varchar,
-            state json
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE comments (
-            id serial PRIMARY KEY,
-            content text NOT NULL,
-            "createdAt" varchar NOT NULL,
-            "updatedAt" varchar NOT NULL,
-            "pageId" integer,
-            "authorId" integer,
-            render text NOT NULL DEFAULT '',
-            name varchar NOT NULL DEFAULT '',
-            email varchar NOT NULL DEFAULT '',
-            ip varchar NOT NULL DEFAULT '',
-            "replyTo" integer NOT NULL DEFAULT 0
-          )
-        `)
+        await admin.query(LEGACY_SCHEMA_DDL.pages!)
+        await admin.query(LEGACY_SCHEMA_DDL.users!)
+        await admin.query(LEGACY_SCHEMA_DDL.groups!)
+        await admin.query(LEGACY_SCHEMA_DDL.settings!)
+        await admin.query(LEGACY_SCHEMA_DDL.authentication!)
+        await admin.query(LEGACY_SCHEMA_DDL.storage!)
+        await admin.query(LEGACY_SCHEMA_DDL.comments!)
 
         await admin.query(`
           INSERT INTO settings (key, value, "updatedAt")
@@ -905,63 +722,12 @@ describe('PostgresSourceConnector', () => {
         // connect()'s checkShape() introspects pages/users/groups too, even though this describe
         // block never reads through those generators — see the "against a 2.5.x-shaped schema"
         // describe above.
-        await admin.query(`
-          CREATE TABLE pages (
-            id serial PRIMARY KEY,
-            path varchar NOT NULL,
-            hash varchar NOT NULL,
-            "authorId" integer,
-            "creatorId" integer,
-            "contentType" varchar NOT NULL
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE users (
-            id serial PRIMARY KEY,
-            email varchar NOT NULL,
-            "providerKey" varchar NOT NULL DEFAULT 'local',
-            "tfaIsActive" boolean NOT NULL DEFAULT false
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE groups (
-            id serial PRIMARY KEY,
-            name varchar NOT NULL,
-            permissions json NOT NULL,
-            "pageRules" json NOT NULL,
-            "redirectOnLogin" varchar NOT NULL DEFAULT '/'
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE "assetFolders" (
-            id serial PRIMARY KEY,
-            name varchar NOT NULL,
-            slug varchar NOT NULL,
-            "parentId" integer
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE assets (
-            id serial PRIMARY KEY,
-            filename varchar NOT NULL,
-            hash varchar NOT NULL,
-            ext varchar NOT NULL,
-            kind varchar NOT NULL DEFAULT 'binary',
-            mime varchar NOT NULL DEFAULT 'application/octet-stream',
-            "fileSize" integer,
-            metadata json,
-            "createdAt" varchar NOT NULL,
-            "updatedAt" varchar NOT NULL,
-            "folderId" integer,
-            "authorId" integer
-          )
-        `)
-        await admin.query(`
-          CREATE TABLE "assetData" (
-            id integer PRIMARY KEY,
-            data bytea NOT NULL
-          )
-        `)
+        await admin.query(LEGACY_SCHEMA_DDL.pages!)
+        await admin.query(LEGACY_SCHEMA_DDL.users!)
+        await admin.query(LEGACY_SCHEMA_DDL.groups!)
+        await admin.query(LEGACY_SCHEMA_DDL.assetFolders!)
+        await admin.query(LEGACY_SCHEMA_DDL.assets!)
+        await admin.query(LEGACY_SCHEMA_DDL.assetData!)
 
         // Two folders: a root-level 'docs', and 'sub' nested inside it -- id 2's parentId chains
         // through id 1, proving buildAssetFolderPaths() actually walks the adjacency list rather than

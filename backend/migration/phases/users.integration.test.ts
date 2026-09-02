@@ -7,11 +7,11 @@ import {
   users as usersTable
 } from '../../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb } from '../../test/db.ts'
-import { NotYetImplementedError } from '../connector.ts'
 import { usersPhase } from './users.ts'
 import type { TestFixtures } from '../../test/db.ts'
 import type { SourceConnector, SourceRecord } from '../connector.ts'
 import type { MigrationContext } from '../context.ts'
+import { iterate as iter, stubSourceConnector } from '../../test/migrationFixtures.ts'
 
 const LOCAL_STRATEGY_ID = 'integration-local-strategy-uuid'
 const FAKE_ADMIN_GROUP_ID = 'integration-admin-group-uuid'
@@ -22,24 +22,11 @@ const OPERATOR_ACTOR_ID = 'integration-operator-uuid'
  * particular, but enough to prove it round-trips through the whole write path verbatim. */
 const ALICE_PASSWORD_HASH = '$2a$12$abcdefghijklmnopqrstuvKq8N3f6z2ZQvR8x9Yy7T1uW0eD4rL6C'
 
-async function* iter<T>(items: T[]): AsyncGenerator<T> {
-  for (const item of items) {
-    yield item
-  }
-}
-
 /** A minimal `SourceConnector`: real `groups()`/`users()` generators (with embedded group
  * membership, matching `PostgresSourceConnector.users()`'s real shape — Task 8), everything else a
  * `NotYetImplementedError` stub since this phase never reads them. */
 function fakeSourceConnector(): SourceConnector {
-  const notImplemented = (method: string) => () => {
-    throw new NotYetImplementedError(method, 'not needed by this test')
-  }
-  return {
-    kind: 'postgres',
-    connect: async () => {},
-    disconnect: async () => {},
-    describe: async () => ({ kind: 'postgres', location: 'fake', notes: [] }),
+  return stubSourceConnector({
     groups: () =>
       iter<SourceRecord>([
         {
@@ -71,15 +58,8 @@ function fakeSourceConnector(): SourceConnector {
           isVerified: true,
           groups: []
         }
-      ]),
-    pages: notImplemented('pages'),
-    pageHistory: notImplemented('pageHistory'),
-    tags: notImplemented('tags'),
-    navigation: notImplemented('navigation'),
-    settings: notImplemented('settings'),
-    comments: notImplemented('comments'),
-    assets: notImplemented('assets')
-  }
+      ])
+  })
 }
 
 describe(

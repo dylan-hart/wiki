@@ -14,34 +14,9 @@ import {
   type PageImportSuccess,
   type PagesWriteModel
 } from './page-import.ts'
+import { makeStagedPage } from '../../test/migrationFixtures.ts'
 
-function buildStagedPage(overrides: Partial<StagedPage> = {}): StagedPage {
-  return {
-    oldId: 1,
-    path: 'welcome',
-    locale: 'en',
-    title: 'Welcome',
-    description: null,
-    content: '# Welcome',
-    render: '<h1>Welcome</h1>',
-    toc: null,
-    contentType: 'markdown',
-    isPrivate: false,
-    privateNS: null,
-    isPublished: true,
-    publishStartDate: null,
-    publishEndDate: null,
-    createdAt: '2024-01-01T00:00:00.000Z',
-    updatedAt: '2024-01-01T00:00:00.000Z',
-    extra: {},
-    editorKey: 'markdown',
-    tags: [],
-    authorId: 'actor-1',
-    creatorId: 'actor-1',
-    history: [],
-    ...overrides
-  }
-}
+const buildStagedPage = makeStagedPage
 
 /** In-memory fake standing in for `WIKI.models.pages` — records every call so tests can assert on
  * what the importer actually sent it, without touching a database. */

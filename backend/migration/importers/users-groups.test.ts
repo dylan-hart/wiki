@@ -22,18 +22,13 @@ import {
   type UsersGroupsWriter
 } from './users-groups.ts'
 import type { SourceRecord } from '../connector.ts'
+import { iterate as iter } from '../../test/migrationFixtures.ts'
 
 const TARGET_ADMIN_GROUP_ID = 'target-admin-group-uuid'
 const TARGET_GUEST_GROUP_ID = 'target-guest-group-uuid'
 
 /** Wraps a plain array as the `AsyncIterable<SourceRecord>` the engine consumes, matching how a
  * real `SourceConnector` generator would be read. */
-async function* iter<T>(items: T[]): AsyncIterable<T> {
-  for (const item of items) {
-    yield item
-  }
-}
-
 /** A writer that records every call it receives, in order, on top of a real (non-DB) uuid-minting
  * implementation — lets a test assert both write order and write content without a database. */
 function recordingWriter(): UsersGroupsWriter & { calls: string[] } {
