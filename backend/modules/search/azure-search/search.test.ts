@@ -4,6 +4,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mock } from 'node:test'
 import { ensureTemporal } from '../../../test/temporal.ts'
+import { createSilentLogger, installTestWiki } from '../../../test/mocks.ts'
+import { makeIndexablePage } from '../../../test/builders.ts'
 import { search } from '../../../models/search.ts'
 import {
   AzureSearchModule,
@@ -44,9 +46,10 @@ before(() => ensureTemporal())
  * `search.refreshFromDisk()` below can read this engine's own `definition.yml`) and
  * `models.groups.checkAccess` (page-permission filtering in `query()`).
  */
-;(globalThis as any).WIKI = {
+installTestWiki({
   SERVERPATH: backendDir,
-  logger: { info: mock.fn(), warn: mock.fn() },
+  // -> Not the silent default: several tests assert on what the module logged.
+  logger: { ...createSilentLogger(), info: mock.fn(), warn: mock.fn() },
   sites: {
     'site-1': {
       config: {
@@ -63,7 +66,7 @@ before(() => ensureTemporal())
       checkAccess: () => true
     }
   }
-}
+})
 
 /**
  * `configFor()` resolves this engine's config through `search.getEngineConfig`, which completes it
@@ -134,43 +137,8 @@ function fakeQueryClient(
   }
 }
 
-function page(overrides: Partial<SearchIndexablePage> = {}): SearchIndexablePage {
-  return {
-    id: 'p1',
-    siteId: 'site-1',
-    locale: 'en',
-    path: 'docs/kangaroo',
-    hash: 'h',
-    alias: null,
-    title: 'The Wandering Kangaroo',
-    description: 'A page about kangaroos',
-    icon: 'mdi:file',
-    publishState: 'published',
-    publishStartDate: null,
-    publishEndDate: null,
-    config: {},
-    relations: [],
-    content: '# Hello',
-    render: null,
-    searchContent: 'Hello kangaroo content',
-    tags: ['animals'],
-    toc: null,
-    editor: 'markdown',
-    contentType: 'markdown',
-    isBrowsable: true,
-    isSearchable: true,
-    classification: 'classification-1',
-    password: null,
-    scripts: {},
-    historyData: {},
-    createdAt: new Date('2024-01-01T00:00:00Z'),
-    updatedAt: new Date('2024-01-02T03:04:05.678Z'),
-    authorId: 'u1',
-    creatorId: 'u1',
-    ownerId: 'u1',
-    ...overrides
-  } as any as SearchIndexablePage
-}
+/** The 28-field superset lives in `test/builders.ts` — this engine reads the widest set of them. */
+const page = makeIndexablePage
 
 describe('azure-search module: buildIndexSchema', () => {
   const schema = buildIndexSchema('wiki')

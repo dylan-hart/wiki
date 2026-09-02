@@ -17,6 +17,7 @@ import {
   toSearchPagesResult
 } from './shared.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 import { search } from '../../models/search.ts'
 import type { RebuildPageSource } from './shared.ts'
 import type { AccessActor } from '../../models/groups.ts'
@@ -75,15 +76,14 @@ describe('normalizeMarkers()', () => {
 })
 
 describe('defaultPageSource()', () => {
-  let previousDb: any
+  let wikiHandle: { restore(): void }
 
   before(() => {
-    ;(globalThis as any).WIKI = (globalThis as any).WIKI ?? {}
-    previousDb = (globalThis as any).WIKI.db
+    wikiHandle = installTestWiki()
   })
 
   after(() => {
-    ;(globalThis as any).WIKI.db = previousDb
+    wikiHandle.restore()
   })
 
   test('locales() reads the distinct locales of one site, in the order postgres returned them', async () => {
@@ -271,15 +271,14 @@ describe('batchBySize()', () => {
 })
 
 describe('pageStream()', () => {
-  let previousDb: any
+  let wikiHandle: { restore(): void }
 
   before(() => {
-    ;(globalThis as any).WIKI = (globalThis as any).WIKI ?? {}
-    previousDb = (globalThis as any).WIKI.db
+    wikiHandle = installTestWiki()
   })
 
   after(() => {
-    ;(globalThis as any).WIKI.db = previousDb
+    wikiHandle.restore()
   })
 
   /** A fake `WIKI.db` serving successive keyset windows, recording the cursor conditions it saw. */
@@ -401,15 +400,14 @@ describe('localePageStream()', () => {
 })
 
 describe('filterVisible()', () => {
-  let previousModels: any
+  let wikiHandle: { restore(): void }
 
   before(() => {
-    ;(globalThis as any).WIKI = (globalThis as any).WIKI ?? {}
-    previousModels = (globalThis as any).WIKI.models
+    wikiHandle = installTestWiki()
   })
 
   after(() => {
-    ;(globalThis as any).WIKI.models = previousModels
+    wikiHandle.restore()
   })
 
   /** Installs a `checkAccess` recording every ref it was asked about, and answering from `allow`. */

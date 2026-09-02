@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, describe, it, mock } from 'node:test'
 import { load } from 'js-yaml'
 import { parseModuleProps } from '../../../helpers/moduleProps.ts'
+import { createSilentLogger, installTestWiki } from '../../../test/mocks.ts'
 import commentsDefaultModule, {
   _resetAkismetClientCacheForTesting,
   _setAkismetClientFactoryForTesting,
@@ -18,10 +19,11 @@ import type { CheckSpamParams } from './comments.ts'
  * tests can assert on the fail-open message without asserting on real log formatting.
  */
 const warnLog: string[] = []
-;(globalThis as any).WIKI = {
+installTestWiki({
   config: { host: 'https://test.wiki' },
-  logger: { warn: (msg: string) => warnLog.push(msg) }
-}
+  // -> Not the silent default: tests assert on the fail-open warning this module emits.
+  logger: { ...createSilentLogger(), warn: (msg: string) => warnLog.push(msg) }
+})
 
 /**
  * Minimal stand-in for the subset of `Temporal` `checkRateLimit` and this file's own fixtures use

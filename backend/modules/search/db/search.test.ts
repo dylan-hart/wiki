@@ -9,6 +9,7 @@ import {
   type TestFixtures
 } from '../../../test/db.ts'
 import { groups as groupsTable } from '../../../db/schema.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
 import type { PageActor, PageInput } from '../../../models/pages.ts'
 import type { GroupRule } from '../../../models/groups.ts'
 
@@ -573,11 +574,10 @@ describe('db search module query() siteId threading (task 678)', () => {
    */
 
   let checkAccessCalls: any[] = []
+  let wikiHandle: { restore(): void }
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      config: {},
-      sites: {},
+    wikiHandle = installTestWiki({
       db: {
         execute: async () => ({
           rows: [
@@ -605,11 +605,11 @@ describe('db search module query() siteId threading (task 678)', () => {
           }
         }
       }
-    }
+    })
   })
 
   after(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('query: threads siteId into the RulePageRef passed to checkAccess', async () => {
@@ -665,19 +665,19 @@ describe('db search module query() totalHitsApproximate (OpenProject #2006)', ()
     ]
   }
 
+  let wikiHandle: { restore(): void }
+
   function installWiki(checkAccess: (page: any) => boolean) {
-    ;(globalThis as any).WIKI = {
-      config: {},
-      sites: {},
+    wikiHandle = installTestWiki({
       db: { execute: async () => ({ rows: rowFixtures() }) },
       models: {
         groups: { checkAccess: (_actor: any, _permission: string, page: any) => checkAccess(page) }
       }
-    }
+    })
   }
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('is true when the rules filter drops a row the engine counted', async () => {

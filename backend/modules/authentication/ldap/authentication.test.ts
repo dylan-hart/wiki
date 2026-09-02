@@ -5,6 +5,7 @@ import path from 'node:path'
 import { after, before, beforeEach, test } from 'node:test'
 import LdapAuthentication from './authentication.ts'
 import { ProvisionableLoginError } from '../../../models/authentication.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
 
 /**
  * `ldapts` talks to a real directory server, so this suite never touches the network: `authenticate()`
@@ -75,15 +76,14 @@ function makeClientFactory(handlers: FakeDirectoryHandlers) {
   return { factory, calls }
 }
 
+let wikiHandle: { restore(): void }
+
 before(() => {
-  ;(globalThis as any).WIKI = {
-    logger: { warn: () => {}, error: () => {} },
-    models: { flags: { authDebug: () => {} } }
-  }
+  wikiHandle = installTestWiki({ models: { flags: { authDebug: () => {} } } })
 })
 
 after(() => {
-  delete (globalThis as any).WIKI
+  wikiHandle.restore()
 })
 
 let clientFactoryCallCount = 0

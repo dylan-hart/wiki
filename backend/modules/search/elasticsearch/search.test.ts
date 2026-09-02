@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ensureTemporal } from '../../../test/temporal.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
 import { search } from '../../../models/search.ts'
 import {
   ElasticsearchSearchModule,
@@ -316,13 +317,11 @@ describe('batchOperations()', () => {
  */
 describe('ElasticsearchSearchModule', () => {
   const siteId = 'site-1'
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
 
   before(async () => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       SERVERPATH: backendDir,
-      logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} },
       sites: {
         [siteId]: {
           config: {
@@ -344,12 +343,12 @@ describe('ElasticsearchSearchModule', () => {
           checkAccess: () => true
         }
       }
-    }
+    })
     await search.refreshFromDisk()
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   test("init() creates the index with this module's mapping when it does not exist yet", async () => {

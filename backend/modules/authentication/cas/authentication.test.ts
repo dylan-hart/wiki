@@ -3,6 +3,7 @@ import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { after, before, test } from 'node:test'
 import CasAuthentication from './authentication.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
 
 /**
  * CAS talks to a real server over HTTP, so — per the task's own "or a hand-rolled mock
@@ -35,8 +36,10 @@ const grantedTickets: Record<string, GrantedTicket> = {
   'ST-cas1-dave': { username: 'dave' }
 }
 
+let wikiHandle: { restore(): void }
+
 before(async () => {
-  ;(globalThis as any).WIKI = { models: { flags: { authDebug: () => {} } } }
+  wikiHandle = installTestWiki({ models: { flags: { authDebug: () => {} } } })
 
   server = http.createServer((req, res) => {
     const url = new URL(req.url!, 'http://localhost')
@@ -76,7 +79,7 @@ before(async () => {
 
 after(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()))
-  delete (globalThis as any).WIKI
+  wikiHandle.restore()
 })
 
 const CAS3_CONF = () => ({

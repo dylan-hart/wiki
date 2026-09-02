@@ -4,6 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mock } from 'node:test'
 import { ensureTemporal } from '../../../test/temporal.ts'
+import { createSilentLogger, installTestWiki } from '../../../test/mocks.ts'
 import { search } from '../../../models/search.ts'
 import {
   AwsCloudSearchModule,
@@ -49,9 +50,10 @@ before(() => ensureTemporal())
  * CloudSearch emulator (Feature #381's description), so every suite here builds a fake admin client
  * that records what it was called with and resolves canned describe results, the way a real one would.
  */
-;(globalThis as any).WIKI = {
+installTestWiki({
   SERVERPATH: backendDir,
-  logger: { info: mock.fn(), warn: mock.fn() },
+  // -> Not the silent default: several tests assert on what the module logged.
+  logger: { ...createSilentLogger(), info: mock.fn(), warn: mock.fn() },
   sites: {
     'site-1': {
       config: {
@@ -75,7 +77,7 @@ before(() => ensureTemporal())
       checkAccess: () => true
     }
   }
-}
+})
 
 /**
  * `configFor()` resolves this engine's config through `search.getEngineConfig`, which completes it

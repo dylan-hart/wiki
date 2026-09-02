@@ -6,6 +6,7 @@ import path from 'node:path'
 import { inflateRawSync } from 'node:zlib'
 import { after, before, test } from 'node:test'
 import SamlAuthentication from './authentication.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
 // -> A deep import into `@node-saml/node-saml`'s own compiled output, not the package's public entry
 //    point: `signXml` is the low-level XML-signing primitive its own test suite uses to build signed
 //    fixtures, and is the most direct way to hand this suite a genuinely, cryptographically signed
@@ -26,7 +27,7 @@ let certPem: string
 let keyPem: string
 
 before(() => {
-  ;(globalThis as any).WIKI = { models: { flags: { authDebug: () => {} } } }
+  installTestWiki({ models: { flags: { authDebug: () => {} } } })
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-saml-test-'))
   const keyPath = path.join(tmpDir, 'idp-key.pem')
   const certPath = path.join(tmpDir, 'idp-cert.pem')

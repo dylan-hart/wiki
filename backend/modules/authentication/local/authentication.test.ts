@@ -2,6 +2,7 @@ import { afterEach, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import bcrypt from 'bcryptjs'
 import LocalAuthentication from './authentication.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
 
 /**
  * `authenticate()` is the password-login path every e2e spec depends on (see CLAUDE.md's Testing
@@ -31,7 +32,7 @@ function makeUser(overrides: Partial<any> = {}) {
 }
 
 function stubGetByEmail(user: any) {
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     models: {
       users: {
         getByEmail: async (email: string) => {
@@ -40,11 +41,13 @@ function stubGetByEmail(user: any) {
         }
       }
     }
-  }
+  })
 }
 
+let wikiHandle: { restore(): void }
+
 afterEach(() => {
-  delete (globalThis as any).WIKI
+  wikiHandle.restore()
 })
 
 describe('LocalAuthentication.authenticate', () => {
