@@ -90,9 +90,20 @@ in one pass at the end of the consolidation (agents must not edit `CLAUDE.md` mi
 - **Drift the composable settles, so a new page copies the settled shape:** a failed `load()`
   always carries `caption: apiErrorMessage(err)`; the overlay is shown and hidden inside `load()`,
   never by the caller's watcher; a site-scoped page never fetches without a `currentSiteId` (the
-  guard is in `load()`, so `onMounted`/the watcher need no `if`); and the raw
+  guard is in `load()`, so `onMounted`/the watcher need no `if`); the raw
   `'An unexpected error occured.'` fallback is gone from every page this task touched
-  (`t('common.error.unexpected')` instead — 14 files carried the literal, now 10).
+  (`t('common.error.unexpected')` instead — 14 files carried the literal, now 10); and a failed
+  `save()` always captions itself with the page's own message for the server's error code
+  (`t(\`<prefix>.${err.data?.error}\`, apiErrorMessage(err, …))`), falling back to the server's
+  message where the page has none. That fourth delta is a real behaviour change on
+  `AdminAnalytics`, `AdminFlags` and `AdminSecurity`, none of which did that lookup before — a save
+  failure there now reads as this page's own wording for that error code where one exists, and is
+  unchanged where it does not.
+- **One user-visible consequence, not just a wording one:** `overlay` defaults to `true`, so Refresh
+  on `AdminBlocks` and `AdminEditors` now raises the full-screen loading overlay, which their
+  hand-written `load()` never did. Deliberate — it is what every other settings page already did —
+  but it is the one place where adopting the settled shape changed what a reader sees rather than
+  only what a failure says.
 - **`refresh()` is the composable's**, not a per-page `await load(); notify(refreshSuccess)`
   wrapper: five of the seven copies (`AdminAnalytics`, `AdminAuth`, `AdminMetrics`,
   `AdminPageviews`, `AdminApi`) are now `const { refresh } = useAdminSettings(...)`. The two left

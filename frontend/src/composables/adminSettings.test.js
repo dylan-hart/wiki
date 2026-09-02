@@ -271,6 +271,55 @@ describe('useAdminSettings() save', () => {
     expect(onSavedCurrentSite).not.toHaveBeenCalled()
   })
 
+  it('runs onSaved before onSavedCurrentSite, and awaits it', async () => {
+    const order = []
+    const onSaved = vi.fn(async () => {
+      await Promise.resolve()
+      order.push('onSaved')
+    })
+    const onSavedCurrentSite = vi.fn(() => {
+      order.push('onSavedCurrentSite')
+    })
+    const { api, siteStore } = await mountComposable({
+      siteId: 'site-1',
+      commit: vi.fn().mockResolvedValue(undefined),
+      onSaved,
+      onSavedCurrentSite
+    })
+    siteStore.$patch({ id: 'site-1' })
+
+    await api.save()
+
+    // -> Awaited, not merely called first: a page whose `onSaved` refetches something
+    //    `onSavedCurrentSite` then reads would otherwise see the value it had before the save.
+    expect(order).toEqual(['onSaved', 'onSavedCurrentSite'])
+  })
+
+  it('reports a throwing onSaved as a failed save', async () => {
+    const onSavedCurrentSite = vi.fn()
+    const { api, siteStore } = await mountComposable({
+      siteId: 'site-1',
+      commit: vi.fn().mockResolvedValue(undefined),
+      onSaved: vi.fn().mockRejectedValue(apiError({ error: 'afterSave', message: 'Hook failed' })),
+      onSavedCurrentSite
+    })
+    siteStore.$patch({ id: 'site-1' })
+
+    const ok = await api.save()
+
+    // -> The commit itself went through and its success toast was already raised, but the page has
+    //    something left undone -- so `save()` answers false and the failure is reported, rather than
+    //    the page carrying on as if everything had landed.
+    expect(ok).toBe(false)
+    expect(onSavedCurrentSite).not.toHaveBeenCalled()
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: `${I18N_PREFIX}.saveFailed`,
+      caption: 'Hook failed'
+    })
+    expect(api.state.loading).toBe(0)
+  })
+
   it('gates nothing on the browsed site for a page that is not site-scoped', async () => {
     const onSavedCurrentSite = vi.fn()
     const { api } = await mountComposable({

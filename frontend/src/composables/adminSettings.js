@@ -45,7 +45,11 @@ import { useSiteStore } from '@/stores/site'
  * @param {(siteId: string) => Promise<any>} opts.fetch The page's own read request(s). Called with
  *   the administered site id, which is `null` for a page that is not site-scoped.
  * @param {(resp: any) => object} [opts.pick] The part of the response that is the config, when it is
- *   a sub-object (`(site) => site.theme`). Defaults to the whole response.
+ *   a sub-object (`(site) => site.theme`). Defaults to the whole response. Called inside `load()`'s
+ *   own `try`, so it MAY throw -- a response that does not hold what this page expected reads as a
+ *   failed load and raises the load-failure toast, rather than merging garbage into `state.config`.
+ *   It may also read the page's current state (`state`, a store), since it runs after the fetch
+ *   resolved; it must not write any, which is `onLoaded`'s job.
  * @param {(resp: any) => void} [opts.onLoaded] Everything else the same response carries, for the
  *   state a page keeps outside its config.
  * @param {(siteId: string, config: object) => Promise<any>} [opts.commit] The page's own write
