@@ -12,7 +12,7 @@ import { registerParamsSchemas } from './schemas/params.ts'
  * Task #683: `GET .../navigation/pages/:pageId/inherited` and `PUT .../navigation/pages/:pageId`
  * used to gate on the blanket route-level `manage:navigation` alone. Both routes now also accept the
  * site-scoped `site:navigation` permission from task #682 (`checkSiteAccess()`), checked in-handler
- * via `canManageNavigation` since `config.permissions` cannot express a per-site check.
+ * via `checkSiteAdminAccess` since `config.permissions` cannot express a per-site check.
  */
 
 const SITE_ID = '5d9c8f1e-2b3a-4c5d-9e6f-7a8b9c0d1e2f'
@@ -259,7 +259,7 @@ test('GET .../navigation/:navId passes the request-resolved actor through to get
  * ['manage:navigation']` after task #683 introduced `site:navigation` delegation — the global
  * `preHandler` hook resolves that from `session.permissions` only, so `checkSiteAccess()` could
  * never run for these, and a `site:navigation`-only caller got a 403 from every one of them despite
- * `AdminNavigation.vue` showing them the page. Each now checks `canManageNavigation()` in-handler,
+ * `AdminNavigation.vue` showing them the page. Each now checks `checkSiteAdminAccess()` in-handler,
  * the same way their siblings above already did.
  */
 describe('site:navigation delegation on the six previously route-gated endpoints (task #933)', () => {
@@ -707,7 +707,7 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
   test('an anonymous request is refused a save', async () => {
     // -> 403, not 401: task #933 moved this route off route-level `config.permissions` (whose
     //    preHandler hook distinguishes "nobody home" from "wrong permission") onto the same
-    //    in-handler `canManageNavigation()` check every sibling delegated route already uses, which
+    //    in-handler `checkSiteAdminAccess()` check every sibling delegated route already uses, which
     //    answers a flat forbidden() either way -- see the task #933 describe above.
     const res = await app.inject({
       method: 'PUT',

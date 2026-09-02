@@ -14,7 +14,7 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
    * Task #683: `/sites/:siteId/approvals/rules` (GET/POST/PUT/DELETE) — the routes behind
    * `AdminApprovals.vue` — used to gate on the blanket route-level `manage:sites`. They
    * now also accept the site-scoped `site:approvals` permission from task #682 (`checkSiteAccess()`),
-   * checked in-handler via `mayAdministerApprovals` since `config.permissions` cannot express a
+   * checked in-handler via `checkSiteAdminAccess` since `config.permissions` cannot express a
    * per-site check.
    *
    * The submission/review routes (`/sites/:siteId/approvals/submissions/...`,

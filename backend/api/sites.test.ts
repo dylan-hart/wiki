@@ -952,7 +952,7 @@ test('userPermissions returns every site: permission for manage:system', async (
 /**
  * `manage:sites` deliberately is NOT folded into this list -- `sitePermissionsFor`'s own comment
  * explains why (it would tell the caller they hold `site:navigation`, which `manage:sites` alone
- * does not grant against the real `canManageNavigation` check in `api/navigation.ts`). The frontend
+ * does not grant against the real `checkSiteAdminAccess` check in `api/navigation.ts`). The frontend
  * combines this list with `manage:sites` / `manage:theme` / `manage:navigation` itself, per surface.
  */
 test('userPermissions does NOT fold in manage:sites', async () => {

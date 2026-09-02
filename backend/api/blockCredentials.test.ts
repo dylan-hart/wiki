@@ -12,8 +12,8 @@ import { registerParamsSchemas } from './schemas/params.ts'
 /**
  * A unit-level test of the route's own wiring — the shared site preHandler, the `manage:sites`/
  * `site:blocks` gate, response shape — with `WIKI.sites`/`models.blockCredentials`/`models.groups`
- * stubbed rather than a real
- * database, the same way `api/blocks.test.ts`'s PUT/DELETE suite covers `mayManageBlocks`.
+ * stubbed rather than a real database, the same way `api/blocks.test.ts`'s PUT/DELETE suite covers
+ * the same `checkSiteAdminAccess` gate.
  * `models/blockCredentials.test.ts` is what proves the model itself against a real database.
  */
 describe('block credentials API (site-scoped delegation)', () => {

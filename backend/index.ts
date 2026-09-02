@@ -852,7 +852,7 @@ async function initHTTPServer() {
     Global-vs-page-rule audit (task 551, Feature 377): every `session.permissions` /
     `apiKey.permissions` read under `backend/` was re-grepped and confirmed to check a genuinely-global
     permission name (this hook's own `routePermissions`, `models/users.ts`'s login flattening,
-    `models/approvals.ts`, `api/navigation.ts`'s `canManageNavigation()`, `controllers/terminal.ts`,
+    `models/approvals.ts`, `models/groups.ts`'s `checkSiteAdminAccess()`, `controllers/terminal.ts`,
     `helpers/rateLimit.ts`, `models/groups.ts`'s `actorForRequest()`, `api/users.ts`'s `whoAmI()`), not
     one of the fourteen page-rule `PAGE_PERMISSIONS` strings — those may only be decided by
     `groups.checkAccess()` / `mayOnPage()` against a page's rules. One further instance turned up in
