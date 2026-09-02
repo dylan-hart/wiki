@@ -1,5 +1,6 @@
 import { and, asc, eq, gt } from 'drizzle-orm'
 import { pages as pagesTable } from '../../db/schema.ts'
+import { search } from '../../models/search.ts'
 import type { SQL } from 'drizzle-orm'
 import type { AccessActor } from '../../models/groups.ts'
 import type { SearchIndexablePage, SearchPagesResult, SearchResult } from '../../models/search.ts'
@@ -449,4 +450,46 @@ export function toSearchPagesResult<T>(
     totalHitsApproximate: scanned.length !== visible.length,
     suggestion: null
   }
+}
+
+/**
+ * Substitute an engine's declared `definition.yml` default for any config value stored as the empty
+ * string.
+ *
+ * Restores the semantics the per-engine `config.indexName || DEFAULT_INDEX_NAME` (and `region ||`,
+ * `analysisSchemeLang ||`, `analyzer ||`) fallbacks had, without a hard-coded constant per engine.
+ * Those `||` chains caught two cases: a value that was never stored, and a value the operator
+ * CLEARED. `getEngineConfig()` only covers the first — `helpers/moduleRegistry.ts#mergeModuleConfig`
+ * substitutes a prop's default when the stored value is `undefined`, and an emptied text field is
+ * stored as `''`, not removed — so without this a cleared index name would reach the vendor client as
+ * `''` and target an unnamed index.
+ *
+ * Deliberately here rather than in `mergeModuleConfig`: that merge is shared by every module kind
+ * (storage, authentication, analytics, comments, extensions), and "empty means unset" is not true for
+ * all of them — a blank credential is a blank credential. Deliberately not solved by marking the
+ * props `required` either: that would change what the admin area is willing to save, which is a
+ * different decision from what a client falls back to at connect time.
+ *
+ * Only a prop whose own declared default is a non-empty string is filled, so a `sensitive` credential
+ * (declared `default: ''`) stays empty rather than acquiring a value it never had. Non-string values
+ * are untouched: a boolean prop cannot be `''`, and a number one stored as `0` is a real setting.
+ *
+ * @param key The engine's module key, i.e. the directory name of its `definition.yml`.
+ */
+export function fillEmptyStringDefaults(
+  config: Record<string, any>,
+  key: string
+): Record<string, any> {
+  const props = search.getDefinition(key)?.props ?? {}
+  const filled: Record<string, any> = { ...config }
+  for (const [prop, declaration] of Object.entries(props)) {
+    if (
+      filled[prop] === '' &&
+      typeof declaration.default === 'string' &&
+      declaration.default !== ''
+    ) {
+      filled[prop] = declaration.default
+    }
+  }
+  return filled
 }

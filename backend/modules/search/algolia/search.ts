@@ -4,6 +4,7 @@ import { ExternalSearchModule } from '../externalBase.ts'
 import {
   batchBySize,
   buildSearchDocument,
+  fillEmptyStringDefaults,
   filterVisible,
   MAX_INDEXING_BYTES,
   MAX_INDEXING_COUNT,
@@ -253,7 +254,7 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
 
   /** Build (or reuse) the Algolia client for a site, from whatever config is currently stored for it. */
   private async getClient(siteId: string): Promise<SiteClient> {
-    const config = search.getEngineConfig(siteId, MODULE_KEY)
+    const config = fillEmptyStringDefaults(search.getEngineConfig(siteId, MODULE_KEY), MODULE_KEY)
     const configKey = `${config.appId}:${config.apiKey}:${config.indexName}`
     const cached = this.clients.get(siteId)
     if (cached && cached.configKey === configKey) {
@@ -271,8 +272,12 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
    * Push the index configuration (`searchableAttributes`, facets) for a site as soon as it is
    * (re)configured, and cache the client `query`/`created`/etc. reuse afterwards -- see the class doc
    * comment for why every other hook does not strictly depend on this having been called first.
+   *
+   * `incoming` is completed the same way `getClient()` completes what it reads, so a cleared
+   * `indexName` provisions `wiki` rather than an unnamed index — see `fillEmptyStringDefaults`.
    */
-  async init(siteId: string, config: Record<string, any>): Promise<void> {
+  async init(siteId: string, incoming: Record<string, any>): Promise<void> {
+    const config = fillEmptyStringDefaults(incoming, MODULE_KEY)
     const client = this.createClient(config.appId, config.apiKey)
     const indexName = config.indexName
     await this.setSettings(client, indexName)

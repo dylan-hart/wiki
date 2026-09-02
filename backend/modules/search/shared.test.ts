@@ -5,6 +5,7 @@ import {
   buildSearchDocument,
   defaultPageSource,
   escapeHtml,
+  fillEmptyStringDefaults,
   filterVisible,
   HL_START,
   HL_STOP,
@@ -16,6 +17,7 @@ import {
   toSearchPagesResult
 } from './shared.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
+import { search } from '../../models/search.ts'
 import type { RebuildPageSource } from './shared.ts'
 import type { AccessActor } from '../../models/groups.ts'
 import type { SearchIndexablePage, SearchResult } from '../../models/search.ts'
@@ -553,5 +555,97 @@ describe('toSearchPagesResult()', () => {
     })
     assert.deepEqual(result.results, [])
     assert.equal(result.totalHits, 1)
+  })
+})
+
+describe('fillEmptyStringDefaults()', () => {
+  let previousDefinitions: any
+
+  before(() => {
+    previousDefinitions = search.definitions
+    search.definitions = [
+      {
+        key: 'fake-engine',
+        title: 'Fake',
+        description: '',
+        vendor: '',
+        website: '',
+        props: {
+          // -> A prop with a real default, the case the engines actually depend on
+          indexName: fakeProp({ type: 'string', default: 'wiki' }),
+          // -> A credential: declared default is the empty string, so an empty value stays empty
+          apiKey: fakeProp({ type: 'string', default: '', sensitive: true }),
+          // -> An enum-backed string, exactly the shape aws's `region`/`analysisSchemeLang` have
+          region: fakeProp({
+            type: 'string',
+            default: 'us-east-1',
+            enum: ['us-east-1', 'eu-west-1']
+          }),
+          sniffOnStart: fakeProp({ type: 'boolean', default: false }),
+          sniffInterval: fakeProp({ type: 'number', default: 0 })
+        }
+      }
+    ] as any
+  })
+
+  after(() => {
+    search.definitions = previousDefinitions
+  })
+
+  function fakeProp(overrides: Record<string, any> = {}) {
+    return {
+      default: '',
+      type: 'string',
+      title: '',
+      hint: '',
+      enum: false,
+      enumDisplay: '',
+      multiline: false,
+      sensitive: false,
+      readOnly: false,
+      required: false,
+      pattern: '',
+      icon: '',
+      order: 0,
+      ...overrides
+    }
+  }
+
+  test('a stored-but-empty value falls back to the prop’s declared default', () => {
+    assert.deepEqual(fillEmptyStringDefaults({ indexName: '', region: '' }, 'fake-engine'), {
+      indexName: 'wiki',
+      region: 'us-east-1'
+    })
+  })
+
+  test('a value the operator actually set is left alone', () => {
+    assert.equal(fillEmptyStringDefaults({ indexName: 'other' }, 'fake-engine').indexName, 'other')
+  })
+
+  test('a prop whose own default is empty stays empty — a blank credential is not "wiki"', () => {
+    assert.equal(fillEmptyStringDefaults({ apiKey: '' }, 'fake-engine').apiKey, '')
+  })
+
+  test('non-string values are untouched, whatever their declared default', () => {
+    const filled = fillEmptyStringDefaults({ sniffOnStart: false, sniffInterval: 0 }, 'fake-engine')
+    assert.equal(filled.sniffOnStart, false)
+    assert.equal(filled.sniffInterval, 0)
+  })
+
+  test('a key the engine does not declare is carried through unchanged', () => {
+    assert.equal(fillEmptyStringDefaults({ notAProp: '' }, 'fake-engine').notAProp, '')
+  })
+
+  test('does not mutate the config it was given', () => {
+    const config = { indexName: '' }
+    const filled = fillEmptyStringDefaults(config, 'fake-engine')
+    assert.equal(config.indexName, '')
+    assert.equal(filled.indexName, 'wiki')
+  })
+
+  test('an unknown engine key is a no-op rather than a throw', () => {
+    assert.deepEqual(fillEmptyStringDefaults({ indexName: '' }, 'no-such-engine'), {
+      indexName: ''
+    })
   })
 })

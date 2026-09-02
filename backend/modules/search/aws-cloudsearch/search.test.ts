@@ -322,6 +322,26 @@ describe('aws-cloudsearch module: init()', () => {
     assert.equal(client.indexDocumentsCalls, 1)
   })
 
+  test('an analysis scheme language the operator CLEARED falls back to its declared default', async () => {
+    // -> `getEngineConfig`'s merge only substitutes a declared default for `undefined`, and an
+    //    emptied field is stored as `''` — so the module completes empty strings itself
+    //    (`shared.ts#fillEmptyStringDefaults`). This is what the per-engine
+    //    `|| DEFAULT_ANALYSIS_SCHEME_LANG` used to cover; without it the domain's scheme would be
+    //    defined against an empty language, and a domain already on `en` would be needlessly
+    //    redefined and reindexed on every boot.
+    const client = fakeClient({
+      schemes: [{ name: 'wiki_analysis_scheme', language: 'en' }],
+      fields: buildIndexFields('wiki_analysis_scheme'),
+      suggesters: [{ name: 'wiki_title_suggester' }]
+    })
+    const module = new AwsCloudSearchModule(() => client)
+
+    await module.init('site-1', { ...BASE_CONFIG, analysisSchemeLang: '' })
+
+    assert.equal(client.defineAnalysisSchemeCalls, 0)
+    assert.equal(client.indexDocumentsCalls, 0)
+  })
+
   test('on an already-provisioned domain, defines nothing and skips the reindex', async () => {
     const client = fakeClient({
       schemes: [{ name: 'wiki_analysis_scheme', language: 'en' }],

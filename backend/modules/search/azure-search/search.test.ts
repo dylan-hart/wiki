@@ -274,6 +274,19 @@ describe('azure-search module: init()', () => {
     assert.equal(client.calls[0]!.name, 'wiki')
   })
 
+  test('an index name the operator CLEARED still provisions "wiki", not an unnamed index', async () => {
+    // -> `getEngineConfig`'s merge only substitutes a declared default for `undefined`, and an
+    //    emptied text field is stored as `''` — so the module completes empty strings itself
+    //    (`shared.ts#fillEmptyStringDefaults`). This is what the per-engine `|| DEFAULT_INDEX_NAME`
+    //    used to cover, and dropping it without this would have sent Azure an empty index name.
+    const client = fakeClient()
+    const azureSearch = new AzureSearchModule(() => client)
+
+    await azureSearch.init('site-1', { serviceName: 'demo', adminApiKey: 'key', indexName: '' })
+
+    assert.equal(client.calls[0]!.name, 'wiki')
+  })
+
   test('the index name defaults to "wiki" for a site that never set one', async () => {
     // -> The default lives in `definition.yml` and reaches this module through
     //    `search.getEngineConfig` — which is what `selectEngine()`/`initActiveEngines()` hand `init()`

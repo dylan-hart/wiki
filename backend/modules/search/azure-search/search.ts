@@ -4,6 +4,7 @@ import { search } from '../../../models/search.ts'
 import { ExternalSearchModule } from '../externalBase.ts'
 import {
   defaultPageSource,
+  fillEmptyStringDefaults,
   filterVisible,
   HL_START,
   HL_STOP,
@@ -422,9 +423,13 @@ export class AzureSearchModule extends ExternalSearchModule {
    * `initActiveEngines()`, and before any request can reach a hook here, so that precondition always
    * holds. Going through it is what lets `definition.yml` be the single place `indexName`'s default
    * is written down, instead of a `|| DEFAULT_INDEX_NAME` re-applied at each use site.
+   *
+   * `fillEmptyStringDefaults` is what keeps the *other* half of that `||`'s behaviour: a value the
+   * operator cleared is stored as `''`, which `getEngineConfig`'s merge treats as a real value rather
+   * than as unset, so without it a blanked `indexName` would reach Azure as an empty index name.
    */
   private configFor(siteId: string): Record<string, any> {
-    return search.getEngineConfig(siteId, MODULE_KEY)
+    return fillEmptyStringDefaults(search.getEngineConfig(siteId, MODULE_KEY), MODULE_KEY)
   }
 
   /**
@@ -437,8 +442,12 @@ export class AzureSearchModule extends ExternalSearchModule {
    * schema is later changed incompatibly for an index that already holds documents (e.g. flipping
    * `filterable` on an existing field), which is a schema-authoring concern for whoever next edits
    * `buildIndexSchema`, not something `init()` itself needs to guard against.
+   *
+   * `incoming` is completed the same way `configFor()` completes what it reads, so a cleared
+   * `indexName` provisions `wiki` rather than an unnamed index — see `fillEmptyStringDefaults`.
    */
-  async init(siteId: string, config: Record<string, any>): Promise<void> {
+  async init(siteId: string, incoming: Record<string, any>): Promise<void> {
+    const config = fillEmptyStringDefaults(incoming, MODULE_KEY)
     const indexName = config.indexName
     const client = this.clientFor(siteId, config)
     await client.createOrUpdateIndex(buildIndexSchema(indexName))

@@ -5,6 +5,7 @@ import { ExternalSearchModule } from '../externalBase.ts'
 import {
   batchBySize,
   buildSearchDocument,
+  fillEmptyStringDefaults,
   filterVisible,
   MAX_INDEXING_BYTES,
   MAX_INDEXING_COUNT,
@@ -260,7 +261,7 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
 
   /** Build (or reuse) the Elasticsearch client for a site, from whatever config is currently stored. */
   private async getClient(siteId: string): Promise<SiteClient> {
-    const config = search.getEngineConfig(siteId, MODULE_KEY)
+    const config = fillEmptyStringDefaults(search.getEngineConfig(siteId, MODULE_KEY), MODULE_KEY)
     const configKey = JSON.stringify(config)
     const cached = this.clients.get(siteId)
     if (cached && cached.configKey === configKey) {
@@ -278,8 +279,13 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
    * Connect and ensure the index exists for a site as soon as it is (re)configured, and cache the
    * client `query`/`created`/etc. reuse afterwards -- see the class doc comment for why every other
    * hook does not strictly depend on this having been called first.
+   *
+   * `incoming` is completed the same way `getClient()` completes what it reads, so a cleared
+   * `indexName` or `analyzer` falls back to its declared default rather than reaching the cluster as
+   * an empty string — see `fillEmptyStringDefaults`.
    */
-  async init(siteId: string, config: Record<string, any>): Promise<void> {
+  async init(siteId: string, incoming: Record<string, any>): Promise<void> {
+    const config = fillEmptyStringDefaults(incoming, MODULE_KEY)
     const client = this.createClient(config)
     const indexName = config.indexName
     await this.ensureIndex(client, indexName, config.analyzer)

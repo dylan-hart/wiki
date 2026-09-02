@@ -385,6 +385,16 @@ describe('AlgoliaSearchModule', () => {
     }
   })
 
+  test('an index name the operator CLEARED still targets "wiki", not an unnamed index', async () => {
+    // -> `getEngineConfig`'s merge only substitutes a declared default for `undefined`, and an
+    //    emptied text field is stored as `''` — so the module completes empty strings itself
+    //    (`shared.ts#fillEmptyStringDefaults`). This is what the per-engine `|| 'wiki'` used to cover.
+    const { mod, calls } = moduleWithFakeClient()
+    await mod.init(siteId, { appId: 'app123', apiKey: 'key456', indexName: '' })
+
+    assert.equal(calls.setSettings![0].indexName, 'wiki')
+  })
+
   test('created() saves the page as an Algolia object', async () => {
     const { mod, calls } = moduleWithFakeClient()
     await mod.created(fakePage())

@@ -371,6 +371,21 @@ describe('ElasticsearchSearchModule', () => {
     assert.deepEqual(mappings.properties.path, { type: 'text' })
   })
 
+  test('an index name and analyzer the operator CLEARED fall back to their declared defaults', async () => {
+    // -> `getEngineConfig`'s merge only substitutes a declared default for `undefined`, and an
+    //    emptied text field is stored as `''` — so the module completes empty strings itself
+    //    (`shared.ts#fillEmptyStringDefaults`). This is what the per-engine `|| 'wiki'` /
+    //    `|| 'standard'` used to cover; without it the cluster would be asked for an index named `''`
+    //    analyzed by `''`.
+    const { mod, calls, setIndexExists } = moduleWithFakeClient()
+    setIndexExists(false)
+    await mod.init(siteId, { hosts: 'http://localhost:9200', indexName: '', analyzer: '' })
+
+    assert.equal(calls.indicesCreate!.length, 1)
+    assert.equal(calls.indicesCreate![0].index, 'wiki')
+    assert.equal(calls.indicesCreate![0].settings.analysis.analyzer.default.type, 'standard')
+  })
+
   test('init() does not recreate an index that already exists', async () => {
     const { mod, calls, setIndexExists } = moduleWithFakeClient()
     setIndexExists(true)

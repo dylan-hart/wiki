@@ -17,6 +17,7 @@ import { search } from '../../../models/search.ts'
 import { ExternalSearchModule } from '../externalBase.ts'
 import {
   defaultPageSource,
+  fillEmptyStringDefaults,
   filterVisible,
   HL_START,
   HL_STOP,
@@ -773,9 +774,14 @@ export class AwsCloudSearchModule extends ExternalSearchModule {
    * `initActiveEngines()`, so the definitions `getEngineConfig` completes against are always
    * populated by the time any hook here runs, and `definition.yml` gets to be the single place
    * `region` and `analysisSchemeLang`'s defaults are written down.
+   *
+   * `fillEmptyStringDefaults` is what keeps the *other* half of the `|| DEFAULT_REGION` behaviour
+   * this replaced: a value the operator cleared is stored as `''`, which `getEngineConfig`'s merge
+   * treats as a real value rather than as unset, so without it a blanked `region` would reach the
+   * AWS SDK as an empty string.
    */
   private configFor(siteId: string): Record<string, any> {
-    return search.getEngineConfig(siteId, MODULE_KEY)
+    return fillEmptyStringDefaults(search.getEngineConfig(siteId, MODULE_KEY), MODULE_KEY)
   }
 
   /**
@@ -789,8 +795,13 @@ export class AwsCloudSearchModule extends ExternalSearchModule {
    * restarts. So this method describes what the domain already has first, only calls `DefineIndexField`
    * / `DefineAnalysisScheme` / `DefineSuggester` for what is missing or different, and requests a
    * reindex (`IndexDocumentsCommand`) only when at least one of those calls actually happened.
+   *
+   * `incoming` is completed the same way `configFor()` completes what it reads, so a cleared
+   * `analysisSchemeLang` or `region` falls back to its declared default rather than being sent as an
+   * empty string — see `fillEmptyStringDefaults`.
    */
-  async init(siteId: string, config: Record<string, any>): Promise<void> {
+  async init(siteId: string, incoming: Record<string, any>): Promise<void> {
+    const config = fillEmptyStringDefaults(incoming, MODULE_KEY)
     const domain = config.domain
     const analysisSchemeLang = config.analysisSchemeLang
     const client = this.clientFor(siteId, config)

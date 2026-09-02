@@ -1146,11 +1146,13 @@ describe("index.ts boots search's definitions before it provisions any engine", 
     const indexPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'index.ts')
     const source = await readFile(indexPath, 'utf8')
 
-    const refresh = source.indexOf('WIKI.models.search.refreshFromDisk()')
-    const init = source.indexOf('WIKI.models.search.initActiveEngines()')
+    // -> Matched with the `await ` prefix so a mention in a comment (or an unawaited call, which
+    //    would break the ordering just as surely) cannot satisfy or skew this
+    const refresh = source.indexOf('await WIKI.models.search.refreshFromDisk()')
+    const init = source.indexOf('await WIKI.models.search.initActiveEngines()')
 
-    assert.notEqual(refresh, -1, 'index.ts no longer calls WIKI.models.search.refreshFromDisk()')
-    assert.notEqual(init, -1, 'index.ts no longer calls WIKI.models.search.initActiveEngines()')
+    assert.notEqual(refresh, -1, 'index.ts no longer awaits WIKI.models.search.refreshFromDisk()')
+    assert.notEqual(init, -1, 'index.ts no longer awaits WIKI.models.search.initActiveEngines()')
     assert.ok(
       refresh < init,
       'index.ts must call search.refreshFromDisk() before search.initActiveEngines(): every engine resolves its config through getEngineConfig(), which needs the definitions loaded'
