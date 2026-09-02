@@ -1,6 +1,7 @@
 import type { WikiDb } from '../core/db.ts'
 import type { SourceConnector } from './connector.ts'
-import type { ProvenanceStore } from './provenance.ts'
+import type { SystemGroupIds } from './importers/users-groups.ts'
+import type { IdMap } from './id-map.ts'
 import type { PhaseReport } from './report.ts'
 
 /**
@@ -11,10 +12,14 @@ import type { PhaseReport } from './report.ts'
  */
 export type MigrationPhaseId = 'settings' | 'users' | 'content' | 'assets'
 
-/** How a phase came out. `notImplemented` covers the current state of every phase body: the entity
- * generators they read from (`SourceConnector`) are still `NotYetImplementedError` stubs until
- * Features 414/416/418/420 implement them — this harness only owns sequencing and result collection,
- * not the row-transformation logic those Features will fill in. */
+/** How a phase came out. `notImplemented` is set when one of a phase's entity generators (or its
+ * write path — see `phases/define-phase.ts#trackWriteCapability()`) is still a `NotYetImplementedError`
+ * stub for the connector kind actually in use. Every phase has a real generator and a real write path
+ * against a `PostgresSourceConnector` source now that Features 414/416/418/420 have all landed; this
+ * status is still the honest, non-crashing outcome for the entities `ExportBundleSourceConnector`
+ * leaves stubbed (`users`/`groups`/`settings`/`comments`/`assets` — bundle write support is explicitly
+ * out of this plan's scope, see `tasks/migrate.ts`'s own module doc), and for any hand-built
+ * `MigrationContext`/`SourceConnector` a test wires up with no write path at all. */
 export type PhaseStatus = 'ok' | 'not_implemented' | 'error'
 
 /** What one phase run reports back to the harness, instead of writing to global state itself. */
@@ -49,20 +54,35 @@ export interface MigrationContext {
    * (counts of creates/skips/conflicts) is Feature 421 task 744's; this harness only carries the
    * flag through so every phase and the entity generators it calls can see it. */
   dryRun: boolean
-  /** The provenance/idempotency mechanism (Feature 421 task 746) — every phase checks this before
-   * creating a row, via `../provenance.ts`'s `lookupOrInsert()` (or, for a read-only classification
-   * that performs no write yet, `resolveExisting()` directly). Built once from `db` by whoever
-   * constructs this context (`../tasks/migrate.ts` for a real run; a test builds an in-memory fake
-   * instead of a working `db`). */
-  provenanceStore: ProvenanceStore
-  /** The CLI's `--update-existing` flag: when true, a phase that finds an existing mapping updates
-   * the destination row in place instead of leaving it untouched. Defaults to `false` (skip) to match
-   * the flag's own default. Has no observable effect yet on a phase with no real destination write to
-   * perform (Features 414/416/418/420 own that) — see `../provenance.ts`'s `lookupOrInsert()`, which
-   * is what actually branches on it once a phase has a real `create`/`update` to call. */
-  updateExisting: boolean
   /** Optional progress sink; defaults to doing nothing so the harness is usable without a logger. */
   log?: (message: string) => void
+  /** This install's real local-auth strategy id (`WIKI.data.systemIds.localAuthId`), resolved once by
+   * `bootstrap.ts#resolveUsersImportContext()` — the `users` phase (Task 14) needs it to key every
+   * imported account's `auth` jsonb column, the same way `Settings.init()` does for a freshly-seeded
+   * install. */
+  localStrategyId: string
+  /** This install's real target Administrators/Guests group ids, resolved once by
+   * `bootstrap.ts#resolveUsersImportContext()` — see `importers/users-groups.ts`'s module doc (Task
+   * 731) for why the `userGroups` entity needs these: a membership pointing at the *source's* system
+   * group (skipped, not imported) remaps onto these instead of being dropped. */
+  systemGroupIds: SystemGroupIds
+  /** This install's root admin user id (`WIKI.config.auth.rootAdminUserId`), resolved once by
+   * `bootstrap.ts#resolveUsersImportContext()`. Not read by the `users` phase itself — carried here so
+   * the `content` phase (Task 13) has a real, always-valid fallback author for content whose source
+   * author could not be mapped onto an imported user. */
+  operatorActorId: string
+  /** Source-id -> destination-UUID map the `users` phase (Task 14) populates as a side effect of its
+   * own run (`userImporter.idMap`) — read by the `content` phase (Task 13, `dependsOn: ['users']`) to
+   * resolve a staged page/comment's author. Optional because it does not exist before the `users`
+   * phase has actually run (e.g. a hand-built `MigrationContext` in a test fixture that never runs
+   * that phase). */
+  userIdMap?: Map<number, string>
+  /** Old-`pages.id` -> destination-UUID map the `content` phase (Task 13) populates as a live
+   * reference (`pageImporter.pageIdMap`) once its `pages` entity has started running — handed to the
+   * assets/comments phase (Task 16, `dependsOn: ['content']`) to resolve a staged asset/comment's
+   * owning page. Optional for the same reason `userIdMap` is: it does not exist before the `content`
+   * phase has run. */
+  pageIdMap?: IdMap<number>
 }
 
 /** One phase in the sequence, plus the dependency ids it declares for documentation and future
@@ -73,4 +93,42 @@ export interface MigrationPhase {
   label: string
   dependsOn: MigrationPhaseId[]
   run(ctx: MigrationContext): Promise<PhaseResult>
+}
+
+/**
+ * Resolves the destination site's CURRENT primary locale — read fresh off `WIKI.sites`, never
+ * snapshotted once before any phase runs. `MigrationContext` used to carry a `primaryLocale` field,
+ * populated by `bootstrap.ts#resolveUsersImportContext()` before `runMigration()` ever started (whole-
+ * branch review Critical #1). That field always read the destination's PRE-migration locale, because
+ * the `settings` phase — which runs first (`dependsOn: []`) and can rewrite `WIKI.sites[siteId]
+ * .config.locales.primary` via `mapSiteSettings()`'s `siteConfigPatch.locales` (from 2.x's `lang.code`)
+ * — updates the destination through `WIKI.models.sites.updateSite()`, which the `content`/`assets`
+ * phases (both transitively `dependsOn: ['settings']`, via `content`'s `dependsOn: ['users']` and
+ * `users`' own `dependsOn: ['settings']`) never re-read: they kept using the stale value captured at
+ * the very start of the run. A non-English 2.x source therefore had every imported asset/nav write land
+ * under `'en'` — the destination's pre-migration default — instead of the locale `settings` had just
+ * set.
+ *
+ * `WIKI.models.sites.updateSite()` calls `broadcastReload()` -> `reloadCache()` synchronously before it
+ * resolves, so `WIKI.sites[siteId]` is already the post-`settings`-phase value by the time any later
+ * phase in `MIGRATION_PHASES`' sequential run order (`orchestrator.ts` awaits each phase fully before
+ * starting the next) actually calls this. Calling it before `settings` has run (a phase invoked in
+ * isolation via `--only`, or a hand-built `MigrationContext` in a unit test) simply reads whatever
+ * `WIKI.sites` already holds — the destination's real current config, same as any other live read.
+ *
+ * Falls back to `'en'` (never throws) under `ctx.dryRun`, without touching `WIKI` at all — the same
+ * "keep a dry run fully WIKI-free" choice `phases/content.ts`'s `existingEntry`/`pagesModel.createPage`
+ * already make purely for testability (see that file's own "Dry run" doc section): this phase's pure
+ * unit tests (`phases/phases.test.ts`) run with `dryRun: true` and no live `WIKI` global at all, so
+ * reading `WIKI.sites` unconditionally here would throw `ReferenceError: WIKI is not defined` in every
+ * one of them. The tradeoff only affects a dry run's own report-only navigation-locale-selection
+ * preview, never a real write, which never happens under `dryRun` regardless. A live run (`dryRun:
+ * false`) mirrors `models/assets.ts#getAssetByPath()`'s own `WIKI.sites[siteId]?.config?.locales
+ * ?.primary ?? 'en'` precedent for the same defensive fallback.
+ */
+export function resolvePrimaryLocale(ctx: Pick<MigrationContext, 'siteId' | 'dryRun'>): string {
+  if (ctx.dryRun) {
+    return 'en'
+  }
+  return WIKI.sites[ctx.siteId]?.config?.locales?.primary ?? 'en'
 }

@@ -48,6 +48,22 @@ export interface SourceAssetFile {
   /** Byte size when known up front (Postgres: from the row; export bundle: from `fs.stat`). */
   size?: number
   stream: Readable
+  /** The 2.x integer `authorId`, when the connector kind can supply it. Postgres-direct reads it
+   * straight off the source `assets` row; export-bundle cannot — per
+   * `docs/migration/2.5x-export-bundle-format.md`, an Export-to-Disk bundle writes only raw bytes at
+   * a file path, with no per-asset metadata sidecar at all. Absent means "resolve to the operator
+   * running the import," the same fallback `id-map.ts`'s `resolveActorId` already gives an
+   * unmapped/missing page or comment author. */
+  authorId?: number
+  /** Declared MIME type from the source row, when available (Postgres-direct only — same reasoning
+   * as `authorId`). Absent means "derive it from the filename extension," the same fallback
+   * `models/assets.ts#upload()` already applies to any upload with no declared type. */
+  mimeType?: string
+  /** Source `createdAt`/`updatedAt`, when available (Postgres-direct only). Absent means the
+   * destination row gets today's date — a documented, accepted gap (see
+   * `docs/variances.md`'s asset-import-timestamps entry, Task 17). */
+  createdAt?: Date
+  updatedAt?: Date
 }
 
 /**
@@ -79,7 +95,9 @@ export class NotYetImplementedError extends Error {
  * looks right (schema introspection for Postgres; the three small JSON files for the bundle).
  * Reading and transforming full page/user/history/asset rows is explicitly deferred to the tasks
  * named above, which will implement each generator against whichever concrete connector an
- * administrator configured.
+ * administrator configured. The `comments()` generator has the same "real on Postgres,
+ * `NotYetImplementedError` on export-bundle" status as `users()`, `groups()`, `settings()`, and
+ * `assets()`.
  *
  * Every generator is an async iterable so an importer can stream rows/files rather than buffer an
  * entire table or bundle in memory — the same lesson `2.5x-export-bundle-format.md` draws from the
@@ -123,6 +141,8 @@ export interface SourceConnector {
    * `2.5x-export-bundle-format.md` for why these do not collapse onto one flat table for a bundle
    * source. The exact grouping is Task 420's to decide when it implements this generator's body. */
   settings(): AsyncIterable<SourceRecord>
+  /** `comments` table rows. */
+  comments(): AsyncIterable<SourceRecord>
   /** One entry per asset file, each carrying a readable stream rather than the file's full bytes. */
   assets(): AsyncIterable<SourceAssetFile>
 }

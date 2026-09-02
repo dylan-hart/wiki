@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
+import { Readable } from 'node:stream'
 import { NotYetImplementedError } from './connector.ts'
 import {
   compareAgainstDryRunReports,
   compareEntityCounts,
   countDestinationEntities,
+  countPhaseOnlySourceCounts,
   countSourceEntities,
   createDestinationCounter,
   formatVerifySummary,
@@ -13,11 +15,14 @@ import {
   runContentSpotCheck,
   VERIFY_ENTITIES
 } from './verify.ts'
-import type { DestinationCounter, DestinationPageLookup } from './verify.ts'
+import type { DestinationCounter, DestinationPageLookup, PhaseOnlySourceCounts } from './verify.ts'
 import type { SourceAssetFile, SourceConnector, SourceRecord } from './connector.ts'
 import type { PhaseReport } from './report.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { pages as pagesTable } from '../db/schema.ts'
+import { assetsPhase } from './phases/assets.ts'
+import { usersPhase } from './phases/users.ts'
+import { IdMap } from './id-map.ts'
 
 /** Every entity generator throws, matching both real connectors' current stub state — same pattern
  * `phases/phases.test.ts` uses. */
@@ -37,6 +42,7 @@ function stubConnector(): SourceConnector {
     tags: notImplemented('tags'),
     navigation: notImplemented('navigation'),
     settings: notImplemented('settings'),
+    comments: notImplemented('comments'),
     assets: notImplemented('assets')
   }
 }
@@ -96,6 +102,61 @@ describe('countSourceEntities', () => {
       throw new Error('connection reset')
     }
     await assert.rejects(() => countSourceEntities(connector), /connection reset/)
+  })
+})
+
+/** Whole-branch review Critical #2: the two counts `VERIFY_ENTITIES`/`countSourceEntities()` don't
+ * cover — see `PhaseOnlySourceCounts`'s own doc comment in `verify.ts`. */
+describe('countPhaseOnlySourceCounts', () => {
+  test('reports not_implemented for both counts against the current connector stubs', async () => {
+    const counts = await countPhaseOnlySourceCounts(stubConnector())
+    assert.equal(counts.userGroups, 'not_implemented')
+    assert.equal(counts.comments, 'not_implemented')
+  })
+
+  test('userGroups counts embedded group memberships across every user, not the raw user count', async () => {
+    async function* users(): AsyncGenerator<SourceRecord> {
+      yield {
+        id: 1,
+        groups: [
+          { id: 1, name: 'Editors' },
+          { id: 2, name: 'Reviewers' }
+        ]
+      }
+      yield { id: 2, groups: [{ id: 1, name: 'Editors' }] }
+      yield { id: 3, groups: [] }
+    }
+    const connector = { ...stubConnector(), users }
+    const counts = await countPhaseOnlySourceCounts(connector)
+    assert.equal(counts.userGroups, 3, '2 memberships from user 1 + 1 from user 2 + 0 from user 3')
+  })
+
+  test('comments counts every source comment', async () => {
+    async function* comments(): AsyncGenerator<SourceRecord> {
+      yield { id: 1, pageId: 1, authorId: null, content: 'a' }
+      yield { id: 2, pageId: 1, authorId: null, content: 'b' }
+    }
+    const connector = { ...stubConnector(), comments }
+    const counts = await countPhaseOnlySourceCounts(connector)
+    assert.equal(counts.comments, 2)
+  })
+
+  test('userGroups reports not_implemented when users() itself is a stub, without touching comments', async () => {
+    async function* comments(): AsyncGenerator<SourceRecord> {
+      yield { id: 1, pageId: 1, authorId: null, content: 'a' }
+    }
+    const connector = { ...stubConnector(), comments }
+    const counts = await countPhaseOnlySourceCounts(connector)
+    assert.equal(counts.userGroups, 'not_implemented')
+    assert.equal(counts.comments, 1)
+  })
+
+  test('a real (non-stub) error propagates rather than being swallowed', async () => {
+    const connector = stubConnector()
+    connector.comments = () => {
+      throw new Error('connection reset')
+    }
+    await assert.rejects(() => countPhaseOnlySourceCounts(connector), /connection reset/)
   })
 })
 
@@ -280,9 +341,14 @@ describe('compareAgainstDryRunReports', () => {
     return { phase, found, wouldCreate: found, wouldSkipExisting: 0, conflicts: [], unmappable: [] }
   }
 
+  // -> No memberships/comments in play for these tests — they exercise the pages/pageHistory/tags/
+  //    users/groups arithmetic these already covered before Critical #2's fix, unaffected by it.
+  const ZERO_PHASE_ONLY: PhaseOnlySourceCounts = { userGroups: 0, comments: 0 }
+
   test('matches when the live sum for a phase equals the captured report', () => {
     const results = compareAgainstDryRunReports(
       { users: 3, groups: 2, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
+      ZERO_PHASE_ONLY,
       [report('users', 5)]
     )
     const users = results.find((r) => r.phase === 'users')!
@@ -294,6 +360,7 @@ describe('compareAgainstDryRunReports', () => {
   test('flags a mismatch between the live total and the captured report', () => {
     const results = compareAgainstDryRunReports(
       { users: 3, groups: 2, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
+      ZERO_PHASE_ONLY,
       [report('users', 6)]
     )
     const users = results.find((r) => r.phase === 'users')!
@@ -311,6 +378,7 @@ describe('compareAgainstDryRunReports', () => {
         assets: 0,
         navigation: 0
       },
+      ZERO_PHASE_ONLY,
       [report('users', 5)]
     )
     const users = results.find((r) => r.phase === 'users')!
@@ -321,29 +389,271 @@ describe('compareAgainstDryRunReports', () => {
   test('reports no_report when no captured report names that phase', () => {
     const results = compareAgainstDryRunReports(
       { users: 3, groups: 2, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
+      ZERO_PHASE_ONLY,
       []
     )
     const users = results.find((r) => r.phase === 'users')!
     assert.equal(users.status, 'no_report')
   })
 
-  test('sums pages+pageHistory+tags for the content phase, matching PhaseReport.found granularity', () => {
+  test('sums only pages (not pageHistory/tags) plus the site-navigation sentinel for the content phase, matching PhaseReport.found granularity post-Task-13', () => {
+    // -> Task 13's content-staging rewrite folded pageHistory/tags into the `pages` entity and added a
+    //    one-record `site-navigation` sentinel (see verify.ts's ENTITY_OWNING_PHASE and
+    //    PHASE_FOUND_SENTINEL_OFFSET doc comments) — so a real `content` PhaseReport.found is
+    //    `pagesFound + 1`, not `pages + pageHistory + tags`. pageHistory/tags carry large,
+    //    unrelated-scale live counts here specifically to prove they're no longer summed in.
     const results = compareAgainstDryRunReports(
-      { users: 0, groups: 0, pages: 4, pageHistory: 7, tags: 1, assets: 0, navigation: 0 },
-      [report('content', 12)]
+      { users: 0, groups: 0, pages: 4, pageHistory: 700, tags: 100, assets: 0, navigation: 0 },
+      ZERO_PHASE_ONLY,
+      [report('content', 5)]
     )
     const content = results.find((r) => r.phase === 'content')!
-    assert.equal(content.liveFound, 12)
+    assert.equal(content.liveFound, 5)
     assert.equal(content.status, 'match')
+  })
+
+  test('does not report live_not_implemented for the content phase when only pageHistory/tags are stubs, since neither is owned any more', () => {
+    const results = compareAgainstDryRunReports(
+      {
+        users: 0,
+        groups: 0,
+        pages: 4,
+        pageHistory: 'not_implemented',
+        tags: 'not_implemented',
+        assets: 0,
+        navigation: 0
+      },
+      ZERO_PHASE_ONLY,
+      [report('content', 5)]
+    )
+    const content = results.find((r) => r.phase === 'content')!
+    assert.equal(content.liveFound, 5)
+    assert.equal(content.status, 'match')
+  })
+
+  test('flags a real content-phase mismatch even with the sentinel offset applied', () => {
+    const results = compareAgainstDryRunReports(
+      { users: 0, groups: 0, pages: 4, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
+      ZERO_PHASE_ONLY,
+      [report('content', 999)]
+    )
+    const content = results.find((r) => r.phase === 'content')!
+    assert.equal(content.liveFound, 5)
+    assert.equal(content.status, 'mismatch')
   })
 
   test('covers every phase an entity is currently wired to (settings has none)', () => {
     const results = compareAgainstDryRunReports(
       { users: 0, groups: 0, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
+      ZERO_PHASE_ONLY,
       []
     )
     const phases = results.map((r) => r.phase).sort()
     assert.deepEqual(phases, ['assets', 'content', 'users'])
+  })
+
+  /**
+   * Whole-branch review Critical #2, the `users` phase half: `PhaseReport.found` for `users` is
+   * `groups + users + userGroups` (a third `userGroups` entity was added after the entity-owning-phase
+   * table was written), but before this fix `liveFound` only summed `sourceCounts.users +
+   * sourceCounts.groups` — mismatching whenever any user belongs to any group.
+   */
+  test('folds userGroups (the users phase third entity) into liveFound — Critical #2', () => {
+    const results = compareAgainstDryRunReports(
+      { users: 3, groups: 2, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
+      { userGroups: 4, comments: 0 },
+      [report('users', 9)] // -> groups(2) + users(3) + userGroups(4) = 9, matching a real PhaseReport.found
+    )
+    const users = results.find((r) => r.phase === 'users')!
+    assert.equal(users.liveFound, 9)
+    assert.equal(users.status, 'match')
+    // -> Without the fix, liveFound would have been 5 (users+groups only), reporting a spurious
+    //    mismatch against a real found of 9.
+  })
+
+  /**
+   * Whole-branch review Critical #2, the `assets` phase half: `PhaseReport.found` for `assets` is
+   * `assets + comments` (a `comments` entity was added, but `comments` was never added to
+   * `VERIFY_ENTITIES`), so before this fix `liveFound` only counted `sourceCounts.assets` —
+   * mismatching whenever the source has any comments.
+   */
+  test('folds comments (the assets phase second entity) into liveFound — Critical #2', () => {
+    const results = compareAgainstDryRunReports(
+      { users: 0, groups: 0, pages: 0, pageHistory: 0, tags: 0, assets: 1, navigation: 0 },
+      { userGroups: 0, comments: 2 },
+      [report('assets', 3)] // -> assets(1) + comments(2) = 3, matching a real PhaseReport.found
+    )
+    const assets = results.find((r) => r.phase === 'assets')!
+    assert.equal(assets.liveFound, 3)
+    assert.equal(assets.status, 'match')
+  })
+
+  test('reports live_not_implemented for the users phase when userGroups alone is a stub', () => {
+    const results = compareAgainstDryRunReports(
+      { users: 3, groups: 2, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
+      { userGroups: 'not_implemented', comments: 0 },
+      [report('users', 5)]
+    )
+    const users = results.find((r) => r.phase === 'users')!
+    assert.equal(users.status, 'live_not_implemented')
+    assert.equal(users.liveFound, null)
+  })
+
+  test('reports live_not_implemented for the assets phase when comments alone is a stub', () => {
+    const results = compareAgainstDryRunReports(
+      { users: 0, groups: 0, pages: 0, pageHistory: 0, tags: 0, assets: 1, navigation: 0 },
+      { userGroups: 0, comments: 'not_implemented' },
+      [report('assets', 1)]
+    )
+    const assets = results.find((r) => r.phase === 'assets')!
+    assert.equal(assets.status, 'live_not_implemented')
+    assert.equal(assets.liveFound, null)
+  })
+})
+
+/**
+ * The class of bug that let Critical #2 through in the first place: the tests above hand-feed
+ * synthetic `found`/count numbers that already assume the correct arithmetic, which passes whether or
+ * not `verify.ts` actually matches what the real phases report. This suite instead runs the REAL
+ * `usersPhase`/`assetsPhase` (`dryRun: true`, so no live `WIKI`/db needed — `createDryRunWriter()`/each
+ * phase's own placeholder-id branch handles it) against a fixture connector, and asserts
+ * `compareAgainstDryRunReports` reports `'match'` against the resulting REAL `PhaseReport`s — so a
+ * future entity added to either phase without a matching `verify.ts` update fails this suite instead of
+ * silently passing the way the stale two-entity-shape tests did.
+ */
+describe('compareAgainstDryRunReports derived from the real phases (regression coverage for Critical #2)', () => {
+  test('users phase: groups + users + userGroups matches liveFound derived from the same source', async () => {
+    async function* groups(): AsyncGenerator<SourceRecord> {
+      yield { id: 1, name: 'Editors', isSystem: false, permissions: [], pageRules: [] }
+    }
+    async function* users(): AsyncGenerator<SourceRecord> {
+      yield {
+        id: 10,
+        email: 'alice@example.com',
+        name: 'Alice',
+        providerKey: 'local',
+        password: '$2a$12$fakehash',
+        isActive: true,
+        isVerified: true,
+        groups: [{ id: 1, name: 'Editors' }]
+      }
+      yield {
+        id: 11,
+        email: 'bob@example.com',
+        name: 'Bob',
+        providerKey: 'local',
+        password: '$2a$12$fakehash',
+        isActive: true,
+        isVerified: true,
+        groups: [{ id: 1, name: 'Editors' }]
+      }
+    }
+    const notImplemented = (method: string) => () => {
+      throw new NotYetImplementedError(method, 'not needed by this test')
+    }
+    const connector: SourceConnector = {
+      kind: 'postgres',
+      connect: async () => {},
+      disconnect: async () => {},
+      describe: async () => ({ kind: 'postgres', location: 'fake', notes: [] }),
+      groups,
+      users,
+      pages: notImplemented('pages'),
+      pageHistory: notImplemented('pageHistory'),
+      tags: notImplemented('tags'),
+      navigation: notImplemented('navigation'),
+      settings: notImplemented('settings'),
+      comments: notImplemented('comments'),
+      assets: notImplemented('assets')
+    }
+
+    const phaseResult = await usersPhase.run({
+      db: {} as any,
+      source: connector,
+      siteId: 'test-site',
+      dryRun: true,
+      localStrategyId: 'test-local-strategy-uuid',
+      systemGroupIds: { admin: 'test-admin-group-uuid', guest: 'test-guest-group-uuid' },
+      operatorActorId: 'test-operator-uuid'
+    })
+    assert.equal(phaseResult.status, 'ok')
+    assert.ok(phaseResult.report)
+
+    const sourceCounts = await countSourceEntities(connector)
+    const phaseOnlyCounts = await countPhaseOnlySourceCounts(connector)
+    const comparisons = compareAgainstDryRunReports(sourceCounts, phaseOnlyCounts, [
+      phaseResult.report!
+    ])
+    const users_ = comparisons.find((c) => c.phase === 'users')!
+    assert.equal(
+      users_.liveFound,
+      phaseResult.report!.found,
+      'liveFound derived from the source matches the real PhaseReport.found the phase actually produced'
+    )
+    assert.equal(users_.status, 'match')
+  })
+
+  test('assets phase: assets + comments matches liveFound derived from the same source', async () => {
+    async function* assets(): AsyncGenerator<SourceAssetFile> {
+      yield {
+        relativePath: 'diagram.png',
+        filename: 'diagram.png',
+        stream: Readable.from([Buffer.from('fake-image-bytes')]),
+        authorId: undefined,
+        mimeType: 'image/png'
+      }
+    }
+    async function* comments(): AsyncGenerator<SourceRecord> {
+      yield { id: 1, pageId: 100, authorId: null, content: 'Nice page!' }
+      yield { id: 2, pageId: 100, authorId: null, content: 'Agreed!' }
+    }
+    const notImplemented = (method: string) => () => {
+      throw new NotYetImplementedError(method, 'not needed by this test')
+    }
+    const connector: SourceConnector = {
+      kind: 'postgres',
+      connect: async () => {},
+      disconnect: async () => {},
+      describe: async () => ({ kind: 'postgres', location: 'fake', notes: [] }),
+      users: notImplemented('users'),
+      groups: notImplemented('groups'),
+      pages: notImplemented('pages'),
+      pageHistory: notImplemented('pageHistory'),
+      tags: notImplemented('tags'),
+      navigation: notImplemented('navigation'),
+      settings: notImplemented('settings'),
+      comments,
+      assets
+    }
+
+    const pageIdMap = new IdMap<number>()
+    pageIdMap.set(100, 'fixture-page-uuid')
+
+    const phaseResult = await assetsPhase.run({
+      db: {} as any,
+      source: connector,
+      siteId: 'test-site',
+      dryRun: true,
+      localStrategyId: 'test-local-strategy-uuid',
+      systemGroupIds: { admin: 'test-admin-group-uuid', guest: 'test-guest-group-uuid' },
+      operatorActorId: 'test-operator-uuid',
+      pageIdMap
+    })
+    assert.equal(phaseResult.status, 'ok')
+    assert.ok(phaseResult.report)
+
+    const sourceCounts = await countSourceEntities(connector)
+    const phaseOnlyCounts = await countPhaseOnlySourceCounts(connector)
+    const comparisons = compareAgainstDryRunReports(sourceCounts, phaseOnlyCounts, [
+      phaseResult.report!
+    ])
+    const assets_ = comparisons.find((c) => c.phase === 'assets')!
+    assert.equal(
+      assets_.liveFound,
+      phaseResult.report!.found,
+      'liveFound derived from the source matches the real PhaseReport.found the phase actually produced'
+    )
+    assert.equal(assets_.status, 'match')
   })
 })
 

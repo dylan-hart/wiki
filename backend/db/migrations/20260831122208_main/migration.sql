@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX "userKeys_token_idx" ON "userKeys" ("token");

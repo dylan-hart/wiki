@@ -24,6 +24,7 @@ import {
   compareAgainstDryRunReports,
   compareEntityCounts,
   countDestinationEntities,
+  countPhaseOnlySourceCounts,
   countSourceEntities,
   createDestinationCounter,
   createDestinationPageLookup,
@@ -81,6 +82,7 @@ async function runVerification(WIKI: WikiGlobal, args: ParsedVerifyArgs): Promis
 
     WIKI.logger.info('Counting source records...')
     const sourceCounts = await countSourceEntities(source)
+    const phaseOnlyCounts = await countPhaseOnlySourceCounts(source)
 
     WIKI.logger.info('Counting destination records...')
     const destinationCounts = await countDestinationEntities(
@@ -91,7 +93,11 @@ async function runVerification(WIKI: WikiGlobal, args: ParsedVerifyArgs): Promis
     const entityCounts = compareEntityCounts(sourceCounts, destinationCounts)
 
     const dryRunReports = await loadDryRunReports(args.againstReport)
-    const phaseComparisons = compareAgainstDryRunReports(sourceCounts, dryRunReports)
+    const phaseComparisons = compareAgainstDryRunReports(
+      sourceCounts,
+      phaseOnlyCounts,
+      dryRunReports
+    )
 
     WIKI.logger.info(
       `Running content spot-check (${args.samplePaths ? `${args.samplePaths.length} explicit path(s)` : `${args.sampleSize} random page(s)`})...`

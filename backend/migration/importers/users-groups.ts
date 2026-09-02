@@ -1,6 +1,4 @@
 import bcrypt from 'bcryptjs'
-import { eq } from 'drizzle-orm'
-import { isEqual } from 'es-toolkit/predicate'
 import { nanoid } from 'nanoid'
 import crypto from 'node:crypto'
 import type { WikiDb } from '../../core/db.ts'
@@ -73,13 +71,15 @@ import { KNOWN_3_0_AUTH_MODULES } from '../unmappable.ts'
  * in `models/groups.ts`.
  *
  * Task 731 adds system-row exclusion and admin/guest membership remapping:
- * - `importGroups()`/`importUsers()` now skip any source record flagged `isSystem: true` -- 2.5.x
- *   id 1 (Administrators)/id 2 (Guests) groups and id 1 (Administrator)/id 2 (Guest) users -- BEFORE
- *   calling `convert()` at all, regardless of which converter is plugged in. Every 3.0 install already
- *   seeds its own equivalents once (`Groups.init()`/`Users.init()`), so creating a second copy from the
- *   source would be a duplicate, not an import.
- * - Skipping those source rows must not also drop the *membership* they implied. `importUserGroups()`
- *   now takes an optional `systemGroupIds` (this install's real target admin/guest group ids): when an
+ * - `createGroupImporter()`'s/`createUserImporter()`'s `importOne()` now skip any source record
+ *   flagged `isSystem: true` -- 2.5.x id 1 (Administrators)/id 2 (Guests) groups and id 1
+ *   (Administrator)/id 2 (Guest) users -- BEFORE calling `convert()` at all, regardless of which
+ *   converter is plugged in. Every 3.0 install already seeds its own equivalents once
+ *   (`Groups.init()`/`Users.init()`), so creating a second copy from the source would be a
+ *   duplicate, not an import.
+ * - Skipping those source rows must not also drop the *membership* they implied.
+ *   `createUserGroupImporter()` now takes an optional `systemGroupIds` (this install's real target
+ *   admin/guest group ids): when an
  *   ordinary (non-system) imported user's source membership pointed at the source's system
  *   Administrators (id 1) or Guests (id 2) group -- which was skipped, so the normal groupIdMap lookup
  *   misses -- the row is remapped onto the supplied target id via the new `UsersGroupsWriter.
@@ -97,71 +97,19 @@ import { KNOWN_3_0_AUTH_MODULES } from '../unmappable.ts'
  *   testability goal as `localStrategyId` above) -- the future #421 CLI is the caller that resolves
  *   `systemGroupIds` from those real locations before invoking `importUsersAndGroups()`.
  *
- * Task 732 adds idempotent re-run safety — running this engine a second time against the same (or a
- * corrected partial) source feed must not duplicate `groups`/`users` rows, per feature #421's runbook.
- *
- * - **Detection rule**: before writing a `created` conversion outcome, `importGroups()`/`importUsers()`
- *   now ask the writer whether a matching row already exists on the target — by `name` for groups, by
- *   `email` for users (`UsersGroupsWriter.findGroupByName()` / `findUserByEmail()`). Both are already
- *   unique/natural keys on the target side (groups have no other identity; `users.email` has a unique
- *   constraint), so this is exactly the "pragmatic option absent a persisted source-id-to-target-id
- *   record" the task calls for.
- * - **No separate persisted id-mapping was added.** The task explicitly asks whether one is worth
- *   adding (a table or JSON artifact) so a second run can reuse prior target ids instead of re-deriving
- *   them. It isn't, here: `findGroupByName()`/`findUserByEmail()` already return the target row's own
- *   primary key directly from the data that would otherwise populate a separate mapping — a dedicated
- *   artifact would just be a second, independently-driftable copy of information the `groups`/`users`
- *   tables already hold under a reliable natural key. (A future entity that lacks one — e.g. pages,
- *   addressed by a `path` that can be renamed after import — would not have this luxury and might
- *   genuinely need a persisted map; that's out of this task's scope.) Either way, the *value* the task
- *   asks for — a second run reusing prior target ids for `userGroups` translation rather than
- *   re-deriving them from scratch — is delivered: `importGroups()`/`importUsers()` populate `idMap`
- *   from the existing row's id whenever one is found, exactly as they would from a fresh `insert*()`
- *   call, so `importUserGroups()` downstream cannot tell the difference.
- * - **Three outcomes, not two.** `RecordStatus` gains `'existing'` (already present, and the freshly
- *   converted candidate matches what's already there — nothing written) and `'diverged'` (already
- *   present, but the candidate now differs from the stored row — also nothing written; see below).
- *   Both add their own counter to `EntityImportSummary`, alongside the pre-existing `created` /
- *   `skipped` / `conflicted` / `flagged`, so a dry-run report can distinguish "these are brand new"
- *   from "these were already imported" from "these need administrator attention because the source
- *   changed" without parsing free-text messages.
- * - **The no-overwrite decision, made explicit**: a `'diverged'` record is *never* written over the
- *   existing target row. If it were, a second run could silently discard an administrator's own in-3.0
- *   edits to an already-imported group (e.g. permissions they tightened after the first import) — the
- *   exact data-loss bug the task description calls out by name. The engine's job on a re-run is to
- *   detect and report divergence, not resolve it; resolving it is an administrator decision (there is
- *   no way to know, from the source and target rows alone, whether the target changed because an admin
- *   edited it in 3.0, or because the source changed and the target is now stale) that a later Feature
- *   414 task or the #421 CLI's report can surface, not silently automate.
- * - **Comparison specifics** (`sameGroupContent()`/`sameUserContent()` below), to avoid false
- *   positives from fields that are expected to vary between runs rather than signal a real change:
- *   permissions are compared as sets (2.x's flat array has no meaningful order); rule content is
- *   compared with each rule's `id` stripped first, since `convertPageRule()` mints a fresh uuid on
- *   *every* conversion by design (Task 730) — comparing ids verbatim would report every unchanged
- *   group as diverged, on every single re-run. A user's `auth` blob (containing a freshly-salted
- *   bcrypt hash on every conversion, for both the local-carryover and provider-fallback paths) is not
- *   compared at all — only `name` is, since re-hashing the same password is expected to look different
- *   every run and is not itself evidence the source user changed.
+ * Re-run safety was deliberately dropped (design spec 2026-09-01): this engine only ever runs once
+ * against a single fresh, empty destination, so there is no "already imported" case for
+ * insertGroup()/insertUser() to detect — an insert failure (e.g. a genuine users.email collision from
+ * malformed source data) is still caught and reported as 'conflicted', which is ordinary error
+ * handling, not idempotency.
  */
 
 // ---------------------------------------------------------------------------
 // Result shape — the contract feature #421's CLI and dry-run report read.
 // ---------------------------------------------------------------------------
 
-/** Outcome of attempting to write one source record.
- *
- * `existing` and `diverged` (Task 732) are both re-run outcomes: the record was NOT written because a
- * matching row (by name for a group, by email for a user) already exists on the target. `existing`
- * means the freshly-converted candidate matches what's already there; `diverged` means it doesn't —
- * see the module doc's Task 732 paragraph for why the engine reports divergence rather than resolving
- * it by overwriting. */
-export type RecordStatus =
-  | 'created'
-  | 'skipped'
-  | 'conflicted'
-  | 'flagged'
-  | 'existing'
-  | 'diverged'
+/** Outcome of attempting to write one source record. */
+export type RecordStatus = 'created' | 'skipped' | 'conflicted' | 'flagged'
 
 /** Per-record detail, always present regardless of outcome so a dry-run report can list every row. */
 export interface RecordResult {
@@ -176,15 +124,12 @@ export interface RecordResult {
   message?: string
 }
 
-/** Aggregate counts plus the per-record detail list for one entity (`groups`, `users`, or `userGroups`).
- * `existing`/`diverged` are the two re-run outcomes Task 732 adds — see `RecordStatus`. */
+/** Aggregate counts plus the per-record detail list for one entity (`groups`, `users`, or `userGroups`). */
 export interface EntityImportSummary {
   created: number
   skipped: number
   conflicted: number
   flagged: number
-  existing: number
-  diverged: number
   records: RecordResult[]
 }
 
@@ -225,9 +170,9 @@ const SOURCE_SYSTEM_GROUP_ADMIN_ID = 1
 const SOURCE_SYSTEM_GROUP_GUEST_ID = 2
 
 /** This install's real target ids for the system Administrators/Guests groups, supplied by the caller
- * so `importUserGroups()` can remap a membership that pointed at the *source's* now-skipped system
- * group onto the equivalent that already exists here -- see the module doc's Task 731 paragraph for
- * where these ids actually live at runtime. */
+ * so `createUserGroupImporter()` can remap a membership that pointed at the *source's* now-skipped
+ * system group onto the equivalent that already exists here -- see the module doc's Task 731
+ * paragraph for where these ids actually live at runtime. */
 export interface SystemGroupIds {
   admin: string
   guest: string
@@ -239,8 +184,6 @@ function emptySummary(): EntityImportSummary {
     skipped: 0,
     conflicted: 0,
     flagged: 0,
-    existing: 0,
-    diverged: 0,
     records: []
   }
 }
@@ -503,8 +446,11 @@ function readSourceString(source: SourceRecord, column: string): string | undefi
  * instead hand back an ISO string. Either is accepted; anything else (missing column, `null`,
  * malformed string) degrades to `undefined` — the same "let the target column default rather than
  * fail the whole record" tolerance `page-import.ts`'s `normalizeStagedDate` gives a malformed staged
- * date — so one bad timestamp on one source row never blocks that user's import. */
-function readSourceDate(source: SourceRecord, column: string): Date | undefined {
+ * date — so one bad timestamp on one source row never blocks that user's import. Exported (not just
+ * used within this module) so `./user-converters.ts`'s `createLocalUserConverter` — the other real
+ * `UserConverter` in this engine, Task 14 — shares this exact tolerance rather than a second, drifting
+ * copy of it. */
+export function readSourceDate(source: SourceRecord, column: string): Date | undefined {
   const raw = source[column]
   if (raw instanceof Date) {
     return Number.isNaN(raw.getTime()) ? undefined : raw
@@ -632,39 +578,17 @@ export function createProviderFallbackUserConverter(
 // swap in a dry-run writer that never touches Postgres at all.
 // ---------------------------------------------------------------------------
 
-/** The subset of an already-imported group's stored state that Task 732's re-run detection needs to
- * decide `existing` vs `diverged` — see `sameGroupContent()`. */
-export interface ExistingGroupRecord {
-  id: string
-  permissions: string[]
-  rules: GroupRule[]
-}
-
-/** The subset of an already-imported user's stored state Task 732 compares against — just `name`; see
- * the module doc's Task 732 paragraph for why `auth` (a freshly-salted hash on every conversion) is
- * deliberately excluded. */
-export interface ExistingUserRecord {
-  id: string
-  name: string
-}
-
 export interface UsersGroupsWriter {
   insertGroup(row: NewGroupRow): Promise<{ id: string }>
   insertUser(row: NewUserRow): Promise<{ id: string }>
   insertUserGroup(userId: string, groupId: string): Promise<void>
   /** Assigns a user to one of THIS install's real system groups (Administrators/Guests) -- used only
-   * by the Task 731 remap path in `importUserGroups()`, never for an ordinary imported group. Distinct
+   * by the Task 731 remap path in `createUserGroupImporter()`, never for an ordinary imported group. Distinct
    * from `insertUserGroup()` because the real writer must go through `Groups.assignUserToGroup()`
    * rather than a raw insert: that model method runs `guestMembershipViolation()` and de-duplicates via
    * `onConflictDoNothing()`, both of which matter for a system group in a way they don't for a fresh,
    * just-created ordinary group. */
   assignUserToSystemGroup(userId: string, groupId: string): Promise<void>
-  /** Task 732 re-run detection: looks up a previously-imported group by its 3.0 name — the natural key
-   * `createGroupConverter()` writes into, and the one this task matches on absent a persisted
-   * source-id-to-target-id record (see the module doc). `undefined` when no such group exists yet. */
-  findGroupByName(name: string): Promise<ExistingGroupRecord | undefined>
-  /** Same rationale as `findGroupByName()`, keyed on `email` — already unique on `users`. */
-  findUserByEmail(email: string): Promise<ExistingUserRecord | undefined>
 }
 
 /** Real writer, backed by Drizzle. Any insert failure (e.g. `users.email`'s unique constraint) is
@@ -696,22 +620,6 @@ export function createDrizzleWriter(db: WikiDb): UsersGroupsWriter {
     },
     async assignUserToSystemGroup(userId, groupId) {
       await WIKI.models.groups.assignUserToGroup(groupId, userId)
-    },
-    async findGroupByName(name) {
-      const [row] = await db
-        .select({
-          id: groupsTable.id,
-          permissions: groupsTable.permissions,
-          rules: groupsTable.rules
-        })
-        .from(groupsTable)
-        .where(eq(groupsTable.name, name))
-        .limit(1)
-      return row as ExistingGroupRecord | undefined
-    },
-    async findUserByEmail(email) {
-      const existing = await WIKI.models.users.getByEmail(email)
-      return existing ? { id: existing.id, name: existing.name } : undefined
     }
   }
 }
@@ -731,15 +639,34 @@ export function createDryRunWriter(): UsersGroupsWriter {
     },
     async assignUserToSystemGroup() {
       // Same rationale as insertUserGroup() above -- nothing is actually written in a dry run.
-    },
-    async findGroupByName() {
-      // A dry run never writes anything, so it has nothing to have found on a prior invocation either
-      // -- every record looks brand new. Callers exercising Task 732's re-run detection in a test
-      // supply their own writer (or a stateful in-memory one) instead; see users-groups.test.ts.
-      return undefined
-    },
-    async findUserByEmail() {
-      return undefined
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// userGroups derivation (Task 14) — `PostgresSourceConnector.users()` (Task 8) denormalizes group
+// membership onto each user row as `groups: [{id, name}]` rather than exposing a separate
+// `userGroups()` generator (`SourceConnector` has none — see `connector.ts`'s own `users()` doc).
+// `deriveUserGroupsFromEmbeddedGroups()` re-expands that embedded shape into the flat
+// `{userId, groupId}` records `createUserGroupImporter()` consumes, so `phases/users.ts`'s
+// `userGroups` entity can read the same `users()` iterable a second time (a fresh call — each
+// connector call re-issues its own query, Task 8) and drive the join-table importer without either
+// connector kind ever needing its own `userGroups()` method.
+// ---------------------------------------------------------------------------
+
+/** Re-expands each user row's embedded `groups: [{id, name}]` array (`PostgresSourceConnector.users()`,
+ * Task 8) into one `{userId, groupId}` record per membership, in source order. A user with no
+ * memberships (`groups: []`) yields nothing for that user. */
+export async function* deriveUserGroupsFromEmbeddedGroups(
+  users: AsyncIterable<SourceRecord>
+): AsyncGenerator<SourceRecord> {
+  for await (const user of users) {
+    const userId = user.id
+    const groups = Array.isArray(user.groups) ? user.groups : []
+    for (const group of groups) {
+      if (group && typeof group === 'object' && 'id' in group) {
+        yield { userId, groupId: (group as { id: unknown }).id }
+      }
     }
   }
 }
@@ -763,9 +690,9 @@ export interface UsersGroupsImportInput {
   convertGroup?: GroupConverter
   convertUser?: UserConverter
   /** This install's real target admin/guest group ids, for the Task 731 membership-remap fallback in
-   * `importUserGroups()`. Omitted entirely, a membership that pointed at the source's system group
-   * falls back to the pre-731 behavior of being reported `skipped` -- see the module doc's Task 731
-   * paragraph for where the future #421 CLI actually sources these two ids from at runtime. */
+   * `createUserGroupImporter()`. Omitted entirely, a membership that pointed at the source's system
+   * group falls back to the pre-731 behavior of being reported `skipped` -- see the module doc's
+   * Task 731 paragraph for where the future #421 CLI actually sources these two ids from at runtime. */
   systemGroupIds?: SystemGroupIds
 }
 
@@ -778,49 +705,33 @@ function readSourceId(source: SourceRecord, column: string): number | undefined 
   return Number.isInteger(n) ? n : undefined
 }
 
-/** Task 732: whether a freshly-converted group candidate matches an already-imported group's stored
- * `permissions`/`rules`, for deciding `existing` vs `diverged`.
- *
- * `permissions` is compared as a set — 2.x's flat array carries no meaningful order, so a reordering
- * alone must not read as a change. `rules` is compared with each rule's `id` stripped first:
- * `convertPageRule()` mints a fresh uuid on every single conversion (Task 730, by design, since a 2.x
- * rule carries no id worth preserving), so comparing ids verbatim would report every unchanged group as
- * diverged on every re-run — exactly the false positive this task exists to avoid. */
-function sameGroupContent(candidate: NewGroupRow, existing: ExistingGroupRecord): boolean {
-  const candidatePermissions = [...((candidate.permissions ?? []) as string[])].sort()
-  const existingPermissions = [...existing.permissions].sort()
-  if (!isEqual(candidatePermissions, existingPermissions)) {
-    return false
-  }
-
-  const candidateRules = (candidate.rules ?? []) as GroupRule[]
-  if (candidateRules.length !== existing.rules.length) {
-    return false
-  }
-  const stripId = ({ id: _id, ...rest }: GroupRule) => rest
-  return candidateRules.every((rule, index) =>
-    isEqual(stripId(rule), stripId(existing.rules[index]))
-  )
+/** Live, per-record group import — the extracted body of what used to be `importGroups()`'s whole
+ * `for await` loop (Task 12, following Task 11's `PageImporter` pattern), so Task 14 can drive one
+ * source group at a time from its own phase entity instead of only ever being handed a whole
+ * iterable up front. `summary`/`idMap` are live references into the same closure-scoped bindings
+ * every `importOne()` call mutates — not snapshots — so a caller reading them after several calls
+ * sees every group processed so far. */
+export interface GroupImporter {
+  /** Imports one source record, returning the exact `RecordStatus` it recorded onto `summary` for
+   * this record (Task 14 fix: a caller driving `importOne()` directly — `phases/users.ts` — needs
+   * this to route its own `WriteRecorder` call correctly; `importOne()` itself never throws for a
+   * bad/conflicting record, so the return value, not a caught exception, is the only signal). */
+  importOne(source: SourceRecord): Promise<RecordStatus>
+  readonly summary: EntityImportSummary
+  readonly idMap: Map<number, string>
 }
 
-/** Task 732: whether a freshly-converted user candidate matches an already-imported user's stored
- * state. Only `name` is compared — `auth` contains a freshly-salted bcrypt hash on every single
- * conversion (both the local-carryover and provider-fallback paths hash a value on every call), so
- * comparing it would report every unchanged user as diverged on every re-run, the same false-positive
- * shape `sameGroupContent()` avoids for rule ids. */
-function sameUserContent(candidate: NewUserRow, existing: ExistingUserRecord): boolean {
-  return candidate.name === existing.name
-}
-
-async function importGroups(
-  source: AsyncIterable<SourceRecord>,
+/** Builds a `GroupImporter` — the stateful factory `importUsersAndGroups()` itself is now a thin
+ * composition of (see below). Never throws for one bad or conflicting record; each becomes a
+ * `RecordResult` on `summary` instead, so one group's bad data cannot abort the whole run. */
+export function createGroupImporter(
   convert: GroupConverter,
   writer: UsersGroupsWriter
-): Promise<{ summary: EntityImportSummary; idMap: Map<number, string> }> {
+): GroupImporter {
   const summary = emptySummary()
   const idMap = new Map<number, string>()
 
-  for await (const sourceRecord of source) {
+  async function importOne(sourceRecord: SourceRecord): Promise<RecordStatus> {
     const sourceId = readSourceId(sourceRecord, 'id')
     if (sourceId === undefined) {
       record(summary, {
@@ -828,7 +739,7 @@ async function importGroups(
         status: 'skipped',
         message: 'missing or non-integer source id'
       })
-      continue
+      return 'skipped'
     }
 
     if (isSystemSourceRecord(sourceRecord)) {
@@ -838,61 +749,54 @@ async function importGroups(
         message:
           "system group (Administrators/Guests) -- an equivalent is already seeded by this install's own Groups.init(); not imported"
       })
-      continue
+      return 'skipped'
     }
 
     const outcome = await convert(sourceRecord)
     if (outcome.status !== 'created') {
       record(summary, { sourceId, status: outcome.status, message: outcome.message })
-      continue
-    }
-
-    // Task 732: a matching group already on the target (by name) means this record was already
-    // imported by a prior run -- reuse its id for idMap rather than inserting a duplicate, and never
-    // overwrite it even when the source has since changed (see the module doc's no-overwrite policy).
-    const existingGroup = await writer.findGroupByName(outcome.row.name)
-    if (existingGroup) {
-      idMap.set(sourceId, existingGroup.id)
-      const unchanged = sameGroupContent(outcome.row, existingGroup)
-      record(summary, {
-        sourceId,
-        targetId: existingGroup.id,
-        status: unchanged ? 'existing' : 'diverged',
-        message: unchanged
-          ? 'already imported (matched by name); left unchanged'
-          : "already imported (matched by name), but the source's permissions/rules now differ from " +
-            'the stored group; left unchanged rather than overwriting a possible in-3.0 edit -- see ' +
-            'module doc Task 732'
-      })
-      continue
+      return outcome.status
     }
 
     try {
       const { id: targetId } = await writer.insertGroup(outcome.row)
       idMap.set(sourceId, targetId)
       record(summary, { sourceId, targetId, status: 'created', message: outcome.message })
+      return 'created'
     } catch (err: any) {
       record(summary, { sourceId, status: 'conflicted', message: err.message })
+      return 'conflicted'
     }
   }
 
-  return { summary, idMap }
+  return { importOne, summary, idMap }
 }
 
-async function importUsers(
-  source: AsyncIterable<SourceRecord>,
+/** Live, per-record user import — same shape and rationale as `GroupImporter` above, extracted from
+ * what used to be `importUsers()`'s whole `for await` loop. `providerFallbacks` is the same kind of
+ * live reference as `summary`/`idMap`: `createProviderFallbackUserConverter()`-produced accounts
+ * accumulate onto it across every `importOne()` call. */
+export interface UserImporter {
+  /** See `GroupImporter#importOne`'s doc — same Task 14 contract: returns the `RecordStatus` it just
+   * recorded onto `summary`. */
+  importOne(source: SourceRecord): Promise<RecordStatus>
+  readonly summary: EntityImportSummary
+  readonly idMap: Map<number, string>
+  readonly providerFallbacks: ProviderFallbackFlag[]
+}
+
+/** Builds a `UserImporter` — the stateful factory `importUsersAndGroups()` itself is now a thin
+ * composition of (see below). Never throws for one bad or conflicting record; each becomes a
+ * `RecordResult` on `summary` instead, so one user's bad data cannot abort the whole run. */
+export function createUserImporter(
   convert: UserConverter,
   writer: UsersGroupsWriter
-): Promise<{
-  summary: EntityImportSummary
-  idMap: Map<number, string>
-  providerFallbacks: ProviderFallbackFlag[]
-}> {
+): UserImporter {
   const summary = emptySummary()
   const idMap = new Map<number, string>()
   const providerFallbacks: ProviderFallbackFlag[] = []
 
-  for await (const sourceRecord of source) {
+  async function importOne(sourceRecord: SourceRecord): Promise<RecordStatus> {
     const sourceId = readSourceId(sourceRecord, 'id')
     if (sourceId === undefined) {
       record(summary, {
@@ -900,7 +804,7 @@ async function importUsers(
         status: 'skipped',
         message: 'missing or non-integer source id'
       })
-      continue
+      return 'skipped'
     }
 
     if (isSystemSourceRecord(sourceRecord)) {
@@ -910,34 +814,13 @@ async function importUsers(
         message:
           "system user (Administrator/Guest) -- an equivalent is already seeded by this install's own Users.init(); not imported"
       })
-      continue
+      return 'skipped'
     }
 
     const outcome = await convert(sourceRecord)
     if (outcome.status !== 'created') {
       record(summary, { sourceId, status: outcome.status, message: outcome.message })
-      continue
-    }
-
-    // Task 732: a matching user already on the target (by email, already unique) means this record
-    // was already imported by a prior run -- reuse its id rather than inserting a duplicate (which
-    // would hit users.email's unique constraint anyway), and never overwrite it. A providerFallback
-    // flag is only meaningful for an account genuinely created just now, so it's deliberately not
-    // re-raised here -- an already-imported account was already reported once, on the run that made it.
-    const existingUser = await writer.findUserByEmail(outcome.row.email)
-    if (existingUser) {
-      idMap.set(sourceId, existingUser.id)
-      const unchanged = sameUserContent(outcome.row, existingUser)
-      record(summary, {
-        sourceId,
-        targetId: existingUser.id,
-        status: unchanged ? 'existing' : 'diverged',
-        message: unchanged
-          ? 'already imported (matched by email); left unchanged'
-          : "already imported (matched by email), but the source's name now differs from the stored " +
-            'user; left unchanged rather than overwriting a possible in-3.0 edit -- see module doc Task 732'
-      })
-      continue
+      return outcome.status
     }
 
     try {
@@ -947,34 +830,49 @@ async function importUsers(
       if (outcome.providerFallback) {
         providerFallbacks.push(outcome.providerFallback)
       }
+      return 'created'
     } catch (err: any) {
       record(summary, { sourceId, status: 'conflicted', message: err.message })
+      return 'conflicted'
     }
   }
 
-  return { summary, idMap, providerFallbacks }
+  return { importOne, summary, idMap, providerFallbacks }
 }
 
-/** Translates and writes `userGroups` join rows, strictly after both id maps are fully populated —
- * the ordering `importUsersAndGroups()` exists to guarantee. No field-mapping stub is needed here (see
- * the module doc): once both ids resolve, there is nothing left to convert.
+/** Live, per-record `userGroups` join-row import — same shape and rationale as `GroupImporter`/
+ * `UserImporter` above, extracted from what used to be `importUserGroups()`'s whole `for await`
+ * loop. No field-mapping stub is needed here (see the module doc): once both ids resolve, there is
+ * nothing left to convert. */
+export interface UserGroupImporter {
+  /** See `GroupImporter#importOne`'s doc — same Task 14 contract: returns the `RecordStatus` it just
+   * recorded onto `summary`. */
+  importOne(source: SourceRecord): Promise<RecordStatus>
+  readonly summary: EntityImportSummary
+}
+
+/** Builds a `UserGroupImporter`. Takes `userIdMap`/`groupIdMap` directly rather than building them
+ * itself — the caller (Task 14's phase wiring, or `importUsersAndGroups()`'s own composition below)
+ * passes the SAME `Map` instances `createGroupImporter()`/`createUserImporter()` populate, exactly as
+ * `importUsersAndGroups()` already threaded `groupsResult.idMap`/`usersResult.idMap` before this
+ * extraction — so a membership resolved here always reflects every group/user imported so far,
+ * including ones imported after this importer was constructed.
  *
  * Task 731: a `groupId` that doesn't resolve in `groupIdMap` is not automatically "the group was
  * never created" -- it may be the source's own system Administrators (`SOURCE_SYSTEM_GROUP_ADMIN_ID`)
- * or Guests (`SOURCE_SYSTEM_GROUP_GUEST_ID`) group, which `importGroups()` deliberately skips rather
- * than creates. When `systemGroupIds` is supplied, that specific case is remapped onto this install's
- * real target group via `writer.assignUserToSystemGroup()` instead of being dropped. An ordinary group
- * id that resolves normally through `groupIdMap` never reaches this fallback at all. */
-async function importUserGroups(
-  source: AsyncIterable<SourceRecord>,
+ * or Guests (`SOURCE_SYSTEM_GROUP_GUEST_ID`) group, which `createGroupImporter()` deliberately skips
+ * rather than creates. When `systemGroupIds` is supplied, that specific case is remapped onto this
+ * install's real target group via `writer.assignUserToSystemGroup()` instead of being dropped. An
+ * ordinary group id that resolves normally through `groupIdMap` never reaches this fallback at all. */
+export function createUserGroupImporter(
   userIdMap: Map<number, string>,
   groupIdMap: Map<number, string>,
   writer: UsersGroupsWriter,
   systemGroupIds?: SystemGroupIds
-): Promise<EntityImportSummary> {
+): UserGroupImporter {
   const summary = emptySummary()
 
-  for await (const sourceRecord of source) {
+  async function importOne(sourceRecord: SourceRecord): Promise<RecordStatus> {
     const sourceUserId = readSourceId(sourceRecord, 'userId')
     const sourceGroupId = readSourceId(sourceRecord, 'groupId')
     const label = `${sourceRecord.userId ?? '?'}:${sourceRecord.groupId ?? '?'}`
@@ -985,7 +883,7 @@ async function importUserGroups(
         status: 'skipped',
         message: 'missing or non-integer userId/groupId'
       })
-      continue
+      return 'skipped'
     }
 
     const targetUserId = userIdMap.get(sourceUserId)
@@ -1010,7 +908,7 @@ async function importUserGroups(
         status: 'skipped',
         message: `referenced ${missing} was not created, so this membership was not written`
       })
-      continue
+      return 'skipped'
     }
 
     try {
@@ -1027,16 +925,18 @@ async function importUserGroups(
           ? `remapped from the source's system group ${sourceGroupId} onto this install's real system group, since the source row itself was not imported`
           : undefined
       })
+      return 'created'
     } catch (err: any) {
       record(summary, {
         sourceId: `${sourceUserId}:${sourceGroupId}`,
         status: 'conflicted',
         message: err.message
       })
+      return 'conflicted'
     }
   }
 
-  return summary
+  return { importOne, summary }
 }
 
 /**
@@ -1044,6 +944,11 @@ async function importUserGroups(
  * only that order, because `userGroups` translation needs both id maps fully built first (a group
  * referenced by a not-yet-imported user, or vice versa, is impossible by construction here since
  * neither map is read until its own phase has completely finished).
+ *
+ * A thin composition of `createGroupImporter()`/`createUserImporter()`/`createUserGroupImporter()`
+ * (Task 12, following Task 11's `importPages()`/`createPageImporter()` split): Task 14 drives the
+ * same three per-record importers directly via `importOne()` instead of three whole iterables, for
+ * phase wiring that can't hand this function a single `AsyncIterable` per entity up front.
  */
 export async function importUsersAndGroups(
   input: UsersGroupsImportInput
@@ -1051,20 +956,30 @@ export async function importUsersAndGroups(
   const convertGroup = input.convertGroup ?? stubConvertGroup
   const convertUser = input.convertUser ?? stubConvertUser
 
-  const groupsResult = await importGroups(input.source.groups, convertGroup, input.writer)
-  const usersResult = await importUsers(input.source.users, convertUser, input.writer)
-  const userGroupsSummary = await importUserGroups(
-    input.source.userGroups,
-    usersResult.idMap,
-    groupsResult.idMap,
+  const groupImporter = createGroupImporter(convertGroup, input.writer)
+  for await (const sourceRecord of input.source.groups) {
+    await groupImporter.importOne(sourceRecord)
+  }
+
+  const userImporter = createUserImporter(convertUser, input.writer)
+  for await (const sourceRecord of input.source.users) {
+    await userImporter.importOne(sourceRecord)
+  }
+
+  const userGroupImporter = createUserGroupImporter(
+    userImporter.idMap,
+    groupImporter.idMap,
     input.writer,
     input.systemGroupIds
   )
+  for await (const sourceRecord of input.source.userGroups) {
+    await userGroupImporter.importOne(sourceRecord)
+  }
 
   return {
-    groups: groupsResult.summary,
-    users: usersResult.summary,
-    userGroups: userGroupsSummary,
-    providerFallbacks: usersResult.providerFallbacks
+    groups: groupImporter.summary,
+    users: userImporter.summary,
+    userGroups: userGroupImporter.summary,
+    providerFallbacks: userImporter.providerFallbacks
   }
 }

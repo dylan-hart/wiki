@@ -38,9 +38,10 @@ async function defaultClassify(
  * Wraps a real `WriteRecorder` to notice whether any `create()` call across the whole phase run was
  * ever given a `write` callback — i.e. whether *any* entity actually has a destination write path,
  * as opposed to merely classifying records for the dry-run report (see `../recorder.ts`'s own header
- * comment: `write` is optional today because no phase has a real model write to give it). `dryRun`
- * still suppresses invoking `write()` itself; this only tracks whether one was *supplied*, since a
- * dry run against a phase that genuinely can write must not be reported as `not_implemented`.
+ * comment: `write` is optional so a phase with no real model write yet — or a source connector kind
+ * that never will, like `ExportBundleSourceConnector` — can still classify for the dry-run report).
+ * `dryRun` still suppresses invoking `write()` itself; this only tracks whether one was *supplied*,
+ * since a dry run against a phase that genuinely can write must not be reported as `not_implemented`.
  */
 function trackWriteCapability(recorder: WriteRecorder): {
   recorder: WriteRecorder
@@ -69,9 +70,11 @@ function trackWriteCapability(recorder: WriteRecorder): {
  * how many were read — the harness never needs the records themselves once classified, only how many
  * the source reports and how each one was classified.
  *
- * An entity generator that is still a `NotYetImplementedError` stub — every one of them, until
- * Features 414/416/418/420 land — resolves to `'not_implemented'` rather than aborting the whole
- * phase, so an operator running the CLI today gets a clean per-phase report instead of a crash. Any
+ * An entity generator that is still a `NotYetImplementedError` stub — real against a
+ * `PostgresSourceConnector` source today, still true of most of `ExportBundleSourceConnector`'s
+ * generators (`users`/`groups`/`settings`/`comments`/`assets` — bundle write support is out of this
+ * plan's scope) — resolves to `'not_implemented'` rather than aborting the whole phase, so an operator
+ * running the CLI against either connector kind gets a clean per-phase report instead of a crash. Any
  * other error propagates, since that is a real fault (a bad connection, a malformed row) the operator
  * needs to see.
  */
@@ -109,10 +112,13 @@ export function definePhase(config: {
   label: string
   dependsOn: MigrationPhaseId[]
   entities: (ctx: MigrationContext) => Record<string, PhaseEntity>
-  /** Unmappable entries that hold regardless of what the source connector can read yet — e.g. the
-   * assets phase's "comments have no destination table" note, which is a fact about this codebase's
-   * schema, not about any particular record read off the source. Always included in `report.unmappable`
-   * on a successful or partially-implemented run. */
+  /** Unmappable entries that hold regardless of what the source connector can read yet — a fact about
+   * this codebase's schema, not about any particular record read off the source. The assets phase used
+   * to pass one here ("comments have no destination table"), before Task 16 built comments a real
+   * `models/comments.ts#create()` import path — no phase currently supplies one, but the mechanism
+   * stays for the next entity that turns out to have no 3.0 destination (see `../report.ts`'s
+   * `UnmappableReason` doc comment on `'no-destination-table'`). Always included in
+   * `report.unmappable` on a successful or partially-implemented run. */
   staticUnmappable?: UnmappableEntry[]
 }): MigrationPhase {
   return {
@@ -135,9 +141,14 @@ export function definePhase(config: {
         }
         // No entity in this phase ever supplied `create()` a `write` callback, so nothing this phase
         // "counted" was actually written anywhere — every entity that looked like a successful read
-        // is really just an honest report of what *would* be created once a real write path exists
-        // (Features 414/416/418/420). Reclassify it as `not_implemented` rather than `ok` so an
-        // operator never sees success for a phase with no destination write path at all.
+        // is really just an honest report of what *would* be created. Real against a
+        // `PostgresSourceConnector` source (every phase has a genuine write path there), this still
+        // fires for an `ExportBundleSourceConnector` source's `users`/`settings`/`assets` phases, whose
+        // entity generators remain `NotYetImplementedError` stubs — bundle write support is out of this
+        // plan's scope, so `readEntity()` never even reaches this reclassification for them (it already
+        // returned `'not_implemented'` per-entity). Kept here for the phase where a read genuinely
+        // succeeds but no write path exists at all, so an operator never sees success for a phase with
+        // no destination write path.
         if (!hasWriteCapability()) {
           for (const name of Object.keys(counts)) {
             if (!notImplemented.includes(name)) {

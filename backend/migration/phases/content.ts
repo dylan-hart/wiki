@@ -1,71 +1,352 @@
-import { resolveExisting, SOURCE_SYSTEM_WIKIJS_2_5X } from '../provenance.ts'
+import { pageHistory as pageHistoryTable } from '../../db/schema.ts'
+import { sanitizeNavItemTargets } from '../../models/navigation.ts'
+import {
+  buildContentStagingIndex,
+  createContentStagingContext,
+  extractContentStaging,
+  extractNavigation
+} from '../content-staging.ts'
+import { backfillPageHistory, backfillPageHistoryForPage } from '../page-history-import.ts'
+import { createPageImporter } from '../page-import.ts'
+import { importNavigation } from '../navigation-import.ts'
+import { resolvePrimaryLocale } from '../context.ts'
 import { definePhase } from './define-phase.ts'
-import type { SourceRecord } from '../connector.ts'
-import type { MigrationContext } from '../context.ts'
+import type { Page } from '../../models/pages.ts'
+import type { ContentStagingOptions, StagedPage } from '../content-staging.ts'
+import type { PageHistoryInsertRow } from '../page-history-import.ts'
+import type { ImportPagesDeps, PageImportOutcome, PagesWriteModel } from '../page-import.ts'
+import type { NavigationImportDeps, NavigationWriteModel } from '../navigation-import.ts'
 import type { WriteRecorder } from '../recorder.ts'
 
 /**
- * Classifies one `pages` record via Feature 421 task 746's provenance/idempotency check: the exact
- * `migrationRecords` lookup first, falling back to a natural-key match on `(siteId, locale, path)` for
- * the interrupted-run edge case `../provenance.ts` documents. See `../phases/users.ts`'s `classifyUser`
- * for why this is the read-only `resolveExisting` half rather than the full `lookupOrInsert` — there is
- * no real page-creation write yet for a genuine miss to call (Feature 416 owns that).
+ * Routes one page's `PageImportOutcome` (`page-import.ts`, extended by this task's own proactive fix —
+ * see that file's doc comment on `PageImportOutcome`) onto the matching `WriteRecorder` call, mirroring
+ * `phases/users.ts`'s `routeOutcome()` convention Task 14's review round established for the identical
+ * class of bug: blindly wrapping `pageImporter.importOne()` as `recorder.create()`'s `write` callback
+ * would misreport every failed page (a sibling-collision, an existing-entry-collision, a `createPage()`
+ * error — `importOne()` never throws for any of these, it just returns a `'failed'` outcome) as a
+ * successful `wouldCreate`, since the write never throws and `create()` counts unconditionally.
  *
- * A natural-key hit is *not* reconciled into `migrationRecords` here (OpenProject #1766): this phase is
- * read-only — no page is actually created — so persisting a mapping would freeze a path coincidence as
- * an exact key with no corresponding destination write behind it. `reconcileNaturalKeyMatch` already
- * runs on every natural-key hit inside `lookupOrInsert` (`../provenance.ts:247-251`) once Feature 416's
- * real write path exists; that is the only place a mapping should be persisted from.
- *
- * `pageHistory` and `tags` are not given a `classify` here: a history row's identity is inseparable
- * from the page it revises, and a tag's from the pages that carry it, so both are left as plain "would
- * create" counts until Feature 416 defines what idempotency means for them specifically.
+ * `'existing-entry-collision'` is the one failure reason that means "already exists at the
+ * destination" — routed to `recorder.skipExisting()`, the same bucket `phases/users.ts` uses for a
+ * record `WriteRecorder`/`PhaseReport` has no dedicated "needs admin attention" bucket for either (see
+ * that file's own doc comment on the same limitation). Every other failure reason (`empty-path`,
+ * `invalid-segment`, `sibling-collision`, `create-error`) is a genuine problem preventing the write, not
+ * an idempotency skip, so it goes to `recorder.conflict()` — the same "attempted and failed" bucket
+ * `routeOutcome()` reserves for a `'conflicted'` users/groups record.
  */
-async function classifyPage(
-  record: unknown,
+async function routePageOutcome(
   recorder: WriteRecorder,
-  ctx: MigrationContext
+  identifier: string,
+  outcome: PageImportOutcome,
+  warnings: string[],
+  log: ((message: string) => void) | undefined
 ): Promise<void> {
-  const page = record as SourceRecord
-  const path = typeof page.path === 'string' ? page.path : undefined
-  const locale = typeof page.localeCode === 'string' ? page.localeCode : 'en'
-  const identifier = path ?? String(page.id ?? 'unknown')
-
-  if (!path) {
-    await recorder.create(identifier)
+  if (outcome.status === 'created') {
+    // -> `warnings` (`pageImporter.succeeded`'s just-pushed entry — includes a page-history-backfill
+    //    failure, per page-import.ts's own `importOne()`) has nowhere else to go: `PageImportOutcome`'s
+    //    'created' variant carries only `pageId`, and neither `WriteRecorder`/`PhaseReport` has a
+    //    per-record note field (the same gap `phases/users.ts#routeOutcome()`'s doc comment describes
+    //    for a group's dropped-permissions note) — logged here instead (whole-branch review Important
+    //    #3), one line per warning so a long list of backfill failures doesn't collapse into one
+    //    unreadable line.
+    for (const warning of warnings) {
+      log?.(`page ${identifier}: ${warning}`)
+    }
+    // -> The real (or dry-run placeholder — see entities() below) write already happened inside
+    //    importOne(), so this write callback is a deliberate no-op, not a second write. It still has
+    //    to be a real function (not omitted): define-phase.ts#trackWriteCapability() reads "was
+    //    create() ever given a write argument at all" as its one signal that this phase has a genuine
+    //    destination write path — see phases/users.ts's own doc comment on this, which this mirrors.
+    await recorder.create(identifier, async () => {})
     return
   }
-
-  const key = {
-    siteId: ctx.siteId,
-    sourceSystem: SOURCE_SYSTEM_WIKIJS_2_5X,
-    sourceTable: 'pages',
-    sourceId: String(page.id ?? path)
-  }
-  const existing = await resolveExisting(ctx.provenanceStore, key, () =>
-    ctx.provenanceStore.findExistingPageByPath(ctx.siteId, locale, path)
-  )
-  if (existing) {
+  if (outcome.reason === 'existing-entry-collision') {
     recorder.skipExisting(identifier)
     return
   }
-  await recorder.create(identifier)
+  recorder.conflict(identifier, outcome.message)
 }
 
 /**
  * Phase 3 (Feature 416: content importer). Depends on `users`: every page/history row carries an
- * `authorId`/`creatorId` that must resolve to an already-imported destination user.
+ * `authorId`/`creatorId` that must resolve to an already-imported destination user
+ * (`ctx.userIdMap`, populated by the `users` phase as a live reference — see `context.ts`).
+ *
+ * Task 13 wires this phase to the real staging/import engines built by earlier tasks in this feature:
+ * `content-staging.ts`'s `buildContentStagingIndex()`/`extractContentStaging()` (Task #1794/#1798),
+ * `page-import.ts`'s `createPageImporter()` (Task 11's extraction of Task 738/#1818's streaming
+ * importer), `page-history-import.ts`'s `backfillPageHistoryForPage()` (Task 740/#1801), and
+ * `navigation-import.ts`'s `importNavigation()`/`extractNavigation()` (Task 741).
+ *
+ * ## Two entities, strictly sequential
+ *
+ * `pages` streams real `StagedPage`s (not raw connector rows) via an async generator that `await`s
+ * `buildContentStagingIndex()`'s pre-pass before its first `yield` — the await only actually runs once
+ * iteration begins, which is what lets this satisfy `entities(ctx) => Record<string, PhaseEntity>`'s
+ * synchronous-return contract while still doing async setup. `navigation` is a small second entity: a
+ * one-record sentinel whose `classify` imports 2.x's navigation as the site-wide menu exactly once.
+ * `define-phase.ts#readEntity()` drains each entity's source fully before the next one starts
+ * (confirmed by Task 14's own verification of that file, and relied on there the same way) — load-
+ * bearing here, since `navigation`'s classify reads `pageImporter.pageIdMap` and
+ * `stagingContext.stagedPageRefs`, both of which are only complete once every page has actually been
+ * processed by the `pages` entity's own classify (not merely read off the source — see "Dry run" below
+ * for why classify, not the source read, is what does the real work).
+ *
+ * `pageHistory` and `tags` are not given entities of their own, unlike the pre-Task-13 stub shape: both
+ * are now embedded in `StagedPage` itself (`content-staging.ts`'s merge-join for history, its
+ * denormalized-tags-on-page-rows design for tags — see that module's own doc comment), so there is no
+ * separate raw `connector.pageHistory()`/`connector.tags()` read left at the phase level to report a
+ * count for. Their real per-run outcomes live inside `pageImporter`'s accumulated state (each
+ * `PageImportSuccess.warnings`, which includes a history-backfill failure) rather than in
+ * `PhaseReport`/`PhaseResult.counts`, matching `report.ts`'s own documented shape: `wouldSkipExisting`
+ * is nonzero "once a phase's classify checks... currently the users, content (pages only) and assets
+ * phases" — pages only, deliberately.
+ *
+ * ## Dry run
+ *
+ * Unlike `importers/users-groups.ts` (where `ctx.dryRun` picks between `createDrizzleWriter()` and
+ * `createDryRunWriter()` up front), `page-import.ts`/`page-history-import.ts`/`navigation-import.ts`
+ * have no such built-in split — every one of their injected dependencies is an unconditional write.
+ * The dry-run split therefore happens here instead, inside each dependency's own closure (never at
+ * `entities()`-construction time, so a `dryRun: true` run never touches the ambient `WIKI` global at
+ * all — see `existingEntry`/`createPage`/`insertVersions`/`ensureSiteNav`/`writeSiteItems` below):
+ * `pageImporter.importOne()` and `importNavigation()` are always called directly (never wrapped as
+ * `recorder.create()`'s own `write` callback — the same reasoning `routePageOutcome()`'s doc comment
+ * gives for why that would silently suppress real classification under `dryRun`, since
+ * `DryRunAwareRecorder.create()` never invokes a `write` callback at all when `dryRun` is true), so the
+ * real classification logic (collision checks, editor mapping, navigation item mapping/dropping) runs
+ * identically in both modes; only the destination-touching half of each dependency is swapped for a
+ * no-op or a placeholder id.
+ *
+ * `existingEntry` is the one exception worth calling out: in a real CLI run, `WIKI`/the destination db
+ * are always live even under `--dry-run` (only the *write* is skipped), so checking the real tree for a
+ * collision is both possible and correct there. But `phases/users.ts`'s own dry-run precedent never
+ * reads the destination at all (`createDryRunWriter()`'s methods touch nothing), and this phase's own
+ * pure unit tests (`phases.test.ts`) have no live `WIKI`/db to read — so `existingEntry` reports "not
+ * found" unconditionally under `dryRun`, same as every other dependency here, keeping a dry run fully
+ * I/O-free rather than a live read plus a stubbed write.
+ *
+ * ## Navigation targets are sanitized before the real write (review fix)
+ *
+ * `navigation-import.ts`'s `mapNavigationItem()` carries an `'external'`/`'externalblank'` item's
+ * `target` through verbatim, unvalidated — a schemeless target, or a `javascript:`/`ftp:` URL from an
+ * old 2.x menu, passes straight through. But the real `models/navigation.ts#setNavItems()` calls
+ * `assertValidNavItems()`, which *throws* `CustomError('navigationInvalidTarget')` for exactly that
+ * shape. Since `importNavigation()`'s own write happens inside this phase's `navigation` entity —
+ * which runs strictly after every page has already been created — an uncaught throw there would have
+ * reached `define-phase.ts#readEntity()`'s catch, which only special-cases `NotYetImplementedError`;
+ * anything else propagates out of `run()` as `status: 'error'` with `emptyPhaseReport()`, discarding
+ * the whole phase's report for every page already successfully imported in the same run. The
+ * `navigationModel.writeSiteItems` adapter below therefore runs the resolved items through
+ * `models/navigation.ts#sanitizeNavItemTargets()` — the same function `copyNav()` already uses for the
+ * identical "items that predate this validation" case — before ever calling `setNavItems()`, and logs
+ * (via `ctx.log`) which items had their target blanked, since `sanitizeNavItemTargets()` itself reports
+ * nothing back beyond the sanitized array.
+ *
+ * ## Orphaned pageHistory is backfilled too (review fix)
+ *
+ * `stagingContext.orphanedHistory` (2.x `pageHistory` rows whose `pageId` names no current page — a
+ * deleted 2.x page, per `content-staging.ts`'s own doc) is only complete once `pages` has fully
+ * drained, same as `stagedPageRefs`. It has no single page to backfill against inline the way a live
+ * page's own history does (`pagesDeps.backfillHistory`, called per-page from inside
+ * `pageImporter.importOne()`), so it is drained here instead, in the `navigation` entity's classify —
+ * the only other hook that is guaranteed to run after `pages` has fully drained. Reuses
+ * `page-history-import.ts#backfillPageHistory()`'s batch form with an empty `pages` array (so only its
+ * orphaned-group loop runs — every live page's own history was already backfilled per-page above) to
+ * get its synthesized-shared-`pageId`-per-group behavior for free, rather than reimplementing the
+ * grouping here.
  */
 export const contentPhase = definePhase({
   id: 'content',
   label: 'Pages, page history & tags',
   dependsOn: ['users'],
-  entities: (ctx) => ({
-    pages: {
-      source: () => ctx.source.pages(),
-      classify: (record, recorder) => classifyPage(record, recorder, ctx)
-    },
-    pageHistory: { source: () => ctx.source.pageHistory() },
-    tags: { source: () => ctx.source.tags() }
-  })
+  entities: (ctx) => {
+    // `ctx.userIdMap` does not exist until the `users` phase has actually run (see context.ts's own
+    // doc comment) — an empty map is the correct fallback for a hand-built MigrationContext that never
+    // ran it (e.g. a unit test exercising this phase alone): every authorId/creatorId then falls back
+    // to ctx.operatorActorId via resolveActorId(), the same "orphaned FK" path a genuinely unmapped
+    // source id already takes.
+    const userIdMap = ctx.userIdMap ?? new Map<number, string>()
+    const stagingOptions: ContentStagingOptions = {
+      userIdMap,
+      fallbackActorId: ctx.operatorActorId
+    }
+    const stagingContext = createContentStagingContext()
+
+    // -> Shared between the per-page backfill below (pagesDeps.backfillHistory) and the orphaned-
+    //    history batch backfill (the navigation entity's classify) — same "compute for real, write
+    //    only when live" split every other dependency in this phase uses.
+    async function insertHistoryVersions(rows: PageHistoryInsertRow[]): Promise<void> {
+      if (ctx.dryRun) return
+      await WIKI.db.insert(pageHistoryTable).values(rows)
+    }
+
+    const pagesModel: PagesWriteModel = {
+      async createPage(siteId, input, actor) {
+        if (ctx.dryRun) {
+          // -> Mirrors importers/users-groups.ts's createDryRunWriter(): mint a placeholder id
+          //    instead of really writing, so importOne()'s own classification logic still runs
+          //    identically in both modes. Only `.id` is ever read off the result
+          //    (page-import.ts's importOne()), so a minimal object cast through `unknown` is safe
+          //    here — narrow, deliberate, matching CLAUDE.md's cast convention.
+          return { id: crypto.randomUUID() } as unknown as Page
+        }
+        return WIKI.models.pages.createPage(siteId, input, actor)
+      }
+    }
+
+    const pagesDeps: ImportPagesDeps = {
+      pagesModel,
+      existingEntry: async (siteId, locale, parentPath, fileName) => {
+        if (ctx.dryRun) {
+          // -> See the module doc comment's "Dry run" section for why this does not read the real
+          //    destination even though one is normally live under a CLI dry run.
+          return false
+        }
+        const entry = await WIKI.models.tree.getEntryAt({ siteId, locale, parentPath, fileName })
+        return entry !== null
+      },
+      backfillHistory: (staged, newPageId) =>
+        backfillPageHistoryForPage(staged, newPageId, ctx.siteId, {
+          insertVersions: insertHistoryVersions
+        })
+    }
+
+    const pageImporter = createPageImporter(pagesDeps, {
+      siteId: ctx.siteId,
+      // -> The migration operator is trusted with full content authority over what it imports —
+      //    withholding write:scripts/write:styles would silently strip <script>/<style> blocks from
+      //    every imported page that had them, a real regression for a migration, not a safety net a
+      //    2.x source's own original author's (unknown, possibly nonexistent on this install)
+      //    permissions could ever meaningfully stand in for. See page-import.ts's own doc comment,
+      //    "The synthetic per-page actor".
+      actorPermissions: ['write:scripts', 'write:styles']
+    })
+    // Handed to the assets/comments phase (Task 16, dependsOn: ['content']) — see context.ts's own
+    // doc on pageIdMap for why this is a live IdMap reference, not a snapshot.
+    ctx.pageIdMap = pageImporter.pageIdMap
+
+    // navigation-import.ts's `NavigationWriteModel` was designed against an earlier shape of
+    // models/navigation.ts, where a site's navigation row was addressed by `siteId` alone (that
+    // module's own doc comment: "targetNavId collapses to siteId"). The real, current model has since
+    // grown per-locale rows — `ensureSiteNav(siteId, locale)` returns a real, distinct row id, and the
+    // write method is `setNavItems(siteId, navId, items)`, not a `writeSiteItems(siteId, items)` that
+    // never existed. Adapted here (rather than changing navigation-import.ts, out of this task's
+    // scope) by resolving the target site's primary-locale row inside each call: `ensureSiteNav`
+    // resolves and discards the row id (its own contract returns nothing), and `writeSiteItems`
+    // re-resolves the same row — idempotent, since `models/navigation.ts#ensureSiteNav` is keyed on
+    // `(siteId, locale)` and returns the same row every time — before writing to it.
+    const navigationModel: NavigationWriteModel = {
+      async ensureSiteNav(siteId) {
+        if (ctx.dryRun) return
+        await WIKI.models.navigation.ensureSiteNav(siteId, resolvePrimaryLocale(ctx))
+      },
+      async writeSiteItems(siteId, items) {
+        // -> See the module doc comment's "Navigation targets are sanitized" section: setNavItems()
+        //    throws for an item whose target isn't a rooted path or a complete http(s)/mailto/tel
+        //    address, which a 2.x source's 'external'/'externalblank' item is never validated
+        //    against on the way in. Sanitizing here (2.x navigation is flat — see
+        //    navigation-import.ts's own doc comment — so there are never any `children` to recurse
+        //    into) is what keeps a single bad legacy target from throwing this deep into the phase,
+        //    after every page has already been written. Computed unconditionally (unlike the actual
+        //    write below) since it is pure, no-I/O classification, not a destination read/write — a
+        //    dry run should see which targets would be blanked too, the same "compute for real
+        //    either way" rule pagesModel.createPage follows.
+        const sanitized = sanitizeNavItemTargets(items)
+        for (const [index, item] of items.entries()) {
+          const original = item.target
+          const cleaned = sanitized[index]!.target
+          if (original !== cleaned) {
+            ctx.log?.(
+              `navigation item "${item.label ?? item.id}": target "${original}" is neither a rooted ` +
+                'path nor a complete http(s)/mailto/tel address (a 2.x menu item that predates this ' +
+                'validation) — blanked rather than written, to avoid failing the whole content phase.'
+            )
+          }
+        }
+        if (ctx.dryRun) return
+        const navId = await WIKI.models.navigation.ensureSiteNav(siteId, resolvePrimaryLocale(ctx))
+        await WIKI.models.navigation.setNavItems(siteId, navId, sanitized)
+      }
+    }
+    const navigationDeps: NavigationImportDeps = { navigationModel }
+
+    async function* pagesSource(): AsyncGenerator<StagedPage> {
+      const index = await buildContentStagingIndex(ctx.source)
+      yield* extractContentStaging(ctx.source, stagingOptions, index, stagingContext)
+    }
+
+    return {
+      pages: {
+        source: pagesSource,
+        classify: async (record, recorder) => {
+          const staged = record as StagedPage
+          const outcome = await pageImporter.importOne(staged)
+          const warnings =
+            outcome.status === 'created' ? (pageImporter.succeeded.at(-1)?.warnings ?? []) : []
+          await routePageOutcome(recorder, String(staged.oldId), outcome, warnings, ctx.log)
+        }
+      },
+      navigation: {
+        // -> A one-record sentinel: readEntity() drains `pages` fully before this entity even starts
+        //    (object-key order — see the module doc comment), so pageImporter.pageIdMap and
+        //    stagingContext.stagedPageRefs are already complete by the time this classify runs.
+        source: async function* () {
+          yield { key: 'site-navigation' }
+        },
+        classify: async (_record, recorder) => {
+          // -> See the module doc comment's "Orphaned pageHistory is backfilled too" section.
+          //    `pages: []` means only backfillPageHistory()'s own orphaned-group loop runs — every
+          //    live page's own history was already backfilled per-page, inline, as `pages` streamed.
+          const orphanedResult = await backfillPageHistory(
+            [],
+            stagingContext.orphanedHistory,
+            pageImporter.pageIdMap,
+            ctx.siteId,
+            { insertVersions: insertHistoryVersions }
+          )
+          for (const warning of orphanedResult.warnings) {
+            ctx.log?.(warning)
+          }
+          for (const failure of orphanedResult.failed) {
+            ctx.log?.(
+              `orphaned pageHistory backfill failed for source page ${failure.oldId}: ${failure.message}`
+            )
+          }
+
+          const staged = await extractNavigation(ctx.source)
+          const navigationResult = await importNavigation(
+            staged,
+            stagingContext.stagedPageRefs,
+            pageImporter.pageIdMap,
+            navigationDeps,
+            { siteId: ctx.siteId, locale: resolvePrimaryLocale(ctx) }
+          )
+          // -> importNavigation()'s own `dropped`/`warnings` (whole-branch review Important #3) had
+          //    nowhere to go before this — `navigation` is a one-record sentinel (see below), so there
+          //    is no per-item `WriteRecorder` call to attach either to. Logged here instead, the same
+          //    "one line per entry" convention this phase already uses for the sanitize-before-write
+          //    step's own blanked-target warning (`navigationModel.writeSiteItems` above) and for the
+          //    orphaned-history backfill's own warnings/failures just above.
+          for (const warning of navigationResult.warnings) {
+            ctx.log?.(`navigation: ${warning}`)
+          }
+          for (const dropped of navigationResult.dropped) {
+            ctx.log?.(
+              `navigation item "${dropped.title}" (target "${dropped.target}"): dropped — ${dropped.reason}`
+            )
+          }
+          // -> importNavigation() always writes something (an empty items array is a valid,
+          //    successful outcome) and never throws for a dropped item — those are folded into its
+          //    own `dropped`/`warnings` instead — so 'created' is always the right outcome for this
+          //    single sentinel record. The real write already happened above (or was no-op'd by
+          //    navigationModel under dryRun); this no-op `write` callback exists only so
+          //    define-phase.ts's write-capability tracking sees a real write path was supplied — see
+          //    routePageOutcome()'s own comment on the same convention.
+          await recorder.create('site-navigation', async () => {})
+        }
+      }
+    }
+  }
 })

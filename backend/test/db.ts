@@ -141,11 +141,20 @@ export async function setupTestDb(): Promise<TestFixtures> {
     })
     .returning({ id: groupsTable.id })
 
-  // -> Not inserted here: the real migration this schema was just built from already seeds the three
-  //    default levels at fixed ids (`db/migrations/.../migration.sql`, mirroring
-  //    `models/classificationLevels.ts#init()`) — the same "Public" a fresh install gets. Read back
-  //    rather than duplicated, so a suite asserting against `list()`/`defaultLevel()` sees exactly
-  //    what a real boot would.
+  // -> The pre-squash migration history (task 2) used to seed these three fixed-id rows directly in
+  //    the `ALTER TABLE` migration that added `pages.classification` — that statement existed only to
+  //    backfill an already-existing install's pages when the NOT NULL column was added, so squashing
+  //    the whole history into one genesis `CREATE TABLE` (which needs no backfill) dropped it: a fresh
+  //    schema has no seed data of its own. A real boot re-seeds them anyway
+  //    (`core/config.ts#initDbValues()` -> `models.classificationLevels.init()`, idempotent via
+  //    `onConflictDoNothing`) using the exact fixed ids `base.yml`'s `systemIds` declares, so this
+  //    fixture seeds the same three rows at the same ids directly, matching what a real boot ends up
+  //    with — the same "Public" a fresh install gets.
+  await db.insert(classificationLevelsTable).values([
+    { id: '30000000-0000-4000-8000-000000000001', name: 'Public', sortOrder: 0 },
+    { id: '30000000-0000-4000-8000-000000000002', name: 'Internal', sortOrder: 1 },
+    { id: '30000000-0000-4000-8000-000000000003', name: 'Restricted', sortOrder: 2 }
+  ])
   const [classification] = await db
     .select({ id: classificationLevelsTable.id })
     .from(classificationLevelsTable)
@@ -183,11 +192,9 @@ export async function setupTestDb(): Promise<TestFixtures> {
  * rather than reusing the pool passed to `drizzle()`.
  *
  * Exported (not just used by `setupTestDb()`) so a suite that cannot use `setupTestDb()` wholesale —
- * one that needs its own hand-rolled minimal fixture with no pre-seeded rows, or that needs to migrate
- * in two stages, e.g. to seed a row shaped like it predates a specific migration — can still get the
- * same race-free extension setup, against the caller's own `Pool`, rather than duplicating this lock
- * dance. `hashBackfillMigration.test.ts` and `core/config.test.ts`'s `ensureSeeded()` suite are both
- * such cases.
+ * one that needs its own hand-rolled minimal fixture with no pre-seeded rows — can still get the same
+ * race-free extension setup, against the caller's own `Pool`, rather than duplicating this lock dance.
+ * `core/config.test.ts`'s `ensureSeeded()` suite is one such case.
  */
 export async function createExtensionsSerialized(pool: Pool): Promise<void> {
   const client = await pool.connect()

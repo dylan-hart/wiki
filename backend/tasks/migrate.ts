@@ -18,11 +18,15 @@
  */
 
 import fs from 'node:fs/promises'
-import { bootstrapMigrationRuntime, buildSourceConnector } from '../migration/bootstrap.ts'
-import { parseMigrationArgs, refusalReason } from '../migration/cli.ts'
+import {
+  bootstrapMigrationRuntime,
+  buildSourceConnector,
+  resolveUsersImportContext
+} from '../migration/bootstrap.ts'
+import { parseMigrationArgs } from '../migration/cli.ts'
+import { computeExitCode, notImplementedPhaseIds } from '../migration/exit-status.ts'
 import { MIGRATION_PHASES } from '../migration/phases/index.ts'
 import { runMigration } from '../migration/orchestrator.ts'
-import { createProvenanceStore } from '../migration/provenance.ts'
 import { formatReportTable, reportsToJson } from '../migration/render.ts'
 import { emptyPhaseReport } from '../migration/report.ts'
 import type { MigrationContext } from '../migration/context.ts'
@@ -31,33 +35,13 @@ import type { ParsedMigrationArgs } from '../migration/cli.ts'
 async function main(): Promise<void> {
   const args = parseMigrationArgs(process.argv.slice(2))
 
-  // 2026-08-24 audit, correctness-migration.md §2 (WP #1797, part of epic #1788): no phase can write
-  // to the destination yet, so a non-`--dry-run` invocation is refused outright, before anything --
-  // including `bootstrapMigrationRuntime` -- touches the destination database. Checked here rather
-  // than folded into `parseMigrationArgs` so the refusal prints as a clean one-liner instead of the
-  // stack-trace-shaped output `main().catch()` below gives a genuine parse error.
-  const refusal = refusalReason(args)
-  if (refusal) {
-    console.error(refusal)
-    process.exitCode = 1
-    return
-  }
-
   const WIKI = await bootstrapMigrationRuntime('migrate-cli')
 
   WIKI.logger.info('=======================================')
   WIKI.logger.info('= Wiki.js 2.5.x -> 3.0 Migration CLI  =')
   WIKI.logger.info('=======================================')
-  // Unconditional, not gated on `args.dryRun`: the refusal above guarantees every run reaching this
-  // line already IS a dry run, and the banner should say so truthfully regardless -- it must never
-  // again read as "no news means writes are happening".
-  WIKI.logger.info(
-    'Report-only mode: no migration phase can write to the destination yet; nothing will be written.'
-  )
-  if (args.updateExisting) {
-    WIKI.logger.info(
-      'Update-existing: an already-imported row will be updated in place, not skipped.'
-    )
+  if (args.dryRun) {
+    WIKI.logger.info('Dry run: computing what would change without writing anything.')
   }
 
   // Unlike index.ts's server, this process has nothing else keeping the event loop alive once it's
@@ -96,11 +80,8 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
       source,
       siteId: args.siteId,
       dryRun: args.dryRun,
-      // Feature 421 task 746: idempotent re-runs. `provenanceStore` is built once, here, from the
-      // real destination `db` — never per-phase — so every phase checks the same table.
-      provenanceStore: createProvenanceStore(WIKI.db),
-      updateExisting: args.updateExisting,
-      log: (message) => WIKI.logger.info(message)
+      log: (message) => WIKI.logger.info(message),
+      ...resolveUsersImportContext(WIKI)
     }
 
     const results = await runMigration(MIGRATION_PHASES, ctx, { only: args.only })
@@ -131,7 +112,23 @@ async function runAgainstDestination(WIKI: WikiGlobal, args: ParsedMigrationArgs
       WIKI.logger.info(`Report written to ${args.reportFile}`)
     }
 
-    process.exitCode = results.some((result) => result.status === 'error') ? 1 : 0
+    // -> Whole-branch review Important #4: a live (non-dry-run) run must exit non-zero, with a clear
+    //    message naming which phase(s), when any phase had no real write path at all against the
+    //    source in use — see `../migration/exit-status.ts`'s own doc comment for the full "why" (a
+    //    bundle source's still-stubbed phases used to silently exit 0 on a real, partial migration).
+    const notImplementedPhases = notImplementedPhaseIds(results)
+    if (!args.dryRun && notImplementedPhases.length > 0) {
+      WIKI.logger.error(
+        `Live migration incomplete: the following phase(s) had no real write path against this ` +
+          `source and did not write anything: ${notImplementedPhases.join(', ')}. Whatever phases DID ` +
+          `write above already made real changes to the destination — this is not a rollback, just a ` +
+          `signal that the migration is only partially done. Re-run with a source that implements ` +
+          `the missing phase(s) (a bundle source cannot import ${notImplementedPhases.join('/')} at ` +
+          `all yet), or pass --only to target just the phase(s) that need it.`
+      )
+    }
+
+    process.exitCode = computeExitCode(results, args.dryRun)
   } finally {
     await source.disconnect()
   }

@@ -1,2 +1,0 @@
-ALTER TABLE "pageWatchEvents" ADD COLUMN "readAt" timestamp;--> statement-breakpoint
-CREATE INDEX "pageWatchEvents_unread_idx" ON "pageWatchEvents" ("userId","siteId","createdAt") WHERE "readAt" IS NULL;

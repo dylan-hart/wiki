@@ -1,1 +1,0 @@
-ALTER TABLE "glossaryTerms" ADD COLUMN "aliases" text[] DEFAULT ARRAY[]::text[] NOT NULL;

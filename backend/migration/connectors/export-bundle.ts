@@ -502,6 +502,13 @@ export class ExportBundleSourceConnector implements SourceConnector {
     throw new NotYetImplementedError('settings', 'Task 420 (Settings/Auth/Storage importer)')
   }
 
+  comments(): AsyncIterable<SourceRecord> {
+    throw new NotYetImplementedError(
+      'comments',
+      'a future task extending the export-bundle connector'
+    )
+  }
+
   assets(): AsyncIterable<SourceAssetFile> {
     throw new NotYetImplementedError('assets', 'Task 418 (Assets/Comments importer)')
   }

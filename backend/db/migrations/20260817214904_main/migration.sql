@@ -1,1 +1,0 @@
-ALTER TABLE "apiKeys" ADD COLUMN "scope" jsonb DEFAULT 'null';

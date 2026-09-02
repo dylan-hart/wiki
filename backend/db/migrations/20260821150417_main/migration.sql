@@ -1,1 +1,0 @@
-ALTER TABLE "pageWatchEvents" ADD COLUMN "pageLocale" text DEFAULT 'en' NOT NULL;

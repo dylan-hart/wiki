@@ -1,7 +1,8 @@
 import { Client } from 'pg'
 import type { ClientConfig } from 'pg'
+import Cursor from 'pg-cursor'
+import { Readable } from 'node:stream'
 import {
-  NotYetImplementedError,
   type SourceAssetFile,
   type SourceConnector,
   type SourceDescription,
@@ -41,10 +42,10 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
  * See `docs/migration/decision-source-scope.md` for why this is the only live-database connector kind
  * this connector supports, and for the read-only requirement `connect()` enforces defensively.
  *
- * `pages()`, `pageHistory()`, `tags()` and `navigation()` are implemented for real (Task 733, this
- * feature's own extraction scaffold) via plain SQL against the connected client — the rest
- * (`users()`, `groups()`, `settings()`, `assets()`) remain `NotYetImplementedError` stubs, deferred to
- * the tasks that own those entities.
+ * Every `SourceConnector` method is implemented for real against the connected client: `pages()`,
+ * `pageHistory()`, `tags()`, `navigation()`, `users()`, `groups()`, `settings()` and `comments()` via
+ * plain SQL, and `assets()` via a streaming Postgres cursor joined against the resolved
+ * `assetFolders` path for each row.
  */
 export class PostgresSourceConnector implements SourceConnector {
   readonly kind = 'postgres' as const
@@ -148,12 +149,34 @@ export class PostgresSourceConnector implements SourceConnector {
     }
   }
 
+  /** Batch size mirrors `PAGE_BATCH_SIZE`'s reasoning at a smaller row size, matching the
+   * export-bundle exporter's own 50/batch for `users.json.gz`
+   * (`docs/migration/2.5x-export-bundle-format.md`). */
+  private static readonly USER_BATCH_SIZE = 50
+
   users(): AsyncIterable<SourceRecord> {
-    throw new NotYetImplementedError('users', 'Task 414 (Users/Groups importer)')
+    // Embeds group membership the same way the export-bundle format's users.json.gz does
+    // (`{ groups: [{id, name}] }`) — see connector.ts's own doc comment on why users() carries this
+    // rather than exposing a separate userGroups() generator. Both connector kinds hand callers an
+    // identically-shaped users() row this way.
+    return this.paginatedQuery(
+      `SELECT u.*, COALESCE(
+         json_agg(json_build_object('id', g.id, 'name', g.name) ORDER BY g.id)
+           FILTER (WHERE g.id IS NOT NULL),
+         '[]'
+       ) AS groups
+       FROM users u
+       LEFT JOIN "userGroups" ug ON ug."userId" = u.id
+       LEFT JOIN groups g ON g.id = ug."groupId"
+       GROUP BY u.id
+       ORDER BY u.id`,
+      [],
+      PostgresSourceConnector.USER_BATCH_SIZE
+    )
   }
 
   groups(): AsyncIterable<SourceRecord> {
-    throw new NotYetImplementedError('groups', 'Task 414 (Users/Groups importer)')
+    return this.paginatedQuery(`SELECT * FROM groups ORDER BY id`, [], 100)
   }
 
   /**
@@ -242,11 +265,113 @@ export class PostgresSourceConnector implements SourceConnector {
     return this.paginatedQuery(`SELECT * FROM navigation ORDER BY key`, [], 100)
   }
 
-  settings(): AsyncIterable<SourceRecord> {
-    throw new NotYetImplementedError('settings', 'Task 420 (Settings/Auth/Storage importer)')
+  /** Yields every row of 2.x's three config tables this migration cares about (`settings`,
+   * `authentication`, `storage`), each tagged with `entity` so a caller routing rows to the three
+   * different mappers (`mappers/site-settings.ts`, `mappers/authentication.ts`,
+   * `mappers/storage.ts`) can dispatch without re-querying — the interface only has one settings()
+   * generator (see connector.ts's own doc comment), so this is the "exact grouping" that comment
+   * defers to this task. None of these three tables is large (each is a small, singleton-per-key
+   * config table per `2.5x-source-schema.md`), so a plain `SELECT *` with no pagination is correct
+   * here — this mirrors `tags()`/`navigation()`'s existing unpaginated pattern in this same file,
+   * not `pages()`'s batched one. */
+  async *settings(): AsyncIterable<SourceRecord> {
+    if (!this.client) {
+      throw new Error('Entity generator called before a successful connect().')
+    }
+    const settingsRes = await this.client.query<SourceRecord>(`SELECT * FROM settings ORDER BY key`)
+    for (const row of settingsRes.rows) {
+      yield { entity: 'settings', ...row }
+    }
+
+    const authRes = await this.client.query<SourceRecord>(
+      `SELECT * FROM authentication ORDER BY key`
+    )
+    for (const row of authRes.rows) {
+      yield { entity: 'authentication', ...row }
+    }
+
+    const storageRes = await this.client.query<SourceRecord>(`SELECT * FROM storage ORDER BY key`)
+    for (const row of storageRes.rows) {
+      yield { entity: 'storage', ...row }
+    }
   }
 
-  assets(): AsyncIterable<SourceAssetFile> {
-    throw new NotYetImplementedError('assets', 'Task 418 (Assets/Comments importer)')
+  comments(): AsyncIterable<SourceRecord> {
+    return this.paginatedQuery(`SELECT * FROM comments ORDER BY id`, [], 100)
+  }
+
+  /** Resolves 2.x `assetFolders`' self-referential adjacency list (id -> {name, parentId}) into a
+   * folderId -> full relative path map, the live-Postgres equivalent of what the 2.x export bundle's
+   * own `getAllPaths()` computes server-side (`docs/migration/2.5x-export-bundle-format.md`'s
+   * `assets` section). Reads the whole (typically small) `assetFolders` table into memory once — no
+   * install has enough folders for this to matter the way `pages`/`assetData` volume does. */
+  private async buildAssetFolderPaths(): Promise<Map<number, string>> {
+    if (!this.client) {
+      throw new Error('Entity generator called before a successful connect().')
+    }
+    const res = await this.client.query<{ id: number; name: string; parentId: number | null }>(
+      `SELECT id, name, "parentId" FROM "assetFolders"`
+    )
+    const byId = new Map(res.rows.map((row) => [row.id, row]))
+    const pathCache = new Map<number, string>()
+
+    const resolve = (id: number): string => {
+      const cached = pathCache.get(id)
+      if (cached !== undefined) return cached
+      const folder = byId.get(id)
+      if (!folder) return ''
+      const path = folder.parentId ? `${resolve(folder.parentId)}/${folder.name}` : folder.name
+      pathCache.set(id, path)
+      return path
+    }
+
+    for (const id of byId.keys()) resolve(id)
+    return pathCache
+  }
+
+  async *assets(): AsyncIterable<SourceAssetFile> {
+    if (!this.client) {
+      throw new Error('Entity generator called before a successful connect().')
+    }
+    const folderPaths = await this.buildAssetFolderPaths()
+
+    // Single unbatched streaming cursor, matching the 2.x exporter's own choice for this entity
+    // (docs/migration/2.5x-export-bundle-format.md: "assets uses a single unbatched streaming DB
+    // cursor, no .limit() at all") — asset bytes are the one thing in this migration too large to
+    // ever paginate through a plain SELECT.
+    const cursor = this.client.query(
+      new Cursor(
+        `SELECT a.id, a.filename, a.mime, a."authorId", a."createdAt", a."updatedAt", a."folderId",
+                d.data
+         FROM assets a
+         JOIN "assetData" d ON d.id = a.id
+         ORDER BY a.id`
+      )
+    )
+    try {
+      for (;;) {
+        const rows = await new Promise<any[]>((resolve, reject) => {
+          cursor.read(1, (err: Error | undefined, rows: any[]) =>
+            err ? reject(err) : resolve(rows)
+          )
+        })
+        if (rows.length === 0) break
+        const row = rows[0]
+        const folderPath = row.folderId ? folderPaths.get(row.folderId) : undefined
+        const relativePath = folderPath ? `${folderPath}/${row.filename}` : row.filename
+        yield {
+          relativePath,
+          filename: row.filename,
+          size: row.data?.length,
+          stream: Readable.from(row.data ? [row.data] : []),
+          authorId: row.authorId ?? undefined,
+          mimeType: row.mime ?? undefined,
+          createdAt: row.createdAt ? new Date(row.createdAt) : undefined,
+          updatedAt: row.updatedAt ? new Date(row.updatedAt) : undefined
+        }
+      }
+    } finally {
+      await new Promise<void>((resolve) => cursor.close(() => resolve()))
+    }
   }
 }

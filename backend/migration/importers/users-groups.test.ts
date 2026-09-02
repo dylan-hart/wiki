@@ -4,7 +4,11 @@ import {
   createDrizzleWriter,
   createDryRunWriter,
   createGroupConverter,
+  createGroupImporter,
   createProviderFallbackUserConverter,
+  createUserGroupImporter,
+  createUserImporter,
+  deriveUserGroupsFromEmbeddedGroups,
   importUsersAndGroups,
   needsProviderFallback,
   stubConvertGroup,
@@ -13,6 +17,7 @@ import {
   type NewUserRow,
   type UsersGroupsWriter
 } from './users-groups.ts'
+import type { SourceRecord } from '../connector.ts'
 
 const TARGET_ADMIN_GROUP_ID = 'target-admin-group-uuid'
 const TARGET_GUEST_GROUP_ID = 'target-guest-group-uuid'
@@ -47,44 +52,6 @@ function recordingWriter(): UsersGroupsWriter & { calls: string[] } {
     async assignUserToSystemGroup(userId, groupId) {
       calls.push(`assignUserToSystemGroup:${userId}:${groupId}`)
       return base.assignUserToSystemGroup(userId, groupId)
-    },
-    findGroupByName: base.findGroupByName,
-    findUserByEmail: base.findUserByEmail
-  }
-}
-
-/** An in-memory writer that actually retains what it "wrote", keyed by the same natural keys Task
- * 732's re-run detection matches on -- unlike `createDryRunWriter()` (which never remembers anything,
- * since a dry run never touches storage), this lets a test call `importUsersAndGroups()` twice and
- * observe genuine re-run behavior: the second call's `findGroupByName()`/`findUserByEmail()` see what
- * the first call "wrote", the same way a real Postgres-backed writer would across two separate CLI
- * invocations. */
-function statefulWriter(): UsersGroupsWriter {
-  const groupsByName = new Map<string, { id: string; permissions: string[]; rules: any[] }>()
-  const usersByEmail = new Map<string, { id: string; name: string }>()
-
-  return {
-    async insertGroup(row) {
-      const id = crypto.randomUUID()
-      groupsByName.set(row.name, {
-        id,
-        permissions: [...((row.permissions ?? []) as string[])],
-        rules: [...((row.rules ?? []) as any[])]
-      })
-      return { id }
-    },
-    async insertUser(row) {
-      const id = crypto.randomUUID()
-      usersByEmail.set(row.email, { id, name: row.name })
-      return { id }
-    },
-    async insertUserGroup() {},
-    async assignUserToSystemGroup() {},
-    async findGroupByName(name) {
-      return groupsByName.get(name)
-    },
-    async findUserByEmail(email) {
-      return usersByEmail.get(email)
     }
   }
 }
@@ -215,13 +182,7 @@ describe('importUsersAndGroups', () => {
         return { id: crypto.randomUUID() }
       },
       async insertUserGroup() {},
-      async assignUserToSystemGroup() {},
-      async findGroupByName() {
-        return undefined
-      },
-      async findUserByEmail() {
-        return undefined
-      }
+      async assignUserToSystemGroup() {}
     }
 
     const result = await importUsersAndGroups({
@@ -945,357 +906,163 @@ describe('system-row exclusion (Task 731)', () => {
 })
 
 /**
- * Coverage for Task 732: idempotent re-run safety. A second `importUsersAndGroups()` call against the
- * same source data must not duplicate `groups`/`users` rows, must reuse the prior target id for
- * `userGroups` translation, and must never overwrite a target row that has since diverged from the
- * source.
+ * Coverage for the Task 12 extraction: `createGroupImporter()`/`createUserImporter()`/
+ * `createUserGroupImporter()` expose a per-record `importOne()` that Task 14's phase wiring drives
+ * one source record at a time, instead of only ever being handed a whole iterable up front (as
+ * `importUsersAndGroups()` still does, now as a thin composition of these three factories).
  */
-describe('idempotent re-run safety (Task 732)', () => {
-  test('re-importing the same group twice: first run creates, second run reports existing (unchanged) and reuses the same target id', async () => {
-    const writer = statefulWriter()
-    const insertCalls: string[] = []
-    const countingWriter: UsersGroupsWriter = {
-      ...writer,
-      async insertGroup(row) {
-        insertCalls.push(row.name)
-        return writer.insertGroup(row)
-      }
-    }
+describe('createGroupImporter / createUserGroupImporter (Task 12 extraction)', () => {
+  test('createGroupImporter accumulates idMap across multiple importOne() calls', async () => {
+    const writer = createDryRunWriter()
+    const importer = createGroupImporter(passthroughConvertGroup, writer)
 
-    const source = () =>
-      iter([
-        {
-          id: 1,
-          name: 'Editors',
-          isSystem: false,
-          permissions: ['manage:navigation'],
-          pageRules: []
-        }
-      ])
+    await importer.importOne({ id: 1, name: 'Editors' })
+    await importer.importOne({ id: 2, name: 'Reviewers' })
 
-    const first = await importUsersAndGroups({
-      source: { groups: source(), users: iter([]), userGroups: iter([]) },
-      writer: countingWriter,
-      convertGroup: createGroupConverter()
-    })
-    assert.equal(first.groups.created, 1)
-    const firstTargetId = first.groups.records[0].targetId
-
-    const second = await importUsersAndGroups({
-      source: { groups: source(), users: iter([]), userGroups: iter([]) },
-      writer: countingWriter,
-      convertGroup: createGroupConverter()
-    })
-
-    assert.equal(second.groups.created, 0)
-    assert.equal(second.groups.existing, 1)
-    assert.equal(second.groups.diverged, 0)
-    assert.equal(second.groups.records[0].targetId, firstTargetId) // -> same target id reused
-    assert.equal(insertCalls.length, 1) // -> insertGroup was never called a second time
+    assert.equal(importer.idMap.size, 2)
+    assert.ok(importer.idMap.has(1))
+    assert.ok(importer.idMap.has(2))
+    assert.notEqual(importer.idMap.get(1), importer.idMap.get(2))
+    assert.equal(importer.summary.created, 2)
+    assert.equal(importer.summary.records.length, 2)
   })
 
-  test('a rules array that is byte-identical in content but re-minted with fresh ids (Task 730 behavior) still counts as existing, not diverged', async () => {
-    const writer = statefulWriter()
-    const sourceGroup = {
-      id: 1,
-      name: 'Editors',
-      isSystem: false,
-      permissions: [],
-      pageRules: [
-        { id: '1', deny: true, match: 'START', path: 'blog', roles: ['read:pages'], locales: [] }
-      ]
-    }
+  test('createUserGroupImporter uses the exact idMap instances passed in, not copies', async () => {
+    const userIdMap = new Map<number, string>()
+    const groupIdMap = new Map<number, string>()
+    const writer = createDryRunWriter()
 
-    await importUsersAndGroups({
-      source: { groups: iter([sourceGroup]), users: iter([]), userGroups: iter([]) },
-      writer,
-      convertGroup: createGroupConverter()
-    })
-    // createGroupConverter() mints a fresh rule id on every call, so re-converting the identical
-    // source below is guaranteed to produce a different rule id than the first run did.
-    const second = await importUsersAndGroups({
-      source: { groups: iter([{ ...sourceGroup }]), users: iter([]), userGroups: iter([]) },
-      writer,
-      convertGroup: createGroupConverter()
-    })
+    const importer = createUserGroupImporter(userIdMap, groupIdMap, writer)
 
-    assert.equal(second.groups.existing, 1)
-    assert.equal(second.groups.diverged, 0)
-  })
+    // Mutate the maps AFTER construction, before importOne() -- proves the importer holds a live
+    // reference to the same Map instances rather than a snapshot taken at construction time, which
+    // is exactly what Task 14's phase wiring depends on (groups/users importers mutate these same
+    // maps as their own phases run, interleaved with this importer's own construction).
+    userIdMap.set(10, 'target-user-uuid')
+    groupIdMap.set(1, 'target-group-uuid')
 
-  test('a group whose source permissions changed since the first import is reported diverged, and the stored group is left untouched', async () => {
-    const writer = statefulWriter()
+    await importer.importOne({ id: 100, userId: 10, groupId: 1 })
 
-    await importUsersAndGroups({
-      source: {
-        groups: iter([
-          {
-            id: 1,
-            name: 'Editors',
-            isSystem: false,
-            permissions: ['manage:navigation'],
-            pageRules: []
-          }
-        ]),
-        users: iter([]),
-        userGroups: iter([])
-      },
-      writer,
-      convertGroup: createGroupConverter()
-    })
-
-    const second = await importUsersAndGroups({
-      source: {
-        groups: iter([
-          { id: 1, name: 'Editors', isSystem: false, permissions: ['manage:theme'], pageRules: [] }
-        ]),
-        users: iter([]),
-        userGroups: iter([])
-      },
-      writer,
-      convertGroup: createGroupConverter()
-    })
-
-    assert.equal(second.groups.diverged, 1)
-    assert.equal(second.groups.created, 0)
-    assert.match(second.groups.records[0].message ?? '', /permissions\/rules now differ/)
-
-    // The stored group was left exactly as the first run wrote it -- not overwritten with the
-    // second run's (diverged) permissions.
-    const stored = await writer.findGroupByName('Editors')
-    assert.deepEqual(stored?.permissions, ['manage:navigation'])
-  })
-
-  test('re-importing the same user twice: first run creates, second run reports existing and reuses the same target id', async () => {
-    const writer = statefulWriter()
-    const convertUser = createProviderFallbackUserConverter({
-      localStrategyId: 'local-strategy-uuid'
-    })
-    const source = () =>
-      iter([{ id: 10, email: 'alice@example.com', name: 'Alice', providerKey: 'ldap' }])
-
-    const first = await importUsersAndGroups({
-      source: { groups: iter([]), users: source(), userGroups: iter([]) },
-      writer,
-      convertUser
-    })
-    assert.equal(first.users.created, 1)
-    assert.equal(first.providerFallbacks.length, 1)
-    const firstTargetId = first.users.records[0].targetId
-
-    const second = await importUsersAndGroups({
-      source: { groups: iter([]), users: source(), userGroups: iter([]) },
-      writer,
-      convertUser
-    })
-
-    assert.equal(second.users.created, 0)
-    assert.equal(second.users.existing, 1)
-    assert.equal(second.users.records[0].targetId, firstTargetId)
-    // An account that already existed was not "created" again, so it must not be re-reported as a
-    // fresh provider-fallback flag either.
-    assert.equal(second.providerFallbacks.length, 0)
-  })
-
-  test('a user whose source display name changed since the first import is reported diverged, and the stored user is left untouched', async () => {
-    const writer = statefulWriter()
-    const convertUser = createProviderFallbackUserConverter({
-      localStrategyId: 'local-strategy-uuid'
-    })
-
-    await importUsersAndGroups({
-      source: {
-        groups: iter([]),
-        users: iter([{ id: 10, email: 'alice@example.com', name: 'Alice', providerKey: 'ldap' }]),
-        userGroups: iter([])
-      },
-      writer,
-      convertUser
-    })
-
-    const second = await importUsersAndGroups({
-      source: {
-        groups: iter([]),
-        users: iter([
-          { id: 10, email: 'alice@example.com', name: 'Alice Renamed', providerKey: 'ldap' }
-        ]),
-        userGroups: iter([])
-      },
-      writer,
-      convertUser
-    })
-
-    assert.equal(second.users.diverged, 1)
-    assert.equal(second.users.created, 0)
-    assert.match(second.users.records[0].message ?? '', /name now differs/)
-
-    const stored = await writer.findUserByEmail('alice@example.com')
-    assert.equal(stored?.name, 'Alice') // -> left exactly as the first run wrote it
-  })
-
-  test('end-to-end: a second run against the same groups+users+userGroups feed reuses prior target ids for membership translation, without ever calling insertUserGroup twice', async () => {
-    const writer = statefulWriter()
-    const insertUserGroupCalls: Array<[string, string]> = []
-    const countingWriter: UsersGroupsWriter = {
-      ...writer,
-      async insertUserGroup(userId, groupId) {
-        insertUserGroupCalls.push([userId, groupId])
-        return writer.insertUserGroup(userId, groupId)
-      }
-    }
-
-    const buildSource = () => ({
-      groups: iter([
-        {
-          id: 1,
-          name: 'Editors',
-          isSystem: false,
-          permissions: ['manage:navigation'],
-          pageRules: []
-        }
-      ]),
-      users: iter([{ id: 10, email: 'alice@example.com', name: 'Alice', providerKey: 'ldap' }]),
-      userGroups: iter([{ id: 100, userId: 10, groupId: 1 }])
-    })
-
-    const first = await importUsersAndGroups({
-      source: buildSource(),
-      writer: countingWriter,
-      convertGroup: createGroupConverter(),
-      convertUser: createProviderFallbackUserConverter({ localStrategyId: 'local-strategy-uuid' })
-    })
-    assert.equal(first.groups.created, 1)
-    assert.equal(first.users.created, 1)
-    assert.equal(first.userGroups.created, 1)
-
-    const second = await importUsersAndGroups({
-      source: buildSource(),
-      writer: countingWriter,
-      convertGroup: createGroupConverter(),
-      convertUser: createProviderFallbackUserConverter({ localStrategyId: 'local-strategy-uuid' })
-    })
-
-    assert.equal(second.groups.existing, 1)
-    assert.equal(second.users.existing, 1)
-    // The membership itself is written idempotently too: same user+group target ids resolved purely
-    // from the re-derived (not re-created) id maps, so the join row is attempted again identically --
-    // proving the id maps on the second run came from findGroupByName/findUserByEmail, not from a
-    // fresh insertGroup/insertUser call (there were none).
-    assert.equal(second.userGroups.created, 1)
-    assert.deepEqual(insertUserGroupCalls[0], insertUserGroupCalls[1])
+    assert.equal(importer.summary.created, 1)
+    assert.equal(importer.summary.records[0].targetId, 'target-group-uuid')
   })
 })
 
 /**
- * Coverage for `createDrizzleWriter()`'s Task 732 lookup methods.
+ * Coverage for the Task 14 review fix: `createGroupImporter`/`createUserImporter`/
+ * `createUserGroupImporter`'s `importOne()` now RETURNS the exact `RecordStatus` it recorded onto
+ * `summary`, rather than discarding it (`Promise<void>` -> `Promise<RecordStatus>`) — this is what
+ * lets a caller driving `importOne()` directly (`phases/users.ts`) route its own `WriteRecorder` call
+ * to match the real per-record outcome, instead of unconditionally treating every processed record as
+ * a create.
  */
-describe('createDrizzleWriter re-run lookups (Task 732)', () => {
-  let restoreWiki: (() => void) | undefined
-
-  afterEach(() => {
-    restoreWiki?.()
-    restoreWiki = undefined
+describe('importOne() return value (Task 14 review fix)', () => {
+  test("createGroupImporter's importOne() returns 'created' for a real conversion", async () => {
+    const importer = createGroupImporter(passthroughConvertGroup, createDryRunWriter())
+    assert.equal(await importer.importOne({ id: 1, name: 'Editors' }), 'created')
   })
 
-  test('findGroupByName queries by name and returns undefined when none matches', async () => {
-    let whereArg: any
-    const fakeDb = {
-      select() {
-        return {
-          from() {
-            return {
-              where(arg: any) {
-                whereArg = arg
-                return {
-                  async limit() {
-                    return []
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    } as any
-
-    const writer = createDrizzleWriter(fakeDb)
-    const result = await writer.findGroupByName('Nobody')
-
-    assert.equal(result, undefined)
-    assert.ok(whereArg) // -> a where() clause was actually built, not skipped
+  test("createGroupImporter's importOne() returns 'skipped' for a system row, without calling convert", async () => {
+    const importer = createGroupImporter(passthroughConvertGroup, createDryRunWriter())
+    assert.equal(
+      await importer.importOne({ id: 1, name: 'Administrators', isSystem: true }),
+      'skipped'
+    )
   })
 
-  test('findGroupByName returns the matching row when one exists', async () => {
-    const fakeDb = {
-      select() {
-        return {
-          from() {
-            return {
-              where() {
-                return {
-                  async limit() {
-                    return [
-                      { id: 'existing-group-uuid', permissions: ['manage:navigation'], rules: [] }
-                    ]
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    } as any
-
-    const writer = createDrizzleWriter(fakeDb)
-    const result = await writer.findGroupByName('Editors')
-
-    assert.deepEqual(result, {
-      id: 'existing-group-uuid',
-      permissions: ['manage:navigation'],
-      rules: []
-    })
+  test("createGroupImporter's importOne() returns the converter's own status for a non-created outcome", async () => {
+    const importer = createGroupImporter(stubConvertGroup, createDryRunWriter())
+    assert.equal(await importer.importOne({ id: 1, name: 'Editors' }), 'flagged')
   })
 
-  test('findUserByEmail delegates to WIKI.models.users.getByEmail and projects id/name', async () => {
-    const previous = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
-      models: {
-        users: {
-          async getByEmail(email: string) {
-            assert.equal(email, 'alice@example.com')
-            return { id: 'existing-user-uuid', name: 'Alice', email, extraColumn: 'ignored' }
-          }
-        }
-      }
+  test("createGroupImporter's importOne() returns 'conflicted' when the writer throws", async () => {
+    const writer: UsersGroupsWriter = {
+      async insertGroup() {
+        throw new Error('duplicate key value violates unique constraint')
+      },
+      async insertUser() {
+        return { id: crypto.randomUUID() }
+      },
+      async insertUserGroup() {},
+      async assignUserToSystemGroup() {}
     }
-    restoreWiki = () => {
-      ;(globalThis as any).WIKI = previous
-    }
-
-    const writer = createDrizzleWriter({} as any)
-    const result = await writer.findUserByEmail('alice@example.com')
-
-    assert.deepEqual(result, { id: 'existing-user-uuid', name: 'Alice' })
+    const importer = createGroupImporter(passthroughConvertGroup, writer)
+    assert.equal(await importer.importOne({ id: 1, name: 'Editors' }), 'conflicted')
   })
 
-  test('findUserByEmail returns undefined when no user matches', async () => {
-    const previous = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
-      models: {
-        users: {
-          async getByEmail() {
-            return null
-          }
-        }
+  test("createUserImporter's importOne() returns 'created' for a real conversion", async () => {
+    const importer = createUserImporter(passthroughConvertUser, createDryRunWriter())
+    assert.equal(await importer.importOne({ id: 10, email: 'a@example.com', name: 'A' }), 'created')
+  })
+
+  test("createUserImporter's importOne() returns 'flagged' for the default stub converter", async () => {
+    const importer = createUserImporter(stubConvertUser, createDryRunWriter())
+    assert.equal(await importer.importOne({ id: 10, email: 'a@example.com', name: 'A' }), 'flagged')
+  })
+
+  test("createUserGroupImporter's importOne() returns 'created' when both ids resolve, 'skipped' when one doesn't", async () => {
+    const userIdMap = new Map<number, string>([[10, 'target-user-uuid']])
+    const groupIdMap = new Map<number, string>([[1, 'target-group-uuid']])
+    const importer = createUserGroupImporter(userIdMap, groupIdMap, createDryRunWriter())
+
+    assert.equal(await importer.importOne({ id: 100, userId: 10, groupId: 1 }), 'created')
+    assert.equal(await importer.importOne({ id: 101, userId: 10, groupId: 999 }), 'skipped')
+  })
+})
+
+/**
+ * Coverage for `deriveUserGroupsFromEmbeddedGroups()` (Task 14) — re-expands
+ * `PostgresSourceConnector.users()`'s embedded `groups: [{id, name}]` shape (Task 8) into the flat
+ * `{userId, groupId}` records `createUserGroupImporter()` consumes.
+ */
+describe('deriveUserGroupsFromEmbeddedGroups', () => {
+  test('yields one pair per embedded group, in source order', async () => {
+    const users = (async function* (): AsyncGenerator<SourceRecord> {
+      yield {
+        id: 1,
+        groups: [
+          { id: 10, name: 'A' },
+          { id: 11, name: 'B' }
+        ]
       }
-    }
-    restoreWiki = () => {
-      ;(globalThis as any).WIKI = previous
+      yield { id: 2, groups: [] }
+    })()
+
+    const pairs: SourceRecord[] = []
+    for await (const pair of deriveUserGroupsFromEmbeddedGroups(users)) {
+      pairs.push(pair)
     }
 
-    const writer = createDrizzleWriter({} as any)
-    const result = await writer.findUserByEmail('nobody@example.com')
+    assert.deepEqual(pairs, [
+      { userId: 1, groupId: 10 },
+      { userId: 1, groupId: 11 }
+    ])
+  })
 
-    assert.equal(result, undefined)
+  test('yields nothing for a user whose groups field is missing or not an array', async () => {
+    const users = (async function* (): AsyncGenerator<SourceRecord> {
+      yield { id: 1 }
+      yield { id: 2, groups: null }
+    })()
+
+    const pairs: SourceRecord[] = []
+    for await (const pair of deriveUserGroupsFromEmbeddedGroups(users)) {
+      pairs.push(pair)
+    }
+
+    assert.deepEqual(pairs, [])
+  })
+
+  test('skips a malformed embedded group entry (not an object, or missing id) rather than throwing', async () => {
+    const users = (async function* (): AsyncGenerator<SourceRecord> {
+      yield { id: 1, groups: [{ id: 10, name: 'A' }, null, { name: 'no id' }, 'not-an-object'] }
+    })()
+
+    const pairs: SourceRecord[] = []
+    for await (const pair of deriveUserGroupsFromEmbeddedGroups(users)) {
+      pairs.push(pair)
+    }
+
+    assert.deepEqual(pairs, [{ userId: 1, groupId: 10 }])
   })
 })

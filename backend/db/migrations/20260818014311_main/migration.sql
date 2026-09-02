@@ -1,1 +1,0 @@
-CREATE INDEX "jobHistory_dispatchWebhook_hookId_idx" ON "jobHistory" ((payload ->> 'hookId')) WHERE "task" = 'dispatchWebhook';

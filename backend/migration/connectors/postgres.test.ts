@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
 import { randomBytes } from 'node:crypto'
 import { Client } from 'pg'
-import { NotYetImplementedError } from '../connector.ts'
 import { PostgresSourceConnector } from './postgres.ts'
 
 /**
@@ -275,7 +274,7 @@ describe('PostgresSourceConnector', () => {
     }
   )
 
-  test('users/groups/settings/assets generators remain deferred stubs (owned by other tasks)', () => {
+  test('pages()/pageHistory()/tags()/navigation()/users()/groups()/settings()/comments()/assets() reject when called before connect()', async () => {
     const connector = new PostgresSourceConnector({
       host: HOST,
       port: PORT,
@@ -283,20 +282,17 @@ describe('PostgresSourceConnector', () => {
       user: USER,
       password: PASSWORD
     })
-    for (const method of ['users', 'groups', 'settings', 'assets'] as const) {
-      assert.throws(() => connector[method](), NotYetImplementedError)
-    }
-  })
-
-  test('pages()/pageHistory()/tags()/navigation() reject when called before connect()', async () => {
-    const connector = new PostgresSourceConnector({
-      host: HOST,
-      port: PORT,
-      database: DATABASE,
-      user: USER,
-      password: PASSWORD
-    })
-    for (const method of ['pages', 'pageHistory', 'tags', 'navigation'] as const) {
+    for (const method of [
+      'pages',
+      'pageHistory',
+      'tags',
+      'navigation',
+      'users',
+      'groups',
+      'settings',
+      'comments',
+      'assets'
+    ] as const) {
       const iterable = connector[method]()
       await assert.rejects(async () => {
         for await (const _row of iterable) {
@@ -544,6 +540,551 @@ describe('PostgresSourceConnector', () => {
         assert.equal(rows.length, 1)
         assert.equal(rows[0].key, 'site')
         assert.deepEqual(rows[0].config, [{ id: 'home', label: 'Home' }])
+        await connector.disconnect()
+      })
+    }
+  )
+
+  describe(
+    'users()/groups() against a 2.5.x-shaped schema (Task 8)',
+    { skip: !dbAvailable && 'no test Postgres reachable' },
+    () => {
+      let admin: Client
+
+      async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
+        const out: T[] = []
+        for await (const item of iterable) out.push(item)
+        return out
+      }
+
+      before(async () => {
+        if (!dbAvailable) return
+        admin = new Client({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await admin.connect()
+        await admin.query('DROP TABLE IF EXISTS "userGroups", pages, users, groups')
+        // connect()'s checkShape() introspects pages too, even though this describe block never
+        // reads through pages() — see the "against a 2.5.x-shaped schema" describe above.
+        await admin.query(`
+          CREATE TABLE pages (
+            id serial PRIMARY KEY,
+            path varchar NOT NULL,
+            hash varchar NOT NULL,
+            "authorId" integer,
+            "creatorId" integer,
+            "contentType" varchar NOT NULL
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE users (
+            id serial PRIMARY KEY,
+            email varchar NOT NULL,
+            "providerKey" varchar NOT NULL DEFAULT 'local',
+            "tfaIsActive" boolean NOT NULL DEFAULT false
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE groups (
+            id serial PRIMARY KEY,
+            name varchar NOT NULL,
+            permissions json NOT NULL,
+            "pageRules" json NOT NULL,
+            "redirectOnLogin" varchar NOT NULL DEFAULT '/'
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE "userGroups" (
+            id serial PRIMARY KEY,
+            "userId" integer NOT NULL,
+            "groupId" integer NOT NULL
+          )
+        `)
+
+        await admin.query(`
+          INSERT INTO groups (id, name, permissions, "pageRules")
+          VALUES
+            (1, 'Administrators', '[]', '[]'),
+            (2, 'Editors', '[]', '[]')
+        `)
+        await admin.query(`
+          INSERT INTO users (id, email, "providerKey", "tfaIsActive")
+          VALUES
+            (1, 'both@example.com', 'local', false),
+            (2, 'none@example.com', 'local', false)
+        `)
+        // user 1 belongs to both groups (inserted out of id order, to prove the ORDER BY g.id inside
+        // json_agg is doing the sorting, not insertion order); user 2 belongs to none.
+        await admin.query(`
+          INSERT INTO "userGroups" (id, "userId", "groupId")
+          VALUES
+            (1, 1, 2),
+            (2, 1, 1)
+        `)
+      })
+
+      after(async () => {
+        if (!dbAvailable) return
+        await admin.query('DROP TABLE IF EXISTS "userGroups", pages, users, groups')
+        await admin.end()
+      })
+
+      test('groups() yields plain group rows ordered by id', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.groups())
+        assert.deepEqual(
+          rows.map((r) => r.id),
+          [1, 2]
+        )
+        assert.equal(rows[0].name, 'Administrators')
+        assert.equal(rows[1].name, 'Editors')
+        await connector.disconnect()
+      })
+
+      test("users() embeds each user's group membership as {id, name} pairs", async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.users())
+        const user1 = rows.find((r) => r.id === 1)!
+        assert.deepEqual(user1.groups, [
+          { id: 1, name: 'Administrators' },
+          { id: 2, name: 'Editors' }
+        ])
+        await connector.disconnect()
+      })
+
+      test('users() yields an empty groups array for a user with no group membership', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.users())
+        const user2 = rows.find((r) => r.id === 2)!
+        assert.deepEqual(user2.groups, [])
+        await connector.disconnect()
+      })
+    }
+  )
+
+  describe(
+    'settings()/comments() against a 2.5.x-shaped schema (Task 9)',
+    { skip: !dbAvailable && 'no test Postgres reachable' },
+    () => {
+      let admin: Client
+
+      async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
+        const out: T[] = []
+        for await (const item of iterable) out.push(item)
+        return out
+      }
+
+      before(async () => {
+        if (!dbAvailable) return
+        admin = new Client({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await admin.connect()
+        await admin.query(
+          'DROP TABLE IF EXISTS comments, settings, authentication, storage, pages, users, groups'
+        )
+        // connect()'s checkShape() introspects pages/users/groups too, even though this describe
+        // block never reads through those generators — see the "against a 2.5.x-shaped schema"
+        // describe above.
+        await admin.query(`
+          CREATE TABLE pages (
+            id serial PRIMARY KEY,
+            path varchar NOT NULL,
+            hash varchar NOT NULL,
+            "authorId" integer,
+            "creatorId" integer,
+            "contentType" varchar NOT NULL
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE users (
+            id serial PRIMARY KEY,
+            email varchar NOT NULL,
+            "providerKey" varchar NOT NULL DEFAULT 'local',
+            "tfaIsActive" boolean NOT NULL DEFAULT false
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE groups (
+            id serial PRIMARY KEY,
+            name varchar NOT NULL,
+            permissions json NOT NULL,
+            "pageRules" json NOT NULL,
+            "redirectOnLogin" varchar NOT NULL DEFAULT '/'
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE settings (
+            key varchar PRIMARY KEY,
+            value json,
+            "updatedAt" varchar NOT NULL
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE authentication (
+            key varchar PRIMARY KEY,
+            "isEnabled" boolean NOT NULL DEFAULT false,
+            config json NOT NULL,
+            "selfRegistration" boolean NOT NULL DEFAULT false,
+            "domainWhitelist" json NOT NULL,
+            "autoEnrollGroups" json NOT NULL,
+            "order" integer NOT NULL DEFAULT 0,
+            "strategyKey" varchar NOT NULL DEFAULT '',
+            "displayName" varchar NOT NULL DEFAULT ''
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE storage (
+            key varchar PRIMARY KEY,
+            "isEnabled" boolean NOT NULL DEFAULT false,
+            mode varchar NOT NULL DEFAULT 'push',
+            config json,
+            "syncInterval" varchar,
+            state json
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE comments (
+            id serial PRIMARY KEY,
+            content text NOT NULL,
+            "createdAt" varchar NOT NULL,
+            "updatedAt" varchar NOT NULL,
+            "pageId" integer,
+            "authorId" integer,
+            render text NOT NULL DEFAULT '',
+            name varchar NOT NULL DEFAULT '',
+            email varchar NOT NULL DEFAULT '',
+            ip varchar NOT NULL DEFAULT '',
+            "replyTo" integer NOT NULL DEFAULT 0
+          )
+        `)
+
+        await admin.query(`
+          INSERT INTO settings (key, value, "updatedAt")
+          VALUES ('title', '"My Wiki"', '2020-01-01T00:00:00.000Z')
+        `)
+        await admin.query(`
+          INSERT INTO authentication (key, "isEnabled", config, "selfRegistration", "domainWhitelist", "autoEnrollGroups", "order", "strategyKey", "displayName")
+          VALUES ('local', true, '{}', false, '[]', '[]', 0, 'local', 'Local Authentication')
+        `)
+        await admin.query(`
+          INSERT INTO storage (key, "isEnabled", mode, config, "syncInterval", state)
+          VALUES ('disk', true, 'sync', '{}', null, '{}')
+        `)
+        await admin.query(`
+          INSERT INTO comments (id, content, "createdAt", "updatedAt", "pageId", "authorId")
+          VALUES
+            (2, 'second comment', '2020-01-02T00:00:00.000Z', '2020-01-02T00:00:00.000Z', 1, 1),
+            (1, 'first comment', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z', 1, 1)
+        `)
+      })
+
+      after(async () => {
+        if (!dbAvailable) return
+        await admin.query(
+          'DROP TABLE IF EXISTS comments, settings, authentication, storage, pages, users, groups'
+        )
+        await admin.end()
+      })
+
+      test('settings() yields tagged rows from settings, authentication, and storage in that order', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.settings())
+        assert.deepEqual(
+          rows.map((r) => r.entity),
+          ['settings', 'authentication', 'storage']
+        )
+        const settingsRow = rows[0]
+        assert.equal(settingsRow.key, 'title')
+        assert.equal(settingsRow.value, 'My Wiki')
+
+        const authRow = rows[1]
+        assert.equal(authRow.key, 'local')
+        assert.equal(authRow.isEnabled, true)
+        assert.equal(authRow.displayName, 'Local Authentication')
+
+        const storageRow = rows[2]
+        assert.equal(storageRow.key, 'disk')
+        assert.equal(storageRow.mode, 'sync')
+        await connector.disconnect()
+      })
+
+      test('comments() yields plain comment rows ordered by id', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.comments())
+        assert.deepEqual(
+          rows.map((r) => r.id),
+          [1, 2]
+        )
+        assert.equal(rows[0].content, 'first comment')
+        assert.equal(rows[1].content, 'second comment')
+        await connector.disconnect()
+      })
+    }
+  )
+
+  describe(
+    'assets() against a 2.5.x-shaped schema (Task 10)',
+    { skip: !dbAvailable && 'no test Postgres reachable' },
+    () => {
+      let admin: Client
+
+      async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
+        const out: T[] = []
+        for await (const item of iterable) out.push(item)
+        return out
+      }
+
+      async function readAll(stream: NodeJS.ReadableStream): Promise<Buffer> {
+        const chunks: Buffer[] = []
+        for await (const chunk of stream) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+        }
+        return Buffer.concat(chunks)
+      }
+
+      const nestedAssetBytes = Buffer.from('nested asset bytes')
+      const rootAssetBytes = Buffer.from('root asset bytes')
+
+      before(async () => {
+        if (!dbAvailable) return
+        admin = new Client({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await admin.connect()
+        await admin.query(
+          'DROP TABLE IF EXISTS "assetData", assets, "assetFolders", pages, users, groups'
+        )
+        // connect()'s checkShape() introspects pages/users/groups too, even though this describe
+        // block never reads through those generators — see the "against a 2.5.x-shaped schema"
+        // describe above.
+        await admin.query(`
+          CREATE TABLE pages (
+            id serial PRIMARY KEY,
+            path varchar NOT NULL,
+            hash varchar NOT NULL,
+            "authorId" integer,
+            "creatorId" integer,
+            "contentType" varchar NOT NULL
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE users (
+            id serial PRIMARY KEY,
+            email varchar NOT NULL,
+            "providerKey" varchar NOT NULL DEFAULT 'local',
+            "tfaIsActive" boolean NOT NULL DEFAULT false
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE groups (
+            id serial PRIMARY KEY,
+            name varchar NOT NULL,
+            permissions json NOT NULL,
+            "pageRules" json NOT NULL,
+            "redirectOnLogin" varchar NOT NULL DEFAULT '/'
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE "assetFolders" (
+            id serial PRIMARY KEY,
+            name varchar NOT NULL,
+            slug varchar NOT NULL,
+            "parentId" integer
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE assets (
+            id serial PRIMARY KEY,
+            filename varchar NOT NULL,
+            hash varchar NOT NULL,
+            ext varchar NOT NULL,
+            kind varchar NOT NULL DEFAULT 'binary',
+            mime varchar NOT NULL DEFAULT 'application/octet-stream',
+            "fileSize" integer,
+            metadata json,
+            "createdAt" varchar NOT NULL,
+            "updatedAt" varchar NOT NULL,
+            "folderId" integer,
+            "authorId" integer
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE "assetData" (
+            id integer PRIMARY KEY,
+            data bytea NOT NULL
+          )
+        `)
+
+        // Two folders: a root-level 'docs', and 'sub' nested inside it -- id 2's parentId chains
+        // through id 1, proving buildAssetFolderPaths() actually walks the adjacency list rather than
+        // only handling a single level.
+        await admin.query(`
+          INSERT INTO "assetFolders" (id, name, slug, "parentId")
+          VALUES
+            (1, 'docs', 'docs', NULL),
+            (2, 'sub', 'sub', 1)
+        `)
+        await admin.query(
+          `INSERT INTO assets (id, filename, hash, ext, mime, "createdAt", "updatedAt", "folderId", "authorId")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            10,
+            'file.png',
+            'hash-10',
+            '.png',
+            'image/png',
+            '2020-01-01T00:00:00.000Z',
+            '2020-01-02T00:00:00.000Z',
+            2,
+            5
+          ]
+        )
+        await admin.query(
+          `INSERT INTO assets (id, filename, hash, ext, mime, "createdAt", "updatedAt", "folderId", "authorId")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [
+            11,
+            'root.txt',
+            'hash-11',
+            '.txt',
+            'text/plain',
+            '2020-01-03T00:00:00.000Z',
+            '2020-01-03T00:00:00.000Z',
+            null,
+            null
+          ]
+        )
+        await admin.query(`INSERT INTO "assetData" (id, data) VALUES ($1, $2)`, [
+          10,
+          nestedAssetBytes
+        ])
+        await admin.query(`INSERT INTO "assetData" (id, data) VALUES ($1, $2)`, [
+          11,
+          rootAssetBytes
+        ])
+      })
+
+      after(async () => {
+        if (!dbAvailable) return
+        await admin.query(
+          'DROP TABLE IF EXISTS "assetData", assets, "assetFolders", pages, users, groups'
+        )
+        await admin.end()
+      })
+
+      test('assets() resolves a nested folder path from assetFolders', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.assets())
+        const nested = rows.find((r) => r.filename === 'file.png')!
+        assert.equal(nested.relativePath, 'docs/sub/file.png')
+        await connector.disconnect()
+      })
+
+      test('assets() yields a bare filename for a root-level asset', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.assets())
+        const root = rows.find((r) => r.filename === 'root.txt')!
+        assert.equal(root.relativePath, 'root.txt')
+        await connector.disconnect()
+      })
+
+      test('assets() carries authorId/mimeType/createdAt/updatedAt from the source row', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.assets())
+        const nested = rows.find((r) => r.filename === 'file.png')!
+        assert.equal(nested.authorId, 5)
+        assert.equal(nested.mimeType, 'image/png')
+        assert.deepEqual(nested.createdAt, new Date('2020-01-01T00:00:00.000Z'))
+        assert.deepEqual(nested.updatedAt, new Date('2020-01-02T00:00:00.000Z'))
+        await connector.disconnect()
+      })
+
+      test('assets() streams the joined assetData blob', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.assets())
+        const nested = rows.find((r) => r.filename === 'file.png')!
+        const bytes = await readAll(nested.stream)
+        assert.ok(bytes.equals(nestedAssetBytes))
+
+        const root = rows.find((r) => r.filename === 'root.txt')!
+        const rootBytes = await readAll(root.stream)
+        assert.ok(rootBytes.equals(rootAssetBytes))
         await connector.disconnect()
       })
     }
