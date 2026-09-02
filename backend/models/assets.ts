@@ -181,9 +181,8 @@ function extensionOf(fileName: string): string {
 }
 
 /**
- * Exported so the migration importer (`backend/importer/assets.ts`) can classify an asset the exact
- * same way a live upload does, rather than trusting a 2.x source's own `kind`/`mime` columns — which
- * may disagree with what this MIME database says after years of drift between the two.
+ * Exported for `modules/storage/disk/storage.ts` and `modules/storage/git/sync.ts`, which need the
+ * same classification a live upload does.
  */
 export function kindOf(mimeType: string, fileExt: string): AssetKind {
   if (mimeType.startsWith('image/')) {

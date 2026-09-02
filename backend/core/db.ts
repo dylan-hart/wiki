@@ -162,7 +162,7 @@ export type WikiTx = Parameters<Parameters<WikiDb['transaction']>[0]>[0]
  * Either the ambient `WIKI.db` or a transaction handle carved out of it. A model method that writes
  * more than one row and wants those writes to share a caller-controlled transaction takes this as an
  * optional `db` parameter, defaulting to the ambient `WIKI.db` — see `models/tree.ts`'s `addAsset`
- * call chain and `importer/assets.ts`'s batch runner for the worked example.
+ * call chain for the worked example.
  */
 export type WikiDbOrTx = WikiDb | WikiTx
 
