@@ -9,7 +9,7 @@ import { registerSchemas } from './schemas/asset.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import routes from './assets.ts'
 import { mayOnAsset } from '../helpers/pageAccess.ts'
-import { siteEnabledPreHandler } from '../helpers/common.ts'
+import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 import { SVG_CSP } from '../helpers/security.ts'
 import { registerParamsSchemas } from './schemas/params.ts'
 

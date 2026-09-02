@@ -1,7 +1,7 @@
 import { dispositionFor } from '../models/assets.ts'
 import { mayOnAsset } from '../helpers/pageAccess.ts'
 import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
-import { guardSiteEnabled } from '../helpers/common.ts'
+import { guardSiteEnabled } from '../helpers/siteResolution.ts'
 import { notModifiedOrPrepare } from '../helpers/httpCache.ts'
 import { needsSvgCsp, SVG_CSP } from '../helpers/security.ts'
 import type { FastifyInstance } from 'fastify'

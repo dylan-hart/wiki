@@ -1,6 +1,7 @@
 import { and, count, eq, inArray } from 'drizzle-orm'
 import { pages as pagesTable } from '../db/schema.ts'
-import { CustomError, resolveSiteParam } from '../helpers/common.ts'
+import { CustomError } from '../helpers/common.ts'
+import { resolveSiteParam } from '../helpers/siteResolution.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
 import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
 import { maySiteAdmin, SITE_PERMISSIONS } from '../helpers/siteRules.ts'

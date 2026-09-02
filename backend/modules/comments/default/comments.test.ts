@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, describe, it, mock } from 'node:test'
 import { load } from 'js-yaml'
-import { parseModuleProps } from '../../../helpers/common.ts'
+import { parseModuleProps } from '../../../helpers/moduleProps.ts'
 import commentsDefaultModule, {
   _resetAkismetClientCacheForTesting,
   _setAkismetClientFactoryForTesting,

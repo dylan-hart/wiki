@@ -2,15 +2,17 @@ import bcrypt from 'bcryptjs'
 import { and, count, desc, eq, inArray, ne, or, sql } from 'drizzle-orm'
 import { pages as pagesTable, tree as treeTable, users as usersTable } from '../db/schema.ts'
 import {
-  assertLocaleActive,
-  assertPathNotReservedLocale,
   BCRYPT_ROUNDS,
   CustomError,
-  defaultLocale,
   generatePathHash,
   isUniqueViolation,
   normalizePagePath
 } from '../helpers/common.ts'
+import {
+  assertLocaleActive,
+  assertPathNotReservedLocale,
+  defaultLocale
+} from '../helpers/localeRouting.ts'
 import { paginate } from '../helpers/pagination.ts'
 import { rulesAllow } from '../helpers/pageRules.ts'
 import { invalidateGraphCache } from '../helpers/graphCache.ts'

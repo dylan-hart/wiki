@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { TREE_ORDER_BY, type TreeItemType, type TreeOrderBy } from '../models/tree.ts'
-import { decodeTreePath, defaultLocale, normalizePagePath } from '../helpers/common.ts'
+import { decodeTreePath, normalizePagePath } from '../helpers/common.ts'
+import { defaultLocale } from '../helpers/localeRouting.ts'
 import {
   actorFrom,
   mayOnAsset,

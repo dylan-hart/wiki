@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import { mergeModuleConfig, validateModuleConfig } from './moduleRegistry.ts'
-import type { ModuleProp } from './common.ts'
+import type { ModuleProp } from './moduleProps.ts'
 
 /** A prop shaped the way `parseModuleProps` (helpers/common.ts) normalizes a `definition.yml` entry. */
 function fakeProp(overrides: Partial<ModuleProp> = {}): ModuleProp {

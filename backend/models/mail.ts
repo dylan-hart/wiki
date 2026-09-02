@@ -2,7 +2,7 @@ import nodemailer from 'nodemailer'
 import type SMTPTransport from 'nodemailer/lib/smtp-transport/index.js'
 import type Mail from 'nodemailer/lib/mailer/index.js'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
-import { localizedPagePath, type LocaleRoutingConfig } from '../helpers/common.ts'
+import { localizedPagePath, type LocaleRoutingConfig } from '../helpers/localeRouting.ts'
 
 /** A rendered email, ready to hand to the transporter. */
 export interface MailMessage {

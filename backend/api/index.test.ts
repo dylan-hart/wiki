@@ -10,7 +10,7 @@ import {
   siteEnabledPreHandler,
   SITE_DISABLED_MESSAGE,
   SITE_MISSING_MESSAGE
-} from '../helpers/common.ts'
+} from '../helpers/siteResolution.ts'
 
 /**
  * OpenProject task 1593: `guardSiteEnabled` moved from nine hand-applied call sites (one per route

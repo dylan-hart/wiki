@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid'
-import { siteIdForHostname } from '../helpers/common.ts'
+import { siteIdForHostname } from '../helpers/siteResolution.ts'
 import { AccountRateLimitedError, limitAuthAttempts } from '../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
 import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'

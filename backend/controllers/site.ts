@@ -1,5 +1,6 @@
 import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
-import { guardSiteEnabled, replyWithFile, resolveSiteParam } from '../helpers/common.ts'
+import { replyWithFile } from '../helpers/common.ts'
+import { guardSiteEnabled, resolveSiteParam } from '../helpers/siteResolution.ts'
 import { notModifiedOrPrepare } from '../helpers/httpCache.ts'
 import { svgMimeType } from '../helpers/images.ts'
 import { SVG_CSP } from '../helpers/security.ts'

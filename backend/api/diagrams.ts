@@ -1,4 +1,4 @@
-import { siteIdForHostname } from '../helpers/common.ts'
+import { siteIdForHostname } from '../helpers/siteResolution.ts'
 import { limitRenders } from '../helpers/rateLimit.ts'
 import type { FastifyInstance } from 'fastify'
 import type { DiagramRenderRequest } from '../models/diagramRender.ts'

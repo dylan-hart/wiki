@@ -1,13 +1,13 @@
 import path from 'node:path'
 import { asc, eq } from 'drizzle-orm'
-import { maskSensitiveConfig } from '../helpers/common.ts'
+import { maskSensitiveConfig } from '../helpers/moduleProps.ts'
 import {
   mergeModuleConfig,
   readModuleDefinitions,
   validateModuleConfig
 } from '../helpers/moduleRegistry.ts'
 import { authentication as authenticationTable, groups as groupsTable } from '../db/schema.ts'
-import type { ModuleProp } from '../helpers/common.ts'
+import type { ModuleProp } from '../helpers/moduleProps.ts'
 import type { SystemIds } from './types.ts'
 
 /** An authentication module, as declared by its `definition.yml`. */

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { siteEnabledPreHandler } from '../helpers/common.ts'
+import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 
 /**
  * Registers every shared JSON Schema a route file may `$ref`.

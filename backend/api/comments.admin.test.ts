@@ -10,7 +10,7 @@ import {
   groups as groupsTable,
   hooks as hooksTable
 } from '../db/schema.ts'
-import { siteEnabledPreHandler } from '../helpers/common.ts'
+import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 import commentsRoutes from './comments.ts'
 import { registerSchemas as registerCommentSchema } from './schemas/comment.ts'
 import { registerSchemas as registerCommentProviderSchema } from './schemas/commentProvider.ts'

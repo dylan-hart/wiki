@@ -2,13 +2,9 @@ import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
 
 import { resolveAppShellLocale, getTemplatedAppShell } from '../../helpers/appShell.ts'
-import {
-  localePrefixRedirectTarget,
-  localePrefixStripTarget,
-  resolveRequestSite,
-  siteIdForHostname,
-  stripPageExtension
-} from '../../helpers/common.ts'
+import { stripPageExtension } from '../../helpers/common.ts'
+import { localePrefixRedirectTarget, localePrefixStripTarget } from '../../helpers/localeRouting.ts'
+import { resolveRequestSite, siteIdForHostname } from '../../helpers/siteResolution.ts'
 
 /**
  * Everything that decides WHICH site (and which canonical URL) a page-shaped request belongs to: the

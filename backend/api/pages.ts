@@ -9,13 +9,8 @@ import {
   SUPPORTED_IMPORT_FORMATS
 } from '../models/import.ts'
 import { SEARCH_ORDER_BY, type SearchOrderBy } from '../models/search.ts'
-import {
-  CustomError,
-  defaultLocale,
-  generatePathHash,
-  isValidUuid,
-  normalizePagePath
-} from '../helpers/common.ts'
+import { CustomError, generatePathHash, isValidUuid, normalizePagePath } from '../helpers/common.ts'
+import { defaultLocale } from '../helpers/localeRouting.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
 import {
   actorFrom,

@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { and, eq } from 'drizzle-orm'
-import { maskSensitiveConfig } from '../helpers/common.ts'
+import { maskSensitiveConfig } from '../helpers/moduleProps.ts'
 import {
   mergeModuleConfig,
   moduleHasFile,
@@ -9,7 +9,7 @@ import {
   validateModuleConfig
 } from '../helpers/moduleRegistry.ts'
 import { commentProviders as commentProvidersTable, sites as sitesTable } from '../db/schema.ts'
-import type { ModuleProp } from '../helpers/common.ts'
+import type { ModuleProp } from '../helpers/moduleProps.ts'
 
 /**
  * A comment provider module, as declared by its `definition.yml`.

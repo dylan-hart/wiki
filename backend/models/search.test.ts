@@ -13,7 +13,7 @@ import type {
   SearchPagesParams,
   SearchPagesResult
 } from './search.ts'
-import type { ModuleProp } from '../helpers/common.ts'
+import type { ModuleProp } from '../helpers/moduleProps.ts'
 
 /** A prop shaped the way `parseModuleProps` (helpers/common.ts) normalizes a `definition.yml` entry. */
 function fakeProp(overrides: Partial<ModuleProp> = {}): ModuleProp {

@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { and, eq } from 'drizzle-orm'
-import { maskSensitiveConfig } from '../helpers/common.ts'
+import { maskSensitiveConfig } from '../helpers/moduleProps.ts'
 import {
   loadModule,
   mergeModuleConfig,
@@ -16,7 +16,7 @@ import {
   fileExtensionForContentType
 } from '../helpers/pageSerialization.ts'
 import { sites as sitesTable, storage as storageTable } from '../db/schema.ts'
-import type { ModuleProp } from '../helpers/common.ts'
+import type { ModuleProp } from '../helpers/moduleProps.ts'
 import type { HookEvent } from './hooks.ts'
 
 /** The kinds of content a target can be asked to hold. */

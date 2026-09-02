@@ -1,4 +1,5 @@
-import { CustomError, rethrowAsBadRequest, siteForHostname } from '../helpers/common.ts'
+import { CustomError, rethrowAsBadRequest } from '../helpers/common.ts'
+import { siteForHostname } from '../helpers/siteResolution.ts'
 import { detectImageMime, imageMimeTypes } from '../helpers/images.ts'
 import { issueKey, validateApiKeyInput } from '../models/apiKeys.ts'
 import { actorFromRequest } from '../models/auditLog.ts'

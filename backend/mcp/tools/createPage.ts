@@ -9,7 +9,7 @@ import {
   type McpAuthContext,
   type McpAuthContextGetter
 } from '../auth.ts'
-import { defaultLocale } from '../../helpers/common.ts'
+import { defaultLocale } from '../../helpers/localeRouting.ts'
 import { resolveRequestedSite } from '../site.ts'
 import { renderRefusalGuidance } from '../renderRefusal.ts'
 import { localeArg, siteIdArg, toResult } from './shared.ts'

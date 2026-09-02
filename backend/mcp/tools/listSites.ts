@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { defaultLocale } from '../../helpers/common.ts'
+import { defaultLocale } from '../../helpers/localeRouting.ts'
 import { actorFor, type McpAuthContext, type McpAuthContextGetter } from '../auth.ts'
 import type { McpSite } from '../site.ts'
 import { toResult } from './shared.ts'

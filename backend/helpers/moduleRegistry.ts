@@ -2,8 +2,8 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { load } from 'js-yaml'
 import { and, eq, inArray } from 'drizzle-orm'
-import { parseModuleProps, unmaskSensitiveConfig } from './common.ts'
-import type { ModuleProp } from './common.ts'
+import { parseModuleProps, unmaskSensitiveConfig } from './moduleProps.ts'
+import type { ModuleProp } from './moduleProps.ts'
 import type { PgColumn, PgTable } from 'drizzle-orm/pg-core'
 
 /**

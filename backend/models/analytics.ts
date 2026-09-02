@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { readModuleDefinitions } from '../helpers/moduleRegistry.ts'
-import type { ModuleProp } from '../helpers/common.ts'
+import type { ModuleProp } from '../helpers/moduleProps.ts'
 
 /** An analytics module, as declared by its `definition.yml`. */
 export interface AnalyticsModule {

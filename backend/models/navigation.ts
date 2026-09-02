@@ -4,7 +4,8 @@ import {
   pages as pagesTable,
   tree as treeTable
 } from '../db/schema.ts'
-import { CustomError, decodeTreePath, localizedPagePath } from '../helpers/common.ts'
+import { CustomError, decodeTreePath } from '../helpers/common.ts'
+import { localizedPagePath } from '../helpers/localeRouting.ts'
 import { isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
 import { MAX_DEPTH, compareFoldersFirst, holdsVisiblePagesUnder, pageIsVisible } from './tree.ts'
 import type { TreeItemType } from './tree.ts'

@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { maskSensitiveConfig } from '../helpers/common.ts'
+import { maskSensitiveConfig } from '../helpers/moduleProps.ts'
 import {
   loadModule,
   mergeModuleConfig,
@@ -8,7 +8,7 @@ import {
   validateModuleConfig
 } from '../helpers/moduleRegistry.ts'
 import type { AccessActor } from './groups.ts'
-import type { ModuleProp } from '../helpers/common.ts'
+import type { ModuleProp } from '../helpers/moduleProps.ts'
 import type { pages as pagesTable } from '../db/schema.ts'
 
 /**

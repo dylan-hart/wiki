@@ -10,9 +10,9 @@ import {
   CustomError,
   generatePathHash,
   isUniqueViolation,
-  localizedPagePath,
   normalizePagePath
 } from '../helpers/common.ts'
+import { localizedPagePath } from '../helpers/localeRouting.ts'
 
 export type GlossaryTerm = Omit<typeof glossaryTermsTable.$inferSelect, 'siteId'>
 

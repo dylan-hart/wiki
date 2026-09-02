@@ -20,7 +20,8 @@ import {
 } from '../db/schema.ts'
 import { and, eq } from 'drizzle-orm'
 import { ClusterReloaded } from '../helpers/clusterCache.ts'
-import { CustomError, normalizeHostname, siteIdForHostname } from '../helpers/common.ts'
+import { CustomError } from '../helpers/common.ts'
+import { normalizeHostname, siteIdForHostname } from '../helpers/siteResolution.ts'
 import {
   detectImageMime,
   detectSvg,

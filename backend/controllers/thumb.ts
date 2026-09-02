@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
-import { guardSiteEnabled, isValidUuid } from '../helpers/common.ts'
+import { isValidUuid } from '../helpers/common.ts'
+import { guardSiteEnabled } from '../helpers/siteResolution.ts'
 import { notModifiedOrPrepare } from '../helpers/httpCache.ts'
 import { mayOnAsset } from '../helpers/pageAccess.ts'
 import type { FastifyInstance } from 'fastify'

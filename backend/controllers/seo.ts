@@ -1,11 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import { chunk } from 'es-toolkit/array'
-import {
-  requestOrigin,
-  localizedPagePath,
-  guardSiteEnabled,
-  type LocaleRoutingConfig
-} from '../helpers/common.ts'
+import { requestOrigin } from '../helpers/common.ts'
+import { localizedPagePath, type LocaleRoutingConfig } from '../helpers/localeRouting.ts'
+import { guardSiteEnabled } from '../helpers/siteResolution.ts'
 import { SITEMAP_CACHE_TTL_MS } from '../models/pages.ts'
 
 /**
