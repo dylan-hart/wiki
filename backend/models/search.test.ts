@@ -1,6 +1,6 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1124,5 +1124,36 @@ describe('search.initActiveEngines()', () => {
     assert.deepEqual(dbCalls, ['init:site-ok:{}'])
     assert.ok(warnings.some((w) => w.includes('hanging-engine-a')))
     assert.ok(warnings.some((w) => w.includes('hanging-engine-b')))
+  })
+})
+
+/**
+ * `index.ts`'s boot order, as a structural check against the file itself.
+ *
+ * Load-bearing since CORE-F5 phase 4: every search engine module now reads its per-site config
+ * through `getEngineConfig()`, which completes the stored values with the props declared in that
+ * engine's `definition.yml` — and those props only exist once `refreshFromDisk()` has read them off
+ * disk. `azure-search` and `aws-cloudsearch` used to sidestep that by reading
+ * `WIKI.sites[...].config.search.engines[key]` raw and re-applying each default by hand at every use
+ * site; they no longer do, so the ordering `index.ts` has always had is now something a reorder could
+ * silently break — an engine would come up with an empty config rather than a defaulted one.
+ *
+ * Text-level rather than behavioural because `index.ts` is a boot script with no seam to call into:
+ * `postBoot()` connects to postgres, starts the scheduler and binds a port.
+ */
+describe("index.ts boots search's definitions before it provisions any engine", () => {
+  test('refreshFromDisk() is called before initActiveEngines()', async () => {
+    const indexPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'index.ts')
+    const source = await readFile(indexPath, 'utf8')
+
+    const refresh = source.indexOf('WIKI.models.search.refreshFromDisk()')
+    const init = source.indexOf('WIKI.models.search.initActiveEngines()')
+
+    assert.notEqual(refresh, -1, 'index.ts no longer calls WIKI.models.search.refreshFromDisk()')
+    assert.notEqual(init, -1, 'index.ts no longer calls WIKI.models.search.initActiveEngines()')
+    assert.ok(
+      refresh < init,
+      'index.ts must call search.refreshFromDisk() before search.initActiveEngines(): every engine resolves its config through getEngineConfig(), which needs the definitions loaded'
+    )
   })
 })

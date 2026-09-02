@@ -1,7 +1,10 @@
 import { before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { mock } from 'node:test'
 import { ensureTemporal } from '../../../test/temporal.ts'
+import { search } from '../../../models/search.ts'
 import {
   AwsCloudSearchModule,
   batchDocuments,
@@ -34,6 +37,8 @@ import type { SearchIndexablePage } from '../../../models/search.ts'
  * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
  * v25.9.0, which doesn't expose it yet (same environment gap `core/scheduler.test.ts` stubs around).
  */
+const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../..')
+
 before(() => ensureTemporal())
 
 /**
@@ -45,6 +50,7 @@ before(() => ensureTemporal())
  * that records what it was called with and resolves canned describe results, the way a real one would.
  */
 ;(globalThis as any).WIKI = {
+  SERVERPATH: backendDir,
   logger: { info: mock.fn(), warn: mock.fn() },
   sites: {
     'site-1': {
@@ -70,6 +76,17 @@ before(() => ensureTemporal())
     }
   }
 }
+
+/**
+ * `configFor()` resolves this engine's config through `search.getEngineConfig`, which completes it
+ * with the props declared in `definition.yml` — so the definitions have to be loaded off disk first,
+ * exactly as `index.ts` does (`refreshFromDisk()` before `initActiveEngines()`).
+ *
+ * Registered here rather than beside the `ensureTemporal()` hook above, and this is load-bearing: a
+ * root-level `before()` in `node:test` runs before the top-level statements that FOLLOW it, so a hook
+ * declared above the `WIKI` assignment would run with no `WIKI.SERVERPATH` to read from.
+ */
+before(() => search.refreshFromDisk())
 
 /** A fake `CloudSearchAdminClient` that starts with an empty domain (nothing described yet). */
 function fakeClient(

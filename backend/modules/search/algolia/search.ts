@@ -259,7 +259,7 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
       return cached
     }
     const client = this.createClient(config.appId, config.apiKey)
-    const indexName = config.indexName || 'wiki'
+    const indexName = config.indexName
     await this.setSettings(client, indexName)
     const entry: SiteClient = { client, indexName, configKey }
     this.clients.set(siteId, entry)
@@ -273,7 +273,7 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
    */
   async init(siteId: string, config: Record<string, any>): Promise<void> {
     const client = this.createClient(config.appId, config.apiKey)
-    const indexName = config.indexName || 'wiki'
+    const indexName = config.indexName
     await this.setSettings(client, indexName)
     this.clients.set(siteId, {
       client,

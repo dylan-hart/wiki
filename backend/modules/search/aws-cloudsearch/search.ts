@@ -13,6 +13,7 @@ import {
   SearchCommand,
   UploadDocumentsCommand
 } from '@aws-sdk/client-cloudsearch-domain'
+import { search } from '../../../models/search.ts'
 import { ExternalSearchModule } from '../externalBase.ts'
 import {
   defaultPageSource,
@@ -34,12 +35,6 @@ import type {
 
 /** This module's own key, i.e. the directory name of its `definition.yml`. */
 const MODULE_KEY = 'aws-cloudsearch'
-
-/** The region a site gets when it hasn't set one, matching `definition.yml`'s declared default. */
-const DEFAULT_REGION = 'us-east-1'
-
-/** The analysis scheme language a site gets when it hasn't set one, matching `definition.yml`. */
-const DEFAULT_ANALYSIS_SCHEME_LANG = 'en'
 
 /**
  * Name of the analysis scheme every domain is provisioned with. CloudSearch text fields must name an
@@ -273,7 +268,7 @@ export interface CloudSearchAdminClient {
 /** Builds the real SDK admin client from a site's stored `region`/`accessKeyId`/`secretAccessKey` config. */
 function defaultAdminClientFactory(config: Record<string, any>): CloudSearchAdminClient {
   const client = new CloudSearchClient({
-    region: config.region || DEFAULT_REGION,
+    region: config.region,
     credentials: {
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey
@@ -657,7 +652,7 @@ export interface CloudSearchQueryClient {
 function defaultQueryClientFactory(config: Record<string, any>): CloudSearchQueryClient {
   const client = new CloudSearchDomainClient({
     endpoint: config.endpoint,
-    region: config.region || DEFAULT_REGION,
+    region: config.region,
     credentials: {
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey
@@ -768,18 +763,18 @@ export class AwsCloudSearchModule extends ExternalSearchModule {
   }
 
   /**
-   * The stored config for one site's `aws-cloudsearch` engine (`domain`/`endpoint`/region/credentials).
+   * The config for one site's `aws-cloudsearch` engine (`domain`/`endpoint`/region/credentials),
+   * completed with this engine's own `definition.yml` defaults.
    *
-   * Read straight off `WIKI.sites`, the same deliberate deviation `azure-search`'s own `configFor`
-   * documents (task #557's design decision #3): going through `models/search.ts`'s `getEngineConfig`
-   * needs `search.definitions` to already have been populated by `refreshFromDisk()` — a boot-time
-   * precondition this module has no reason to depend on. Every default that matters here is already
-   * applied locally wherever it's used (`region || DEFAULT_REGION` in the client factories above), so
-   * reading the stored value directly is equivalent for this module's purposes and keeps every hook
-   * usable in isolation.
+   * Read through `models/search.ts`'s `getEngineConfig`, the same path every other engine uses — see
+   * `azure-search`'s own `configFor` for the reasoning that replaced both modules' earlier
+   * read-straight-off-`WIKI.sites`: `index.ts` calls `refreshFromDisk()` before
+   * `initActiveEngines()`, so the definitions `getEngineConfig` completes against are always
+   * populated by the time any hook here runs, and `definition.yml` gets to be the single place
+   * `region` and `analysisSchemeLang`'s defaults are written down.
    */
   private configFor(siteId: string): Record<string, any> {
-    return (WIKI.sites[siteId]?.config?.search?.engines?.[MODULE_KEY] ?? {}) as Record<string, any>
+    return search.getEngineConfig(siteId, MODULE_KEY)
   }
 
   /**
@@ -796,7 +791,7 @@ export class AwsCloudSearchModule extends ExternalSearchModule {
    */
   async init(siteId: string, config: Record<string, any>): Promise<void> {
     const domain = config.domain
-    const analysisSchemeLang = config.analysisSchemeLang || DEFAULT_ANALYSIS_SCHEME_LANG
+    const analysisSchemeLang = config.analysisSchemeLang
     const client = this.clientFor(siteId, config)
     let changed = false
 

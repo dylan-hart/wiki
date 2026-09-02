@@ -1,5 +1,6 @@
 import { AzureKeyCredential, SearchClient, SearchIndexClient } from '@azure/search-documents'
 import { chunk } from 'es-toolkit/array'
+import { search } from '../../../models/search.ts'
 import { ExternalSearchModule } from '../externalBase.ts'
 import {
   defaultPageSource,
@@ -23,9 +24,6 @@ import type {
 
 /** This module's own key, i.e. the directory name of its `definition.yml`. */
 const MODULE_KEY = 'azure-search'
-
-/** The index name a site gets when it hasn't set one, matching `definition.yml`'s declared default. */
-const DEFAULT_INDEX_NAME = 'wiki'
 
 /**
  * Name of the scoring profile every index is provisioned with, and set as the index's default so a
@@ -102,7 +100,7 @@ function defaultClientFactory(config: Record<string, any>): AzureSearchIndexClie
 /** Builds the real SDK document/query client from a site's stored config. */
 function defaultSearchClientFactory(config: Record<string, any>): AzureSearchQueryClient {
   const endpoint = `https://${config.serviceName}.search.windows.net`
-  const indexName = config.indexName || DEFAULT_INDEX_NAME
+  const indexName = config.indexName
   const client = new SearchClient<Record<string, any>>(
     endpoint,
     indexName,
@@ -413,18 +411,19 @@ export class AzureSearchModule extends ExternalSearchModule {
   }
 
   /**
-   * The stored config for one site's `azure-search` engine (`serviceName`/`adminApiKey`/`indexName`).
+   * The config for one site's `azure-search` engine (`serviceName`/`adminApiKey`/`indexName`),
+   * completed with this engine's own `definition.yml` defaults.
    *
-   * Read straight off `WIKI.sites`, the same place `models/search.ts`'s `getEngineConfig` itself reads
-   * `stored` from, rather than going through that method: `getEngineConfig` completes its result with
-   * this engine's declared prop defaults, which needs `search.definitions` to already have been
-   * populated by `refreshFromDisk()` — a boot-time precondition this module has no reason to depend
-   * on. Every default that matters here is already applied locally wherever it's used (`indexName ||
-   * DEFAULT_INDEX_NAME` in the client factories above), so reading the stored value directly is
-   * equivalent for this module's purposes and keeps every hook usable in isolation.
+   * Read through `models/search.ts`'s `getEngineConfig`, the same path `algolia` and `elasticsearch`
+   * already used, rather than straight off `WIKI.sites`. This module used to read the raw stored
+   * object instead, on the grounds that `getEngineConfig` needs `search.definitions` to have been
+   * populated by `refreshFromDisk()` first — but `index.ts` does call `refreshFromDisk()` before
+   * `initActiveEngines()`, and before any request can reach a hook here, so that precondition always
+   * holds. Going through it is what lets `definition.yml` be the single place `indexName`'s default
+   * is written down, instead of a `|| DEFAULT_INDEX_NAME` re-applied at each use site.
    */
   private configFor(siteId: string): Record<string, any> {
-    return (WIKI.sites[siteId]?.config?.search?.engines?.[MODULE_KEY] ?? {}) as Record<string, any>
+    return search.getEngineConfig(siteId, MODULE_KEY)
   }
 
   /**
@@ -439,7 +438,7 @@ export class AzureSearchModule extends ExternalSearchModule {
    * `buildIndexSchema`, not something `init()` itself needs to guard against.
    */
   async init(siteId: string, config: Record<string, any>): Promise<void> {
-    const indexName = config.indexName || DEFAULT_INDEX_NAME
+    const indexName = config.indexName
     const client = this.clientFor(siteId, config)
     await client.createOrUpdateIndex(buildIndexSchema(indexName))
     WIKI.logger.info(

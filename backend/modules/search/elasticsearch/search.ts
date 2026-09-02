@@ -266,8 +266,8 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
       return cached
     }
     const client = this.createClient(config)
-    const indexName = config.indexName || 'wiki'
-    await this.ensureIndex(client, indexName, config.analyzer || 'standard')
+    const indexName = config.indexName
+    await this.ensureIndex(client, indexName, config.analyzer)
     const entry: SiteClient = { client, indexName, configKey }
     this.clients.set(siteId, entry)
     return entry
@@ -280,8 +280,8 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
    */
   async init(siteId: string, config: Record<string, any>): Promise<void> {
     const client = this.createClient(config)
-    const indexName = config.indexName || 'wiki'
-    await this.ensureIndex(client, indexName, config.analyzer || 'standard')
+    const indexName = config.indexName
+    await this.ensureIndex(client, indexName, config.analyzer)
     this.clients.set(siteId, { client, indexName, configKey: JSON.stringify(config) })
   }
 
