@@ -81,12 +81,16 @@ describe('helpers/permissions', () => {
  * extracts their permission string literals for comparison.
  *
  * Verify by adding a throwaway permission to `GLOBAL_PERMISSIONS` or `PAGE_PERMISSIONS` above: this
- * suite fails until both `apiKeyScopes.js` and `GroupEditOverlay.vue` are updated to match.
+ * suite fails until `apiKeyScopes.js`, `GroupEditOverlay.vue` and `GroupRulesEditor.vue` are all
+ * updated to match.
  */
 describe('cross-workspace permission vocabulary (OpenProject #1938)', () => {
   const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
   const apiKeyScopesPath = path.join(REPO_ROOT, 'frontend/src/helpers/apiKeyScopes.js')
   const groupEditOverlayPath = path.join(REPO_ROOT, 'frontend/src/components/GroupEditOverlay.vue')
+  // -> The rule editor moved out of `GroupEditOverlay.vue` into its own component; `RULES_DATA`
+  //    went with it, while `PERMISSIONS_DATA` stayed behind.
+  const groupRulesEditorPath = path.join(REPO_ROOT, 'frontend/src/components/GroupRulesEditor.vue')
 
   /** The `[...]` array literal following the first occurrence of `marker`, matched by bracket depth. */
   function extractArrayLiteral(text: string, marker: string): string {
@@ -109,13 +113,14 @@ describe('cross-workspace permission vocabulary (OpenProject #1938)', () => {
     return [...text.matchAll(/'([a-zA-Z]+:[a-zA-Z]+)'/g)].map((m) => m[1])
   }
 
-  /** `permission: '...'`-keyed literals, the shape both GroupEditOverlay.vue arrays use. */
+  /** `permission: '...'`-keyed literals, the shape both editors' arrays use. */
   function extractKeyedPermissionLiterals(text: string): string[] {
     return [...text.matchAll(/permission:\s*'([a-zA-Z]+:[a-zA-Z]+)'/g)].map((m) => m[1])
   }
 
   const apiKeyScopesSrc = readFileSync(apiKeyScopesPath, 'utf8')
   const groupEditOverlaySrc = readFileSync(groupEditOverlayPath, 'utf8')
+  const groupRulesEditorSrc = readFileSync(groupRulesEditorPath, 'utf8')
 
   const apiKeyScopes = extractBarePermissionLiterals(
     extractArrayLiteral(apiKeyScopesSrc, 'export const API_KEY_SCOPES = ')
@@ -124,7 +129,7 @@ describe('cross-workspace permission vocabulary (OpenProject #1938)', () => {
     extractArrayLiteral(groupEditOverlaySrc, 'const PERMISSIONS_DATA = ')
   )
   const groupEditRules = extractKeyedPermissionLiterals(
-    extractArrayLiteral(groupEditOverlaySrc, 'const RULES_DATA = ')
+    extractArrayLiteral(groupRulesEditorSrc, 'const RULES_DATA = ')
   )
 
   test("apiKeyScopes.js's API_KEY_SCOPES matches ALL_PERMISSIONS (GLOBAL_PERMISSIONS + PAGE_PERMISSIONS) exactly", () => {
@@ -135,7 +140,7 @@ describe('cross-workspace permission vocabulary (OpenProject #1938)', () => {
     assert.deepEqual([...groupEditGlobalPermissions].sort(), [...GLOBAL_PERMISSIONS].sort())
   })
 
-  test("GroupEditOverlay.vue's `rules` array matches PAGE_PERMISSIONS union SITE_PERMISSIONS exactly", () => {
+  test("GroupRulesEditor.vue's `rules` array matches PAGE_PERMISSIONS union SITE_PERMISSIONS exactly", () => {
     const expected = [...PAGE_PERMISSIONS, ...SITE_PERMISSIONS]
     assert.deepEqual([...groupEditRules].sort(), [...expected].sort())
   })
