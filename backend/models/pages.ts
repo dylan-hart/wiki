@@ -14,6 +14,7 @@ import {
 import { paginate } from '../helpers/pagination.ts'
 import { rulesAllow } from '../helpers/pageRules.ts'
 import { invalidateGraphCache } from '../helpers/graphCache.ts'
+import { announce } from './hooks.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import type { PageHistoryVia } from './pageHistory.ts'
 import type { RenderPermissions, TocNode } from './rendering.ts'
@@ -905,23 +906,37 @@ class Pages {
   ): Promise<string> {
     const floorId = await this.parentClassification(siteId, locale, path)
     if (requested) {
-      if (!WIKI.models.classificationLevels.byId(requested)) {
-        throw new CustomError(
-          'classificationInvalid',
-          'This classification level does not exist.',
-          400
-        )
-      }
-      if (floorId && !WIKI.models.classificationLevels.meetsFloor(requested, floorId)) {
-        throw new CustomError(
-          'classificationBelowFloor',
-          "A page's classification cannot be more open than its parent page's.",
-          400
-        )
-      }
+      this.assertClassificationMeetsFloor(requested, floorId)
       return requested
     }
     return floorId ?? WIKI.models.classificationLevels.defaultLevel().id
+  }
+
+  /**
+   * The two refusals a requested classification can meet: a level that does not exist, and one that
+   * would sit below the floor its parent page sets (OpenProject #1079/#1080). The only two places
+   * either error is thrown — a page being created with an explicit level, and a page being edited to
+   * one — asked exactly the same pair of questions.
+   *
+   * @param floorId The parent page's classification, or null when there is no parent to inherit a
+   *   floor from (root-level, or an empty folder) — in which case any existing level is allowed
+   * @throws CustomError `classificationInvalid` or `classificationBelowFloor`, both 400
+   */
+  private assertClassificationMeetsFloor(requested: string, floorId: string | null): void {
+    if (!WIKI.models.classificationLevels.byId(requested)) {
+      throw new CustomError(
+        'classificationInvalid',
+        'This classification level does not exist.',
+        400
+      )
+    }
+    if (floorId && !WIKI.models.classificationLevels.meetsFloor(requested, floorId)) {
+      throw new CustomError(
+        'classificationBelowFloor',
+        "A page's classification cannot be more open than its parent page's.",
+        400
+      )
+    }
   }
 
   /**
@@ -1026,16 +1041,7 @@ class Pages {
     }
 
     const hash = generatePathHash(path)
-    const duplicate = await WIKI.db
-      .select({ id: pagesTable.id })
-      .from(pagesTable)
-      .where(
-        and(eq(pagesTable.siteId, siteId), eq(pagesTable.locale, locale), eq(pagesTable.path, path))
-      )
-      .limit(1)
-    if (duplicate.length > 0) {
-      throw new CustomError('pageDuplicatePath', 'A page already exists at this path.', 409)
-    }
+    await this.assertNoPageAt(siteId, locale, path)
 
     const alias = await this.validateAlias(siteId, input.alias)
     const classification = await this.resolveCreateClassification(
@@ -1156,27 +1162,17 @@ class Pages {
     //    change this, and why it doesn't apply yet.
 
     await WIKI.models.search.created(page)
-    await WIKI.models.hooks.emit('page:create', siteId, {
-      id: page.id,
-      path: page.path,
-      locale,
+    await announce(
+      'page:create',
       siteId,
-      authorId: actor.id,
-      metadata: { title: page.title, description: page.description, editor }
-    })
-    await WIKI.models.storage.dispatch('page:create', {
-      id: page.id,
-      path: page.path,
-      locale,
-      siteId,
-      authorId: actor.id
-    })
+      { id: page.id, path: page.path, locale, siteId, authorId: actor.id },
+      { metadata: { title: page.title, description: page.description, editor } }
+    )
     // -> A freshly created page defaults to published and browsable, so it can join the sitemap
-    //    immediately -- the cached list has to reflect that on the very next request.
-    this.invalidateSitemapCache(siteId)
-    // -> A brand new page is a brand new graph node (and possibly new edges, if its relations/links
-    //    point at existing pages) -- the cached graph bundle has to reflect it too.
-    invalidateGraphCache(siteId)
+    //    immediately -- the cached list has to reflect that on the very next request. A brand new page
+    //    is also a brand new graph node (and possibly new edges, if its relations/links point at
+    //    existing pages), so the cached graph bundle has to reflect it too.
+    this.invalidateSiteCaches(siteId)
 
     const finalPage = (await this.getPage({ siteId, id: page.id })) as Page
 
@@ -1293,21 +1289,8 @@ class Pages {
     const classificationChanged =
       patch.classification !== undefined && patch.classification !== existing.classification
     if (patch.classification !== undefined) {
-      if (!WIKI.models.classificationLevels.byId(patch.classification)) {
-        throw new CustomError(
-          'classificationInvalid',
-          'This classification level does not exist.',
-          400
-        )
-      }
       const floorId = await this.parentClassification(siteId, existing.locale, existing.path)
-      if (floorId && !WIKI.models.classificationLevels.meetsFloor(patch.classification, floorId)) {
-        throw new CustomError(
-          'classificationBelowFloor',
-          "A page's classification cannot be more open than its parent page's.",
-          400
-        )
-      }
+      this.assertClassificationMeetsFloor(patch.classification, floorId)
       values.classification = patch.classification
     }
 
@@ -1445,6 +1428,9 @@ class Pages {
       authorId: actor.id,
       metadata: { title: updated.title, description: updated.description }
     })
+    // -> The `page:edit` pair is split around this one rather than going through `announce()`: a
+    //    classification change emits its own webhook (with no storage dispatch of its own) BETWEEN
+    //    the edit's emit and its dispatch, and that ordering is what a subscriber sees.
     if (classificationChanged) {
       await WIKI.models.hooks.emit('page:classification-changed', siteId, {
         id,
@@ -1464,16 +1450,14 @@ class Pages {
       authorId: actor.id
     })
     // -> Any of title/icon/tags/classification/relations/links can move in a plain edit, all of
-    //    which the graph's nodes or edges reflect -- unconditional, since there is no single field
-    //    this cache turns on.
-    invalidateGraphCache(siteId)
-
-    // -> Any of `publishState`, `isBrowsable`, `tags`, `classification` moving could change whether
-    //    this page belongs in the sitemap (`listPagesForSitemap`'s guest-rule filter reads all four),
-    //    and `updatedAt` (touched on every save) is its `<lastmod>` when it does -- invalidating
-    //    unconditionally, same as the graph cache above, is what keeps the cached list from ever
-    //    describing a page as it was rather than as it is now (OpenProject #2267).
-    this.invalidateSitemapCache(siteId)
+    //    which the graph's nodes or edges reflect. Any of `publishState`, `isBrowsable`, `tags`,
+    //    `classification` moving could change whether this page belongs in the sitemap
+    //    (`listPagesForSitemap`'s guest-rule filter reads all four), and `updatedAt` (touched on every
+    //    save) is its `<lastmod>` when it does. Both unconditional, since there is no single field
+    //    either cache turns on, which is what keeps them from ever describing a page as it was rather
+    //    than as it is now (OpenProject #2267). The glossary's own drop above is conditional and stays
+    //    where it is, ahead of the emit.
+    this.invalidateSiteCaches(siteId)
 
     if (needsRerenderQueue) {
       // -> Briefly blank rather than wrong: the browser is a queue away, and this is what actually
@@ -1627,24 +1611,14 @@ class Pages {
     )
     await WIKI.models.search.renamed(siteId, rawMoved, previousPath, previousLocale)
     // -> A moved page's `<loc>` is built from its path and locale, so any move -- not only one that
-    //    also affects the glossary's canonical-page cache below -- has to drop the cached sitemap list.
-    this.invalidateSitemapCache(siteId)
-    // -> A moved page's path is what every edge pointing at it is keyed by (`assembleGraph` matches
+    //    also affects the glossary's canonical-page cache -- has to drop the cached sitemap list. Its
+    //    path is also what every edge pointing at it is keyed by (`assembleGraph` matches
     //    relations/links against `row.path`), so a move can silently break edges in a stale bundle.
-    invalidateGraphCache(siteId)
+    this.invalidateSiteCaches(siteId)
     // -> `previousLocale` alongside `previousPath` because a move can now change either: a consumer
     //    that has to find what the page used to be (the git target's own file for it, say) needs the
     //    whole of where it was, not half of it
-    await WIKI.models.hooks.emit('page:rename', siteId, {
-      id: pageId,
-      path: moved.path,
-      previousPath,
-      locale: moved.locale,
-      previousLocale,
-      siteId,
-      authorId: actor.id
-    })
-    await WIKI.models.storage.dispatch('page:rename', {
+    await announce('page:rename', siteId, {
       id: pageId,
       path: moved.path,
       previousPath,
@@ -1715,21 +1689,7 @@ class Pages {
     }
 
     if (newPath !== page.path || destLocale !== page.locale) {
-      const duplicate = await WIKI.db
-        .select({ id: pagesTable.id })
-        .from(pagesTable)
-        .where(
-          and(
-            ne(pagesTable.id, id),
-            eq(pagesTable.siteId, siteId),
-            eq(pagesTable.locale, destLocale),
-            eq(pagesTable.path, newPath)
-          )
-        )
-        .limit(1)
-      if (duplicate.length > 0) {
-        throw new CustomError('pageDuplicatePath', 'A page already exists at this path.', 409)
-      }
+      await this.assertNoPageAt(siteId, destLocale, newPath, { exceptId: id })
     }
 
     // -> Twins share this page's CURRENT path -- found before anything moves, since the primary no
@@ -1743,25 +1703,13 @@ class Pages {
         : []
 
     for (const twin of twins) {
-      const duplicate = await WIKI.db
-        .select({ id: pagesTable.id })
-        .from(pagesTable)
-        .where(
-          and(
-            ne(pagesTable.id, twin.id),
-            eq(pagesTable.siteId, siteId),
-            eq(pagesTable.locale, twin.locale),
-            eq(pagesTable.path, newPath)
-          )
-        )
-        .limit(1)
-      if (duplicate.length > 0) {
-        throw new CustomError(
-          'pageDuplicatePath',
-          `A page already exists at this path in the "${twin.locale}" locale.`,
-          409
-        )
-      }
+      await this.assertNoPageAt(siteId, twin.locale, newPath, {
+        exceptId: twin.id,
+        // -> Names the locale: the caller asked to move one page and is being refused because of a
+        //    translation it did not name, so "a page already exists at this path" alone would not say
+        //    which of the batch is in the way
+        message: `A page already exists at this path in the "${twin.locale}" locale.`
+      })
     }
 
     // -> Every page in the batch -- the one being moved, plus every twin `includeTranslations` pulls
@@ -1877,26 +1825,16 @@ class Pages {
     //    linked to this page is unlinked at the db level already; the cached, resolved copy of that
     //    link needs the same drop or it would keep pointing at a page that no longer exists
     //    (OpenProject #870).
-    WIKI.models.glossary.invalidateCache(siteId)
-    // -> Same reasoning as the glossary cache above: a deleted page must not linger in the cached
-    //    sitemap list.
-    this.invalidateSitemapCache(siteId)
-    // -> Nor in the cached graph bundle, as a node or as an edge target.
-    invalidateGraphCache(siteId)
+    // -> Same reasoning as the glossary cache: a deleted page must not linger in the cached sitemap
+    //    list, nor in the cached graph bundle as a node or as an edge target.
+    this.invalidateSiteCaches(siteId, { glossary: true })
 
     // -> `contentSyncState.contentId` isn't a real FK (it can point at a page or an asset), so nothing
     //    at the db level drops the sync-state rows for this page on its own.
     await WIKI.models.contentSync.forgetContent('page', id)
 
     await WIKI.models.search.deleted(siteId, id)
-    await WIKI.models.hooks.emit('page:delete', siteId, {
-      id,
-      path: page.path,
-      locale: page.locale,
-      siteId,
-      authorId: actor.id
-    })
-    await WIKI.models.storage.dispatch('page:delete', {
+    await announce('page:delete', siteId, {
       id,
       path: page.path,
       locale: page.locale,
@@ -1974,12 +1912,9 @@ class Pages {
       )
     )
     // -> Same reasoning as `deletePage`: a glossary term canonically linked to any of these pages has
-    //    a now-stale cached link (OpenProject #870). One call covers the whole batch.
-    WIKI.models.glossary.invalidateCache(siteId)
-    // -> Same reasoning: any of these pages may have been in the cached sitemap list.
-    this.invalidateSitemapCache(siteId)
-    // -> ...and in the cached graph bundle.
-    invalidateGraphCache(siteId)
+    //    a now-stale cached link (OpenProject #870), and any of them may have been in the cached
+    //    sitemap list or the cached graph bundle. One call covers the whole batch.
+    this.invalidateSiteCaches(siteId, { glossary: true })
 
     // -> Same reasoning as `deletePage`: one batched call rather than one per page.
     await WIKI.models.contentSync.forgetContentBatch(
@@ -1992,14 +1927,7 @@ class Pages {
     for (const entry of entries) {
       const path = entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName
       await WIKI.models.search.deleted(siteId, entry.id)
-      await WIKI.models.hooks.emit('page:delete', siteId, {
-        id: entry.id,
-        path,
-        locale: entry.locale,
-        siteId,
-        authorId: actor.id
-      })
-      await WIKI.models.storage.dispatch('page:delete', {
+      await announce('page:delete', siteId, {
         id: entry.id,
         path,
         locale: entry.locale,
@@ -2261,6 +2189,65 @@ class Pages {
    */
   invalidateSitemapCache(siteId: string): void {
     WIKI.cache.delete(sitemapCacheKey(siteId))
+  }
+
+  /**
+   * Drop the per-site caches a page write can invalidate, in the order every write path dropped them.
+   *
+   * The sitemap list and the graph bundle are dropped unconditionally: a page's existence, path,
+   * locale, publish state, tags or classification all feed one or both, and there is no single field
+   * either turns on. The glossary's resolved canonical-page cache is not — only a write that can
+   * change which page a term points at, or who may read it, needs it dropped, which is why it is a
+   * flag rather than a third unconditional call (`createPage` and `movePage` deliberately do not, and
+   * `updatePage`'s own conditional drop happens earlier, ahead of its webhook emit).
+   */
+  private invalidateSiteCaches(siteId: string, opts: { glossary?: boolean } = {}): void {
+    if (opts.glossary) {
+      WIKI.models.glossary.invalidateCache(siteId)
+    }
+    this.invalidateSitemapCache(siteId)
+    invalidateGraphCache(siteId)
+  }
+
+  /**
+   * Refuse a `(siteId, locale, path)` another page already occupies.
+   *
+   * The probe every write that puts a page somewhere makes first — a create, a move, and each
+   * translation a move cascades to. It is a probe, not the arbiter: the `(siteId, locale, path)`
+   * uniqueness constraint is, and a writer that lands between this read and the insert is caught by
+   * `isUniqueViolation` at the write itself. This is what turns the common case into a 409 the caller
+   * can act on rather than a constraint error.
+   *
+   * @param opts.exceptId Ignore this page — the one being moved, which is allowed to already be here
+   * @param opts.message Overrides the refusal's message where the caller can say something more useful
+   * @throws CustomError `pageDuplicatePath` (409)
+   */
+  private async assertNoPageAt(
+    siteId: string,
+    locale: string,
+    path: string,
+    opts: { exceptId?: string; message?: string } = {}
+  ): Promise<void> {
+    const conditions = [
+      eq(pagesTable.siteId, siteId),
+      eq(pagesTable.locale, locale),
+      eq(pagesTable.path, path)
+    ]
+    if (opts.exceptId) {
+      conditions.unshift(ne(pagesTable.id, opts.exceptId))
+    }
+    const duplicate = await WIKI.db
+      .select({ id: pagesTable.id })
+      .from(pagesTable)
+      .where(and(...conditions))
+      .limit(1)
+    if (duplicate.length > 0) {
+      throw new CustomError(
+        'pageDuplicatePath',
+        opts.message ?? 'A page already exists at this path.',
+        409
+      )
+    }
   }
 
   /**

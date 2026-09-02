@@ -1,5 +1,4 @@
-import { and, asc, eq, exists, inArray, ne, or, sql } from 'drizzle-orm'
-import { alias } from 'drizzle-orm/pg-core'
+import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm'
 import {
   navigation as navigationTable,
   pages as pagesTable,
@@ -7,7 +6,7 @@ import {
 } from '../db/schema.ts'
 import { CustomError, decodeTreePath, localizedPagePath } from '../helpers/common.ts'
 import { isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
-import { MAX_DEPTH, compareFoldersFirst, pageIsVisible } from './tree.ts'
+import { MAX_DEPTH, compareFoldersFirst, holdsVisiblePagesUnder, pageIsVisible } from './tree.ts'
 import type { TreeItemType } from './tree.ts'
 import type { AccessActor } from './groups.ts'
 
@@ -642,27 +641,10 @@ class Navigation {
       return []
     }
 
-    const descendant = alias(treeTable, 'navGenDescendantTree')
-    const descendantPage = alias(pagesTable, 'navGenDescendantPage')
-    // -> Text rather than an ltree operator, so the child path can be built from a bound prefix and the
-    //    row's own name -- the same trick `tree.browse()`'s `holdsVisiblePages` uses
-    const childPathPrefix = rootFolderPath ? `${rootFolderPath}.` : ''
-
-    const holdsVisiblePages = exists(
-      WIKI.db
-        .select({ one: sql`1` })
-        .from(descendant)
-        .innerJoin(descendantPage, eq(descendantPage.id, descendant.id))
-        .where(
-          and(
-            eq(descendant.siteId, treeTable.siteId),
-            eq(descendant.locale, treeTable.locale),
-            eq(descendant.type, 'page'),
-            sql`${descendant.folderPath} <@ (${childPathPrefix}::text || ${treeTable.fileName})::ltree`,
-            ...pageIsVisible(descendantPage, true)
-          )
-        )
-    )
+    // -> Literally the same subquery `tree.browse()` runs, now that it is one function (its own doc
+    //    comment carries the reasoning); the alias suffix only keeps the two from colliding if a future
+    //    statement ever carries both.
+    const holdsVisiblePages = holdsVisiblePagesUnder(rootFolderPath, true, 'NavGen')
 
     const rows = await WIKI.db
       .select({
@@ -686,7 +668,6 @@ class Navigation {
           eq(treeTable.siteId, siteId),
           eq(treeTable.locale, locale),
           eq(treeTable.folderPath, rootFolderPath),
-          ne(treeTable.type, 'asset'),
           or(
             eq(treeTable.type, 'folder'),
             and(eq(treeTable.type, 'page'), ...pageIsVisible(pagesTable, true))

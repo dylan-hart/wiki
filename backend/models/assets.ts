@@ -6,6 +6,7 @@ import { assets as assetsTable, tree as treeTable } from '../db/schema.ts'
 import { CustomError, decodeTreePath, encodeTreePath } from '../helpers/common.ts'
 import { makeImageThumbnail, sanitizeSvg, svgMimeType } from '../helpers/images.ts'
 import { belongsInTarget } from '../helpers/blobTarget.ts'
+import { announce } from './hooks.ts'
 import { DB_MODULE } from './storage.ts'
 import type { Readable } from 'node:stream'
 import type { DeletedEntry } from './tree.ts'
@@ -124,6 +125,41 @@ export interface Asset {
    * written against one.
    */
   locale: string
+}
+
+/**
+ * The twelve columns an {@link Asset} is read from, joined across `assets` and its `tree` row (the
+ * two share an id). Both reads that answer with a whole `Asset` — by id and by path — select exactly
+ * these, so they cannot drift apart the day a field is added to one.
+ */
+const assetSelection = {
+  id: assetsTable.id,
+  fileName: assetsTable.fileName,
+  fileExt: assetsTable.fileExt,
+  kind: assetsTable.kind,
+  mimeType: assetsTable.mimeType,
+  fileSize: assetsTable.fileSize,
+  createdAt: assetsTable.createdAt,
+  updatedAt: assetsTable.updatedAt,
+  folderPath: treeTable.folderPath,
+  title: treeTable.title,
+  locale: treeTable.locale,
+  // -> Only whether there is one: the preview itself can be megabytes, and no caller of this wants it
+  //    inlined
+  hasPreview: sql<boolean>`${assetsTable.preview} IS NOT NULL`
+}
+
+/**
+ * The three fix-ups an {@link assetSelection} row needs to be an {@link Asset}: a nullable `fileSize`
+ * read as 0, the ltree `folderPath` decoded back to slashes, and `hasPreview` as a real boolean.
+ */
+function toAsset(row: Record<string, any>): Asset {
+  return {
+    ...row,
+    fileSize: row.fileSize ?? 0,
+    folderPath: decodeTreePath(row.folderPath ?? '') ?? '',
+    hasPreview: Boolean(row.hasPreview)
+  } as Asset
 }
 
 /**
@@ -363,23 +399,21 @@ class Assets {
       throw err
     }
 
-    await WIKI.models.hooks.emit('asset:upload', siteId, {
-      id: entry.id,
-      fileName: storedName,
-      folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
+    await announce(
+      'asset:upload',
       siteId,
-      authorId,
-      metadata: { fileSize: fileData.length, mimeType: resolvedMime, kind }
-    })
-    await WIKI.models.storage.dispatch('asset:upload', {
-      id: entry.id,
-      fileName: storedName,
-      folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
-      siteId,
-      authorId,
-      kind,
-      fileSize: fileData.length
-    })
+      {
+        id: entry.id,
+        fileName: storedName,
+        folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
+        siteId,
+        authorId
+      },
+      {
+        metadata: { fileSize: fileData.length, mimeType: resolvedMime, kind },
+        dispatchExtra: { kind, fileSize: fileData.length }
+      }
+    )
 
     return {
       id: entry.id,
@@ -462,23 +496,15 @@ class Assets {
     this.forgetPath(siteId, folderPath, fileName)
     await this.dropCachedContent([id])
 
-    await WIKI.models.hooks.emit('asset:edit', siteId, {
-      id,
-      fileName,
-      folderPath,
+    await announce(
+      'asset:edit',
       siteId,
-      authorId,
-      metadata: { fileSize: data.length, mimeType, kind }
-    })
-    await WIKI.models.storage.dispatch('asset:edit', {
-      id,
-      fileName,
-      folderPath,
-      siteId,
-      authorId,
-      kind,
-      fileSize: data.length
-    })
+      { id, fileName, folderPath, siteId, authorId },
+      {
+        metadata: { fileSize: data.length, mimeType, kind },
+        dispatchExtra: { kind, fileSize: data.length }
+      }
+    )
 
     const updated = await this.getAsset(siteId, id)
     // -> Only if the row vanished between the update and the read, which means someone deleted the
@@ -506,37 +532,14 @@ class Assets {
    */
   async getAsset(siteId: string, id: string): Promise<Asset | null> {
     const results = await WIKI.db
-      .select({
-        id: assetsTable.id,
-        fileName: assetsTable.fileName,
-        fileExt: assetsTable.fileExt,
-        kind: assetsTable.kind,
-        mimeType: assetsTable.mimeType,
-        fileSize: assetsTable.fileSize,
-        createdAt: assetsTable.createdAt,
-        updatedAt: assetsTable.updatedAt,
-        folderPath: treeTable.folderPath,
-        title: treeTable.title,
-        locale: treeTable.locale,
-        // -> Only whether there is one: the preview itself can be megabytes, and no caller of this
-        //    wants it inlined
-        hasPreview: sql<boolean>`${assetsTable.preview} IS NOT NULL`
-      })
+      .select(assetSelection)
       .from(assetsTable)
       .innerJoin(treeTable, eq(treeTable.id, assetsTable.id))
       .where(and(eq(assetsTable.id, id), eq(assetsTable.siteId, siteId)))
       .limit(1)
 
     const row = results[0]
-    if (!row) {
-      return null
-    }
-    return {
-      ...row,
-      fileSize: row.fileSize ?? 0,
-      folderPath: decodeTreePath(row.folderPath ?? '') ?? '',
-      hasPreview: Boolean(row.hasPreview)
-    } as Asset
+    return row ? toAsset(row) : null
   }
 
   /**
@@ -589,20 +592,7 @@ class Assets {
     const primaryLocale = WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'
 
     const results = await WIKI.db
-      .select({
-        id: assetsTable.id,
-        fileName: assetsTable.fileName,
-        fileExt: assetsTable.fileExt,
-        kind: assetsTable.kind,
-        mimeType: assetsTable.mimeType,
-        fileSize: assetsTable.fileSize,
-        createdAt: assetsTable.createdAt,
-        updatedAt: assetsTable.updatedAt,
-        folderPath: treeTable.folderPath,
-        locale: treeTable.locale,
-        title: treeTable.title,
-        hasPreview: sql<boolean>`${assetsTable.preview} IS NOT NULL`
-      })
+      .select(assetSelection)
       .from(assetsTable)
       .innerJoin(treeTable, eq(treeTable.id, assetsTable.id))
       .where(
@@ -617,15 +607,7 @@ class Assets {
       .limit(1)
 
     const row = results[0]
-    if (!row) {
-      return null
-    }
-    return {
-      ...row,
-      fileSize: row.fileSize ?? 0,
-      folderPath: decodeTreePath(row.folderPath ?? '') ?? '',
-      hasPreview: Boolean(row.hasPreview)
-    } as Asset
+    return row ? toAsset(row) : null
   }
 
   /**
@@ -1132,22 +1114,18 @@ class Assets {
     this.forgetPath(siteId, asset.folderPath, safeName)
     await this.dropCachedContent([id])
 
-    await WIKI.models.hooks.emit('asset:rename', siteId, {
-      id,
-      fileName: safeName,
-      previousFileName: asset.fileName,
-      folderPath: asset.folderPath,
-      siteId
-    })
-    await WIKI.models.storage.dispatch('asset:rename', {
-      id,
-      fileName: safeName,
-      previousFileName: asset.fileName,
-      folderPath: asset.folderPath,
+    await announce(
+      'asset:rename',
       siteId,
-      kind: asset.kind,
-      fileSize: asset.fileSize
-    })
+      {
+        id,
+        fileName: safeName,
+        previousFileName: asset.fileName,
+        folderPath: asset.folderPath,
+        siteId
+      },
+      { dispatchExtra: { kind: asset.kind, fileSize: asset.fileSize } }
+    )
 
     return this.getAsset(siteId, id)
   }
@@ -1172,20 +1150,12 @@ class Assets {
     //    at the db level drops the sync-state rows for this asset on its own.
     await WIKI.models.contentSync.forgetContent('asset', id)
 
-    await WIKI.models.hooks.emit('asset:delete', siteId, {
-      id,
-      fileName: asset.fileName,
-      folderPath: asset.folderPath,
-      siteId
-    })
-    await WIKI.models.storage.dispatch('asset:delete', {
-      id,
-      fileName: asset.fileName,
-      folderPath: asset.folderPath,
+    await announce(
+      'asset:delete',
       siteId,
-      kind: asset.kind,
-      fileSize: asset.fileSize
-    })
+      { id, fileName: asset.fileName, folderPath: asset.folderPath, siteId },
+      { dispatchExtra: { kind: asset.kind, fileSize: asset.fileSize } }
+    )
 
     return true
   }
@@ -1217,21 +1187,18 @@ class Assets {
     // -> One per file, as deleting them one at a time would have sent: a subscriber mirroring the
     //    wiki has to hear about each file, not about the folder it happened to sit in
     for (const entry of entries) {
-      await WIKI.models.hooks.emit('asset:delete', siteId, {
-        id: entry.id,
-        fileName: entry.fileName,
-        folderPath: entry.folderPath,
-        siteId
-      })
       const row = deletedById.get(entry.id)
-      await WIKI.models.storage.dispatch('asset:delete', {
-        id: entry.id,
-        fileName: entry.fileName,
-        folderPath: entry.folderPath,
+      await announce(
+        'asset:delete',
         siteId,
-        kind: row?.kind,
-        fileSize: row?.fileSize
-      })
+        {
+          id: entry.id,
+          fileName: entry.fileName,
+          folderPath: entry.folderPath,
+          siteId
+        },
+        { dispatchExtra: { kind: row?.kind, fileSize: row?.fileSize } }
+      )
     }
   }
 }
