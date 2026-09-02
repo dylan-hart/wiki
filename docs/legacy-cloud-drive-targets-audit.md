@@ -32,7 +32,7 @@ Their `definition.yml`s are also thin relative to this fork's `StorageDefinition
 authoring from scratch, not porting.
 
 **This is the default baseline every target must clear to justify real engineering**, per the parent epic's
-parity-not-exceed constraint (docs/superpowers/specs/2026-08-16-wikijs-3-epic-roadmap-design.md): 2.5.x's
+parity-not-exceed constraint: 2.5.x's
 own "parity" for these four targets is an admin picker that does nothing. The only thing that overrides the
 default cut is genuine, current departmental reliance on one of these four in the actual instance Epic 341
 (Migration & Upgrade Path from 2.5.x) is migrating.

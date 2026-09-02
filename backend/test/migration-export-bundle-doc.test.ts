@@ -1,4 +1,5 @@
-// Regression test for docs/migration/2.5x-export-bundle-format.md.
+// Regression test for docs/migration/2.5x-export-bundle-format.md. Lives here rather than next to
+// the doc because npm run test's '**/*.test.ts' glob only resolves inside this workspace.
 //
 // It statically parses the vendored export-implementation sources under vendor/export-bundle/
 // (unmodified copies of the real resolver/core-service files from requarks/wiki) and asserts that
@@ -16,27 +17,28 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const VENDOR_DIR = join(HERE, 'vendor', 'export-bundle')
+const MIGRATION_DOCS_DIR = join(HERE, '..', '..', 'docs', 'migration')
+const VENDOR_DIR = join(MIGRATION_DOCS_DIR, 'vendor', 'export-bundle')
 const CORE_SYSTEM_PATH = join(VENDOR_DIR, 'core-system.js')
 const RESOLVERS_SYSTEM_PATH = join(VENDOR_DIR, 'graph-resolvers-system.js')
-const DOC_PATH = join(HERE, '2.5x-export-bundle-format.md')
+const DOC_PATH = join(MIGRATION_DOCS_DIR, '2.5x-export-bundle-format.md')
 
 const coreSystemSrc = readFileSync(CORE_SYSTEM_PATH, 'utf8')
 const resolversSrc = readFileSync(RESOLVERS_SYSTEM_PATH, 'utf8')
 const doc = readFileSync(DOC_PATH, 'utf8')
 
 /** Every `path.join(opts.path, '<name>')` literal in core-system.js — the on-disk output files. */
-function extractOutputFileNames(src) {
+function extractOutputFileNames(src: string) {
   return [...src.matchAll(/path\.join\(opts\.path,\s*'([^']+)'\)/g)].map((m) => m[1])
 }
 
 /** Every `case '<entity>':` label in the export() switch — the selectable export entities. */
-function extractEntityCases(src) {
+function extractEntityCases(src: string) {
   return [...src.matchAll(/case '([a-zA-Z]+)':/g)].map((m) => m[1])
 }
 
 /** Every `.limit(<n>)` numeric batch size used by a paginated export loop. */
-function extractBatchLimits(src) {
+function extractBatchLimits(src: string) {
   return [...new Set([...src.matchAll(/\.limit\((\d+)\)/g)].map((m) => m[1]))]
 }
 

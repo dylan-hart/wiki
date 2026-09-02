@@ -10,9 +10,9 @@ import { CustomError } from './common.ts'
  *
  * `--no-sandbox` is NOT included by default. It drops Chromium's own process sandbox, which matters
  * here because two of the three callers feed the browser attacker-influenced content: `pdfExport`
- * drives the live SPA page view with the requester's own session cookie (so page markdown, block
- * components and a `write:scripts` author's `scriptJsLoad`/`scriptJsUnload` bodies all execute), and
- * `diagramRender.renderMermaid` mounts `block-diagram` around a POST-body Mermaid source. An operator
+ * drives the live SPA page view with the requester's own session cookie (so page markdown and block
+ * components execute), and `diagramRender.renderMermaid` mounts `block-diagram` around a POST-body
+ * Mermaid source. An operator
  * whose deployment environment cannot give Chromium its own sandbox (typically a container without
  * the setuid sandbox helper) opts into it via `security.allowPuppeteerNoSandbox` — see
  * `docs/variances.md` for the posture this default was chosen against.

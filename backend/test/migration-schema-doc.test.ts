@@ -1,4 +1,5 @@
-// Regression test for docs/migration/2.5x-source-schema.md.
+// Regression test for docs/migration/2.5x-source-schema.md. Lives here rather than next to the doc
+// because npm run test's '**/*.test.ts' glob only resolves inside this workspace.
 //
 // It statically parses the vendored 2.x migration sources under vendor/ (unmodified copies of the
 // real knex migrations from requarks/wiki) and asserts that every table and column they define, for
@@ -15,8 +16,9 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const VENDOR_DIR = join(HERE, 'vendor')
-const DOC_PATH = join(HERE, '2.5x-source-schema.md')
+const MIGRATION_DOCS_DIR = join(HERE, '..', '..', 'docs', 'migration')
+const VENDOR_DIR = join(MIGRATION_DOCS_DIR, 'vendor')
+const DOC_PATH = join(MIGRATION_DOCS_DIR, '2.5x-source-schema.md')
 
 // Tables this doc is scoped to (per the task description). Other tables defined in the vendored
 // migrations (apiKeys, commentProviders) are out of scope and intentionally not asserted here.
@@ -54,7 +56,7 @@ const COLUMN_CALL_RE = /table\.([a-zA-Z]+)\(\s*['"]([A-Za-z]+)['"]/g
  * Extract { tableName -> Set<columnName> } from one migration file's source text, merging across
  * every createTable/alterTable/table(...) block found in the file.
  */
-function extractTableColumns(source) {
+function extractTableColumns(source: string) {
   const headers = [...source.matchAll(BLOCK_HEADER_RE)]
   const result = new Map()
   for (let i = 0; i < headers.length; i++) {
@@ -92,7 +94,7 @@ function loadVendoredSchema() {
 }
 
 /** Slice the doc into { headingText -> bodyText } sections split on `## ` headings. */
-function sectionsByHeading(doc) {
+function sectionsByHeading(doc: string) {
   const sections = new Map()
   const lines = doc.split('\n')
   let current = null

@@ -1,11 +1,13 @@
-// Regression test for docs/migration/migration-runbook.md (Feature 421 task 751).
+// Regression test for docs/migration/migration-runbook.md (Feature 421 task 751). Lives here rather
+// than next to the doc because npm run test's '**/*.test.ts' glob only resolves inside this
+// workspace.
 //
 // The runbook's conflict-resolution guidance and CLI examples must match what the tool this branch
 // actually built prints and accepts — not a description of an imagined interface. This test re-derives
 // each checkable claim from its real source rather than trusting the doc's prose:
 //
-//   1. The two `UnmappableReason` values the runbook must explain (`../../backend/migration/report.ts`)
-//      match the strings `../../backend/migration/unmappable.ts` actually emits.
+//   1. The two `UnmappableReason` values the runbook must explain (`backend/migration/report.ts`)
+//      match the strings `backend/migration/unmappable.ts` actually emits.
 //   2. The CLI flags/commands the runbook tells an operator to run are real flags this branch's
 //      `cli.ts`/`verify-cli.ts`/`package.json` define, not invented ones.
 //   3. The `PhaseReport` field names the runbook uses to explain the dry-run table match the real
@@ -23,7 +25,8 @@ import assert from 'node:assert/strict'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = join(HERE, '..', '..')
-const DOC_PATH = join(HERE, 'migration-runbook.md')
+const MIGRATION_DOCS_DIR = join(REPO_ROOT, 'docs', 'migration')
+const DOC_PATH = join(MIGRATION_DOCS_DIR, 'migration-runbook.md')
 const UNMAPPABLE_PATH = join(REPO_ROOT, 'backend', 'migration', 'unmappable.ts')
 const REPORT_PATH = join(REPO_ROOT, 'backend', 'migration', 'report.ts')
 const SETTINGS_PHASE_PATH = join(REPO_ROOT, 'backend', 'migration', 'phases', 'settings.ts')
@@ -31,7 +34,7 @@ const CLI_PATH = join(REPO_ROOT, 'backend', 'migration', 'cli.ts')
 const VERIFY_CLI_PATH = join(REPO_ROOT, 'backend', 'migration', 'verify-cli.ts')
 const SOURCE_ARGS_PATH = join(REPO_ROOT, 'backend', 'migration', 'source-args.ts')
 const PACKAGE_JSON_PATH = join(REPO_ROOT, 'backend', 'package.json')
-const DECISION_DOC_PATH = join(HERE, 'decision-source-scope.md')
+const DECISION_DOC_PATH = join(MIGRATION_DOCS_DIR, 'decision-source-scope.md')
 
 const doc = readFileSync(DOC_PATH, 'utf8')
 const unmappableSrc = readFileSync(UNMAPPABLE_PATH, 'utf8')

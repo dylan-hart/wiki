@@ -1,4 +1,6 @@
-// Regression test for docs/migration/2.5x-settings-auth-storage-field-mapping.md (Task 763).
+// Regression test for docs/migration/2.5x-settings-auth-storage-field-mapping.md (Task 763). Lives
+// here rather than next to the doc because npm run test's '**/*.test.ts' glob only resolves inside
+// this workspace.
 //
 // Cross-checks the doc's three claims against live, verifiable sources rather than trusting prose:
 //
@@ -24,9 +26,10 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const DOC_PATH = join(HERE, '2.5x-settings-auth-storage-field-mapping.md')
-const VENDOR_DIR = join(HERE, 'vendor', '2x-settings')
 const REPO_ROOT = join(HERE, '..', '..')
+const MIGRATION_DOCS_DIR = join(REPO_ROOT, 'docs', 'migration')
+const DOC_PATH = join(MIGRATION_DOCS_DIR, '2.5x-settings-auth-storage-field-mapping.md')
+const VENDOR_DIR = join(MIGRATION_DOCS_DIR, 'vendor', '2x-settings')
 const SCHEMA_TS_PATH = join(REPO_ROOT, 'backend', 'db', 'schema.ts')
 const SETTINGS_TS_PATH = join(REPO_ROOT, 'backend', 'models', 'settings.ts')
 const SITES_TS_PATH = join(REPO_ROOT, 'backend', 'models', 'sites.ts')
@@ -54,7 +57,7 @@ const SAVE_TO_DB_SOURCE_FILES = [
 ]
 
 /** Every string literal inside every `saveToDb([ ... ])` call in the given source text. */
-function extractSaveToDbKeys(source) {
+function extractSaveToDbKeys(source: string) {
   const keys = new Set()
   const callRe = /saveToDb\(\s*\[([^\]]*)\]/gs
   for (const call of source.matchAll(callRe)) {

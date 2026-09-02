@@ -1,4 +1,5 @@
-// Regression test for docs/migration/2.5x-to-3.0-mapping.md.
+// Regression test for docs/migration/2.5x-to-3.0-mapping.md. Lives here rather than next to the doc
+// because npm run test's '**/*.test.ts' glob only resolves inside this workspace.
 //
 // It statically parses docs/migration/2.5x-source-schema.md (the Task 706 deliverable — the
 // column-by-column inventory of the 2.5.x source schema) and asserts that every single column of
@@ -24,15 +25,15 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const SOURCE_SCHEMA_DOC_PATH = join(HERE, '2.5x-source-schema.md')
-const MAPPING_DOC_PATH = join(HERE, '2.5x-to-3.0-mapping.md')
-const DEFS_DIR = join(HERE, 'vendor', '2x-definitions')
-const SCHEMA_TS_PATH = join(HERE, '..', '..', 'backend', 'db', 'schema.ts')
-const GROUPS_MODEL_PATH = join(HERE, '..', '..', 'backend', 'models', 'groups.ts')
+const REPO_ROOT = join(HERE, '..', '..')
+const MIGRATION_DOCS_DIR = join(REPO_ROOT, 'docs', 'migration')
+const SOURCE_SCHEMA_DOC_PATH = join(MIGRATION_DOCS_DIR, '2.5x-source-schema.md')
+const MAPPING_DOC_PATH = join(MIGRATION_DOCS_DIR, '2.5x-to-3.0-mapping.md')
+const DEFS_DIR = join(MIGRATION_DOCS_DIR, 'vendor', '2x-definitions')
+const SCHEMA_TS_PATH = join(REPO_ROOT, 'backend', 'db', 'schema.ts')
+const GROUPS_MODEL_PATH = join(REPO_ROOT, 'backend', 'models', 'groups.ts')
 const LOCAL_AUTH_3X_PATH = join(
-  HERE,
-  '..',
-  '..',
+  REPO_ROOT,
   'backend',
   'modules',
   'authentication',
@@ -40,25 +41,14 @@ const LOCAL_AUTH_3X_PATH = join(
   'definition.yml'
 )
 const GIT_STORAGE_3X_PATH = join(
-  HERE,
-  '..',
-  '..',
+  REPO_ROOT,
   'backend',
   'modules',
   'storage',
   'git',
   'definition.yml'
 )
-const S3_STORAGE_3X_PATH = join(
-  HERE,
-  '..',
-  '..',
-  'backend',
-  'modules',
-  'storage',
-  's3',
-  'definition.yml'
-)
+const S3_STORAGE_3X_PATH = join(REPO_ROOT, 'backend', 'modules', 'storage', 's3', 'definition.yml')
 
 const sourceSchemaDoc = readFileSync(SOURCE_SCHEMA_DOC_PATH, 'utf8')
 const mappingDoc = readFileSync(MAPPING_DOC_PATH, 'utf8')
@@ -98,8 +88,8 @@ const SOURCE_TABLES = [
 ]
 
 /** Split the source-schema doc into { tableName: sectionBody } for each `## <tableName>` heading. */
-function extractTableSections(doc, tableNames) {
-  const sections = {}
+function extractTableSections(doc: string, tableNames: string[]) {
+  const sections: Record<string, string> = {}
   const headingRe = /^## (\S+)$/gm
   const matches = [...doc.matchAll(headingRe)]
   for (let i = 0; i < matches.length; i++) {
@@ -113,7 +103,7 @@ function extractTableSections(doc, tableNames) {
 }
 
 /** Every backtick-quoted column name in the first cell of a markdown table row. */
-function extractColumns(sectionBody) {
+function extractColumns(sectionBody: string) {
   return [...sectionBody.matchAll(/^\|\s*`([a-zA-Z]+)`\s*\|/gm)].map((m) => m[1])
 }
 

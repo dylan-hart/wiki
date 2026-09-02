@@ -1,4 +1,5 @@
-// Regression test for docs/migration/decision-source-scope.md.
+// Regression test for docs/migration/decision-source-scope.md. Lives here rather than next to the
+// doc because npm run test's '**/*.test.ts' glob only resolves inside this workspace.
 //
 // The decision record's central claim is grounded in three real, checkable facts about this repo
 // rather than assumption, so this test re-derives each one from its source and asserts the doc
@@ -24,10 +25,11 @@ import assert from 'node:assert/strict'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = join(HERE, '..', '..')
-const DOC_PATH = join(HERE, 'decision-source-scope.md')
+const MIGRATION_DOCS_DIR = join(REPO_ROOT, 'docs', 'migration')
+const DOC_PATH = join(MIGRATION_DOCS_DIR, 'decision-source-scope.md')
 const PACKAGE_JSON_PATH = join(REPO_ROOT, 'backend', 'package.json')
 const CONFIG_SAMPLE_PATH = join(REPO_ROOT, 'config.sample.yml')
-const SOURCE_SCHEMA_DOC_PATH = join(HERE, '2.5x-source-schema.md')
+const SOURCE_SCHEMA_DOC_PATH = join(MIGRATION_DOCS_DIR, '2.5x-source-schema.md')
 
 const doc = readFileSync(DOC_PATH, 'utf8')
 const pkg = JSON.parse(readFileSync(PACKAGE_JSON_PATH, 'utf8'))
@@ -46,7 +48,7 @@ const NON_POSTGRES_DRIVER_PACKAGES = [
 ]
 
 /** Keys of the top-level `db:` block in config.sample.yml, in file order. */
-function extractDbConfigKeys(yml) {
+function extractDbConfigKeys(yml: string) {
   const afterHeader = yml.slice(yml.indexOf('\ndb:') + 1)
   const lines = afterHeader.split('\n').slice(1)
   const keys = []

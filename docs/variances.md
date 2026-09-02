@@ -156,7 +156,7 @@ keys) — that target's cut should be revisited on its own; the evidence trail b
 what was and wasn't checked so the correction is cheap to make for that target only.
 
 **Evidence trail:** full audit, source list, and per-target verdict table in
-[`docs/superpowers/research/2026-08-17-legacy-cloud-drive-targets-audit.md`](superpowers/research/2026-08-17-legacy-cloud-drive-targets-audit.md)
+[`docs/legacy-cloud-drive-targets-audit.md`](legacy-cloud-drive-targets-audit.md)
 (OpenProject Task #536). Posted back onto Feature #378's description in OpenProject as the traceable
 decision record.
 

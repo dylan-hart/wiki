@@ -3,7 +3,7 @@
 Unmodified copies of `server/db/migrations/<version>.js` from
 [requarks/wiki](https://github.com/requarks/wiki) (`main` branch), fetched 2026-08-17, used as the
 ground truth for `../2.5x-source-schema.md` and cross-checked against it by
-`../verify-schema-doc.test.mjs`. Same AGPL-3.0 license as this repository.
+`../../../backend/test/migration-schema-doc.test.ts`. Same AGPL-3.0 license as this repository.
 
 Files:
 
@@ -38,17 +38,19 @@ Fetched 2026-08-17 from `requarks/wiki` `main`:
 - `group.graphql` ← `server/graph/schemas/group.graphql` (source of the `PageRule` type used to
   confirm the `deny: Boolean!` vs. 3.0 `mode: ALLOW|DENY|FORCEALLOW` mismatch)
 
-Cross-checked against the mapping doc by `../verify-mapping-doc.test.mjs`. Not `.js`, so none of
-these are picked up by `../verify-schema-doc.test.mjs`'s scan either way, but they get their own
-subdirectory for the same organizational reason `export-bundle/` does.
+Cross-checked against the mapping doc by `../../../backend/test/migration-mapping-doc.test.ts`. Not
+`.js`, so none of these are picked up by `../../../backend/test/migration-schema-doc.test.ts`'s scan
+either way, but they get their own subdirectory for the same organizational reason `export-bundle/`
+does.
 
 ## `export-bundle/`
 
 A separate, non-migration set of vendored files — `server/graph/resolvers/system.js`,
 `server/core/system.js`, `server/models/authentication.js` — used as the ground truth for
 `../2.5x-export-bundle-format.md` and cross-checked against it by
-`../verify-export-bundle-doc.test.mjs`. Kept in its own subdirectory (not scanned by
-`../verify-schema-doc.test.mjs`, which only reads `.js` files directly under `vendor/`) because
+`../../../backend/test/migration-export-bundle-doc.test.ts`. Kept in its own subdirectory (not
+scanned by `../../../backend/test/migration-schema-doc.test.ts`, which only reads `.js` files
+directly under `vendor/`) because
 these are resolver/service implementation files, not `db/migrations/*.js` schema definitions, and
 mixing them in would make `loadVendoredSchema()`'s generic `createTable`/`alterTable` scan pick up
 unrelated matches. Fetched 2026-08-17 from

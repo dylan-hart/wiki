@@ -77,6 +77,11 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
   `models/storage.ts`), `search/`, `analytics/`, `comments/`, `extensions/`.
 - `mcp/` — the in-process Model Context Protocol server (`bootstrap.ts`, `auth.ts`, `http.ts`),
   exposing wiki content/actions to an MCP-speaking client over the instance's own HTTP surface.
+  `mcp/tools/renderDiagram.ts` delegates to the same `models/diagramRender.render()` that
+  `POST /_api/diagrams/render` calls — that REST route stays published (it's Swagger-documented,
+  `tags: ['Diagrams']`) rather than being retired for having no first-party caller, since deleting a
+  documented public endpoint is a breaking change to a contract an external integrator may already
+  depend on.
 - `migration/` — the 2.5.x-to-3.0 import CLI: `cli.ts` and `orchestrator.ts` drive a source
   `connector.ts`/`connectors/` implementation through staged `phases/`, `importers/` per record class,
   and `mappers/` for field translation, recording provenance and a dry-run report along the way. See
@@ -450,6 +455,12 @@ Consequences worth knowing:
   required (`reviewerFor` in `api/approvals.ts` is the worked example).
 - **Never invent a permission name.** All three lists above are closed; `can('browse:fileman')` and
   friends matched nothing and silently hid the controls they guarded.
+- **`write:scripts`/`write:styles` gate content sanitization, not a per-page script/style injection
+  feature.** A separate `pages.scripts` column (`scriptJsLoad`/`scriptJsUnload`/`scriptCss`) and its
+  `PageScriptsDialog.vue` editor once existed but nothing ever executed the stored values; both were
+  deleted as dead half-built code. The permission names stay fully live — they gate whether an
+  author's raw `<script>`/`<style>` HTML in page content survives sanitization
+  (`models/rendering.ts`'s `RenderPermissions`).
 
 ### Backend patterns
 
@@ -459,6 +470,13 @@ Consequences worth knowing:
   `WIKI.events.{inbound,outbound}` (Emittery), `WIKI.sites` / `WIKI.sitesMappings` (cached site
   configs), `WIKI.ROOTPATH`, `WIKI.SERVERPATH`, `WIKI.INSTANCE_ID`.
 - **Routes** are Fastify plugins: `async function routes(app) { ... }` with a default export.
+- **`/_api` is deliberately unversioned.** `info.version` in the Swagger doc is `WIKI.version`, not a
+  separate API contract number. Frontend and backend ship as one coupled release (the frontend's
+  `assets/` build is served by that same backend commit), so there is no independent-compatibility
+  scenario to manage — versioning exists to reconcile a producer and consumer that release
+  separately, and here there is only one release train. Revisit only if a genuine external
+  integration surface (a published plugin API, a third-party client this project commits to
+  supporting) appears; until then a `/_api/v1` prefix would be speculative scaffolding.
 - **Permissions** are declared per-route in `config.permissions`, and enforced by a single
   `preHandler` hook in `index.ts`. The array is OR-ed; a nested array is AND-ed
   (`permissions: ['read:sites', ['manage:users', 'manage:groups']]`). `manage:system` bypasses every
