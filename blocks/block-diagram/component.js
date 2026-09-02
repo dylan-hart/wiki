@@ -2,7 +2,7 @@ import { LitElement, html, css } from 'lit'
 import { unsafeSVG } from 'lit/directives/unsafe-svg.js'
 import mermaid from 'mermaid'
 import { readFencedSource } from '../shared/body.js'
-import { explainSourceFailure } from '../shared/figure.js'
+import { explainEmptySource, explainSourceFailure } from '../shared/figure.js'
 import { renderError } from '../shared/render.js'
 import { captionStyles, errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
@@ -250,8 +250,7 @@ flowchart LR
     this._fenced = fenced
     this._source = source
     if (!this._source) {
-      this._error =
-        'This diagram is empty. Its source goes in the body of the block, inside a fenced code block.'
+      this._error = explainEmptySource('diagram')
       return
     }
     this._draw()

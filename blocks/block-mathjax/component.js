@@ -49,7 +49,7 @@ import '@mathjax/src/js/input/tex/upgreek/UpgreekConfiguration.js'
 import '@mathjax/src/js/input/tex/verb/VerbConfiguration.js'
 
 import { readFencedSource } from '../shared/body.js'
-import { explainSourceFailure } from '../shared/figure.js'
+import { explainEmptySource, explainSourceFailure, figureStyles } from '../shared/figure.js'
 import { renderError } from '../shared/render.js'
 import { captionStyles, errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
@@ -168,51 +168,14 @@ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
     return [
       errorBox,
       captionStyles,
+      figureStyles,
       css`
-        :host {
-          display: block;
-        }
-
-        /* -> The gap below the block. On this element rather than :host: see block-index. */
-        .formula,
-        .error {
-          margin-bottom: 16px;
-        }
-
-        .formula {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 8px;
-        }
-        .formula.is-left {
-          align-items: flex-start;
-        }
-
-        /*
-        A formula wider than the column scrolls rather than shrinks, the way a display equation in the
-        text does — see .katex-display in css/_page-contents.scss. Shrinking is the wrong answer for
-        something read symbol by symbol: a long derivation would end up a grey smear.
-      */
-        .drawing {
-          max-width: 100%;
-          overflow-x: auto;
-          overflow-y: hidden;
-          /* -> Room for the scrollbar to appear without it sitting on the descenders */
-          padding: 0.2em 0;
-        }
-
         /*
         The drawing takes the colour of the text around it: MathJax paints its glyphs in currentColor,
         so dark mode needs nothing here — unlike a block that picks its own colours.
       */
         svg {
           display: block;
-        }
-
-        /* -> Colour and size come from the shared captionStyles; centring is this block's own */
-        .caption {
-          text-align: center;
         }
       `
     ]
@@ -274,8 +237,7 @@ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
   firstUpdated() {
     const { source, fenced } = readFencedSource(this)
     if (!source) {
-      this._error =
-        'This formula is empty. Its TeX source goes in the body of the block, inside a fenced code block.'
+      this._error = explainEmptySource('formula', { source: 'TeX source' })
       return
     }
     this._typeset(source, fenced)

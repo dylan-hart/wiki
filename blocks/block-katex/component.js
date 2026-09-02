@@ -12,7 +12,7 @@ import katexCss from 'katex/dist/katex.min.css'
 */
 import 'katex/contrib/mhchem'
 import { readFencedSource } from '../shared/body.js'
-import { explainSourceFailure } from '../shared/figure.js'
+import { explainEmptySource, explainSourceFailure, figureStyles } from '../shared/figure.js'
 import { renderError } from '../shared/render.js'
 import { captionStyles, errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
@@ -82,48 +82,11 @@ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
       unsafeCSS(KATEX_RULES),
       errorBox,
       captionStyles,
+      figureStyles,
       css`
-        :host {
-          display: block;
-        }
-
-        /* -> The gap below the block. On this element rather than :host: see block-index. */
-        .formula,
-        .error {
-          margin-bottom: 16px;
-        }
-
-        .formula {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 8px;
-        }
-        .formula.is-left {
-          align-items: flex-start;
-        }
-
-        /*
-          A formula wider than the column scrolls rather than shrinks, the way a display equation in
-          the text does. Shrinking is the wrong answer for something read symbol by symbol: a long
-          derivation would end up a grey smear.
-        */
-        .drawing {
-          max-width: 100%;
-          overflow-x: auto;
-          overflow-y: hidden;
-          /* -> Room for the scrollbar to appear without it sitting on the descenders */
-          padding: 0.2em 0;
-        }
-
         /* -> The block owns its spacing; KaTeX's own 1em above and below would double it up */
         .drawing .katex-display {
           margin: 0;
-        }
-
-        /* -> Colour and size come from the shared captionStyles; centring is this block's own */
-        .caption {
-          text-align: center;
         }
       `
     ]
@@ -199,8 +162,7 @@ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
   firstUpdated() {
     const { source, fenced } = readFencedSource(this)
     if (!source) {
-      this._error =
-        'This formula is empty. Its TeX source goes in the body of the block, inside a fenced code block.'
+      this._error = explainEmptySource('formula', { source: 'TeX source' })
       return
     }
     this._typeset(source, fenced)

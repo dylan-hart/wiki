@@ -17,8 +17,9 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     // `**/*.test.js` rather than the old `*/component.test.js`: that glob could only ever discover a
-    // `block-*/component.test.js`, and `shared/` now has a suite per module (`body`, `config`,
-    // `figure`, `i18n`, `icons`, `props`, `render`, `site`, `styles`, `theme`, `url-limit`) plus the
+    // `block-*/component.test.js`, and `shared/` now carries co-located suites of its own (`body`,
+    // `config`, `diagram-image`, `figure`, `i18n`, `icons`, `props`, `render`, `site`, `styles`,
+    // `theme`, `url-limit`, `video-embed` — every module but `compress.js`, which has none) plus the
     // repo-level `definitions.test.js`, none of which that glob would have run.
     include: ['**/*.test.js'],
     /*

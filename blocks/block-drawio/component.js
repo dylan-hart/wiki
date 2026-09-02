@@ -2,7 +2,8 @@ import { LitElement, html, css } from 'lit'
 import { unsafeSVG } from 'lit/directives/unsafe-svg.js'
 import { drawioToSvg } from './mxgraph.js'
 import { readFencedSource } from '../shared/body.js'
-import { explainSourceFailure } from '../shared/figure.js'
+import { diagramStyles } from '../shared/diagram-image.js'
+import { explainEmptySource, explainSourceFailure } from '../shared/figure.js'
 import { renderError } from '../shared/render.js'
 import { captionStyles, errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
@@ -68,47 +69,21 @@ export class BlockDrawioElement extends LitElement {
     ]
   }
 
+  /*
+    The remote-diagram blocks' own shell (`../shared/diagram-image.js`), which is the same box for
+    the same reason -- a draw.io diagram's colours are chosen against draw.io's own white canvas, so
+    drawing it straight onto a dark page would leave dark text unreadable and strokes with no
+    contrast to sit on. Only the two rules below are this block's own: what sits on the sheet here is
+    an inline `svg` rather than a fetched `img`.
+  */
   static get styles() {
     return [
       errorBox,
       captionStyles,
+      diagramStyles,
       css`
-        :host {
-          display: block;
-        }
-
-        /* -> The gap below the block. On this element rather than :host: see block-index. */
-        .diagram,
-        .error {
-          margin-bottom: 16px;
-        }
-
         .diagram {
-          display: flex;
-          flex-direction: column;
-          align-items: flex-start;
-          gap: 8px;
           max-width: 100%;
-        }
-        .diagram.is-center {
-          align-items: center;
-        }
-
-        /*
-        White in both themes, like block-kroki's sheet: a draw.io diagram's own colours are chosen
-        against draw.io's own white canvas, and drawing it straight onto a dark page would leave dark
-        text unreadable and strokes with no contrast to sit on.
-      */
-        .sheet {
-          max-width: 100%;
-          padding: 12px;
-          border: 1px solid rgba(0, 0, 0, 0.1);
-          border-radius: 5px;
-          background-color: #fff;
-          overflow-x: auto;
-        }
-        :host([dark]) .sheet {
-          border-color: rgba(255, 255, 255, 0.15);
         }
 
         svg {
@@ -161,8 +136,7 @@ export class BlockDrawioElement extends LitElement {
     const { source, fenced } = readFencedSource(this)
     this._fenced = fenced
     if (!source) {
-      this._error =
-        'This diagram is empty. Its source goes in the body of the block, inside a fenced code block.'
+      this._error = explainEmptySource('diagram')
       return
     }
     try {
