@@ -98,47 +98,14 @@
               <em>{{ t('admin.analytics.providerNoConfiguration') }}</em>
             </w-banner>
           </w-card-section>
-          <template v-for="(cfg, cfgKey, idx) in provider.config" :key="cfgKey">
-            <template v-if="configIfCheck(cfg.if)">
-              <w-separator class="my-2" inset v-if="idx > 0" />
-              <w-item v-if="cfg.type === `boolean`" tag="label">
-                <blueprint-icon :icon="cfg.icon" />
-                <w-item-section>
-                  <w-item-label>{{ cfg.title }}</w-item-label>
-                  <w-item-label caption>{{ cfg.hint }}</w-item-label>
-                </w-item-section>
-                <w-item-section avatar>
-                  <w-toggle v-model="cfg.value" :aria-label="cfg.title" />
-                </w-item-section>
-              </w-item>
-              <w-item v-else>
-                <blueprint-icon :icon="cfg.icon" />
-                <w-item-section>
-                  <w-item-label>{{ cfg.title }}</w-item-label>
-                  <w-item-label caption>{{ cfg.hint }}</w-item-label>
-                </w-item-section>
-                <w-item-section :style="cfg.type === `number` ? `flex: 0 0 150px;` : ``">
-                  <w-select
-                    v-if="cfg.enum"
-                    outlined
-                    v-model="cfg.value"
-                    :options="cfg.enum"
-                    emit-value
-                    map-options
-                    dense
-                    options-dense
-                    :aria-label="cfg.title" />
-                  <w-input
-                    v-else
-                    outlined
-                    v-model="cfg.value"
-                    dense
-                    :type="inputTypeFor(cfg)"
-                    :aria-label="cfg.title" />
-                </w-item-section>
-              </w-item>
-            </template>
-          </template>
+          <!--
+            Generic per-prop config form, shared with `AdminAuth.vue`, `AdminComments.vue`,
+            `AdminSearch.vue` and `AdminStorage.vue` -- see `ModuleConfigForm.vue`. `provider.config`
+            is the `buildConfigEditor()`-built editable structure, not the raw stored values;
+            mutating a field's `.value` there, which this component does in place, is what
+            `buildConfigPayload()` in `save()` below reads back.
+          -->
+          <module-config-form v-if="provider.config" :config="provider.config" />
         </w-card>
         <!-- ----------------------- -->
         <!-- Infobox -->
@@ -175,6 +142,9 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
+
+import ModuleConfigForm from '@/components/ModuleConfigForm.vue'
 
 import { useAdminStore } from '@/stores/admin'
 
@@ -220,44 +190,6 @@ watch(
 )
 
 // METHODS
-
-/**
- * Turn a module prop declaration and its stored value into the shape the config editor renders,
- * expanding `value|label` enum entries into options.
- */
-function buildConfigEditor(props, values) {
-  const config = {}
-  for (const [key, prop] of Object.entries(props ?? {})) {
-    config[key] = {
-      ...prop,
-      value: values?.[key] ?? prop.default,
-      ...(prop.enum && {
-        enum: prop.enum.map((entry) => {
-          const [value, label] = entry.split('|')
-          return { value, label: label ?? value }
-        })
-      })
-    }
-  }
-  return config
-}
-
-function inputTypeFor(cfg) {
-  if (cfg.multiline) {
-    return 'textarea'
-  }
-  if (cfg.sensitive) {
-    return 'password'
-  }
-  return cfg.type === 'number' ? 'number' : 'text'
-}
-
-function configIfCheck(ifs) {
-  if (!ifs || ifs.length < 1) {
-    return true
-  }
-  return ifs.every((s) => provider.value.config[s.key]?.value === s.eq)
-}
 
 async function load() {
   state.loading++
@@ -309,13 +241,9 @@ async function save() {
   try {
     const providers = {}
     for (const prov of state.providers) {
-      const config = {}
-      for (const [key, cfg] of Object.entries(prov.config ?? {})) {
-        config[key] = cfg.type === 'number' ? Number(cfg.value) : cfg.value
-      }
       providers[prov.key] = {
         isEnabled: prov.isEnabled ?? false,
-        config
+        config: buildConfigPayload(prov.config)
       }
     }
     await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { getAccessibleColor } from '@/helpers/accessibility'
+import { GUESTS_GROUP_ID } from '@/helpers/systemIds'
 
 import { useSiteStore } from './site'
 
@@ -114,7 +115,7 @@ function formatTimePart(zoned, timeFormat, { seconds = false, timeZoneName } = {
 
 export const useUserStore = defineStore('user', {
   state: () => ({
-    id: '10000000-0000-4000-8000-000000000001',
+    id: GUESTS_GROUP_ID,
     email: '',
     name: '',
     hasAvatar: false,
@@ -208,7 +209,7 @@ export const useUserStore = defineStore('user', {
     },
     setToGuest() {
       this.$patch({
-        id: '10000000-0000-4000-8000-000000000001',
+        id: GUESTS_GROUP_ID,
         email: '',
         name: '',
         hasAvatar: false,

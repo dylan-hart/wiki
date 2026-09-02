@@ -688,6 +688,7 @@ import { useUserStore } from '@/stores/user'
 
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate } from '@/helpers/datetime'
+import { GUESTS_GROUP_ID } from '@/helpers/systemIds'
 
 import UserChangePwdDialog from './UserChangePwdDialog.vue'
 import UserDeleteDialog from './UserDeleteDialog.vue'
@@ -795,7 +796,7 @@ async function fetchUser() {
       API_CLIENT.get('groups').json(),
       API_CLIENT.get(`users/${adminStore.overlayOpts.id}`).json()
     ])
-    state.groups = (groups ?? []).filter((g) => g.id !== '10000000-0000-4000-8000-000000000001')
+    state.groups = (groups ?? []).filter((g) => g.id !== GUESTS_GROUP_ID)
     if (!user?.id) {
       throw new Error(t('common.error.unexpected'))
     }

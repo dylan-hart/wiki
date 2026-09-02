@@ -2,11 +2,13 @@
   <template v-for="(cfg, cfgKey, idx) in config" :key="cfgKey">
     <template v-if="ifCheck(cfg.if)">
       <w-separator class="my-2" inset v-if="idx > 0" />
-      <w-item v-if="cfg.type === `boolean`" tag="label">
+      <w-item v-if="cfg.type === `boolean`" :tag="cfg.readOnly ? `div` : `label`">
         <blueprint-icon :icon="cfg.icon" :hue-rotate="cfg.readOnly ? -45 : 0" />
         <w-item-section>
           <w-item-label>{{ cfg.title }}</w-item-label>
-          <w-item-label caption>{{ cfg.hint }}</w-item-label>
+          <w-item-label :class="cfg.readOnly ? `text-orange` : ``" caption>{{
+            cfg.hint
+          }}</w-item-label>
         </w-item-section>
         <w-item-section avatar>
           <w-toggle v-model="cfg.value" :aria-label="cfg.title" :disabled="cfg.readOnly" />
@@ -16,7 +18,9 @@
         <blueprint-icon :icon="cfg.icon" :hue-rotate="cfg.readOnly ? -45 : 0" />
         <w-item-section>
           <w-item-label>{{ cfg.title }}</w-item-label>
-          <w-item-label caption>{{ cfg.hint }}</w-item-label>
+          <w-item-label :class="cfg.readOnly ? `text-orange` : ``" caption>{{
+            cfg.hint
+          }}</w-item-label>
         </w-item-section>
         <w-item-section
           :style="cfg.type === `number` ? `flex: 0 0 150px;` : ``"
@@ -63,6 +67,12 @@
  * (`@/helpers/moduleConfig.js`) produces: boolean -> toggle, `enum` -> select or button-group (per
  * `enumDisplay`), `sensitive` -> password input, `readOnly` -> disabled, `if` -> conditional
  * visibility against a sibling prop's current value.
+ *
+ * A `readOnly` prop is drawn as a plain `div` rather than a `label` (a label whose control cannot be
+ * operated is a click target that does nothing) and its hint is set in orange, since that hint is
+ * where the module explains WHY the value is fixed. Both come from `AdminAuth.vue`'s own copy of
+ * this template, which is the only one that had them; adopting them unconditionally is harmless for
+ * a module with no read-only props and is what let the other three pages move onto this form.
  *
  * Mutates `config[key].value` in place rather than emitting: the object passed in is already the
  * caller's own reactive editable state (`AdminStorage.vue`'s `state.target.config`,

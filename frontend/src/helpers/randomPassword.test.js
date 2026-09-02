@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { randomPassword } from './randomPassword'
+import { PASSWORD_CHARSET, PASSWORD_CHARSET_UNAMBIGUOUS, randomPassword } from './randomPassword'
 
 describe('randomPassword', () => {
   afterEach(() => {
@@ -66,5 +66,26 @@ describe('randomPassword', () => {
     })
     expect(randomPassword(1, alphabet)).toBe('a')
     expect(call).toBeGreaterThanOrEqual(2)
+  })
+})
+
+/**
+ * The two charsets the password dialogs draw from, moved here (from three copies across
+ * `ChangePwdDialog`, `UserChangePwdDialog` and `UserCreateDialog`) so the deliberate difference
+ * between them is visible in one place. These lock down the invariants their doc comments claim, not
+ * the literals themselves.
+ */
+describe('password charsets', () => {
+  it('leave out the characters a reader confuses with each other', () => {
+    for (const charset of [PASSWORD_CHARSET, PASSWORD_CHARSET_UNAMBIGUOUS]) {
+      for (const confusable of ['l', 'I', '1', 'O', '0']) {
+        expect(charset).not.toContain(confusable)
+      }
+    }
+  })
+
+  it('differ in exactly one way: the unambiguous one carries no symbols', () => {
+    expect(PASSWORD_CHARSET_UNAMBIGUOUS).toMatch(/^[a-zA-Z0-9]+$/)
+    expect(PASSWORD_CHARSET).toMatch(/[^a-zA-Z0-9]/)
   })
 })

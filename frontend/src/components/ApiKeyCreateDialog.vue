@@ -192,6 +192,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import ApiKeyCopyDialog from './ApiKeyCopyDialog.vue'
 import ApiKeyScopePicker from './ApiKeyScopePicker.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { GUESTS_GROUP_ID } from '@/helpers/systemIds'
 import { useAdminStore } from '@/stores/admin'
 
 // EMITS
@@ -235,13 +236,6 @@ const state = reactive({
   keyClassifications: [],
   loading: 0
 })
-
-/**
- * The guests group is anonymous access, so a key carrying its permissions would grant nothing a
- * caller cannot already do. Its ID is fixed at install (`systemIds.guestsGroupId` in base.yml), and
- * the API rejects it too.
- */
-const GUESTS_GROUP_ID = '10000000-0000-4000-8000-000000000001'
 
 const expirations = [
   { value: '30d', text: t('admin.api.expiration30d') },
@@ -295,6 +289,8 @@ async function loadGroups() {
   state.loadingGroups = true
   try {
     const resp = await API_CLIENT.get('groups').json()
+    // -> The guests group is anonymous access, so a key carrying its permissions would grant nothing
+    //    a caller cannot already do. The API rejects it too.
     state.groups = (resp ?? []).filter((g) => g.id !== GUESTS_GROUP_ID)
   } catch (err) {
     notify({

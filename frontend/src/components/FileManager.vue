@@ -563,7 +563,6 @@ import fileTypes from '@/helpers/fileTypes'
 import { formatFileSize } from '@/helpers/fileSize'
 import { isHomePath, localizedPagePath } from '@/helpers/pagePaths'
 import FolderCreateDialog from '@/components/FolderCreateDialog.vue'
-import FolderDeleteDialog from '@/components/FolderDeleteDialog.vue'
 import FolderRenameDialog from '@/components/FolderRenameDialog.vue'
 import AssetRenameDialog from '@/components/AssetRenameDialog.vue'
 
@@ -1102,13 +1101,29 @@ function renameFolder(folderId) {
 }
 
 function delFolder(folderId, mustReload = false) {
-  dialog({
-    component: FolderDeleteDialog,
-    componentProps: {
-      folderId,
-      folderName: state.treeNodes[folderId].title
+  confirm({
+    title: t('folderDeleteDialog.title'),
+    message: t('folderDeleteDialog.confirm', {
+      name: `**${state.treeNodes[folderId].title}**`
+    }),
+    caption: t('folderDeleteDialog.folderId', { id: folderId }),
+    destructive: true,
+    persistent: true
+  }).onOk(async () => {
+    try {
+      await API_CLIENT.delete(`sites/${siteStore.id}/tree/folders/${folderId}`)
+      notify({
+        type: 'positive',
+        message: t('folderDeleteDialog.deleteSuccess')
+      })
+    } catch (err) {
+      // -> ky throws above 400 -- a folder deleted from another tab answers 404
+      notify({
+        type: 'negative',
+        message: apiErrorMessage(err)
+      })
+      return
     }
-  }).onOk(() => {
     for (const nodeId in state.treeNodes) {
       if (state.treeNodes[nodeId].children.includes(folderId)) {
         state.treeNodes[nodeId].children = state.treeNodes[nodeId].children.filter(
@@ -1295,13 +1310,27 @@ function renameAsset(assetId) {
 }
 
 function delAsset(assetId, assetName) {
-  dialog({
-    component: defineAsyncComponent(() => import('@/components/AssetDeleteDialog.vue')),
-    componentProps: {
-      assetId,
-      assetName
-    }
+  confirm({
+    title: t('fileman.assetDelete'),
+    message: t('fileman.assetDeleteConfirm', { name: `**${assetName}**` }),
+    caption: t('fileman.assetDeleteId', { id: assetId }),
+    destructive: true,
+    persistent: true
   }).onOk(async () => {
+    try {
+      await API_CLIENT.delete(`sites/${siteStore.id}/assets/${assetId}`)
+      notify({
+        type: 'positive',
+        message: t('fileman.assetDeleteSuccess')
+      })
+    } catch (err) {
+      // -> ky throws above 400 -- an asset deleted from another tab answers 404
+      notify({
+        type: 'negative',
+        message: apiErrorMessage(err)
+      })
+      return
+    }
     // -> Reload current view
     await loadTree({ parentId: state.currentFolderId })
   })

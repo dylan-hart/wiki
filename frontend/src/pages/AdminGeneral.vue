@@ -348,13 +348,11 @@
                 <!-- Preview only, not a real link -- inert rather than given a fake accessible name -->
                 <w-btn dense flat tabindex="-1" aria-hidden="true" v-if="state.config.id">
                   <w-avatar v-if="state.config.logoText" size="34px" square>
-                    <img
-                      :src="`/_site/` + state.config.id + `/logo?` + state.assetTimestamp"
-                      alt="" />
+                    <img :src="`/_site/` + state.config.id + `/logo?` + logoTimestamp" alt="" />
                   </w-avatar>
                   <img
                     v-else
-                    :src="`/_site/` + state.config.id + `/logo?` + state.assetTimestamp"
+                    :src="`/_site/` + state.config.id + `/logo?` + logoTimestamp"
                     alt=""
                     style="height: 34px" />
                 </w-btn>
@@ -416,7 +414,7 @@
                        so this can never show a new site's favicon beside the old site's title. -->
                   <w-avatar v-if="state.config.id" size="24px" square>
                     <img
-                      :src="`/_site/` + state.config.id + `/favicon?` + state.assetTimestamp"
+                      :src="`/_site/` + state.config.id + `/favicon?` + faviconTimestamp"
                       :alt="t(`admin.general.favicon`)" />
                   </w-avatar>
                   <div class="text-caption ml-2">{{ state.config.title }}</div>
@@ -558,22 +556,18 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive, watch } from 'vue'
+import { onMounted, reactive, toRef, watch } from 'vue'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
+import { useSiteImage } from '@/composables/siteImage'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 
-import {
-  clearSiteImage,
-  isAcceptedSiteImage,
-  pickSiteImage,
-  uploadSiteImage
-} from '@/helpers/siteImages'
+import { isSharpAvailable } from '@/helpers/siteImages'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { isValidHostname } from '@/helpers/siteValidation'
 import { hostnameRenamedAway } from '@/helpers/siteRename'
@@ -643,7 +637,6 @@ function defaultConfig() {
 
 const state = reactive({
   loading: 0,
-  assetTimestamp: new Date().toISOString(),
   // -> Whether this site has a logo / favicon of its own, i.e. whether there is anything to clear.
   //    The previews always render: without one they show the default that is served instead.
   hasLogo: false,
@@ -687,6 +680,33 @@ const rulesHostname = [(val) => isValidHostname(val) || t('admin.sites.hostnameI
  */
 let loadedHostname = ''
 
+// COMPOSABLES (site images)
+
+const {
+  upload: uploadLogo,
+  clear: clearLogo,
+  timestamp: logoTimestamp
+} = useSiteImage('logo', {
+  siteId: () => adminStore.currentSiteId,
+  has: toRef(state, 'hasLogo'),
+  i18nPrefix: 'admin.general.logo',
+  // -> One shared message for both uploaders on this page, hence not the per-image default
+  invalidTypeKey: 'admin.general.imageUploadInvalidType',
+  loading: toRef(state, 'loading')
+})
+
+const {
+  upload: uploadFavicon,
+  clear: clearFavicon,
+  timestamp: faviconTimestamp
+} = useSiteImage('favicon', {
+  siteId: () => adminStore.currentSiteId,
+  has: toRef(state, 'hasFavicon'),
+  i18nPrefix: 'admin.general.favicon',
+  invalidTypeKey: 'admin.general.imageUploadInvalidType',
+  loading: toRef(state, 'loading')
+})
+
 // WATCHERS
 
 watch(
@@ -724,21 +744,6 @@ async function load() {
   }
   loading.hide()
   state.loading--
-}
-
-/**
- * Whether the Sharp extension is usable on this server, which decides whether an uploaded logo /
- * favicon gets resized and re-encoded or stored as-is. Site-independent, so this runs once on mount
- * rather than on every `load()` (which re-runs per site switch).
- */
-async function checkSharpAvailability() {
-  try {
-    const extensions = (await API_CLIENT.get('system/extensions').json()) ?? []
-    const sharp = extensions.find((ext) => ext.key === 'sharp')
-    state.sharpMissing = !sharp?.isInstalled
-  } catch (err) {
-    // -> Leave state.sharpMissing at its default rather than surface a second, unrelated error here.
-  }
 }
 
 /**
@@ -834,117 +839,15 @@ async function save() {
   state.loading--
 }
 
-async function uploadLogo() {
-  const file = await pickSiteImage()
-  if (!file) {
-    return
-  }
-  if (!isAcceptedSiteImage(file)) {
-    notify({
-      type: 'negative',
-      message: t('admin.general.logoUploadFailed'),
-      caption: t('admin.general.imageUploadInvalidType')
-    })
-    return
-  }
-  state.loading++
-  try {
-    await uploadSiteImage(adminStore.currentSiteId, 'logo', file)
-    notify({
-      type: 'positive',
-      message: t('admin.general.logoUploadSuccess')
-    })
-    state.hasLogo = true
-    state.assetTimestamp = new Date().toISOString()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.general.logoUploadFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
-}
-
-async function clearLogo() {
-  state.loading++
-  try {
-    await clearSiteImage(adminStore.currentSiteId, 'logo')
-    notify({
-      type: 'positive',
-      message: t('admin.general.logoClearSuccess')
-    })
-    state.hasLogo = false
-    state.assetTimestamp = new Date().toISOString()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.general.logoClearFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
-}
-
-async function uploadFavicon() {
-  const file = await pickSiteImage()
-  if (!file) {
-    return
-  }
-  if (!isAcceptedSiteImage(file)) {
-    notify({
-      type: 'negative',
-      message: t('admin.general.faviconUploadFailed'),
-      caption: t('admin.general.imageUploadInvalidType')
-    })
-    return
-  }
-  state.loading++
-  try {
-    await uploadSiteImage(adminStore.currentSiteId, 'favicon', file)
-    notify({
-      type: 'positive',
-      message: t('admin.general.faviconUploadSuccess')
-    })
-    state.hasFavicon = true
-    state.assetTimestamp = new Date().toISOString()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.general.faviconUploadFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
-}
-
-async function clearFavicon() {
-  state.loading++
-  try {
-    await clearSiteImage(adminStore.currentSiteId, 'favicon')
-    notify({
-      type: 'positive',
-      message: t('admin.general.faviconClearSuccess')
-    })
-    state.hasFavicon = false
-    state.assetTimestamp = new Date().toISOString()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.general.faviconClearFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
-}
-
 // MOUNTED
 
-onMounted(() => {
+onMounted(async () => {
   if (adminStore.currentSiteId) {
     load()
   }
-  checkSharpAvailability()
+  // -> Site-independent, so this runs once on mount rather than on every `load()` (which re-runs per
+  //    site switch). Drives the "requires Sharp" indicator on both uploaders.
+  state.sharpMissing = !(await isSharpAvailable())
 })
 </script>
 

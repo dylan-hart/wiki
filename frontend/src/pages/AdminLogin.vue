@@ -85,7 +85,7 @@
               <img
                 v-if="adminStore.currentSiteId"
                 class="admin-login-bg mt-4"
-                :src="`/_site/` + adminStore.currentSiteId + `/loginBg?` + state.assetTimestamp"
+                :src="`/_site/` + adminStore.currentSiteId + `/loginBg?` + bgTimestamp"
                 :alt="t(`admin.login.background`)" />
             </w-item-section>
           </w-item>
@@ -236,23 +236,19 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive, watch } from 'vue'
+import { onMounted, reactive, toRef, watch } from 'vue'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
+import { useSiteImage } from '@/composables/siteImage'
 import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 
-import {
-  clearSiteImage,
-  isAcceptedSiteImage,
-  pickSiteImage,
-  uploadSiteImage
-} from '@/helpers/siteImages'
+import { isSharpAvailable } from '@/helpers/siteImages'
 
 import { toMerged } from 'es-toolkit/object'
 import { Sortable } from 'sortablejs-vue3'
@@ -305,14 +301,26 @@ const state = reactive({
   // -> Drives the "requires Sharp" indicator on the background uploader. Starts false rather than
   //    true so a slow or failed `system/extensions` call understates the warning instead of crying
   //    wolf while it's still unknown.
-  sharpMissing: false,
-  assetTimestamp: new Date().toISOString()
+  sharpMissing: false
 })
 
 const sortableOptions = {
   handle: '.handle',
   animation: 150
 }
+
+// COMPOSABLES (site images)
+
+const {
+  upload: uploadBg,
+  clear: clearBg,
+  timestamp: bgTimestamp
+} = useSiteImage('loginBg', {
+  siteId: () => adminStore.currentSiteId,
+  has: toRef(state, 'hasBg'),
+  i18nPrefix: 'admin.login.bg',
+  loading: toRef(state, 'loading')
+})
 
 // WATCHERS
 
@@ -387,85 +395,20 @@ async function save() {
   state.loading--
 }
 
-/**
- * Whether the Sharp extension is usable on this server, which decides whether an uploaded
- * background gets resized and re-encoded or stored as-is. Site-independent, so this runs once on
- * mount rather than on every `load()` (which re-runs per site switch).
- */
-async function checkSharpAvailability() {
-  try {
-    const extensions = (await API_CLIENT.get('system/extensions').json()) ?? []
-    const sharp = extensions.find((ext) => ext.key === 'sharp')
-    state.sharpMissing = !sharp?.isInstalled
-  } catch (err) {
-    // -> Leave state.sharpMissing at its default rather than surface a second, unrelated error here.
-  }
-}
-
 function updateAuthPosition(ev) {
   const item = state.providers.splice(ev.oldIndex, 1)[0]
   state.providers.splice(ev.newIndex, 0, item)
 }
 
-async function uploadBg() {
-  const file = await pickSiteImage()
-  if (!file) {
-    return
-  }
-  if (!isAcceptedSiteImage(file)) {
-    notify({
-      type: 'negative',
-      message: t('admin.login.bgUploadFailed'),
-      caption: t('admin.login.bgUploadInvalidType')
-    })
-    return
-  }
-  state.loading++
-  try {
-    await uploadSiteImage(adminStore.currentSiteId, 'loginBg', file)
-    notify({
-      type: 'positive',
-      message: t('admin.login.bgUploadSuccess')
-    })
-    state.hasBg = true
-    state.assetTimestamp = new Date().toISOString()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.login.bgUploadFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
-}
-
-async function clearBg() {
-  state.loading++
-  try {
-    await clearSiteImage(adminStore.currentSiteId, 'loginBg')
-    notify({
-      type: 'positive',
-      message: t('admin.login.bgClearSuccess')
-    })
-    state.hasBg = false
-    state.assetTimestamp = new Date().toISOString()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.login.bgClearFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
-}
-
 // MOUNTED
 
-onMounted(() => {
+onMounted(async () => {
   if (adminStore.currentSiteId) {
     load()
   }
-  checkSharpAvailability()
+  // -> Site-independent, so this runs once on mount rather than on every `load()` (which re-runs per
+  //    site switch). Drives the "requires Sharp" indicator on the background uploader.
+  state.sharpMissing = !(await isSharpAvailable())
 })
 </script>
 

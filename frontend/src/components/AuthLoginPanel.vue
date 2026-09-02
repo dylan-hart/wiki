@@ -453,7 +453,7 @@ import { useDark } from '@/composables/dark'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { localizeError } from '@/helpers/localization'
 import { formatRecoveryCodeInput, isValidTfaCode } from '@/helpers/tfaCode'
-import { passwordStrengthScore } from '@/helpers/passwordStrength'
+import { passwordStrengthBadge } from '@/helpers/passwordStrength'
 
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
@@ -535,42 +535,7 @@ const selectedStrategy = computed(() => {
   )
 })
 
-const passwordStrength = computed(() => {
-  if (state.newPassword.length < 8) {
-    return {
-      color: 'negative',
-      label: t('common.password.weak')
-    }
-  } else {
-    switch (passwordStrengthScore(state.newPassword)) {
-      case 1:
-        return {
-          color: 'deep-orange-7',
-          label: t('common.password.poor')
-        }
-      case 2:
-        return {
-          color: 'purple-7',
-          label: t('common.password.average')
-        }
-      case 3:
-        return {
-          color: 'blue-7',
-          label: t('common.password.good')
-        }
-      case 4:
-        return {
-          color: 'green-7',
-          label: t('common.password.strong')
-        }
-      default:
-        return {
-          color: 'negative',
-          label: t('common.password.weak')
-        }
-    }
-  }
-})
+const passwordStrength = computed(() => passwordStrengthBadge(state.newPassword, t))
 
 const canUsePasskeys = computed(() => {
   return browserSupportsWebAuthn()

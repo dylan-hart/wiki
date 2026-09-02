@@ -176,8 +176,9 @@ import { useI18n } from 'vue-i18n'
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
-import { passwordStrengthScore } from '@/helpers/passwordStrength'
-import { randomPassword } from '@/helpers/randomPassword'
+import { GUESTS_GROUP_ID } from '@/helpers/systemIds'
+import { passwordStrengthBadge } from '@/helpers/passwordStrength'
+import { PASSWORD_CHARSET_UNAMBIGUOUS, randomPassword } from '@/helpers/randomPassword'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { useAdminStore } from '@/stores/admin'
@@ -223,42 +224,7 @@ const iptName = ref(null)
 
 // COMPUTED
 
-const passwordStrength = computed(() => {
-  if (state.userPassword.length < 8) {
-    return {
-      color: 'negative',
-      label: t('admin.users.pwdStrengthWeak')
-    }
-  } else {
-    switch (passwordStrengthScore(state.userPassword)) {
-      case 1:
-        return {
-          color: 'deep-orange-7',
-          label: t('admin.users.pwdStrengthPoor')
-        }
-      case 2:
-        return {
-          color: 'purple-7',
-          label: t('admin.users.pwdStrengthMedium')
-        }
-      case 3:
-        return {
-          color: 'blue-7',
-          label: t('admin.users.pwdStrengthGood')
-        }
-      case 4:
-        return {
-          color: 'green-7',
-          label: t('admin.users.pwdStrengthStrong')
-        }
-      default:
-        return {
-          color: 'negative',
-          label: t('admin.users.pwdStrengthWeak')
-        }
-    }
-  }
-})
+const passwordStrength = computed(() => passwordStrengthBadge(state.userPassword, t))
 const selectedGroupName = computed(() => {
   return state.groups.filter((g) => g.id === state.userGroups[0])[0]?.name
 })
@@ -289,7 +255,7 @@ async function loadGroups() {
   state.loadingGroups = true
   try {
     const groups = await API_CLIENT.get('groups').json()
-    state.groups = (groups ?? []).filter((g) => g.id !== '10000000-0000-4000-8000-000000000001')
+    state.groups = (groups ?? []).filter((g) => g.id !== GUESTS_GROUP_ID)
   } catch (err) {
     notify({
       type: 'negative',
@@ -302,9 +268,10 @@ async function loadGroups() {
 }
 
 function randomizePassword() {
-  const pwdChars = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789' // omit easily confused chars like O,0 or I,1,l
-  const withSymbols = `${pwdChars}_*=?#!()+-$%&.`
-  state.userPassword = `${randomPassword(1, pwdChars)}${randomPassword(15, withSymbols)}`
+  const withSymbols = `${PASSWORD_CHARSET_UNAMBIGUOUS}_*=?#!()+-$%&.`
+  // -> The first character is drawn without symbols, so a password mailed to a new user never opens
+  //    with one
+  state.userPassword = `${randomPassword(1, PASSWORD_CHARSET_UNAMBIGUOUS)}${randomPassword(15, withSymbols)}`
 }
 
 async function create() {

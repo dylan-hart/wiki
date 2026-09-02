@@ -618,6 +618,7 @@ import { fileOpen, fileSave } from 'browser-fs-access'
 import UserSearchDialog from '@/components/UserSearchDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDate } from '@/helpers/datetime'
+import { GUESTS_GROUP_ID } from '@/helpers/systemIds'
 
 // COMPOSABLES
 
@@ -839,7 +840,7 @@ const usersTotalPages = computed(() => {
 })
 
 const isGuestGroup = computed(() => {
-  return adminStore.overlayOpts.id === '10000000-0000-4000-8000-000000000001'
+  return adminStore.overlayOpts.id === GUESTS_GROUP_ID
 })
 
 /**

@@ -96,9 +96,9 @@ import { useI18n } from 'vue-i18n'
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
-import { passwordStrengthScore } from '@/helpers/passwordStrength'
+import { passwordStrengthBadge } from '@/helpers/passwordStrength'
 import { localizeError } from '@/helpers/localization'
-import { randomPassword } from '@/helpers/randomPassword'
+import { PASSWORD_CHARSET, randomPassword } from '@/helpers/randomPassword'
 import { computed, reactive, ref } from 'vue'
 
 // PROPS
@@ -141,42 +141,7 @@ const newPasswordIpt = ref(null)
 
 // COMPUTED
 
-const passwordStrength = computed(() => {
-  if (state.newPassword.length < 8) {
-    return {
-      color: 'negative',
-      label: t('admin.users.pwdStrengthWeak')
-    }
-  } else {
-    switch (passwordStrengthScore(state.newPassword)) {
-      case 1:
-        return {
-          color: 'deep-orange-7',
-          label: t('admin.users.pwdStrengthPoor')
-        }
-      case 2:
-        return {
-          color: 'purple-7',
-          label: t('admin.users.pwdStrengthMedium')
-        }
-      case 3:
-        return {
-          color: 'blue-7',
-          label: t('admin.users.pwdStrengthGood')
-        }
-      case 4:
-        return {
-          color: 'green-7',
-          label: t('admin.users.pwdStrengthStrong')
-        }
-      default:
-        return {
-          color: 'negative',
-          label: t('admin.users.pwdStrengthWeak')
-        }
-    }
-  }
-})
+const passwordStrength = computed(() => passwordStrengthBadge(state.newPassword, t))
 
 // VALIDATION RULES
 
@@ -193,8 +158,7 @@ const verifyPasswordValidation = [
 // METHODS
 
 function randomizePassword() {
-  const pwdChars = 'abcdefghkmnpqrstuvwxyzABCDEFHJKLMNPQRSTUVWXYZ23456789_*=?#!()+'
-  state.newPassword = randomPassword(16, pwdChars)
+  state.newPassword = randomPassword(16, PASSWORD_CHARSET)
   // -> A password the user never typed has to be readable, or there is no way to record it anywhere
   newPasswordIpt.value.reveal()
 }

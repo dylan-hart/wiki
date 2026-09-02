@@ -30,6 +30,54 @@ in one pass at the end of the consolidation (agents must not edit `CLAUDE.md` mi
   two test files. `AdminTheme.vue` compares `contrastRatio(...) < WCAG_AA_CONTRAST` inline and is the
   pattern to follow.
 
+## Task B2 — module-config form, site images, destructive confirm, password badge, guests id, overlay route
+
+- **Frontend patterns.** Six shared surfaces are now the only supported way to do these things, and a
+  new call site must reach for them rather than write its own copy:
+  - `components/ModuleConfigForm.vue` + `helpers/moduleConfig.js` (`buildConfigEditor`,
+    `buildConfigPayload`) render and serialise EVERY module's config. All five pages that edit one —
+    `AdminAnalytics`, `AdminAuth`, `AdminComments`, `AdminSearch`, `AdminStorage` — go through them;
+    there are no private copies left. The form now draws a `readOnly` prop as a `div` (not a `label`)
+    with an orange hint, which used to be `AdminAuth.vue`'s local variant only.
+  - `composables/siteImage.js` — `useSiteImage(kind, { siteId, has, i18nPrefix, loading,
+    invalidTypeKey })` owns the pick → validate → upload/clear → toast → cache-bust cycle for a site's
+    logo, favicon and login background. `helpers/siteImages.js` stays the transport, and now also
+    exports `isSharpAvailable()` (returns `true` when the check itself fails, so an unknown answer
+    understates the "requires Sharp" warning).
+  - **A "delete this" confirmation is `confirm({ destructive: true, persistent: true })`, not a
+    bespoke `*DeleteDialog.vue`.** `Group`/`Webhook`/`Asset`/`Folder`DeleteDialog are deleted;
+    `Page`/`Site`/`User`DeleteDialog remain because each does more than confirm (navigation refetch,
+    a type-the-title guard, content reassignment). A fourth look-alike dialog is the regression.
+  - `helpers/passwordStrength.js` — `passwordStrengthBadge(password, t)` is the single score →
+    `{ color, label }` mapping, resolving against `common.password.*`. The parallel
+    `admin.users.pwdStrength*` key set is deleted from `backend/locales/en.json` (its five
+    translations remain in the other locale files until the next Localazy sync prunes them).
+  - `helpers/randomPassword.js` exports `PASSWORD_CHARSET` and `PASSWORD_CHARSET_UNAMBIGUOUS`; a
+    dialog picks one rather than pasting a literal.
+  - `helpers/systemIds.js` exports `GUESTS_GROUP_ID`, mirroring `backend/base.yml`'s
+    `systemIds.guestsGroupId`. The literal must not be retyped.
+  - `composables/adminOverlayRoute.js` — `useAdminOverlayRoute({ overlay, listPath, onClosed })` is
+    the `:id`-in-the-route ↔ `adminStore.overlay` plumbing for an admin list page with an edit
+    overlay (`AdminUsers`, `AdminGroups`). It registers its own `onMounted`/`onBeforeUnmount`, so a
+    page adopting it drops its `checkOverlay()`, both watchers and its overlay-clearing unmount hook.
+- **Behaviour deltas worth one line each** (none is in the design's D1–D10 table, all are inherent to
+  the consolidation): the four converted delete confirmations now render in `WConfirmDialog`'s chrome
+  (no header bin icon, standard width) and Group/Webhook's "cannot be undone" warning is a bold second
+  paragraph rather than red text; the three admin password dialogs now say "Average" (`common.password.
+  average`) where they said "Medium"; `AdminGeneral`'s logo and favicon previews carry their own
+  cache-busting timestamps instead of one shared `state.assetTimestamp`.
+
+### Observed but out of scope for B2
+
+- `pages/AdminGroups.vue`'s `editGroup()` is dead — the row's edit control is a `:to` link, and
+  nothing calls the function. It is the page's only remaining `useRouter()` consumer. Pre-existing;
+  VIEW-F10's bucket, not B2's.
+- Three source-scanner suites fail at base and still do: `i18nSourceGate.test.js` (12 pre-existing
+  English literals, `AdminAnalytics.vue`'s `'An unexpected error occured.'` among them — F3/B3
+  territory), `AdminAnalytics.test.js` and `AdminSearch.test.js` (four assertions using a
+  `[aria-label="X"] input` selector that cannot match, since `WInput` puts `aria-label` ON the
+  `<input>`). None was made worse; the `WInput` selector bug is a real, separate test defect.
+
 ### Observed but out of scope for B1 (for whoever folds these in)
 
 - `CLAUDE.md`'s "GraphQL was removed" section says `frontend/src/pages/` "now has only
