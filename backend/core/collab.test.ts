@@ -16,6 +16,7 @@ import collab, {
   RELAY_REASSEMBLY_TIMEOUT,
   buildSeed
 } from './collab.ts'
+import { installTestWiki } from '../test/mocks.ts'
 
 /**
  * A minimal stand-in for `ws`'s `WebSocket`, just enough of its surface for `capture()` and
@@ -301,7 +302,7 @@ const STORED_PAGE = {
   icon: 'stored-icon'
 }
 
-let previousWiki: any
+let wikiHandle: { restore(): void }
 let getPageMock: any
 /**
  * `awarenessProtocol.Awareness` (a room's cursor/presence tracker) starts a real `setInterval` of its
@@ -317,17 +318,15 @@ async function openRoom(inst: any, page: { id: string; siteId: string }): Promis
   return room
 }
 
-before(() => {
-  previousWiki = (globalThis as any).WIKI
-})
+before(() => {})
 
 beforeEach(() => {
   getPageMock = mock.fn(async () => ({ ...STORED_PAGE }))
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     INSTANCE_ID: 'unset',
     logger: { warn: () => {}, info: () => {}, debug: () => {} },
     models: { pages: { getPage: getPageMock } }
-  }
+  })
   createdRooms = []
 })
 
@@ -339,7 +338,7 @@ afterEach(() => {
 })
 
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
 })
 
 describe('(a) peer handshake: a room seeds from a live peer, not a duplicated stored page', () => {

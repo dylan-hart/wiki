@@ -2,6 +2,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { Pool } from 'pg'
 import { withAdvisoryLock, _resetLockPoolForTests } from './advisoryLock.ts'
+import { installTestWiki } from '../test/mocks.ts'
 
 /**
  * Reproduction for OpenProject #2243 (child of #2242, from `docs/audit-2026-08-24/security/
@@ -75,7 +76,7 @@ const skip = DATABASE_URL
  * written reproduction needs to record.
  */
 async function runConcurrentDispatches(pool: Pool, count: number) {
-  ;(globalThis as any).WIKI = { db: { $client: pool } }
+  installTestWiki({ db: { $client: pool } })
   // -> `getLockPool()` caches its pool at module scope; without this, the second test in this file
   //    would reuse the first test's already-`.end()`-ed pool instead of picking up its own.
   await _resetLockPoolForTests()

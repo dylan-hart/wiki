@@ -13,6 +13,9 @@ import {
   limitPublicRequests
 } from './rateLimit.ts'
 import { makeReplyStub, makeRequestStub } from '../test/fastify.ts'
+import { installTestWiki } from '../test/mocks.ts'
+
+let wikiHandle: { restore(): void }
 
 /**
  * `limitApiKey` is the global per-key limiter wired into the onRequest API-key-auth hook in
@@ -28,7 +31,7 @@ describe('limitApiKey', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       models: {
         rateLimits: {
           consume: async (key: string, policy: any) => {
@@ -40,7 +43,7 @@ describe('limitApiKey', () => {
       logger: {
         debug: () => {}
       }
-    }
+    })
 
     app = fastify()
     await app.register(fastifySensible)
@@ -81,7 +84,7 @@ describe('limitApiKey', () => {
 
   after(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   beforeEach(() => {
@@ -138,7 +141,7 @@ describe('limitApiRequests', () => {
     // -> Same reasoning as `limitApiKey`'s `beforeEach` above: several tests below reuse the same
     //    IP/key on purpose, so a ban memoized by one must not carry into the next.
     activeBanMemo.clear()
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: {
         security: {
           apiRateLimitEnabled: true,
@@ -151,11 +154,11 @@ describe('limitApiRequests', () => {
         rateLimits: { consume }
       },
       logger: { debug: mock.fn() }
-    }
+    })
   })
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('keys by apiKey id when the request carries a verified API key', async () => {
@@ -379,7 +382,7 @@ describe('consumeAccountAuthAttempt', () => {
 
   beforeEach(() => {
     consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: {
         security: {
           authRateLimitEnabled: true,
@@ -391,11 +394,11 @@ describe('consumeAccountAuthAttempt', () => {
       models: {
         rateLimits: { consume }
       }
-    }
+    })
   })
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('keys by the account identifier, namespaced apart from the IP-keyed auth: bucket', async () => {
@@ -515,15 +518,15 @@ describe('limitPublicRequests', () => {
 
   beforeEach(() => {
     consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: { security: { apiRateLimitEnabled: true } },
       models: { rateLimits: { consume } },
       logger: { debug: mock.fn() }
-    }
+    })
   })
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('keys by ip for an anonymous request', async () => {
@@ -631,7 +634,7 @@ describe('rate-limit ban memo', () => {
   beforeEach(() => {
     consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
     activeBanMemo.clear()
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: {
         security: {
           apiRateLimitEnabled: true,
@@ -644,11 +647,11 @@ describe('rate-limit ban memo', () => {
         rateLimits: { consume }
       },
       logger: { debug: mock.fn() }
-    }
+    })
   })
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('a second request from an already-banned key is refused with no consume() call reaching the database', async () => {
@@ -782,14 +785,14 @@ describe('limitGuestComments', () => {
 
   beforeEach(() => {
     consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       models: { rateLimits: { consume } },
       logger: { debug: mock.fn() }
-    }
+    })
   })
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('keys the bucket by req.ip, prefixed so it never collides with another limiter', async () => {

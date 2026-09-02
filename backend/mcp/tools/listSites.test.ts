@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, mock, test } from 'node:test'
 import { handleListSites } from './listSites.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 const SITE_A = {
   id: 'site-a',
@@ -24,19 +25,18 @@ const SITE_DISABLED = {
 /** A groupId used by the tests below to stand in for "some group a token belongs to". */
 const READER_GROUP = 'reader-group'
 
-let previousWiki: any
+let wikiHandle: { restore(): void }
 const checkAccess = mock.fn((_actor: any, _permission: string, _page: any) => false)
 
 before(() => {
-  previousWiki = (globalThis as any).WIKI
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     sites: { [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B, [SITE_DISABLED.id]: SITE_DISABLED },
     models: { groups: { checkAccess } }
-  }
+  })
 })
 
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
 })
 
 beforeEach(() => {

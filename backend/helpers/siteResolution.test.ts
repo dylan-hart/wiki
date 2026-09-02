@@ -11,6 +11,8 @@ import {
   SITE_MISSING_MESSAGE
 } from './siteResolution.ts'
 
+import { installTestWiki } from '../test/mocks.ts'
+
 const ENABLED_SITE_ID = 'enabled-site-id'
 const DISABLED_SITE_ID = 'disabled-site-id'
 const WILDCARD_SITE_ID = 'wildcard-site-id'
@@ -41,15 +43,14 @@ describe('normalizeHostname', () => {
 })
 
 describe('siteIdForHostname', () => {
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = { sites, sitesMappings }
+    wikiHandle = installTestWiki({ sites, sitesMappings })
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   test('resolves a hostname the instance answers to', () => {
@@ -414,7 +415,7 @@ describe('trustProxy gates X-Forwarded-Host trust for site resolution', () => {
  * actually declares.
  */
 describe('siteEnabledPreHandler', () => {
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
 
   function fakeDone() {
     const calls: unknown[] = []
@@ -425,12 +426,11 @@ describe('siteEnabledPreHandler', () => {
   }
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = { sites }
+    wikiHandle = installTestWiki({ sites })
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   test('forbids and never calls done() for a route whose siteId resolves to a disabled site', () => {

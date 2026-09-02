@@ -4,6 +4,9 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import metricsRoutes from './metrics.ts'
 import { groups as groupsTable, pages as pagesTable, users as usersTable } from '../db/schema.ts'
+import { installTestWiki } from '../test/mocks.ts'
+
+let wikiHandle: { restore(): void }
 
 /**
  * Regression coverage for task 1842: `/metrics` used to build its snapshot from `await`
@@ -41,7 +44,7 @@ describe('GET /metrics', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: { metrics: { isEnabled: true } },
       dbManager: { dbName: 'wiki_test', pool: { totalCount: 4, idleCount: 1, waitingCount: 0 } },
       models: {
@@ -63,7 +66,7 @@ describe('GET /metrics', () => {
         },
         execute: () => record('instancesTotal', { rows: [] })
       }
-    }
+    })
 
     app = fastify()
     await app.register(metricsRoutes)
@@ -72,7 +75,7 @@ describe('GET /metrics', () => {
 
   after(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('issues all seven lookups concurrently, not serially', async () => {

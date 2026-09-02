@@ -4,6 +4,9 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import { apiErrorHandler, buildNonApiErrorResponse, sendNonApiError } from './errorHandler.ts'
+import { installTestWiki } from '../test/mocks.ts'
+
+let wikiHandle: { restore(): void }
 
 describe('buildNonApiErrorResponse', () => {
   test('an error with no statusCode collapses to a generic 500 body carrying no message/code text', () => {
@@ -50,7 +53,7 @@ describe('sendNonApiError', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = { logger: { warn: mock.fn() } }
+    wikiHandle = installTestWiki({ logger: { warn: mock.fn() } })
     app = fastify()
     await app.register(fastifySensible)
     app.setErrorHandler((error: any, _req, reply) => sendNonApiError(error, reply))
@@ -65,7 +68,7 @@ describe('sendNonApiError', () => {
 
   after(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('an unmarked error answers a generic 500 with no leaked detail, and is logged via WIKI.logger.warn', async () => {
@@ -110,7 +113,7 @@ describe('apiErrorHandler', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = { logger: { warn: mock.fn() } }
+    wikiHandle = installTestWiki({ logger: { warn: mock.fn() } })
     app = fastify()
     await app.register(fastifySensible)
     app.setErrorHandler(apiErrorHandler)
@@ -125,7 +128,7 @@ describe('apiErrorHandler', () => {
 
   after(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('an error carrying a statusCode answers that status with the { ok, error, statusCode, message } body', async () => {

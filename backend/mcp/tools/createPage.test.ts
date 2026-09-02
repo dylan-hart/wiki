@@ -3,11 +3,12 @@ import { after, before, test } from 'node:test'
 import { McpToolError } from '../auth.ts'
 import { CustomError } from '../../helpers/common.ts'
 import { handleCreatePage } from './createPage.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 const SITE_ID = 'site-a'
 const GROUP_ID = 'group-a'
 
-let previousWiki: any
+let wikiHandle: { restore(): void }
 let createCalls: any[]
 let checkAccessCalls: any[]
 let auditCalls: any[]
@@ -20,7 +21,7 @@ function ctx({
   createCalls = []
   checkAccessCalls = []
   auditCalls = []
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     sites: {
       [SITE_ID]: {
         id: SITE_ID,
@@ -55,7 +56,7 @@ function ctx({
         }
       }
     }
-  }
+  })
   return {
     keyId: 'key-1',
     permissions,
@@ -66,12 +67,10 @@ function ctx({
   }
 }
 
-before(() => {
-  previousWiki = (globalThis as any).WIKI
-})
+before(() => {})
 
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
 })
 
 function textOf(result: any) {

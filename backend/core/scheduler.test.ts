@@ -11,6 +11,7 @@ import {
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 import { getJobExecutionContext } from '../helpers/jobExecutionContext.ts'
+import { installTestWiki } from '../test/mocks.ts'
 
 let scheduler: any
 
@@ -42,14 +43,13 @@ describe('addScheduled (fake WIKI)', () => {
   let insertedJobs: any[]
   let scheduleJobsMock: any[]
   let existingJobsMock: any[]
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
 
   // -> Set per-test (default: always succeeds) so the failing-insert test below can make every
   //    `addJob` insert reject without touching the rest of the fixture.
   let insertShouldFail: boolean
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
     // -> Shared by both `db.select` and `trx.select` below: OpenProject #1998 requires
     //    `addScheduled()` to read `scheduledJobs`/`existingJobs` through its own transaction (`trx`),
     //    not the ambient `WIKI.db` handle, so the fake `trx` handed to the `transaction()` callback
@@ -65,7 +65,7 @@ describe('addScheduled (fake WIKI)', () => {
         throw new Error(`Unexpected table in test fake: ${String(table)}`)
       }
     })
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       INSTANCE_ID: 'test-instance',
       config: { scheduler: { maxRetries: 3 } },
       logger: { info: () => {}, warn: () => {}, debug: () => {} },
@@ -93,14 +93,14 @@ describe('addScheduled (fake WIKI)', () => {
           }
         })
       }
-    }
+    })
     // -> Bypass `init()` (worker pool + reading tasks/simple/ off disk): only `this.tasks` is read, by
     //    `addJob()`, to derive `useWorker`.
     scheduler.tasks = {}
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   beforeEach(() => {
@@ -257,7 +257,7 @@ describe('addScheduled (fake WIKI)', () => {
  */
 describe('processJob claim ordering (fake WIKI)', () => {
   let capturedCondition: any
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
 
   function extractSqlText(node: any): string {
     if (node == null) return ''
@@ -267,8 +267,7 @@ describe('processJob claim ordering (fake WIKI)', () => {
   }
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       INSTANCE_ID: 'test-instance',
       logger: { info: () => {}, warn: () => {}, debug: () => {} },
       db: {
@@ -282,13 +281,13 @@ describe('processJob claim ordering (fake WIKI)', () => {
             })
           })
       }
-    }
+    })
     scheduler.maxWorkers = 1
     scheduler.activeWorkers = 0
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   test('claim subquery orders by waitUntil ASC NULLS FIRST, then createdAt ASC -- not by id', async () => {
@@ -320,16 +319,15 @@ describe('processJob claim ordering (fake WIKI)', () => {
  * `job.retries` vs. `job.maxRetries` deciding which logger method gets called.
  */
 describe('runJob log level on failure (fake WIKI)', () => {
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
   let logCalls: { level: string; args: any[] }[]
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
     scheduler.tasks = {}
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   beforeEach(() => {
@@ -338,7 +336,7 @@ describe('runJob log level on failure (fake WIKI)', () => {
       (level: string) =>
       (...args: any[]) =>
         logCalls.push({ level, args })
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       INSTANCE_ID: 'test-instance',
       config: { scheduler: { retryBackoff: 1 } },
       logger: {
@@ -360,7 +358,7 @@ describe('runJob log level on failure (fake WIKI)', () => {
       // -> No `WIKI.scheduler.pubsubClient`: `notifier.send()` reads it fresh on each call, catches the
       //    resulting `TypeError` internally, and logs a `warn` of its own -- fire-and-forget, so it
       //    never surfaces synchronously here. See `helpers/pubsub.ts#createNotifier`.
-    }
+    })
   })
 
   test('a still-retryable failure logs the failure message at warn, not error', async () => {
@@ -434,14 +432,12 @@ describe('runJob log level on failure (fake WIKI)', () => {
  * WIKI unit test rather than needing the DB-backed fixture below.
  */
 describe('expireCompletionPromises (fake WIKI)', () => {
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
 
-  before(() => {
-    previousWiki = (globalThis as any).WIKI
-  })
+  before(() => {})
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   beforeEach(() => {
@@ -485,7 +481,7 @@ describe('expireCompletionPromises (fake WIKI)', () => {
   }
 
   test('rejects and drops an entry older than 2x staleJobTimeout', () => {
-    ;(globalThis as any).WIKI = { config: { scheduler: { staleJobTimeout: 10 } } }
+    wikiHandle = installTestWiki({ config: { scheduler: { staleJobTimeout: 10 } } })
     const { entry, getRejection } = makeEntry(25) // -> past the 20s (10 * 2) ceiling
     scheduler.completionPromises.push(entry)
 
@@ -497,7 +493,7 @@ describe('expireCompletionPromises (fake WIKI)', () => {
   })
 
   test('leaves an entry younger than the ceiling untouched', () => {
-    ;(globalThis as any).WIKI = { config: { scheduler: { staleJobTimeout: 10 } } }
+    wikiHandle = installTestWiki({ config: { scheduler: { staleJobTimeout: 10 } } })
     const { entry, getRejection, wasResolved } = makeEntry(5) // -> well under the 20s ceiling
     scheduler.completionPromises.push(entry)
 
@@ -509,7 +505,7 @@ describe('expireCompletionPromises (fake WIKI)', () => {
   })
 
   test('falls back to the default stale job timeout (doubled) when nothing is configured', () => {
-    ;(globalThis as any).WIKI = { config: { scheduler: {} } }
+    wikiHandle = installTestWiki({ config: { scheduler: {} } })
     const { entry } = makeEntry(5) // -> far under the multi-hour default ceiling
     scheduler.completionPromises.push(entry)
 
@@ -519,7 +515,7 @@ describe('expireCompletionPromises (fake WIKI)', () => {
   })
 
   test('only removes the expired entries, leaving fresh ones in place', () => {
-    ;(globalThis as any).WIKI = { config: { scheduler: { staleJobTimeout: 10 } } }
+    wikiHandle = installTestWiki({ config: { scheduler: { staleJobTimeout: 10 } } })
     const stale = makeEntry(25)
     const fresh = makeEntry(1)
     scheduler.completionPromises.push(stale.entry, fresh.entry)
@@ -548,11 +544,10 @@ describe('expireCompletionPromises (fake WIKI)', () => {
  * `completionPromises` for `expireCompletionPromises()` to ever reject.
  */
 describe('addJob (fake WIKI, rejecting insert)', () => {
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       INSTANCE_ID: 'test-instance',
       config: { scheduler: { maxRetries: 3 } },
       logger: { info: () => {}, warn: () => {}, debug: () => {} },
@@ -563,12 +558,12 @@ describe('addJob (fake WIKI, rejecting insert)', () => {
           }
         })
       }
-    }
+    })
     scheduler.tasks = {}
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   beforeEach(() => {
@@ -618,13 +613,12 @@ describe('addJob (fake WIKI, rejecting insert)', () => {
  * context payload, not which level a given retry count picks.
  */
 describe('runJob failure logging (fake WIKI)', () => {
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
   let failureMock: ReturnType<typeof mock.fn>
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
     failureMock = mock.fn((..._args: any[]) => {})
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       INSTANCE_ID: 'test-instance',
       config: { scheduler: { retryBackoff: 0 } },
       // -> `notifier.send()` (module scope in scheduler.ts) reads `WIKI.scheduler.pubsubClient` on
@@ -642,7 +636,7 @@ describe('runJob failure logging (fake WIKI)', () => {
           })
         })
       }
-    }
+    })
     scheduler.tasks = {
       boom: async () => {
         throw new Error('task exploded')
@@ -651,7 +645,7 @@ describe('runJob failure logging (fake WIKI)', () => {
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   test('both failure log calls carry { jobId, task, attempt } as sibling context, not concatenated in', async () => {
@@ -688,22 +682,21 @@ describe('runJob failure logging (fake WIKI)', () => {
  * thread's own `process.exit()` is the faithful in-process equivalent of `kill -9`-ing it.
  */
 describe('executeOnWorker (real worker pool)', () => {
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
   let pool: any
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       INSTANCE_ID: 'test-instance',
       // -> 1s: short enough to keep the suite fast, long enough that the two ceilings (taskTimeout
       //    alone vs. taskTimeout + the fixed 5s TASK_TIMEOUT_GRACE) land clearly apart in wall time.
       config: { scheduler: { taskTimeout: 1 } },
       logger: { info: () => {}, warn: () => {}, debug: () => {} }
-    }
+    })
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   afterEach(async () => {
@@ -759,20 +752,19 @@ describe('executeOnWorker (real worker pool)', () => {
  * enough to exercise it.
  */
 describe('executeInProcess (fake WIKI)', () => {
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       INSTANCE_ID: 'test-instance',
       // -> Short enough to keep the suite fast.
       config: { scheduler: { taskTimeout: 0.05 } },
       logger: { info: () => {}, warn: () => {}, debug: () => {} }
-    }
+    })
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   test('a task whose promise never settles is abandoned at the taskTimeout ceiling', async () => {
@@ -854,22 +846,20 @@ describe('executeInProcess (fake WIKI)', () => {
  * only the drain behavior itself is under test.
  */
 describe('stop (fake WIKI)', () => {
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
   let destroyCalls: number
 
-  before(() => {
-    previousWiki = (globalThis as any).WIKI
-  })
+  before(() => {})
 
   beforeEach(() => {
     destroyCalls = 0
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       // -> 0.05s taskTimeout + the fixed 1s SHUTDOWN_DRAIN_GRACE = a ~1.05s bound: short enough to
       //    keep this suite fast, long enough to clearly separate "waited out the bound" from
       //    "resolved immediately".
       config: { scheduler: { taskTimeout: 0.05 } },
       logger: { info: () => {}, warn: () => {}, debug: () => {} }
-    }
+    })
     scheduler.pollingRef = setInterval(() => {}, 1_000_000)
     scheduler.scheduledRef = setInterval(() => {}, 1_000_000)
     scheduler.workerPool = {
@@ -882,7 +872,7 @@ describe('stop (fake WIKI)', () => {
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
     scheduler.workerPool = null
     scheduler.pollingRef = null
     scheduler.scheduledRef = null

@@ -10,6 +10,7 @@ import {
 } from './pageAccess.ts'
 import { resolvePageRule, rulesAllow } from './pageRules.ts'
 import type { GroupRule } from '../models/groups.ts'
+import { installTestWiki } from '../test/mocks.ts'
 
 /**
  * OpenProject #788: `actorFrom()` used to return `null` for every API-key-authenticated request —
@@ -19,11 +20,10 @@ import type { GroupRule } from '../models/groups.ts'
  * that the personal-token branch is checked first when a request somehow carries both.
  */
 describe('actorFrom', () => {
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       models: {
         groups: {
           // -> Only reached on the session branch; a personal token supplies its own `groupIds` and
@@ -31,11 +31,11 @@ describe('actorFrom', () => {
           groupIdsForRequest: (req: any) => req.session?.groups ?? []
         }
       }
-    }
+    })
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   test('actorFrom: a personal access token resolves to a real PageActor for its owning user', () => {
@@ -159,11 +159,10 @@ const SITE_ID = '11111111-1111-4111-8111-111111111111'
  * global permissions at all, since a page rule needs none).
  */
 describe('mayBypassPassword / unlockedFor', () => {
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       models: {
         groups: {
           actorForRequest: (req: any) => ({
@@ -189,11 +188,11 @@ describe('mayBypassPassword / unlockedFor', () => {
           }
         }
       }
-    }
+    })
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   function reqWithSession(overrides: Record<string, any> = {}): FastifyRequest {
@@ -298,7 +297,7 @@ describe('mayBypassPassword / unlockedFor', () => {
     ]
 
     before(() => {
-      ;(globalThis as any).WIKI = {
+      wikiHandle = installTestWiki({
         models: {
           groups: {
             actorForRequest: () => ({ groupIds: ['editors'], permissions: [] }),
@@ -311,7 +310,7 @@ describe('mayBypassPassword / unlockedFor', () => {
               })
           }
         }
-      }
+      })
     })
 
     after(() => {
@@ -383,22 +382,21 @@ describe('mayBypassPassword / unlockedFor', () => {
 describe('mayOnPage / pagePermissionsFor — siteId threading', () => {
   const ENABLED_SITE_ID = '11111111-1111-4111-8111-111111111111'
 
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       models: {
         groups: {
           actorForRequest: () => ({ permissions: [] }),
           checkAccess: () => true
         }
       }
-    }
+    })
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   test('mayOnPage: threads siteId into the RulePageRef passed to checkAccess', () => {

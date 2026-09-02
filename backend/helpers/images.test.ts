@@ -11,6 +11,8 @@ import {
   sanitizeSvg
 } from './images.ts'
 
+import { installTestWiki } from '../test/mocks.ts'
+
 /** An 8-byte PNG signature, optionally padded out to a given total length. */
 function pngBytes(length = 16): Buffer {
   const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -195,14 +197,12 @@ describe('sanitizeSvg', () => {
  * surface rather than the full `test/db.ts` fixture — none of the three needs a database.
  */
 describe('normalizeImage / resizeImageToSquareJpeg / makeImageThumbnail — Sharp unavailable', () => {
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
 
-  before(() => {
-    previousWiki = (globalThis as any).WIKI
-  })
+  before(() => {})
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   function installWiki({
@@ -211,7 +211,7 @@ describe('normalizeImage / resizeImageToSquareJpeg / makeImageThumbnail — Shar
   }: { definition?: any; isInstalled?: () => Promise<boolean> } = {}) {
     const noteLoadFailure = mock.fn()
     const warn = mock.fn()
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       models: {
         extensions: {
           getDefinition: () => definition,
@@ -220,7 +220,7 @@ describe('normalizeImage / resizeImageToSquareJpeg / makeImageThumbnail — Shar
         }
       },
       logger: { warn, debug: mock.fn() }
-    }
+    })
     return { noteLoadFailure, warn }
   }
 

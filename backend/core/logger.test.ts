@@ -1,16 +1,17 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, mock, test } from 'node:test'
 import logger from './logger.ts'
+import { installTestWiki } from '../test/mocks.ts'
 
 /**
  * Pure unit test: `logger.ts` reads only `WIKI.config.{logFormat,logLevel}` and `WIKI.INSTANCE_ID`,
  * so a minimal stand-in global is enough — no database, no other model.
  */
 function setWiki(config: { logFormat: string; logLevel: string }) {
-  ;(globalThis as any).WIKI = {
+  installTestWiki({
     config,
     INSTANCE_ID: 'test-instance'
-  }
+  })
 }
 
 describe('logger', () => {

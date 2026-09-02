@@ -15,7 +15,12 @@ import { resolvePoolSizeOptions } from './db.ts'
 import { relations } from '../db/relations.ts'
 import { groups as groupsTable, sites as sitesTable } from '../db/schema.ts'
 import { createExtensionsSerialized, hasTestDatabase } from '../test/db.ts'
-import { createCacheStub, createEventsStub, createSchedulerStub } from '../test/mocks.ts'
+import {
+  createCacheStub,
+  createEventsStub,
+  createSchedulerStub,
+  installTestWiki
+} from '../test/mocks.ts'
 import type { WikiDb } from './db.ts'
 
 // `models/jobs.ts#init()` calls `Temporal.Now.instant()` unconditionally. Node ships `Temporal` as a
@@ -41,7 +46,7 @@ if (typeof Temporal === 'undefined') {
 
 let dir: string
 let dbPassFile: string
-let previousWiki: any
+let wikiHandle: { restore(): void }
 let previousDbPassFile: string | undefined
 let previousExit: typeof process.exit
 
@@ -63,8 +68,7 @@ before(async () => {
   dbPassFile = path.join(dir, 'db-pass.txt')
   await writeFile(dbPassFile, 'sup3rSecret\n')
 
-  previousWiki = (globalThis as any).WIKI
-  ;(globalThis as any).WIKI = { ROOTPATH: dir, SERVERPATH: dir, logger: { warn: mock.fn() } }
+  wikiHandle = installTestWiki({ ROOTPATH: dir, SERVERPATH: dir, logger: { warn: mock.fn() } })
 
   previousDbPassFile = process.env.DB_PASS_FILE
   process.env.DB_PASS_FILE = dbPassFile
@@ -78,7 +82,7 @@ before(async () => {
 })
 
 after(async () => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
   process.exit = previousExit
   if (previousDbPassFile === undefined) {
     delete process.env.DB_PASS_FILE
@@ -140,7 +144,7 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
     )
 
     previousPoolWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = { ROOTPATH: poolDir, SERVERPATH: poolDir }
+    wikiHandle = installTestWiki({ ROOTPATH: poolDir, SERVERPATH: poolDir })
   })
 
   after(async () => {
@@ -192,7 +196,7 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
     //    runs before `WIKI.logger` exists at every real call site, so `WIKI` here deliberately has no
     //    `logger` at all, proving the warning path no longer depends on it being present.
     const previous = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = { ROOTPATH: fixtureDir, SERVERPATH: fixtureDir }
+    wikiHandle = installTestWiki({ ROOTPATH: fixtureDir, SERVERPATH: fixtureDir })
     const warn = mock.method(console, 'warn', () => {})
 
     try {
@@ -214,7 +218,7 @@ describe('pool.max reaches the Pool() options in db.ts', () => {
       'port: 3000\nlogLevel: debug\ndb:\n  host: myhost\n  sslOptions:\n    auto: false\n'
     )
     const previous = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = { ROOTPATH: fixtureDir, SERVERPATH: fixtureDir }
+    wikiHandle = installTestWiki({ ROOTPATH: fixtureDir, SERVERPATH: fixtureDir })
     const warn = mock.method(console, 'warn', () => {})
 
     try {
@@ -273,7 +277,7 @@ describe('ensureSeeded() (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const models = (await import('../models/index.ts')).default
 
     previousDbWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       IS_DEBUG: false,
       ROOTPATH: process.cwd(),
       SERVERPATH: path.join(import.meta.dirname, '..'),
@@ -293,7 +297,7 @@ describe('ensureSeeded() (DB-backed)', { skip: !hasTestDatabase() }, () => {
       events: createEventsStub(),
       scheduler: createSchedulerStub(),
       models
-    }
+    })
   })
 
   after(async () => {

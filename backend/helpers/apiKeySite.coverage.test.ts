@@ -3,6 +3,9 @@ import { after, before, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import ajvFormats from 'ajv-formats'
+import { installTestWiki } from '../test/mocks.ts'
+
+let wikiHandle: { restore(): void }
 
 /**
  * Structural coverage check for OpenProject #2189/#2194: `apiKeySitePinHook`
@@ -40,7 +43,7 @@ before(async () => {
   // -> Only what `api/index.ts`'s plugin tree touches at REGISTRATION time (not per-request) --
   //    `api/assets.ts` reads `WIKI.config.security?.uploadMaxFileSize` once, up front, to size its
   //    raw-body content-type parser.
-  ;(globalThis as any).WIKI = { config: { security: {} } }
+  wikiHandle = installTestWiki({ config: { security: {} } })
 
   app = fastify({
     // -> Mirrors `index.ts`'s own fastify() options for the same reason it needs them: several
@@ -70,7 +73,7 @@ before(async () => {
 
 after(async () => {
   await app.close()
-  delete (globalThis as any).WIKI
+  wikiHandle.restore()
 })
 
 test('the real registered API route table has at least the known site-scoped surface', () => {

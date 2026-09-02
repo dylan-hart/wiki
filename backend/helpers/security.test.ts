@@ -21,11 +21,13 @@ import {
   shouldBlockCrossOriginApiRequest
 } from './security.ts'
 
+import { installTestWiki } from '../test/mocks.ts'
+
 // -> corsOrigin()'s REGEX branch logs through the WIKI global on an invalid pattern; stub just
 //    enough of it, the same way rateLimit.test.ts does for its own WIKI-touching helpers.
 //    `config.security` is here for `sessionCookieName()` -- most describes never touch it, but it has
 //    to exist so a bare read doesn't throw.
-;(globalThis as any).WIKI = { logger: { warn: mock.fn() }, config: { security: {} } }
+installTestWiki({ logger: { warn: mock.fn() }, config: { security: {} } })
 
 /**
  * Unit tests for WP #2158/#2161 (part of #2154): `parseCspDirectives` used to accept any token as a

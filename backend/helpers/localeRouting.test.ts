@@ -14,6 +14,9 @@ import {
   type LocaleRoutingConfig
 } from './localeRouting.ts'
 
+let wikiHandle: { restore(): void }
+import { installTestWiki } from '../test/mocks.ts'
+
 const locales = (overrides: Partial<LocaleRoutingConfig> = {}): LocaleRoutingConfig => ({
   primary: 'en',
   active: ['en', 'fr'],
@@ -88,35 +91,34 @@ describe('matchLocaleCode', () => {
  * `WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'` fallback.
  */
 describe('defaultLocale', () => {
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
 
   test("returns the site's configured primary locale", () => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = { sites: { 'site-1': { config: { locales: { primary: 'fr' } } } } }
+    wikiHandle = installTestWiki({
+      sites: { 'site-1': { config: { locales: { primary: 'fr' } } } }
+    })
     try {
       assert.equal(defaultLocale('site-1'), 'fr')
     } finally {
-      ;(globalThis as any).WIKI = previousWiki
+      wikiHandle.restore()
     }
   })
 
   test("falls back to 'en' for an unknown site", () => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = { sites: {} }
+    wikiHandle = installTestWiki({ sites: {} })
     try {
       assert.equal(defaultLocale('no-such-site'), 'en')
     } finally {
-      ;(globalThis as any).WIKI = previousWiki
+      wikiHandle.restore()
     }
   })
 
   test("falls back to 'en' when the site has no locales configured", () => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = { sites: { 'site-1': { config: {} } } }
+    wikiHandle = installTestWiki({ sites: { 'site-1': { config: {} } } })
     try {
       assert.equal(defaultLocale('site-1'), 'en')
     } finally {
-      ;(globalThis as any).WIKI = previousWiki
+      wikiHandle.restore()
     }
   })
 })
@@ -127,12 +129,11 @@ describe('defaultLocale', () => {
  */
 describe('assertLocaleActive', () => {
   function withSites<T>(sites: any, fn: () => T): T {
-    const previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = { sites }
+    wikiHandle = installTestWiki({ sites })
     try {
       return fn()
     } finally {
-      ;(globalThis as any).WIKI = previousWiki
+      wikiHandle.restore()
     }
   }
 
@@ -173,14 +174,13 @@ describe('assertLocaleActive', () => {
  */
 describe('assertPathNotReservedLocale', () => {
   function withReservedCodes<T>(reserved: string[], fn: () => Promise<T>): Promise<T> {
-    const previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       models: {
         locales: { isReservedLocaleCode: async (code: string) => reserved.includes(code) }
       }
-    }
+    })
     return fn().finally(() => {
-      ;(globalThis as any).WIKI = previousWiki
+      wikiHandle.restore()
     })
   }
 

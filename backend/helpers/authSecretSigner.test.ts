@@ -1,6 +1,7 @@
 import { describe, test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { authSecretSigner } from './authSecretSigner.ts'
+import { installTestWiki } from '../test/mocks.ts'
 
 /**
  * Pure unit coverage for the live-secret signer (OpenProject #2172): no `WIKI` global beyond the one
@@ -13,7 +14,7 @@ import { authSecretSigner } from './authSecretSigner.ts'
  */
 describe('authSecretSigner', () => {
   beforeEach(() => {
-    global.WIKI = { config: { auth: { secret: 'a-very-first-secret-value' } } } as any
+    installTestWiki({ config: { auth: { secret: 'a-very-first-secret-value' } } })
   })
 
   test('a value signed under the current secret unsigns valid', () => {

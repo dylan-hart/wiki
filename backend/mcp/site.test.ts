@@ -2,23 +2,22 @@ import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import { McpToolError } from './auth.ts'
 import { resolveDefaultSiteId, resolveRequestedSite, resolveSite } from './site.ts'
+import { installTestWiki } from '../test/mocks.ts'
 
 const SITE_A = { id: 'site-a', hostname: 'a.example.com', isEnabled: true, config: {} }
 const SITE_B = { id: 'site-b', hostname: 'b.example.com', isEnabled: true, config: {} }
 const SITE_DISABLED = { id: 'site-c', hostname: 'c.example.com', isEnabled: false, config: {} }
 
-let previousWiki: any
+let wikiHandle: { restore(): void }
 
 function installSites(sites: Record<string, any>) {
-  ;(globalThis as any).WIKI = { sites }
+  wikiHandle = installTestWiki({ sites })
 }
 
-before(() => {
-  previousWiki = (globalThis as any).WIKI
-})
+before(() => {})
 
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
 })
 
 test('resolveSite: returns the site when it exists and is enabled', () => {

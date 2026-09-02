@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { connectListener, createListenerPool, createNotifier } from './pubsub.ts'
+import { installTestWiki } from '../test/mocks.ts'
 
 /**
  * Regression coverage for `connectListener` (task 703): none of the three dedicated LISTEN/NOTIFY
@@ -56,16 +57,14 @@ class FakePool {
   }
 }
 
-let previousWiki: any
+let wikiHandle: { restore(): void }
 let warnings: string[]
 
-before(() => {
-  previousWiki = (globalThis as any).WIKI
-})
+before(() => {})
 
 beforeEach(() => {
   warnings = []
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     logger: {
       warn: (msg: string) => {
         warnings.push(msg)
@@ -73,11 +72,11 @@ beforeEach(() => {
       info: () => {},
       debug: () => {}
     }
-  }
+  })
 })
 
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
 })
 
 describe('connectListener', () => {

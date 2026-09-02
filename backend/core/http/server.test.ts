@@ -5,6 +5,7 @@ import path from 'node:path'
 import { after, before, describe, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
 import { createHttpApp, registerStaticAssets } from './server.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 /**
  * The Fastify instance itself was built inline in `index.ts` until this split, which is why none of
@@ -27,7 +28,7 @@ function installWikiStub({
   ...config
 }: { rootPath?: string } & Record<string, any> = {}) {
   const previous = (globalThis as any).WIKI
-  ;(globalThis as any).WIKI = {
+  installTestWiki({
     INSTANCE_ID: 'test-instance',
     ROOTPATH: rootPath,
     sitesMappings: {},
@@ -38,7 +39,7 @@ function installWikiStub({
       security: { trustProxy: false },
       ...config
     }
-  }
+  })
   return () => {
     ;(globalThis as any).WIKI = previous
   }

@@ -2,6 +2,7 @@ import { describe, test, before, after, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { task as notifyPageWatchers } from './notify-page-watchers.ts'
 import type { NotifyPageWatchersPayload, QueuedWatcher } from './notify-page-watchers.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 /**
  * Unit coverage for this task's own branching (recording, the immediate-send loop, per-recipient
@@ -13,7 +14,7 @@ import type { NotifyPageWatchersPayload, QueuedWatcher } from './notify-page-wat
  * the same way `send-watch-digests.test.ts` does for its sibling task.
  */
 
-let previousWiki: any
+let wikiHandle: { restore(): void }
 let recordMany: ReturnType<typeof mock.fn>
 let markDelivered: ReturnType<typeof mock.fn>
 let filterReadable: ReturnType<typeof mock.fn>
@@ -40,12 +41,10 @@ function payload(overrides: Partial<NotifyPageWatchersPayload> = {}): NotifyPage
   }
 }
 
-before(() => {
-  previousWiki = (globalThis as any).WIKI
-})
+before(() => {})
 
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
 })
 
 beforeEach(() => {
@@ -59,14 +58,14 @@ beforeEach(() => {
   getById = mock.fn(async (id: string) => ({ id, name: 'Someone', email: `${id}@example.com` }))
   sendPageWatchNotification = mock.fn(async () => {})
   loggerError = mock.fn()
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     logger: { info: mock.fn(), warn: mock.fn(), error: loggerError, debug: mock.fn() },
     models: {
       pageWatchEvents: { recordMany, markDelivered, filterReadable },
       users: { getById },
       mail: { sendPageWatchNotification }
     }
-  }
+  })
 })
 
 describe('notify-page-watchers task', () => {
