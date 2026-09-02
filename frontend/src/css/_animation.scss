@@ -4,23 +4,34 @@
 
 :root {
   --animate-duration: 0.6s;
-  --animate-delay: 1s;
-  --animate-repeat: 1;
 }
 
 .animated {
   animation-duration: var(--animate-duration);
   animation-fill-mode: both;
-
-  &.infinite {
-    animation-iteration-count: infinite;
-  }
 }
 
 @for $i from 1 to 12 {
   .wait-p#{$i}s {
     animation-delay: $i * 0.1s !important;
   }
+}
+
+// -> Slide Up Transition
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all 0.25s ease-out;
+}
+
+.slide-up-enter-from {
+  opacity: 0;
+  transform: translateY(15px);
+}
+
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(-15px);
 }
 
 // -> fadeIn
