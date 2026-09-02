@@ -555,3 +555,11 @@ sentences are now incomplete rather than wrong.
   `api/responseErrors.test.ts` / `api/index.test.ts` while those scans still passed. A
   `fastify-plugin`-wrapped third-party plugin (`skip-override`) is skipped instead of run. This is
   the second half of "a directory's `index.ts` is its plugin" and belongs next to it.
+- **Deferred: 85 doc-comment references to the four deleted route files.** `api/pages.ts`,
+  `api/users.ts`, `api/system.ts` and `api/authentication.ts` are named in prose across ~60 files
+  under `models/`, `mcp/`, `helpers/`, `core/`, `modules/`, `migration/`, `db/schema.ts` and
+  `types/fastify.d.ts`. The references inside `backend/api/**` and `controllers/metrics.ts` (task
+  A17's declared workspace) were repointed; the rest were left, the same way task A16 deferred
+  `controllers/render.ts` and `migration/`'s prose, because a 60-file mechanical sweep would both
+  escape this task's workspace and collide with a concurrent writer. Needs a follow-up sweep — these
+  now name files that do not exist at all, which is worse than a stale-but-real path.

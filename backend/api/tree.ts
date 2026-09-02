@@ -142,7 +142,7 @@ async function routes(app: FastifyInstance) {
       const q = req.query
       const locale = q.locale ?? defaultLocale(req.params.siteId)
       // -> `null` rather than `[]` for an absent filter: the model reads an empty array as "match
-      //    nothing", so the two are not interchangeable here the way they are in `api/pages.ts`.
+      //    nothing", so the two are not interchangeable here the way they are in `api/pages/read.ts`.
       const types = splitList(q.types)
       const tags = splitList(q.tags)
       const items = await WIKI.models.tree.getTree({

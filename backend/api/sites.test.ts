@@ -842,7 +842,7 @@ test('site:general on this site may NOT clear a loginBg', async () => {
  * Task #684: `GET /:siteId/userPermissions` is what `frontend/src/composables/siteAdminAccess.js`
  * asks to decide whether to show the sidebar link / render the page / redirect to
  * `/_error/unauthorized`, for each of the nine site-scoped `Admin*.vue` pages. Mirrors
- * `pages/userPermissions` in `api/pages.ts`, but for `site:*` instead of page permissions.
+ * `pages/userPermissions` in `api/pages/read.ts`, but for `site:*` instead of page permissions.
  */
 
 const OTHER_SITE_ID = '9f2c9a3e-3b8e-4a4c-9a3b-3c9a3e3b8e4a'

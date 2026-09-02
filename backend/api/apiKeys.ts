@@ -140,7 +140,7 @@ async function routes(app: FastifyInstance) {
       //    `scope`, `allowedClassifications` or `siteId` below is intersected against the calling
       //    key's own restrictions, so a site-pinned, classification-restricted PAT could otherwise
       //    mint itself an unrestricted key with a full expiry term. Session-only, matching what
-      //    `api/users.ts`'s `sessionUserId()` already enforces for the self-service PAT routes.
+      //    `api/users/profile.ts`'s `sessionUserId()` already enforces for the self-service PAT routes.
       if (req.apiKey) {
         return reply.forbidden('API keys cannot be created using another API key.')
       }

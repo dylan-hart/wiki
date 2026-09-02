@@ -19,7 +19,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: this touches no page and no group-wide capability, only a
-        session — the same shape `/profile` uses in `api/users.ts`. Session-authenticated rather than
+        session — the same shape `/profile` uses in `api/users/profile.ts`. Session-authenticated rather than
         anonymous because a Mermaid request launches a full headless browser, the same per-request
         cost `limitRenders` already exists to bound; PlantUML is cheap by comparison but shares the
         route and the limit rather than needing a second one.

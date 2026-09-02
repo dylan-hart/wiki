@@ -312,7 +312,7 @@ async function routes(app: FastifyInstance) {
     '/:siteId/userPermissions',
     {
       /*
-        No route-level `permissions`: same reasoning as `pages/userPermissions` in `api/pages.ts` --
+        No route-level `permissions`: same reasoning as `pages/userPermissions` in `api/pages/read.ts` --
         this answers what the caller may do, which for an anonymous or under-permissioned caller is
         an empty array rather than a 403.
       */

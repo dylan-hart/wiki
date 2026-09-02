@@ -446,7 +446,7 @@ async function routes(app: FastifyInstance) {
   }>(
     '/sites/:siteId/pages/:pageIdOrHash/unlock',
     {
-      // -> A password endpoint like the ones in `api/authentication.ts`, and limited with them
+      // -> A password endpoint like the ones in `api/auth/site.ts`, and limited with them
       onRequest: limitAuthAttempts,
       schema: {
         summary: 'Unlock a password-protected page',

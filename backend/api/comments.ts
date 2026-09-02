@@ -21,7 +21,7 @@ import type { AdminPageRef, ThreadedComment } from '../models/comments.ts'
  *     every comment on the site").
  *   - Feature 394's version (kept here) evaluates `manage:comments` per PAGE via `accessiblePageIdsForAdmin`
  *     below, so a moderator only ever sees comments on pages they can actually moderate — no such gap,
- *     and it matches the page-rule permission pattern `api/pages.ts`/`api/assets.ts` already use.
+ *     and it matches the page-rule permission pattern `api/pages/`/`api/assets.ts` already use.
  * Feature 391's `mayManageCommentsAnywhere`/`listForSite`-based route was discarded in favor of this one;
  * nothing else depended on it.
  *
@@ -44,7 +44,7 @@ const commentIdParam = {
  *
  * `manage:comments` is a page-rule permission (`helpers/pageRules.ts`), not a global one, so this
  * route cannot ask "may this actor moderate comments on this site?" as a single yes/no the way
- * `config.permissions` would — it has to be decided per page, individually, exactly as `api/pages.ts`
+ * `config.permissions` would — it has to be decided per page, individually, exactly as `api/pages/`
  * and `api/assets.ts` already do for their own page-rule permissions (the `No route-level
  * permissions:` pattern this route follows below).
  *
@@ -270,7 +270,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: `manage:comments` is a page-rule permission, granted by a
-        group's rules and not the group-wide list that hook checks — same pattern as `api/pages.ts`,
+        group's rules and not the group-wide list that hook checks — same pattern as `api/pages/`,
         `api/assets.ts` and `api/watching.ts`. Every comment below is included only after its own
         page individually passes `checkAccess(actor, 'manage:comments', page)` — see
         `accessiblePageIdsForAdmin` above for how that is done without an N+1 per-comment check.

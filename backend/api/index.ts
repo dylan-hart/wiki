@@ -82,7 +82,7 @@ async function routes(app: FastifyInstance) {
     contentApp.register(import('./approvals.ts'))
     contentApp.register(import('./assets.ts'))
     contentApp.register(import('./auditLog.ts'), { prefix: '/audit-log' })
-    contentApp.register(import('./authentication.ts'))
+    contentApp.register(import('./auth/index.ts'))
     contentApp.register(import('./blockCredentials.ts'))
     contentApp.register(import('./blocks.ts'))
     contentApp.register(import('./bootstrap.ts'), { prefix: '/bootstrap' })
