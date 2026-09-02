@@ -35,7 +35,11 @@ const sampleReports: PhaseReport[] = [
       { identifier: 'file.png', detail: 'two source files map to the same destination path' }
     ],
     unmappable: [
-      { identifier: 'comments', reason: 'no-destination-table', detail: 'blocked on Epic 335' }
+      {
+        identifier: 'box',
+        reason: 'unsupported-storage-module',
+        detail: 'no 3.0 storage module for box'
+      }
     ]
   }
 ]
@@ -59,7 +63,7 @@ describe('formatReportTable', () => {
     const table = formatReportTable(sampleReports)
     assert.ok(table.includes('conflict: file.png'))
     assert.ok(table.includes('unmappable (unsupported-auth-provider): bob@example.com'))
-    assert.ok(table.includes('unmappable (no-destination-table): comments'))
+    assert.ok(table.includes('unmappable (unsupported-storage-module): box'))
   })
 
   test('handles an empty report list', () => {

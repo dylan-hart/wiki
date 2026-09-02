@@ -1,4 +1,3 @@
-import { IdMap } from './id-map.ts'
 import { normalizeMigratedPath } from './path-normalization.ts'
 import type { PathAssignmentOptions, TreePathAssignment } from './path-normalization.ts'
 import type { StagedPage } from './content-staging.ts'
@@ -22,48 +21,46 @@ import type { Page, PageActor, PageInput } from '../models/pages.ts'
  * `WIKI.models.tree` implementations (and `page-history-import.ts`'s `backfillPageHistoryForPage`)
  * here.
  *
- * `importPages()` normalizes and collision-checks each page's tree location itself, via `./path-normalization.ts`'s
- * `normalizeMigratedPath()`, rather than requiring the caller to run it first. That module's own doc
- * comment names this task as the wiring point for the real `WIKI.models.tree` lookup its
- * `existingEntry` callback needs, so it is threaded straight through as `ImportPagesDeps.existingEntry`
- * rather than re-implemented here. A page whose path fails to normalize or collides never reaches
- * `createPage()` at all; it comes back as a `PageImportFailure` with the same `reason`
- * `normalizeMigratedPath()`/the collision check below gave it.
+ * `importOne()` normalizes and collision-checks each page's tree location itself, via
+ * `./path-normalization.ts`'s `normalizeMigratedPath()`, rather than requiring the caller to run it
+ * first. That module's own doc comment names this task as the wiring point for the real
+ * `WIKI.models.tree` lookup its `existingEntry` callback needs, so it is threaded straight through as
+ * `ImportPagesDeps.existingEntry` rather than re-implemented here. A page whose path fails to
+ * normalize or collides never reaches `createPage()` at all; it comes back as a `'failed'`
+ * `PageImportOutcome` with the same `reason` `normalizeMigratedPath()`/the collision check below gave
+ * it.
  *
  * ## Streaming input and per-page sibling-collision detection (OpenProject #1818)
  *
- * `pages` is consumed as an `AsyncIterable` (an ordinary array works too — `for await` accepts both),
- * one page at a time, rather than materialized into a `StagedPage[]` up front — this is what lets
- * `extractContentStaging()`'s streaming generator (#1798) hand pages to `importPages()` one at a time
- * instead of buffering the whole corpus, per the parent epic #1790. Each page is fully processed
- * (path-assigned, created, its history backfilled — see below) before the next one is even pulled from
- * the iterable, so at most one page's heavy fields (`content`/`render`/`toc`/history `content`) are
- * resident at a time.
+ * Pages arrive one at a time through `importOne()`, rather than as a `StagedPage[]` materialized up
+ * front — this is what lets `extractContentStaging()`'s streaming generator (#1798) hand pages over
+ * one at a time instead of buffering the whole corpus, per the parent epic #1790. Each page is fully
+ * processed (path-assigned, created, its history backfilled — see below) before the caller pulls the
+ * next one off the source, so at most one page's heavy fields (`content`/`render`/`toc`/history
+ * `content`) are resident at a time.
  *
- * That single-pass shape changes sibling-collision semantics from the previous batch behavior: `path-normalization.ts`'s
- * `assignTreePaths()` sees every page up front and fails *both* sides of a collision, since which of
- * two arbitrarily-cased paths "should" win isn't its call to make. A true one-pass stream cannot do
- * that — by the time a later page is discovered to collide with an earlier one, the earlier page has
- * already been created; there is no "both fail" available any more. `importPages()` therefore tracks
- * each `(locale, parentPath, fileName)` it has already claimed in a `Map` as it goes, and a later page
- * that lands on an already-claimed location fails alone (`'sibling-collision'`), while the earlier,
+ * That single-pass shape constrains sibling-collision semantics: by the time a later page is
+ * discovered to collide with an earlier one, the earlier page has already been created, so there is no
+ * "fail both sides" available. `createPageImporter()` therefore tracks each
+ * `(locale, parentPath, fileName)` it has already claimed in a `Map` as it goes, and a later page that
+ * lands on an already-claimed location fails alone (`'sibling-collision'`), while the earlier,
  * already-created page is kept. First-in-the-stream wins.
  *
  * ## History backfill, interleaved (OpenProject #1818)
  *
  * Immediately after a page is created (and any render-queue it triggered has been requested —
- * `createPage()`'s own concern, see "The render bootstrap decision" below), `importPages()` calls
+ * `createPage()`'s own concern, see "The render bootstrap decision" below), `importOne()` calls
  * `page-history-import.ts`'s `backfillPageHistoryForPage()` for that one page's `history` chain alone —
  * resolving `pageIdMap` for a single freshly-created page rather than waiting for the whole run, via
  * `ImportPagesDeps.backfillHistory`. This is what "page 1's history lands before page 2 is even staged"
- * means in practice: nothing about page 2 is pulled from the input iterable until page 1's
+ * means in practice: nothing about page 2 is pulled from the source until page 1's
  * create-and-backfill has already finished. A history-insert failure for one page is folded into that
- * page's own warnings (and the flat `PageImportResult.warnings`) rather than turned into a
- * `PageImportFailure` — the page itself was created successfully; only some of its past revisions may
- * be missing, the same "non-fatal, reported as a warning" treatment already given to an editor fallback
- * or a render-bootstrap downgrade. This keeps every source page accounted for exactly once, in exactly
- * one of `succeeded`/`failed`, per this task's own description, and means one page's history failure
- * neither aborts the run nor loses any other page's rows.
+ * page's own warnings rather than turned into a failed outcome — the page itself was created
+ * successfully; only some of its past revisions may be missing, the same "non-fatal, reported as a
+ * warning" treatment already given to an editor fallback or a render-bootstrap downgrade. This keeps
+ * every source page accounted for exactly once, in exactly one of created/failed, per this task's own
+ * description, and means one page's history failure neither aborts the run nor loses any other page's
+ * rows.
  *
  * ## The synthetic per-page actor
  *
@@ -74,7 +71,7 @@ import type { Page, PageActor, PageInput } from '../models/pages.ts'
  *
  * To still carry the per-page identity `content-staging.ts` already resolved (`StagedPage.creatorId`,
  * itself falling back to the operator via `resolveActorId` wherever the source row's id was null or
- * unmapped — see `id-map.ts`), `importPages` builds one synthetic `PageActor` **per page** — `{ id:
+ * unmapped — see `id-map.ts`), `importOne()` builds one synthetic `PageActor` **per page** — `{ id:
  * staged.creatorId, permissions: options.actorPermissions }` — rather than one fixed actor for every
  * call. Only `permissions` (which gates the `write:scripts`/`write:styles` checks `postProcess` makes)
  * comes from the operator's own grant; a migration is not "logged in as" each original 2.x author, so
@@ -145,8 +142,8 @@ export interface ImportPagesDeps {
    * implementation wires this straight to `page-history-import.ts`'s
    * `backfillPageHistoryForPage(staged, newPageId, siteId, deps)`; a caller that doesn't care about
    * history at all (or a test exercising something else) can omit it, which skips backfill entirely
-   * — `importPages()` never calls history backfill on its own. Its `PageHistoryImportResult.failed`
-   * is folded into this run's own `warnings`, never aborting the page it belongs to (which already
+   * — the importer never calls history backfill on its own. Its `PageHistoryImportResult.failed`
+   * is folded into that page's own `warnings`, never aborting the page it belongs to (which already
    * succeeded by the time this runs) or any other page.
    */
   backfillHistory?: (page: StagedPage, newPageId: string) => Promise<PageHistoryImportResult>
@@ -172,36 +169,16 @@ export type PageImportFailureReason =
   | 'existing-entry-collision'
   | 'create-error'
 
-export interface PageImportFailure {
-  oldId: number
-  path: string
-  locale: string
-  reason: PageImportFailureReason
-  message: string
-}
-
 export interface PageImportSuccess {
   oldId: number
   /** The 3.0 UUID this page now maps to — freshly created by `createPage()`. Also recorded in
-   * `PageImportResult.pageIdMap`. */
+   * `PageImporter.pageIdMap`. */
   pageId: string
   /** Per-page notes (editor fallback, render-bootstrap downgrade, unmigrated privacy setting, the
-   * authorId/creatorId collapse) — also folded into `PageImportResult.warnings`. */
+   * authorId/creatorId collapse). */
   warnings: string[]
   /** Fixed at `'created'` — the destination is always empty, so there is no existing page to skip. */
   action: 'created'
-}
-
-export interface PageImportResult {
-  succeeded: PageImportSuccess[]
-  failed: PageImportFailure[]
-  /** Every per-page warning, in processing order, prefixed with the page it came from — the flat form
-   * for whichever task ends up reporting import results to an operator (Task 421's CLI). */
-  warnings: string[]
-  /** old-`pages.id` → new-UUID, populated for every page in `succeeded`. Task 740 resolves
-   * `pageHistory.pageId` through this, per `content-staging.ts`'s `ContentStagingResult.pageIdMap`
-   * doc. */
-  pageIdMap: IdMap<number>
 }
 
 /** What each recognized 2.x `editorKey` becomes in 3.0 — `pages.ts`'s own `EDITOR_CONTENT_TYPES` keys
@@ -418,52 +395,45 @@ function mapStagedPageToInput(
 }
 
 /** Builds the `Map` key one `(locale, parentPath, fileName)` tree location collapses to for the
- * per-page sibling-collision check — see the module doc comment. ` `-joined rather than
- * space-joined (as `path-normalization.ts`'s own private `locationKey` does) purely so a value
- * containing a literal space can never coincide with the separator; the two are otherwise equivalent
- * and never compared against each other. */
+ * per-page sibling-collision check — see the module doc comment. A space is a safe separator here
+ * because each of the three parts is either a locale code or already folded to `RE_FOLDER_SEGMENT`
+ * (`path-normalization.ts`), so none of them can contain one. */
 function streamedLocationKey(locale: string, parentPath: string, fileName: string): string {
   return `${locale} ${parentPath} ${fileName}`
 }
 
 /**
- * What one `importOne()` call resolved to (Task 13's own proactive fix — see `phases/content.ts`'s
- * `routePageOutcome()`, which mirrors `phases/users.ts`'s `routeOutcome()` convention Task 14's review
- * round established for the exact same class of bug). Before this, `importOne()` returned `Promise<void>`
- * and never threw for a bad page — a sibling-collision, an existing-entry-collision, a `createPage()`
- * error, all folded into `failed[]` internally instead — so a caller that unconditionally wrapped
- * `importOne()` as `recorder.create()`'s `write` callback (the way `phases/users.ts` originally wrapped
- * `importOne()` for users/groups, before its own review fix) would have misreported every failed page as
- * a successful `wouldCreate`, since the write never threw and `create()` counts unconditionally.
+ * What one `importOne()` call resolved to — see `phases/content.ts`'s `routePageOutcome()`, which
+ * mirrors `phases/users.ts`'s `routeOutcome()` convention. `importOne()` never throws for a bad page
+ * (a sibling-collision, an existing-entry-collision, a `createPage()` error), so a caller that
+ * unconditionally wrapped it as `recorder.create()`'s `write` callback would misreport every failed
+ * page as a successful `wouldCreate` — routing on this outcome is what stops that.
  *
- * Success carries the new page id (already recorded in `pageIdMap` before this returns); failure carries
- * the same `reason`/`message` already pushed onto `failed` (see `PageImportFailure`), so a caller never
- * has to re-derive it from `failed.at(-1)`.
+ * Success carries the new page id (already recorded in `pageIdMap` before this returns); failure
+ * carries the `reason`/`message` describing what went wrong, so a caller has everything it needs to
+ * report the page without any separate failure bookkeeping.
  */
 export type PageImportOutcome =
   | { status: 'created'; pageId: string }
   | { status: 'failed'; reason: PageImportFailureReason; message: string }
 
-/** Live, streaming per-page import — the extracted body of what used to be `importPages()`'s whole
- * `for await` loop (OpenProject #1818's own follow-up, so Task 13 can drive one `StagedPage` at a time
- * from a phase-classify callback instead of only ever being handed a whole iterable up front).
- * `succeeded`/`failed`/`warnings`/`pageIdMap` are live references into the same arrays/map every
- * `importOne()` call mutates — not snapshots — so a caller reading them after several calls sees every
- * page processed so far. See the module doc comment's "Streaming input and per-page sibling-collision
- * detection" and "History backfill, interleaved" for what `importOne()` does and why. */
+/** Live, streaming per-page import: one `StagedPage` at a time, driven from a phase-classify callback
+ * rather than handed a whole iterable up front. `succeeded`/`pageIdMap` are live references into the
+ * same array/map every `importOne()` call mutates — not snapshots — so a caller reading them after
+ * several calls sees every page processed so far. A failed page is reported through `importOne()`'s
+ * own return value alone (see `PageImportOutcome`). See the module doc comment's "Streaming input and
+ * per-page sibling-collision detection" and "History backfill, interleaved" for what `importOne()`
+ * does and why. */
 export interface PageImporter {
   importOne(staged: StagedPage): Promise<PageImportOutcome>
   readonly succeeded: PageImportSuccess[]
-  readonly failed: PageImportFailure[]
-  readonly warnings: string[]
-  readonly pageIdMap: IdMap<number>
+  readonly pageIdMap: Map<number, string>
 }
 
 /**
- * Builds a `PageImporter` for one import run against `siteId` — the stateful factory `importPages()`
- * itself is now a thin wrapper around (see below). Never throws for one bad, colliding, or
- * history-failing page — each becomes a `PageImportFailure` (or a warning on an otherwise-successful
- * page) instead, so one page's bad data cannot abort the whole run.
+ * Builds a `PageImporter` for one import run against `siteId`. Never throws for one bad, colliding, or
+ * history-failing page — each comes back as a `'failed'` `PageImportOutcome` (or a warning on an
+ * otherwise-successful page) instead, so one page's bad data cannot abort the whole run.
  */
 export function createPageImporter(
   deps: ImportPagesDeps,
@@ -472,10 +442,8 @@ export function createPageImporter(
   const renderBootstrap = options.renderBootstrap ?? 'passthrough'
   const nowMillis = options.now ?? Date.now()
 
-  const warnings: string[] = []
-  const pageIdMap = new IdMap<number>()
+  const pageIdMap = new Map<number, string>()
   const succeeded: PageImportSuccess[] = []
-  const failed: PageImportFailure[] = []
   // -> Every tree location already claimed by an earlier page in this stream, oldId → key. Lightweight
   //    by construction (three short strings per page) — safe to keep resident for the whole run, unlike
   //    the heavy StagedPage fields this streaming shape exists to avoid holding onto.
@@ -485,13 +453,6 @@ export function createPageImporter(
     const normalized = normalizeMigratedPath(staged.path)
 
     if ('reason' in normalized) {
-      failed.push({
-        oldId: staged.oldId,
-        path: staged.path,
-        locale: staged.locale,
-        reason: normalized.reason,
-        message: normalized.message
-      })
       return { status: 'failed', reason: normalized.reason, message: normalized.message }
     }
 
@@ -506,13 +467,6 @@ export function createPageImporter(
         `page ${staged.oldId} at "${normalized.path}" (locale "${staged.locale}") normalizes to the ` +
         `same tree location as page ${claimedByOldId}, already imported earlier in this streaming run ` +
         '— the earlier page was kept, this one was not.'
-      failed.push({
-        oldId: staged.oldId,
-        path: normalized.path,
-        locale: staged.locale,
-        reason: 'sibling-collision',
-        message
-      })
       return { status: 'failed', reason: 'sibling-collision', message }
     }
 
@@ -524,13 +478,6 @@ export function createPageImporter(
     )
     if (treeExists) {
       const message = `page ${staged.oldId} at "${normalized.path}" (locale "${staged.locale}") already exists in the target site's tree — import failed for this page.`
-      failed.push({
-        oldId: staged.oldId,
-        path: normalized.path,
-        locale: staged.locale,
-        reason: 'existing-entry-collision',
-        message
-      })
       return { status: 'failed', reason: 'existing-entry-collision', message }
     }
 
@@ -562,13 +509,6 @@ export function createPageImporter(
       destId = created.id
     } catch (err: any) {
       const message = `createPage() failed: ${err.message}`
-      failed.push({
-        oldId: staged.oldId,
-        path: staged.path,
-        locale: staged.locale,
-        reason: 'create-error',
-        message
-      })
       return { status: 'failed', reason: 'create-error', message }
     }
 
@@ -589,7 +529,6 @@ export function createPageImporter(
       }
     }
 
-    warnings.push(...pageWarnings)
     succeeded.push({
       oldId: staged.oldId,
       pageId: destId,
@@ -599,38 +538,5 @@ export function createPageImporter(
     return { status: 'created', pageId: destId }
   }
 
-  return { importOne, succeeded, failed, warnings, pageIdMap }
-}
-
-/**
- * Imports every staged page into `siteId` via `createPage()`, per this task's description — streaming
- * (WP #1790 / Task #1818): `pages` is consumed one page at a time (an `AsyncIterable` or a plain
- * `Iterable` both work — `for await` accepts either), and each page is fully resolved — path-assigned,
- * created, its history backfilled — before the next one is even pulled off `pages`, so at most one
- * page's heavy fields are resident at a time. See the module doc comment's "Streaming input and
- * per-page sibling-collision detection" and "History backfill, interleaved".
- *
- * A thin wrapper around `createPageImporter()` (OpenProject #1818's own follow-up) — Task 13 drives
- * the same per-page logic directly via `importOne()` instead of a whole iterable, for a streaming
- * phase-classify callback that can't hand this function a single `AsyncIterable` up front.
- *
- * Never throws for one bad, colliding, or history-failing page — each becomes a `PageImportFailure`
- * (or a warning on an otherwise-successful page) instead, so one page's bad data cannot abort the
- * whole run.
- */
-export async function importPages(
-  pages: AsyncIterable<StagedPage> | Iterable<StagedPage>,
-  deps: ImportPagesDeps,
-  options: ImportPagesOptions
-): Promise<PageImportResult> {
-  const importer = createPageImporter(deps, options)
-  for await (const staged of pages) {
-    await importer.importOne(staged)
-  }
-  return {
-    succeeded: importer.succeeded,
-    failed: importer.failed,
-    warnings: importer.warnings,
-    pageIdMap: importer.pageIdMap
-  }
+  return { importOne, succeeded, pageIdMap }
 }

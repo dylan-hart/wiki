@@ -63,16 +63,6 @@ describe('runMigration', () => {
     )
   })
 
-  test('an unknown --only phase id throws before any phase runs', async () => {
-    const calls: string[] = []
-    const phases = [fakePhase('settings', calls), fakePhase('users', calls)]
-    await assert.rejects(
-      () => runMigration(phases, contextStub(), { only: ['content' as any] }),
-      /Unknown phase\(s\) in --only: content/
-    )
-    assert.deepEqual(calls, [])
-  })
-
   test('passes the same ctx object through to every phase unchanged', async () => {
     const seen: MigrationContext[] = []
     const phase: MigrationPhase = {

@@ -165,10 +165,8 @@ describe(
         systemGroupIds: { admin: 'unused-admin-group', guest: 'unused-guest-group' },
         operatorActorId: fixtures.userId,
         userIdMap: new Map([[555, fixtures.userId]]),
-        // -> Reuses the real IdMap<number> the content-phase fixture setup above already populated,
-        //    rather than a plain Map -- context.ts types MigrationContext.pageIdMap as the concrete
-        //    IdMap<number> class (unlike userIdMap, which is a plain Map), so this is the live
-        //    reference a real migrate.ts run would hand from one phase to the next.
+        // -> Reuses the live map the content-phase fixture setup above already populated, so this is
+        //    the live reference a real migrate.ts run would hand from one phase to the next.
         pageIdMap: seededPageIdMap
       }
 

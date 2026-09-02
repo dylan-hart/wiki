@@ -84,15 +84,11 @@ import type { SourceRecord } from '../connector.ts'
  *
  * ## Per-site replay, no cross-call state
  *
- * `authentication` carries no `siteId` at all, so task 765's mapper had to thread an explicit
- * `AuthenticationMapperState` across calls to detect same-module collisions between multiple
- * consolidated sources. `storage` rows are the opposite case, exactly as this task's description
- * calls out: `(siteId, module)` is already the table's own uniqueness boundary, so two calls with
- * different `siteId`s can never collide with each other no matter how many source systems are being
- * consolidated — there is nothing to thread. `siteId` is simply a required parameter on every call
- * (not a caller-shared mutable object), and the same source row can be replayed against as many
- * target sites as the multi-source-consolidation scenario needs by calling this mapper once per
- * target site with the same source rows.
+ * `(siteId, module)` is already the table's own uniqueness boundary, so two calls with different
+ * `siteId`s can never collide with each other — there is nothing to thread across calls. `siteId` is
+ * simply a required parameter on every call (not a caller-shared mutable object), and the same source
+ * row can be replayed against as many target sites as needed by calling this mapper once per target
+ * site with the same source rows.
  */
 
 // ---------------------------------------------------------------------------
@@ -156,8 +152,6 @@ export const KNOWN_3_0_STORAGE_MODULES = [
   's3',
   'sftp'
 ] as const
-
-export type Known3_0StorageModule = (typeof KNOWN_3_0_STORAGE_MODULES)[number]
 
 // ---------------------------------------------------------------------------
 // Per-module config remap — the "key-by-key remap required, module by module" step
@@ -309,9 +303,6 @@ export interface StorageRowResult {
 export interface StorageMappingResult {
   /** One entry per source row, in read order, whatever its outcome. */
   results: StorageRowResult[]
-  /** Convenience: just the patches actually ready to apply, in order — what an importer's writer
-   * loop iterates. */
-  updates: StorageUpdatePayload[]
 }
 
 export interface MapStorageRowOptions {
@@ -444,13 +435,8 @@ export async function mapStorageRows(
   options: MapStorageRowOptions
 ): Promise<StorageMappingResult> {
   const results: StorageRowResult[] = []
-  const updates: StorageUpdatePayload[] = []
   for await (const row of rows) {
-    const result = mapStorageRow(row, options)
-    results.push(result)
-    if (result.status === 'updated' && result.update) {
-      updates.push(result.update)
-    }
+    results.push(mapStorageRow(row, options))
   }
-  return { results, updates }
+  return { results }
 }

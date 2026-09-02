@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
 import { describe, test } from 'node:test'
-import { IdMap } from '../id-map.ts'
-import { importAsset, importAssets } from './asset-import.ts'
+import { importAsset } from './asset-import.ts'
 import type { SourceAssetFile } from '../connector.ts'
 import type {
   AssetImportDeps,
@@ -64,7 +63,7 @@ function buildOptions(overrides: Partial<AssetImportOptions> = {}): AssetImportO
   return {
     siteId: SITE_ID,
     locale: LOCALE,
-    userIdMap: new IdMap<number>(),
+    userIdMap: new Map<number, string>(),
     fallbackActorId: FALLBACK_ACTOR_ID,
     ...overrides
   }
@@ -175,7 +174,7 @@ describe('importAsset', () => {
     const assetsModel = new FakeAssetsModel()
     const treeModel = new FakeTreeModel()
     const deps: AssetImportDeps = { assetsModel, treeModel }
-    const userIdMap = new IdMap<number>()
+    const userIdMap = new Map<number, string>()
     userIdMap.set(42, 'user-uuid-42')
     const file = buildFile({ authorId: 42 })
 
@@ -228,35 +227,5 @@ describe('importAsset', () => {
     await importAsset(file, deps, buildOptions())
 
     assert.equal(assetsModel.uploaded[0]!.mimeType, 'image/png')
-  })
-})
-
-describe('importAssets', () => {
-  test('imports every file one at a time, aggregating successes and failures', async () => {
-    const assetsModel = new FakeAssetsModel()
-    assetsModel.failNextUpload = null
-    const treeModel = new FakeTreeModel()
-    const deps: AssetImportDeps = { assetsModel, treeModel }
-
-    async function* files(): AsyncGenerator<SourceAssetFile> {
-      yield buildFile({ relativePath: 'one.png', filename: 'one.png' })
-      yield buildFile({
-        relativePath: 'two.png',
-        filename: 'two.png',
-        stream: new Readable({
-          read() {
-            this.destroy(new Error('boom'))
-          }
-        })
-      })
-      yield buildFile({ relativePath: 'three.png', filename: 'three.png' })
-    }
-
-    const result = await importAssets(files(), deps, buildOptions())
-
-    assert.equal(result.succeeded.length, 2)
-    assert.equal(result.failed.length, 1)
-    assert.equal(result.failed[0]!.relativePath, 'two.png')
-    assert.equal(result.failed[0]!.reason, 'read-error')
   })
 })

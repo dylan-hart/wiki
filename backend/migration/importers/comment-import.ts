@@ -51,15 +51,6 @@ export interface CommentImportSuccess {
   commentId: string
 }
 
-export interface CommentImportResult {
-  succeeded: CommentImportSuccess[]
-  failed: CommentImportFailure[]
-  /** Comments whose 2.x pageId named a page that failed to import (or was never staged at all) — the
-   * comment itself is real, it just has nowhere to attach; reported rather than silently dropped, the
-   * same treatment `navigation-import.ts` gives a `'page'`-type nav link with no matching page. */
-  droppedForMissingPage: number
-}
-
 /** Imports one 2.x comment row into the destination `comments` table directly — no staging bundle
  * (unlike the original Feature 418 plan, written before 3.0 had a comments table at all; see the
  * design spec). A guest comment (`authorId` null, `name`/`email` populated) is written as a guest,
@@ -141,28 +132,4 @@ export async function importComment(
   } catch (err: any) {
     return { result: 'failure', failure: { oldId, reason: 'create-error', message: err.message } }
   }
-}
-
-/** Batch form of `importComment()`, for a caller (a test, or any future standalone use) holding a
- * whole `AsyncIterable` rather than driving it one record at a time. */
-export async function importComments(
-  comments: AsyncIterable<SourceRecord>,
-  deps: CommentImportDeps,
-  options: CommentImportOptions
-): Promise<CommentImportResult> {
-  const succeeded: CommentImportSuccess[] = []
-  const failed: CommentImportFailure[] = []
-  let droppedForMissingPage = 0
-
-  for await (const raw of comments) {
-    const outcome = await importComment(raw, deps, options)
-    if (outcome.result === 'success') {
-      succeeded.push(outcome.success)
-    } else {
-      failed.push(outcome.failure)
-      if (outcome.failure.reason === 'unknown-page') droppedForMissingPage++
-    }
-  }
-
-  return { succeeded, failed, droppedForMissingPage }
 }

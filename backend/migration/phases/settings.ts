@@ -123,18 +123,16 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
   //    `buildConfig` and `validateConfig` all match the narrow interface's signatures exactly (see
   //    `mappers/authentication.ts`'s own doc comment on why the interface exists at all).
   const authResolver: AuthModuleResolver = WIKI.models.authentication
-  // -> No `groupIdMap` is passed: `mapAuthenticationRows()`'s `autoEnrollGroups` remap
-  //    (`remapAutoEnrollGroups()`) needs old-group-id -> new-group-UUID entries that only exist once
-  //    the `users` phase has run (`ctx.userIdMap`'s own sibling for groups) — but `settings` runs
+  // -> Every created authentication row's `autoEnrollGroups` is silently `[]`, regardless of what
+  //    the 2.x source row actually had configured: remapping them needs old-group-id ->
+  //    new-group-UUID entries that only exist once the `users` phase has run, but `settings` runs
   //    *before* `users` (`phases/users.ts`'s own `dependsOn: ['settings']`), so that map genuinely
   //    cannot exist yet here. This is the same forced, documented-not-solved reporting gap Task 14
-  //    left for `userImporter.providerFallbacks` (`phases/users.ts:108-112`): every created
-  //    authentication row's `autoEnrollGroups` is silently `[]`, regardless of what the 2.x source
-  //    row actually had configured, and neither `PhaseResult` nor `PhaseReport` has a field shaped to
-  //    surface it. Fixing this for real would mean either re-ordering the phases (settings currently
-  //    has `dependsOn: []` specifically so it can run first — see this phase's own module doc) or a
-  //    second pass over already-created strategies after `users` has run — both out of this task's
-  //    scope.
+  //    left for `userImporter.providerFallbacks` (`phases/users.ts:108-112`): neither `PhaseResult`
+  //    nor `PhaseReport` has a field shaped to surface it. Fixing this for real would mean either
+  //    re-ordering the phases (settings currently has `dependsOn: []` specifically so it can run
+  //    first — see this phase's own module doc) or a second pass over already-created strategies
+  //    after `users` has run — both out of this task's scope.
   const authResult = await mapAuthenticationRows(authRows, { resolver: authResolver })
   for (const result of authResult.results) {
     switch (result.status) {
@@ -183,18 +181,6 @@ async function runSettingsImport(ctx: MigrationContext, recorder: WriteRecorder)
           `authentication strategy '${result.sourceKey}' (module '${result.module}') not created: ${result.message}`
         )
         recorder.skipExisting(result.sourceKey)
-        break
-      case 'conflict-skipped':
-        // -> Two sources' rows named the same module; this one lost under the mapper's
-        //    `conflictPolicy` (default `'additive'` never produces this status — only reachable
-        //    under `'first-source-wins'`, not selected here, but handled for completeness). This is
-        //    exactly the "one record simply superseding another" case `report.ts`'s `conflicts` doc
-        //    comment describes, unlike `phases/users.ts`'s narrower "write attempted and failed"
-        //    reading of the same bucket.
-        recorder.conflict(
-          result.sourceKey,
-          result.message ?? `module '${result.module}' was already claimed by an earlier source`
-        )
         break
     }
   }

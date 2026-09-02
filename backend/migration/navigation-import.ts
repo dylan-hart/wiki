@@ -1,4 +1,3 @@
-import { IdMap } from './id-map.ts'
 import { normalizeMigratedPath } from './path-normalization.ts'
 import type { StagedNavigation } from './content-staging.ts'
 import type { NavigationItem } from '../models/navigation.ts'
@@ -39,7 +38,7 @@ import type { NavigationItem } from '../models/navigation.ts'
  *     `/${path}` with no locale segment at all (confirmed by reading it — `NavSidebar.vue`'s
  *     `destination()`/`routableHref` never re-adds one), so the locale prefix is stripped and the
  *     remaining path is re-normalized through Task 736's `normalizeMigratedPath` (the same function
- *     `assignTreePaths` used to place the page in the tree, so the two agree on the result).
+ *     `page-import.ts` uses to place the page in the tree, so the two agree on the result).
  *   - `'search'` → dropped. 3.0's `NavigationItem` has no saved-search-link concept at all (2.x's own
  *     admin UI had already stopped offering it as of the vendored version — `navTypes` in
  *     `admin-navigation.vue` comments it out — so this only matters for data written by an older 2.x).
@@ -80,8 +79,8 @@ export interface NavigationImportDeps {
 }
 
 /** The minimal shape this module needs from a staged page to resolve a 2.x `'page'`-type nav target —
- * deliberately a subset of `StagedPage` (see `content-staging.ts`), matching the same
- * decoupling-by-subset-type `path-normalization.ts`'s `PathAssignmentInput` already establishes. */
+ * deliberately a subset of `StagedPage` (see `content-staging.ts`) rather than an import of that
+ * module's full type, so this one stays a plain consumer of any `{oldId, path, locale}`-shaped row. */
 export interface NavigationPageRef {
   oldId: number
   path: string
@@ -210,7 +209,7 @@ function parsePageTarget(
 interface MapItemContext {
   pages: Map<string, NavigationPageRef>
   knownLocales: Set<string>
-  pageIdMap: IdMap<number>
+  pageIdMap: Map<number, string>
   warnings: string[]
   dropped: DroppedNavigationItem[]
 }
@@ -364,7 +363,7 @@ export function mapNavigationItem(raw: unknown, ctx: MapItemContext): Navigation
 export async function importNavigation(
   staged: StagedNavigation[],
   pages: NavigationPageRef[],
-  pageIdMap: IdMap<number>,
+  pageIdMap: Map<number, string>,
   deps: NavigationImportDeps,
   options: NavigationImportOptions
 ): Promise<NavigationImportResult> {

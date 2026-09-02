@@ -6,7 +6,7 @@ import {
   extractContentStaging,
   extractNavigation
 } from '../content-staging.ts'
-import { backfillPageHistory, backfillPageHistoryForPage } from '../page-history-import.ts'
+import { backfillOrphanedPageHistory, backfillPageHistoryForPage } from '../page-history-import.ts'
 import { createPageImporter } from '../page-import.ts'
 import { importNavigation } from '../navigation-import.ts'
 import { resolvePrimaryLocale } from '../context.ts'
@@ -151,11 +151,10 @@ async function routePageOutcome(
  * drained, same as `stagedPageRefs`. It has no single page to backfill against inline the way a live
  * page's own history does (`pagesDeps.backfillHistory`, called per-page from inside
  * `pageImporter.importOne()`), so it is drained here instead, in the `navigation` entity's classify —
- * the only other hook that is guaranteed to run after `pages` has fully drained. Reuses
- * `page-history-import.ts#backfillPageHistory()`'s batch form with an empty `pages` array (so only its
- * orphaned-group loop runs — every live page's own history was already backfilled per-page above) to
- * get its synthesized-shared-`pageId`-per-group behavior for free, rather than reimplementing the
- * grouping here.
+ * the only other hook that is guaranteed to run after `pages` has fully drained. Delegates to
+ * `page-history-import.ts#backfillOrphanedPageHistory()` to get its
+ * synthesized-shared-`pageId`-per-group behavior for free, rather than reimplementing the grouping
+ * here.
  */
 export const contentPhase = definePhase({
   id: 'content',
@@ -296,13 +295,10 @@ export const contentPhase = definePhase({
           yield { key: 'site-navigation' }
         },
         classify: async (_record, recorder) => {
-          // -> See the module doc comment's "Orphaned pageHistory is backfilled too" section.
-          //    `pages: []` means only backfillPageHistory()'s own orphaned-group loop runs — every
+          // -> See the module doc comment's "Orphaned pageHistory is backfilled too" section. Every
           //    live page's own history was already backfilled per-page, inline, as `pages` streamed.
-          const orphanedResult = await backfillPageHistory(
-            [],
+          const orphanedResult = await backfillOrphanedPageHistory(
             stagingContext.orphanedHistory,
-            pageImporter.pageIdMap,
             ctx.siteId,
             { insertVersions: insertHistoryVersions }
           )

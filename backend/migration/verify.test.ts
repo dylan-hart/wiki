@@ -22,7 +22,6 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 import { pages as pagesTable } from '../db/schema.ts'
 import { assetsPhase } from './phases/assets.ts'
 import { usersPhase } from './phases/users.ts'
-import { IdMap } from './id-map.ts'
 
 /** Every entity generator throws, matching both real connectors' current stub state — same pattern
  * `phases/phases.test.ts` uses. */
@@ -626,7 +625,7 @@ describe('compareAgainstDryRunReports derived from the real phases (regression c
       assets
     }
 
-    const pageIdMap = new IdMap<number>()
+    const pageIdMap = new Map<number, string>()
     pageIdMap.set(100, 'fixture-page-uuid')
 
     const phaseResult = await assetsPhase.run({

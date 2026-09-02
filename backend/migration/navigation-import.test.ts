@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { IdMap } from './id-map.ts'
 import { extractLocaleItems, importNavigation, mapNavigationItem } from './navigation-import.ts'
 import type { NavigationPageRef, NavigationWriteModel } from './navigation-import.ts'
 import type { StagedNavigation } from './content-staging.ts'
@@ -41,7 +40,7 @@ describe('extractLocaleItems', () => {
   })
 })
 
-function ctx(pages: NavigationPageRef[] = [], pageIdMap = new IdMap<number>()) {
+function ctx(pages: NavigationPageRef[] = [], pageIdMap = new Map<number, string>()) {
   const pageMap = new Map(pages.map((p) => [`${p.locale}::${p.path}`, p]))
   return {
     pages: pageMap,
@@ -138,7 +137,7 @@ describe('mapNavigationItem', () => {
   })
 
   test('maps a "page" target for a page that survived import, stripping locale and re-normalizing', () => {
-    const pageIdMap = new IdMap<number>()
+    const pageIdMap = new Map<number, string>()
     pageIdMap.set(42, 'new-uuid-42')
     const c = ctx([{ oldId: 42, path: 'Guide/Getting_Started', locale: 'en' }], pageIdMap)
     const item = mapNavigationItem(
@@ -176,7 +175,7 @@ describe('mapNavigationItem', () => {
   })
 
   test('drops a "page" target whose page was staged but failed to import (no pageIdMap entry)', () => {
-    const c = ctx([{ oldId: 7, path: 'broken', locale: 'en' }], new IdMap<number>())
+    const c = ctx([{ oldId: 7, path: 'broken', locale: 'en' }], new Map<number, string>())
     const item = mapNavigationItem(
       { id: 'l6', kind: 'link', label: 'Broken', targetType: 'page', target: '/en/broken' },
       c
@@ -316,7 +315,7 @@ describe('importNavigation', () => {
       }
     ]
     const { deps, calls } = fakeDeps()
-    const result = await importNavigation(staged, [], new IdMap<number>(), deps, {
+    const result = await importNavigation(staged, [], new Map<number, string>(), deps, {
       siteId: 'site-1',
       locale: 'en'
     })
@@ -333,7 +332,7 @@ describe('importNavigation', () => {
 
   test('writes an empty menu (still calling both write steps) when there is nothing staged', async () => {
     const { deps, calls } = fakeDeps()
-    const result = await importNavigation([], [], new IdMap<number>(), deps, {
+    const result = await importNavigation([], [], new Map<number, string>(), deps, {
       siteId: 'site-1',
       locale: 'en'
     })
@@ -361,7 +360,7 @@ describe('importNavigation', () => {
       { oldId: 1, path: 'removed', locale: 'en' },
       { oldId: 2, path: 'kept', locale: 'en' }
     ]
-    const pageIdMap = new IdMap<number>()
+    const pageIdMap = new Map<number, string>()
     pageIdMap.set(2, 'new-uuid-2') // -> page 1 ("removed") never made it, page 2 did
 
     const { deps } = fakeDeps()

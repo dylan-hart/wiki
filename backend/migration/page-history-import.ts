@@ -6,7 +6,6 @@ import type {
   StagedPageHistoryEntry
 } from './content-staging.ts'
 import { derivePublishState, mapEditor } from './page-import.ts'
-import type { IdMap } from './id-map.ts'
 
 /**
  * Page history backfill via a direct `pageHistory` insert (Feature 416 / Task 740)
@@ -17,7 +16,7 @@ import type { IdMap } from './id-map.ts'
  * carry `PageInput.updatedAt` through so that row is dated the source's real last-modified time rather
  * than import time — see upstream requarks/wiki#4631), but it still has no way to express any of the
  * *past* versions a 2.x page's history chain carries — only ever the current one. Task 738's
- * `importPages()` already calls `createPage()` once per page, which itself calls `record()` once,
+ * `page-import.ts` already calls `createPage()` once per page, which itself calls `record()` once,
  * giving every imported page a single `pageHistory` row for its state *as of its own `updatedAt`*.
  * This module is what turns each of that page's remaining 2.x
  * `pageHistory` rows (`StagedPage.history`, Task 733's `content-staging.ts`) into an equivalent 3.0
@@ -59,7 +58,7 @@ import type { IdMap } from './id-map.ts'
  * call binds every field of every row as its own parameter — Postgres refuses more than 65535 bind
  * parameters per statement, a ceiling a mature 2.x install's most-edited page can cross alone at
  * around 5461 revisions. `backfillPageHistoryForPage()` (called once per page, immediately after that
- * page's `createPage()` — see `page-import.ts`'s `importPages()`) chunks a single page's rows at
+ * page's `createPage()` — see `page-import.ts`) chunks a single page's rows at
  * `HISTORY_INSERT_CHUNK_SIZE`, and never buffers more than one page's history in memory or in one
  * `insertVersions()` call — see `content-staging.ts`'s own streaming design for the matching page-side
  * half of this fix. An orphaned-history group (below) goes through the exact same
@@ -133,7 +132,7 @@ export interface PageHistoryImportDeps {
 
 /** One page whose history failed to backfill — the `pageId`/`content` values it *would* have carried
  * either never left the process or landed in an earlier, already-committed chunk; either way, the
- * page itself (already created by `importPages()`) is unaffected, only its history is incomplete. */
+ * page itself (already created by `page-import.ts`) is unaffected, only its history is incomplete. */
 export interface PageHistoryImportFailure {
   oldId: number
   message: string
@@ -144,9 +143,8 @@ export interface PageHistoryImportResult {
    * from any earlier chunk of a page whose backfill later failed partway through. */
   inserted: number
   warnings: string[]
-  /** One entry per page whose `insertVersions()` call(s) threw — modelled on `page-import.ts`'s
-   * `PageImportFailure`, so one page's history failing does not lose the run's ability to report on
-   * every other page's. */
+  /** One entry per page whose `insertVersions()` call(s) threw, so one page's history failing does
+   * not lose the run's ability to report on every other page's. */
   failed: PageHistoryImportFailure[]
 }
 
@@ -320,8 +318,8 @@ function diffComparableStates(
  * resolved 3.0 UUID this row needs.
  *
  * `page` only needs `oldId` (used solely for warning context via `mapEditor`) and `history` — narrowed
- * to that pair rather than the full `StagedPage` so `backfillPageHistory` can reuse this for an
- * orphaned-history group too, which has no real `StagedPage` to hand in (see the module doc comment's
+ * to that pair rather than the full `StagedPage` so `backfillOrphanedPageHistory` can reuse this for
+ * an orphaned-history group too, which has no real `StagedPage` to hand in (see the module doc comment's
  * "Orphaned history" section).
  */
 export function buildPageHistoryRowsForPage(
@@ -384,7 +382,7 @@ function groupOrphanedHistoryBySourcePage(
 }
 
 /**
- * Backfills `pageHistory` for one already-created page — the per-page entry point `importPages()`
+ * Backfills `pageHistory` for one already-created page — the per-page entry point `page-import.ts`
  * (`page-import.ts`, Task #1818) calls immediately after its own `createPage()` call for that page,
  * so a large corpus's history lands page by page rather than all at once at the end of a run. Builds
  * the page's whole 2.x history chain as direct `pageHistory` inserts (see the module doc comment for
@@ -428,39 +426,25 @@ export async function backfillPageHistoryForPage(
 }
 
 /**
- * Batch form of `backfillPageHistoryForPage()`, for a caller holding a full `StagedPage[]` plus the
- * `pageIdMap` `importPages()` populated (e.g. a test, or any future caller that doesn't need the
- * per-page interleaving `importPages()` itself uses) — resolves each page's new id through `pageIdMap`
- * and folds every page's result together. A page absent from `pageIdMap` (one of
- * `PageImportResult.failed`, per `page-import.ts`) is skipped silently — there is no 3.0 page for its
- * history to attach to, and `importPages()` already reported why it failed.
+ * Backfills the `pageHistory` rows that have no live page to hang off — `pageHistory` rows whose
+ * `pageId` named no current 2.x page, staged separately by `content-staging.ts` — per the module doc
+ * comment's "Orphaned history" section: grouped by `sourcePageOldId`, each group gets one freshly
+ * synthesized `pageId` (`crypto.randomUUID()`) shared by every row in that group, and goes through
+ * the exact same `backfillPageHistoryForPage` a real page's history goes through — chunking and
+ * per-group failure isolation included.
  *
- * `orphanedHistory` — `pageHistory` rows whose `pageId` named no current 2.x page, staged separately
- * by `content-staging.ts` — is backfilled too, per the module doc comment's "Orphaned history"
- * section: grouped by `sourcePageOldId`, each group gets one freshly synthesized `pageId`
- * (`crypto.randomUUID()`) shared by every row in that group, and goes through the exact same
- * `backfillPageHistoryForPage` a real page's history goes through — chunking and per-group failure
- * isolation included.
+ * Every *live* page's own history is backfilled per-page, inline, as `page-import.ts` streams
+ * (`ImportPagesDeps.backfillHistory` → `backfillPageHistoryForPage`), so there is nothing left for
+ * this function to do about them.
  */
-export async function backfillPageHistory(
-  pages: StagedPage[],
+export async function backfillOrphanedPageHistory(
   orphanedHistory: OrphanedPageHistoryEntry[],
-  pageIdMap: IdMap<number>,
   siteId: string,
   deps: PageHistoryImportDeps
 ): Promise<PageHistoryImportResult> {
   const warnings: string[] = []
   const failed: PageHistoryImportFailure[] = []
   let inserted = 0
-
-  for (const page of pages) {
-    const newPageId = pageIdMap.get(page.oldId)
-    if (!newPageId) continue
-    const result = await backfillPageHistoryForPage(page, newPageId, siteId, deps)
-    inserted += result.inserted
-    warnings.push(...result.warnings)
-    failed.push(...result.failed)
-  }
 
   for (const [sourcePageOldId, entries] of groupOrphanedHistoryBySourcePage(orphanedHistory)) {
     const synthesizedPageId = crypto.randomUUID()

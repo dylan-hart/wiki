@@ -72,11 +72,6 @@ export interface AssetImportSuccess {
   warnings: string[]
 }
 
-export interface AssetImportResult {
-  succeeded: AssetImportSuccess[]
-  failed: AssetImportFailure[]
-}
-
 /**
  * Splits one `SourceAssetFile` into a folder path (`undefined` for a root-level asset) and the bare
  * file name.
@@ -210,23 +205,4 @@ export async function importAsset(
       failure: { relativePath, reason: 'upload-error', message: err.message }
     }
   }
-}
-
-/** Imports every asset file from the source, one at a time (never buffering more than one file's
- * bytes at once — see `importAsset`). Batch form for a caller (a test, or any future standalone use)
- * holding a whole `AsyncIterable` rather than driving it one record at a time — `phases/assets.ts`
- * drives `importAsset` directly, per-record, from its own `classify`. */
-export async function importAssets(
-  files: AsyncIterable<SourceAssetFile>,
-  deps: AssetImportDeps,
-  options: AssetImportOptions
-): Promise<AssetImportResult> {
-  const succeeded: AssetImportSuccess[] = []
-  const failed: AssetImportFailure[] = []
-  for await (const file of files) {
-    const outcome = await importAsset(file, deps, options)
-    if (outcome.result === 'success') succeeded.push(outcome.success)
-    else failed.push(outcome.failure)
-  }
-  return { succeeded, failed }
 }

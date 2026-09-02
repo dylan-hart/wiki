@@ -1,7 +1,6 @@
 import type { WikiDb } from '../core/db.ts'
 import type { SourceConnector } from './connector.ts'
 import type { SystemGroupIds } from './importers/users-groups.ts'
-import type { IdMap } from './id-map.ts'
 import type { PhaseReport } from './report.ts'
 
 /**
@@ -82,7 +81,7 @@ export interface MigrationContext {
    * assets/comments phase (Task 16, `dependsOn: ['content']`) to resolve a staged asset/comment's
    * owning page. Optional for the same reason `userIdMap` is: it does not exist before the `content`
    * phase has run. */
-  pageIdMap?: IdMap<number>
+  pageIdMap?: Map<number, string>
 }
 
 /** One phase in the sequence, plus the dependency ids it declares for documentation and future

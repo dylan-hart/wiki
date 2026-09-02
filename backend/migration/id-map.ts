@@ -1,57 +1,18 @@
 /**
- * Generic old-id → new-UUID lookup, the shape every importer feature needs at least once —
+ * Old-id → new-UUID resolution for the 2.5.x import —
  * `docs/migration/2.5x-to-3.0-mapping.md`'s "Read this first" point 1: every legacy integer/string PK
  * becomes a fresh UUID, so an importer needs an old-id → new-UUID table per 2.x entity for the whole
- * run.
- *
- * A map instance is deliberately mutable and built incrementally, because the entity that actually
- * creates the 3.0 row (e.g. `createPage()`) is what learns the new UUID — generally in a task
- * downstream of whichever task owns extraction. This class is the shared contract between the two:
- * the extraction side (this feature's Task 733) hands back one `IdMap` per entity kind, a later write
- * step calls `set()` as each row is actually created, and anything needing to resolve a reference
- * (e.g. `pageHistory.pageId`) calls `get()`/`resolve()` once that has happened.
+ * run. Those tables are plain `Map<number, string>` instances, built incrementally by whichever
+ * importer actually creates the 3.0 row (e.g. `createPage()`) and read by anything resolving a
+ * reference against them (e.g. `pageHistory.pageId`).
  */
-export class IdMap<TOldId = number> {
-  private readonly byOldId = new Map<TOldId, string>()
-
-  /** Records the new UUID a 3.0 row got for `oldId`. Overwrites any previous mapping for the same id. */
-  set(oldId: TOldId, newId: string): void {
-    this.byOldId.set(oldId, newId)
-  }
-
-  has(oldId: TOldId): boolean {
-    return this.byOldId.has(oldId)
-  }
-
-  /** Looks up the mapped UUID, or `undefined` if `oldId` has not been mapped (yet, or ever). */
-  get(oldId: TOldId): string | undefined {
-    return this.byOldId.get(oldId)
-  }
-
-  /** Same as `get()`, but throws instead of returning `undefined` — for call sites where a missing
-   * mapping is a bug in run ordering rather than a value to handle. */
-  resolve(oldId: TOldId): string {
-    const newId = this.byOldId.get(oldId)
-    if (newId === undefined) {
-      throw new Error(`No new-UUID mapping for old id "${String(oldId)}".`)
-    }
-    return newId
-  }
-
-  get size(): number {
-    return this.byOldId.size
-  }
-
-  entries(): IterableIterator<[TOldId, string]> {
-    return this.byOldId.entries()
-  }
-}
 
 /**
  * The read-only contract this feature consumes from #414 (Users, Groups & Permissions): an old 2.x
  * `users.id` resolved to whatever UUID the user importer created for it. #414 owns building the real
- * instance — `IdMap<number>` already satisfies this structurally, so #414's own map can be passed in
- * here directly once it exists; a fixture/fake is enough for this feature's own unit coverage.
+ * instance — `Map<number, string>` already satisfies this structurally, so #414's own map can be
+ * passed in here directly once it exists; a fixture/fake is enough for this feature's own unit
+ * coverage.
  */
 export interface UserIdMap {
   get(oldUserId: number): string | undefined

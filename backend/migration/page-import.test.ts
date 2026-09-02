@@ -7,11 +7,11 @@ import {
   createPageImporter,
   derivePublishState,
   describePrivacyWarning,
-  importPages,
   mapEditor,
   type ImportPagesDeps,
   type ImportPagesOptions,
-  type PageImportResult,
+  type PageImportFailureReason,
+  type PageImportSuccess,
   type PagesWriteModel
 } from './page-import.ts'
 
@@ -21,7 +21,6 @@ function buildStagedPage(overrides: Partial<StagedPage> = {}): StagedPage {
     path: 'welcome',
     locale: 'en',
     title: 'Welcome',
-    hash: 'hash-1',
     description: null,
     content: '# Welcome',
     render: '<h1>Welcome</h1>',
@@ -39,16 +38,13 @@ function buildStagedPage(overrides: Partial<StagedPage> = {}): StagedPage {
     tags: [],
     authorId: 'actor-1',
     creatorId: 'actor-1',
-    sourceAuthorId: null,
-    sourceCreatorId: null,
-    localeSiblingOldIds: [],
     history: [],
     ...overrides
   }
 }
 
 /** In-memory fake standing in for `WIKI.models.pages` — records every call so tests can assert on
- * what `importPages` actually sent it, without touching a database. */
+ * what the importer actually sent it, without touching a database. */
 class FakePagesModel implements PagesWriteModel {
   created: { siteId: string; input: PageInput; actor: PageActor }[] = []
   queued: { siteId: string; id: string; actor: PageActor }[] = []
@@ -110,16 +106,37 @@ class FakePagesModel implements PagesWriteModel {
 
 const noExistingEntries = () => false
 
-async function* toAsyncIterable(pages: StagedPage[]): AsyncGenerator<StagedPage> {
-  yield* pages
+/** What `runImport()` folds a whole run's per-page outcomes back into, so a test can assert against
+ * the run as a whole rather than call-by-call. */
+interface ImportRun {
+  succeeded: PageImportSuccess[]
+  failed: { oldId: number; reason: PageImportFailureReason; message: string }[]
+  /** Every succeeded page's warnings, flattened in processing order. */
+  warnings: string[]
+  pageIdMap: Map<number, string>
 }
 
-function runImportPages(
+/** Drives `createPageImporter()` over a whole page list one `importOne()` call at a time — exactly
+ * what `phases/content.ts` does per record — and collects the run's outcomes. */
+async function runImport(
   pages: StagedPage[],
   deps: ImportPagesDeps,
   options: ImportPagesOptions
-): Promise<PageImportResult> {
-  return importPages(toAsyncIterable(pages), deps, options)
+): Promise<ImportRun> {
+  const importer = createPageImporter(deps, options)
+  const failed: ImportRun['failed'] = []
+  for (const staged of pages) {
+    const outcome = await importer.importOne(staged)
+    if (outcome.status === 'failed') {
+      failed.push({ oldId: staged.oldId, reason: outcome.reason, message: outcome.message })
+    }
+  }
+  return {
+    succeeded: importer.succeeded,
+    failed,
+    warnings: importer.succeeded.flatMap((page) => page.warnings),
+    pageIdMap: importer.pageIdMap
+  }
 }
 
 describe('derivePublishState', () => {
@@ -264,7 +281,7 @@ describe('describePrivacyWarning', () => {
   })
 })
 
-describe('importPages', () => {
+describe('per-page import', () => {
   test('creates a page via createPage() with mapped fields', async () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({
@@ -278,7 +295,7 @@ describe('importPages', () => {
       isPublished: true
     })
 
-    const result = await runImportPages(
+    const result = await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: ['write:scripts', 'write:styles'] }
@@ -315,7 +332,7 @@ describe('importPages', () => {
       updatedAt: '2020-09-15T09:30:00.000Z'
     })
 
-    await runImportPages(
+    await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -329,7 +346,7 @@ describe('importPages', () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ createdAt: 'not-a-date', updatedAt: '' })
 
-    await runImportPages(
+    await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -346,7 +363,7 @@ describe('importPages', () => {
       publishEndDate: '2024-01-01T00:00:00.000Z'
     })
 
-    const result = await runImportPages(
+    const result = await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -369,7 +386,7 @@ describe('importPages', () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ publishStartDate: null, publishEndDate: null })
 
-    const result = await runImportPages(
+    const result = await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -390,7 +407,7 @@ describe('importPages', () => {
       publishEndDate: '2024-06-01T00:00:00.000Z'
     })
 
-    await runImportPages(
+    await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -404,7 +421,7 @@ describe('importPages', () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ oldId: 1, authorId: 'editor-uuid', creatorId: 'creator-uuid' })
 
-    const result = await runImportPages(
+    const result = await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -420,7 +437,7 @@ describe('importPages', () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ render: '<p>from 2.x</p>' })
 
-    await runImportPages(
+    await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -434,7 +451,7 @@ describe('importPages', () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ editorKey: 'markdown', render: '<p>stale 2.x render</p>' })
 
-    const result = await runImportPages(
+    const result = await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [], renderBootstrap: 'queue' }
@@ -454,7 +471,7 @@ describe('importPages', () => {
       render: '<p>from 2.x</p>'
     })
 
-    const result = await runImportPages(
+    const result = await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [], renderBootstrap: 'queue' }
@@ -469,7 +486,7 @@ describe('importPages', () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ isPrivate: true, privateNS: 'secret-team' })
 
-    const result = await runImportPages(
+    const result = await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -484,7 +501,7 @@ describe('importPages', () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ oldId: 5, path: 'taken' })
 
-    const result = await runImportPages(
+    const result = await runImport(
       [staged],
       { pagesModel, existingEntry: () => true },
       { siteId: 'site-1', actorPermissions: [] }
@@ -502,7 +519,7 @@ describe('importPages', () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ oldId: 6, path: '' })
 
-    const result = await runImportPages(
+    const result = await runImport(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -521,7 +538,7 @@ describe('importPages', () => {
       buildStagedPage({ oldId: 2, path: 'second-page' })
     ]
 
-    const result = await runImportPages(
+    const result = await runImport(
       pages,
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -538,17 +555,16 @@ describe('importPages', () => {
   })
 
   test('sibling-collision: streaming is single-pass, so the earlier page is already created by the time the later, colliding one is discovered — only the later one fails', async () => {
-    // -> Streaming importPages() cannot fail both sides of a collision the way a batch assignTreePaths()
-    //    call could: by the time "foobar" is seen to collide with "FooBar", "FooBar" has already been
-    //    created. See the module doc comment's "Streaming input and per-page sibling-collision
-    //    detection".
+    // -> A single-pass stream cannot fail both sides of a collision: by the time "foobar" is seen to
+    //    collide with "FooBar", "FooBar" has already been created. See the module doc comment's
+    //    "Streaming input and per-page sibling-collision detection".
     const pagesModel = new FakePagesModel()
     const pages = [
       buildStagedPage({ oldId: 1, path: 'FooBar' }),
       buildStagedPage({ oldId: 2, path: 'foobar' })
     ]
 
-    const result = await runImportPages(
+    const result = await runImport(
       pages,
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -560,33 +576,6 @@ describe('importPages', () => {
     assert.equal(result.failed.length, 1)
     assert.equal(result.failed[0].oldId, 2)
     assert.equal(result.failed[0].reason, 'sibling-collision')
-  })
-
-  test('consumes pages from an AsyncIterable, never materializing them into an array itself', async () => {
-    // -> A plain array satisfies AsyncIterable's *type* trivially; this asserts importPages() actually
-    //    pulls one page at a time from a real generator rather than requiring (or silently relying on)
-    //    array-only behavior like `.map()`/`.length` anywhere in its own body.
-    const pagesModel = new FakePagesModel()
-    const staged = [
-      buildStagedPage({ oldId: 1, path: 'one' }),
-      buildStagedPage({ oldId: 2, path: 'two' })
-    ]
-    let pulled = 0
-    async function* source(): AsyncGenerator<StagedPage> {
-      for (const page of staged) {
-        pulled++
-        yield page
-      }
-    }
-
-    const result = await importPages(
-      source(),
-      { pagesModel, existingEntry: noExistingEntries },
-      { siteId: 'site-1', actorPermissions: [] }
-    )
-
-    assert.equal(result.succeeded.length, 2)
-    assert.equal(pulled, 2)
   })
 
   test("with backfillHistory wired, a page's history is backfilled immediately after it is created — before the next page is even staged", async () => {
@@ -612,15 +601,13 @@ describe('importPages', () => {
       return { inserted: 1, warnings: [], failed: [] }
     }
 
-    await importPages(
-      source(),
-      {
-        pagesModel,
-        existingEntry: noExistingEntries,
-        backfillHistory
-      },
+    const importer = createPageImporter(
+      { pagesModel, existingEntry: noExistingEntries, backfillHistory },
       { siteId: 'site-1', actorPermissions: [] }
     )
+    for await (const page of source()) {
+      await importer.importOne(page)
+    }
 
     // -> Page 1's history landed before page 2 was even pulled off the generator.
     assert.deepEqual(order, ['staged:1', 'history:1:page-1', 'staged:2', 'history:2:page-2'])
@@ -644,8 +631,8 @@ describe('importPages', () => {
       return { inserted: 1, warnings: [], failed: [] }
     }
 
-    const result = await importPages(
-      toAsyncIterable(staged),
+    const result = await runImport(
+      staged,
       {
         pagesModel,
         existingEntry: noExistingEntries,
@@ -674,7 +661,7 @@ describe('importPages', () => {
     const pagesModel = new FakePagesModel()
     const staged = [buildStagedPage({ oldId: 1, path: 'one' })]
 
-    const result = await runImportPages(
+    const result = await runImport(
       staged,
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -697,7 +684,6 @@ describe('createPageImporter', () => {
     await importer.importOne(buildStagedPage({ oldId: 2, path: 'two' }))
 
     assert.equal(importer.succeeded.length, 2)
-    assert.equal(importer.failed.length, 0)
     assert.equal(importer.pageIdMap.size, 2)
     assert.equal(importer.pageIdMap.get(1), 'page-1')
     assert.equal(importer.pageIdMap.get(2), 'page-2')
@@ -716,24 +702,20 @@ describe('createPageImporter', () => {
     )
 
     await importer.importOne(buildStagedPage({ oldId: 1, path: 'FooBar' }))
-    await importer.importOne(buildStagedPage({ oldId: 2, path: 'foobar' }))
+    const outcome = await importer.importOne(buildStagedPage({ oldId: 2, path: 'foobar' }))
 
     assert.equal(pagesModel.created.length, 1)
     assert.equal(importer.succeeded.length, 1)
     assert.equal(importer.succeeded[0].oldId, 1)
-    assert.equal(importer.failed.length, 1)
-    assert.equal(importer.failed[0].oldId, 2)
-    assert.equal(importer.failed[0].reason, 'sibling-collision')
+    assert.equal(outcome.status, 'failed')
+    assert.equal((outcome as { reason: string }).reason, 'sibling-collision')
   })
 
-  describe('importOne() return value (Task 13 proactive fix)', () => {
-    // -> Before this fix, importOne() returned Promise<void> and never threw for a bad page (a
-    //    sibling-collision, an existing-entry-collision, a createPage() error — all folded into
-    //    failed[] internally instead), the exact same shape the pre-fix users/groups importers had.
-    //    A caller that blindly wrapped importOne() as recorder.create()'s own write callback (the way
-    //    phases/users.ts originally wrapped its own per-record importOne() calls, before its review
-    //    fix) would misreport every failed page as a successful wouldCreate. These assertions are
-    //    what phases/content.ts's routePageOutcome() now routes on.
+  describe('importOne() return value', () => {
+    // -> importOne() never throws for a bad page (a sibling-collision, an existing-entry-collision, a
+    //    createPage() error), so a caller that blindly wrapped it as recorder.create()'s own write
+    //    callback would misreport every failed page as a successful wouldCreate. These assertions are
+    //    what phases/content.ts's routePageOutcome() routes on.
     test('resolves { status: "created", pageId } on success, matching pageIdMap and succeeded[]', async () => {
       const pagesModel = new FakePagesModel()
       const importer = createPageImporter(

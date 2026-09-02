@@ -2,7 +2,6 @@ import { NotYetImplementedError } from '../connector.ts'
 import { createRecorder } from '../recorder.ts'
 import { emptyPhaseReport } from '../report.ts'
 import type { WriteRecorder } from '../recorder.ts'
-import type { UnmappableEntry } from '../report.ts'
 import type { MigrationContext, MigrationPhase, MigrationPhaseId, PhaseResult } from '../context.ts'
 
 /**
@@ -112,14 +111,6 @@ export function definePhase(config: {
   label: string
   dependsOn: MigrationPhaseId[]
   entities: (ctx: MigrationContext) => Record<string, PhaseEntity>
-  /** Unmappable entries that hold regardless of what the source connector can read yet — a fact about
-   * this codebase's schema, not about any particular record read off the source. The assets phase used
-   * to pass one here ("comments have no destination table"), before Task 16 built comments a real
-   * `models/comments.ts#create()` import path — no phase currently supplies one, but the mechanism
-   * stays for the next entity that turns out to have no 3.0 destination (see `../report.ts`'s
-   * `UnmappableReason` doc comment on `'no-destination-table'`). Always included in
-   * `report.unmappable` on a successful or partially-implemented run. */
-  staticUnmappable?: UnmappableEntry[]
 }): MigrationPhase {
   return {
     id: config.id,
@@ -164,7 +155,7 @@ export function definePhase(config: {
           wouldCreate: snapshot.wouldCreate,
           wouldSkipExisting: snapshot.wouldSkipExisting,
           conflicts: snapshot.conflicts,
-          unmappable: [...snapshot.unmappable, ...(config.staticUnmappable ?? [])]
+          unmappable: snapshot.unmappable
         }
         if (notImplemented.length > 0) {
           return {

@@ -278,14 +278,16 @@ describe('mapStorageRows: per-site replay, no cross-call state', () => {
     const resultA = await mapStorageRows(rows, { resolver: res, siteId: SITE_A })
     const resultB = await mapStorageRows(rows, { resolver: res, siteId: SITE_B })
 
-    assert.equal(resultA.updates.length, 2)
-    assert.equal(resultB.updates.length, 2)
-    assert.ok(resultA.updates.every((u) => u.siteId === SITE_A))
-    assert.ok(resultB.updates.every((u) => u.siteId === SITE_B))
+    const updatesA = resultA.results.map((r) => r.update!)
+    const updatesB = resultB.results.map((r) => r.update!)
+    assert.equal(updatesA.length, 2)
+    assert.equal(updatesB.length, 2)
+    assert.ok(updatesA.every((u) => u.siteId === SITE_A))
+    assert.ok(updatesB.every((u) => u.siteId === SITE_B))
     // -> Identical config on both sides: nothing about site A's replay affected site B's
     assert.deepEqual(
-      resultA.updates.map((u) => u.values.config),
-      resultB.updates.map((u) => u.values.config)
+      updatesA.map((u) => u.values.config),
+      updatesB.map((u) => u.values.config)
     )
   })
 })

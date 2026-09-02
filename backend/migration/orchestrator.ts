@@ -16,27 +16,16 @@ export interface RunMigrationOptions {
  * covering every phase that ran, which is what makes `--only` a useful way to retry just the phase
  * that failed instead of re-running everything.
  *
- * @throws synchronously, before any phase runs, if `options.only` names a phase id not present in
- * `phases` — a typo in `--only` should fail fast, not silently run zero phases.
+ * `options.only` is already validated against `MIGRATION_PHASE_IDS` by `cli.ts`'s `parseOnly()`, so an
+ * unknown id never reaches here.
  */
 export async function runMigration(
   phases: MigrationPhase[],
   ctx: MigrationContext,
   options: RunMigrationOptions = {}
 ): Promise<PhaseResult[]> {
-  const knownIds = phases.map((phase) => phase.id)
   const { only } = options
-
-  let selected = phases
-  if (only) {
-    const unknown = only.filter((id) => !knownIds.includes(id))
-    if (unknown.length > 0) {
-      throw new Error(
-        `Unknown phase(s) in --only: ${unknown.join(', ')}. Known phases: ${knownIds.join(', ')}.`
-      )
-    }
-    selected = phases.filter((phase) => only.includes(phase.id))
-  }
+  const selected = only ? phases.filter((phase) => only.includes(phase.id)) : phases
 
   const results: PhaseResult[] = []
   for (const phase of selected) {

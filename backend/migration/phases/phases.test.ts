@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
 import { describe, test } from 'node:test'
 import { NotYetImplementedError } from '../connector.ts'
-import { IdMap } from '../id-map.ts'
 import { assetsPhase } from './assets.ts'
 import { contentPhase } from './content.ts'
 import { settingsPhase } from './settings.ts'
@@ -332,7 +331,7 @@ describe('migration phases', () => {
   })
 
   test('assetsPhase (Task 16): a working connector with a genuinely importable asset and comments reports ok, correctly distinguishing success from failure per record', async () => {
-    const pageIdMap = new IdMap<number>()
+    const pageIdMap = new Map<number, string>()
     pageIdMap.set(100, 'fixture-page-uuid')
     const result = await assetsPhase.run({
       ...contextWith(creatableAssetsConnector()),

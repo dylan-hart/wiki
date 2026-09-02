@@ -5,9 +5,8 @@ import type {
   StagedPage,
   StagedPageHistoryEntry
 } from './content-staging.ts'
-import { IdMap } from './id-map.ts'
 import {
-  backfillPageHistory,
+  backfillOrphanedPageHistory,
   backfillPageHistoryForPage,
   buildPageHistoryRowsForPage,
   mapHistoryAction,
@@ -48,7 +47,6 @@ function buildStagedPage(overrides: Partial<StagedPage> = {}): StagedPage {
     path: 'welcome',
     locale: 'en',
     title: 'Welcome',
-    hash: 'hash-1',
     description: null,
     content: '# Welcome, current',
     render: '<h1>Welcome, current</h1>',
@@ -66,9 +64,6 @@ function buildStagedPage(overrides: Partial<StagedPage> = {}): StagedPage {
     tags: [],
     authorId: 'user-1',
     creatorId: 'user-1',
-    sourceAuthorId: 1,
-    sourceCreatorId: 1,
-    localeSiblingOldIds: [],
     history: [],
     ...overrides
   }
@@ -285,97 +280,6 @@ describe('buildPageHistoryRowsForPage', () => {
   })
 })
 
-describe('backfillPageHistory', () => {
-  test('inserts rows only for pages present in pageIdMap, skipping import failures', () => {
-    const created = buildStagedPage({ oldId: 1, history: [buildHistoryEntry({ oldId: 100 })] })
-    const failed = buildStagedPage({ oldId: 2, history: [buildHistoryEntry({ oldId: 200 })] })
-    const pageIdMap = new IdMap<number>()
-    pageIdMap.set(1, 'new-page-1')
-    // -> Page 2 never got created, so it has no entry in pageIdMap.
-
-    const deps = new FakePageHistoryWriteModel()
-    return backfillPageHistory([created, failed], [], pageIdMap, 'site-1', deps).then((result) => {
-      assert.equal(result.inserted, 1)
-      assert.deepEqual(result.failed, [])
-      assert.equal(deps.inserted.length, 1)
-      assert.equal(deps.inserted[0].length, 1)
-      assert.equal(deps.inserted[0][0].pageId, 'new-page-1')
-    })
-  })
-
-  test('skips pages with no history entirely, without calling insertVersions for them', async () => {
-    const noHistory = buildStagedPage({ oldId: 1, history: [] })
-    const pageIdMap = new IdMap<number>()
-    pageIdMap.set(1, 'new-page-1')
-
-    const deps = new FakePageHistoryWriteModel()
-    const result = await backfillPageHistory([noHistory], [], pageIdMap, 'site-1', deps)
-
-    assert.equal(result.inserted, 0)
-    assert.equal(deps.inserted.length, 0)
-  })
-
-  test('calls insertVersions once per page, interleaved rather than batched across the whole run', async () => {
-    const pageA = buildStagedPage({
-      oldId: 1,
-      history: [buildHistoryEntry({ oldId: 100 }), buildHistoryEntry({ oldId: 101 })]
-    })
-    const pageB = buildStagedPage({ oldId: 2, history: [buildHistoryEntry({ oldId: 200 })] })
-    const pageIdMap = new IdMap<number>()
-    pageIdMap.set(1, 'new-page-1')
-    pageIdMap.set(2, 'new-page-2')
-
-    const deps = new FakePageHistoryWriteModel()
-    const result = await backfillPageHistory([pageA, pageB], [], pageIdMap, 'site-1', deps)
-
-    assert.equal(result.inserted, 3)
-    // -> One insertVersions call per page (each well under the chunk size), not one call for the
-    //    whole run — see backfillPageHistoryForPage below for the per-page entry point this delegates
-    //    to, and the chunking test for what happens above the chunk size.
-    assert.equal(deps.inserted.length, 2)
-    assert.equal(deps.inserted[0].length, 2)
-    assert.equal(deps.inserted[1].length, 1)
-  })
-
-  test("one page's insertVersions rejection is reported as a per-page failure while other pages still land", async () => {
-    const okPage = buildStagedPage({ oldId: 1, history: [buildHistoryEntry({ oldId: 100 })] })
-    const badPage = buildStagedPage({ oldId: 2, history: [buildHistoryEntry({ oldId: 200 })] })
-    const alsoOkPage = buildStagedPage({ oldId: 3, history: [buildHistoryEntry({ oldId: 300 })] })
-    const pageIdMap = new IdMap<number>()
-    pageIdMap.set(1, 'new-page-1')
-    pageIdMap.set(2, 'new-page-2')
-    pageIdMap.set(3, 'new-page-3')
-
-    const deps = new FakePageHistoryWriteModel()
-    const originalInsert = deps.insertVersions.bind(deps)
-    deps.insertVersions = async (rows: PageHistoryInsertRow[]) => {
-      if (rows[0]?.pageId === 'new-page-2') {
-        throw new Error('constraint violation')
-      }
-      return originalInsert(rows)
-    }
-
-    const result = await backfillPageHistory(
-      [okPage, badPage, alsoOkPage],
-      [],
-      pageIdMap,
-      'site-1',
-      deps
-    )
-
-    assert.equal(result.failed.length, 1)
-    assert.equal(result.failed[0].oldId, 2)
-    assert.match(result.failed[0].message, /constraint violation/)
-    // -> Both the page before and the page after the failing one still landed.
-    assert.equal(result.inserted, 2)
-    assert.equal(deps.inserted.length, 2)
-    assert.deepEqual(
-      deps.inserted.map((rows) => rows[0].pageId),
-      ['new-page-1', 'new-page-3']
-    )
-  })
-})
-
 describe('backfillPageHistoryForPage', () => {
   test('chunks a single page above HISTORY_INSERT_CHUNK_SIZE into more than one insertVersions call', async () => {
     const bigHistory = Array.from({ length: 12000 }, (_, i) =>
@@ -441,10 +345,8 @@ describe('backfillPageHistoryForPage', () => {
         action: 'deleted'
       })
     ]
-    const pageIdMap = new IdMap<number>()
-
     const deps = new FakePageHistoryWriteModel()
-    return backfillPageHistory([], orphaned, pageIdMap, 'site-1', deps).then((result) => {
+    return backfillOrphanedPageHistory(orphaned, 'site-1', deps).then((result) => {
       assert.equal(result.inserted, 2)
       const [row0, row1] = deps.inserted[0]
       // -> Both rows for the same deleted 2.x page share one synthesized pageId ...
@@ -461,33 +363,14 @@ describe('backfillPageHistoryForPage', () => {
       buildOrphanedHistoryEntry({ oldId: 500, sourcePageOldId: 900 }),
       buildOrphanedHistoryEntry({ oldId: 600, sourcePageOldId: 901 })
     ]
-    const pageIdMap = new IdMap<number>()
-
     const deps = new FakePageHistoryWriteModel()
-    const result = await backfillPageHistory([], orphaned, pageIdMap, 'site-1', deps)
+    const result = await backfillOrphanedPageHistory(orphaned, 'site-1', deps)
 
     assert.equal(result.inserted, 2)
     // -> Each orphaned source page goes through its own backfillPageHistoryForPage call (and
     //    therefore its own insertVersions call), the same way two real pages are isolated from
-    //    each other — see the "own separate insertVersions calls" test below.
+    //    each other.
     assert.equal(deps.inserted.length, 2)
     assert.notEqual(deps.inserted[0][0].pageId, deps.inserted[1][0].pageId)
-  })
-
-  test('gives ordinary page history and an orphaned group their own separate insertVersions calls', async () => {
-    const page = buildStagedPage({ oldId: 1, history: [buildHistoryEntry({ oldId: 100 })] })
-    const orphaned = [buildOrphanedHistoryEntry({ oldId: 500, sourcePageOldId: 900 })]
-    const pageIdMap = new IdMap<number>()
-    pageIdMap.set(1, 'new-page-1')
-
-    const deps = new FakePageHistoryWriteModel()
-    const result = await backfillPageHistory([page], orphaned, pageIdMap, 'site-1', deps)
-
-    assert.equal(result.inserted, 2)
-    // -> One insertVersions call for the real page, one for the orphaned group — never batched
-    //    together into a single call, same chunking/isolation guarantee as two real pages.
-    assert.equal(deps.inserted.length, 2)
-    assert.equal(deps.inserted[0].length, 1)
-    assert.equal(deps.inserted[1].length, 1)
   })
 })

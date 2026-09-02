@@ -538,7 +538,7 @@ function pagePath(record: SourceRecord): string | undefined {
 }
 
 /** Normalizes a raw 2.x source path into the 3.0 tree path an import would have actually placed it
- * at — the same `normalizeMigratedPath` fold (lowercase, `_` → `-`) `assignTreePaths` applies to
+ * at — the same `normalizeMigratedPath` fold (lowercase, `_` → `-`) `page-import.ts` applies to
  * every imported page. Returns `undefined` when the path doesn't normalize to anything valid (in
  * which case the page was never importable in the first place, so there is nothing to look up). */
 function destinationLookupPath(rawPath: string): string | undefined {

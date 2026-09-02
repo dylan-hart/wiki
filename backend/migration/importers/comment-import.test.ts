@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { IdMap } from '../id-map.ts'
-import { importComment, importComments } from './comment-import.ts'
+import { importComment } from './comment-import.ts'
 import type { SourceRecord } from '../connector.ts'
 import type {
   CommentImportDeps,
@@ -30,11 +29,11 @@ class FakeCommentsModel implements CommentsWriteModel {
 }
 
 function buildOptions(overrides: Partial<CommentImportOptions> = {}): CommentImportOptions {
-  const pageIdMap = overrides.pageIdMap ?? new IdMap<number>()
+  const pageIdMap = overrides.pageIdMap ?? new Map<number, string>()
   return {
     siteId: SITE_ID,
     pageIdMap,
-    userIdMap: overrides.userIdMap ?? new IdMap<number>(),
+    userIdMap: overrides.userIdMap ?? new Map<number, string>(),
     ...overrides
   }
 }
@@ -73,7 +72,7 @@ describe('importComment', () => {
   test('a guest comment (authorId null) writes guestName/guestEmail/guestIp and no authorId', async () => {
     const commentsModel = new FakeCommentsModel()
     const deps: CommentImportDeps = { commentsModel }
-    const pageIdMap = new IdMap<number>()
+    const pageIdMap = new Map<number, string>()
     pageIdMap.set(100, 'page-uuid-100')
     const raw: SourceRecord = {
       id: 1,
@@ -100,9 +99,9 @@ describe('importComment', () => {
   test('a registered author resolves authorId and omits guest fields', async () => {
     const commentsModel = new FakeCommentsModel()
     const deps: CommentImportDeps = { commentsModel }
-    const pageIdMap = new IdMap<number>()
+    const pageIdMap = new Map<number, string>()
     pageIdMap.set(100, 'page-uuid-100')
-    const userIdMap = new IdMap<number>()
+    const userIdMap = new Map<number, string>()
     userIdMap.set(42, 'user-uuid-42')
     const raw: SourceRecord = {
       id: 1,
@@ -126,7 +125,7 @@ describe('importComment', () => {
   test('a registered author whose id has no entry in the user id map becomes a guest-shaped comment, not misattributed to the operator', async () => {
     const commentsModel = new FakeCommentsModel()
     const deps: CommentImportDeps = { commentsModel }
-    const pageIdMap = new IdMap<number>()
+    const pageIdMap = new Map<number, string>()
     pageIdMap.set(100, 'page-uuid-100')
     const raw: SourceRecord = {
       id: 1,
@@ -146,7 +145,7 @@ describe('importComment', () => {
     const commentsModel = new FakeCommentsModel()
     commentsModel.failNextCreate = 'Comment content must be at least 2 characters.'
     const deps: CommentImportDeps = { commentsModel }
-    const pageIdMap = new IdMap<number>()
+    const pageIdMap = new Map<number, string>()
     pageIdMap.set(100, 'page-uuid-100')
     const raw: SourceRecord = { id: 1, pageId: 100, authorId: null, content: 'x' }
 
@@ -157,30 +156,5 @@ describe('importComment', () => {
       assert.equal(outcome.failure.reason, 'create-error')
       assert.match(outcome.failure.message, /at least 2 characters/)
     }
-  })
-})
-
-describe('importComments', () => {
-  test('aggregates multiple importComment() outcomes, including droppedForMissingPage', async () => {
-    const commentsModel = new FakeCommentsModel()
-    const deps: CommentImportDeps = { commentsModel }
-    const pageIdMap = new IdMap<number>()
-    pageIdMap.set(100, 'page-uuid-100')
-
-    async function* comments(): AsyncGenerator<SourceRecord> {
-      yield { id: 1, pageId: 100, authorId: null, content: 'On an imported page' }
-      yield { id: 2, pageId: 999, authorId: null, content: 'On a page never imported' }
-      yield { id: 3, pageId: 999, authorId: null, content: 'Another orphan' }
-    }
-
-    const result = await importComments(comments(), deps, buildOptions({ pageIdMap }))
-
-    assert.equal(result.succeeded.length, 1)
-    assert.equal(result.failed.length, 2)
-    assert.equal(result.droppedForMissingPage, 2)
-    assert.deepEqual(
-      result.failed.map((f) => f.reason),
-      ['unknown-page', 'unknown-page']
-    )
   })
 })
