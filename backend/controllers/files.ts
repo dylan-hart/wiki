@@ -2,6 +2,7 @@ import { dispositionFor } from '../models/assets.ts'
 import { mayOnAsset } from '../helpers/pageAccess.ts'
 import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
 import { guardSiteEnabled } from '../helpers/common.ts'
+import { notModifiedOrPrepare } from '../helpers/httpCache.ts'
 import { needsSvgCsp, SVG_CSP } from '../helpers/security.ts'
 import type { FastifyInstance } from 'fastify'
 
@@ -67,14 +68,12 @@ async function routes(app: FastifyInstance) {
       The ID and the timestamp together, because either one alone lies: a file replaced at the same
       path is a different asset under the same URL, and one edited in place keeps its ID.
     */
+    // -> `notModifiedOrPrepare` also sends `X-Content-Type-Options: nosniff`: the bytes came from a
+    //    user, so the browser must take the type at its word rather than looking for something more
+    //    interesting in them
     const etag = `"${asset.id}-${asset.updatedAt.getTime()}"`
-    reply.header('ETag', etag)
-    reply.header('Cache-Control', FILE_CACHE)
-    // -> The bytes came from a user, so the browser must take the type at its word rather than
-    //    looking for something more interesting in them
-    reply.header('X-Content-Type-Options', 'nosniff')
-    if (req.headers['if-none-match'] === etag) {
-      return reply.code(304).send()
+    if (notModifiedOrPrepare(req, reply, { etag, cacheControl: FILE_CACHE })) {
+      return
     }
 
     const content = await WIKI.models.assets.readContent(asset, site.id)

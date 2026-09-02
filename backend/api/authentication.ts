@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid'
-import { normalizeHostname } from '../helpers/common.ts'
+import { siteIdForHostname } from '../helpers/common.ts'
 import { AccountRateLimitedError, limitAuthAttempts } from '../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
 import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
@@ -1004,7 +1004,10 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('There is no such login provider.')
       }
 
-      const siteId = req.query.siteId ?? WIKI.sitesMappings[normalizeHostname(req.hostname)] ?? ''
+      // -> `strict`, so an unmatched hostname stays the empty string this has always recorded rather
+      //    than becoming the `*` catch-all's id: the flow records which site the login was started
+      //    from, and "none identified" is a meaningful answer here
+      const siteId = req.query.siteId ?? siteIdForHostname(req.hostname, { strict: true }) ?? ''
       const flow = {
         strategyId: strategy.id,
         siteId,

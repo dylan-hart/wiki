@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { and, count, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import { uniq } from 'es-toolkit/array'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
-import { CustomError, normalizePagePath } from '../helpers/common.ts'
+import { CustomError, escapeLikePattern, normalizePagePath } from '../helpers/common.ts'
 import { clearPageRuleRegexCache, resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { resolveSiteRule, ruleMatchesSite } from '../helpers/siteRules.ts'
 import type { SystemIds } from './types.ts'
@@ -126,15 +126,6 @@ export interface GroupUser {
 export interface GroupUserPage {
   total: number
   users: GroupUser[]
-}
-
-/**
- * Escape the LIKE wildcards `%` and `_` (and the escape character itself) so that a user-supplied
- * filter is matched literally. Values are still parameterized by the driver — this is about a `%`
- * in the filter silently matching everything, not about injection.
- */
-function escapeLikePattern(value: string): string {
-  return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
 }
 
 const groupSelection = {
@@ -791,6 +782,34 @@ class Groups {
       .groupBy(groupsTable.id)
       .orderBy(groupsTable.name)
     return results as GroupWithUserCount[]
+  }
+
+  /**
+   * Whether any of the given ids does not name a real group on this instance.
+   *
+   * The one owner of "are these real group ids", asked from three places that each had their own
+   * spelling: assigning a user's groups (`api/users.ts`), naming the groups an API key draws its
+   * permissions from (`api/apiKeys.ts`), and naming an approval rule's submitter/reviewer groups
+   * (`api/approvals.ts`, which asked `models/approvals.ts` for the unknown ids and then only ever
+   * checked whether the list was empty).
+   *
+   * A route handler asks this because `setUserGroups` and friends resolve their input with `inArray`
+   * and silently keep only the rows that came back — deliberately lenient there, since IdP enrolment
+   * maps provider groups that may not exist locally. A stale client naming a deleted group should be
+   * told, not have the id quietly dropped, especially on a `PUT` that replaces membership wholesale.
+   *
+   * Duplicates are collapsed and an empty list is trivially all-known, so neither costs a query.
+   */
+  async hasUnknownGroupIds(groupIds: string[]): Promise<boolean> {
+    const wanted = [...new Set(groupIds)]
+    if (wanted.length < 1) {
+      return false
+    }
+    const found = await WIKI.db
+      .select({ id: groupsTable.id })
+      .from(groupsTable)
+      .where(inArray(groupsTable.id, wanted))
+    return found.length < wanted.length
   }
 
   /**

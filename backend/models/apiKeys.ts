@@ -8,6 +8,7 @@ import {
 import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { flatten, uniq } from 'es-toolkit/array'
 import { epochSeconds, signJwt, verifyJwt } from '../helpers/jwt.ts'
+import type { AuditActor } from './auditLog.ts'
 
 /**
  * The `aud` claim every key carries, and the one value `verify()` accepts.
@@ -527,3 +528,66 @@ class ApiKeys {
 }
 
 export const apiKeys = new ApiKeys()
+
+/** The fields both key-creation routes accept and validate the same way. */
+export interface ApiKeyCreateInput {
+  name: string
+  siteId?: string | null
+  allowedClassifications?: string[] | null
+}
+
+/**
+ * Check what an admin-issued key and a personal access token are checked for identically: a name
+ * with no markup characters in it, a `siteId` that names a real site (or null for instance-wide),
+ * and an `allowedClassifications` list naming only real levels (or null for unrestricted).
+ *
+ * Both routes wrote all three out; only the noun in the name message differed, which is the one
+ * thing passed in. Admin-issued keys additionally validate their `groups`, which has no counterpart
+ * on the personal side and so stays at that route (see `hasUnknownGroupIds` on `models/groups.ts`).
+ *
+ * @param label What the route calls the thing being created, for the name message: `Key`/`Token`
+ * @returns The message to answer `400` with, or null when the input is acceptable
+ */
+export function validateApiKeyInput(body: ApiKeyCreateInput, label: string): string | null {
+  if (!/^[^<>"]+$/.test(body.name)) {
+    return `${label} name contains invalid characters.`
+  }
+  // -> null pins nothing (instance-wide, today's only behavior); any other value must name a real
+  //    site, the same way every entry in an admin key's `groups` must name a real group
+  if (body.siteId != null && !WIKI.sites[body.siteId]) {
+    return 'This site does not exist.'
+  }
+  // -> null is unrestricted; any other value must be a list naming only real classification levels
+  if (
+    body.allowedClassifications != null &&
+    body.allowedClassifications.some((id) => !WIKI.models.classificationLevels.byId(id))
+  ) {
+    return 'One of the classification levels does not exist.'
+  }
+  return null
+}
+
+/**
+ * Mint a key and record that it was issued, which is one act rather than two: a key that exists with
+ * no audit trail is exactly what the audit log is there to make impossible (OpenProject #989). The
+ * `detail` differs between the two routes — an admin key names the groups it draws permissions from,
+ * a personal token says only that it is personal — so it is passed in rather than derived.
+ *
+ * A plain function rather than a method on the model: it composes two models (`apiKeys`,
+ * `auditLog`), and neither owns the other.
+ */
+export async function issueKey(
+  input: Parameters<ApiKeys['createKey']>[0],
+  audit: { actor: AuditActor; detail: Record<string, unknown> }
+): Promise<{ id: string; key: string }> {
+  const { id, key } = await WIKI.models.apiKeys.createKey(input)
+  await WIKI.models.auditLog.record({
+    event: 'apiKey.issued',
+    actor: audit.actor,
+    targetType: 'apiKey',
+    targetId: id,
+    targetLabel: input.name,
+    detail: audit.detail
+  })
+  return { id, key }
+}

@@ -19,7 +19,7 @@ import {
   storage as storageTable
 } from '../db/schema.ts'
 import { and, eq } from 'drizzle-orm'
-import { CustomError, normalizeHostname } from '../helpers/common.ts'
+import { CustomError, normalizeHostname, siteIdForHostname } from '../helpers/common.ts'
 import {
   detectImageMime,
   detectSvg,
@@ -126,10 +126,7 @@ class Sites {
     if (forceReload) {
       await WIKI.models.sites.reloadCache()
     }
-    const normalizedHostname = normalizeHostname(hostname)
-    const siteId = strict
-      ? WIKI.sitesMappings[normalizedHostname]
-      : WIKI.sitesMappings[normalizedHostname] || WIKI.sitesMappings['*']
+    const siteId = siteIdForHostname(hostname, { strict })
     if (siteId) {
       return WIKI.sites[siteId]
     }

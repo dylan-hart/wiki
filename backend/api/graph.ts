@@ -3,7 +3,6 @@ import type { GraphPageRow } from '../models/pages.ts'
 import type { PageHistoryContributorCounts } from '../models/pageHistory.ts'
 import type { PageviewCountsForGraph } from '../models/pageviews.ts'
 import { zeroPageviewCountsForGraph } from '../models/pageviews.ts'
-import { guardSiteEnabled } from '../helpers/common.ts'
 import {
   getCachedGraphData,
   setCachedGraphData,
@@ -272,9 +271,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
-        return
-      }
       const authenticated = req.session?.authenticated === true
       const data = await loadGraphData(req.params.siteId, authenticated)
       if (!data) {

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import { guardSiteEnabled, isValidUuid } from '../helpers/common.ts'
+import { notModifiedOrPrepare } from '../helpers/httpCache.ts'
 import { mayOnAsset } from '../helpers/pageAccess.ts'
 import type { FastifyInstance } from 'fastify'
 
@@ -53,11 +54,8 @@ async function routes(app: FastifyInstance) {
     }
 
     const etag = `"${crypto.createHash('sha1').update(thumbnail.preview).digest('hex')}"`
-    reply.header('ETag', etag)
-    reply.header('Cache-Control', THUMB_CACHE)
-    reply.header('X-Content-Type-Options', 'nosniff')
-    if (req.headers['if-none-match'] === etag) {
-      return reply.code(304).send()
+    if (notModifiedOrPrepare(req, reply, { etag, cacheControl: THUMB_CACHE })) {
+      return
     }
 
     return reply.type('image/webp').send(thumbnail.preview)

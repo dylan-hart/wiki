@@ -1,3 +1,4 @@
+import { siteIdForHostname } from '../helpers/common.ts'
 import { limitRenders } from '../helpers/rateLimit.ts'
 import type { FastifyInstance } from 'fastify'
 import type { DiagramRenderRequest } from '../models/diagramRender.ts'
@@ -50,7 +51,12 @@ async function routes(app: FastifyInstance) {
       //    other non-site-scoped surfaces read it off the request itself — see `index.ts`'s SEO hook.
       //    Only PlantUML's render path actually reads it (its site's `block-plantuml` config), but
       //    it's resolved unconditionally so a caller can never pass one of its own.
-      const siteId = WIKI.sitesMappings[req.hostname] || WIKI.sitesMappings['*']
+      //
+      // -> Through `siteIdForHostname` rather than indexing `WIKI.sitesMappings` with the raw
+      //    hostname, which is what this used to do: those keys are lowercased (OpenProject #2127), so
+      //    a mixed-case `Host` header missed the site it addressed and fell through to the `*`
+      //    catch-all's PlantUML config. Every other hostname lookup already folded the case.
+      const siteId = siteIdForHostname(req.hostname)
       const result = await WIKI.models.diagramRender.render(req.body, siteId)
       // -> Freshly drawn from whatever source was posted, and cheap to ask for again — nothing here
       //    is worth a client or intermediary holding onto

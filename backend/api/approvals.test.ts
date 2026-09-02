@@ -55,8 +55,8 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
   // -> Mutable per-test, task #1616: default empty (every group id resolves), one test below
   //    overrides it to prove `rejectUnknownGroups` now sends a coded `ERR_UNKNOWN_GROUPS` message.
   let unknownGroupIdsToReturn: string[] = []
-  async function getUnknownGroupIds() {
-    return unknownGroupIdsToReturn
+  async function hasUnknownGroupIds() {
+    return unknownGroupIdsToReturn.length > 0
   }
   async function createRule(siteId: string, body: any) {
     createRuleCalls.push({ siteId, body })
@@ -95,11 +95,10 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     ;(globalThis as any).WIKI = {
       sites,
       models: {
-        groups: { actorForRequest, checkSiteAccess, checkSiteAdminAccess },
+        groups: { actorForRequest, checkSiteAccess, checkSiteAdminAccess, hasUnknownGroupIds },
         approvals: {
           getRules,
           getRule,
-          getUnknownGroupIds,
           createRule,
           updateRule,
           deleteRule,

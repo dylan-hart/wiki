@@ -34,7 +34,10 @@ function schemaByTitle(doc: any, title: string) {
 
 before(async () => {
   ;(globalThis as any).WIKI = {
-    models: { groups: { getAllGroups: async () => [] }, apiKeys: { createKey: async () => ({}) } },
+    models: {
+      groups: { hasUnknownGroupIds: async (ids: string[]) => ids.length > 0 },
+      apiKeys: { createKey: async () => ({}) }
+    },
     data: { systemIds: { guestsGroupId: 'guests-group-id' } },
     sites: {},
     version: 'test'

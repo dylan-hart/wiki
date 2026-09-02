@@ -1,5 +1,6 @@
-import { CustomError, rethrowAsBadRequest } from '../helpers/common.ts'
+import { CustomError, rethrowAsBadRequest, siteForHostname } from '../helpers/common.ts'
 import { detectImageMime, imageMimeTypes } from '../helpers/images.ts'
+import { issueKey, validateApiKeyInput } from '../models/apiKeys.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { UserPatch, UserProfile, UserProfilePatch } from '../models/users.ts'
@@ -118,9 +119,7 @@ async function systemUserGuard(req: FastifyRequest, userId: string): Promise<Cus
  * unresolvable hostname leaves the feature at its default.
  */
 async function isProfileEditable(req: FastifyRequest): Promise<boolean> {
-  const site = req.hostname
-    ? await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
-    : null
+  const site = await siteForHostname(req.hostname)
   return !site || site.config?.features?.profile !== false
 }
 
@@ -132,25 +131,8 @@ async function isProfileEditable(req: FastifyRequest): Promise<boolean> {
  * explicitly opted in, never as a default.
  */
 async function isShowOtherGroupsEnabled(req: FastifyRequest): Promise<boolean> {
-  const site = req.hostname
-    ? await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
-    : null
+  const site = await siteForHostname(req.hostname)
   return site?.config?.features?.showOtherGroups === true
-}
-
-/**
- * Whether any of the given IDs does not name a real group on this instance.
- *
- * `setUserGroups` (`models/users.ts`) resolves its input with `inArray` and silently assigns only
- * the rows that came back -- deliberately lenient there, since its third caller is IdP enrolment
- * mapping provider groups that may not exist locally. A route handler has no such excuse: a stale
- * client naming a deleted group should be told, not have the ID quietly dropped -- especially on
- * `PUT`, which replaces membership wholesale, so a dropped ID also silently removes the user from
- * groups they were actually in. Mirrors the check in `api/apiKeys.ts`'s key creation route.
- */
-async function hasUnknownGroups(groupIds: string[]): Promise<boolean> {
-  const known = await WIKI.models.groups.getAllGroups()
-  return groupIds.some((id) => !known.some((g) => g.id === id))
 }
 
 /**
@@ -763,39 +745,27 @@ async function routes(app: FastifyInstance) {
       if (!userId) {
         return reply.unauthorized()
       }
-      if (!/^[^<>"]+$/.test(req.body.name)) {
-        return reply.badRequest('Token name contains invalid characters.')
-      }
-      // -> null pins nothing (instance-wide); any other value must name a real site, same check the
-      //    admin-issued route makes
-      if (req.body.siteId != null && !WIKI.sites[req.body.siteId]) {
-        return reply.badRequest('This site does not exist.')
-      }
-      // -> null is unrestricted; any other value must be a list naming only real classification levels
-      if (
-        req.body.allowedClassifications != null &&
-        req.body.allowedClassifications.some((id) => !WIKI.models.classificationLevels.byId(id))
-      ) {
-        return reply.badRequest('One of the classification levels does not exist.')
+      // -> The same name/site/classification checks the admin-issued route makes, in the same order
+      //    and with the same messages — only the noun differs
+      const invalid = validateApiKeyInput(req.body, 'Token')
+      if (invalid) {
+        return reply.badRequest(invalid)
       }
 
-      const { id, key } = await WIKI.models.apiKeys.createKey({
-        name: req.body.name,
-        expiration: req.body.expiration,
-        scope: req.body.scope ?? null,
-        allowedClassifications: req.body.allowedClassifications ?? null,
-        siteId: req.body.siteId ?? null,
-        userId
-      })
-
-      await WIKI.models.auditLog.record({
-        event: 'apiKey.issued',
-        actor: actorFromRequest(req),
-        targetType: 'apiKey',
-        targetId: id,
-        targetLabel: req.body.name,
-        detail: { personal: true, siteId: req.body.siteId ?? null }
-      })
+      const { id, key } = await issueKey(
+        {
+          name: req.body.name,
+          expiration: req.body.expiration,
+          scope: req.body.scope ?? null,
+          allowedClassifications: req.body.allowedClassifications ?? null,
+          siteId: req.body.siteId ?? null,
+          userId
+        },
+        {
+          actor: actorFromRequest(req),
+          detail: { personal: true, siteId: req.body.siteId ?? null }
+        }
+      )
 
       return {
         ok: true,
@@ -1220,9 +1190,7 @@ async function routes(app: FastifyInstance) {
 
       // -> The site names the entry in the user's authenticator app, and is the one being browsed
       //    rather than one the client names: nothing else about this request is client-chosen either
-      const site = req.hostname
-        ? await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
-        : null
+      const site = await siteForHostname(req.hostname)
 
       try {
         const { continuationToken, tfaQRImage, tfaSecret } =
@@ -1886,7 +1854,7 @@ async function routes(app: FastifyInstance) {
           'Sending a welcome email requires a configured mail transport (Admin > Mail Configuration).'
         )
       }
-      if (await hasUnknownGroups(req.body.groups ?? [])) {
+      if (await WIKI.models.groups.hasUnknownGroupIds(req.body.groups ?? [])) {
         return reply.badRequest('ERR_UNKNOWN_GROUPS')
       }
 
@@ -2077,7 +2045,7 @@ async function routes(app: FastifyInstance) {
       // -> Group membership is replaced wholesale here, which would otherwise be a way around the
       //    guards on the groups endpoint.
       if (req.body.groups !== undefined) {
-        if (await hasUnknownGroups(req.body.groups)) {
+        if (await WIKI.models.groups.hasUnknownGroupIds(req.body.groups)) {
           return reply.badRequest('ERR_UNKNOWN_GROUPS')
         }
 

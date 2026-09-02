@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import { isValidUuid } from '../helpers/common.ts'
+import { notModifiedOrPrepare } from '../helpers/httpCache.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -41,14 +42,12 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('Custom block not found')
       }
 
+      // -> `notModifiedOrPrepare` also sends `X-Content-Type-Options: nosniff`: the bytes were
+      //    uploaded, not authored here — served as script only because that is the point of the
+      //    route, not because a browser should go looking for another interpretation
       const etag = `"${crypto.createHash('sha1').update(code).digest('hex')}"`
-      reply.header('ETag', etag)
-      reply.header('Cache-Control', CUSTOM_BLOCK_CACHE)
-      // -> The bytes were uploaded, not authored here — served as script only because that is the
-      //    point of the route, not because a browser should go looking for another interpretation
-      reply.header('X-Content-Type-Options', 'nosniff')
-      if (req.headers['if-none-match'] === etag) {
-        return reply.code(304).send()
+      if (notModifiedOrPrepare(req, reply, { etag, cacheControl: CUSTOM_BLOCK_CACHE })) {
+        return
       }
 
       return reply.type('application/javascript; charset=utf-8').send(code)

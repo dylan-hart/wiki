@@ -46,7 +46,7 @@ before(async () => {
         }
       },
       groups: {
-        getAllGroups: async () => []
+        hasUnknownGroupIds: async (ids: string[]) => ids.length > 0
       },
       mail: {
         isConfigured: () => mailConfigured,

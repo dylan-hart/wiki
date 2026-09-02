@@ -1,6 +1,6 @@
 import { and, count, eq, inArray } from 'drizzle-orm'
 import { pages as pagesTable } from '../db/schema.ts'
-import { CustomError, isValidUuid } from '../helpers/common.ts'
+import { CustomError, resolveSiteParam } from '../helpers/common.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
 import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
 import { maySiteAdmin, SITE_PERMISSIONS } from '../helpers/siteRules.ts'
@@ -293,20 +293,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      let site: any
-      if (req.params.siteIdorHostname === 'current' && req.hostname) {
-        site = await WIKI.models.sites.getSiteByHostname({
-          hostname: req.hostname,
-          strict: req.query.strict ?? false
-        })
-      } else if (isValidUuid(req.params.siteIdorHostname)) {
-        site = await WIKI.models.sites.getSiteById({ id: req.params.siteIdorHostname })
-      } else {
-        site = await WIKI.models.sites.getSiteByHostname({
-          hostname: req.params.siteIdorHostname,
-          strict: req.query.strict ?? false
-        })
-      }
+      const site = await resolveSiteParam(req.params.siteIdorHostname, req.hostname, {
+        strict: req.query.strict ?? false
+      })
       if (site) {
         return buildSitePayload(site)
       } else {

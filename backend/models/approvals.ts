@@ -3,7 +3,6 @@ import { createPatch } from 'diff'
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
   approvalRules as approvalRulesTable,
-  groups as groupsTable,
   pageEditSubmissionApprovals as submissionApprovalsTable,
   pageEditSubmissions as submissionsTable,
   pages as pagesTable,
@@ -279,25 +278,6 @@ class Approvals {
       .where(and(eq(approvalRulesTable.siteId, siteId), eq(approvalRulesTable.id, id)))
       .limit(1)
     return rows[0] ?? null
-  }
-
-  /**
-   * The IDs among those given that are not groups on this instance.
-   *
-   * A picker only offers real groups, so a miss means a stale client or a group deleted mid-edit —
-   * worth reporting rather than storing an ID that resolves to nobody.
-   */
-  async getUnknownGroupIds(groupIds: string[]): Promise<string[]> {
-    const wanted = [...new Set(groupIds)]
-    if (wanted.length < 1) {
-      return []
-    }
-    const found = await WIKI.db
-      .select({ id: groupsTable.id })
-      .from(groupsTable)
-      .where(inArray(groupsTable.id, wanted))
-    const foundIds = new Set(found.map((g: any) => g.id))
-    return wanted.filter((id) => !foundIds.has(id))
   }
 
   /**

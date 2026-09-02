@@ -44,8 +44,8 @@ import {
   isSameOriginWebSocketHandshake,
   localePrefixRedirectTarget,
   localePrefixStripTarget,
-  normalizeHostname,
   resolveRequestSite,
+  siteIdForHostname,
   stripPageExtension
 } from './helpers/common.ts'
 import { sendNonApiError } from './helpers/errorHandler.ts'
@@ -920,8 +920,8 @@ async function initHTTPServer() {
     if (isPageUrl(trimmed)) {
       // -> Straight off the site caches rather than through the model: this runs on every request, and
       //    both lookups are the ones `getSiteByHostname` would do, minus its optional reload
-      const siteId = WIKI.sitesMappings[normalizeHostname(req.hostname)] || WIKI.sitesMappings['*']
-      const siteConfig = WIKI.sites[siteId]?.config
+      const siteId = siteIdForHostname(req.hostname)
+      const siteConfig = siteId ? WIKI.sites[siteId]?.config : undefined
       const withoutExtension = stripPageExtension(trimmed, siteConfig?.pageExtensions)
       if (withoutExtension) {
         // -> Answers a trailing slash as well, rather than sending the client back for a second
@@ -1078,8 +1078,8 @@ async function initHTTPServer() {
     try {
       // -> Same site resolution as the SEO hook above: straight off the caches, since this also
       //    runs on every request that reaches the shell.
-      const siteId = WIKI.sitesMappings[normalizeHostname(req.hostname)] || WIKI.sitesMappings['*']
-      const siteConfig = WIKI.sites[siteId]?.config
+      const siteId = siteIdForHostname(req.hostname)
+      const siteConfig = siteId ? WIKI.sites[siteId]?.config : undefined
       const lang = resolveAppShellLocale(urlPath!, urlSearch, siteConfig?.locales)
       const templated = await getTemplatedAppShell(appShellPath, lang, async () => {
         const locales = await WIKI.models.locales.getLocales()

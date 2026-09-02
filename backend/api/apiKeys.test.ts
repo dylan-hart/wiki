@@ -29,7 +29,7 @@ before(async () => {
   ;(globalThis as any).WIKI = {
     models: {
       groups: {
-        getAllGroups: async () => [{ id: GROUP_ID, name: 'Editors' }]
+        hasUnknownGroupIds: async (ids: string[]) => ids.some((id) => id !== GROUP_ID)
       },
       apiKeys: {
         createKey: async (args: any) => {

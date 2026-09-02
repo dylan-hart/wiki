@@ -143,10 +143,7 @@ async function rejectUnknownGroups(
   reply: FastifyReply,
   groupIds: (string[] | undefined)[]
 ): Promise<boolean> {
-  const unknown = await WIKI.models.approvals.getUnknownGroupIds(
-    groupIds.flatMap((ids) => ids ?? [])
-  )
-  if (unknown.length > 0) {
+  if (await WIKI.models.groups.hasUnknownGroupIds(groupIds.flatMap((ids) => ids ?? []))) {
     reply.badRequest('ERR_UNKNOWN_GROUPS')
     return true
   }

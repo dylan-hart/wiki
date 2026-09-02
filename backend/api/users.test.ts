@@ -34,8 +34,9 @@ let nonMemberGroupsFixture: Array<{ id: string; name: string }> = []
 
 /**
  * Fixtures for the OpenProject #1603 group-validation tests: `knownGroupsFixture` is what
- * `WIKI.models.groups.getAllGroups()` answers, and the two call-log arrays let a test assert that an
- * unknown group id short-circuits before either write path (`createUser` / `setUserGroups`) runs.
+ * `WIKI.models.groups.hasUnknownGroupIds()` answers against, and the two call-log arrays let a test
+ * assert that an unknown group id short-circuits before either write path (`createUser` /
+ * `setUserGroups`) runs.
  */
 const KNOWN_GROUP_ID = '55555555-5555-5555-5555-555555555555'
 const UNKNOWN_GROUP_ID = '66666666-6666-6666-6666-666666666666'
@@ -100,7 +101,8 @@ before(async () => {
         }
       },
       groups: {
-        getAllGroups: async () => knownGroupsFixture,
+        hasUnknownGroupIds: async (ids: string[]) =>
+          ids.some((id) => !knownGroupsFixture.some((g) => g.id === id)),
         // -> Happy path for every test that doesn't care about the system-user guard: the caller
         //    already holds `manage:system`, so `systemUserGuard` returns immediately.
         holdsSystemPermission: () => true,
