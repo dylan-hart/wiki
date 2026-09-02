@@ -8,14 +8,12 @@ import { ensureTemporal } from '../../../test/temporal.ts'
 import { search } from '../../../models/search.ts'
 import {
   ElasticsearchSearchModule,
-  MAX_INDEXING_COUNT,
   batchOperations,
   buildEsQuery,
   getTlsOptions,
-  pageToDocument,
-  toSniffIntervalMs,
-  type ElasticsearchPageDocument
+  toSniffIntervalMs
 } from './search.ts'
+import { buildSearchDocument, MAX_INDEXING_COUNT, type SearchDocument } from '../shared.ts'
 import type { AccessActor } from '../../../models/groups.ts'
 import type { SearchIndexablePage, SearchPagesParams } from '../../../models/search.ts'
 
@@ -189,27 +187,9 @@ describe('toSniffIntervalMs()', () => {
   })
 })
 
-describe('pageToDocument()', () => {
-  test('carries every field a document needs, including content for an unprotected page', () => {
-    const doc = pageToDocument(fakePage())
-    assert.equal(doc.siteId, 'site-1')
-    assert.equal(doc.path, 'docs/getting-started')
-    assert.equal(doc.title, 'Getting Started')
-    assert.equal(doc.content, 'Some page content about getting started.')
-    assert.deepEqual(doc.tags, ['guide'])
-    assert.equal(doc.editor, 'markdown')
-    assert.equal(doc.publishState, 'published')
-    assert.equal(doc.isSearchable, true)
-    assert.equal(doc.classification, 'classification-1')
-  })
-
-  test('omits content entirely for a password-protected page', () => {
-    const doc = pageToDocument(fakePage({ password: 'secret-hash' }))
-    assert.equal('content' in doc, false)
-    // -> Title and description remain: only the body is withheld
-    assert.equal(doc.title, 'Getting Started')
-  })
-})
+// -> What this module indexes is `shared.ts`'s `buildSearchDocument` unchanged (it needs none of the
+//    extra fields Algolia's own record carries), so the field-by-field coverage that used to sit here
+//    lives in `modules/search/shared.test.ts` rather than being repeated per engine.
 
 describe('buildEsQuery()', () => {
   function params(overrides: Partial<SearchPagesParams> = {}): SearchPagesParams {
@@ -304,8 +284,8 @@ describe('buildEsQuery()', () => {
 })
 
 describe('batchOperations()', () => {
-  function op(id: string): { id: string; document: ElasticsearchPageDocument } {
-    return { id, document: pageToDocument(fakePage({ id })) }
+  function op(id: string): { id: string; document: SearchDocument } {
+    return { id, document: buildSearchDocument(fakePage({ id })) }
   }
 
   test('a handful of small operations stays in a single batch', () => {

@@ -111,3 +111,162 @@ export function defaultPageSource(): RebuildPageSource {
     }
   }
 }
+
+/**
+ * Ceiling on how many of an external engine's own matches `query()` scans before deriving
+ * `totalHits` and the requested page from what survives `checkAccess()` (OpenProject #2156,
+ * mirroring `db/search.ts`'s own `OVERFETCH_HARD_CAP`).
+ *
+ * Bounded rather than unbounded, since page-rule filtering cannot be expressed as an Algolia
+ * `filters` clause, an Elasticsearch filter clause, an OData `$filter` or a CloudSearch
+ * `filterQuery` — it has to run per-hit in this process, so something has to bound how many hits
+ * one request can be made to pull through. All four external engines scanned exactly this far
+ * already, each with its own copy of the constant.
+ */
+export const SCAN_CAP = 500
+
+/**
+ * Batching limits for a bulk re-index call, carried over unchanged from 2.5.x's own Algolia and
+ * Elasticsearch engines (`server/modules/search/{algolia,elasticsearch}/engine.js`), which declared
+ * the identical pair separately. A soft cap of `MAX_INDEXING_COUNT` documents per batch and a hard
+ * cap of `MAX_INDEXING_BYTES` serialized bytes, the latter already discounting the enclosing `[`/`]`
+ * of the JSON array the documents are sent as.
+ *
+ * Neither is a per-*document* cap: Algolia has one (`algolia/search.ts`'s own `MAX_DOCUMENT_BYTES`)
+ * and CloudSearch has one, but they are different sizes with different consequences, so each engine
+ * declares its own and passes it as `batchBySize`'s `maxItemBytes`.
+ */
+export const MAX_INDEXING_BYTES = 10 * 2 ** 20 - Buffer.byteLength('[') - Buffer.byteLength(']') // 10 MB
+export const MAX_INDEXING_COUNT = 1000
+
+/** The `,` that joins two documents once they are serialized into one JSON array. */
+const COMMA_BYTES = Buffer.byteLength(',')
+
+/** One item `batchBySize` could not place in any batch, with the size that ruled it out. */
+export interface OversizedItem<T> {
+  item: T
+  bytes: number
+}
+
+export interface BatchBySizeOptions<T> {
+  /** The item's serialized size, e.g. `Buffer.byteLength(JSON.stringify(doc))`. */
+  sizeOf: (item: T) => number
+  /** A batch is closed before its serialized size would reach this. */
+  maxBytes: number
+  /** A batch is closed once it holds this many items. */
+  maxCount: number
+  /**
+   * An item at least this large can never fit in any batch, so it is diverted into `oversized`
+   * instead of riding in one the endpoint would then reject whole. Omit it for an endpoint with no
+   * per-document limit of its own (Elasticsearch's bulk API, bounded by the HTTP body size only).
+   */
+  maxItemBytes?: number
+  /** Bytes two adjacent items cost once serialized together. Defaults to the one-byte `,`. */
+  separatorBytes?: number
+}
+
+/**
+ * Group a flat list into batches no larger than a bulk endpoint's documented limits.
+ *
+ * Pure and synchronous on purpose: keeping the size arithmetic separate from anything that awaits a
+ * network call is what lets it be exercised directly, with plain arrays, rather than through a live
+ * or faked vendor client — the reasoning both `algolia`'s `batchDocuments` and `elasticsearch`'s
+ * `batchOperations` gave for being their own function before they became two copies of this one.
+ *
+ * An item diverted into `oversized` is not a failure of this function: no batch boundary could make
+ * it fit, and the caller decides what to do about it. Algolia's own caller logs one warning per
+ * skipped page and keeps going, deliberately unlike 2.5.x's `processDocument`, which threw and so
+ * failed an entire rebuild over one oversized page (OpenProject #830).
+ */
+export function batchBySize<T>(
+  items: T[],
+  { sizeOf, maxBytes, maxCount, maxItemBytes, separatorBytes = COMMA_BYTES }: BatchBySizeOptions<T>
+): { batches: T[][]; oversized: OversizedItem<T>[] } {
+  const batches: T[][] = []
+  const oversized: OversizedItem<T>[] = []
+  let current: T[] = []
+  let bytes = 0
+
+  for (const item of items) {
+    const itemBytes = sizeOf(item)
+    if (maxItemBytes !== undefined && itemBytes >= maxItemBytes) {
+      oversized.push({ item, bytes: itemBytes })
+      continue
+    }
+    if (current.length > 0 && itemBytes + separatorBytes + bytes >= maxBytes) {
+      batches.push(current)
+      current = []
+      bytes = 0
+    }
+    if (current.length > 0) {
+      bytes += separatorBytes
+    }
+    bytes += itemBytes
+    current.push(item)
+    if (current.length >= maxCount) {
+      batches.push(current)
+      current = []
+      bytes = 0
+    }
+  }
+  if (current.length > 0) {
+    batches.push(current)
+  }
+  return { batches, oversized }
+}
+
+/**
+ * A page row, as the document an external index stores for it.
+ *
+ * `content` is omitted entirely for a password-protected page, rather than sent and relied on to
+ * stay hidden by a query-time flag: an external index is a third party, and once a value has been
+ * transmitted to it, a bug in a later `hideProtectedContent` check can no longer un-send it. Leaving
+ * `content` out means such a page is only ever findable by its title or description — exactly the
+ * set `db/search.ts`'s `ts_filter(p.ts, '{a,b}')` restricts a protected page to — without an engine
+ * depending on that restriction being re-checked correctly on every read.
+ *
+ * `siteId` is not one of `SearchPagesParams`' own filters — it isn't a search *option* the way
+ * `editor` is — but every document carries it, and every query and rebuild is scoped to it: 2.5.x
+ * had no concept of more than one site sharing an index, this repo does, and an index cannot tell
+ * two sites' pages apart without it (OpenProject #921).
+ *
+ * `classification` is what `query()` checks a CLASSIFICATION page rule against (OpenProject #1125),
+ * populated at index time the same way `tags`/`editor`/`publishState` already are.
+ */
+export interface SearchDocument {
+  siteId: string
+  locale: string
+  path: string
+  title: string
+  description: string
+  icon: string | null
+  tags: string[]
+  editor: string
+  publishState: string
+  isSearchable: boolean
+  classification: string
+  updatedAt: string
+  content?: string
+}
+
+/** A page row, as a `SearchDocument`. */
+export function buildSearchDocument(page: SearchIndexablePage): SearchDocument {
+  // -> Same conversion `api/pages.ts` uses for a `Date` column headed into an ISO string: an exact
+  //    instant, so millisecond precision (what the rest of the codebase emits) is enough.
+  const updatedAt = page.updatedAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
+  return {
+    siteId: page.siteId,
+    locale: page.locale,
+    path: page.path,
+    title: page.title,
+    description: page.description ?? '',
+    icon: page.icon ?? null,
+    tags: page.tags ?? [],
+    editor: page.editor,
+    publishState: page.publishState,
+    isSearchable: page.isSearchable,
+    classification: page.classification,
+    updatedAt,
+    ...(page.password ? {} : { content: page.searchContent ?? '' })
+  }
+}

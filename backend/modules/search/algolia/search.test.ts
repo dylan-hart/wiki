@@ -7,13 +7,13 @@ import { search } from '../../../models/search.ts'
 import {
   AlgoliaSearchModule,
   MAX_DOCUMENT_BYTES,
-  MAX_INDEXING_COUNT,
   batchDocuments,
   buildFilters,
   pageToDocument,
   pathAncestors,
   type AlgoliaPageDocument
 } from './search.ts'
+import { MAX_INDEXING_COUNT } from '../shared.ts'
 import type { AccessActor } from '../../../models/groups.ts'
 import type { SearchIndexablePage, SearchPagesParams } from '../../../models/search.ts'
 
