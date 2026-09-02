@@ -3,16 +3,10 @@ import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import fsp from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
 import systemRoutes from './system.ts'
 import { importModel } from '../models/siteImport.ts'
-import { registerSchemas as registerFlagsSchema } from './schemas/flags.ts'
-import { registerSchemas as registerSecuritySchema } from './schemas/security.ts'
-import { registerSchemas as registerExtensionSchema } from './schemas/extension.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import configSvc from '../core/config.ts'
@@ -60,29 +54,20 @@ describe('GET /cluster (renamed from /instances)', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      dbManager: {
-        dbName: 'wiki_test'
-      },
-      db: {
-        execute: async () => ({ rows: FAKE_ROWS })
+    app = await buildTestApp({
+      routes: systemRoutes,
+      wiki: {
+        dbManager: {
+          dbName: 'wiki_test'
+        },
+        db: {
+          execute: async () => ({ rows: FAKE_ROWS })
+        }
       }
-    }
-
-    app = fastify()
-    await app.register(fastifySensible)
-    await registerErrorSchema(app)
-    await registerFlagsSchema(app)
-    await registerSecuritySchema(app)
-    await registerExtensionSchema(app)
-    await app.register(systemRoutes)
-    await app.ready()
+    })
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   test('GET /cluster lists cluster nodes grouped by instance id (not /instances)', async () => {
     const res = await app.inject({
@@ -126,7 +111,7 @@ describe('GET /info', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       version: '3.0.0-test',
       config: {
         db: { host: 'db-test-host' },
@@ -150,24 +135,10 @@ describe('GET /info', () => {
       }
     }
 
-    app = fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
-    })
-    await app.register(fastifySensible)
-    await registerErrorSchema(app)
-    await registerFlagsSchema(app)
-    await registerSecuritySchema(app)
-    await registerExtensionSchema(app)
-    await app.register(systemRoutes)
-    await app.ready()
+    app = await buildTestApp({ routes: systemRoutes, ajv: true, wiki })
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   test('GET /info includes dbVersion in the actual serialized response', async () => {
     const res = await app.inject({ method: 'GET', url: '/info' })
@@ -210,7 +181,7 @@ describe('GET /pageviews', () => {
   }
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       config: { pageviews: { isEnabled: true } },
       models: {
         pageviews: {
@@ -219,24 +190,10 @@ describe('GET /pageviews', () => {
       }
     }
 
-    app = fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
-    })
-    await app.register(fastifySensible)
-    await registerErrorSchema(app)
-    await registerFlagsSchema(app)
-    await registerSecuritySchema(app)
-    await registerExtensionSchema(app)
-    await app.register(systemRoutes)
-    await app.ready()
+    app = await buildTestApp({ routes: systemRoutes, ajv: true, wiki })
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   test('returns isEnabled from config and summary from WIKI.models.pageviews.summary()', async () => {
     const res = await app.inject({ method: 'GET', url: '/pageviews' })
@@ -279,7 +236,7 @@ describe('GET /system/extensions/status', () => {
       }
     ])
 
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       models: {
         extensions: {
           getExtensions
@@ -287,30 +244,18 @@ describe('GET /system/extensions/status', () => {
       }
     }
 
-    app = fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
+    app = await buildTestApp({
+      routes: systemRoutes,
+      ajv: true,
+      wiki,
+      session: (req: any) =>
+        req.headers['x-test-anon'] === 'true'
+          ? undefined
+          : { authenticated: true, user: { id: 'user-1' }, permissions: [] }
     })
-    await app.register(fastifySensible)
-    app.addHook('onRequest', (req, _reply, done) => {
-      if (req.headers['x-test-anon'] !== 'true') {
-        ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
-      }
-      done()
-    })
-    await registerErrorSchema(app)
-    await registerFlagsSchema(app)
-    await registerExtensionSchema(app)
-    await registerSecuritySchema(app)
-    await app.register(systemRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     getExtensions.mock.resetCalls()
@@ -358,39 +303,26 @@ describe('POST /import (streamed upload)', () => {
     getSiteById = mock.fn(async () => currentSite)
     addJob = mock.fn(async () => ({ id: 'job-1' }))
 
-    ;(globalThis as any).WIKI = {
-      ROOTPATH: process.cwd(),
-      config: { dataPath },
-      models: {
-        sites: { getSiteById },
-        import: importModel,
-        auditLog: { record: async () => {} }
-      },
-      scheduler: { addJob }
-    }
-
-    app = fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
+    app = await buildTestApp({
+      routes: systemRoutes,
+      ajv: true,
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: [] },
+      wiki: {
+        ROOTPATH: process.cwd(),
+        config: { dataPath },
+        models: {
+          sites: { getSiteById },
+          import: importModel,
+          auditLog: { record: async () => {} }
+        },
+        scheduler: { addJob }
       }
     })
-    await app.register(fastifySensible)
-    app.addHook('onRequest', (req, _reply, done) => {
-      ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
-      done()
-    })
-    await registerErrorSchema(app)
-    await registerFlagsSchema(app)
-    await registerSecuritySchema(app)
-    await registerExtensionSchema(app)
-    await app.register(systemRoutes)
-    await app.ready()
   })
 
   after(async () => {
-    await app.close()
+    await closeTestApp(app)
     await fsp.rm(dataPath, { recursive: true, force: true })
-    delete (globalThis as any).WIKI
   })
 
   beforeEach(() => {
@@ -492,44 +424,26 @@ describe(
       //    so nothing else in `security` needs seeding.
       ;(globalThis as any).WIKI.config.security = { corsMode: 'OFF' }
 
-      app = fastify({
-        ajv: {
-          plugins: [[ajvFormats.default, {}] as any]
-        }
-      })
-      await app.register(fastifySensible)
-      // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.badRequest()`/etc. is a thrown
-      //    error, and without a handler that shapes it to `ApiError#`, Fastify's default handler
-      //    tries to serialize it against the route's declared error response schema (which requires
+      // -> `buildTestApp` brings the REAL error handler: without one that shapes a thrown
+      //    `reply.badRequest()` into `ApiError#`, Fastify's default handler tries to serialize the
+      //    raw error against the route's declared error response schema (which requires
       //    `ok`/`error`/`statusCode`/`message`), fails, and falls back to a 500 -- masking whichever
-      //    status code the route actually meant to send (OpenProject #2346).
-      app.setErrorHandler((error: any, req, reply) => {
-        reply.code(error.statusCode ?? 500).send({
-          ok: false,
-          error: error.name,
-          statusCode: error.statusCode ?? 500,
-          message: error.message
-        })
-      })
-      app.addHook('onRequest', (req, _reply, done) => {
-        ;(req as any).session = {
+      //    status code the route actually meant to send (OpenProject #2346). No `wiki`:
+      //    `setupTestDb()` already installed the real one, which this suite then patches above.
+      app = await buildTestApp({
+        routes: systemRoutes,
+        ajv: true,
+        session: {
           authenticated: true,
           user: { id: fixtures.userId, name: 'Fixture User' },
           permissions: ['manage:system'],
           destroy: async () => {}
         }
-        done()
       })
-      await registerErrorSchema(app)
-      await registerFlagsSchema(app)
-      await registerSecuritySchema(app)
-      await registerExtensionSchema(app)
-      await app.register(systemRoutes)
-      await app.ready()
     })
 
     after(async () => {
-      await app.close()
+      await closeTestApp(app)
       await teardownTestDb()
     })
 

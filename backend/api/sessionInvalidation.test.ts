@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import {
   groups as groupsTable,
@@ -13,10 +10,7 @@ import {
 } from '../db/schema.ts'
 import groupsRoutes from './groups.ts'
 import usersRoutes from './users.ts'
-import { registerSchemas as registerGroupSchema } from './schemas/group.ts'
-import { registerSchemas as registerUserSchema } from './schemas/user.ts'
-import { registerSchemas as registerApiKeySchema } from './schemas/apiKey.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * OpenProject #936: `session.groups`/`session.permissions` are snapshots taken at login, otherwise
@@ -63,43 +57,32 @@ describe(
       //    call, not just for the guests group -- same reasoning as `rootAdminGroupId` above.
       WIKI.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
 
-      app = fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
-      await app.register(fastifySensible)
-      app.setErrorHandler((error: any, req, reply) => {
-        reply.code(error.statusCode ?? 500).send({
-          ok: false,
-          error: error.name,
-          statusCode: error.statusCode ?? 500,
-          message: error.message
-        })
-      })
-      await registerErrorSchema(app)
-      await registerGroupSchema(app)
-      await registerUserSchema(app)
-      await registerApiKeySchema(app)
-      // -> Simulates an authenticated manage:system admin on every request -- the routes under test
-      //    read `req.session` directly (`actorFromRequest`, `holdsSystemPermission`,
-      //    `groups.actorForRequest`), and manage:system is what bypasses every internal guard these
-      //    routes also carry (root-admin protection, system-permission toggle guard, ...), keeping this
-      //    suite focused on the session-invalidation wiring rather than re-proving those guards.
-      app.addHook('onRequest', async (req) => {
-        ;(req as any).session = {
+      app = await buildTestApp({
+        // -> Prefixed the same way `api/index.ts` registers them for real: both plugins declare
+        //    same-shaped root params (`PUT /:groupId` / `PUT /:userId`), which collide as literally
+        //    the same route to Fastify's router when mounted bare at '/' side by side.
+        routes: [
+          { plugin: groupsRoutes, prefix: '/groups' },
+          { plugin: usersRoutes, prefix: '/users' }
+        ],
+        ajv: true,
+        // -> Simulates an authenticated manage:system admin on every request -- the routes under
+        //    test read `req.session` directly (`actorFromRequest`, `holdsSystemPermission`,
+        //    `groups.actorForRequest`), and manage:system is what bypasses every internal guard
+        //    these routes also carry (root-admin protection, system-permission toggle guard, ...),
+        //    keeping this suite focused on the session-invalidation wiring rather than re-proving
+        //    those guards. No `wiki`: `setupTestDb()` already installed the real one.
+        session: {
           authenticated: true,
           user: { id: fixtures.userId },
           groups: [],
           permissions: ['manage:system']
         }
       })
-      // -> Prefixed the same way `api/index.ts` registers them for real: both plugins declare
-      //    same-shaped root params (`PUT /:groupId` / `PUT /:userId`), which collide as literally the
-      //    same route to Fastify's router when mounted bare at '/' side by side.
-      await app.register(groupsRoutes, { prefix: '/groups' })
-      await app.register(usersRoutes, { prefix: '/users' })
-      await app.ready()
     })
 
     after(async () => {
-      await app.close()
+      await closeTestApp(app)
       await teardownTestDb()
     })
 

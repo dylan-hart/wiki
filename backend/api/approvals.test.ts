@@ -1,14 +1,11 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
-import fastify from 'fastify'
-import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 import { createSiteAdminAccessStub } from '../test/mocks.ts'
 import approvalsRoutes from './approvals.ts'
-import { registerSchemas as registerApprovalSchema } from './schemas/approval.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
-import { registerParamsSchemas } from './schemas/params.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
+import { createRecordingApp, referencesApiError } from '../test/routeRecorder.ts'
 
 describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683)', () => {
   /**
@@ -92,54 +89,40 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      sites,
-      models: {
-        groups: { actorForRequest, checkSiteAccess, checkSiteAdminAccess, hasUnknownGroupIds },
-        approvals: {
-          getRules,
-          getRule,
-          createRule,
-          updateRule,
-          deleteRule,
-          isReviewerSession: () => false,
-          getActorGroupIds: () => []
-        }
-      },
-      logger: { warn: () => {} }
+    // -> The unknown-site 404 lives in one hook now (spec D1), not in each route handler, so a
+    //    plugin-only app has to register it to answer that case the way the real app does.
+    const guardedRoutes: FastifyPluginAsync = async (instance) => {
+      instance.addHook('preHandler', siteEnabledPreHandler)
+      await instance.register(approvalsRoutes)
     }
 
-    app = fastify()
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
-    //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-    //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
+    app = await buildTestApp({
+      routes: guardedRoutes,
+      // -> The site-permission stub takes no `req`, so it reads this suite's per-test grants off a
+      //    module-level variable, populated once per request.
+      session: (req: any) => {
+        currentSitePermissionHeader = req.headers['x-test-site-permissions']
+        return undefined
+      },
+      wiki: {
+        sites,
+        models: {
+          groups: { actorForRequest, checkSiteAccess, checkSiteAdminAccess, hasUnknownGroupIds },
+          approvals: {
+            getRules,
+            getRule,
+            createRule,
+            updateRule,
+            deleteRule,
+            isReviewerSession: () => false,
+            getActorGroupIds: () => []
+          }
+        }
+      }
     })
-    await registerErrorSchema(app)
-    await registerApprovalSchema(app)
-    app.addHook('preHandler', (req: any, reply, done) => {
-      currentSitePermissionHeader = req.headers['x-test-site-permissions']
-      done()
-    })
-    // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
-    //    plugin-only app has to register it to answer that case the way the real app does.
-    app.addHook('preHandler', siteEnabledPreHandler)
-    await registerParamsSchemas(app)
-    await app.register(approvalsRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     createRuleCalls = []
@@ -295,29 +278,6 @@ describe('approve/reject submission routes — response schema covers reachable 
    * it already had. This is a narrow regression guard for exactly that gap, using the same
    * recording-stub technique as `responseErrors.test.ts` rather than booting a real Fastify instance.
    */
-
-  function createRecordingApp() {
-    const routes: { method: string; path: string; options: any }[] = []
-    const app: any = {
-      addContentTypeParser: () => {},
-      addHook: () => {},
-      register: () => app
-    }
-    for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
-      app[method] = (routePath: string, options?: any) => {
-        routes.push({ method, path: routePath, options })
-        return app
-      }
-    }
-    return { app, routes }
-  }
-
-  /** Whether a response entry is (or resolves through `allOf`/`oneOf` to) `{ $ref: 'ApiError#' }`. */
-  function referencesApiError(entry: any): boolean {
-    if (!entry) return false
-    if (entry.$ref === 'ApiError#') return true
-    return [...(entry.allOf ?? []), ...(entry.oneOf ?? [])].some(referencesApiError)
-  }
 
   test('approve and reject routes both declare 401 and 404 as ApiError', async () => {
     const { app, routes } = createRecordingApp()

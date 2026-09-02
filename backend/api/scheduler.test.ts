@@ -1,13 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, mock, test } from 'node:test'
-import fastify from 'fastify'
-import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import { randomUUID } from 'node:crypto'
 import schedulerRoutes from './scheduler.ts'
-import { registerSchemas as registerSchedulerSchema } from './schemas/scheduler.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Task 1983: `backend/api/` had 30 of its 34 route sources with a co-located test; `scheduler.ts`
@@ -76,55 +72,38 @@ before(async () => {
   })
   retryJob = mock.fn(async () => 'new-retry-job-id')
 
-  ;(globalThis as any).WIKI = {
-    models: {
-      jobs: {
-        getSchedule,
-        getScheduleEntry,
-        runScheduledTask,
-        getUpcoming,
-        cancelUpcoming,
-        getHistory,
-        getHistoryEntry,
-        retryJob
-      }
-    }
-  }
-
-  app = fastify({
-    ajv: {
-      plugins: [[ajvFormats.default, {}] as any]
-    }
-  })
   // -> Captures each route's `config.permissions` as it is registered, since Fastify does not
   //    expose a public, stable API to read it back afterwards — same technique as
-  //    `api/analytics.test.ts`.
-  app.addHook('onRoute', (routeOptions: any) => {
-    routeConfigs[`${routeOptions.method}:${routeOptions.url}`] = routeOptions.config
-  })
-  await app.register(fastifySensible)
-  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`conflict()`/
-  //    `internalServerError()` is a thrown `@fastify/sensible` error, and it is THIS handler --
-  //    not fastify's default -- that shapes it into the `{ ok, error, statusCode, message }` the
-  //    `ApiError` schema expects.
-  app.setErrorHandler((error: any, req, reply) => {
-    reply.code(error.statusCode ?? 500).send({
-      ok: false,
-      error: error.name,
-      statusCode: error.statusCode ?? 500,
-      message: error.message
+  //    `api/analytics.test.ts`. Wrapped around the route plugin, since an `onRoute` hook only fires
+  //    for routes registered into the same encapsulation or below it.
+  const capturingRoutes: FastifyPluginAsync = async (instance) => {
+    instance.addHook('onRoute', (routeOptions: any) => {
+      routeConfigs[`${routeOptions.method}:${routeOptions.url}`] = routeOptions.config
     })
+    await instance.register(schedulerRoutes)
+  }
+
+  app = await buildTestApp({
+    routes: capturingRoutes,
+    ajv: true,
+    wiki: {
+      models: {
+        jobs: {
+          getSchedule,
+          getScheduleEntry,
+          runScheduledTask,
+          getUpcoming,
+          cancelUpcoming,
+          getHistory,
+          getHistoryEntry,
+          retryJob
+        }
+      }
+    }
   })
-  await registerErrorSchema(app)
-  await registerSchedulerSchema(app)
-  await app.register(schedulerRoutes)
-  await app.ready()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 beforeEach(() => {
   getSchedule.mock.resetCalls()

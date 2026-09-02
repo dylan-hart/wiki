@@ -1,14 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, mock, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
 import { randomUUID } from 'node:crypto'
 import storageRoutes from './storage.ts'
-import { registerSchemas as registerStorageSchema } from './schemas/storage.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
-import { registerParamsSchemas } from './schemas/params.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Task 545: prove `POST /sites/:siteId/storage/targets/:targetId/actions/exportAll` actually calls
@@ -46,38 +41,18 @@ before(async () => {
     return null
   })
 
-  ;(globalThis as any).WIKI = {
-    logger: { warn: () => {}, info: () => {}, error: () => {}, debug: () => {} },
-    models: {
-      storage: {
-        getSiteTargetById,
-        executeAction
+  app = await buildTestApp({
+    routes: storageRoutes,
+    ajv: true,
+    wiki: {
+      models: {
+        storage: {
+          getSiteTargetById,
+          executeAction
+        }
       }
     }
-  }
-
-  app = fastify({
-    ajv: {
-      plugins: [[ajvFormats.default, {}] as any]
-    }
   })
-  await app.register(fastifySensible)
-  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`badRequest()`/etc. is a
-  //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-  //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-  app.setErrorHandler((error: any, req, reply) => {
-    reply.code(error.statusCode ?? 500).send({
-      ok: false,
-      error: error.name,
-      statusCode: error.statusCode ?? 500,
-      message: error.message
-    })
-  })
-  await registerErrorSchema(app)
-  await registerStorageSchema(app)
-  await registerParamsSchemas(app)
-  await app.register(storageRoutes)
-  await app.ready()
 })
 
 beforeEach(() => {
@@ -85,10 +60,7 @@ beforeEach(() => {
   getSiteTargetById.mock.resetCalls()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 test('exportAll invokes executeAction() with the resolved target and the "exportAll" handler', async () => {
   const res = await app.inject({
