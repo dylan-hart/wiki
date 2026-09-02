@@ -482,6 +482,49 @@ export function defaultLocale(siteId: string): string {
 }
 
 /**
+ * Refuse a locale the site does not have enabled.
+ *
+ * A locale that used to be enabled and got turned off is not a valid target for content — not for a
+ * page created there, not for one moved there, and not for one the deletion-recovery flow
+ * (`pageHistory.recoverDeletedPage`) puts back. A site with no `active` list configured has exactly
+ * its primary locale, which is why the fallback is that one code rather than "anything goes".
+ *
+ * @throws CustomError `pageInvalidLocale` (400) when the locale is not enabled on this site
+ */
+export function assertLocaleActive(siteId: string, locale: string): void {
+  const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? [
+    defaultLocale(siteId)
+  ]
+  if (!activeLocales.includes(locale)) {
+    throw new CustomError(
+      'pageInvalidLocale',
+      `This site does not have the "${locale}" locale enabled.`,
+      400
+    )
+  }
+}
+
+/**
+ * Refuse a page path whose FIRST segment is an installed locale code.
+ *
+ * `stripLocalePrefix` takes a locale code off the first segment of a URL and nowhere else, so a page
+ * at `fr/guide` would be unreachable — every request for it would be read as `/guide` in French.
+ * Only the first segment can collide; `guide/fr` is fine.
+ *
+ * @throws CustomError `pageReservedLocaleSegment` (400) when the first segment is an installed code
+ */
+export async function assertPathNotReservedLocale(path: string): Promise<void> {
+  const firstSegment = path.split('/')[0] ?? ''
+  if (await WIKI.models.locales.isReservedLocaleCode(firstSegment)) {
+    throw new CustomError(
+      'pageReservedLocaleSegment',
+      `"${firstSegment}" is an installed locale code and cannot begin a page path.`,
+      400
+    )
+  }
+}
+
+/**
  * Find a candidate locale code's canonically-cased form within a site's active list, matching
  * case-insensitively. A link or query string can carry a code in any casing (`/FR/page`,
  * `?locale=FR`), but everything downstream — storage, comparison, the path a redirect lands on —

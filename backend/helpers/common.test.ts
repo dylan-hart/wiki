@@ -2,6 +2,9 @@ import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fastify from 'fastify'
 import {
+  assertLocaleActive,
+  assertPathNotReservedLocale,
+  CustomError,
   defaultLocale,
   escapeLikePattern,
   guardSiteEnabled,
@@ -152,6 +155,99 @@ describe('defaultLocale', () => {
     } finally {
       ;(globalThis as any).WIKI = previousWiki
     }
+  })
+})
+
+/**
+ * The refusal `models/pages.ts` makes on both the way in (`createPage`) and the way across
+ * (`movePage`), written once here rather than as two copies of the same `active ?? [primary]` read.
+ */
+describe('assertLocaleActive', () => {
+  function withSites<T>(sites: any, fn: () => T): T {
+    const previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = { sites }
+    try {
+      return fn()
+    } finally {
+      ;(globalThis as any).WIKI = previousWiki
+    }
+  }
+
+  test('accepts a locale the site has enabled', () => {
+    withSites(
+      { 'site-1': { config: { locales: { primary: 'en', active: ['en', 'fr'] } } } },
+      () => {
+        assert.doesNotThrow(() => assertLocaleActive('site-1', 'fr'))
+      }
+    )
+  })
+
+  test('refuses a locale the site has turned off, as pageInvalidLocale 400', () => {
+    withSites({ 'site-1': { config: { locales: { primary: 'en', active: ['en'] } } } }, () => {
+      assert.throws(
+        () => assertLocaleActive('site-1', 'de'),
+        (err: CustomError) => {
+          assert.equal(err.name, 'pageInvalidLocale')
+          assert.equal(err.message, 'This site does not have the "de" locale enabled.')
+          assert.equal(err.statusCode, 400)
+          return true
+        }
+      )
+    })
+  })
+
+  test('falls back to the primary locale alone when the site lists no active locales', () => {
+    withSites({ 'site-1': { config: { locales: { primary: 'fr' } } } }, () => {
+      assert.doesNotThrow(() => assertLocaleActive('site-1', 'fr'))
+      assert.throws(() => assertLocaleActive('site-1', 'en'), { name: 'pageInvalidLocale' })
+    })
+  })
+})
+
+/**
+ * A page path whose first segment is an installed locale code would be swallowed by the URL parser's
+ * locale-prefix strip, so `createPage`/`movePage` refuse it outright.
+ */
+describe('assertPathNotReservedLocale', () => {
+  function withReservedCodes<T>(reserved: string[], fn: () => Promise<T>): Promise<T> {
+    const previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = {
+      models: {
+        locales: { isReservedLocaleCode: async (code: string) => reserved.includes(code) }
+      }
+    }
+    return fn().finally(() => {
+      ;(globalThis as any).WIKI = previousWiki
+    })
+  }
+
+  test('accepts a path whose first segment is not an installed locale code', async () => {
+    await withReservedCodes(['fr'], async () => {
+      await assertPathNotReservedLocale('guide/getting-started')
+    })
+  })
+
+  test('refuses a path beginning with an installed locale code, as pageReservedLocaleSegment 400', async () => {
+    await withReservedCodes(['fr'], async () => {
+      await assert.rejects(assertPathNotReservedLocale('fr/guide'), (err: CustomError) => {
+        assert.equal(err.name, 'pageReservedLocaleSegment')
+        assert.equal(err.message, '"fr" is an installed locale code and cannot begin a page path.')
+        assert.equal(err.statusCode, 400)
+        return true
+      })
+    })
+  })
+
+  test('checks only the first segment', async () => {
+    await withReservedCodes(['fr'], async () => {
+      await assertPathNotReservedLocale('guide/fr')
+    })
+  })
+
+  test('treats a single-segment path as its own first segment', async () => {
+    await withReservedCodes(['fr'], async () => {
+      await assert.rejects(assertPathNotReservedLocale('fr'), { name: 'pageReservedLocaleSegment' })
+    })
   })
 })
 

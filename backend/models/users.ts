@@ -34,6 +34,7 @@ import { detectImageMime, resizeImageToSquareJpeg } from '../helpers/images.ts'
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from '../helpers/totp.ts'
 import { AccountRateLimitedError, consumeAccountAuthAttempt } from '../helpers/rateLimit.ts'
 import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
+import { paginate } from '../helpers/pagination.ts'
 import {
   generateRecoveryCodes,
   isRecoveryCodeShape,
@@ -302,8 +303,14 @@ function countAlternativeLogins(user: any, strategyId: string): number {
   return otherProviders + passkeys
 }
 
-/** Selection shared by the list / detail queries. Never includes `auth` or `passkeys`. */
-const userSelection = {
+/**
+ * Selection shared by the list / detail queries. Never includes `auth` or `passkeys`.
+ *
+ * Exported for `models/groups.ts#getGroupUsers`, which pages the same ten columns off a join onto
+ * this table — it had them written out a second time, which is exactly the kind of copy that drifts
+ * the day a column is added to one list and not the other.
+ */
+export const userSelection = {
   id: usersTable.id,
   name: usersTable.name,
   email: usersTable.email,
@@ -444,21 +451,19 @@ class Users {
     }
     const where = conditions.length > 0 ? and(...conditions) : undefined
 
-    const [users, totals] = await Promise.all([
-      WIKI.db
-        .select(userSelection)
-        .from(usersTable)
-        .where(where)
-        .orderBy(usersTable.name)
-        .limit(limit)
-        .offset((page - 1) * limit),
-      WIKI.db.select({ total: count() }).from(usersTable).where(where)
-    ])
+    const { total, rows } = await paginate({
+      rows: () =>
+        WIKI.db
+          .select(userSelection)
+          .from(usersTable)
+          .where(where)
+          .orderBy(usersTable.name)
+          .limit(limit)
+          .offset((page - 1) * limit),
+      total: () => WIKI.db.select({ total: count() }).from(usersTable).where(where)
+    })
 
-    return {
-      total: totals[0]?.total ?? 0,
-      users
-    }
+    return { total, users: rows }
   }
 
   /**

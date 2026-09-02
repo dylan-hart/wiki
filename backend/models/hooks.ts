@@ -3,6 +3,7 @@ import https from 'node:https'
 import { hooks as hooksTable, jobHistory as jobHistoryTable } from '../db/schema.ts'
 import { and, count, desc, eq, sql } from 'drizzle-orm'
 import { durationToSeconds } from '../helpers/common.ts'
+import { paginate } from '../helpers/pagination.ts'
 import type { JobState } from './jobs.ts'
 import type { RateLimitPolicy } from './rateLimits.ts'
 
@@ -227,28 +228,26 @@ class Hooks {
       eq(jobHistoryTable.task, 'dispatchWebhook'),
       sql`${jobHistoryTable.payload} ->> 'hookId' = ${hookId}`
     )
-    const [deliveries, totals] = await Promise.all([
-      WIKI.db
-        .select({
-          event: sql<string>`${jobHistoryTable.payload} ->> 'event'`,
-          state: jobHistoryTable.state,
-          attempt: jobHistoryTable.attempt,
-          maxRetries: jobHistoryTable.maxRetries,
-          lastErrorMessage: jobHistoryTable.lastErrorMessage,
-          startedAt: jobHistoryTable.startedAt,
-          completedAt: jobHistoryTable.completedAt
-        })
-        .from(jobHistoryTable)
-        .where(where)
-        .orderBy(desc(jobHistoryTable.startedAt))
-        .limit(limit),
-      WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
-    ])
+    const { total, rows } = await paginate({
+      rows: () =>
+        WIKI.db
+          .select({
+            event: sql<string>`${jobHistoryTable.payload} ->> 'event'`,
+            state: jobHistoryTable.state,
+            attempt: jobHistoryTable.attempt,
+            maxRetries: jobHistoryTable.maxRetries,
+            lastErrorMessage: jobHistoryTable.lastErrorMessage,
+            startedAt: jobHistoryTable.startedAt,
+            completedAt: jobHistoryTable.completedAt
+          })
+          .from(jobHistoryTable)
+          .where(where)
+          .orderBy(desc(jobHistoryTable.startedAt))
+          .limit(limit),
+      total: () => WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
+    })
 
-    return {
-      total: totals[0]?.total ?? 0,
-      deliveries
-    }
+    return { total, deliveries: rows }
   }
 
   /**

@@ -1,7 +1,9 @@
 import bcrypt from 'bcryptjs'
-import { and, desc, eq, inArray, ne, or, sql } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, ne, or, sql } from 'drizzle-orm'
 import { pages as pagesTable, tree as treeTable, users as usersTable } from '../db/schema.ts'
 import {
+  assertLocaleActive,
+  assertPathNotReservedLocale,
   BCRYPT_ROUNDS,
   CustomError,
   defaultLocale,
@@ -9,6 +11,7 @@ import {
   isUniqueViolation,
   normalizePagePath
 } from '../helpers/common.ts'
+import { paginate } from '../helpers/pagination.ts'
 import { rulesAllow } from '../helpers/pageRules.ts'
 import { invalidateGraphCache } from '../helpers/graphCache.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
@@ -1003,28 +1006,12 @@ class Pages {
     }
 
     const path = normalizePath(input.path)
-    const firstSegment = path.split('/')[0] ?? ''
-    if (await WIKI.models.locales.isReservedLocaleCode(firstSegment)) {
-      throw new CustomError(
-        'pageReservedLocaleSegment',
-        `"${firstSegment}" is an installed locale code and cannot begin a page path.`,
-        400
-      )
-    }
+    await assertPathNotReservedLocale(path)
     const locale = input.locale || defaultLocale(siteId)
     // -> A locale that used to be enabled and got turned off is not a valid target for a new page,
     //    including one recreated by the deletion-recovery flow (see `pageHistory.recoverDeletedPage`)
     //    into a locale that no longer exists
-    const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? [
-      defaultLocale(siteId)
-    ]
-    if (!activeLocales.includes(locale)) {
-      throw new CustomError(
-        'pageInvalidLocale',
-        `This site does not have the "${locale}" locale enabled.`,
-        400
-      )
-    }
+    assertLocaleActive(siteId, locale)
     const title = (input.title ?? '').trim()
     if (title.length < 1) {
       throw new CustomError('pageTitleMissing', 'A page needs a title.')
@@ -1711,29 +1698,13 @@ class Pages {
     //    so it applies identically to every twin the cascade below moves to the same destination --
     //    no need to repeat it per twin.
     if (newPath !== page.path) {
-      const firstSegment = newPath.split('/')[0] ?? ''
-      if (await WIKI.models.locales.isReservedLocaleCode(firstSegment)) {
-        throw new CustomError(
-          'pageReservedLocaleSegment',
-          `"${firstSegment}" is an installed locale code and cannot begin a page path.`,
-          400
-        )
-      }
+      await assertPathNotReservedLocale(newPath)
     }
     const destLocale = locale ?? page.locale
     // -> Same rule as `createPage`: a locale that is not enabled on this site is not a place a page
     //    may end up, whether by being created there or by being moved there
     if (destLocale !== page.locale) {
-      const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? [
-        defaultLocale(siteId)
-      ]
-      if (!activeLocales.includes(destLocale)) {
-        throw new CustomError(
-          'pageInvalidLocale',
-          `This site does not have the "${destLocale}" locale enabled.`,
-          400
-        )
-      }
+      assertLocaleActive(siteId, destLocale)
     }
     if (
       newPath === page.path &&
@@ -2198,26 +2169,24 @@ class Pages {
       ...(siteId ? [eq(pagesTable.siteId, siteId)] : [])
     ]
     const where = and(...conditions)
-    const [totals, rows] = await Promise.all([
-      WIKI.db
-        .select({ total: sql<number>`count(*)::int` })
-        .from(pagesTable)
-        .where(where),
-      WIKI.db
-        .select({
-          id: pagesTable.id,
-          path: pagesTable.path,
-          locale: pagesTable.locale,
-          title: pagesTable.title,
-          siteId: pagesTable.siteId
-        })
-        .from(pagesTable)
-        .where(where)
-        .orderBy(desc(pagesTable.updatedAt))
-        .limit(limit)
-        .offset(offset)
-    ])
-    return { total: totals[0]?.total ?? 0, entries: rows }
+    const { total, rows } = await paginate({
+      rows: () =>
+        WIKI.db
+          .select({
+            id: pagesTable.id,
+            path: pagesTable.path,
+            locale: pagesTable.locale,
+            title: pagesTable.title,
+            siteId: pagesTable.siteId
+          })
+          .from(pagesTable)
+          .where(where)
+          .orderBy(desc(pagesTable.updatedAt))
+          .limit(limit)
+          .offset(offset),
+      total: () => WIKI.db.select({ total: count() }).from(pagesTable).where(where)
+    })
+    return { total, entries: rows }
   }
 
   /**

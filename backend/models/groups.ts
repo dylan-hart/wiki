@@ -5,7 +5,10 @@ import { groups as groupsTable, userGroups, users as usersTable } from '../db/sc
 import { ClusterReloaded } from '../helpers/clusterCache.ts'
 import { CustomError, escapeLikePattern, normalizePagePath } from '../helpers/common.ts'
 import { clearPageRuleRegexCache, resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
+import { paginate } from '../helpers/pagination.ts'
 import { resolveSiteRule, ruleMatchesSite } from '../helpers/siteRules.ts'
+import { userSelection } from './users.ts'
+import type { UserPage } from './users.ts'
 import type { SystemIds } from './types.ts'
 import type { FastifyRequest } from 'fastify'
 
@@ -110,25 +113,6 @@ export interface GroupPatch {
  * `userCount` comes from a left join on `userGroups` aggregated per group, so groups with no members
  * count 0 rather than dropping out of the result.
  */
-/** A member of a group, mirroring the `UserCore` API schema. */
-export interface GroupUser {
-  id: string
-  name: string
-  email: string
-  hasAvatar: boolean
-  isSystem: boolean
-  isActive: boolean
-  isVerified: boolean
-  createdAt: Date
-  updatedAt: Date
-  lastLoginAt: Date | null
-}
-
-export interface GroupUserPage {
-  total: number
-  users: GroupUser[]
-}
-
 const groupSelection = {
   id: groupsTable.id,
   name: groupsTable.name,
@@ -979,7 +963,7 @@ class Groups extends ClusterReloaded {
   async getGroupUsers(
     groupId: string,
     { filter = '', page = 1, limit = 20 }: { filter?: string; page?: number; limit?: number } = {}
-  ): Promise<GroupUserPage> {
+  ): Promise<UserPage> {
     const conditions = [eq(userGroups.groupId, groupId)]
     if (filter) {
       const pattern = `%${escapeLikePattern(filter)}%`
@@ -987,37 +971,25 @@ class Groups extends ClusterReloaded {
     }
     const where = and(...conditions)
 
-    const [users, totals] = await Promise.all([
-      WIKI.db
-        .select({
-          id: usersTable.id,
-          name: usersTable.name,
-          email: usersTable.email,
-          hasAvatar: usersTable.hasAvatar,
-          isSystem: usersTable.isSystem,
-          isActive: usersTable.isActive,
-          isVerified: usersTable.isVerified,
-          createdAt: usersTable.createdAt,
-          updatedAt: usersTable.updatedAt,
-          lastLoginAt: usersTable.lastLoginAt
-        })
-        .from(userGroups)
-        .innerJoin(usersTable, eq(usersTable.id, userGroups.userId))
-        .where(where)
-        .orderBy(usersTable.name)
-        .limit(limit)
-        .offset((page - 1) * limit),
-      WIKI.db
-        .select({ total: count() })
-        .from(userGroups)
-        .innerJoin(usersTable, eq(usersTable.id, userGroups.userId))
-        .where(where)
-    ])
+    const { total, rows } = await paginate({
+      rows: () =>
+        WIKI.db
+          .select(userSelection)
+          .from(userGroups)
+          .innerJoin(usersTable, eq(usersTable.id, userGroups.userId))
+          .where(where)
+          .orderBy(usersTable.name)
+          .limit(limit)
+          .offset((page - 1) * limit),
+      total: () =>
+        WIKI.db
+          .select({ total: count() })
+          .from(userGroups)
+          .innerJoin(usersTable, eq(usersTable.id, userGroups.userId))
+          .where(where)
+    })
 
-    return {
-      total: totals[0]?.total ?? 0,
-      users
-    }
+    return { total, users: rows }
   }
 
   /**
