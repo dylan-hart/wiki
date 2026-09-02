@@ -56,20 +56,6 @@ async function mayListBlocks(req: FastifyRequest, siteId: string): Promise<boole
 }
 
 /**
- * Whether this caller may enable, disable or delete this site's blocks.
- *
- * `manage:sites` keeps working exactly as before delegation existed; `site:blocks` (see
- * `helpers/siteRules.ts`) is the new, narrower alternative a rule can grant per site.
- */
-function mayManageBlocks(req: FastifyRequest, siteId: string): boolean {
-  const actor = WIKI.models.groups.actorForRequest(req)
-  return (
-    actor.permissions.includes('manage:sites') ||
-    WIKI.models.groups.checkSiteAccess(actor, 'site:blocks', siteId)
-  )
-}
-
-/**
  * Blocks API Routes
  */
 async function routes(app: FastifyInstance) {
@@ -141,7 +127,7 @@ async function routes(app: FastifyInstance) {
         Permissions section) and no new, narrower permission name may be invented for this route.
 
         NOT applied identically on the PUT (enable/disable) and DELETE routes below: those also accept
-        the narrower site-scoped `site:blocks` delegation (`mayManageBlocks()`, backed by
+        the narrower site-scoped `site:blocks` delegation (`checkSiteAdminAccess()`, backed by
         `checkSiteAccess()` — see `docs/decisions/delegated-per-site-administration.md` §3, which lists
         `site:blocks` as covering exactly these two routes). That is a deliberate, accepted widening,
         not an inconsistency: introducing NEW arbitrary script is the more sensitive act, so upload
@@ -236,7 +222,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: who may change a site's blocks comes from `checkSiteAccess()`,
-        which that hook cannot call — see `mayManageBlocks`.
+        which that hook cannot call — see `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: 'Enable or disable site blocks',
@@ -302,7 +288,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!mayManageBlocks(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:sites',
+          'site:blocks',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
 
@@ -332,7 +325,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/blocks/:blockId',
     {
       /*
-        No route-level `permissions`: same reasoning as the PUT above — see `mayManageBlocks`.
+        No route-level `permissions`: same reasoning as the PUT above — see `checkSiteAdminAccess`.
       */
       schema: {
         summary: 'Delete a custom block',
@@ -365,7 +358,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!mayManageBlocks(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:sites',
+          'site:blocks',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
 

@@ -81,20 +81,6 @@ const SITE_IMAGE_KIND_PERMISSIONS: Record<SiteAssetKind, string> = {
 }
 
 /**
- * Whether this caller may replace or clear one of a site's images.
- *
- * `manage:sites` keeps working exactly as it did before delegation existed; `site:general` /
- * `site:login` are the new, narrower alternative a rule can grant per site.
- */
-function maySaveSiteImage(req: FastifyRequest, siteId: string, kind: SiteAssetKind): boolean {
-  const actor = WIKI.models.groups.actorForRequest(req)
-  return (
-    actor.permissions.includes('manage:sites') ||
-    WIKI.models.groups.checkSiteAccess(actor, SITE_IMAGE_KIND_PERMISSIONS[kind], siteId)
-  )
-}
-
-/**
  * Every `site:*` permission (see `helpers/siteRules.ts`) this requester holds on this site.
  *
  * The site-scoped counterpart to `pagePermissionsFor` in `helpers/pageAccess.ts`: what the interface hides
@@ -102,9 +88,9 @@ function maySaveSiteImage(req: FastifyRequest, siteId: string, kind: SiteAssetKi
  * same way that route's own handlers decide it (`checkSiteAccess`) rather than a broader question.
  *
  * Deliberately does NOT fold in `manage:sites`, `manage:theme` or `manage:navigation` — each of those
- * covers a different subset of the eight surfaces (see `SITE_FIELD_PERMISSIONS`, `mayManageBlocks` in
- * `api/blocks.ts`, `canManageNavigation` in `api/navigation.ts`, `mayAdministerApprovals` in
- * `api/approvals.ts`), so folding any one of them in here would tell the caller they hold a permission
+ * covers a different subset of the eight surfaces (see `SITE_FIELD_PERMISSIONS`, and the
+ * `checkSiteAdminAccess` calls in `api/blocks.ts`, `api/navigation.ts` and `api/approvals.ts`), so
+ * folding any one of them in here would tell the caller they hold a permission
  * a specific route would still refuse. The frontend already has all three of those in
  * `userStore.permissions` and combines them itself — see `frontend/src/composables/siteAdminAccess.js`.
  */
@@ -818,7 +804,7 @@ async function routes(app: FastifyInstance) {
       /*
         No route-level `permissions`: which `site:*` permission applies depends on `kind` (`logo`
         and `favicon` are `site:general`, `loginBg` is `site:login`), which a route-level list can't
-        express. Checked in the handler via `maySaveSiteImage`.
+        express. Checked in the handler via `checkSiteAdminAccess`, over `SITE_IMAGE_KIND_PERMISSIONS`.
       */
       schema: {
         summary: "Replace one of a site's images",
@@ -865,7 +851,14 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
-      if (!maySaveSiteImage(req, req.params.siteId, req.params.kind)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:sites',
+          SITE_IMAGE_KIND_PERMISSIONS[req.params.kind],
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
 
@@ -899,7 +892,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the PUT above — `kind` decides which `site:*`
-        permission applies, checked in the handler via `maySaveSiteImage`.
+        permission applies, checked in the handler via `checkSiteAdminAccess`.
       */
       schema: {
         summary: "Remove one of a site's images",
@@ -945,7 +938,14 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
-      if (!maySaveSiteImage(req, req.params.siteId, req.params.kind)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:sites',
+          SITE_IMAGE_KIND_PERMISSIONS[req.params.kind],
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
 

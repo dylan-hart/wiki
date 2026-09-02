@@ -123,6 +123,23 @@ function checkSiteAccess(actor: { permissions: string[] }, permission: string, s
 let currentSitePermissionHeader: string | undefined
 
 /**
+ * Stand-in for `models/groups.ts#checkSiteAdminAccess`, composed from `actorForRequest` and the
+ * `checkSiteAccess` stub above exactly as the real method composes the real pair — so what a test
+ * grants through the two headers still decides the answer.
+ */
+function checkSiteAdminAccess(
+  req: any,
+  globalPermission: string,
+  sitePermission: string,
+  siteId: string
+) {
+  const actor = actorForRequest(req)
+  return (
+    actor.permissions.includes(globalPermission) || checkSiteAccess(actor, sitePermission, siteId)
+  )
+}
+
+/**
  * Regression test for `POST /_api/sites`'s hand-rolled hostname check: the handler validated
  * `req.body.hostname` against `/^(\*)|([a-z0-9\-.:]+)$/`, but the alternation is ungrouped and the
  * first branch (`\*` — zero or more literal backslashes) matches the empty string, so the whole
@@ -183,7 +200,8 @@ before(async () => {
       },
       groups: {
         actorForRequest,
-        checkSiteAccess
+        checkSiteAccess,
+        checkSiteAdminAccess
       },
       locales: {
         getLocales: async () => [{ code: 'en' }]

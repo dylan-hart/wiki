@@ -86,13 +86,30 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     return { groupIds: [], permissions }
   }
 
+  /**
+   * Stand-in for `models/groups.ts#checkSiteAdminAccess`, composed from the two stubs above exactly
+   * as the real method composes the real pair — so what each test grants through the two headers
+   * still decides the answer.
+   */
+  function checkSiteAdminAccess(
+    req: any,
+    globalPermission: string,
+    sitePermission: string,
+    siteId: string
+  ) {
+    const actor = actorForRequest(req)
+    return (
+      actor.permissions.includes(globalPermission) || checkSiteAccess(actor, sitePermission, siteId)
+    )
+  }
+
   let app: FastifyInstance
 
   before(async () => {
     ;(globalThis as any).WIKI = {
       sites,
       models: {
-        groups: { actorForRequest, checkSiteAccess },
+        groups: { actorForRequest, checkSiteAccess, checkSiteAdminAccess },
         approvals: {
           getRules,
           getRule,

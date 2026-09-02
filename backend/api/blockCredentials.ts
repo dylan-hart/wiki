@@ -1,21 +1,12 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import { ORIGIN_PATTERN_SOURCE } from '../helpers/network.ts'
 
-/**
- * Whether this caller may create, rotate or delete this site's block credentials.
- *
- * Same gate `api/blocks.ts#mayManageBlocks` uses: `manage:sites`, or the narrower `site:blocks`
- * delegation. Credential management lives beside block administration rather than behind a
- * permission of its own — a group trusted to decide which blocks a site runs is the same group
- * trusted to decide which endpoints those blocks may authenticate to.
- */
-function mayManageCredentials(req: FastifyRequest, siteId: string): boolean {
-  const actor = WIKI.models.groups.actorForRequest(req)
-  return (
-    actor.permissions.includes('manage:sites') ||
-    WIKI.models.groups.checkSiteAccess(actor, 'site:blocks', siteId)
-  )
-}
+/*
+  Credential management is gated by the same `manage:sites` / `site:blocks` pair `api/blocks.ts`'s own
+  routes use, not a permission of its own — a group trusted to decide which blocks a site runs is the
+  same group trusted to decide which endpoints those blocks may authenticate to. See
+  `models/groups.ts#checkSiteAdminAccess` for why the global half is site-blind.
+*/
 
 /**
  * Block Credentials API Routes (OpenProject #868)
@@ -34,7 +25,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/block-credentials',
     {
       // No route-level `permissions`: gated by `site:blocks` (a site-scoped rule, see
-      // `helpers/siteRules.ts`), which the group-wide hook cannot check — see `mayManageCredentials`.
+      // `helpers/siteRules.ts`), which the group-wide hook cannot check — see `checkSiteAdminAccess`.
       schema: {
         summary: "List a site's block credentials",
         description:
@@ -53,7 +44,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!mayManageCredentials(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:sites',
+          'site:blocks',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
       return WIKI.models.blockCredentials.getSiteCredentials(req.params.siteId)
@@ -104,7 +102,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!mayManageCredentials(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:sites',
+          'site:blocks',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
       return WIKI.models.blockCredentials.createCredential(
@@ -153,7 +158,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!mayManageCredentials(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:sites',
+          'site:blocks',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
       const rotated = await WIKI.models.blockCredentials.rotateSecret(
@@ -215,7 +227,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!mayManageCredentials(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:sites',
+          'site:blocks',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
       const updated = await WIKI.models.blockCredentials.updateAllowedOrigins(
@@ -257,7 +276,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!mayManageCredentials(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:sites',
+          'site:blocks',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
       const deleted = await WIKI.models.blockCredentials.deleteCredential(

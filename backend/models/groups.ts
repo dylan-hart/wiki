@@ -627,6 +627,43 @@ class Groups {
     return rule ? rule.mode !== 'DENY' : false
   }
 
+  /**
+   * Whether this request may administer one delegable settings surface of one site: the older,
+   * site-blind global permission, OR the narrower `site:*` delegation a rule can grant per site.
+   *
+   * The one place that "or" is written. Every site-scoped admin surface answers the same shape of
+   * question, and five route files each carried their own byte-identical copy of it —
+   * `mayAdministerApprovals`, `mayManageBlocks`, `mayManageCredentials`, `canManageNavigation`,
+   * `maySaveSiteImage` — each with its own paragraph saying the same thing (finding API-F3).
+   *
+   * `globalPermission` is checked first and site-blind, because that is what makes delegation
+   * additive rather than a migration: an administrator who held `manage:sites` (or
+   * `manage:navigation`) before any `site:*` permission existed keeps reaching every site's surface
+   * exactly as they did, and a rule only ever hands the same surface to somebody narrower. Nothing
+   * here can take a grant away — a DENY on a `site:*` rule stops that delegation, not the global
+   * permission it sits beside. Because the global half is a group-wide permission it is not a rule,
+   * and `siteId` therefore has nothing to say about it.
+   *
+   * The site half is `checkSiteAccess()` unchanged, so the site pin, the API-key scope boundary and
+   * the `manage:system` bypass all apply to it exactly as they do everywhere else.
+   *
+   * @param globalPermission The pre-delegation group-wide permission, e.g. `manage:sites`
+   * @param sitePermission The delegable `SITE_PERMISSIONS` entry, e.g. `site:blocks`
+   * @param siteId The site being administered
+   */
+  checkSiteAdminAccess(
+    req: FastifyRequest,
+    globalPermission: string,
+    sitePermission: string,
+    siteId: string
+  ): boolean {
+    const actor = this.actorForRequest(req)
+    return (
+      actor.permissions.includes(globalPermission) ||
+      this.checkSiteAccess(actor, sitePermission, siteId)
+    )
+  }
+
   async init(ids: SystemIds): Promise<void> {
     WIKI.logger.info('Inserting default groups...')
 

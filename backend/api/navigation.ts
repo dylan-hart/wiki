@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import {
   assertValidNavItems,
   NAV_COPY_MODES,
@@ -10,19 +10,11 @@ import {
   type NavigationSourceMode
 } from '../models/navigation.ts'
 
-/**
- * Whether the requester may see and edit a menu whole, rather than only the parts meant for them.
- *
- * `manage:navigation` keeps working exactly as before delegation existed; `site:navigation` (see
- * `helpers/siteRules.ts`) is the new, narrower alternative a rule can grant per site.
- */
-function canManageNavigation(req: FastifyRequest, siteId: string): boolean {
-  const actor = WIKI.models.groups.actorForRequest(req)
-  return (
-    actor.permissions.includes('manage:navigation') ||
-    WIKI.models.groups.checkSiteAccess(actor, 'site:navigation', siteId)
-  )
-}
+/*
+  Seeing and editing a menu whole — rather than only the parts meant for the reader — is gated by
+  `manage:navigation` or the narrower per-site `site:navigation` delegation, asked of
+  `models/groups.ts#checkSiteAdminAccess` at each route below.
+*/
 
 /**
  * Navigation API Routes
@@ -74,7 +66,15 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const unfiltered = Boolean(req.query.full)
-      if (unfiltered && !canManageNavigation(req, req.params.siteId)) {
+      if (
+        unfiltered &&
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:navigation',
+          'site:navigation',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden(
           'Reading a menu in full requires manage:navigation, or site:navigation on this site.'
         )
@@ -95,7 +95,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `canManageNavigation`.
+        `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: "Get a menu's source mode",
@@ -125,7 +125,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!canManageNavigation(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:navigation',
+          'site:navigation',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
       return { mode: await WIKI.models.navigation.getMode(req.params.siteId, req.params.navId) }
@@ -140,7 +147,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: who may see this comes from `checkSiteAccess()`, which that
-        hook cannot call — see `canManageNavigation`.
+        hook cannot call — see `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: 'Get the menu a page inherits',
@@ -166,7 +173,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!canManageNavigation(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:navigation',
+          'site:navigation',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
       return {
@@ -186,7 +200,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `canManageNavigation`.
+        `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: "Get a locale's site-wide default menu row id",
@@ -215,7 +229,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!canManageNavigation(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:navigation',
+          'site:navigation',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
       return {
@@ -235,7 +256,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `canManageNavigation`.
+        `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: "List a site's default menu roots, one per active locale",
@@ -261,7 +282,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!canManageNavigation(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:navigation',
+          'site:navigation',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
       return WIKI.models.navigation.siteRoots(req.params.siteId)
@@ -276,7 +304,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `canManageNavigation`.
+        `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: 'List navigation overrides',
@@ -315,7 +343,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!canManageNavigation(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:navigation',
+          'site:navigation',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
       return WIKI.models.navigation.listOverrides(req.params.siteId, {
@@ -335,7 +370,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `canManageNavigation`.
+        `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: "Set a menu's items directly",
@@ -376,7 +411,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!canManageNavigation(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:navigation',
+          'site:navigation',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
       assertValidNavItems(req.body.items)
@@ -399,8 +441,8 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `canManageNavigation`. Checked against BOTH the target site and, when it differs, the
-        resolved source site: `site:navigation` is granted per site (OpenProject #933's own
+        `models/groups.ts#checkSiteAdminAccess`. Checked against BOTH the target site and, when it
+        differs, the resolved source site: `site:navigation` is granted per site (OpenProject #933's own
         `helpers/siteRules.ts` — a rule's `sites` array can scope it to exactly one), so a caller
         delegated only on the target could otherwise use `sourceSiteId` to read and duplicate a
         DIFFERENT site's menu into the target without ever holding a permission on that site at all.
@@ -451,11 +493,26 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!canManageNavigation(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:navigation',
+          'site:navigation',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
       const sourceSiteId = req.body.sourceSiteId ?? req.params.siteId
-      if (sourceSiteId !== req.params.siteId && !canManageNavigation(req, sourceSiteId)) {
+      if (
+        sourceSiteId !== req.params.siteId &&
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:navigation',
+          'site:navigation',
+          sourceSiteId
+        )
+      ) {
         return reply.forbidden()
       }
       await WIKI.models.navigation.copyNav({
@@ -483,7 +540,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the inherited-menu GET above — see
-        `canManageNavigation`.
+        `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: 'Set how a page resolves its navigation',
@@ -539,7 +596,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!canManageNavigation(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:navigation',
+          'site:navigation',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
       if (req.body.items) {

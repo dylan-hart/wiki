@@ -61,24 +61,6 @@ function isReviewerSession(req: FastifyRequest): boolean {
 }
 
 /**
- * Whether this caller may read or manage this site's approval rules — i.e. reach
- * `AdminApprovals.vue` for it, in either direction.
- *
- * One function for both, not a read/manage pair: `helpers/siteRules.ts` carries exactly one
- * `site:approvals` entry, so there is no narrower grant a "read" version could use that a "manage"
- * version couldn't — every route in this file promises the same grant either way. `manage:sites`
- * keeps working exactly as before delegation existed; `site:approvals` (see `helpers/siteRules.ts`)
- * is the narrower alternative a rule can grant per site.
- */
-function mayAdministerApprovals(req: FastifyRequest, siteId: string): boolean {
-  const actor = WIKI.models.groups.actorForRequest(req)
-  return (
-    actor.permissions.includes('manage:sites') ||
-    WIKI.models.groups.checkSiteAccess(actor, 'site:approvals', siteId)
-  )
-}
-
-/**
  * Everything a rule has to satisfy beyond what the JSON Schema already enforces.
  *
  * All of it comes down to the same thing: a rule that cannot match a page, or that nobody is on either
@@ -182,7 +164,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: who may read this comes from `checkSiteAccess()`, which that
-        hook cannot call — see `mayAdministerApprovals`.
+        hook cannot call — see `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: 'List the approval rules of a site',
@@ -203,7 +185,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!mayAdministerApprovals(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:sites',
+          'site:approvals',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
       return WIKI.models.approvals.getRules(req.params.siteId)
@@ -218,7 +207,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: who may write this comes from `checkSiteAccess()`, which that
-        hook cannot call — see `mayAdministerApprovals`.
+        hook cannot call — see `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: 'Create an approval rule',
@@ -249,7 +238,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!mayAdministerApprovals(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:sites',
+          'site:approvals',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
 
@@ -284,7 +280,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the POST above — see
-        `mayAdministerApprovals`.
+        `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: 'Update an approval rule',
@@ -323,7 +319,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!mayAdministerApprovals(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:sites',
+          'site:approvals',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
       const current = await WIKI.models.approvals.getRule(req.params.siteId, req.params.ruleId)
@@ -375,7 +378,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the POST above — see
-        `mayAdministerApprovals`.
+        `models/groups.ts#checkSiteAdminAccess`.
       */
       schema: {
         summary: 'Delete an approval rule',
@@ -407,7 +410,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!mayAdministerApprovals(req, req.params.siteId)) {
+      if (
+        !WIKI.models.groups.checkSiteAdminAccess(
+          req,
+          'manage:sites',
+          'site:approvals',
+          req.params.siteId
+        )
+      ) {
         return reply.forbidden()
       }
       if (!(await WIKI.models.approvals.deleteRule(req.params.siteId, req.params.ruleId))) {

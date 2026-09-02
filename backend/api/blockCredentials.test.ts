@@ -92,6 +92,23 @@ describe('block credentials API (site-scoped delegation)', () => {
     return { groupIds: [], permissions }
   }
 
+  /**
+   * Stand-in for `models/groups.ts#checkSiteAdminAccess`, composed from the two stubs above exactly
+   * as the real method composes the real pair — so what each test grants through the two headers
+   * still decides the answer.
+   */
+  function checkSiteAdminAccess(
+    req: any,
+    globalPermission: string,
+    sitePermission: string,
+    siteId: string
+  ) {
+    const actor = actorForRequest(req)
+    return (
+      actor.permissions.includes(globalPermission) || checkSiteAccess(actor, sitePermission, siteId)
+    )
+  }
+
   let app: FastifyInstance
 
   before(async () => {
@@ -105,7 +122,7 @@ describe('block credentials API (site-scoped delegation)', () => {
           updateAllowedOrigins,
           deleteCredential
         },
-        groups: { actorForRequest, checkSiteAccess }
+        groups: { actorForRequest, checkSiteAccess, checkSiteAdminAccess }
       }
     }
 

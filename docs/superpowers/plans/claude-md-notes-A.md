@@ -150,3 +150,18 @@
   - **A test suite that mounts one route plugin alone must call `registerParamsSchemas(app)`** in
     its `buildApp`, next to the `registerSchemas` calls it already makes — otherwise `app.ready()`
     throws `FST_ERR_SCH_*` on the unresolvable `$ref`. 25 suites do this now.
+
+- **Task A7, step 3 (`checkSiteAdminAccess`, finding API-F3).** CLAUDE.md's "Permissions" section
+  should now say:
+  - **The "global permission OR `site:*` delegation" question has one implementation**:
+    `WIKI.models.groups.checkSiteAdminAccess(req, globalPermission, sitePermission, siteId)`, next
+    to `checkSiteAccess` in `models/groups.ts`. The five byte-identical route-file wrappers
+    (`mayAdministerApprovals`, `mayManageBlocks`, `mayManageCredentials`, `canManageNavigation`,
+    `maySaveSiteImage`), each with its own copy of the same rationale paragraph, are gone; a route
+    calls it directly. The rationale — the global half is checked first and site-blind, so
+    delegation is additive rather than a migration, and the site half is `checkSiteAccess()`
+    unchanged (site pin, API-key scope boundary, `manage:system` bypass all still apply) — is
+    written once, on the method.
+  - **A test suite stubbing `WIKI.models.groups` for a site-scoped admin route must stub
+    `checkSiteAdminAccess` too**, composed from its own `actorForRequest`/`checkSiteAccess` stubs
+    the same way the real method composes the real pair. Six suites do this now.

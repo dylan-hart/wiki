@@ -54,13 +54,30 @@ function actorForRequest(req: any) {
   return { groupIds: [], permissions }
 }
 
+/**
+ * Stand-in for `models/groups.ts#checkSiteAdminAccess`, composed from the two stubs above exactly
+ * as the real method composes the real pair — so what each test grants through the two headers
+ * still decides the answer.
+ */
+function checkSiteAdminAccess(
+  req: any,
+  globalPermission: string,
+  sitePermission: string,
+  siteId: string
+) {
+  const actor = actorForRequest(req)
+  return (
+    actor.permissions.includes(globalPermission) || checkSiteAccess(actor, sitePermission, siteId)
+  )
+}
+
 let app: FastifyInstance
 
 before(async () => {
   ;(globalThis as any).WIKI = {
     sites: { [SITE_ID]: { id: SITE_ID } },
     models: {
-      groups: { actorForRequest, checkSiteAccess },
+      groups: { actorForRequest, checkSiteAccess, checkSiteAdminAccess },
       navigation: {
         inheritedNavId: async () => 'inherited-nav-id',
         updateNavigation: async (opts: any) => ({
@@ -448,6 +465,14 @@ describe('site:navigation delegation on the six previously route-gated endpoints
   })
 })
 
+/** The session-derived actor the Task 472 describe's own `WIKI.models.groups` stub answers from. */
+function sessionActor(req: any) {
+  return {
+    groupIds: [],
+    permissions: req.session?.authenticated ? (req.session.permissions ?? []) : []
+  }
+}
+
 describe('manage:navigation permission surface on GET/PUT .../navigation/:navId (Task 472)', () => {
   /**
    * No session plugin is registered in this isolated app (see comment above), so a test seeds
@@ -524,19 +549,16 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
           }
         },
         // -> Both the GET route's `full=true` branch and the PUT route below check
-        //    `canManageNavigation()` in-handler (task #933 moved PUT off route-level
+        //    `checkSiteAdminAccess()` in-handler (task #933 moved PUT off route-level
         //    `config.permissions` too) -- this stub answers that from the same `x-test-session`
         //    header `permissionPreHandler` reads, and never grants `site:navigation`, since no test
         //    in this describe exercises that delegation path (see the task #933 describe above for
         //    that coverage).
         groups: {
-          actorForRequest: (req: any) => ({
-            groupIds: [],
-            permissions: (req as any).session?.authenticated
-              ? ((req as any).session.permissions ?? [])
-              : []
-          }),
-          checkSiteAccess: () => false
+          actorForRequest: sessionActor,
+          checkSiteAccess: () => false,
+          checkSiteAdminAccess: (req: any, globalPermission: string) =>
+            sessionActor(req).permissions.includes(globalPermission)
         }
       }
     }
