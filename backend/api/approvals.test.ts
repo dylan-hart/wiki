@@ -108,14 +108,19 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
         sites,
         models: {
           groups: { actorForRequest, checkSiteAccess, checkSiteAdminAccess, hasUnknownGroupIds },
-          approvals: {
+          // -> Rule CRUD moved to `models/approvalRules.ts` when `models/approvals.ts` was split;
+          //    the rule routes reach it there now.
+          approvalRules: {
             getRules,
             getRule,
             createRule,
             updateRule,
-            deleteRule,
+            deleteRule
+          },
+          approvals: {
             isReviewerSession: () => false,
-            getActorGroupIds: () => []
+            getActorGroupIds: () => [],
+            reviewerScopeFor: () => ({ groupIds: [], reviewsAll: false })
           }
         }
       }

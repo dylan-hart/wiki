@@ -475,7 +475,7 @@ export default {
     maintenance.subscribeToEvents()
     WIKI.models.groups.subscribeToEvents()
     WIKI.models.sites.subscribeToEvents()
-    WIKI.models.approvals.subscribeToEvents()
+    WIKI.models.approvalRules.subscribeToEvents()
     WIKI.models.classificationLevels.subscribeToEvents()
     WIKI.models.glossary.subscribeToEvents()
     WIKI.models.locales.subscribeToEvents()

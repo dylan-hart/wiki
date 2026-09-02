@@ -1,5 +1,7 @@
 import { analytics } from './analytics.ts'
 import { apiKeys } from './apiKeys.ts'
+import { approvalNotifications } from './approvalNotifications.ts'
+import { approvalRules } from './approvalRules.ts'
 import { approvals } from './approvals.ts'
 import { assets } from './assets.ts'
 import { auditLog } from './auditLog.ts'
@@ -52,6 +54,8 @@ import { users } from './users.ts'
 export default {
   analytics,
   apiKeys,
+  approvalNotifications,
+  approvalRules,
   approvals,
   assets,
   auditLog,

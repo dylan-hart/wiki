@@ -50,7 +50,7 @@ async function mayListBlocks(req: FastifyRequest, siteId: string): Promise<boole
     return true
   }
   const groupIds = WIKI.models.approvals.getActorGroupIds(req)
-  const rules = await WIKI.models.approvals.getRules(siteId)
+  const rules = await WIKI.models.approvalRules.getRules(siteId)
   return rules.some(
     (rule) => rule.isEnabled && rule.submitterGroups.some((id) => groupIds.includes(id))
   )

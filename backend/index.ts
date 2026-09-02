@@ -148,7 +148,7 @@ async function postBoot() {
   // -> Page access is decided from these on every request, so they are in memory from the start
   await WIKI.models.groups.reloadCache()
   // -> Likewise: every page view asks whether the page takes suggestions and who reviews it
-  await WIKI.models.approvals.reloadCache()
+  await WIKI.models.approvalRules.reloadCache()
   // -> The floor invariant (#1080) is checked on every page create/move, so this is in memory too
   await WIKI.models.classificationLevels.reloadCache()
 

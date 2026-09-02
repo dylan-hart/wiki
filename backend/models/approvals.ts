@@ -2,48 +2,18 @@ import { createHash } from 'node:crypto'
 import { createPatch } from 'diff'
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import {
-  approvalRules as approvalRulesTable,
   pageEditSubmissionApprovals as submissionApprovalsTable,
   pageEditSubmissions as submissionsTable,
   pages as pagesTable,
-  userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
+import { actorFrom } from '../helpers/pageAccess.ts'
 import type { AccessActor } from './groups.ts'
 import { hasPermission } from './pages.ts'
+import type { ApprovalPageMatch, ApprovalPageRef, ApprovalRule } from './approvalRules.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
 import type { RenderPermissions } from '../helpers/htmlSanitizePolicy.ts'
-import { escapeHtml } from './mail.ts'
-import { ClusterReloaded } from '../helpers/clusterCache.ts'
-import { approvalMatchModes } from '../helpers/approvalMatch.ts'
-import type { ApprovalMatchMode } from '../helpers/approvalMatch.ts'
-
-// Re-exported for existing importers (`api/schemas/approval.ts`) -- the definition now lives in
-// `helpers/approvalMatch.ts` so `db/schema.ts` can type `approvalRules.match` against it without
-// importing a model into the schema module.
-export { approvalMatchModes }
-export type { ApprovalMatchMode }
-
-/** The part of a page a rule is matched against. */
-/** What a rule is matched against: where the page is, and what it is tagged with. */
-export interface ApprovalPageMatch {
-  path: string
-  tags: string[]
-}
-
-export interface ApprovalPageRef extends ApprovalPageMatch {
-  id: string
-  /**
-   * The page's own switch, from its properties. A page with contributions turned off takes no
-   * suggestions whatever the rules say — which is how a single page is exempted without writing a
-   * rule around it.
-   */
-  allowContributions: boolean
-  /** Passed through to `groups.checkAccess()`'s `RulePageRef` in `pageViewerState`, nowhere else. */
-  locale: string | null
-  /** Likewise passed through to `RulePageRef` -- see `helpers/pageRules.ts` (OpenProject #1079). */
-  classification: string | null
-}
+import type { FastifyRequest } from 'fastify'
 
 /**
  * Who is reviewing, as the rules see them.
@@ -154,213 +124,15 @@ export type ApproveSubmissionResult =
   | { ok: true; finalized: boolean; approvalsCount: number; approvalsRequired: number }
   | { ok: false; reason: 'not-found' | 'stale' | 'forbidden' }
 
-/** An approval rule as the API exposes it. */
-export type ApprovalRule = Omit<typeof approvalRulesTable.$inferSelect, 'siteId'>
-
-/** The fields a rule is created or updated with. */
-export interface ApprovalRulePatch {
-  name?: string
-  isEnabled?: boolean
-  match?: ApprovalMatchMode
-  path?: string
-  submitterGroups?: string[]
-  reviewerGroups?: string[]
-  minApprovals?: number
-}
-
-/**
- * The tags of a tag-mode rule, as they are written into the one pattern field: comma-separated, and
- * compared in lower case the way page tags are stored.
- */
-function parseTags(value: string): string[] {
-  return value
-    .split(',')
-    .map((tag) => tag.trim().toLowerCase())
-    .filter((tag) => tag.length > 0)
-}
-
-const ruleSelection = {
-  id: approvalRulesTable.id,
-  name: approvalRulesTable.name,
-  isEnabled: approvalRulesTable.isEnabled,
-  match: approvalRulesTable.match,
-  path: approvalRulesTable.path,
-  submitterGroups: approvalRulesTable.submitterGroups,
-  reviewerGroups: approvalRulesTable.reviewerGroups,
-  minApprovals: approvalRulesTable.minApprovals,
-  createdAt: approvalRulesTable.createdAt,
-  updatedAt: approvalRulesTable.updatedAt
-}
-
-/**
- * Every site's rules, by site id, in the order `getRules` promises.
- *
- * Cached for the reason the group rules are (`models/groups.ts`): whether a page takes suggestions
- * and who reviews it are questions the page view asks about every page it draws, and answering them
- * from the database would put two queries in front of every page read. Rules change from one admin
- * screen, and the cache is reloaded there.
- *
- * A single instance's memory, like the group and site caches beside it: a rule changed on one node of
- * a cluster reaches the others when they next reload.
- */
-let rulesCache: Record<string, ApprovalRule[]> = {}
-
 /**
  * Approvals model
  *
- * Only the rules for now: which pages accept edit suggestions, from whom, and who reviews them. The
- * submissions themselves are a separate concern and are not stored yet.
+ * The life of an edit suggestion: who may open one, what a reader is told about the ones already
+ * open, the reviewer's queue and diff, and the accept/reject writes that end it. The rules deciding
+ * all of that are `models/approvalRules.ts`; the mail sent about it is
+ * `models/approvalNotifications.ts`.
  */
-class Approvals extends ClusterReloaded {
-  protected readonly reloadEvent = 'reloadApprovals'
-
-  /**
-   * Reload every site's rules into memory.
-   *
-   * Called at boot, after any local change to a rule (see `broadcastReload()`), and on every other
-   * cluster instance's `reloadApprovals` event (see `subscribeToEvents()`) — so an administrator's
-   * edit takes effect on the next request everywhere, the same contract `models/groups.ts` gives
-   * page rules.
-   */
-  async reloadCache(): Promise<void> {
-    const rows = await WIKI.db
-      .select({ ...ruleSelection, siteId: approvalRulesTable.siteId })
-      .from(approvalRulesTable)
-      .orderBy(asc(sql`lower(${approvalRulesTable.name})`), asc(approvalRulesTable.createdAt))
-    rulesCache = {}
-    for (const { siteId, ...rule } of rows) {
-      rulesCache[siteId] ??= []
-      rulesCache[siteId].push(rule)
-    }
-    WIKI.logger.info(`Loaded ${rows.length} approval rules [ OK ]`)
-  }
-
-  /**
-   * Every rule configured for a site, by name.
-   *
-   * Order carries no meaning — a page is covered if any enabled rule matches it — so the list is
-   * sorted for the reader: alphabetically, ignoring case, since `Zoo` sorting before `apple` is not
-   * what alphabetical means to anyone. Two rules sharing a name keep a stable order by age.
-   *
-   * From `rulesCache`, so this costs nothing to ask; async because every caller awaits it and because
-   * where the rules come from is this model's business. The array is the cached one — read it, do not
-   * sort or splice it.
-   */
-  async getRules(siteId: string): Promise<ApprovalRule[]> {
-    return rulesCache[siteId] ?? []
-  }
-
-  /**
-   * A single rule, scoped to its site so that an ID from another site cannot be reached through it.
-   *
-   * @returns The rule, or null if this site has no such rule
-   */
-  async getRule(siteId: string, id: string): Promise<ApprovalRule | null> {
-    const rows = await WIKI.db
-      .select(ruleSelection)
-      .from(approvalRulesTable)
-      .where(and(eq(approvalRulesTable.siteId, siteId), eq(approvalRulesTable.id, id)))
-      .limit(1)
-    return rows[0] ?? null
-  }
-
-  /**
-   * Create a rule for a site.
-   *
-   * @returns The rule as stored
-   */
-  async createRule(siteId: string, patch: ApprovalRulePatch): Promise<ApprovalRule> {
-    const rows = await WIKI.db
-      .insert(approvalRulesTable)
-      .values({
-        siteId,
-        name: patch.name ?? '',
-        isEnabled: patch.isEnabled ?? true,
-        match: patch.match ?? 'START',
-        // -> Trimmed, so a pattern typed with a stray space still matches what it reads as -- and so
-        //    that a `START` path of nothing but spaces is the whole site rather than a rule that
-        //    quietly covers no page at all
-        path: (patch.path ?? '').trim(),
-        submitterGroups: patch.submitterGroups ?? [],
-        reviewerGroups: patch.reviewerGroups ?? [],
-        minApprovals: patch.minApprovals ?? 1
-      })
-      .returning(ruleSelection)
-    // -> Every rule read afterwards comes from the cache, so it has to know about this one
-    await this.broadcastReload()
-    return rows[0]
-  }
-
-  /**
-   * Update a rule, leaving out fields alone.
-   *
-   * @returns The updated rule, or null if this site has no such rule
-   */
-  async updateRule(
-    siteId: string,
-    id: string,
-    patch: ApprovalRulePatch
-  ): Promise<ApprovalRule | null> {
-    const values: Record<string, any> = { updatedAt: new Date() }
-    for (const key of [
-      'name',
-      'isEnabled',
-      'match',
-      'path',
-      'submitterGroups',
-      'reviewerGroups',
-      'minApprovals'
-    ] as const) {
-      if (patch[key] !== undefined) {
-        // -> Trimmed for the same reason it is on create
-        values[key] = key === 'path' ? String(patch[key]).trim() : patch[key]
-      }
-    }
-
-    const rows = await WIKI.db
-      .update(approvalRulesTable)
-      .set(values)
-      .where(and(eq(approvalRulesTable.siteId, siteId), eq(approvalRulesTable.id, id)))
-      .returning(ruleSelection)
-    await this.broadcastReload()
-    return rows[0] ?? null
-  }
-
-  /**
-   * Whether a rule covers a page.
-   *
-   * Paths are compared without a leading slash on either side, which is how they are stored and how
-   * the rule is written. A regular expression that will not compile matches nothing rather than
-   * throwing: the rule is already refused at the API, so this is only reached by one that was valid
-   * when it was written and stopped being so.
-   */
-  matchesPage(rule: ApprovalRule, page: ApprovalPageMatch): boolean {
-    const pagePath = page.path.replace(/^\/+/, '')
-    const rulePath = rule.path.replace(/^\/+/, '')
-    switch (rule.match) {
-      case 'START':
-        return pagePath.startsWith(rulePath)
-      case 'EXACT':
-        return pagePath === rulePath
-      case 'END':
-        return pagePath.endsWith(rulePath)
-      case 'REGEX':
-        try {
-          return new RegExp(rulePath).test(pagePath)
-        } catch {
-          return false
-        }
-      case 'TAG':
-        return parseTags(rule.path).some((tag) => page.tags.includes(tag))
-      case 'TAGALL': {
-        const wanted = parseTags(rule.path)
-        return wanted.length > 0 && wanted.every((tag) => page.tags.includes(tag))
-      }
-      default:
-        return false
-    }
-  }
-
+class Approvals {
   /**
    * The groups an actor belongs to, as the rules see them.
    *
@@ -409,13 +181,13 @@ class Approvals extends ClusterReloaded {
     if (groupIds.length < 1 || !page.allowContributions) {
       return null
     }
-    const rules = await this.getRules(siteId)
+    const rules = await WIKI.models.approvalRules.getRules(siteId)
     return (
       rules.find(
         (rule) =>
           rule.isEnabled &&
           rule.submitterGroups.some((id) => groupIds.includes(id)) &&
-          this.matchesPage(rule, page)
+          WIKI.models.approvalRules.matchesPage(rule, page)
       ) ?? null
     )
   }
@@ -436,12 +208,12 @@ class Approvals extends ClusterReloaded {
     if (!reviewsAll && groupIds.length < 1) {
       return false
     }
-    const rules = await this.getRules(siteId)
+    const rules = await WIKI.models.approvalRules.getRules(siteId)
     return rules.some(
       (rule) =>
         rule.isEnabled &&
         (reviewsAll || rule.reviewerGroups.some((id) => groupIds.includes(id))) &&
-        this.matchesPage(rule, page)
+        WIKI.models.approvalRules.matchesPage(rule, page)
     )
   }
 
@@ -454,6 +226,62 @@ class Approvals extends ClusterReloaded {
    */
   isReviewerSession(req: any): boolean {
     return Boolean(req.session?.authenticated && req.session.user?.id)
+  }
+
+  /**
+   * Who is reviewing, as the approval rules see them: the groups on their session, plus whether they
+   * review everything regardless of which groups a rule names.
+   *
+   * Two different kinds of rule meet here. An APPROVAL rule says which pages take suggestions and who
+   * reviews them; a group's PAGE rules say what a member may do to a page, `review:pages` among them.
+   * Holding that permission is the second way of being a reviewer, because reviewing is the entire
+   * content of it - a group granted it and named in no approval rule could otherwise review nothing.
+   *
+   * Page permissions are per page, so `reviewsAll` is answered for a page when there is one. Without
+   * one - the site-wide queue in the inbox - it is answered at the site root, which is the only thing
+   * a queue spanning every page could ask about; the per-page check then still applies to each entry
+   * through the approval rules that produced it.
+   *
+   * Nobody reviews anything without an account. A guest is treated as a member of the guests group,
+   * which is right for SUBMITTING - anonymous suggestions are a feature - but a review is an act with
+   * an author: accepting one writes the page and records who accepted it. So a rule that named the
+   * guests group among its reviewers, or a page rule granting them `review:pages`, would otherwise hand
+   * the queue to the public. An empty scope reviews nothing, whatever the rules say.
+   *
+   * `siteId` is threaded into the `checkAccess` call the same way `mayOnPage` takes it: so a rule scoped
+   * to one site is honored even for the site-wide queue's `{ path: '' }` ref, which carries no site of
+   * its own.
+   *
+   * Every caller needing a `ReviewerScope` builds it here. `api/approvals.ts`'s four route handlers
+   * and `pageViewerState` below each rebuilt it independently, which is two places for the
+   * guests-are-not-reviewers rule and the `manage:system` bypass to drift apart.
+   */
+  reviewerScopeFor(
+    req: FastifyRequest,
+    siteId: string,
+    page?: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
+  ): ReviewerScope {
+    if (!this.isReviewerSession(req)) {
+      return { groupIds: [], reviewsAll: false }
+    }
+    const actor = WIKI.models.groups.actorForRequest(req)
+    return {
+      groupIds: this.getActorGroupIds(req),
+      reviewsAll:
+        actor.permissions.includes('manage:system') ||
+        WIKI.models.groups.checkAccess(actor, 'review:pages', {
+          // -> deliberately `locale: null` for the site-wide queue's `{ path: '' }` fallback: a
+          //    reviewer whose only `review:pages` grant is locale-scoped no longer gets blanket
+          //    `reviewsAll` for a ref with no real page to carry a locale, which is the safe direction
+          ...(page ?? { path: '', locale: null }),
+          classification: page?.classification ?? null,
+          siteId
+        }),
+      // -> Undefined for a guest: `isReviewerSession` above already sent them home with an empty scope,
+      //    but a guest could not have approved anything anyway, so `hasApproved` reading `false` for them
+      //    is right either way.
+      viewerId: actorFrom(req)?.id
+    }
   }
 
   /**
@@ -479,7 +307,6 @@ class Approvals extends ClusterReloaded {
   }> {
     const actorId = req.session?.authenticated ? (req.session.user?.id ?? null) : null
     const groupIds = this.getActorGroupIds(req)
-    const actor = WIKI.models.groups.actorForRequest(req)
 
     const submitRule = await this.findSubmitRule(siteId, page, groupIds)
     /*
@@ -495,21 +322,7 @@ class Approvals extends ClusterReloaded {
     const resolvedSubmission =
       submitRule && actorId ? await this.getResolvedSubmission(page.id, actorId) : null
 
-    const reviewerScope: ReviewerScope = this.isReviewerSession(req)
-      ? {
-          groupIds,
-          reviewsAll:
-            (req.session?.permissions ?? []).includes('manage:system') ||
-            WIKI.models.groups.checkAccess(actor, 'review:pages', {
-              path: page.path,
-              siteId,
-              locale: page.locale,
-              classification: page.classification,
-              tags: page.tags
-            }),
-          viewerId: actorId ?? undefined
-        }
-      : { groupIds: [], reviewsAll: false }
+    const reviewerScope: ReviewerScope = this.reviewerScopeFor(req, siteId, page)
     const canReview = await this.canReviewPage(siteId, page, reviewerScope)
 
     return {
@@ -680,7 +493,7 @@ class Approvals extends ClusterReloaded {
     )
 
     if (!hadOpenSubmission) {
-      await this.notifyReviewersOfSubmission(siteId, page, stored.id)
+      await WIKI.models.approvalNotifications.notifyReviewersOfSubmission(siteId, page, stored.id)
       // -> Only for a genuinely NEW submission, same gate `notifyReviewersOfSubmission` uses just
       //    above: an author revising their own still-open suggestion (the `onConflictDoUpdate`
       //    branch) is not a new thing for a subscriber to hear about.
@@ -710,14 +523,11 @@ class Approvals extends ClusterReloaded {
    * and asks which groups cover it, so their members can be resolved and told. `getRules` is the same
    * in-memory cache either way, so this costs nothing beyond the loop.
    */
-  private async reviewerGroupIdsForPage(
-    siteId: string,
-    page: ApprovalPageMatch
-  ): Promise<string[]> {
-    const rules = await this.getRules(siteId)
+  async reviewerGroupIdsForPage(siteId: string, page: ApprovalPageMatch): Promise<string[]> {
+    const rules = await WIKI.models.approvalRules.getRules(siteId)
     const groupIds = new Set<string>()
     for (const rule of rules) {
-      if (rule.isEnabled && this.matchesPage(rule, page)) {
+      if (rule.isEnabled && WIKI.models.approvalRules.matchesPage(rule, page)) {
         for (const id of rule.reviewerGroups) {
           groupIds.add(id)
         }
@@ -742,10 +552,10 @@ class Approvals extends ClusterReloaded {
    * rule), but leaves nothing stuck requiring zero approvers if it ever does.
    */
   private async requiredApprovalsForPage(siteId: string, page: ApprovalPageMatch): Promise<number> {
-    const rules = await this.getRules(siteId)
+    const rules = await WIKI.models.approvalRules.getRules(siteId)
     let required = 1
     for (const rule of rules) {
-      if (rule.isEnabled && this.matchesPage(rule, page)) {
+      if (rule.isEnabled && WIKI.models.approvalRules.matchesPage(rule, page)) {
         required = Math.max(required, rule.minApprovals)
       }
     }
@@ -786,104 +596,6 @@ class Approvals extends ClusterReloaded {
   }
 
   /**
-   * Every user who should be told a suggestion is waiting on this page: the members of every enabled
-   * rule's `reviewerGroups` that matches it, deduplicated across both overlapping rules and overlapping
-   * group membership.
-   *
-   * Deliberately not widened by `reviewsAll` (`manage:system` or `review:pages`): neither of those is a
-   * group membership a recipient list could be built from -- whoever holds that access sees the page's
-   * queue whenever they look, whether or not they were named in a rule and told about this particular
-   * entry.
-   */
-  async resolveReviewers(siteId: string, page: ApprovalPageMatch): Promise<string[]> {
-    const groupIds = await this.reviewerGroupIdsForPage(siteId, page)
-    if (groupIds.length < 1) {
-      return []
-    }
-    const rows = await WIKI.db
-      .selectDistinct({ id: usersTable.id })
-      .from(userGroupsTable)
-      .innerJoin(usersTable, eq(usersTable.id, userGroupsTable.userId))
-      .where(inArray(userGroupsTable.groupId, groupIds))
-    return rows.map((row: any) => row.id)
-  }
-
-  /**
-   * Tell this page's reviewers that a suggestion is waiting on them.
-   *
-   * Called once from `saveSubmission`, for a genuinely NEW submission only -- never for a
-   * resubmission that lands on the `onConflictDoUpdate` path, i.e. an author replacing their own
-   * still-open suggestion. That row was already in reviewers' queues; revising its content does not
-   * put it there a second time, and whoever opens it sees the latest content regardless of when it was
-   * last edited. The alternative -- re-notifying on every save -- would mean a reviewer hearing about
-   * the same pending item once per keystroke-save an author makes while iterating, for no new fact
-   * ("something is waiting on you") a first notification did not already establish. So: notify on
-   * insert, stay silent on update.
-   *
-   * Never throws: the submission is already safely stored by the time this runs, and a reviewer not
-   * being told about it is a real loss but must never turn a successful submit into a failed request.
-   */
-  private async notifyReviewersOfSubmission(
-    siteId: string,
-    page: ApprovalPageMatch,
-    submissionId: string
-  ): Promise<void> {
-    try {
-      const reviewerIds = await this.resolveReviewers(siteId, page)
-      if (reviewerIds.length < 1) {
-        return
-      }
-      await this.sendSubmissionNotification(siteId, page, submissionId, reviewerIds)
-    } catch (err: any) {
-      WIKI.logger.warn(`Failed to notify reviewers of submission ${submissionId}: ${err.message}`)
-    }
-  }
-
-  /**
-   * Tell every resolved reviewer a suggestion is waiting on them, by mail.
-   *
-   * A plain send per reviewer with an email address, not routed through the `notifyPageWatchers` job:
-   * reviewing is not a preference a page-watch row could express (a reviewer's own review-queue
-   * membership comes from the approval rules, not from watching the page -- see `resolveReviewers`),
-   * so there is no watcher preference or in-app inbox entry to reuse here the way a submission
-   * author's own decision notice does. Each recipient's send is isolated in its own `try`/`catch`: one
-   * reviewer's bounce or missing email must not stop the rest of the queue from being told.
-   */
-  private async sendSubmissionNotification(
-    siteId: string,
-    page: ApprovalPageMatch,
-    submissionId: string,
-    reviewerIds: string[]
-  ): Promise<void> {
-    const link = WIKI.models.mail.buildLink(
-      '/_admin/approvals',
-      WIKI.models.mail.resolveMailBaseURL(siteId)
-    )
-    for (const reviewerId of reviewerIds) {
-      try {
-        const reviewer = await WIKI.models.users.getById(reviewerId)
-        if (!reviewer?.email) {
-          WIKI.logger.warn(
-            `Skipping submission notification for reviewer ${reviewerId}: no email address on file.`
-          )
-          continue
-        }
-        const safePath = escapeHtml(page.path)
-        await WIKI.models.mail.send({
-          to: reviewer.email,
-          subject: `New edit suggestion waiting for review: ${page.path}`,
-          text: `A new edit suggestion is waiting for your review on "${page.path}" — ${link}`,
-          html: `<p>A new edit suggestion is waiting for your review on <strong>${safePath}</strong> — <a href="${link}">${link}</a></p>`
-        })
-      } catch (err: any) {
-        WIKI.logger.warn(
-          `Failed to send submission notification to reviewer ${reviewerId} for submission ${submissionId}: ${err.message}`
-        )
-      }
-    }
-  }
-
-  /**
    * Every suggestion waiting on this reviewer, oldest first.
    *
    * A suggestion is theirs to review when an enabled rule covers its page and names a group they are
@@ -918,7 +630,7 @@ class Approvals extends ClusterReloaded {
     if (!reviewsAll && groupIds.length < 1) {
       return []
     }
-    const rules = (await this.getRules(siteId)).filter(
+    const rules = (await WIKI.models.approvalRules.getRules(siteId)).filter(
       (rule) =>
         rule.isEnabled && (reviewsAll || rule.reviewerGroups.some((id) => groupIds.includes(id)))
     )
@@ -971,7 +683,10 @@ class Approvals extends ClusterReloaded {
           contributions -- otherwise turning the switch off would silently strand work somebody had
           submitted in good faith, with nobody able to accept or decline it.
         */
-        this.matchesPage(rule, { path: row.pagePath, tags: row.pageTags ?? [] })
+        WIKI.models.approvalRules.matchesPage(rule, {
+          path: row.pagePath,
+          tags: row.pageTags ?? []
+        })
       )
     )
 
@@ -993,7 +708,7 @@ class Approvals extends ClusterReloaded {
     //    submission has to clear is the strictest rule covering the page, whoever it names as
     //    reviewers -- see `requiredApprovalsForPage`, whose logic is inlined here to share the one
     //    `getRules` read across every row instead of awaiting it per row.
-    const allRules = await this.getRules(siteId)
+    const allRules = await WIKI.models.approvalRules.getRules(siteId)
     const approvalCounts = await this.approvalCountsFor(
       readableRows.map((row: any) => row.id),
       viewerId
@@ -1003,7 +718,7 @@ class Approvals extends ClusterReloaded {
       const pageMatch = { path: row.pagePath, tags: row.pageTags ?? [] }
       let approvalsRequired = 1
       for (const rule of allRules) {
-        if (rule.isEnabled && this.matchesPage(rule, pageMatch)) {
+        if (rule.isEnabled && WIKI.models.approvalRules.matchesPage(rule, pageMatch)) {
           approvalsRequired = Math.max(approvalsRequired, rule.minApprovals)
         }
       }
@@ -1350,7 +1065,7 @@ class Approvals extends ClusterReloaded {
     // -> `skipIfWatching: true` -- the `updatePage()` call above already queued its own generic
     //    "page updated by <reviewer>" notice to every watcher, this author included if they watch the
     //    page. Notifying them again here would be a double notice for the same event.
-    await this.notifySubmissionAuthor(
+    await WIKI.models.approvalNotifications.notifySubmissionAuthor(
       siteId,
       { id: page.id, title: page.title, path: page.path, locale: page.locale },
       'suggestApproved',
@@ -1490,7 +1205,7 @@ class Approvals extends ClusterReloaded {
         authorId: resolvedBy
       })
 
-      await this.notifySubmissionAuthor(
+      await WIKI.models.approvalNotifications.notifySubmissionAuthor(
         siteId,
         { id: page.pageId, title: page.pageTitle, path: page.pagePath, locale: page.pageLocale },
         'suggestDeclined',
@@ -1504,73 +1219,6 @@ class Approvals extends ClusterReloaded {
     }
 
     return declined
-  }
-
-  /**
-   * Tell a submission's author their suggestion was approved or declined.
-   *
-   * A guest has no account to watch anything with, so their notification always goes straight through
-   * `models/mail.ts` to the `guestEmail` on record. A logged in author is told the same way any other
-   * page-watch change would reach them -- queued through the existing `notifyPageWatchers` job -- but
-   * addressed directly at just this one person rather than resolved via `pageWatching.listWatchers()`:
-   * being told the outcome of your own suggestion is not something the author's watch preference
-   * should be able to opt them out of the way an ordinary edit notification can be.
-   *
-   * @param skipIfWatching Approve-only: `updatePage()` already queues its own generic "page updated by
-   *   <reviewer>" notice to every watcher when the finalizing approve writes the page, the author
-   *   included if they watch it -- this is what stops that from becoming a second, more specific
-   *   notice on top. `rejectSubmission` never writes the page, so nothing else tells the author
-   *   anything, and always passes this as `false`.
-   *
-   * Never throws: a notification failure must not turn an already-successful approve/decline into a
-   * failed request, the same contract `notifyReviewersOfSubmission` keeps for the reviewer side.
-   */
-  private async notifySubmissionAuthor(
-    siteId: string,
-    page: { id: string; title: string; path: string; locale: string },
-    action: 'suggestApproved' | 'suggestDeclined',
-    author: { authorId: string | null; guestName: string | null; guestEmail: string | null },
-    actorId: string,
-    { skipIfWatching = false }: { skipIfWatching?: boolean } = {}
-  ): Promise<void> {
-    try {
-      if (!author.authorId) {
-        if (!author.guestEmail) {
-          return
-        }
-        const actorUser = await WIKI.models.users.getById(actorId)
-        await WIKI.models.mail.sendPageWatchNotification({
-          to: author.guestEmail,
-          siteId,
-          page: { title: page.title, path: page.path, locale: page.locale },
-          action,
-          changedFields: [],
-          actorName: actorUser?.name ?? 'Someone'
-        })
-        return
-      }
-
-      if (skipIfWatching && (await WIKI.models.pageWatching.isWatching(page.id, author.authorId))) {
-        return
-      }
-
-      await WIKI.scheduler.addJob({
-        task: 'notifyPageWatchers',
-        payload: {
-          siteId,
-          pageId: page.id,
-          pageTitle: page.title,
-          pagePath: page.path,
-          pageLocale: page.locale,
-          action,
-          changedFields: [],
-          actorId,
-          watchers: [{ userId: author.authorId, notifyMode: 'immediate' }]
-        }
-      })
-    } catch (err: any) {
-      WIKI.logger.warn(`Failed to notify submission author of page ${page.id}: ${err.message}`)
-    }
   }
 
   /**
@@ -1609,19 +1257,6 @@ class Approvals extends ClusterReloaded {
       },
       approvals
     }
-  }
-
-  /**
-   * Delete a rule.
-   *
-   * @returns Whether a rule was deleted
-   */
-  async deleteRule(siteId: string, id: string): Promise<boolean> {
-    const result = await WIKI.db
-      .delete(approvalRulesTable)
-      .where(and(eq(approvalRulesTable.siteId, siteId), eq(approvalRulesTable.id, id)))
-    await this.broadcastReload()
-    return (result.rowCount ?? 0) > 0
   }
 }
 

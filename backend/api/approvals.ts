@@ -1,65 +1,8 @@
 import { CustomError } from '../helpers/common.ts'
 import { actorFrom, loadReadablePage } from '../helpers/pageAccess.ts'
 import { maySiteAdmin } from '../helpers/siteRules.ts'
-import type { ApprovalPageRef, ApprovalRulePatch, ReviewerScope } from '../models/approvals.ts'
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-
-/**
- * Who is reviewing, as the approval rules see them: the groups on their session, plus whether they
- * review everything regardless of which groups a rule names.
- *
- * Two different kinds of rule meet here. An APPROVAL rule says which pages take suggestions and who
- * reviews them; a group's PAGE rules say what a member may do to a page, `review:pages` among them.
- * Holding that permission is the second way of being a reviewer, because reviewing is the entire
- * content of it — a group granted it and named in no approval rule could otherwise review nothing.
- *
- * Page permissions are per page, so `reviewsAll` is answered for a page when there is one. Without
- * one — the site-wide queue in the inbox — it is answered at the site root, which is the only thing
- * a queue spanning every page could ask about; the per-page check then still applies to each entry
- * through the approval rules that produced it.
- *
- * Nobody reviews anything without an account. A guest is treated as a member of the guests group,
- * which is right for SUBMITTING — anonymous suggestions are a feature — but a review is an act with
- * an author: accepting one writes the page and records who accepted it. So a rule that named the
- * guests group among its reviewers, or a page rule granting them `review:pages`, would otherwise hand
- * the queue to the public. An empty scope reviews nothing, whatever the rules say.
- *
- * `siteId` is threaded into the `checkAccess` call the same way `mayOnPage` takes it: so a rule scoped
- * to one site is honored even for the site-wide queue's `{ path: '' }` ref, which carries no site of
- * its own.
- */
-function reviewerFor(
-  req: FastifyRequest,
-  siteId: string,
-  page?: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
-): ReviewerScope {
-  if (!isReviewerSession(req)) {
-    return { groupIds: [], reviewsAll: false }
-  }
-  const actor = WIKI.models.groups.actorForRequest(req)
-  return {
-    groupIds: WIKI.models.approvals.getActorGroupIds(req),
-    reviewsAll:
-      actor.permissions.includes('manage:system') ||
-      WIKI.models.groups.checkAccess(actor, 'review:pages', {
-        // -> deliberately `locale: null` for the site-wide queue's `{ path: '' }` fallback: a
-        //    reviewer whose only `review:pages` grant is locale-scoped no longer gets blanket
-        //    `reviewsAll` for a ref with no real page to carry a locale, which is the safe direction
-        ...(page ?? { path: '', locale: null }),
-        classification: page?.classification ?? null,
-        siteId
-      }),
-    // -> Undefined for a guest: `isReviewerSession` above already sent them home with an empty scope,
-    //    but a guest could not have approved anything anyway, so `hasApproved` reading `false` for them
-    //    is right either way.
-    viewerId: actorFrom(req)?.id
-  }
-}
-
-/** Shorthand for the model's own check; see `isReviewerSession` there for why reviewing needs one. */
-function isReviewerSession(req: FastifyRequest): boolean {
-  return WIKI.models.approvals.isReviewerSession(req)
-}
+import type { ApprovalPageRef, ApprovalRulePatch } from '../models/approvalRules.ts'
+import type { FastifyInstance, FastifyReply } from 'fastify'
 
 /**
  * Everything a rule has to satisfy beyond what the JSON Schema already enforces.
@@ -186,7 +129,7 @@ async function routes(app: FastifyInstance) {
       if (!maySiteAdmin(req, 'manage:sites', 'site:approvals', req.params.siteId)) {
         return reply.forbidden()
       }
-      return WIKI.models.approvals.getRules(req.params.siteId)
+      return WIKI.models.approvalRules.getRules(req.params.siteId)
     }
   )
 
@@ -248,7 +191,7 @@ async function routes(app: FastifyInstance) {
         return reply
       }
 
-      const rule = await WIKI.models.approvals.createRule(req.params.siteId, req.body)
+      const rule = await WIKI.models.approvalRules.createRule(req.params.siteId, req.body)
       return {
         ok: true,
         rule
@@ -306,7 +249,7 @@ async function routes(app: FastifyInstance) {
       if (!maySiteAdmin(req, 'manage:sites', 'site:approvals', req.params.siteId)) {
         return reply.forbidden()
       }
-      const current = await WIKI.models.approvals.getRule(req.params.siteId, req.params.ruleId)
+      const current = await WIKI.models.approvalRules.getRule(req.params.siteId, req.params.ruleId)
       if (!current) {
         return reply.notFound('Approval rule does not exist.')
       }
@@ -332,7 +275,7 @@ async function routes(app: FastifyInstance) {
         return reply
       }
 
-      const rule = await WIKI.models.approvals.updateRule(
+      const rule = await WIKI.models.approvalRules.updateRule(
         req.params.siteId,
         req.params.ruleId,
         req.body
@@ -390,7 +333,7 @@ async function routes(app: FastifyInstance) {
       if (!maySiteAdmin(req, 'manage:sites', 'site:approvals', req.params.siteId)) {
         return reply.forbidden()
       }
-      if (!(await WIKI.models.approvals.deleteRule(req.params.siteId, req.params.ruleId))) {
+      if (!(await WIKI.models.approvalRules.deleteRule(req.params.siteId, req.params.ruleId))) {
         return reply.notFound('Approval rule does not exist.')
       }
       return reply.code(204).send()
@@ -423,7 +366,7 @@ async function routes(app: FastifyInstance) {
       return WIKI.models.approvals.getReviewableSubmissions(
         req.params.siteId,
         WIKI.models.groups.actorForRequest(req),
-        reviewerFor(req, req.params.siteId)
+        WIKI.models.approvals.reviewerScopeFor(req, req.params.siteId)
       )
     }
   )
@@ -459,7 +402,7 @@ async function routes(app: FastifyInstance) {
         req.params.siteId,
         req.params.submissionId,
         WIKI.models.groups.actorForRequest(req),
-        reviewerFor(req, req.params.siteId)
+        WIKI.models.approvals.reviewerScopeFor(req, req.params.siteId)
       )
       if (!submission) {
         return reply.notFound('This edit suggestion does not exist.')
@@ -535,7 +478,7 @@ async function routes(app: FastifyInstance) {
         req.params.siteId,
         req.params.submissionId,
         WIKI.models.groups.actorForRequest(req),
-        reviewerFor(req, req.params.siteId)
+        WIKI.models.approvals.reviewerScopeFor(req, req.params.siteId)
       )
       if (!submission) {
         return reply.notFound('This edit suggestion does not exist.')
@@ -624,7 +567,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const actor = actorFrom(req)
-      // -> Defensive rather than reachable: `reviewerFor` (via `isReviewerSession`) already requires
+      // -> Defensive rather than reachable: `reviewerScopeFor` (via `isReviewerSession`) already requires
       //    an authenticated session before `getSubmissionForReview` can return anything below, so this
       //    never actually fires -- kept explicit anyway, the same shape as the approve route above,
       //    since `rejectSubmission` now records who declined the suggestion.
@@ -635,7 +578,7 @@ async function routes(app: FastifyInstance) {
         req.params.siteId,
         req.params.submissionId,
         WIKI.models.groups.actorForRequest(req),
-        reviewerFor(req, req.params.siteId)
+        WIKI.models.approvals.reviewerScopeFor(req, req.params.siteId)
       )
       if (!submission) {
         return reply.notFound('This edit suggestion does not exist.')
