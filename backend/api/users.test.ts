@@ -1,17 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import fastifySwagger from '@fastify/swagger'
 import usersRoutes from './users.ts'
-import { registerSchemas as registerUserSchema } from './schemas/user.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
-// -> `usersRoutes` now also declares the `/profile/api-keys*` routes (OpenProject #788), whose
-//    response schemas `$ref` `ApiKey#`/`ApiKeyExpiration#`/`ApiKeyScopePermission#` — registering the
-//    whole plugin fails at boot without them, even though this file's own tests only exercise
-//    `/whoami`.
-import { registerSchemas as registerApiKeySchema } from './schemas/apiKey.ts'
+import { createSilentLogger } from '../test/mocks.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Regression test for the `GET /whoami` response schema gap: with no `response` block, the generated
@@ -55,11 +47,13 @@ let deleteUserError: Error | null = null
 const deleteUserWarnCalls: any[] = []
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
+  const wiki = {
     config: {
       auth: { rootAdminGroupId: '88888888-8888-8888-8888-888888888888' }
     },
+    // -> Not the silent default: one test asserts on what the DELETE route logged.
     logger: {
+      ...createSilentLogger(),
       warn: (err: any) => {
         deleteUserWarnCalls.push(err)
       }
@@ -127,45 +121,12 @@ before(async () => {
     }
   }
 
-  app = fastify()
-  await app.register(fastifySensible)
-  await app.register(fastifySwagger, {
-    hideUntagged: true,
-    openapi: { openapi: '3.1.0', info: { title: 'test', version: '0.0.0' } }
-  })
-  // -> Fastify session support isn't registered in this minimal harness; `req.session` is simulated
-  //    with an `onRequest` hook instead, which is all `whoAmI()` reads.
-  app.addHook('onRequest', async (req) => {
-    const raw = req.headers['x-test-session']
-    ;(req as any).session = raw ? JSON.parse(raw as string) : undefined
-  })
-  // -> Mirrors `index.ts`'s real `setErrorHandler` so a `reply.badRequest()` (or any thrown
-  //    `CustomError`/`@fastify/sensible` error, e.g. the DELETE route's `reply.conflict()` /
-  //    `reply.notFound()`) serializes against the `ApiError#` response schema the same way it does in
-  //    the real app -- this harness registers no other error handler of its own.
-  app.setErrorHandler((error: any, _req, reply) => {
-    reply
-      .code(error.statusCode ?? 500)
-      .type('application/json')
-      .send({
-        ok: false,
-        error: error.name ?? 'Internal Server Error',
-        statusCode: error.statusCode ?? 500,
-        message: error.message ?? 'Internal Server error'
-      })
-  })
-
-  await registerErrorSchema(app)
-  await registerUserSchema(app)
-  await registerApiKeySchema(app)
-  await app.register(usersRoutes)
-  await app.ready()
+  // -> Fastify session support isn't registered in this minimal harness; `req.session` is seeded
+  //    from `x-test-session` instead, which is all `whoAmI()` reads.
+  app = await buildTestApp({ routes: usersRoutes, swagger: true, session: 'header', wiki })
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 test('GET /whoami documents a concrete 200 response schema', () => {
   const doc: any = app.swagger()

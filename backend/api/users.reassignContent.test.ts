@@ -1,12 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
 import usersRoutes from './users.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
-import { registerSchemas as registerUserSchema } from './schemas/user.ts'
-import { registerSchemas as registerApiKeySchema } from './schemas/apiKey.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * `POST /:userId/reassignContent` is the route this task exists to add: `models/users.test.ts`
@@ -28,7 +24,7 @@ let userHoldsSystemPermission: boolean
 let reassignImpl: (fromUserId: string, toUserId: string) => Promise<any>
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
+  const wiki = {
     models: {
       users: {
         getById: async (id: string) => getByIdImpl(id),
@@ -44,29 +40,10 @@ before(async () => {
     }
   }
 
-  app = fastify()
-  await app.register(fastifySensible)
-  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`conflict()`/thrown
-  //    `CustomError` all resolve to this shape in the real app, not fastify's default.
-  app.setErrorHandler((error: any, req, reply) => {
-    reply.code(error.statusCode ?? 500).send({
-      ok: false,
-      error: error.name,
-      statusCode: error.statusCode ?? 500,
-      message: error.message
-    })
-  })
-  await registerErrorSchema(app)
-  await registerUserSchema(app)
-  await registerApiKeySchema(app)
-  await app.register(usersRoutes)
-  await app.ready()
+  app = await buildTestApp({ routes: usersRoutes, wiki })
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 beforeEach(() => {
   reassignCalls = []

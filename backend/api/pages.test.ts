@@ -1,24 +1,15 @@
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, it, mock, test } from 'node:test'
-import Fastify from 'fastify'
-import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import fastifySwagger from '@fastify/swagger'
-import ajvFormats from 'ajv-formats'
-import { registerSchemas } from './schemas/page.ts'
-// -> 'Page#' nests a 'viewer.pendingSubmissions' item that $refs 'PageEditSubmission#', so that
-//    schema has to exist too or Fastify fails to build the serializer at all.
-import { registerSchemas as registerApprovalSchemas } from './schemas/approval.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
-import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import pagesRoutes from './pages.ts'
+import { installTestWiki } from '../test/mocks.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 import { MAX_IMPORT_BATCH_BYTES, MAX_IMPORT_SIZE } from '../models/import.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { CustomError } from '../helpers/common.ts'
 import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 import type { GroupRule } from '../models/groups.ts'
 import { ensureTemporal } from '../test/temporal.ts'
-import { registerParamsSchemas } from './schemas/params.ts'
 
 /**
  * Task 601: `GET /sites/:siteId/pages/:pageIdOrHash` — the page-read route — must carry a real
@@ -51,9 +42,11 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — commentsCount', () => {
   let countForPageCalls: string[] = []
   let countForPageResult = 0
 
+  let wikiHandle: { restore(): void }
+
   function stubWiki() {
     countForPageCalls = []
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       models: {
         pages: {
           getPage: async () => makeFakePage()
@@ -81,31 +74,26 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — commentsCount', () => {
             return countForPageResult
           }
         }
-      },
-      sites: {}
-    }
+      }
+    })
   }
 
-  async function buildApp() {
-    const app = Fastify()
-    await registerSchemas(app)
-    await registerApprovalSchemas(app)
-    await registerErrorSchema(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
-    return app
-  }
-
-  let app: Awaited<ReturnType<typeof buildApp>>
+  let app: FastifyInstance
 
   before(async () => {
-    app = await buildApp()
+    // -> No `wiki` here: `stubWiki()` installs a fresh one per test, and this app has to run
+    //    against whichever is current.
+    app = await buildTestApp({ routes: pagesRoutes })
   })
+
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     stubWiki()
+  })
+
+  afterEach(() => {
+    wikiHandle.restore()
   })
 
   it('includes commentsCount from the comments model in the response', async () => {
@@ -164,7 +152,7 @@ describe('pages API — renderPuppeteerMissing / renderUnsupportedEditor mapped 
   }
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       models: {
         pages: {
           getPage: async () => currentPage(),
@@ -186,38 +174,14 @@ describe('pages API — renderPuppeteerMissing / renderUnsupportedEditor mapped 
       sites: {}
     }
 
-    app = Fastify()
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler` -- see the identical comment on the
-    //    `enforceApiKeySite` describe block above for why this is inlined rather than imported.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      wiki,
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: [] }
     })
-    app.addHook('onRequest', async (req) => {
-      ;(req as any).session = {
-        authenticated: true,
-        user: { id: 'user-1' },
-        permissions: []
-      }
-    })
-    await registerApprovalSchemas(app)
-    await registerSchemas(app)
-    await registerErrorSchema(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     createPageCalls = []
@@ -370,7 +334,7 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
 
   before(async () => {
     await ensureTemporal()
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       // -> `recordPageview()`'s isEnabled gate (OpenProject #2251) reads this; on, matching this
       //    fixture's pre-existing unconditional pageview stub, since pageviews are not what this
       //    describe block is testing.
@@ -434,33 +398,19 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
       }
     }
 
-    app = Fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
-    })
-    await app.register(fastifySensible)
-    // -> Stands in for `@fastify/session`: every injected request arrives already logged in.
-    app.addHook('onRequest', async (req) => {
-      ;(req as any).session = {
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      ajv: true,
+      wiki,
+      session: {
         authenticated: true,
         user: { id: 'author-1', email: 'author@example.com', name: 'Author' },
         permissions: []
       }
     })
-    await registerSchemas(app)
-    await registerApprovalSchemas(app)
-    await registerErrorSchema(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     updatePageCalls = []
@@ -735,7 +685,7 @@ describe('pages API — response schema completeness (task 602)', () => {
   let getPageResult: any = samplePage
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       models: {
         pages: {
           getPage: async () => getPageResult
@@ -763,36 +713,14 @@ describe('pages API — response schema completeness (task 602)', () => {
       sites: {}
     }
 
-    app = Fastify()
-    await app.register(fastifySensible)
-    await app.register(fastifySwagger, {
-      hideUntagged: true,
-      openapi: { openapi: '3.1.0', info: { title: 'test', version: '0.0.0' } }
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      swagger: true,
+      wiki
     })
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()` etc. is a
-    //    thrown `@fastify/sensible` error, and it is THIS handler — not fastify's default — that shapes
-    //    it into the `{ ok, error, statusCode, message }` the `ApiError` schema below expects.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerErrorSchema(app)
-    await registerApprovalSchemas(app)
-    await registerSchemas(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   /** Follows a `$ref` (however `@fastify/swagger` named the component) to the schema it points at. */
   function resolveRef(doc: any, schema: any): any {
@@ -972,7 +900,7 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       // -> `recordPageview()`'s isEnabled gate (OpenProject #2251) reads this; on, matching this
       //    fixture's pre-existing unconditional pageview stub, since pageviews are not what this
       //    describe block is testing.
@@ -997,44 +925,15 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
       sites: {}
     }
 
-    app = Fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      ajv: true,
+      wiki,
+      session: 'header'
     })
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.forbidden()` etc. is a thrown
-    //    `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that shapes it
-    //    into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerErrorSchema(app)
-    await registerSchemas(app)
-    await registerApprovalSchemas(app)
-    // -> Fakes what a real session cookie provides, keyed off a header instead so each test can set
-    //    its own reader without a real @fastify/session plugin or database in the loop.
-    app.addHook('onRequest', async (req) => {
-      const raw = req.headers['x-test-session']
-      if (typeof raw === 'string') {
-        ;(req as any).session = JSON.parse(raw)
-      }
-    })
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   function sessionHeader(pagePermissions: string[]) {
     return {
@@ -1169,7 +1068,7 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — pageview session write resp
   beforeEach(async () => {
     recordMock = mock.fn(async () => {})
     capturedSession = undefined
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       config: { pageviews: { isEnabled: false } },
       models: {
         pages: { getPage },
@@ -1189,38 +1088,21 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — pageview session write resp
       sites: {}
     }
 
-    app = Fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
-    })
-    await app.register(fastifySensible)
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
+    const wrappedRoutes: FastifyPluginAsync = async (instance) => {
+      // -> Captured post-handler so the test can assert on the exact object the route wrote to,
+      //    without needing a real `@fastify/session` plugin to serialize/cookie it.
+      instance.addHook('onResponse', async (req: any) => {
+        capturedSession = req.session
       })
+      await instance.register(pagesRoutes)
+    }
+
+    app = await buildTestApp({
+      routes: wrappedRoutes,
+      ajv: true,
+      wiki,
+      session: {}
     })
-    await registerErrorSchema(app)
-    await registerSchemas(app)
-    await registerApprovalSchemas(app)
-    // -> Mirrors what the real `@fastify/session` plugin does for every request, anonymous or not: it
-    //    hands the handler an empty, un-persisted session object up front. Whether that object ends up
-    //    written to (and therefore cookied and stored) is exactly what this suite asserts on.
-    app.addHook('onRequest', async (req) => {
-      ;(req as any).session = {}
-    })
-    // -> Captured post-handler so the test can assert on the exact object the route wrote to,
-    //    without needing a real `@fastify/session` plugin to serialize/cookie it.
-    app.addHook('onResponse', async (req) => {
-      capturedSession = (req as any).session
-    })
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
   })
 
   afterEach(async () => {
@@ -1270,7 +1152,7 @@ describe('POST /sites/:siteId/pages/import', () => {
     checkAccess = mock.fn(() => true)
     convertToMarkdown = mock.fn(async () => ({ markdown: '# Converted\n' }))
 
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       // -> `defaultLocale()` reads `WIKI.sites[siteId]?.config?.locales?.primary`, falling back to
       //    'en' -- an empty `sites` map is enough for that fallback to be exercised without throwing
       //    on an undefined `WIKI.sites`.
@@ -1287,34 +1169,18 @@ describe('POST /sites/:siteId/pages/import', () => {
       }
     }
 
-    app = Fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      ajv: true,
+      wiki,
+      session: (req: any) =>
+        req.headers['x-test-anon'] === 'true'
+          ? undefined
+          : { authenticated: true, user: { id: 'user-1' }, permissions: [] }
     })
-    await app.register(fastifySensible)
-    // -> Stands in for the real `@fastify/session` plugin, which this standalone app never registers:
-    //    every request is an authenticated user unless it opts out with `x-test-anon`, so each test
-    //    controls authorization through `checkAccess` rather than session plumbing.
-    app.addHook('onRequest', (req, _reply, done) => {
-      if (req.headers['x-test-anon'] !== 'true') {
-        ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
-      }
-      done()
-    })
-    await registerErrorSchema(app)
-    await registerApprovalSchemas(app)
-    await registerSchemas(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     checkAccess.mock.resetCalls()
@@ -1534,7 +1400,7 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
       markdown: `# ${data.toString()}\n`
     }))
 
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       sites: {},
       models: {
         groups: {
@@ -1548,31 +1414,18 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
       }
     }
 
-    app = Fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      ajv: true,
+      wiki,
+      session: (req: any) =>
+        req.headers['x-test-anon'] === 'true'
+          ? undefined
+          : { authenticated: true, user: { id: 'user-1' }, permissions: [] }
     })
-    await app.register(fastifySensible)
-    app.addHook('onRequest', (req, _reply, done) => {
-      if (req.headers['x-test-anon'] !== 'true') {
-        ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
-      }
-      done()
-    })
-    await registerErrorSchema(app)
-    await registerApprovalSchemas(app)
-    await registerSchemas(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     checkAccess.mock.resetCalls()
@@ -1912,7 +1765,7 @@ describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page r
   }
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       models: {
         pages: {
           getPathFromAlias: async () => ALIAS_TARGET
@@ -1928,36 +1781,14 @@ describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page r
       }
     }
 
-    app = Fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      ajv: true,
+      wiki
     })
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/etc. is a thrown
-    //    `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that shapes
-    //    it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerApprovalSchemas(app)
-    await registerSchemas(app)
-    await registerErrorSchema(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     rules = []
@@ -2043,7 +1874,7 @@ describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)',
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       sites,
       models: {
         search: {
@@ -2076,40 +1907,22 @@ describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)',
       }
     }
 
-    app = Fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
+    const wrappedRoutes: FastifyPluginAsync = async (instance) => {
+      // -> Mirrors `api/index.ts`'s own registration order: the guard is a plugin-level hook, added
+      //    before the route file it covers is registered — `pages.ts` no longer calls
+      //    `guardSiteEnabled` itself (OpenProject #1593).
+      instance.addHook('preHandler', siteEnabledPreHandler)
+      await instance.register(pagesRoutes)
+    }
+
+    app = await buildTestApp({
+      routes: wrappedRoutes,
+      ajv: true,
+      wiki
     })
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
-    //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-    //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    // -> Mirrors `api/index.ts`'s own registration order: the guard is a plugin-level hook, added
-    //    before the route file it covers is registered — `pages.ts` no longer calls
-    //    `guardSiteEnabled` itself (OpenProject #1593).
-    app.addHook('preHandler', siteEnabledPreHandler)
-    await registerApprovalSchemas(app)
-    await registerSchemas(app)
-    await registerErrorSchema(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   test('SEARCH: answers 403 for a disabled site, without ever calling searchPages', async () => {
     searchPagesCalls = 0
@@ -2301,7 +2114,7 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   }
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       models: {
         groups: {
           actorForRequest: (req: any) => ({
@@ -2321,41 +2134,18 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
       }
     }
 
-    app = Fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      ajv: true,
+      wiki,
+      session: (req: any) => {
+        const raw = req.headers['x-test-session']
+        return typeof raw === 'string' ? JSON.parse(raw) : {}
       }
     })
-    await app.register(fastifySensible)
-    app.decorateRequest('session', null as any)
-    app.addHook('onRequest', async (req) => {
-      const raw = req.headers['x-test-session']
-      ;(req as any).session = typeof raw === 'string' ? JSON.parse(raw) : {}
-    })
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
-    //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-    //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerErrorSchema(app)
-    await registerApprovalSchemas(app)
-    await registerSchemas(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     listRecoverableResult = { items: [], nextCursor: null }
@@ -2901,7 +2691,7 @@ describe('GET /sites/:siteId/pages/:pageId/history — querystring wiring', () =
   let listImpl: (...args: any[]) => Promise<any>
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       models: {
         pages: {
           getPage: async () => getPageResult
@@ -2920,34 +2710,14 @@ describe('GET /sites/:siteId/pages/:pageId/history — querystring wiring', () =
       }
     }
 
-    app = Fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      ajv: true,
+      wiki
     })
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`, same as the deleted-pages block above
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerErrorSchema(app)
-    await registerApprovalSchemas(app)
-    await registerSchemas(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     getPageResult = { id: PAGE_ID, path: 'some-page', locale: 'en', isLocked: false }
@@ -3099,7 +2869,7 @@ describe('PUT /sites/:siteId/pages/:pageId/path — destination permission', () 
   let movePageCalls: any[] = []
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'fr'] } } } },
       models: {
         pages: {
@@ -3130,34 +2900,15 @@ describe('PUT /sites/:siteId/pages/:pageId/path — destination permission', () 
       }
     }
 
-    app = Fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
-    await app.register(fastifySensible)
-    // -> Stands in for `@fastify/session`, exactly as the import route's own suite above does.
-    app.addHook('onRequest', (req, _reply, done) => {
-      ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
-      done()
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      ajv: true,
+      wiki,
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: [] }
     })
-    app.setErrorHandler((error: any, _req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerApprovalSchemas(app)
-    await registerSchemas(app)
-    await registerErrorSchema(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     movePageCalls = []
@@ -3286,7 +3037,7 @@ describe('PUT /sites/:siteId/pages/:pageId/path — includeTranslations permissi
   }>
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'fr', 'de'] } } } },
       models: {
         pages: {
@@ -3318,33 +3069,15 @@ describe('PUT /sites/:siteId/pages/:pageId/path — includeTranslations permissi
       }
     }
 
-    app = Fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
-    await app.register(fastifySensible)
-    app.addHook('onRequest', (req, _reply, done) => {
-      ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
-      done()
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      ajv: true,
+      wiki,
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: [] }
     })
-    app.setErrorHandler((error: any, _req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerApprovalSchemas(app)
-    await registerSchemas(app)
-    await registerErrorSchema(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     movePageCalls = []
@@ -3465,7 +3198,7 @@ describe('GET /sites/:siteId/pages/:pageId/translations', () => {
   let mayOnPageResult = true
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       models: {
         pages: {
           getPage: async () => ({
@@ -3487,33 +3220,15 @@ describe('GET /sites/:siteId/pages/:pageId/translations', () => {
       }
     }
 
-    app = Fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
-    await app.register(fastifySensible)
-    app.addHook('onRequest', (req, _reply, done) => {
-      ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
-      done()
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      ajv: true,
+      wiki,
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: [] }
     })
-    app.setErrorHandler((error: any, _req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerApprovalSchemas(app)
-    await registerSchemas(app)
-    await registerErrorSchema(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     mayOnPageResult = true
@@ -3569,7 +3284,7 @@ describe('POST /sites/:siteId/pages/userPermissions — locale (bug #949, task 9
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'fr'] } } } },
       models: {
         groups: {
@@ -3582,33 +3297,15 @@ describe('POST /sites/:siteId/pages/userPermissions — locale (bug #949, task 9
       }
     }
 
-    app = Fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
-    await app.register(fastifySensible)
-    app.addHook('onRequest', (req, _reply, done) => {
-      ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
-      done()
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      ajv: true,
+      wiki,
+      session: { authenticated: true, user: { id: 'user-1' }, permissions: [] }
     })
-    app.setErrorHandler((error: any, _req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerApprovalSchemas(app)
-    await registerSchemas(app)
-    await registerErrorSchema(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   test('an explicit French locale sees the French-scoped grant', async () => {
     const res = await app.inject({
@@ -3679,7 +3376,7 @@ describe('GET /sites/:siteId/pages/deleted — actor hoisted out of the per-row 
     checkAccess = mock.fn(
       (_actor: unknown, _permission: string, page: { path: string }) => page.path !== 'secret'
     )
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       sites: {},
       models: {
         pageHistory: {
@@ -3695,21 +3392,13 @@ describe('GET /sites/:siteId/pages/deleted — actor hoisted out of the per-row 
       }
     }
 
-    app = Fastify()
-    await app.register(fastifySensible)
-    await registerErrorSchema(app)
-    await registerApprovalSchemas(app)
-    await registerSchemas(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      wiki
+    })
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   test('filters out a row checkAccess refuses, keeping the rest', async () => {
     const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/pages/deleted` })
@@ -3768,7 +3457,7 @@ describe('POST /sites/:siteId/pages/bulk', () => {
   }
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       config: { port: 3000 },
       logger: { debug: () => {} },
       models: {
@@ -3815,34 +3504,18 @@ describe('POST /sites/:siteId/pages/bulk', () => {
       }
     }
 
-    app = Fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
-    await app.register(fastifySensible)
-    app.decorateRequest('session', null as any)
-    app.addHook('onRequest', async (req) => {
-      const raw = req.headers['x-test-session']
-      ;(req as any).session = typeof raw === 'string' ? JSON.parse(raw) : {}
+    app = await buildTestApp({
+      routes: pagesRoutes,
+      ajv: true,
+      wiki,
+      session: (req: any) => {
+        const raw = req.headers['x-test-session']
+        return typeof raw === 'string' ? JSON.parse(raw) : {}
+      }
     })
-    app.setErrorHandler((error: any, _req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerErrorSchema(app)
-    await registerApprovalSchemas(app)
-    await registerSchemas(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     deleteCalls = []

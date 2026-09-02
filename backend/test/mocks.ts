@@ -129,13 +129,22 @@ export function createSilentLogger(): any {
  * deep-CLONES its target and merges arrays index-wise — neither is wanted here, since an override may
  * legitimately carry a live Drizzle instance, a `mock.fn()` whose call history a test asserts on, or
  * an array meant to stand alone rather than be spliced over a default.
+ *
+ * Copies property DESCRIPTORS, not values: a suite whose stub declares a getter so a module-level
+ * variable can steer what a route sees per test (`api/pages.test.ts`'s `get sites()`, which flips
+ * `features.collaborativeEditing`) would otherwise have that getter invoked once here and frozen
+ * into a snapshot.
  */
 function mergeInto(target: any, source: Record<string, any>): any {
-  for (const [key, value] of Object.entries(source)) {
-    if (isPlainObject(value) && isPlainObject(target[key])) {
-      mergeInto(target[key], value)
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(source))) {
+    if (!('value' in descriptor)) {
+      Object.defineProperty(target, key, descriptor)
+      continue
+    }
+    if (isPlainObject(descriptor.value) && isPlainObject(target[key])) {
+      mergeInto(target[key], descriptor.value)
     } else {
-      target[key] = value
+      target[key] = descriptor.value
     }
   }
   return target

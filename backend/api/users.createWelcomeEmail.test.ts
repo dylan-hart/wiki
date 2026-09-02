@@ -1,12 +1,8 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, mock, test } from 'node:test'
-import fastify from 'fastify'
+import { after, before, beforeEach, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
 import usersRoutes from './users.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
-import { registerSchemas as registerUserSchema } from './schemas/user.ts'
-import { registerSchemas as registerApiKeySchema } from './schemas/apiKey.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * `POST /` (create user)'s `sendWelcomeEmail` handling (OpenProject #961): the route used to refuse
@@ -28,13 +24,16 @@ let sendWelcomeEmailCalls: any[]
 let auditLogCalls: any[]
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
+  const wiki = {
     data: { systemIds: { localAuthId: LOCAL_AUTH_ID } },
-    logger: { warn: mock.fn() },
     models: {
       users: {
         getByEmail: async () => null,
-        createUser: async () => NEW_USER_ID,
+        createUser: async () => NEW_USER_ID
+      },
+      // -> Token minting moved off `users` when `models/userCredentials.ts` was split out; the route
+      //    reads it here now.
+      userCredentials: {
         generateToken: async (args: any) => {
           generateTokenCalls.push(args)
           return 'welcome-token-123'
@@ -58,28 +57,10 @@ before(async () => {
     }
   }
 
-  app = fastify()
-  await app.register(fastifySensible)
-  // -> Mirrors `index.ts`'s real `setErrorHandler`.
-  app.setErrorHandler((error: any, req, reply) => {
-    reply.code(error.statusCode ?? 500).send({
-      ok: false,
-      error: error.name,
-      statusCode: error.statusCode ?? 500,
-      message: error.message
-    })
-  })
-  await registerErrorSchema(app)
-  await registerUserSchema(app)
-  await registerApiKeySchema(app)
-  await app.register(usersRoutes)
-  await app.ready()
+  app = await buildTestApp({ routes: usersRoutes, wiki })
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 beforeEach(() => {
   mailConfigured = true
