@@ -365,11 +365,11 @@ import { loading } from '@/composables/loading'
 import { scrollToAnchor, scrollToAnchorWhenReady } from '@/helpers/anchors'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { pickEditor } from '@/helpers/editorPicker'
-import { parseLocalePrefix } from '@/helpers/pagePaths'
 import { enhanceRenderedContent, routableHref, sameDocumentHash } from '@/helpers/renderedContent'
 import { flattenToc } from '@/helpers/toc'
 
-import { useCommonStore } from '@/stores/common'
+import { enterCreateMode, enterEditMode, loadPageForRoute } from './index/pageRouting'
+
 import { useEditorStore } from '@/stores/editor'
 import { useFlagsStore } from '@/stores/flags'
 import { usePageStore } from '@/stores/page'
@@ -412,7 +412,6 @@ const editorComponents = {
 
 // STORES
 
-const commonStore = useCommonStore()
 const editorStore = useEditorStore()
 const flagsStore = useFlagsStore()
 const pageStore = usePageStore()
@@ -690,69 +689,12 @@ watch(
 
     // -> Enter Create Mode?
     if (newValue.startsWith('/_create')) {
-      if (!route.params.editor) {
-        notify({
-          type: 'negative',
-          message: t(`editor.noEditorSpecified`)
-        })
-        return router.replace('/')
-      }
-      loading.show()
-      const pageCreateArgs = { editor: route.params.editor, fromNavigate: true }
-      if (route.query.path) {
-        pageCreateArgs.path = route.query.path
-      }
-      if (route.query.locale) {
-        pageCreateArgs.locale = route.query.locale
-      }
-      // -> Unlike the plain page-load branch below (whose own catch handles every error this store
-      //    can throw), this had none at all -- `pageCreate` can reject (its own `fetchConfigs()` call
-      //    is a network request), which left the full-screen loading overlay up forever with the
-      //    error only in the console (OpenProject #947).
-      try {
-        await pageStore.pageCreate(pageCreateArgs)
-      } catch (err) {
-        notify({ type: 'negative', message: apiErrorMessage(err) })
-        router.replace('/')
-      } finally {
-        loading.hide()
-      }
-      return
+      return enterCreateMode(route, { router, t })
     }
 
     // -> Enter Edit Mode?
     if (newValue.startsWith('/_edit')) {
-      if (!route.params.pagePath) {
-        return router.replace('/')
-      }
-      loading.show()
-      // -> `pageEdit` throws `ERR_PAGE_NOT_FOUND`/`ERR_PAGE_UNAUTHORIZED` for a bad path (it calls
-      //    `pageLoad` internally, the same one the plain page-load branch below guards) -- left
-      //    unguarded here, `/_edit/<bad-path>` stranded the app behind the loading overlay forever
-      //    (OpenProject #947).
-      try {
-        await pageStore.pageEdit({
-          path: route.params.pagePath,
-          locale: typeof route.query.locale === 'string' ? route.query.locale : undefined,
-          fromNavigate: true
-        })
-      } catch (err) {
-        if (err.message === 'ERR_PAGE_UNAUTHORIZED') {
-          router.replace('/_error/unauthorized')
-        } else {
-          notify({
-            type: 'negative',
-            message:
-              err.message === 'ERR_PAGE_NOT_FOUND'
-                ? 'This page does not exist.'
-                : apiErrorMessage(err)
-          })
-          router.replace('/')
-        }
-      } finally {
-        loading.hide()
-      }
-      return
+      return enterEditMode(route, { router })
     }
 
     // -> Moving to a non-page path? Ignore
@@ -760,186 +702,15 @@ watch(
       return
     }
 
-    // -> Load Page. The contents panel belongs to the page being left, so it goes with it
-    state.tocPanelOpen = false
-    scrollPageToTop()
-    /*
-      A locale-prefixed URL (`/fr/some/page`) and its page path (`some/page`) are not the same string:
-      the segment is not part of what a page is addressed by, so it has to come off before hashing --
-      see `normalizePath`/`fastHash` in `stores/page.js`, which know nothing about locales and would
-      otherwise hash a path that matches no page at all. A first segment that is not one of the site's
-      active locale codes is an ordinary path rather than a locale (`parseLocalePrefix` returns null),
-      and one that IS active but simply absent -- a site with `locales.forcePrefix` off leaves its
-      primary locale unprefixed -- both fall back to the primary locale, same default the server uses
-      for a lookup with no `locale` on it.
-    */
-    const parsedLocale = siteStore.useLocales
-      ? parseLocalePrefix(
-          newValue,
-          siteStore.locales.active.map((l) => l.code)
-        )
-      : null
-    const pagePath = parsedLocale?.path ?? newValue
-    const pageLocale = parsedLocale?.locale ?? siteStore.locales.primary
     // -> Captured before the first await -- see the counter's own comment above.
     const generation = ++pageLoadGeneration
-    try {
-      await pageStore.pageLoad({
-        path: pagePath,
-        locale: pageLocale,
-        isStale: () => generation !== pageLoadGeneration
-      })
-      // -> A faster, later navigation already landed while this one was still in flight -- `pageLoad`
-      //    already discarded its own response (see its own `isStale` check), and none of what follows
-      //    here -- the editor-exit patch, the block-loading scan, the anchor scroll -- belongs to the
-      //    page actually on screen either.
-      if (generation !== pageLoadGeneration) {
-        return
-      }
-      if (editorStore.isActive) {
-        /*
-          Walking away from the editor closes it, and `mode` describes the editor that was open — so
-          it has to go back with it. Left on `create`, it goes on claiming a page is being written
-          long after the reader has moved on to reading one, and everything that asks gets the wrong
-          answer: `pageSave` POSTs a new page instead of patching the one on screen, the header
-          offers Create Page where Save Changes belongs, and Discard throws away a property edit as
-          though it were an abandoned draft — putting the welcome screen over a wiki that has a home
-          page.
-        */
-        editorStore.$patch({
-          isActive: false,
-          mode: 'edit'
-        })
-      }
-      // -> Load Blocks. `?.` because a locked page draws its lock screen in place of the article, so
-      //    there is no content element to scan -- and nothing in it to scan for.
-      nextTick(() => {
-        // -> Checked again here, not just above: `nextTick` defers to the next DOM update cycle, and
-        //    a further navigation can land in the gap between the check above and this callback
-        //    actually running.
-        if (generation !== pageLoadGeneration) {
-          return
-        }
-        // -> Collected by tag first, one `loadBlocks()` call after the loop, rather than one call
-        //    per element -- matching the batched call `EditorMarkdown.vue`'s own preview render
-        //    makes. A page can embed the same block tag many times (a gallery repeated three times
-        //    down the page, say); the `Map` also dedupes those to one entry before `loadBlocks()`
-        //    ever sees them.
-        const toLoad = new Map()
-        // -> Every enabled block's tag, computed once per scan rather than once per element -- what
-        //    tells a still-parented child block (`block-tab` inside an enabled `block-tabs`) apart
-        //    from an orphan or a disabled block below.
-        const enabledBlockTags = Object.keys(siteStore.blocksIndex).map((key) => `block-${key}`)
-        for (const block of pageContents.value?.querySelectorAll(':not(:defined)') ?? []) {
-          const tag = block.tagName.toLowerCase()
-          if (!tag.startsWith('block-')) {
-            // -> Not a block tag at all -- an ordinary unknown custom element. Handed to
-            //    `loadBlocks()` as a bare string anyway: it resolves nothing recognisable and the
-            //    import 404s quietly, the same "preview being too generous is the better failure"
-            //    trade `EditorMarkdown.vue`'s own `loadSiteBlocks()` documents for its own
-            //    (author-gated) copy of this list.
-            commonStore.loadBlocks([tag])
-            continue
-          }
-          // -> Resolved off `siteStore.blocksIndex` (a public field on the site-info response
-          //    every reader's browser already has) rather than `GET sites/:siteId/blocks`, which
-          //    is gated to authors/administrators and silently 403s for a plain reader -- see
-          //    `siteBlocksInfoFor` in `backend/api/sites.ts` (OpenProject #954).
-          const record = siteStore.blocksIndex[tag.slice('block-'.length)]
-          if (record) {
-            toLoad.set(tag, { tag, isCustom: record.isCustom, id: record.id })
-            continue
-          }
-          /*
-            Absent from `blocksIndex`. Most likely a disabled block -- `blockImportUrl()`
-            (`stores/common.js`) resolves a bare tag to the flat, site-independent `/_blocks/<tag>.js`
-            served unauthenticated by `fastifyStatic` (`backend/index.ts`), so falling back to it
-            here the way the unknown-element branch above does would hand a reader a working URL to a
-            block their site turned off -- exactly the leak `siteBlocksInfoFor`'s own doc says must
-            never happen (OpenProject #1729).
-
-            The one exception is a child block: `block-tab` gets no row of its own
-            (`models/blocks.ts#syncSite`), so it never appears in `blocksIndex` even when its parent
-            `block-tabs` is enabled. Told apart from a disabled block the same way the server already
-            does: `unwrapOrphanedChildBlocks` (`backend/models/rendering.ts`) only ever lets a child
-            tag reach the rendered HTML when its parent survived the enabled-blocks filter, so by the
-            time this scan runs, an ancestor that resolves in `blocksIndex` is proof this element is
-            still validly parented rather than orphaned.
-          */
-          if (enabledBlockTags.length > 0 && block.closest(enabledBlockTags.join(','))) {
-            toLoad.set(tag, tag)
-          }
-        }
-        commonStore.loadBlocks([...toLoad.values()])
-        /*
-          Then the heading in the URL, if there is one. The browser tried it the moment it had the
-          document, which was long before this render existed, so nothing happened — following a link
-          to `#a-heading` left the reader at the top of the page. Done here rather than on mount
-          because a route change within the app renders a new page the same way.
-        */
-        scrollToAnchorWhenReady(route.hash)
-      })
-    } catch (err) {
-      // -> Worse than the success branch above if left unguarded: a stale ERR_PAGE_NOT_FOUND would
-      //    call `pageStore.pageNotFound` below and blank the store for whatever page a faster, later
-      //    navigation already landed on.
-      if (generation !== pageLoadGeneration) {
-        return
-      }
-      if (err.message === 'ERR_PAGE_NOT_FOUND') {
-        if (newValue === '/') {
-          if (!userStore.authenticated) {
-            router.push('/login')
-          } else {
-            /*
-              The one place the page permissions have to be asked for on their own -- same as the
-              non-root branch below, and for the same reason: `write:pages` is a page-rule
-              permission, so a cold load's empty `pagePermissions` can only ever answer this
-              truthfully for `manage:system`. Asked at `'home'`, not `pagePath` (which is just `/`
-              here): page rules are written against real page paths, and `'home'` is what the server
-              already treats the root as everywhere else (e.g. `backend/api/pages.ts`'s own
-              `path || 'home'`). OpenProject #2063.
-            */
-            await userStore.fetchPagePermissions('home', pageLocale)
-            if (userStore.can('write:pages')) {
-              siteStore.overlay = 'Welcome'
-            } else {
-              // -> Same missing-page placeholder the non-root branch below draws, not
-              //    `/_error/unauthorized`: a reader who may not write here is not wrong about the
-              //    page -- it genuinely doesn't exist -- so this is what tells them that, truthfully.
-              pageStore.pageNotFound({ path: 'home' })
-            }
-          }
-        } else {
-          /*
-            -> Not a notification over the page the reader came from: that page is still on screen
-            behind it, at a URL that is not its own. The view draws the missing page instead.
-
-            `pagePath`/`pageLocale` above are the (path, locale) pair with the locale prefix already
-            stripped off -- `newValue` is still the raw, locale-prefixed route path (`fr/some/page`),
-            which is not a page path at all. Using it here used to bake the prefix into the create
-            screen's display path, ask the permission probe about a path no rule is ever written
-            against, and (via `pageStore.path`, below) into `createPage`'s POST -- see bug #949.
-          */
-          pageStore.pageNotFound({ path: pagePath })
-          /*
-            The one place the page permissions have to be asked for on their own: everywhere else they
-            arrive with the page, and here there is no page to carry them — while the screen about to
-            be drawn offers to create one, which is a permission question.
-          */
-          await userStore.fetchPagePermissions(pagePath, pageLocale)
-        }
-      } else if (err.message === 'ERR_PAGE_UNAUTHORIZED') {
-        // -> `replace`, so the back button leaves the wiki the way it came rather than bouncing off
-        //    the same refusal again
-        router.replace('/_error/unauthorized')
-      } else {
-        notify({
-          type: 'negative',
-          message: apiErrorMessage(err)
-        })
-      }
-    }
+    return loadPageForRoute(route, generation, {
+      router,
+      state,
+      pageContents,
+      scrollPageToTop,
+      currentGeneration: () => pageLoadGeneration
+    })
   },
   { immediate: true }
 )
