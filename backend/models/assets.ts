@@ -151,7 +151,7 @@ export interface AssetThumbnail {
  * Applied to every upload, with nothing to turn it off: a stored name is a URL, and a path is looked
  * up lowercased, so a name that skipped this would be one the site could not serve back.
  */
-export function sanitizeFileName(input: string): string {
+function sanitizeFileName(input: string): string {
   const base = path.basename(input.trim().replaceAll('\\', '/'))
   const cleaned = base
     .toLowerCase()
@@ -181,10 +181,9 @@ function extensionOf(fileName: string): string {
 }
 
 /**
- * Exported for `modules/storage/disk/storage.ts` and `modules/storage/git/sync.ts`, which need the
- * same classification a live upload does.
+ * Classifies an asset as `image`, `document` or `other` from its resolved MIME type and extension.
  */
-export function kindOf(mimeType: string, fileExt: string): AssetKind {
+function kindOf(mimeType: string, fileExt: string): AssetKind {
   if (mimeType.startsWith('image/')) {
     return 'image'
   }
