@@ -7,7 +7,7 @@ import path from 'node:path'
  *
  * `models/analytics.ts` mirrors `models/authentication.ts`'s directory-scan pattern — readdir
  * `modules/analytics`, parse each `definition.yml`, run its `props` through
- * `helpers/common.ts#parseModuleProps` — but has no db table behind it, since a provider's
+ * `helpers/moduleProps.ts#parseModuleProps` — but has no db table behind it, since a provider's
  * enabled/config state lives directly in each site's `config.analytics.providers` rather than being
  * shared instance-wide the way an auth strategy is. This is a plain unit test against the real
  * `modules/analytics` directory added by this task: no db, no fastify app, just `fs` + `js-yaml`.
@@ -79,4 +79,24 @@ test('matomo declares siteId and serverHost props with the real upstream default
 test('getModule() returns null for a key nothing on disk declares', async () => {
   await analyticsModel.refreshFromDisk()
   assert.equal(analyticsModel.getModule('does-not-exist'), null)
+})
+
+/**
+ * A failed scan must still leave `WIKI.data.analytics` an array: `base.yml` declares no `analytics`
+ * key, so the field only exists because `refreshFromDisk()` put it there — the same invariant
+ * `models/authentication.test.ts` locks down for its own `WIKI.data.authentication` readers.
+ */
+test('a scan that fails leaves WIKI.data.analytics an empty array rather than undefined', async () => {
+  const previousServerPath = (globalThis as any).WIKI.SERVERPATH
+  // -> A directory that does not exist: `readdir` rejects before a single definition is read.
+  ;(globalThis as any).WIKI.SERVERPATH = path.join(import.meta.dirname, '..', '__no-such-dir__')
+  ;(globalThis as any).WIKI.data = {}
+  try {
+    await analyticsModel.refreshFromDisk()
+    assert.deepEqual(WIKI.data.analytics, [])
+    assert.deepEqual(analyticsModel.getModules(), [])
+  } finally {
+    ;(globalThis as any).WIKI.SERVERPATH = previousServerPath
+    ;(globalThis as any).WIKI.data = {}
+  }
 })

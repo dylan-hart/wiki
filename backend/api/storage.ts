@@ -21,16 +21,7 @@ async function routes(app: FastifyInstance) {
         description:
           'One target per storage module installed in `modules/storage`, whether or not it has ever been enabled. Configuration values include any credentials a module stores, hence the `manage:system` requirement. A module that only implements explicit actions (e.g. disk, sftp) never runs a background sync, but every module ships an implementation an enabled target can call.',
         tags: ['Storage'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'List of storage targets',
@@ -43,11 +34,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.storage.getSiteTargets(req.params.siteId, { mask: true })
     }
   )
@@ -113,16 +100,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Only the targets listed are affected, and within each of them only the fields provided. Every target is validated before any of them is written, so a rejected request changes nothing.',
         tags: ['Storage'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['targets'],
@@ -159,11 +137,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-
       // -> Validated as a whole first: a partially applied storage configuration is worse than a
       //    refused one, since the admin area saves every target at once
       const current = await WIKI.models.storage.getSiteTargets(req.params.siteId)
@@ -306,174 +279,6 @@ async function routes(app: FastifyInstance) {
       return {
         ok: true,
         message: 'Action completed successfully.'
-      }
-    }
-  )
-
-  /**
-   * RUN STORAGE TARGET SETUP STEP
-   */
-  app.post<{
-    Params: { siteId: string; targetId: string }
-    Body: Record<string, any>
-  }>(
-    '/sites/:siteId/storage/targets/:targetId/setup',
-    {
-      config: {
-        permissions: ['manage:system']
-      },
-      schema: {
-        summary: 'Advance the setup process of a storage target',
-        description:
-          'For modules that cannot be configured by hand, such as one backed by an app installed on a provider. The body is passed to the module as-is, and what comes back tells the admin area what to do next. Only a module with an implementation has a setup process — none does yet.',
-        tags: ['Storage'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            },
-            targetId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId', 'targetId']
-        },
-        body: {
-          type: 'object',
-          required: ['step'],
-          additionalProperties: true,
-          properties: {
-            step: {
-              type: 'string',
-              maxLength: 255,
-              description: 'Which step of the process to run, as named by the module.'
-            }
-          }
-        },
-        response: {
-          200: {
-            description: 'Setup step completed successfully',
-            type: 'object',
-            properties: {
-              ok: {
-                type: 'boolean'
-              },
-              message: {
-                type: 'string'
-              },
-              state: {
-                type: 'object',
-                additionalProperties: true,
-                description: 'What the module wants done next, e.g. `{ nextStep, url }`.'
-              }
-            }
-          },
-          400: { $ref: 'ApiError#' },
-          401: { $ref: 'ApiError#' },
-          403: { $ref: 'ApiError#' },
-          404: { $ref: 'ApiError#' }
-        }
-      }
-    },
-    async (req, reply) => {
-      const target = await WIKI.models.storage.getSiteTargetById(
-        req.params.siteId,
-        req.params.targetId
-      )
-      if (!target) {
-        return reply.notFound('Storage target does not exist.')
-      }
-      if (!target.setup) {
-        return reply.badRequest('ERR_STORAGE_NO_SETUP')
-      }
-
-      try {
-        const state = await WIKI.models.storage.runSetup(target, req.body)
-        return {
-          ok: true,
-          message: 'Setup step completed successfully.',
-          state
-        }
-      } catch (err: any) {
-        WIKI.logger.warn(err)
-        return reply.badRequest(err.message)
-      }
-    }
-  )
-
-  /**
-   * DESTROY STORAGE TARGET SETUP
-   */
-  app.delete<{ Params: { siteId: string; targetId: string } }>(
-    '/sites/:siteId/storage/targets/:targetId/setup',
-    {
-      config: {
-        permissions: ['manage:system']
-      },
-      schema: {
-        summary: 'Reset the setup of a storage target',
-        description:
-          'Undoes what the setup process configured, so that it can be started over. What that involves is up to the module.',
-        tags: ['Storage'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            },
-            targetId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId', 'targetId']
-        },
-        response: {
-          200: {
-            description: 'Setup reset successfully',
-            type: 'object',
-            properties: {
-              ok: {
-                type: 'boolean'
-              },
-              message: {
-                type: 'string'
-              }
-            }
-          },
-          400: { $ref: 'ApiError#' },
-          401: { $ref: 'ApiError#' },
-          403: { $ref: 'ApiError#' },
-          404: { $ref: 'ApiError#' }
-        }
-      }
-    },
-    async (req, reply) => {
-      const target = await WIKI.models.storage.getSiteTargetById(
-        req.params.siteId,
-        req.params.targetId
-      )
-      if (!target) {
-        return reply.notFound('Storage target does not exist.')
-      }
-      if (!target.setup) {
-        return reply.badRequest('ERR_STORAGE_NO_SETUP')
-      }
-
-      try {
-        await WIKI.models.storage.destroySetup(target)
-      } catch (err: any) {
-        WIKI.logger.warn(err)
-        return reply.badRequest(err.message)
-      }
-
-      return {
-        ok: true,
-        message: 'Setup reset successfully.'
       }
     }
   )

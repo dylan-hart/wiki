@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { describe, it } from 'node:test'
 import { load } from 'js-yaml'
-import { parseModuleProps } from '../../../helpers/common.ts'
+import { parseModuleProps } from '../../../helpers/moduleProps.ts'
 
 /**
  * Task 643 (Feature 396): scaffolds `definition.yml` only — no `comments.ts` sibling. Commento is

@@ -187,12 +187,11 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 import { dialog } from '@/composables/dialog'
 
 import { useAdminStore } from '@/stores/admin'
@@ -200,6 +199,13 @@ import { useAdminStore } from '@/stores/admin'
 import ApiKeyCreateDialog from '../components/ApiKeyCreateDialog.vue'
 import ApiKeyRevokeDialog from '../components/ApiKeyRevokeDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import {
+  classificationLevelNames as keyClassificationLevelNames,
+  isUsable,
+  keyState,
+  siteName as keySiteName,
+  stateHint as keyStateHint
+} from '@/helpers/apiKeyState'
 import { humanizeDate } from '@/helpers/datetime'
 
 // COMPOSABLES
@@ -222,117 +228,37 @@ useMeta(() => ({
 
 // DATA
 
-const state = reactive({
-  enabled: false,
-  loading: 0,
-  isToggleLoading: false,
-  keys: [],
-  groups: [],
-  sites: [],
-  users: [],
-  classificationLevels: [],
-  /** When the signing keypair was generated — what an invalidated key is invalidated by. */
-  certificatesGeneratedAt: null
-})
-
-// METHODS
-
-/** A key past its expiration still authenticates nothing, even though it was never revoked. */
-function isExpired(key) {
-  return (
-    Temporal.Instant.compare(Temporal.Instant.from(key.expiration), Temporal.Now.instant()) <= 0
-  )
-}
-
-/**
- * Why a key does not work, or null when it does.
- *
- * A key can be in more than one of these at once — revoked *and* long expired, say — so they are
- * ordered by how much each explains: what somebody did to this one key, then what the certificates
- * did to all of them, then time running out. `isInvalidated` comes from the server, which is the
- * side holding the date the keypair was generated.
- */
-function keyState(key) {
-  if (key.isRevoked) {
-    return 'revoked'
-  }
-  if (key.isInvalidated) {
-    return 'invalidated'
-  }
-  return isExpired(key) ? 'expired' : null
-}
-
-/** The sentence under a key's state: what it means, and what to do about it. */
-function stateHint(key) {
-  const status = keyState(key)
-  if (!status) {
-    return ''
-  }
-  return status === 'invalidated'
-    ? t('admin.api.invalidatedHint', { date: humanizeDate(t, state.certificatesGeneratedAt) })
-    : t(`admin.api.${status}Hint`)
-}
-
-function isUsable(key) {
-  return keyState(key) === null
-}
-
-/** Group names rather than IDs, falling back to the ID for a group that has since been deleted. */
-function groupNames(key) {
-  return (key.groups ?? [])
-    .map((id) => state.groups.find((g) => g.id === id)?.name ?? id)
-    .join(', ')
-}
-
-/**
- * The site a key is pinned to, by title -- `null` is instance-wide ("All Sites"), and a site that
- * has since been deleted falls back to its ID the same way `groupNames` does above.
- */
-function siteName(key) {
-  if (key.siteId === null) {
-    return t('admin.api.newKeySiteAllSites')
-  }
-  return state.sites.find((s) => s.id === key.siteId)?.title ?? key.siteId
-}
-
-/** A personal token's owner, by name -- falling back to the ID for an account since deleted. */
-function ownerName(key) {
-  return state.users.find((u) => u.id === key.userId)?.name ?? key.userId
-}
-
-/** A classification level's name, by id -- falling back to the id for a level since deleted. */
-function classificationLevelName(id) {
-  return state.classificationLevels.find((l) => l.id === id)?.name ?? id
-}
-
-/**
- * A key's `allowedClassifications` (OpenProject #1205), joined by name for display -- `null` is
- * unrestricted, the same as every key before this existed, so that state renders no line at all
- * (see the template) rather than an empty list.
- */
-function classificationLevelNames(key) {
-  return key.allowedClassifications.map((id) => classificationLevelName(id)).join(', ')
-}
-
-async function load() {
-  state.loading++
-  loading.show()
-  try {
-    // -> Groups and sites are fetched alongside the keys so the list can name the permissions and
-    //    the site each key carries, the certificate date so an invalidated key can say what
-    //    invalidated it, and users so a personal token (`key.userId` set) can name its owner --
-    //    `limit: 100` rather than every page: this is a display convenience for naming an owner, not
-    //    a picker that has to be complete, and `ownerName()` falls back to the raw ID beyond that.
-    const [keys, apiState, groups, sites, certs, usersResp, classificationLevels] =
-      await Promise.all([
-        API_CLIENT.get('api-keys').json(),
-        API_CLIENT.get('system/api').json(),
-        API_CLIENT.get('groups').json(),
-        API_CLIENT.get('sites').json(),
-        API_CLIENT.get('system/certificates').json(),
-        API_CLIENT.get('users', { searchParams: { limit: 100 } }).json(),
-        API_CLIENT.get('classification-levels').json()
-      ])
+const { state, load, refresh } = useAdminSettings({
+  i18nPrefix: 'admin.api',
+  // -> Instance-wide, not one site's: no site picker, no reload on switching site
+  siteScoped: false,
+  extraState: {
+    enabled: false,
+    isToggleLoading: false,
+    keys: [],
+    groups: [],
+    sites: [],
+    users: [],
+    classificationLevels: [],
+    /** When the signing keypair was generated — what an invalidated key is invalidated by. */
+    certificatesGeneratedAt: null
+  },
+  // -> Groups and sites are fetched alongside the keys so the list can name the permissions and
+  //    the site each key carries, the certificate date so an invalidated key can say what
+  //    invalidated it, and users so a personal token (`key.userId` set) can name its owner --
+  //    `limit: 100` rather than every page: this is a display convenience for naming an owner, not
+  //    a picker that has to be complete, and `ownerName()` falls back to the raw ID beyond that.
+  fetch: () =>
+    Promise.all([
+      API_CLIENT.get('api-keys').json(),
+      API_CLIENT.get('system/api').json(),
+      API_CLIENT.get('groups').json(),
+      API_CLIENT.get('sites').json(),
+      API_CLIENT.get('system/certificates').json(),
+      API_CLIENT.get('users', { searchParams: { limit: 100 } }).json(),
+      API_CLIENT.get('classification-levels').json()
+    ]),
+  onLoaded: ([keys, apiState, groups, sites, certs, usersResp, classificationLevels]) => {
     state.keys = keys ?? []
     state.groups = groups ?? []
     state.sites = sites ?? []
@@ -342,23 +268,41 @@ async function load() {
     state.certificatesGeneratedAt = certs?.generatedAt ?? null
     // -> Keeps the status light in the admin sidebar in step without another round trip
     adminStore.info.isApiEnabled = state.enabled
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.api.loadFailed'),
-      caption: err.message
-    })
   }
-  loading.hide()
-  state.loading--
+})
+
+// METHODS
+
+/*
+  What a key's row says about itself is shared with the self-service token list
+  (`pages/ProfileApi.vue`) -- see `helpers/apiKeyState.js`. Each of these is that helper bound to
+  this screen's own vocabulary and to the lists it managed to load.
+*/
+function stateHint(key) {
+  return keyStateHint(key, t, {
+    i18nPrefix: 'admin.api',
+    certificatesGeneratedAt: state.certificatesGeneratedAt
+  })
 }
 
-async function refresh() {
-  await load()
-  notify({
-    type: 'positive',
-    message: t('admin.api.refreshSuccess')
-  })
+function siteName(key) {
+  return keySiteName(key, state.sites, { t, i18nPrefix: 'admin.api' })
+}
+
+function classificationLevelNames(key) {
+  return keyClassificationLevelNames(key, state.classificationLevels)
+}
+
+/** Group names rather than IDs, falling back to the ID for a group that has since been deleted. */
+function groupNames(key) {
+  return (key.groups ?? [])
+    .map((id) => state.groups.find((g) => g.id === id)?.name ?? id)
+    .join(', ')
+}
+
+/** A personal token's owner, by name -- falling back to the ID for an account since deleted. */
+function ownerName(key) {
+  return state.users.find((u) => u.id === key.userId)?.name ?? key.userId
 }
 
 async function globalSwitch() {
@@ -403,10 +347,6 @@ function revoke(key) {
     load()
   })
 }
-
-// MOUNTED
-
-onMounted(load)
 </script>
 
 <style lang="scss"></style>

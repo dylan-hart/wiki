@@ -8,31 +8,16 @@ import {
   tree as treeTable
 } from '../../db/schema.ts'
 import { hasTestDatabase, seedTreeEntry, setupTestDb, teardownTestDb } from '../../test/db.ts'
-import { NotYetImplementedError } from '../connector.ts'
 import { contentPhase } from './content.ts'
 import type { TestFixtures } from '../../test/db.ts'
 import type { SourceConnector, SourceRecord } from '../connector.ts'
 import type { MigrationContext } from '../context.ts'
-
-async function* iter<T>(items: T[]): AsyncGenerator<T> {
-  for (const item of items) {
-    yield item
-  }
-}
+import { iterate as iter, stubSourceConnector } from '../../test/migrationFixtures.ts'
 
 /** A minimal `SourceConnector`: real `pages()`/`pageHistory()`/`navigation()` generators, everything
  * else a `NotYetImplementedError` stub since `contentPhase` never reads them. */
 function fakeSourceConnector(): SourceConnector {
-  const notImplemented = (method: string) => () => {
-    throw new NotYetImplementedError(method, 'not needed by this test')
-  }
-  return {
-    kind: 'postgres',
-    connect: async () => {},
-    disconnect: async () => {},
-    describe: async () => ({ kind: 'postgres', location: 'fake', notes: [] }),
-    users: notImplemented('users'),
-    groups: notImplemented('groups'),
+  return stubSourceConnector({
     pages: () =>
       iter<SourceRecord>([
         {
@@ -135,7 +120,7 @@ function fakeSourceConnector(): SourceConnector {
           // -> Orphaned: pageId 999 names no current page (a deleted 2.x page). content-staging.ts
           //    keeps this (and the row below, same pageId) on ContentStagingContext.orphanedHistory
           //    rather than attaching either to any StagedPage — phases/content.ts backfills the whole
-          //    group once `pages` has drained, via page-history-import.ts#backfillPageHistory()'s
+          //    group once `pages` has drained, via page-history-import.ts#backfillOrphanedPageHistory()'s
           //    batch form, sharing one freshly synthesized pageId across the group (see the "two rows,
           //    one synthesized pageId" assertion below).
           id: 201,
@@ -182,7 +167,6 @@ function fakeSourceConnector(): SourceConnector {
           authorId: null
         }
       ]),
-    tags: notImplemented('tags'),
     navigation: () =>
       iter<SourceRecord>([
         {
@@ -210,11 +194,8 @@ function fakeSourceConnector(): SourceConnector {
             }
           ]
         }
-      ]),
-    settings: notImplemented('settings'),
-    comments: notImplemented('comments'),
-    assets: notImplemented('assets')
-  }
+      ])
+  })
 }
 
 describe(

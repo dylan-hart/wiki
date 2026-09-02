@@ -1,4 +1,5 @@
 import { MODE_PRIORITY } from './pageRules.ts'
+import type { FastifyRequest } from 'fastify'
 import type { GroupRule } from '../models/groups.ts'
 
 /**
@@ -34,7 +35,7 @@ import type { GroupRule } from '../models/groups.ts'
 
 /**
  * The closed vocabulary of site-scoped administration permissions — one per delegable settings
- * surface. Parallel to `PAGE_PERMISSIONS` in `api/pages.ts`, but namespaced `site:*` so the strings
+ * surface. Parallel to `PAGE_PERMISSIONS` in `helpers/permissions.ts`, but namespaced `site:*` so the strings
  * cannot collide with the global `manage:*` tier or with `PAGE_PERMISSIONS`'s `verb:pages` shape.
  * Nothing outside this list may be invented ad hoc — see CLAUDE.md's Permissions section.
  */
@@ -94,11 +95,26 @@ export function resolveSiteRule(
 }
 
 /**
- * Whether the caller's rules grant a site-admin permission on a site.
+ * Shorthand for `WIKI.models.groups.checkSiteAdminAccess` — see that method for the whole rationale
+ * (why the global half is site-blind, and why the site half is `checkSiteAccess()` unchanged).
  *
- * @returns False when no rule addresses it, which is the default for everything.
+ * Purely a shorter name at the twenty-two route call sites: spelled out in full, the check is 107
+ * columns inside an `if (!…)`, so oxfmt breaks every one of them across five lines and buries a
+ * one-line permission gate in the middle of a handler. No logic of its own — it resolves
+ * `WIKI.models.groups` at CALL time, never captured at module load, so a route test that stubs the
+ * model still decides the answer.
+ *
+ * The one `WIKI` touch in this otherwise WIKI-free file, and deliberately the only one: the
+ * resolution algorithm above stays a pure function of its arguments, testable with no global at all
+ * (`helpers/siteRules.test.ts`). This sits here rather than in `helpers/common.ts` because
+ * `SITE_PERMISSIONS` — the vocabulary its `sitePermission` argument is drawn from — is declared in
+ * this file.
  */
-export function rulesAllowSite(rules: GroupRule[], permission: string, siteId: string): boolean {
-  const rule = resolveSiteRule(rules, permission, siteId)
-  return rule ? rule.mode !== 'DENY' : false
+export function maySiteAdmin(
+  req: FastifyRequest,
+  globalPermission: string,
+  sitePermission: string,
+  siteId: string
+): boolean {
+  return WIKI.models.groups.checkSiteAdminAccess(req, globalPermission, sitePermission, siteId)
 }

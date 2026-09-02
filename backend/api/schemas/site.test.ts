@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import fastify from 'fastify'
 import { registerSchemas } from './site.ts'
 import { buildSitePayload } from '../sites.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 /**
  * Regression coverage for task 489: `editors.code` has to be registered on the shared `Site` schema
@@ -52,13 +53,15 @@ test('the Site schema registers editors.code alongside asciidoc/markdown/wysiwyg
  * the failure mode this test exists to catch.
  */
 test('buildSitePayload returns exactly the allow-listed keys and never `search`', async () => {
-  ;(globalThis as any).WIKI = {
+  const wikiHandle = installTestWiki({
     config: { docsBase: 'https://test.docs.example/docs' },
     models: {
-      rendering: { isAvailable: async () => false },
+      // -> Availability moved off `rendering` when `models/rendering.ts` was split; the payload
+      //    builder reads it here now.
+      renderQueue: { isAvailable: async () => false },
       blocks: { getSiteBlocks: async () => [] }
     }
-  }
+  })
 
   const payload = await buildSitePayload({
     id: 'site-id',
@@ -126,4 +129,6 @@ test('buildSitePayload returns exactly the allow-listed keys and never `search`'
     'uploads'
   ])
   assert.ok(!('search' in payload), '`search` must never reach the public site payload')
+
+  wikiHandle.restore()
 })

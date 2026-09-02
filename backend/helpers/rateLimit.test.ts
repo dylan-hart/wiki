@@ -12,6 +12,10 @@ import {
   limitGuestComments,
   limitPublicRequests
 } from './rateLimit.ts'
+import { makeReplyStub, makeRequestStub } from '../test/fastify.ts'
+import { installTestWiki } from '../test/mocks.ts'
+
+let wikiHandle: { restore(): void }
 
 /**
  * `limitApiKey` is the global per-key limiter wired into the onRequest API-key-auth hook in
@@ -27,7 +31,7 @@ describe('limitApiKey', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       models: {
         rateLimits: {
           consume: async (key: string, policy: any) => {
@@ -39,7 +43,7 @@ describe('limitApiKey', () => {
       logger: {
         debug: () => {}
       }
-    }
+    })
 
     app = fastify()
     await app.register(fastifySensible)
@@ -80,7 +84,7 @@ describe('limitApiKey', () => {
 
   after(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   beforeEach(() => {
@@ -125,23 +129,10 @@ describe('limitApiKey', () => {
  * `limitAuthAttempts`/`limitRenders`'s existing shape.
  */
 describe('limitApiRequests', () => {
-  function makeReply(): FastifyReply {
-    return {
-      header: mock.fn(),
-      tooManyRequests: mock.fn()
-    } as unknown as FastifyReply
-  }
+  const makeReply = (): FastifyReply => makeReplyStub().reply
 
-  function makeReq(overrides: Partial<FastifyRequest> = {}): FastifyRequest {
-    return {
-      method: 'GET',
-      url: '/_api/pages',
-      ip: '203.0.113.4',
-      apiKey: null,
-      session: undefined,
-      ...overrides
-    } as unknown as FastifyRequest
-  }
+  const makeReq = (overrides: Partial<FastifyRequest> = {}): FastifyRequest =>
+    makeRequestStub(overrides)
 
   let consume: ReturnType<typeof mock.fn>
 
@@ -150,7 +141,7 @@ describe('limitApiRequests', () => {
     // -> Same reasoning as `limitApiKey`'s `beforeEach` above: several tests below reuse the same
     //    IP/key on purpose, so a ban memoized by one must not carry into the next.
     activeBanMemo.clear()
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: {
         security: {
           apiRateLimitEnabled: true,
@@ -163,11 +154,11 @@ describe('limitApiRequests', () => {
         rateLimits: { consume }
       },
       logger: { debug: mock.fn() }
-    }
+    })
   })
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('keys by apiKey id when the request carries a verified API key', async () => {
@@ -391,7 +382,7 @@ describe('consumeAccountAuthAttempt', () => {
 
   beforeEach(() => {
     consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: {
         security: {
           authRateLimitEnabled: true,
@@ -403,11 +394,11 @@ describe('consumeAccountAuthAttempt', () => {
       models: {
         rateLimits: { consume }
       }
-    }
+    })
   })
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('keys by the account identifier, namespaced apart from the IP-keyed auth: bucket', async () => {
@@ -518,36 +509,24 @@ describe('isPublicRateLimitedPath', () => {
  * fixed-window logic in `models/rateLimits.ts`.
  */
 describe('limitPublicRequests', () => {
-  function makeReply(): FastifyReply {
-    return {
-      header: mock.fn(),
-      tooManyRequests: mock.fn()
-    } as unknown as FastifyReply
-  }
+  const makeReply = (): FastifyReply => makeReplyStub().reply
 
-  function makeReq(overrides: Partial<FastifyRequest> = {}): FastifyRequest {
-    return {
-      method: 'GET',
-      url: '/sitemap.xml',
-      ip: '203.0.113.4',
-      session: undefined,
-      ...overrides
-    } as unknown as FastifyRequest
-  }
+  const makeReq = (overrides: Partial<FastifyRequest> = {}): FastifyRequest =>
+    makeRequestStub({ url: '/sitemap.xml', ...overrides })
 
   let consume: ReturnType<typeof mock.fn>
 
   beforeEach(() => {
     consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: { security: { apiRateLimitEnabled: true } },
       models: { rateLimits: { consume } },
       logger: { debug: mock.fn() }
-    }
+    })
   })
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('keys by ip for an anonymous request', async () => {
@@ -645,30 +624,17 @@ describe('limitPublicRequests', () => {
  * is the thing actually under test here, not anything specific to this one hook.
  */
 describe('rate-limit ban memo', () => {
-  function makeReply(): FastifyReply {
-    return {
-      header: mock.fn(),
-      tooManyRequests: mock.fn()
-    } as unknown as FastifyReply
-  }
+  const makeReply = (): FastifyReply => makeReplyStub().reply
 
-  function makeReq(overrides: Partial<FastifyRequest> = {}): FastifyRequest {
-    return {
-      method: 'GET',
-      url: '/_api/pages',
-      ip: '198.51.100.7',
-      apiKey: null,
-      session: undefined,
-      ...overrides
-    } as unknown as FastifyRequest
-  }
+  const makeReq = (overrides: Partial<FastifyRequest> = {}): FastifyRequest =>
+    makeRequestStub({ ip: '198.51.100.7', ...overrides })
 
   let consume: ReturnType<typeof mock.fn>
 
   beforeEach(() => {
     consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
     activeBanMemo.clear()
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: {
         security: {
           apiRateLimitEnabled: true,
@@ -681,11 +647,11 @@ describe('rate-limit ban memo', () => {
         rateLimits: { consume }
       },
       logger: { debug: mock.fn() }
-    }
+    })
   })
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('a second request from an already-banned key is refused with no consume() call reaching the database', async () => {
@@ -805,34 +771,28 @@ describe('rate-limit ban memo', () => {
  * refused verdict into a 429 with `Retry-After`, matching `limitApiKey`/`limitApiRequests`'s shape.
  */
 describe('limitGuestComments', () => {
-  function makeReply(): FastifyReply {
-    return {
-      header: mock.fn(),
-      tooManyRequests: mock.fn()
-    } as unknown as FastifyReply
-  }
+  const makeReply = (): FastifyReply => makeReplyStub().reply
 
-  function makeReq(overrides: Partial<FastifyRequest> = {}): FastifyRequest {
-    return {
+  const makeReq = (overrides: Partial<FastifyRequest> = {}): FastifyRequest =>
+    makeRequestStub({
       method: 'POST',
       url: '/_api/sites/site-1/pages/page-1/comments',
       ip: '203.0.113.7',
       ...overrides
-    } as unknown as FastifyRequest
-  }
+    })
 
   let consume: ReturnType<typeof mock.fn>
 
   beforeEach(() => {
     consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       models: { rateLimits: { consume } },
       logger: { debug: mock.fn() }
-    }
+    })
   })
 
   afterEach(() => {
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('keys the bucket by req.ip, prefixed so it never collides with another limiter', async () => {

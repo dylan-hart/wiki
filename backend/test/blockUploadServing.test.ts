@@ -8,6 +8,7 @@ import { registerSchemas as registerBlockSchema } from '../api/schemas/block.ts'
 import { registerSchemas as registerErrorSchema } from '../api/schemas/error.ts'
 import uploadRoutes from '../api/blocks.ts'
 import serveRoutes from '../controllers/blocks.ts'
+import { registerParamsSchemas } from '../api/schemas/params.ts'
 
 /**
  * The real round trip this task is actually about: a custom block uploaded through
@@ -42,6 +43,7 @@ describe(
       //    route in the plugin, not just the ones this suite exercises.
       await registerErrorSchema(app)
       await registerBlockSchema(app)
+      await registerParamsSchemas(app)
       await app.register(uploadRoutes)
       await app.register(serveRoutes, { prefix: '/_blocks/custom' })
       await app.ready()

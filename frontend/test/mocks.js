@@ -26,3 +26,44 @@ export function createApiClientStub() {
   }
   return client
 }
+
+/**
+ * A URL-to-payload routing table for the current `API_CLIENT` stub — what 24 files hand-rolled as
+ * `API_CLIENT.get.mockImplementation((url) => { if (url === 'sites') return … })`, and what five
+ * more had already reinvented as a lookup object (`pages/AdminApi.test.js`, `pages/ProfileApi.test.js`).
+ *
+ *   stubApi({ sites: [{ id: 'site-1' }], 'users/whoami': USER })
+ *
+ * A plain object keys by exact URL, which covers almost every call site. Pass a `Map` when a route
+ * needs a `RegExp` (a prefix or a path with an id in the middle) — an exact string key always wins
+ * over a `RegExp` that also matches, so a table can carry both. A value that is a function is called
+ * per request with the URL, which is how a paginated route returns a different page each time
+ * (`pages/AdminPagesDeleted.test.js`'s cursor walk).
+ *
+ * `method` picks which HTTP method to stub (`get` by default); `fallback` is the payload for a URL
+ * no route matches, which is otherwise `undefined` — the same thing `createApiClientStub()` resolves
+ * by default, so an unstubbed route stays a quiet `undefined` rather than a throw.
+ *
+ * Returns `{ calls }`, the URLs seen in order — `App.test.js` and `AdminPagesDeleted.test.js` had
+ * each built their own recorder for exactly that assertion.
+ */
+export function stubApi(routes, { method = 'get', fallback } = {}) {
+  const entries = routes instanceof Map ? [...routes.entries()] : Object.entries(routes ?? {})
+  const exact = new Map(entries.filter(([key]) => typeof key === 'string'))
+  const patterns = entries.filter(([key]) => key instanceof RegExp)
+  const calls = []
+
+  globalThis.API_CLIENT[method].mockImplementation((url) => {
+    calls.push(url)
+    const match = exact.has(url)
+      ? exact.get(url)
+      : (patterns.find(([pattern]) => pattern.test(url))?.[1] ?? fallback)
+    const payload = typeof match === 'function' ? match(url) : match
+    return {
+      json: () => Promise.resolve(payload),
+      blob: () => Promise.resolve(payload)
+    }
+  })
+
+  return { calls }
+}

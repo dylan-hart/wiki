@@ -532,20 +532,11 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import {
-  computed,
-  defineAsyncComponent,
-  nextTick,
-  onBeforeUnmount,
-  onMounted,
-  reactive,
-  ref,
-  toRaw,
-  watch
-} from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRaw, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { confirm, dialog } from '@/composables/dialog'
+import { useFileManagerActions } from '@/composables/fileManagerActions'
+import { useFileUpload } from '@/composables/fileUpload'
 import { notify } from '@/composables/notify'
 import { useMinWidth, useScreen } from '@/composables/screen'
 import { useDark } from '@/composables/dark'
@@ -557,15 +548,12 @@ import Fuse from 'fuse.js/basic'
 import NewMenu from './PageNewMenu.vue'
 import Tree from './TreeNav.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { fetchTreeEntries, mergeFolderEntries } from '@/helpers/treeNodes'
 import { assetUrl } from '@/helpers/assets'
 import { humanizeDate } from '@/helpers/datetime'
 import fileTypes from '@/helpers/fileTypes'
 import { formatFileSize } from '@/helpers/fileSize'
-import { isHomePath, localizedPagePath } from '@/helpers/pagePaths'
-import FolderCreateDialog from '@/components/FolderCreateDialog.vue'
-import FolderDeleteDialog from '@/components/FolderDeleteDialog.vue'
-import FolderRenameDialog from '@/components/FolderRenameDialog.vue'
-import AssetRenameDialog from '@/components/AssetRenameDialog.vue'
+import { localizedPagePath } from '@/helpers/pagePaths'
 
 // COMPOSABLES
 
@@ -649,22 +637,9 @@ const state = reactive({
   uploadPercentage: 0,
   fileList: [],
   fileListLoading: false,
-  /** Whether a file drag from outside the browser is currently over the drop zone. See `dragDepth`. */
+  /** Whether a file drag from outside the browser is currently over the drop zone. See `dragDepth` in `composables/fileUpload.js`. */
   isDraggingOver: false
 })
-
-/**
- * How many un-matched `dragenter`s the drop zone is currently inside.
- *
- * Not one of the reactive `state` fields: nothing in the template reads it, only `state.isDraggingOver`
- * does, and it exists purely to make that boolean correct. The drop zone's children (the scroll area,
- * the list rows) each fire their own `dragenter`/`dragleave` as the pointer crosses their edges, which
- * bubble up to the same handlers -- so entering a child fires `dragenter` again before the `dragleave`
- * that left the parent, and naively flipping a boolean on either event flickers the overlay off between
- * rows. Counting nets that out: the pair from moving between two children cancel, and only the very
- * first `dragenter` (count 0 -> 1) and the very last `dragleave` (count 1 -> 0) change `isDraggingOver`.
- */
-let dragDepth = 0
 
 // -> Over the defaults just above, which is what the view falls back to on a first visit
 Object.assign(state, storedViewOptions())
@@ -694,6 +669,42 @@ const fileIpt = ref(null)
 const searchField = ref(null)
 const treeComp = ref(null)
 
+// COMPOSABLES OVER THIS COMPONENT'S OWN STATE
+
+/*
+  The upload on-ramps and the item actions, both lifted out whole
+  (`composables/fileUpload.js`, `composables/fileManagerActions.js`). Both still work on this
+  component's `state` and its listing -- `loadTree` and `close` are function declarations below, so
+  they are already hoisted by the time these run.
+*/
+const {
+  uploadFile,
+  uploadNewFiles,
+  uploadFiles,
+  uploadCancel,
+  handleDragEnter,
+  handleDragOver,
+  handleDragLeave,
+  handleDrop
+} = useFileUpload({
+  state,
+  fileIpt,
+  reloadCurrentFolder: () => loadTree({ parentId: state.currentFolderId })
+})
+
+const {
+  newFolder,
+  renameFolder,
+  delFolder,
+  reloadFolder,
+  rerenderPage,
+  duplicatePage,
+  renameMovePage,
+  delPage,
+  renameAsset,
+  delAsset
+} = useFileManagerActions({ state, treeComp, loadTree, close })
+
 // COMPUTED
 
 const insertMode = computed(() => siteStore.overlayOpts?.insertMode ?? false)
@@ -713,7 +724,7 @@ const isTreeOverlay = computed(() => !isAtLeastMd.value)
  * there is simply no room for it -- which is also why the Insert button it holds needs a second home; see
  * the toolbar.
  */
-const detailsPaneShown = computed(() => screen.gt.md)
+const detailsPaneShown = computed(() => screen.gte.lg)
 
 /**
  * The tree drawer's open state: always open where it has a column of its own, and the reader's to decide
@@ -911,51 +922,20 @@ async function loadTree({ parentId = null, parentPath = null, types, initLoad = 
     state.fileList = []
   }
   try {
-    const items = await API_CLIENT.get(`sites/${siteStore.id}/tree`, {
-      searchParams: {
-        ...(parentId ? { parentId } : {}),
-        ...(parentPath ? { parentPath } : {}),
-        ...(types?.length > 0 ? { types: types.join(',') } : {}),
-        locale: state.locale,
-        includeAncestors: initLoad,
-        includeRootFolders: initLoad
-      }
-    }).json()
+    const items = await fetchTreeEntries(siteStore.id, {
+      parentId,
+      parentPath,
+      types,
+      locale: state.locale,
+      initLoad
+    })
     if (items?.length > 0) {
-      const newTreeRoots = []
+      // -> The folder half of the response is the tree, and is merged the same way in all three
+      //    browsers; what each does with the entries is its own list projection, below
+      const { roots: newTreeRoots } = mergeFolderEntries(state.treeNodes, items, parentId)
       for (const item of items) {
         switch (item.type) {
           case 'folder': {
-            // -> Tree Nodes
-            state.treeNodes[item.id] = {
-              folderPath: item.folderPath,
-              fileName: item.fileName,
-              title: item.title,
-              children: state.treeNodes[item.id]?.children ?? []
-            }
-
-            // -> Set Ancestors / Tree Roots
-            if (item.folderPath) {
-              let folderParentId = parentId
-              if (!folderParentId) {
-                const parentFolderParts = item.folderPath.split('/')
-                const parentFolder = items.find(
-                  (i) =>
-                    i.folderPath === parentFolderParts.slice(0, -1).join('/') &&
-                    i.fileName === parentFolderParts.at(-1)
-                )
-                folderParentId = parentFolder?.id
-              }
-              if (
-                item.id !== folderParentId &&
-                !state.treeNodes[folderParentId]?.children?.includes(item.id)
-              ) {
-                state.treeNodes[folderParentId]?.children?.push(item.id)
-              }
-            } else {
-              newTreeRoots.push(item.id)
-            }
-
             // -> File List
             if (parentId === state.currentFolderId && !item.isAncestor) {
               state.fileList.push({
@@ -1060,433 +1040,6 @@ function treeContextAction(nodeId, action) {
       delFolder(nodeId)
       break
     }
-  }
-}
-
-// --------------------------------------
-// FOLDER METHODS
-// --------------------------------------
-
-function newFolder(parentId) {
-  dialog({
-    component: FolderCreateDialog,
-    componentProps: {
-      parentId
-    }
-  }).onOk(() => {
-    loadTree({ parentId })
-  })
-}
-
-function renameFolder(folderId) {
-  dialog({
-    component: FolderRenameDialog,
-    componentProps: {
-      folderId
-    }
-  }).onOk(async () => {
-    treeComp.value.resetLoaded()
-    // // -> Delete current folder and children from cache
-    // const fPath = [state.treeNodes[folderId].folderPath, state.treeNodes[folderId].fileName].filter(p => !!p).join('/')
-    // delete state.treeNodes[folderId]
-    // for (const [nodeId, node] of Object.entries(state.treeNodes)) {
-    //   if (node.folderPath.startsWith(fPath)) {
-    //     delete state.treeNodes[nodeId]
-    //   }
-    // }
-    // -> Reload tree
-    await loadTree({ parentId: folderId, types: ['folder'], initLoad: true }) // Update tree
-    // -> Reload current view (in case current folder is included)
-    await loadTree({ parentId: state.currentFolderId })
-  })
-}
-
-function delFolder(folderId, mustReload = false) {
-  dialog({
-    component: FolderDeleteDialog,
-    componentProps: {
-      folderId,
-      folderName: state.treeNodes[folderId].title
-    }
-  }).onOk(() => {
-    for (const nodeId in state.treeNodes) {
-      if (state.treeNodes[nodeId].children.includes(folderId)) {
-        state.treeNodes[nodeId].children = state.treeNodes[nodeId].children.filter(
-          (c) => c !== folderId
-        )
-      }
-    }
-    delete state.treeNodes[folderId]
-    if (state.treeRoots.includes(folderId)) {
-      state.treeRoots = state.treeRoots.filter((n) => n !== folderId)
-    }
-    if (mustReload) {
-      loadTree({ parentId: state.currentFolderId })
-    }
-  })
-}
-
-function reloadFolder(folderId) {
-  loadTree({ parentId: folderId })
-  treeComp.value.resetLoaded()
-}
-
-// --------------------------------------
-// PAGE METHODS
-// --------------------------------------
-
-function rerenderPage(item) {
-  dialog({
-    component: defineAsyncComponent(() => import('@/components/RerenderPageDialog.vue')),
-    componentProps: {
-      id: item.id
-    }
-  })
-}
-
-/**
- * Copy a page, through the same dialog the page view's action rail opens.
- *
- * The copy is not written here: what comes back is where it should go, and the store opens the editor
- * on an unsaved page holding the source's content -- so the author lands in the same place they would
- * have from the page itself, and nothing exists until they save it.
- */
-function duplicatePage(item) {
-  dialog({
-    component: defineAsyncComponent(() => import('@/components/TreeBrowserDialog.vue')),
-    componentProps: {
-      mode: 'duplicatePage',
-      itemId: item.id,
-      itemTitle: item.title,
-      folderPath: item.folderPath,
-      itemFileName: item.fileName,
-      // -> The locale this item was listed under, not `pageStore.locale` -- the file being
-      //    duplicated is whatever locale `state.locale` is currently browsing, which may not be
-      //    the locale of the page (if any) open in the editor underneath this overlay
-      locale: state.locale
-    }
-  }).onOk(async (opts) => {
-    try {
-      await pageStore.pageDuplicate({
-        sourcePageId: item.id,
-        path: opts.path,
-        title: opts.title
-      })
-      // -> The editor is now underneath this overlay, as it is after opening a page to edit
-      close()
-    } catch (err) {
-      notify({
-        type: 'negative',
-        message: t('fileman.duplicateFailed'),
-        caption: apiErrorMessage(err, t('common.error.unexpected'))
-      })
-    }
-  })
-}
-
-/**
- * Rename a page, move it, or both.
- *
- * One action rather than two, through the same dialog the page view's action rail opens: what it
- * hands back is a title and the full path the page should sit at, and only the path decides which of
- * the two endpoints that is -- a page whose title changed in place was never moved.
- */
-function renameMovePage(item) {
-  const currentPath = item.folderPath ? `${item.folderPath}/${item.fileName}` : item.fileName
-  dialog({
-    component: defineAsyncComponent(() => import('@/components/TreeBrowserDialog.vue')),
-    componentProps: {
-      mode: 'renamePage',
-      itemId: item.id,
-      itemTitle: item.title,
-      folderPath: item.folderPath,
-      itemFileName: item.fileName,
-      // -> See the same note in `duplicatePage`, just above
-      locale: state.locale
-    }
-  }).onOk((opts) => {
-    const isMove = opts.path !== currentPath
-    // -> A title-only rename never moves the page off `home`, so only an actual move needs the guard
-    if (isMove && isHomePath(currentPath)) {
-      confirm({
-        title: t('pages.homepageGuard.moveTitle'),
-        message: t('pages.homepageGuard.moveMessage', { name: item.title }),
-        cancel: true,
-        color: 'negative',
-        okLabel: t('pages.homepageGuard.proceed')
-      }).onOk(() => applyRenameOrMovePage(item, opts, isMove))
-    } else {
-      applyRenameOrMovePage(item, opts, isMove)
-    }
-  })
-}
-
-async function applyRenameOrMovePage(item, opts, isMove) {
-  try {
-    if (!isMove) {
-      await pageStore.pageRename({ id: item.id, title: opts.title })
-      notify({
-        type: 'positive',
-        message: t('pages.renameSuccess')
-      })
-    } else {
-      await pageStore.pageMove({
-        id: item.id,
-        path: opts.path,
-        title: opts.title,
-        includeTranslations: opts.includeTranslations
-      })
-      notify({
-        type: 'positive',
-        message: t('pages.moveSuccess')
-      })
-    }
-    // -> Reload current view
-    await loadTree({ parentId: state.currentFolderId })
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('fileman.renameMoveFailed'),
-      caption: apiErrorMessage(err, t('common.error.unexpected'))
-    })
-  }
-}
-
-function delPage(pageId, pageName, pagePath) {
-  const openDeleteDialog = () => {
-    dialog({
-      component: defineAsyncComponent(() => import('@/components/PageDeleteDialog.vue')),
-      componentProps: {
-        pageId,
-        pageName
-      }
-    }).onOk(() => {
-      // -> Reload current view
-      loadTree({ parentId: state.currentFolderId })
-    })
-  }
-  if (isHomePath(pagePath)) {
-    confirm({
-      title: t('pages.homepageGuard.deleteTitle'),
-      message: t('pages.homepageGuard.deleteMessage', { name: pageName }),
-      cancel: true,
-      color: 'negative',
-      okLabel: t('pages.homepageGuard.proceed')
-    }).onOk(openDeleteDialog)
-  } else {
-    openDeleteDialog()
-  }
-}
-
-// --------------------------------------
-// ASSET METHODS
-// --------------------------------------
-
-function renameAsset(assetId) {
-  dialog({
-    component: AssetRenameDialog,
-    componentProps: {
-      assetId
-    }
-  }).onOk(async () => {
-    // -> Reload current view
-    await loadTree({ parentId: state.currentFolderId })
-  })
-}
-
-function delAsset(assetId, assetName) {
-  dialog({
-    component: defineAsyncComponent(() => import('@/components/AssetDeleteDialog.vue')),
-    componentProps: {
-      assetId,
-      assetName
-    }
-  }).onOk(async () => {
-    // -> Reload current view
-    await loadTree({ parentId: state.currentFolderId })
-  })
-}
-
-// --------------------------------------
-// UPLOAD METHODS
-// --------------------------------------
-
-function uploadFile() {
-  fileIpt.value.click()
-}
-
-function uploadNewFiles() {
-  if (!fileIpt.value.files?.length) {
-    return
-  }
-  uploadFiles([...fileIpt.value.files])
-}
-
-/**
- * Upload one batch of files through `sites/:siteId/assets`, one POST per file with an aggregate
- * `uploadPercentage` and mid-batch cancel support.
- *
- * The one path both on-ramps feed: the file-picker's `multiple` input (`uploadNewFiles`, above) and
- * the drop zone (`handleDrop`, below) both just gather a plain array of `File`s and hand it here,
- * rather than each driving its own upload loop and its own progress UI.
- */
-async function uploadFiles(filesToUpload) {
-  if (!filesToUpload?.length) {
-    return
-  }
-
-  state.isUploading = true
-  state.shouldCancelUpload = false
-  state.uploadPercentage = 0
-
-  state.loading++
-
-  nextTick(() => {
-    setTimeout(async () => {
-      try {
-        const totalFiles = filesToUpload.length
-        let idx = 0
-        for (const fileToUpload of filesToUpload) {
-          // -> A cancel can only take effect between files: a request already in flight is left to
-          //    finish, since the server has the bytes either way
-          if (state.shouldCancelUpload) {
-            break
-          }
-          idx++
-          state.uploadPercentage = totalFiles > 1 ? Math.round((idx / totalFiles) * 100) : 90
-          // -> The body is the file itself rather than a multipart form. The locale is the one
-          //    currently being browsed, so an upload lands in the same locale as the folder it was
-          //    dropped into rather than always the site's primary.
-          await API_CLIENT.post(`sites/${siteStore.id}/assets`, {
-            searchParams: {
-              fileName: fileToUpload.name,
-              locale: state.locale,
-              ...(state.currentFolderId ? { folderId: state.currentFolderId } : {})
-            },
-            headers: {
-              'content-type': fileToUpload.type || 'application/octet-stream'
-            },
-            body: fileToUpload
-          }).json()
-        }
-        state.uploadPercentage = 100
-        loadTree({ parentId: state.currentFolderId })
-        if (!state.shouldCancelUpload) {
-          notify({
-            type: 'positive',
-            message: t('fileman.uploadSuccess')
-          })
-        }
-      } catch (err) {
-        notify({
-          type: 'negative',
-          message: t('fileman.uploadFailed'),
-          caption: apiErrorMessage(err, t('common.error.unexpected'))
-        })
-      }
-      state.loading--
-      // -> Only meaningful after the picker input drove this batch; a value on the drop path
-      //    would have nothing to clear
-      if (fileIpt.value) {
-        fileIpt.value.value = null
-      }
-      setTimeout(() => {
-        state.isUploading = false
-        state.uploadPercentage = 0
-      }, 1500)
-    }, 400)
-  })
-}
-
-function uploadCancel() {
-  state.shouldCancelUpload = true
-}
-
-// --------------------------------------
-// DRAG-AND-DROP UPLOAD
-// --------------------------------------
-
-function handleDragEnter(ev) {
-  // -> Not every drag is a file: text dragged out of the page itself, e.g. from the search field,
-  //    fires the same events and should not open an upload overlay
-  if (!ev.dataTransfer?.types?.includes('Files')) {
-    return
-  }
-  dragDepth++
-  state.isDraggingOver = true
-}
-
-function handleDragOver(ev) {
-  // -> Otherwise the browser's default is to refuse the drop, which never fires `handleDrop`
-  if (ev.dataTransfer) {
-    ev.dataTransfer.dropEffect = 'copy'
-  }
-}
-
-function handleDragLeave() {
-  if (dragDepth <= 0) {
-    return
-  }
-  dragDepth--
-  if (dragDepth === 0) {
-    state.isDraggingOver = false
-  }
-}
-
-/**
- * Sort a drop's payload into uploadable files and rejected folders.
- *
- * `DataTransferItem.webkitGetAsEntry()` is what tells a dropped folder apart from a dropped file --
- * `dataTransfer.files` flattens both into one `FileList` with no such distinction, and a folder
- * dropped there shows up as a zero-byte, empty-`type` `File` that `uploadFiles` would happily POST
- * and the server would just as happily refuse as unreadable. Folders are rejected outright here
- * rather than walked recursively: nothing in this flow can recreate a folder's structure server-side
- * (`uploadFiles` uploads flat, into whichever folder is currently open), so recursing would either
- * silently flatten every nested file into that one folder or require a second, unrelated feature
- * (server-side folder creation from a client-supplied tree) to do properly. Despite the `webkit`
- * name this is a long-standing cross-browser API, not a Chromium-only one -- Firefox and Safari both
- * implement it -- but it is still checked for before use, and its absence falls back to the flattened
- * list rather than uploading nothing.
- */
-function collectDroppedFiles(dataTransfer) {
-  const items = dataTransfer.items
-  if (!items || items.length === 0 || typeof items[0]?.webkitGetAsEntry !== 'function') {
-    return { files: [...dataTransfer.files], folderCount: 0 }
-  }
-  const files = []
-  let folderCount = 0
-  for (const item of items) {
-    if (item.kind !== 'file') {
-      continue
-    }
-    if (item.webkitGetAsEntry()?.isDirectory) {
-      folderCount++
-      continue
-    }
-    const file = item.getAsFile()
-    if (file) {
-      files.push(file)
-    }
-  }
-  return { files, folderCount }
-}
-
-function handleDrop(ev) {
-  dragDepth = 0
-  state.isDraggingOver = false
-  if (!ev.dataTransfer) {
-    return
-  }
-  const { files: droppedFiles, folderCount } = collectDroppedFiles(ev.dataTransfer)
-  if (folderCount > 0) {
-    notify({
-      type: 'negative',
-      message: t('fileman.dropFoldersRejected'),
-      caption: t('fileman.dropFoldersRejectedCount', { count: folderCount }, folderCount)
-    })
-  }
-  if (droppedFiles.length > 0) {
-    uploadFiles(droppedFiles)
   }
 }
 

@@ -40,8 +40,6 @@ if (!process.env.DATABASE_URL) {
 export const ADMIN_EMAIL = process.env.E2E_ADMIN_EMAIL || 'admin@example.com'
 export const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD || '12345678'
 
-export { BASE_URL }
-
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,

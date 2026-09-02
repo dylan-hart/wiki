@@ -1,6 +1,7 @@
 import { describe, test, before, after, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { task as checkVersion } from './check-version.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 /**
  * `task()` is the daily `checkVersion` scheduled job: it fetches the latest release off GitHub and
@@ -9,19 +10,18 @@ import { task as checkVersion } from './check-version.ts'
  * `send-watch-digests.test.ts` uses.
  */
 
-let previousWiki: any
+let wikiHandle: { restore(): void }
 let previousFetch: typeof fetch
 let saveToDb: ReturnType<typeof mock.fn>
 let loggerInfo: ReturnType<typeof mock.fn>
 let loggerError: ReturnType<typeof mock.fn>
 
 before(() => {
-  previousWiki = (globalThis as any).WIKI
   previousFetch = globalThis.fetch
 })
 
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
   globalThis.fetch = previousFetch
 })
 
@@ -29,11 +29,11 @@ beforeEach(() => {
   saveToDb = mock.fn(async () => true)
   loggerInfo = mock.fn()
   loggerError = mock.fn()
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     config: {},
     configSvc: { saveToDb },
     logger: { info: loggerInfo, error: loggerError, warn: mock.fn(), debug: mock.fn() }
-  }
+  })
 })
 
 describe('check-version.task', () => {

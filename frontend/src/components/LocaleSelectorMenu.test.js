@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import LocaleSelectorMenu from './LocaleSelectorMenu.vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 const LOCALES = [
   { code: 'en', language: 'en', name: 'English', nativeName: 'English' },
@@ -29,14 +30,9 @@ async function mountMenu({ path, locale = 'en', forcePrefix = false }) {
   const pageStore = usePageStore()
   pageStore.$patch({ path, locale })
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-  })
-  router.push(`/${path}`)
-  await router.isReady()
+  const router = await createTestRouter(['/:pathMatch(.*)*'], `/${path}`)
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   const wrapper = mount(LocaleSelectorMenu, {
     // -> `attachTo` a real, connected element: WMenu's trigger is climbed from the mounted root's

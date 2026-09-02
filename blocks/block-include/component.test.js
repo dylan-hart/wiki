@@ -28,9 +28,8 @@ vi.mock('../shared/i18n.js', () => ({ t: i18nT }))
 
 import './component.js'
 import { getBlockImportUrl } from '../shared/config.js'
-import { _resetSiteIdCache } from '../shared/site.js'
-
-const SITE_ID = 'site-1'
+import { _resetSiteCache } from '../shared/site.js'
+import { mountBlock, resetBlockDom, stubSiteFetch, TEST_SITE_ID as SITE_ID } from '../test/mount.js'
 
 function stubPage(overrides = {}) {
   return {
@@ -54,20 +53,18 @@ function stubFetch({
   includeResult = 'success' // 'success' | 'notFound' | 'networkError'
 } = {}) {
   window.history.pushState({}, '', pathname)
-  const fetchMock = vi.fn(async (url) => {
-    if (url === '/_api/sites/current') {
-      return { ok: true, json: async () => ({ id: SITE_ID, locales }) }
+  return stubSiteFetch({
+    site: { locales },
+    onRequest: async () => {
+      if (includeResult === 'notFound') {
+        return { ok: false, status: 404, json: async () => null }
+      }
+      if (includeResult === 'networkError') {
+        throw new Error('network down')
+      }
+      return { ok: true, status: 200, json: async () => page }
     }
-    if (includeResult === 'notFound') {
-      return { ok: false, status: 404, json: async () => null }
-    }
-    if (includeResult === 'networkError') {
-      throw new Error('network down')
-    }
-    return { ok: true, status: 200, json: async () => page }
   })
-  vi.stubGlobal('fetch', fetchMock)
-  return fetchMock
 }
 
 /** Just the calls to the include route itself, excluding the shared site lookup underneath. */
@@ -80,31 +77,27 @@ function includeCalls(fetchMock) {
  * `parent`, if given, is an already-mounted `<block-include>` this one nests inside -- the shape
  * `_ancestorPaths()` climbs to find a cycle.
  */
-async function mountInclude({ path = 'target-page', locale = '', showTitle = false, parent } = {}) {
-  const el = document.createElement('block-include')
-  // -> `path` as a real HTML attribute, not just a JS property: `_ancestorPaths()` reads a nested
-  //    include's OWN `path` off its ancestor elements via `getAttribute`, the same shape the
-  //    markdown renderer's `::block-include{path="..."}` actually produces.
-  el.setAttribute('path', path)
-  el.locale = locale
-  el.showTitle = showTitle
-  ;(parent ?? document.body).appendChild(el)
-  await el.updateComplete
-  // -> Now two fetch hops deep (site -> include); `setTimeout(0)` drains every microtask queued by
-  //    either, the same pattern `block-live-data`'s own test uses for its `getSiteId` fetch.
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  await el.updateComplete
-  return el
-}
+const mountInclude = ({ path = 'target-page', locale = '', showTitle = false, parent } = {}) =>
+  mountBlock('block-include', {
+    // -> `path` as a real HTML attribute, not just a JS property: `_ancestorPaths()` reads a nested
+    //    include's OWN `path` off its ancestor elements via `getAttribute`, the same shape the
+    //    markdown renderer's `::block-include{path="..."}` actually produces.
+    attrs: { path },
+    props: { locale, showTitle },
+    parent,
+    // -> `settle: 1`: two fetch hops deep (site -> include), and one macrotask turn drains every
+    //    microtask queued by either.
+    settle: 1
+  })
 
 describe('block-include', () => {
   beforeEach(() => {
-    _resetSiteIdCache()
+    _resetSiteCache()
     stubFetch()
   })
 
   afterEach(() => {
-    document.body.replaceChildren()
+    resetBlockDom()
     vi.unstubAllGlobals()
     window.history.pushState({}, '', '/')
     i18nT.mockClear()
@@ -149,13 +142,10 @@ describe('block-include', () => {
     attribute literally present with the string "false".
   */
   it('treats the literal attribute showTitle="false" as false', async () => {
-    const el = document.createElement('block-include')
-    el.setAttribute('path', 'target-page')
-    el.setAttribute('showtitle', 'false')
-    document.body.appendChild(el)
-    await el.updateComplete
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    await el.updateComplete
+    const el = await mountBlock('block-include', {
+      attrs: { path: 'target-page', showtitle: 'false' },
+      settle: 1
+    })
 
     expect(el.showTitle).toBe(false)
     expect(el.querySelector('h2')).toBeNull()
@@ -188,19 +178,10 @@ describe('block-include', () => {
     stubFetch({ pathname: '/root' })
     let current = document.body
     for (let i = 0; i < 3; i++) {
-      const el = document.createElement('block-include')
-      el.setAttribute('path', `level-${i}`)
-      current.appendChild(el)
-      await el.updateComplete
-      await new Promise((resolve) => setTimeout(resolve, 0))
-      current = el
+      current = await mountInclude({ path: `level-${i}`, parent: current })
     }
     // -> A 4th level: root page + 3 already-open includes = chain length 4, over MAX_DEPTH (3)
-    const tooDeep = document.createElement('block-include')
-    tooDeep.setAttribute('path', 'level-3')
-    current.appendChild(tooDeep)
-    await tooDeep.updateComplete
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    const tooDeep = await mountInclude({ path: 'level-3', parent: current })
 
     expect(tooDeep.textContent).toContain('nested more than 3 pages deep')
   })
@@ -277,18 +258,9 @@ describe('block-include', () => {
       stubFetch({ pathname: '/root' })
       let current = document.body
       for (let i = 0; i < 3; i++) {
-        const el = document.createElement('block-include')
-        el.setAttribute('path', `level-${i}`)
-        current.appendChild(el)
-        await el.updateComplete
-        await new Promise((resolve) => setTimeout(resolve, 0))
-        current = el
+        current = await mountInclude({ path: `level-${i}`, parent: current })
       }
-      const tooDeep = document.createElement('block-include')
-      tooDeep.setAttribute('path', 'level-3')
-      current.appendChild(tooDeep)
-      await tooDeep.updateComplete
-      await new Promise((resolve) => setTimeout(resolve, 0))
+      await mountInclude({ path: 'level-3', parent: current })
 
       expect(i18nT).toHaveBeenCalledWith(
         'blocks.include.errors.maxDepth',

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { notModifiedOrPrepare } from '../helpers/httpCache.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -106,10 +107,16 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       const strings = await WIKI.models.locales.getStrings(req.params.code)
       const etag = `"${crypto.createHash('sha1').update(JSON.stringify(strings)).digest('hex')}"`
-      reply.header('ETag', etag)
-      reply.header('Cache-Control', 'public, no-cache')
-      if (req.headers['if-none-match'] === etag) {
-        return reply.code(304).send()
+      // -> `nosniff: false`: these are this instance's own translation strings, served as JSON —
+      //    not the uploaded bytes the `controllers/` users of this helper are guarding
+      if (
+        notModifiedOrPrepare(req, reply, {
+          etag,
+          cacheControl: 'public, no-cache',
+          nosniff: false
+        })
+      ) {
+        return
       }
       return strings
     }

@@ -1,7 +1,9 @@
+import { pickDefined, transformConfig } from './shared.ts'
 import type { SourceRecord } from '../connector.ts'
+import type { ConfigTransform } from './shared.ts'
 
 /**
- * `mapStorageRow(s)` (task 767 — "Storage-target mapper, scoped per created site")
+ * `mapStorageRow(s)` — storage targets, scoped per created site
  *
  * A pure transform: no DB access, no side effects. Takes 2.5.x `storage` table rows
  * (`docs/migration/2.5x-source-schema.md`'s `## storage` section) and produces 3.0 `storage` row
@@ -33,7 +35,7 @@ import type { SourceRecord } from '../connector.ts'
  * 3.0 ships exactly seven storage modules — `KNOWN_3_0_STORAGE_MODULES` below enumerates them
  * (`azure`, `db`, `disk`, `gcs`, `git`, `s3`, `sftp`), matching `backend/modules/storage/`'s actual
  * directory listing (cross-checked live via `readdirSync` in this module's test, mirroring Feature
- * 412's/task 763's precedent). 2.x shipped eleven; per
+ * 412's precedent). 2.x shipped eleven; per
  * `docs/migration/2.5x-settings-auth-storage-field-mapping.md`'s Part 3, six of those eleven 2.x keys
  * have no `modules/storage/<key>/` directory here at all — `box`, `digitalocean`, `dropbox`,
  * `gdrive`, `onedrive`, `s3generic` — and are confirmed **NO DESTINATION**. This mapper checks every
@@ -42,7 +44,7 @@ import type { SourceRecord } from '../connector.ts'
  * this list being updated fails loudly in the enumeration cross-check test rather than silently
  * degrading into "resolver said no, so it must be fine". A row whose key isn't on the list — or is
  * on the list but the resolver has no definition loaded for it — comes back `status: 'unsupported'`,
- * no row written, mirroring the `authentication` mapper's (task 765) `getModule()`-returns-`null`
+ * no row written, mirroring `./authentication.ts`'s `getModule()`-returns-`null`
  * precedent and Feature 414's provider-fallback precedent before that.
  *
  * `db` and `gcs` are on the enumerated list but never actually matched by a 2.x row: `db` (content
@@ -84,15 +86,11 @@ import type { SourceRecord } from '../connector.ts'
  *
  * ## Per-site replay, no cross-call state
  *
- * `authentication` carries no `siteId` at all, so task 765's mapper had to thread an explicit
- * `AuthenticationMapperState` across calls to detect same-module collisions between multiple
- * consolidated sources. `storage` rows are the opposite case, exactly as this task's description
- * calls out: `(siteId, module)` is already the table's own uniqueness boundary, so two calls with
- * different `siteId`s can never collide with each other no matter how many source systems are being
- * consolidated — there is nothing to thread. `siteId` is simply a required parameter on every call
- * (not a caller-shared mutable object), and the same source row can be replayed against as many
- * target sites as the multi-source-consolidation scenario needs by calling this mapper once per
- * target site with the same source rows.
+ * `(siteId, module)` is already the table's own uniqueness boundary, so two calls with different
+ * `siteId`s can never collide with each other — there is nothing to thread across calls. `siteId` is
+ * simply a required parameter on every call (not a caller-shared mutable object), and the same source
+ * row can be replayed against as many target sites as needed by calling this mapper once per target
+ * site with the same source rows.
  */
 
 // ---------------------------------------------------------------------------
@@ -157,8 +155,6 @@ export const KNOWN_3_0_STORAGE_MODULES = [
   'sftp'
 ] as const
 
-export type Known3_0StorageModule = (typeof KNOWN_3_0_STORAGE_MODULES)[number]
-
 // ---------------------------------------------------------------------------
 // Per-module config remap — the "key-by-key remap required, module by module" step
 // `2.5x-to-3.0-mapping.md` calls for. Everything not picked here is simply absent from `incoming`;
@@ -169,26 +165,10 @@ export type Known3_0StorageModule = (typeof KNOWN_3_0_STORAGE_MODULES)[number]
 // the module doc).
 // ---------------------------------------------------------------------------
 
-function pick(source: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  for (const key of keys) {
-    if (key in source && source[key] !== undefined) {
-      result[key] = source[key]
-    }
-  }
-  return result
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-type ConfigTransform = (raw: Record<string, unknown>) => Record<string, unknown>
-
 const CONFIG_TRANSFORMS: Record<string, ConfigTransform> = {
-  disk: (raw) => pick(raw, ['path', 'createDailyBackups']),
+  disk: (raw) => pickDefined(raw, ['path', 'createDailyBackups']),
   sftp: (raw) =>
-    pick(raw, [
+    pickDefined(raw, [
       'host',
       'port',
       'authMode',
@@ -206,7 +186,7 @@ const CONFIG_TRANSFORMS: Record<string, ConfigTransform> = {
    * it is lower-cased here rather than copied straight across.
    */
   azure: (raw) => {
-    const result = pick(raw, ['accountName', 'accountKey', 'containerName'])
+    const result = pickDefined(raw, ['accountName', 'accountKey', 'containerName'])
     if (typeof raw.storageTier === 'string' && raw.storageTier.length > 0) {
       result.storageTier = raw.storageTier.toLowerCase()
     }
@@ -220,7 +200,7 @@ const CONFIG_TRANSFORMS: Record<string, ConfigTransform> = {
    * explicit value copies straight across either way, so no transform is needed for it.
    */
   git: (raw) => {
-    const result = pick(raw, [
+    const result = pickDefined(raw, [
       'authType',
       'repoUrl',
       'branch',
@@ -248,19 +228,13 @@ const CONFIG_TRANSFORMS: Record<string, ConfigTransform> = {
    * recorded a mode and 3.0 has no default that infers one.
    */
   s3: (raw) => {
-    const result = pick(raw, ['bucket', 'accessKeyId', 'secretAccessKey'])
+    const result = pickDefined(raw, ['bucket', 'accessKeyId', 'secretAccessKey'])
     result.mode = 'aws'
     if (typeof raw.region === 'string' && raw.region.length > 0) {
       result.awsRegion = raw.region
     }
     return result
   }
-}
-
-function transformConfig(module: string, rawConfig: unknown): Record<string, unknown> {
-  const raw = isPlainObject(rawConfig) ? rawConfig : {}
-  const transform = CONFIG_TRANSFORMS[module]
-  return transform ? transform(raw) : {}
 }
 
 // ---------------------------------------------------------------------------
@@ -309,9 +283,6 @@ export interface StorageRowResult {
 export interface StorageMappingResult {
   /** One entry per source row, in read order, whatever its outcome. */
   results: StorageRowResult[]
-  /** Convenience: just the patches actually ready to apply, in order — what an importer's writer
-   * loop iterates. */
-  updates: StorageUpdatePayload[]
 }
 
 export interface MapStorageRowOptions {
@@ -390,7 +361,7 @@ export function mapStorageRow(
     }
   }
 
-  const incoming = transformConfig(module, row.config)
+  const incoming = transformConfig(CONFIG_TRANSFORMS, module, row.config)
   const validationError = resolver.validateConfig(module, incoming)
   if (validationError) {
     return {
@@ -444,13 +415,8 @@ export async function mapStorageRows(
   options: MapStorageRowOptions
 ): Promise<StorageMappingResult> {
   const results: StorageRowResult[] = []
-  const updates: StorageUpdatePayload[] = []
   for await (const row of rows) {
-    const result = mapStorageRow(row, options)
-    results.push(result)
-    if (result.status === 'updated' && result.update) {
-      updates.push(result.update)
-    }
+    results.push(mapStorageRow(row, options))
   }
-  return { results, updates }
+  return { results }
 }

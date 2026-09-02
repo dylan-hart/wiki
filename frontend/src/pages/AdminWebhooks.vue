@@ -145,14 +145,13 @@ import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
-import { dialog } from '@/composables/dialog'
+import { confirm, dialog } from '@/composables/dialog'
 import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 
 import WebhookEditDialog from '@/components/WebhookEditDialog.vue'
-import WebhookDeleteDialog from '@/components/WebhookDeleteDialog.vue'
 import WebhookHistoryDialog from '@/components/WebhookHistoryDialog.vue'
 
 // COMPOSABLES
@@ -269,13 +268,29 @@ function viewHistory(hook) {
 }
 
 function deleteHook(hook) {
-  dialog({
-    component: WebhookDeleteDialog,
-    componentProps: {
-      hook
+  confirm({
+    title: t('admin.webhooks.delete'),
+    message: [
+      t('admin.webhooks.deleteConfirm', { name: `**${hook.name}**` }),
+      `**${t('admin.webhooks.deleteConfirmWarn')}**`
+    ],
+    destructive: true,
+    persistent: true
+  }).onOk(async () => {
+    try {
+      await API_CLIENT.delete(`hooks/${hook.id}`)
+      notify({
+        type: 'positive',
+        message: t('admin.webhooks.deleteSuccess')
+      })
+      load()
+    } catch (err) {
+      // -> ky throws above 400 -- a webhook deleted from another tab answers 404
+      notify({
+        type: 'negative',
+        message: apiErrorMessage(err)
+      })
     }
-  }).onOk(() => {
-    load()
   })
 }
 

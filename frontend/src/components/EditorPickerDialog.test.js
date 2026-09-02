@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import EditorPickerDialog from './EditorPickerDialog.vue'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Regression coverage for task 493: the picker has to list only what `siteStore.editors` currently
@@ -18,7 +19,7 @@ function mountDialog(editors) {
   const siteStore = useSiteStore()
   siteStore.editors = { asciidoc: false, code: false, markdown: false, wysiwyg: false, ...editors }
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   const wrapper = mount(EditorPickerDialog, {
     global: { plugins: [i18n] },

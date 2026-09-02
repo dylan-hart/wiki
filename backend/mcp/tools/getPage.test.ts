@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { after, test } from 'node:test'
 import { McpToolError } from '../auth.ts'
 import { handleGetPage } from './getPage.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 const GUEST_GROUP_ID = '10000000-0000-4000-8000-000000000001'
 const SITE_ID = 'site-a'
@@ -28,7 +29,7 @@ const BASE_PAGE = {
   content: 'Raw markdown source'
 }
 
-let previousWiki: any
+let wikiHandle: { restore(): void }
 let getPageCalls: any[]
 
 /**
@@ -47,7 +48,7 @@ function install({
   publishState = 'published' as string
 } = {}) {
   getPageCalls = []
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     data: { systemIds: { guestsGroupId: GUEST_GROUP_ID } },
     sites: { [SITE_ID]: { id: SITE_ID, hostname: 'a.example.com', isEnabled: true, config: {} } },
     models: {
@@ -88,15 +89,11 @@ function install({
         record: async () => {}
       }
     }
-  }
+  })
 }
 
-before(() => {
-  previousWiki = (globalThis as any).WIKI
-})
-
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
 })
 
 function textOf(result: any) {

@@ -1,9 +1,10 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import {
   assets as assetsTable,
+  contentSyncState as contentSyncStateTable,
   pages as pagesTable,
   storage as storageTable
 } from '../db/schema.ts'
@@ -15,7 +16,7 @@ import {
   type TestFixtures
 } from '../test/db.ts'
 import type { PageActor } from './pages.ts'
-import { contentSync } from './contentSync.ts'
+import { contentSync, type SyncContentType } from './contentSync.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 
 /**
@@ -110,13 +111,76 @@ async function makeAsset(fileName: string): Promise<string> {
   return row.id
 }
 
-test('getState returns null for a pairing that has never synced', { skip }, async () => {
+/**
+ * Read-back oracles: these read `contentSyncState` directly rather than through the model.
+ *
+ * The model used to carry `getState`/`getStatesForContent`/`getStatesForTarget` for exactly this, but
+ * nothing in production ever called any of the three — a read method that exists only so its own test
+ * can assert against it is not model surface, it is a fixture. `WIKI.db` is the fixture connection
+ * `setupTestDb()` installs, which is what those methods read through too.
+ */
+type SyncStateRow = typeof contentSyncStateTable.$inferSelect
+
+/** The row for one (content item, target) pairing, or null if it has never been attempted. */
+async function readState(
+  contentType: SyncContentType,
+  contentId: string,
+  targetId: string
+): Promise<SyncStateRow | null> {
+  const rows = await WIKI.db
+    .select()
+    .from(contentSyncStateTable)
+    .where(
+      and(
+        eq(contentSyncStateTable.contentType, contentType),
+        eq(contentSyncStateTable.contentId, contentId),
+        eq(contentSyncStateTable.targetId, targetId)
+      )
+    )
+    .limit(1)
+  return rows[0] ?? null
+}
+
+/** Every target's row for one content item. */
+async function readStatesForContent(
+  contentType: SyncContentType,
+  contentId: string
+): Promise<SyncStateRow[]> {
+  return WIKI.db
+    .select()
+    .from(contentSyncStateTable)
+    .where(
+      and(
+        eq(contentSyncStateTable.contentType, contentType),
+        eq(contentSyncStateTable.contentId, contentId)
+      )
+    )
+}
+
+/** Every content item's row on one target. */
+async function readStatesForTarget(targetId: string): Promise<SyncStateRow[]> {
+  return WIKI.db
+    .select()
+    .from(contentSyncStateTable)
+    .where(eq(contentSyncStateTable.targetId, targetId))
+}
+
+/** A fresh storage target of its own, so a count over it is not shared with any other test. */
+async function makeTarget(module: string): Promise<string> {
+  const [row] = await WIKI.db
+    .insert(storageTable)
+    .values({ siteId, module })
+    .returning({ id: storageTable.id })
+  return row.id
+}
+
+test('no row exists for a pairing that has never synced', { skip }, async () => {
   const pageId = await makePage('never-synced')
-  const state = await contentSync.getState('page', pageId, pageTargetId)
+  const state = await readState('page', pageId, pageTargetId)
   assert.equal(state, null)
 })
 
-test('recordSuccess creates a row, and getState reads it back', { skip }, async () => {
+test('recordSuccess creates a row that reads back with every field set', { skip }, async () => {
   const pageId = await makePage('record-success')
   await contentSync.recordSuccess({
     contentType: 'page',
@@ -126,7 +190,7 @@ test('recordSuccess creates a row, and getState reads it back', { skip }, async 
     targetRef: { commit: 'abc123' }
   })
 
-  const state = await contentSync.getState('page', pageId, pageTargetId)
+  const state = await readState('page', pageId, pageTargetId)
   assert.ok(state)
   assert.equal(state!.lastDirection, 'push')
   assert.deepEqual(state!.targetRef, { commit: 'abc123' })
@@ -151,7 +215,7 @@ test('recordSuccess upserts in place rather than creating a second row', { skip 
     targetRef: 'sha-2'
   })
 
-  const states = await contentSync.getStatesForContent('page', pageId)
+  const states = await readStatesForContent('page', pageId)
   assert.equal(states.length, 1)
   assert.equal(states[0].lastDirection, 'pull')
   assert.equal(states[0].targetRef, 'sha-2')
@@ -169,7 +233,7 @@ test(
       direction: 'push',
       targetRef: 'sha-good'
     })
-    const afterSuccess = await contentSync.getState('page', pageId, pageTargetId)
+    const afterSuccess = await readState('page', pageId, pageTargetId)
 
     await contentSync.recordFailure({
       contentType: 'page',
@@ -177,7 +241,7 @@ test(
       targetId: pageTargetId,
       error: 'connection reset'
     })
-    const afterFailure = await contentSync.getState('page', pageId, pageTargetId)
+    const afterFailure = await readState('page', pageId, pageTargetId)
 
     assert.equal(afterFailure!.lastError, 'connection reset')
     assert.equal(afterFailure!.lastDirection, 'push')
@@ -186,7 +250,7 @@ test(
   }
 )
 
-test('getStatesForTarget only returns rows for that target', { skip }, async () => {
+test('recordSuccess files a row per target, each scoped to its own', { skip }, async () => {
   const pageId = await makePage('states-for-target')
   await contentSync.recordSuccess({
     contentType: 'page',
@@ -201,50 +265,92 @@ test('getStatesForTarget only returns rows for that target', { skip }, async () 
     direction: 'push'
   })
 
-  const states = await contentSync.getStatesForTarget(pageTargetId)
+  const states = await readStatesForTarget(pageTargetId)
   assert.ok(states.every((s) => s.targetId === pageTargetId))
   assert.ok(states.some((s) => s.contentId === pageId))
 })
 
-test(
-  'getOutOfDatePages includes a page that has never synced to the target',
-  { skip },
-  async () => {
-    const pageId = await makePage('never-synced-out-of-date')
-    const outOfDate = await contentSync.getOutOfDatePages(pageTargetId, { siteId })
-    assert.ok(outOfDate.some((p) => p.id === pageId))
-  }
-)
+// ---------------------------------------------------------------------------------------------
+// countOutOfDate -- asserted as a delta around one page rather than against an absolute number:
+// every test in this file shares one `siteId`, so the site's page/asset population only ever grows
+// and no single count is stable across the run. What each case pins is the one thing the LEFT JOIN
+// decides, which is whether THIS page moved in or out of the set.
+// ---------------------------------------------------------------------------------------------
 
-test('getOutOfDatePages excludes a page synced after its last update', { skip }, async () => {
+test('countOutOfDate counts a page that has never synced to the target', { skip }, async () => {
+  const targetId = await makeTarget('test-count-never-synced')
+  const before = await contentSync.countOutOfDate('page', targetId, { siteId })
+  await makePage('never-synced-out-of-date')
+  assert.equal(await contentSync.countOutOfDate('page', targetId, { siteId }), before + 1)
+})
+
+test('countOutOfDate drops a page synced after its last update', { skip }, async () => {
+  const targetId = await makeTarget('test-count-synced')
   const pageId = await makePage('synced-up-to-date')
+  const before = await contentSync.countOutOfDate('page', targetId, { siteId })
   await contentSync.recordSuccess({
     contentType: 'page',
     contentId: pageId,
-    targetId: pageTargetId,
+    targetId,
     direction: 'push'
   })
 
-  const outOfDate = await contentSync.getOutOfDatePages(pageTargetId, { siteId })
-  assert.ok(!outOfDate.some((p) => p.id === pageId))
+  assert.equal(await contentSync.countOutOfDate('page', targetId, { siteId }), before - 1)
 })
 
-test('getOutOfDatePages includes a page updated after its last sync', { skip }, async () => {
+test('countOutOfDate counts a page updated after its last sync again', { skip }, async () => {
+  const targetId = await makeTarget('test-count-updated-after-sync')
   const pageId = await makePage('updated-after-sync')
   // -> Sync it first, then edit it, so `updatedAt` moves past `lastSyncedAt`.
   await contentSync.recordSuccess({
     contentType: 'page',
     contentId: pageId,
-    targetId: pageTargetId,
+    targetId,
     direction: 'push'
   })
+  const whileSynced = await contentSync.countOutOfDate('page', targetId, { siteId })
   await WIKI.db
     .update(pagesTable)
     .set({ title: 'edited after sync', updatedAt: sql`now() + interval '1 second'` })
     .where(eq(pagesTable.id, pageId))
 
-  const outOfDate = await contentSync.getOutOfDatePages(pageTargetId, { siteId })
-  assert.ok(outOfDate.some((p) => p.id === pageId))
+  assert.equal(await contentSync.countOutOfDate('page', targetId, { siteId }), whileSynced + 1)
+})
+
+test('countOutOfDate applies the same logic to assets', { skip }, async () => {
+  const targetId = await makeTarget('test-count-assets')
+  const assetId = await makeAsset('never-synced.png')
+  const before = await contentSync.countOutOfDate('asset', targetId, { siteId })
+  assert.ok(before >= 1)
+
+  await contentSync.recordSuccess({
+    contentType: 'asset',
+    contentId: assetId,
+    targetId,
+    direction: 'push'
+  })
+  assert.equal(await contentSync.countOutOfDate('asset', targetId, { siteId }), before - 1)
+})
+
+test('countOutOfDate is scoped to its contentType, not just the target', { skip }, async () => {
+  // -> A page and an asset synced to the same target must each only clear their own side of the
+  //    count: `contentType` is what keeps the join from matching the other table's rows.
+  const targetId = await makeTarget('test-count-content-type-scope')
+  const pageId = await makePage('count-type-scope')
+  const pagesBefore = await contentSync.countOutOfDate('page', targetId, { siteId })
+  const assetsBefore = await contentSync.countOutOfDate('asset', targetId, { siteId })
+
+  // -> Syncing the page clears only the page side; adding an asset moves only the asset side.
+  await contentSync.recordSuccess({
+    contentType: 'page',
+    contentId: pageId,
+    targetId,
+    direction: 'push'
+  })
+  await makeAsset('count-type-scope.png')
+
+  assert.equal(await contentSync.countOutOfDate('page', targetId, { siteId }), pagesBefore - 1)
+  assert.equal(await contentSync.countOutOfDate('asset', targetId, { siteId }), assetsBefore + 1)
 })
 
 test('getTargetSummary reports nothing for a target with no state at all', { skip }, async () => {
@@ -293,27 +399,23 @@ test(
   async () => {
     // -> A brand-new target has no contentSyncState rows at all, so every page and asset on the site
     //    matches through the `isNull(lastSyncedAt)` disjunct -- this is what pins `getTargetSummary`
-    //    to the `countOutOfDatePages`/`countOutOfDateAssets` aggregate path (WIKI.db.$count over the
-    //    same LEFT JOIN) rather than silently falling back to fetching and counting rows.
-    const targets = await WIKI.db
-      .insert(storageTable)
-      .values({ siteId, module: 'test-summary-never-synced' })
-      .returning({ id: storageTable.id })
-    const targetId = targets[0].id
+    //    to `countOutOfDate`'s aggregate path (WIKI.db.$count over the LEFT JOIN) rather than
+    //    silently falling back to fetching and counting rows.
+    const targetId = await makeTarget('test-summary-never-synced')
     await makePage('never-synced-summary-page')
     await makeAsset('never-synced-summary-asset.png')
 
-    const [summary, outOfDatePages, outOfDateAssets] = await Promise.all([
+    const [summary, pageCount, assetCount] = await Promise.all([
       contentSync.getTargetSummary(targetId, { siteId }),
-      contentSync.getOutOfDatePages(targetId, { siteId }),
-      contentSync.getOutOfDateAssets(targetId, { siteId })
+      WIKI.db.$count(pagesTable, eq(pagesTable.siteId, siteId)),
+      WIKI.db.$count(assetsTable, eq(assetsTable.siteId, siteId))
     ])
 
     // -> Every page/asset ever created against this shared `siteId` (across earlier tests in this
     //    file too) counts as out of date for a target this fresh, so there's no fixed number to
-    //    assert against -- instead, cross-check the aggregate count against the row-returning
-    //    queries' own length, which is exactly what the count path is supposed to reproduce.
-    assert.equal(summary.outOfDateCount, outOfDatePages.length + outOfDateAssets.length)
+    //    assert against -- instead, cross-check the aggregate against a plain count of the site's
+    //    own pages and assets, which for a never-synced target is exactly what it must reproduce.
+    assert.equal(summary.outOfDateCount, pageCount + assetCount)
     assert.ok(summary.outOfDateCount >= 2)
   }
 )
@@ -406,7 +508,7 @@ test(
     assert.ok(summary.lastSyncedAt)
 
     // -> The row itself is untouched -- only the target-level summary treats it as stale.
-    const rawState = await contentSync.getState('page', failedPageId, targetId)
+    const rawState = await readState('page', failedPageId, targetId)
     assert.equal(rawState!.lastError, 'connection refused')
   }
 )
@@ -446,21 +548,6 @@ test(
   }
 )
 
-test('getOutOfDateAssets tracks the same out-of-date logic for assets', { skip }, async () => {
-  const assetId = await makeAsset('never-synced.png')
-  const outOfDate = await contentSync.getOutOfDateAssets(pageTargetId, { siteId })
-  assert.ok(outOfDate.some((a) => a.id === assetId))
-
-  await contentSync.recordSuccess({
-    contentType: 'asset',
-    contentId: assetId,
-    targetId: pageTargetId,
-    direction: 'push'
-  })
-  const afterSync = await contentSync.getOutOfDateAssets(pageTargetId, { siteId })
-  assert.ok(!afterSync.some((a) => a.id === assetId))
-})
-
 // ---------------------------------------------------------------------------------------------
 // Non-UTC process TZ regression coverage (OpenProject #1639/#1650) -- `lastSyncedAt` is now a
 // `timestamptz` column, decoded by node-postgres from the wire-format offset it always carries
@@ -493,7 +580,7 @@ test(
         syncedAt: instant
       })
 
-      const state = await contentSync.getState('page', pageId, targetId)
+      const state = await readState('page', pageId, targetId)
       assert.equal(state!.lastSyncedAt!.getTime(), instant.epochMilliseconds)
     } finally {
       process.env.TZ = originalTz
@@ -615,9 +702,9 @@ test(
 
     await contentSync.forgetContent('page', forgottenPageId)
 
-    const forgottenStates = await contentSync.getStatesForContent('page', forgottenPageId)
+    const forgottenStates = await readStatesForContent('page', forgottenPageId)
     assert.equal(forgottenStates.length, 0)
-    const otherState = await contentSync.getState('page', otherPageId, pageTargetId)
+    const otherState = await readState('page', otherPageId, pageTargetId)
     assert.ok(otherState)
   }
 )
@@ -640,8 +727,8 @@ test('forgetContent is scoped to contentType, not just contentId', { skip }, asy
 
   await contentSync.forgetContent('asset', assetId)
 
-  assert.equal(await contentSync.getState('asset', assetId, pageTargetId), null)
-  assert.ok(await contentSync.getState('page', pageId, pageTargetId))
+  assert.equal(await readState('asset', assetId, pageTargetId), null)
+  assert.ok(await readState('page', pageId, pageTargetId))
 })
 
 test(
@@ -662,9 +749,9 @@ test(
 
     await contentSync.forgetContentBatch('page', [firstId, secondId])
 
-    assert.equal(await contentSync.getState('page', firstId, pageTargetId), null)
-    assert.equal(await contentSync.getState('page', secondId, pageTargetId), null)
-    assert.ok(await contentSync.getState('page', untouchedId, pageTargetId))
+    assert.equal(await readState('page', firstId, pageTargetId), null)
+    assert.equal(await readState('page', secondId, pageTargetId), null)
+    assert.ok(await readState('page', untouchedId, pageTargetId))
   }
 )
 
@@ -730,13 +817,13 @@ describe('forgetContent via pages.deletePage (DB-backed)', { skip: !hasTestDatab
       targetId,
       error: 'connection refused'
     })
-    const beforeDelete = await contentSync.getState('page', page.id, targetId)
+    const beforeDelete = await readState('page', page.id, targetId)
     assert.ok(beforeDelete)
 
     const deleted = await pagesModel.deletePage(fixtures.siteId, page.id, actor)
     assert.equal(deleted, true)
 
-    const afterDelete = await contentSync.getState('page', page.id, targetId)
+    const afterDelete = await readState('page', page.id, targetId)
     assert.equal(afterDelete, null)
 
     const summary = await contentSync.getTargetSummary(targetId, { siteId: fixtures.siteId })
@@ -776,8 +863,8 @@ test(
     const count = await contentSync.purgeOrphaned()
     assert.ok(count >= 1)
 
-    assert.equal(await contentSync.getState('page', deletedPageId, pageTargetId), null)
-    assert.ok(await contentSync.getState('page', livePageId, pageTargetId))
+    assert.equal(await readState('page', deletedPageId, pageTargetId), null)
+    assert.ok(await readState('page', livePageId, pageTargetId))
   }
 )
 
@@ -804,8 +891,8 @@ test(
     const count = await contentSync.purgeOrphaned()
     assert.ok(count >= 1)
 
-    assert.equal(await contentSync.getState('asset', deletedAssetId, pageTargetId), null)
-    assert.ok(await contentSync.getState('asset', liveAssetId, pageTargetId))
+    assert.equal(await readState('asset', deletedAssetId, pageTargetId), null)
+    assert.ok(await readState('asset', liveAssetId, pageTargetId))
   }
 )
 
@@ -825,7 +912,7 @@ test(
 
     await contentSync.purgeOrphaned()
 
-    assert.equal(await contentSync.getState('page', assetId, pageTargetId), null)
+    assert.equal(await readState('page', assetId, pageTargetId), null)
     // -> The asset itself, and its own real contentSyncState rows if any, are untouched by this --
     //    this test only asserts the mis-typed row above was swept.
   }

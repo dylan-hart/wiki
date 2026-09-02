@@ -1,22 +1,16 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
 import './component.js'
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /**
  * Appends a `<block-spoiler>` with the given light-DOM content, and waits for Lit's first render.
  */
-async function mountSpoiler(content = 'secret content') {
-  const el = document.createElement('block-spoiler')
-  el.textContent = content
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountSpoiler = (content = 'secret content') => mountBlock('block-spoiler', { text: content })
 
 describe('block-spoiler', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-  })
+  afterEach(resetBlockDom)
 
   it('starts covered with aria-expanded reflecting the collapsed state', async () => {
     const el = await mountSpoiler()
@@ -50,4 +44,6 @@ describe('block-spoiler', () => {
     expect(content.id).toBe(contentId)
     expect(el.shadowRoot.activeElement).toBe(content)
   })
+
+  describeDarkMode(() => mountSpoiler())
 })

@@ -1,5 +1,6 @@
 import { generateHash } from '../helpers/common.ts'
-import type { FastifyInstance, FastifyReply } from 'fastify'
+import { notModifiedOrPrepare } from '../helpers/httpCache.ts'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 /** Ceiling on how many icons one batch request may ask for. */
 const MAX_ICONS_PER_REQUEST = 128
@@ -17,19 +18,21 @@ const INCOMPLETE_CACHE = 'public, max-age=60'
  * Answer with a body only when the client does not already have it.
  *
  * Icons are immutable and served for a year, so this only matters for the client that arrives without
- * a warm HTTP cache but with a stale one — cheap enough to be worth the few lines.
+ * a warm HTTP cache but with a stale one — cheap enough to be worth the few lines. The validator/304
+ * half is `helpers/httpCache.ts`'s, shared with the five `controllers/` that serve stored bytes; what
+ * stays here is hashing the body to get an ETag in the first place, which those five do not need
+ * (each already has a hash, id or mtime to build one from). `nosniff: false`, since neither of these
+ * two responses ever carried that header: both bodies are built here, not uploaded.
  */
 function sendCacheable(
+  req: FastifyRequest,
   reply: FastifyReply,
-  ifNoneMatch: string | undefined,
   body: string,
   { contentType, cacheControl }: { contentType: string; cacheControl: string }
 ): FastifyReply {
   const etag = `"${generateHash(body)}"`
-  reply.header('ETag', etag)
-  reply.header('Cache-Control', cacheControl)
-  if (ifNoneMatch === etag) {
-    return reply.code(304).send()
+  if (notModifiedOrPrepare(req, reply, { etag, cacheControl, nosniff: false })) {
+    return reply
   }
   return reply.type(contentType).send(body)
 }
@@ -75,7 +78,7 @@ async function routes(app: FastifyInstance) {
         ...(resolved.notFound.length > 0 && { not_found: resolved.notFound })
       }
 
-      return sendCacheable(reply, req.headers['if-none-match'], JSON.stringify(payload), {
+      return sendCacheable(req, reply, JSON.stringify(payload), {
         contentType: 'application/json; charset=utf-8',
         cacheControl: resolved.notFound.length > 0 ? INCOMPLETE_CACHE : BATCH_CACHE
       })
@@ -101,7 +104,7 @@ async function routes(app: FastifyInstance) {
       reply.header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'")
       reply.header('X-Content-Type-Options', 'nosniff')
 
-      return sendCacheable(reply, req.headers['if-none-match'], svg, {
+      return sendCacheable(req, reply, svg, {
         contentType: 'image/svg+xml; charset=utf-8',
         cacheControl: IMMUTABLE_CACHE
       })

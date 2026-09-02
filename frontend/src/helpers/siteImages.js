@@ -61,3 +61,23 @@ export async function uploadSiteImage(siteId, kind, file) {
 export async function clearSiteImage(siteId, kind) {
   await API_CLIENT.delete(`sites/${siteId}/images/${kind}`).json()
 }
+
+/**
+ * Whether the Sharp extension is usable on this server, which decides whether an uploaded image gets
+ * resized and re-encoded or stored as-is. Site-independent, so a page asks once on mount rather than
+ * on every load.
+ *
+ * A failed or slow `system/extensions` call answers `true`: the callers use this to raise a "this
+ * needs Sharp" indicator, and understating a warning while its answer is still unknown beats crying
+ * wolf over an unrelated request failure.
+ *
+ * @returns {Promise<boolean>}
+ */
+export async function isSharpAvailable() {
+  try {
+    const extensions = (await API_CLIENT.get('system/extensions').json()) ?? []
+    return extensions.find((ext) => ext.key === 'sharp')?.isInstalled ?? false
+  } catch {
+    return true
+  }
+}

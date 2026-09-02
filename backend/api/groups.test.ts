@@ -1,14 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, mock, test } from 'node:test'
-import fastify from 'fastify'
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
+import type { FastifyInstance } from 'fastify'
 import groupsRoutes from './groups.ts'
-import { registerSchemas as registerGroupSchema } from './schemas/group.ts'
-import { registerSchemas as registerUserSchema } from './schemas/user.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Feature 357 / task 448: `Groups#clampGuestPatch` (`models/groups.ts`) strips any role outside
@@ -40,34 +35,17 @@ describe(
       //    id this points at.
       ;(globalThis as any).WIKI.data.systemIds = { guestsGroupId: fixtures.groupId }
 
-      app = fastify({
-        ajv: {
-          plugins: [[ajvFormats.default, {}] as any]
-        }
-      })
-      await app.register(fastifySensible)
-      // -> Mirrors `index.ts`'s real `setErrorHandler`: a thrown `CustomError` (or a
+      // -> `buildTestApp` installs the REAL `apiErrorHandler`: a thrown `CustomError` (or a
       //    `@fastify/sensible` error) carries `.statusCode`, but nothing shapes it into the
-      //    `{ ok, error, statusCode, message }` `ApiError#` schema expects without this -- the
+      //    `{ ok, error, statusCode, message }` `ApiError#` schema expects without it -- the
       //    default handler tries to serialize the raw `Error` object against that schema and fails,
-      //    since an `Error` has no `ok`/`error` property of its own.
-      app.setErrorHandler((error: any, req, reply) => {
-        reply.code(error.statusCode ?? 500).send({
-          ok: false,
-          error: error.name,
-          statusCode: error.statusCode ?? 500,
-          message: error.message
-        })
-      })
-      await registerErrorSchema(app)
-      await registerUserSchema(app)
-      await registerGroupSchema(app)
-      await app.register(groupsRoutes)
-      await app.ready()
+      //    since an `Error` has no `ok`/`error` property of its own. No `wiki`: `setupTestDb()`
+      //    already installed the real one, and this suite runs against it.
+      app = await buildTestApp({ routes: groupsRoutes, ajv: true })
     })
 
     after(async () => {
-      await app.close()
+      await closeTestApp(app)
       await teardownTestDb()
     })
 
@@ -215,25 +193,14 @@ describe(
       //    is about the `match`/`classifications` shape surviving validation, not the guest clamp.
       ;(globalThis as any).WIKI.data.systemIds = { guestsGroupId: 'not-this-group' }
 
-      app = fastify({
-        ajv: {
-          plugins: [[ajvFormats.default, {}] as any]
-        }
-      })
-      await app.register(fastifySensible)
-      // -> Mirrors `index.ts`'s real `setErrorHandler`: `groupsRoutes`' error responses
-      //    (`$ref: 'ApiError#'`) can't be serialized without this registered, and the schema-build
-      //    failure surfaces at `app.ready()` for every route in the plugin, not just the one under
-      //    test — see the sibling `describe` above for the fuller comment.
-      await registerErrorSchema(app)
-      await registerUserSchema(app)
-      await registerGroupSchema(app)
-      await app.register(groupsRoutes)
-      await app.ready()
+      // -> See the sibling `describe` above: `buildTestApp` brings the real error handler and the
+      //    real shared-schema set, without which `groupsRoutes`' `$ref: 'ApiError#'` responses fail
+      //    to build at `app.ready()` for every route in the plugin, not just the one under test.
+      app = await buildTestApp({ routes: groupsRoutes, ajv: true })
     })
 
     after(async () => {
-      await app.close()
+      await closeTestApp(app)
       await teardownTestDb()
     })
 
@@ -276,50 +243,12 @@ describe(
  * populate (too narrow) or a nav-only account can read every group's permission grants and page rules
  * (too broad, since `GroupCore` omits both but `Group` carries them -- see `api/schemas/group.ts`).
  *
- * Same isolated-route-file approach as `navigation.test.ts`: the real permission gate is `index.ts`'s
- * single global `preHandler` hook, reproduced verbatim here, with a session seeded through a
- * test-only header ahead of it. `WIKI.models.groups` methods below are stubbed rather than hitting a
- * real database -- this test is about the permission surface, not model behavior.
+ * Same isolated-route-file approach as `navigation.test.ts`: `buildTestApp`'s `permissions: true`
+ * installs the REAL global permission gate (`core/http/authHooks.ts#permissionPreHandler`), with a
+ * session seeded through a test-only header ahead of it. `WIKI.models.groups` methods below are
+ * stubbed rather than hitting a real database -- this test is about the permission surface, not
+ * model behavior.
  */
-
-function testSessionOnRequest(
-  req: FastifyRequest,
-  _reply: FastifyReply,
-  done: (err?: Error) => void
-) {
-  const header = req.headers['x-test-session']
-  if (header) {
-    ;(req as any).session = JSON.parse(header as string)
-  }
-  done()
-}
-
-function permissionPreHandler(
-  req: FastifyRequest,
-  reply: FastifyReply,
-  done: (err?: Error) => void
-) {
-  const routePermissions = req.routeOptions.config?.permissions
-  if (routePermissions && routePermissions.length > 0) {
-    const session = (req as any).session
-    const permissions = session?.authenticated ? session.permissions : null
-    if (!permissions || permissions.length < 1) {
-      return reply.unauthorized()
-    }
-    if (!permissions.includes('manage:system')) {
-      const isAllowed = routePermissions.some((perms: any) => {
-        if (Array.isArray(perms)) {
-          return perms.every((perm: string) => permissions.some((p: string) => p === perm))
-        }
-        return permissions.some((p: string) => p === perms)
-      })
-      if (!isAllowed) {
-        return reply.forbidden()
-      }
-    }
-  }
-  done()
-}
 
 const GROUP_ID = '33333333-3333-3333-3333-333333333333'
 
@@ -335,16 +264,13 @@ const fullGroup = {
 let app: FastifyInstance
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
+  const wiki = {
     config: {
       auth: {
         // -> Distinct from GROUP_ID, so the root-admin-permissions guard in the PUT handler never
         //    activates for the fixture group these tests exercise.
         rootAdminGroupId: '99999999-9999-9999-9999-999999999999'
       }
-    },
-    logger: {
-      warn: () => {}
     },
     models: {
       groups: {
@@ -370,32 +296,15 @@ before(async () => {
     }
   }
 
-  app = fastify()
-  await app.register(fastifySensible)
-  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.forbidden()`/`unauthorized()`/etc. is a
-  //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-  //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-  app.setErrorHandler((error: any, req, reply) => {
-    reply.code(error.statusCode ?? 500).send({
-      ok: false,
-      error: error.name,
-      statusCode: error.statusCode ?? 500,
-      message: error.message
-    })
+  app = await buildTestApp({
+    routes: groupsRoutes,
+    wiki,
+    session: 'header',
+    permissions: true
   })
-  await registerGroupSchema(app)
-  await registerUserSchema(app)
-  await registerErrorSchema(app)
-  app.addHook('onRequest', testSessionOnRequest)
-  app.addHook('preHandler', permissionPreHandler)
-  await app.register(groupsRoutes)
-  await app.ready()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 function headersFor(permissions: string[]) {
   return {
@@ -529,7 +438,7 @@ describe('PUT /:groupId — redirect field validation', () => {
 
   before(async () => {
     updateGroupCalls = []
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       config: { security: { disallowOpenRedirect: true } },
       models: {
         groups: {
@@ -551,27 +460,10 @@ describe('PUT /:groupId — redirect field validation', () => {
       }
     }
 
-    redirectApp = fastify()
-    await redirectApp.register(fastifySensible)
-    redirectApp.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerGroupSchema(redirectApp)
-    await registerUserSchema(redirectApp)
-    await registerErrorSchema(redirectApp)
-    await redirectApp.register(groupsRoutes)
-    await redirectApp.ready()
+    redirectApp = await buildTestApp({ routes: groupsRoutes, wiki })
   })
 
-  after(async () => {
-    await redirectApp.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(redirectApp))
 
   test('rejects a javascript: redirectOnLogin with 400 and does not persist it', async () => {
     const res = await redirectApp.inject({

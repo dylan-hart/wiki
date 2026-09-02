@@ -88,10 +88,11 @@
 </template>
 
 <script setup>
-import { defineAsyncComponent, onMounted, reactive, watch } from 'vue'
+import { defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
@@ -152,11 +153,24 @@ useMeta(() => ({
 
 // DATA
 
-const state = reactive({
-  loading: 0,
-  rows: [],
-  /** Bare locale codes, from the site's own config -- what the locale picker offers on a 400. */
-  activeLocales: []
+const { state, load } = useAdminSettings({
+  i18nPrefix: 'history.recovery',
+  // -> A listing, not a settings form: reading the rows has never raised the full-screen overlay,
+  //    the header's own refresh button shows the progress instead.
+  overlay: false,
+  extraState: {
+    rows: [],
+    /** Bare locale codes, from the site's own config -- what the locale picker offers on a 400. */
+    activeLocales: []
+  },
+  // -> The active locale list travels with the site, not with any one deletion: it is what the
+  //    site accepts NOW, which is the whole reason a stale locale needs a picker at all
+  fetch: (siteId) =>
+    Promise.all([fetchAllRecoverable(), API_CLIENT.get(`sites/${siteId}?strict=true`).json()]),
+  onLoaded: ([rows, site]) => {
+    state.rows = rows ?? []
+    state.activeLocales = site?.locales?.active ?? []
+  }
 })
 
 const headers = [
@@ -201,10 +215,6 @@ const headers = [
   }
 ]
 
-// WATCHERS
-
-watch(() => adminStore.currentSiteId, load)
-
 // METHODS
 
 function authorLabel(row) {
@@ -230,30 +240,6 @@ async function fetchAllRecoverable() {
       return rows
     }
   }
-}
-
-async function load() {
-  if (!adminStore.currentSiteId) {
-    return
-  }
-  state.loading++
-  try {
-    // -> The active locale list travels with the site, not with any one deletion: it is what the
-    //    site accepts NOW, which is the whole reason a stale locale needs a picker at all
-    const [rows, site] = await Promise.all([
-      fetchAllRecoverable(),
-      API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
-    ])
-    state.rows = rows ?? []
-    state.activeLocales = site?.locales?.active ?? []
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('history.recovery.loadFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
 }
 
 function confirmRecover(row) {
@@ -353,8 +339,4 @@ function promptLocale(row, overrides) {
     recover(row, { ...overrides, locale })
   })
 }
-
-// MOUNTED
-
-onMounted(load)
 </script>

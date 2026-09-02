@@ -1,10 +1,10 @@
 import type { SourceConnector, SourceRecord } from './connector.ts'
 import { resolveActorId, type UserIdMap } from './id-map.ts'
 // -> Type-only, so this is erased entirely at load time (verbatimModuleSyntax) -- safe even though
-//    navigation-import.ts imports StagedNavigation back from this module, since neither import
+//    importers/navigation-import.ts imports StagedNavigation back from this module, since neither
+//    import
 //    survives to become a real runtime circular dependency.
-import type { NavigationPageRef } from './navigation-import.ts'
-import type { PathAssignmentInput } from './path-normalization.ts'
+import type { NavigationPageRef } from './importers/navigation-import.ts'
 import { coerceSourceBoolean } from './source-coercion.ts'
 
 /**
@@ -29,16 +29,14 @@ import { coerceSourceBoolean } from './source-coercion.ts'
  *
  * ## Streaming shape (WP #1790)
  *
- * `localeSiblingOldIds` and orphan classification (`orphanedHistory`) each need to know about every
- * page in the source before either can be answered for even one page — the first needs every other
- * page sharing this one's `path`, the second decides orphanhood precisely by failing to find a
- * `pageHistory` row's `pageId` among *every* current page. Neither, though, needs anything about a
- * page beyond its `oldId`/`path`/`locale` — so `buildContentStagingIndex()` walks `connector.pages()`
- * once up front to build exactly that (a `path → oldId[]` bucket, an `oldId` set, and a lightweight
- * `{oldId, path, locale}` triple per page also shaped for `assignTreePaths()`'s own batch input), and
- * `extractContentStaging()` then walks `connector.pages()` a *second* time, this time building the
- * full `StagedPage` (with `content`/`render`/`toc`) one page at a time and yielding it immediately —
- * nothing beyond the lightweight index and the current page's own data is ever resident together.
+ * Orphan classification (`orphanedHistory`) needs to know about every page in the source before it
+ * can be answered for even one page: it decides orphanhood precisely by failing to find a
+ * `pageHistory` row's `pageId` among *every* current page. It does not, though, need anything about a
+ * page beyond its `oldId` — so `buildContentStagingIndex()` walks `connector.pages()` once up front to
+ * build exactly that (an `oldId` set), and `extractContentStaging()` then walks `connector.pages()` a
+ * *second* time, this time building the full `StagedPage` (with `content`/`render`/`toc`) one page at
+ * a time and yielding it immediately — nothing beyond the lightweight index and the current page's
+ * own data is ever resident together.
  *
  * `pageHistory()` is merged in via a merge-join against the same walk, relying on `PostgresSourceConnector`
  * yielding it `ORDER BY "pageId"` (documented on `pageHistory()` in `connector.ts`) — the same order
@@ -49,10 +47,8 @@ import { coerceSourceBoolean } from './source-coercion.ts'
  * WP #1798 independently targeted this same "don't buffer the whole corpus" goal from an older base,
  * before the `buildContentStagingIndex()`/`ContentStagingIndex` split above had landed — its
  * alternative shape (a single `extractContentStaging()` returning a `ContentStagingResult` wrapper,
- * with the pre-pass folded inside) was superseded by the design here rather than merged in, since
- * `page-import.ts` (Task 738) already depends on the two-call `buildContentStagingIndex()` +
- * `extractContentStaging(connector, options, index, context)` shape to share the pre-pass with
- * `assignTreePaths()`'s own batch input.
+ * with the pre-pass folded inside) was superseded by the two-call `buildContentStagingIndex()` +
+ * `extractContentStaging(connector, options, index, context)` design here rather than merged in.
  */
 
 /** A 2.x tag string, resolved (from `pageTags`/`pageHistoryTags` via `tags.tag`) rather than left as
@@ -61,7 +57,7 @@ export type StagedTag = string
 
 export interface StagedPageHistoryEntry {
   /** The 2.x `pageHistory.id` this row came from — what a page-history id map (built the same way as
-   * `page-import.ts`'s `pageIdMap`, by whichever task actually inserts these rows) keys off. */
+   * `importers/page-import.ts`'s `pageIdMap`) keys off. */
   oldId: number
   action: string
   path: string
@@ -83,9 +79,6 @@ export interface StagedPageHistoryEntry {
   tags: StagedTag[]
   /** Resolved 3.0 UUID — the operator fallback if the 2.x row's `authorId` was null or unmapped. */
   authorId: string
-  /** The 2.x `authorId` this was resolved from, `null` if the source column itself was null. Kept for
-   * traceability/reporting, not consumed by any write path. */
-  sourceAuthorId: number | null
 }
 
 /** A `pageHistory` row whose `pageId` names no page among the source's current `pages` rows — a
@@ -98,13 +91,13 @@ export interface OrphanedPageHistoryEntry extends StagedPageHistoryEntry {
 }
 
 export interface StagedPage {
-  /** The 2.x `pages.id` this row came from — what `page-import.ts`'s `PageImportResult.pageIdMap` is
-   * keyed on once `importPages()` calls `createPage()` for it. */
+  /** The 2.x `pages.id` this row came from — what `importers/page-import.ts`'s
+   * `PageImporter.pageIdMap` is
+   * keyed on once `importOne()` calls `createPage()` for it. */
   oldId: number
   path: string
   locale: string
   title: string
-  hash: string
   description: string | null
   content: string | null
   render: string | null
@@ -123,14 +116,6 @@ export interface StagedPage {
   /** Resolved 3.0 UUIDs — the operator fallback wherever the 2.x row's id was null or unmapped. */
   authorId: string
   creatorId: string
-  /** The 2.x `authorId`/`creatorId` these were resolved from, `null` if the source column itself was
-   * null. Kept for traceability/reporting, not consumed by any write path. */
-  sourceAuthorId: number | null
-  sourceCreatorId: number | null
-  /** Old ids of every other 2.x page sharing this page's `path` under a different `localeCode` — the
-   * "joined to its localeCode variant siblings" join this task's description calls for. Does not
-   * include this page's own `oldId`. */
-  localeSiblingOldIds: number[]
   /** This page's full revision chain, ordered by `versionDate` ascending (oldest first). */
   history: StagedPageHistoryEntry[]
 }
@@ -149,25 +134,15 @@ export interface StagedNavigation {
 /**
  * The lightweight pre-pass this feature's streaming walk needs before it can emit even its first
  * `StagedPage` — see "Streaming shape" in the module doc comment. Built once by
- * `buildContentStagingIndex()` and handed to both `extractContentStaging()` (for
- * `localeSiblingOldIds`/orphan classification) and, unchanged, to `assignTreePaths()`
- * (`path-normalization.ts`) via `locations` — `PathAssignmentInput`'s shape is exactly `{oldId, path,
- * locale}`, so no separate walk is needed to feed that module's own whole-corpus batch requirement.
+ * `buildContentStagingIndex()` and handed to `extractContentStaging()` for orphan classification.
  */
 export interface ContentStagingIndex {
-  /** Every page's lightweight identity, in `connector.pages()` order. A `{oldId, path, locale}` triple
-   * costs a few dozen bytes — keeping every page's worth of them resident for the whole run is not the
-   * same problem as keeping every page's `content`/`render`/`toc` resident, which is what this feature
-   * exists to stop doing. */
-  locations: PathAssignmentInput[]
   /** Every page's `oldId` — what orphan classification tests membership against in O(1), without
    * needing the full `StagedPage` map the pre-streaming implementation kept resident to answer the
-   * same question. */
+   * same question. An `oldId` costs a few bytes; keeping every page's worth of them resident for the
+   * whole run is not the same problem as keeping every page's `content`/`render`/`toc` resident, which
+   * is what this feature exists to stop doing. */
   pageOldIds: Set<number>
-  /** `oldId` → every other `oldId` sharing this page's 2.x `path` (locale variants), feeding
-   * `StagedPage.localeSiblingOldIds`. Absent from the map (rather than an empty array) for a page with
-   * no siblings — callers should default a missing entry to `[]`. */
-  siblingsByOldId: Map<number, number[]>
 }
 
 /**
@@ -181,14 +156,15 @@ export interface ContentStagingContext {
   /** Human-readable notes on data that could not be carried across faithfully — currently: an
    * orphaned `authorId`/`creatorId` FK (present in the source, unmapped by `userIdMap`) that fell back
    * to the operator actor, and a `pageHistory` row that named no current page. Surfaced for whichever
-   * task ends up reporting import results to an operator (Task 421's CLI) rather than acted on here. */
+   * CLI reports import results to an operator rather than acted on here. */
   warnings: string[]
   /** `pageHistory` rows whose `pageId` matched no row in `pages` — see `OrphanedPageHistoryEntry`.
    * Only complete once the `extractContentStaging()` generator that was given this context has been
    * fully drained — sorted by `versionDate` ascending at that point, same as before streaming. */
   orphanedHistory: OrphanedPageHistoryEntry[]
   /** Every staged page's lightweight `{oldId, path, locale}` identity (Task 13, WP #1790), appended to
-   * as `extractContentStaging()` yields each `StagedPage` — what `navigation-import.ts`'s
+   * as `extractContentStaging()` yields each `StagedPage` — what
+   * `importers/navigation-import.ts`'s
    * `importNavigation()` needs to resolve a 2.x `'page'`-type nav target back onto a staged page.
    * Complete once every page this run's `pages` entity yielded has actually been processed by its
    * caller (`phases/content.ts`'s streaming `pages` entity fully drains before its `navigation` entity
@@ -209,7 +185,7 @@ export interface ContentStagingOptions {
   /** The 3.0 UUID of the actor `resolveActorId` falls back to — this task's chosen strategy for 2.x's
    * nullable/orphaned `authorId`/`creatorId` against 3.0's NOT NULL columns is "the operator running
    * the import"; resolving *who* that is (or creating a system account for it) is left to whichever
-   * task wires this module up (Task 421's CLI), which is why it is a plain required UUID here rather
+   * CLI resolves this, which is why it is a plain required UUID here rather
    * than something this module resolves itself. */
   fallbackActorId: string
 }
@@ -293,7 +269,6 @@ function stagePage(
     path: asString(raw.path),
     locale: asString(raw.localeCode),
     title: asString(raw.title),
-    hash: asString(raw.hash),
     description: asNullableString(raw.description),
     content: raw.content === null || raw.content === undefined ? null : asString(raw.content),
     render: raw.render === null || raw.render === undefined ? null : asString(raw.render),
@@ -311,9 +286,6 @@ function stagePage(
     tags: resolveTags(raw.tags),
     authorId: author.actorId,
     creatorId: creator.actorId,
-    sourceAuthorId,
-    sourceCreatorId,
-    localeSiblingOldIds: [],
     history: []
   }
 }
@@ -351,8 +323,7 @@ function stageHistoryEntry(
     createdAt: asString(raw.createdAt),
     extra: asRecord(raw.extra),
     tags: resolveTags(raw.tags),
-    authorId: author.actorId,
-    sourceAuthorId
+    authorId: author.actorId
   }
 }
 
@@ -369,10 +340,10 @@ function compareVersionDate(a: StagedPageHistoryEntry, b: StagedPageHistoryEntry
 }
 
 /**
- * The lightweight pre-pass (Task #1794): walks `connector.pages()` once, retaining only what
- * `localeSiblingOldIds` and orphan classification need — never `content`/`render`/`toc`. See
- * "Streaming shape" in the module doc comment for why this has to run, in full, before
- * `extractContentStaging()` can emit even its first page.
+ * The lightweight pre-pass (Task #1794): walks `connector.pages()` once, retaining only the `oldId`
+ * set orphan classification needs — never `content`/`render`/`toc`. See "Streaming shape" in the
+ * module doc comment for why this has to run, in full, before `extractContentStaging()` can emit even
+ * its first page.
  *
  * Does not call `connector.connect()`/`disconnect()` — the caller owns the connector's lifecycle, per
  * its documented contract in `./connector.ts`.
@@ -380,36 +351,13 @@ function compareVersionDate(a: StagedPageHistoryEntry, b: StagedPageHistoryEntry
 export async function buildContentStagingIndex(
   connector: SourceConnector
 ): Promise<ContentStagingIndex> {
-  const locations: PathAssignmentInput[] = []
   const pageOldIds = new Set<number>()
-  const oldIdsByPath = new Map<string, number[]>()
 
   for await (const raw of connector.pages()) {
-    const oldId = requireNumber(raw.id, 'pages.id')
-    const path = asString(raw.path)
-    const locale = asString(raw.localeCode)
-    locations.push({ oldId, path, locale })
-    pageOldIds.add(oldId)
-    const siblings = oldIdsByPath.get(path)
-    if (siblings) {
-      siblings.push(oldId)
-    } else {
-      oldIdsByPath.set(path, [oldId])
-    }
+    pageOldIds.add(requireNumber(raw.id, 'pages.id'))
   }
 
-  const siblingsByOldId = new Map<number, number[]>()
-  for (const oldIds of oldIdsByPath.values()) {
-    if (oldIds.length <= 1) continue
-    for (const oldId of oldIds) {
-      siblingsByOldId.set(
-        oldId,
-        oldIds.filter((id) => id !== oldId)
-      )
-    }
-  }
-
-  return { locations, pageOldIds, siblingsByOldId }
+  return { pageOldIds }
 }
 
 /**
@@ -445,7 +393,6 @@ export async function* extractContentStaging(
 
   for await (const raw of connector.pages()) {
     const staged = stagePage(raw, options, context.warnings)
-    staged.localeSiblingOldIds = index.siblingsByOldId.get(staged.oldId) ?? []
 
     // -> Drain every pageHistory row belonging to this page (or sorting before it) before moving on —
     //    both streams are ordered ascending by the same page id, so this is a plain merge-join.

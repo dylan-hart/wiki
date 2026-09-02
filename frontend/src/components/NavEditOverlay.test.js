@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import NavEditOverlay from './NavEditOverlay.vue'
 import NavItemEditor from './NavItemEditor.vue'
-import BlueprintIcon from './BlueprintIcon.vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 const MESSAGES = {
   'navEdit.editMenuItems': 'Edit Menu Items',
@@ -56,9 +56,9 @@ function mountOverlay({ isHome = false, navId = null, mode = null, menuMode = nu
     return { json: vi.fn().mockResolvedValue(SERVER_ITEMS) }
   })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
+  const i18n = createTestI18n(MESSAGES)
   const wrapper = mount(NavEditOverlay, {
-    global: { plugins: [i18n], components: { BlueprintIcon } }
+    global: { plugins: [i18n] }
   })
 
   return { wrapper, siteStore, pageStore }

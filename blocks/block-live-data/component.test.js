@@ -2,53 +2,46 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import './component.js'
 import { sparklinePath, statusLevel } from './component.js'
-import { _resetSiteIdCache } from '../shared/site.js'
+import { _resetSiteCache } from '../shared/site.js'
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom, stubSiteFetch } from '../test/mount.js'
 
 const SITE_ID = '11111111-1111-4111-8111-111111111111'
 
 function stubFetch({ siteOk = true, resolveOk = true, value = 42, status = 200 } = {}) {
-  const fetchMock = vi.fn(async (url) => {
-    if (url === '/_api/sites/current') {
-      return siteOk
-        ? { ok: true, json: async () => ({ id: SITE_ID }) }
-        : { ok: false, json: async () => null }
-    }
-    return {
+  return stubSiteFetch({
+    site: { id: SITE_ID },
+    ok: siteOk,
+    onRequest: async () => ({
       ok: resolveOk,
       status,
       json: async () =>
         resolveOk
           ? { value, fetchedAt: '2026-08-22T00:00:00.000Z' }
           : { message: `The endpoint answered ${status}.` }
-    }
+    })
   })
-  vi.stubGlobal('fetch', fetchMock)
-  return fetchMock
 }
 
-/** Mounts a `<block-live-data>` with the given props and waits for its first poll to settle. */
-async function mountLiveData(props = {}) {
-  const el = document.createElement('block-live-data')
-  Object.assign(el, { url: 'https://api.example.com/metrics', jsonPath: '$.v', ...props })
-  document.body.appendChild(el)
-  await el.updateComplete
-  // -> connectedCallback's _poll() is async (siteId fetch, then the resolve fetch); a couple of
-  //    microtask turns is enough for both promise chains to settle, same pattern block-map's own
-  //    test uses for its getBlockConfig fetch.
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  await el.updateComplete
-  return el
-}
+/**
+ * Mounts a `<block-live-data>` with the given props and waits for its first poll to settle.
+ *
+ * `settle: 2`: connectedCallback's _poll() is async (siteId fetch, then the resolve fetch), and a
+ * couple of macrotask turns is enough for both promise chains to settle.
+ */
+const mountLiveData = (props = {}) =>
+  mountBlock('block-live-data', {
+    props: { url: 'https://api.example.com/metrics', jsonPath: '$.v', ...props },
+    settle: 2
+  })
 
 describe('block-live-data', () => {
   beforeEach(() => {
-    _resetSiteIdCache()
+    _resetSiteCache()
   })
 
   afterEach(() => {
-    document.body.replaceChildren()
-    document.body.className = ''
+    resetBlockDom()
     vi.unstubAllGlobals()
     vi.useRealTimers()
   })
@@ -157,15 +150,16 @@ describe('block-live-data', () => {
         })
       )
 
-      const el = document.createElement('block-live-data')
-      Object.assign(el, {
-        url: 'https://api.example.com/metrics',
-        jsonPath: '$.v',
-        displayMode: 'sparkline',
-        refreshInterval: 10
+      // -> Mounted without `settle`: this test drives the poll on fake timers itself below, where a
+      //    real `setTimeout` would never fire.
+      const el = await mountBlock('block-live-data', {
+        props: {
+          url: 'https://api.example.com/metrics',
+          jsonPath: '$.v',
+          displayMode: 'sparkline',
+          refreshInterval: 10
+        }
       })
-      document.body.appendChild(el)
-      await el.updateComplete
       await vi.advanceTimersByTimeAsync(0)
       await el.updateComplete
       expect(el.shadowRoot.querySelector('svg.sparkline')).toBeNull()
@@ -193,14 +187,15 @@ describe('block-live-data', () => {
       })
       vi.stubGlobal('fetch', fetchMock)
 
-      const el = document.createElement('block-live-data')
-      Object.assign(el, {
-        url: 'https://api.example.com/metrics',
-        jsonPath: '$.v',
-        refreshInterval: 10
+      // -> Mounted without `settle`: this test drives the poll on fake timers itself below, where a
+      //    real `setTimeout` would never fire.
+      const el = await mountBlock('block-live-data', {
+        props: {
+          url: 'https://api.example.com/metrics',
+          jsonPath: '$.v',
+          refreshInterval: 10
+        }
       })
-      document.body.appendChild(el)
-      await el.updateComplete
       // -> Lets getSiteId's fetch resolve and the resolve-route fetch actually start.
       await vi.advanceTimersByTimeAsync(0)
 
@@ -219,16 +214,11 @@ describe('block-live-data', () => {
     })
   })
 
-  describe('dark mode', () => {
-    it('follows body--dark via the shared DarkMode controller', async () => {
+  describeDarkMode(
+    () => {
       stubFetch({ value: 1 })
-      const el = await mountLiveData()
-      expect(el.hasAttribute('dark')).toBe(false)
-
-      document.body.classList.add('body--dark')
-      await new Promise((resolve) => queueMicrotask(resolve))
-      await el.updateComplete
-      expect(el.hasAttribute('dark')).toBe(true)
-    })
-  })
+      return mountLiveData()
+    },
+    { inverted: true }
+  )
 })

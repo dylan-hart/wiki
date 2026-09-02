@@ -4,35 +4,11 @@ import {
   ruleMatchesPage,
   resolvePageRule,
   rulesAllow,
-  clearPageRuleRegexCache,
-  type RulePageRef
+  clearPageRuleRegexCache
 } from './pageRules.ts'
 import type { GroupRule, GroupRuleMatch } from '../models/groups.ts'
 import { GUEST_SCENARIO_RULES, GUEST_SCENARIO_CASES } from '../test/permissionScenario.ts'
-
-/** A rule with sane defaults, overridden per test. Mirrors the shape stored on a group row. */
-function makeRule(overrides: Partial<GroupRule> = {}): GroupRule {
-  return {
-    id: 'rule-1',
-    name: 'Test Rule',
-    roles: ['read:pages'],
-    match: 'START',
-    mode: 'ALLOW',
-    path: '',
-    locales: [],
-    sites: [],
-    ...overrides
-  }
-}
-
-const page = (overrides: Partial<RulePageRef> = {}): RulePageRef => ({
-  path: 'geography/countries/france',
-  locale: 'en',
-  siteId: null,
-  classification: null,
-  tags: [],
-  ...overrides
-})
+import { makeGroupRule as makeRule, makeRulePageRef as page } from '../test/builders.ts'
 
 describe('ruleMatchesPage', () => {
   describe('START', () => {

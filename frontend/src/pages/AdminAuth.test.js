@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
+import { flushPromises } from '@vue/test-utils'
 
 import AdminAuth from './AdminAuth.vue'
+
+import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 /**
  * Regression coverage for Task 441: the "Add Strategy" picker's `availableStrategies` list is a flat,
@@ -14,16 +15,14 @@ import AdminAuth from './AdminAuth.vue'
  */
 
 const MESSAGES = {
-  en: {
-    admin: {
-      auth: {
-        addStrategy: 'Add Strategy',
-        filterModules: 'Filter modules...',
-        noModulesToAdd: 'No other authentication module is installed on this server.',
-        noModulesMatchFilter: 'No installed module matches your filter.',
-        mappableGroups: 'Mappable group(s)',
-        mappableGroupsHint: 'Only a group selected here can ever be granted or revoked.'
-      }
+  admin: {
+    auth: {
+      addStrategy: 'Add Strategy',
+      filterModules: 'Filter modules...',
+      noModulesToAdd: 'No other authentication module is installed on this server.',
+      noModulesMatchFilter: 'No installed module matches your filter.',
+      mappableGroups: 'Mappable group(s)',
+      mappableGroupsHint: 'Only a group selected here can ever be granted or revoked.'
     }
   }
 }
@@ -117,27 +116,13 @@ const MODULES = [
 ]
 
 async function mountPage({ strategies = [] } = {}) {
-  setActivePinia(createPinia())
-
-  API_CLIENT.get.mockImplementation((url) => {
-    if (url === 'authentication/modules') {
-      return { json: () => Promise.resolve(MODULES) }
-    }
-    if (url === 'authentication/strategies') {
-      return { json: () => Promise.resolve(strategies) }
-    }
-    if (url === 'groups') {
-      return { json: () => Promise.resolve([]) }
-    }
-    return { json: () => Promise.resolve(undefined) }
+  stubApi({
+    'authentication/modules': MODULES,
+    'authentication/strategies': strategies,
+    groups: []
   })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: MESSAGES })
-
-  const wrapper = mount(AdminAuth, {
-    attachTo: document.body,
-    global: { plugins: [i18n] }
-  })
+  const { wrapper } = mountWithApp(AdminAuth, { attachTo: document.body, messages: MESSAGES })
   await flushPromises()
 
   return wrapper
@@ -278,7 +263,6 @@ describe('AdminAuth mappable-groups picker', () => {
   }
 
   it('is not rendered when the strategy has not turned Map Groups on', async () => {
-    setActivePinia(createPinia())
     API_CLIENT.get.mockImplementation((url) => {
       if (url === 'authentication/modules') {
         return { json: () => Promise.resolve([LDAP_MODULE_WITH_MAP_GROUPS]) }
@@ -304,8 +288,7 @@ describe('AdminAuth mappable-groups picker', () => {
       }
       return { json: () => Promise.resolve(undefined) }
     })
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: MESSAGES })
-    const wrapper = mount(AdminAuth, { attachTo: document.body, global: { plugins: [i18n] } })
+    const { wrapper } = mountWithApp(AdminAuth, { attachTo: document.body, messages: MESSAGES })
     await flushPromises()
 
     expect(mappablePickerNode(wrapper).exists()).toBe(false)
@@ -314,7 +297,6 @@ describe('AdminAuth mappable-groups picker', () => {
   })
 
   it('renders, gated by Map Groups being on, with no selection when the allow-list is empty', async () => {
-    setActivePinia(createPinia())
     API_CLIENT.get.mockImplementation((url) => {
       if (url === 'authentication/modules') {
         return { json: () => Promise.resolve([LDAP_MODULE_WITH_MAP_GROUPS]) }
@@ -346,8 +328,7 @@ describe('AdminAuth mappable-groups picker', () => {
       }
       return { json: () => Promise.resolve(undefined) }
     })
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: MESSAGES })
-    const wrapper = mount(AdminAuth, { attachTo: document.body, global: { plugins: [i18n] } })
+    const { wrapper } = mountWithApp(AdminAuth, { attachTo: document.body, messages: MESSAGES })
     await flushPromises()
 
     const picker = mappablePickerNode(wrapper)

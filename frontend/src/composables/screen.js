@@ -3,8 +3,9 @@ import { ref } from 'vue'
 /**
  * Reactive viewport breakpoint state.
  *
- * Replaces `$q.screen`, scoped to the two things the app asked it: whether the viewport is at or
- * above a breakpoint, and the matching `gt.*` shorthand.
+ * Replaces `$q.screen`, scoped to the one thing the app asks it: whether the viewport is at or
+ * above a named breakpoint. The `gt.*` shorthand it also carried resolved to exactly the same four
+ * refs one breakpoint along (`gt.sm` === `gte.md`), so it was two names for one answer and is gone.
  *
  * Breakpoints match `css/tailwind.css`, which in turn matches the ones the templates were written
  * against -- note `sm` starts at 600px here, not Tailwind's stock 640px.
@@ -36,24 +37,6 @@ function queryFor(minWidth) {
 
 export function useScreen() {
   return {
-    /**
-     * `gt.sm` is true above the breakpoint's own range, i.e. at `md` and wider -- the same meaning
-     * the old `$q.screen.gt.*` had, so call sites read identically.
-     */
-    gt: {
-      get xs() {
-        return queryFor(BREAKPOINTS.sm).value
-      },
-      get sm() {
-        return queryFor(BREAKPOINTS.md).value
-      },
-      get md() {
-        return queryFor(BREAKPOINTS.lg).value
-      },
-      get lg() {
-        return queryFor(BREAKPOINTS.xl).value
-      }
-    },
     /** True at or above the named breakpoint. */
     gte: {
       get sm() {

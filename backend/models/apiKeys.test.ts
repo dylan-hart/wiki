@@ -415,7 +415,7 @@ describe('apiKeys personal access tokens (DB-backed)', { skip: !hasTestDatabase(
  * fell straight through to the anonymous branch and got the GUESTS group's rules instead of its own. A
  * key issued for a group whose only rule grants `read:pages` verified fine (`ApiKeyIdentity.permissions`
  * resolved correctly) and then failed every page read anyway, because the permission that actually gates
- * a GET (`mayOnPage()` → `groups.checkAccess()` in `api/pages.ts`) is decided from `groupIdsForRequest()`,
+ * a GET (`mayOnPage()` → `groups.checkAccess()` in `helpers/pageAccess.ts`) is decided from `groupIdsForRequest()`,
  * not from the GLOBAL permission list `ApiKeyIdentity.permissions` carries.
  *
  * This exercises the real stack end to end through `models/apiKeys.ts` and `models/groups.ts`'s own
@@ -482,7 +482,7 @@ describe(
       const fakeReq = { apiKey: identity } as any
       const actor = groupsModel.actorForRequest(fakeReq)
 
-      // -> This is the actual question a page GET asks (`mayOnPage()` in `api/pages.ts`), and it must
+      // -> This is the actual question a page GET asks (`mayOnPage()` in `helpers/pageAccess.ts`), and it must
       //    succeed on the strength of the group's rule alone — no `manage:pages`, no `manage:system`,
       //    no over-granting anything.
       assert.equal(

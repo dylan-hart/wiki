@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import NavItemEditor from './NavItemEditor.vue'
 import { dialog } from '@/composables/dialog'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -82,7 +83,7 @@ function mountEditor({ items = SERVER_ITEMS, groups = [], menuMode, roots = [], 
     return { json: vi.fn().mockResolvedValue(items) }
   })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
+  const i18n = createTestI18n(MESSAGES)
   return mount(NavItemEditor, {
     props: { siteId: 'site-1', navId: 'nav-1', ...(menuMode && { menuMode }) },
     global: { plugins: [i18n] }
@@ -306,7 +307,7 @@ describe('NavItemEditor', () => {
     API_CLIENT.get.mockImplementation(() => {
       throw new Error('network down')
     })
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
+    const i18n = createTestI18n(MESSAGES)
     const wrapper = mount(NavItemEditor, {
       props: { siteId: 'site-1', navId: 'nav-1' },
       global: { plugins: [i18n] }

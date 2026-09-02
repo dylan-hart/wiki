@@ -1,4 +1,4 @@
-import { actorFrom, loadReadablePage, mayOnPage } from './pages.ts'
+import { actorFrom, mayOnPage, requireReadablePage } from '../helpers/pageAccess.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -10,7 +10,7 @@ import type { FastifyInstance } from 'fastify'
  *
  * Both `read:pages` and `write:pages` here are the existing page-rule permissions (see CLAUDE.md's
  * Permissions section) — nothing new is invented. Every GET below is gated on `read:pages` alone,
- * already enforced by `loadReadablePage()` itself (it returns `null`, turned into a 404, unless the
+ * already enforced by `requireReadablePage()` itself (`helpers/pageAccess.ts` — it 404s unless the
  * caller holds it) — unlike `api/comments.ts`, which layers a SECOND, different permission
  * (`read:comments`) on top, there is no separate "may view this run log" permission to check here, so
  * nothing does. `write:pages` on the POST route IS a second, different check, and stays explicit for
@@ -73,12 +73,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId)
       if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
+        return reply
       }
       return WIKI.models.checklists.listExecutions(page.id, req.params.blockKey)
     }
@@ -117,12 +114,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId)
       if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
+        return reply
       }
       return WIKI.models.checklists.getLatestExecution(page.id, req.params.blockKey)
     }
@@ -149,12 +143,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId)
       if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
+        return reply
       }
       const execution = await WIKI.models.checklists.getExecutionDetail(req.params.executionId)
       // -> Belt and suspenders: an id from a different page/block must 404 exactly like one that does
@@ -211,12 +202,9 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized('You must be signed in to check off a checklist item.')
       }
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId)
       if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
+        return reply
       }
       if (!mayOnPage(req, 'write:pages', req.params.siteId, page)) {
         return reply.forbidden('You are not allowed to check off items on this page.')

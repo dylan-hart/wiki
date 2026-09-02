@@ -348,13 +348,11 @@
                 <!-- Preview only, not a real link -- inert rather than given a fake accessible name -->
                 <w-btn dense flat tabindex="-1" aria-hidden="true" v-if="state.config.id">
                   <w-avatar v-if="state.config.logoText" size="34px" square>
-                    <img
-                      :src="`/_site/` + state.config.id + `/logo?` + state.assetTimestamp"
-                      alt="" />
+                    <img :src="`/_site/` + state.config.id + `/logo?` + logoTimestamp" alt="" />
                   </w-avatar>
                   <img
                     v-else
-                    :src="`/_site/` + state.config.id + `/logo?` + state.assetTimestamp"
+                    :src="`/_site/` + state.config.id + `/logo?` + logoTimestamp"
                     alt=""
                     style="height: 34px" />
                 </w-btn>
@@ -416,7 +414,7 @@
                        so this can never show a new site's favicon beside the old site's title. -->
                   <w-avatar v-if="state.config.id" size="24px" square>
                     <img
-                      :src="`/_site/` + state.config.id + `/favicon?` + state.assetTimestamp"
+                      :src="`/_site/` + state.config.id + `/favicon?` + faviconTimestamp"
                       :alt="t(`admin.general.favicon`)" />
                   </w-avatar>
                   <div class="text-caption ml-2">{{ state.config.title }}</div>
@@ -558,27 +556,20 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive, watch } from 'vue'
+import { onMounted, toRef } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
+import { useSiteImage } from '@/composables/siteImage'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 
-import {
-  clearSiteImage,
-  isAcceptedSiteImage,
-  pickSiteImage,
-  uploadSiteImage
-} from '@/helpers/siteImages'
-import { apiErrorMessage } from '@/helpers/apiError'
+import { isSharpAvailable } from '@/helpers/siteImages'
 import { isValidHostname } from '@/helpers/siteValidation'
 import { hostnameRenamedAway } from '@/helpers/siteRename'
-
-import { toMerged } from 'es-toolkit/object'
 
 // STORES
 
@@ -641,20 +632,6 @@ function defaultConfig() {
   }
 }
 
-const state = reactive({
-  loading: 0,
-  assetTimestamp: new Date().toISOString(),
-  // -> Whether this site has a logo / favicon of its own, i.e. whether there is anything to clear.
-  //    The previews always render: without one they show the default that is served instead.
-  hasLogo: false,
-  hasFavicon: false,
-  // -> Drives the "requires Sharp" indicator on the logo / favicon uploaders. Starts false rather
-  //    than true so a slow or failed `system/extensions` call understates the warning instead of
-  //    crying wolf while it's still unknown.
-  sharpMissing: false,
-  config: defaultConfig()
-})
-
 const contentLicenses = [
   { value: '', text: t('common.license.none') },
   { value: 'alr', text: t('common.license.alr') },
@@ -687,59 +664,126 @@ const rulesHostname = [(val) => isValidHostname(val) || t('admin.sites.hostnameI
  */
 let loadedHostname = ''
 
-// WATCHERS
+// COMPOSABLES
 
-watch(
-  () => adminStore.currentSiteId,
-  (newValue) => {
-    load()
-  }
-)
-
-// METHODS
-
-async function load() {
-  state.loading++
-  loading.show()
-  // -> Unlike every sibling admin page's own `load()`, this ran bare between `loading.show()`/
-  //    `hide()` with no try/catch -- a network blip, 403, or restarting backend left the full-screen
-  //    overlay stuck over the whole admin area with no error shown (OpenProject #947).
-  try {
-    const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
-    state.config = toMerged(defaultConfig(), {
-      ...resp,
-      pageExtensions: resp.pageExtensions.join(',')
-    })
-    state.hasLogo = resp?.assets?.logo ?? false
-    state.hasFavicon = resp?.assets?.favicon ?? false
+const {
+  state,
+  load,
+  save: commit
+} = useAdminSettings({
+  i18nPrefix: 'admin.general',
+  defaults: defaultConfig,
+  extraState: {
+    // -> Whether this site has a logo / favicon of its own, i.e. whether there is anything to clear.
+    //    The previews always render: without one they show the default that is served instead.
+    hasLogo: false,
+    hasFavicon: false,
+    // -> Drives the "requires Sharp" indicator on the logo / favicon uploaders. Starts false rather
+    //    than true so a slow or failed `system/extensions` call understates the warning instead of
+    //    crying wolf while it's still unknown.
+    sharpMissing: false
+  },
+  fetch: (siteId) => API_CLIENT.get(`sites/${siteId}?strict=true`).json(),
+  // -> The form holds page extensions as a comma-separated string; the API sends an array
+  pick: (site) => ({ ...site, pageExtensions: site.pageExtensions.join(',') }),
+  onLoaded: (site) => {
+    state.hasLogo = site?.assets?.logo ?? false
+    state.hasFavicon = site?.assets?.favicon ?? false
     // -> The hostname this site was actually serving as of this load, so save() can tell a real
     //    rename apart from every other field change. See the comment in save() for why that matters.
-    loadedHostname = resp?.hostname ?? ''
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.general.loadFailed'),
-      caption: apiErrorMessage(err)
-    })
+    loadedHostname = site?.hostname ?? ''
+  },
+  commit: (siteId, config) =>
+    API_CLIENT.put(`sites/${siteId}`, {
+      json: {
+        hostname: config.hostname ?? '',
+        title: config.title ?? '',
+        description: config.description ?? '',
+        company: config.company ?? '',
+        contentLicense: config.contentLicense ?? '',
+        footerExtra: config.footerExtra ?? '',
+        pageExtensions: parsePageExtensions(config.pageExtensions),
+        logoText: config.logoText ?? false,
+        sitemap: config.sitemap ?? false,
+        uploads: {
+          conflictBehavior: config.uploads?.conflictBehavior ?? 'overwrite'
+        },
+        robots: {
+          index: config.robots?.index ?? false,
+          follow: config.robots?.follow ?? false
+        },
+        features: {
+          browse: config.features?.browse ?? false,
+          comments: config.features?.comments ?? false,
+          profile: config.features?.profile ?? false,
+          reasonForChange: config.features?.reasonForChange ?? 'required',
+          search: config.features?.search ?? false,
+          showOtherGroups: config.features?.showOtherGroups ?? false
+        },
+        discoverable: config.discoverable ?? false,
+        defaults: {
+          tocDepth: {
+            min: config.defaults?.tocDepth?.min ?? 1,
+            max: config.defaults?.tocDepth?.max ?? 2
+          }
+        }
+      }
+    }).json(),
+  onSaved: () => adminStore.fetchSites(),
+  // -> Decision, so it doesn't silently regress: when the admin is editing the very site
+  //    currently serving their browser tab, the old code unconditionally re-resolved
+  //    `siteStore` from `window.location.hostname`. That is correct for every field EXCEPT
+  //    hostname itself -- `updateSite()` calls `reloadCache()` synchronously, so the instant the
+  //    PUT above resolves, the OLD hostname no longer maps to this site at all. Re-resolving it
+  //    then either mis-loads whatever other site (if any) claims that hostname next, or throws --
+  //    either way `siteStore` ends up mismatched or blank with no warning to the admin.
+  //
+  //    There is no client-side fix that "just follows" a hostname rename: the browser's address
+  //    bar still says the old hostname, and a `window.location` navigation to the new one is a
+  //    guess about DNS/reverse-proxy config this code has no way to confirm. So: skip the stale
+  //    reload and tell the admin instead. The admin API itself is host-agnostic (every other
+  //    admin action here is addressed by siteId, not hostname), so nothing else on this screen
+  //    breaks -- only page-serving under the old hostname stops working, and only once they
+  //    navigate away from it.
+  onSavedCurrentSite: (config) => {
+    if (hostnameRenamedAway(loadedHostname, config.hostname)) {
+      notify({
+        type: 'warning',
+        message: t('admin.general.hostnameChangedWarning', { hostname: config.hostname }),
+        timeout: 0
+      })
+    } else {
+      siteStore.loadSite(window.location.hostname)
+    }
   }
-  loading.hide()
-  state.loading--
-}
+})
 
-/**
- * Whether the Sharp extension is usable on this server, which decides whether an uploaded logo /
- * favicon gets resized and re-encoded or stored as-is. Site-independent, so this runs once on mount
- * rather than on every `load()` (which re-runs per site switch).
- */
-async function checkSharpAvailability() {
-  try {
-    const extensions = (await API_CLIENT.get('system/extensions').json()) ?? []
-    const sharp = extensions.find((ext) => ext.key === 'sharp')
-    state.sharpMissing = !sharp?.isInstalled
-  } catch (err) {
-    // -> Leave state.sharpMissing at its default rather than surface a second, unrelated error here.
-  }
-}
+// COMPOSABLES (site images)
+
+const {
+  upload: uploadLogo,
+  clear: clearLogo,
+  timestamp: logoTimestamp
+} = useSiteImage('logo', {
+  siteId: () => adminStore.currentSiteId,
+  has: toRef(state, 'hasLogo'),
+  i18nPrefix: 'admin.general.logo',
+  // -> One shared message for both uploaders on this page, hence not the per-image default
+  invalidTypeKey: 'admin.general.imageUploadInvalidType',
+  loading: toRef(state, 'loading')
+})
+
+const {
+  upload: uploadFavicon,
+  clear: clearFavicon,
+  timestamp: faviconTimestamp
+} = useSiteImage('favicon', {
+  siteId: () => adminStore.currentSiteId,
+  has: toRef(state, 'hasFavicon'),
+  i18nPrefix: 'admin.general.favicon',
+  invalidTypeKey: 'admin.general.imageUploadInvalidType',
+  loading: toRef(state, 'loading')
+})
 
 /**
  * The form holds page extensions as a comma-separated string, while the API expects an array.
@@ -751,200 +795,22 @@ function parsePageExtensions(value) {
   ]
 }
 
+/**
+ * The hostname `save()` will diff the next one against only moves once the change is actually
+ * stored -- a refused save leaves this screen still editing a rename away from `loadedHostname`.
+ */
 async function save() {
-  state.loading++
-  try {
-    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
-      json: {
-        hostname: state.config.hostname ?? '',
-        title: state.config.title ?? '',
-        description: state.config.description ?? '',
-        company: state.config.company ?? '',
-        contentLicense: state.config.contentLicense ?? '',
-        footerExtra: state.config.footerExtra ?? '',
-        pageExtensions: parsePageExtensions(state.config.pageExtensions),
-        logoText: state.config.logoText ?? false,
-        sitemap: state.config.sitemap ?? false,
-        uploads: {
-          conflictBehavior: state.config.uploads?.conflictBehavior ?? 'overwrite'
-        },
-        robots: {
-          index: state.config.robots?.index ?? false,
-          follow: state.config.robots?.follow ?? false
-        },
-        features: {
-          browse: state.config.features?.browse ?? false,
-          comments: state.config.features?.comments ?? false,
-          profile: state.config.features?.profile ?? false,
-          reasonForChange: state.config.features?.reasonForChange ?? 'required',
-          search: state.config.features?.search ?? false,
-          showOtherGroups: state.config.features?.showOtherGroups ?? false
-        },
-        discoverable: state.config.discoverable ?? false,
-        defaults: {
-          tocDepth: {
-            min: state.config.defaults?.tocDepth?.min ?? 1,
-            max: state.config.defaults?.tocDepth?.max ?? 2
-          }
-        }
-      }
-    }).json()
-    notify({
-      type: 'positive',
-      message: t('admin.general.saveSuccess')
-    })
-    await adminStore.fetchSites()
-    // -> Decision, so it doesn't silently regress: when the admin is editing the very site
-    //    currently serving their browser tab, the old code unconditionally re-resolved
-    //    `siteStore` from `window.location.hostname`. That is correct for every field EXCEPT
-    //    hostname itself -- `updateSite()` calls `reloadCache()` synchronously, so the instant the
-    //    PUT above resolves, the OLD hostname no longer maps to this site at all. Re-resolving it
-    //    then either mis-loads whatever other site (if any) claims that hostname next, or throws --
-    //    either way `siteStore` ends up mismatched or blank with no warning to the admin.
-    //
-    //    There is no client-side fix that "just follows" a hostname rename: the browser's address
-    //    bar still says the old hostname, and a `window.location` navigation to the new one is a
-    //    guess about DNS/reverse-proxy config this code has no way to confirm. So: skip the stale
-    //    reload and tell the admin instead. The admin API itself is host-agnostic (every other
-    //    admin action here is addressed by siteId, not hostname), so nothing else on this screen
-    //    breaks -- only page-serving under the old hostname stops working, and only once they
-    //    navigate away from it.
-    if (adminStore.currentSiteId === siteStore.id) {
-      if (hostnameRenamedAway(loadedHostname, state.config.hostname)) {
-        notify({
-          type: 'warning',
-          message: t('admin.general.hostnameChangedWarning', { hostname: state.config.hostname }),
-          timeout: 0
-        })
-      } else {
-        siteStore.loadSite(window.location.hostname)
-      }
-    }
+  if (await commit()) {
     loadedHostname = state.config.hostname ?? ''
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.general.saveFailed'),
-      caption: t(
-        `admin.general.${err.data?.error}`,
-        apiErrorMessage(err, t('common.error.unexpected'))
-      )
-    })
   }
-  state.loading--
-}
-
-async function uploadLogo() {
-  const file = await pickSiteImage()
-  if (!file) {
-    return
-  }
-  if (!isAcceptedSiteImage(file)) {
-    notify({
-      type: 'negative',
-      message: t('admin.general.logoUploadFailed'),
-      caption: t('admin.general.imageUploadInvalidType')
-    })
-    return
-  }
-  state.loading++
-  try {
-    await uploadSiteImage(adminStore.currentSiteId, 'logo', file)
-    notify({
-      type: 'positive',
-      message: t('admin.general.logoUploadSuccess')
-    })
-    state.hasLogo = true
-    state.assetTimestamp = new Date().toISOString()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.general.logoUploadFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
-}
-
-async function clearLogo() {
-  state.loading++
-  try {
-    await clearSiteImage(adminStore.currentSiteId, 'logo')
-    notify({
-      type: 'positive',
-      message: t('admin.general.logoClearSuccess')
-    })
-    state.hasLogo = false
-    state.assetTimestamp = new Date().toISOString()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.general.logoClearFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
-}
-
-async function uploadFavicon() {
-  const file = await pickSiteImage()
-  if (!file) {
-    return
-  }
-  if (!isAcceptedSiteImage(file)) {
-    notify({
-      type: 'negative',
-      message: t('admin.general.faviconUploadFailed'),
-      caption: t('admin.general.imageUploadInvalidType')
-    })
-    return
-  }
-  state.loading++
-  try {
-    await uploadSiteImage(adminStore.currentSiteId, 'favicon', file)
-    notify({
-      type: 'positive',
-      message: t('admin.general.faviconUploadSuccess')
-    })
-    state.hasFavicon = true
-    state.assetTimestamp = new Date().toISOString()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.general.faviconUploadFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
-}
-
-async function clearFavicon() {
-  state.loading++
-  try {
-    await clearSiteImage(adminStore.currentSiteId, 'favicon')
-    notify({
-      type: 'positive',
-      message: t('admin.general.faviconClearSuccess')
-    })
-    state.hasFavicon = false
-    state.assetTimestamp = new Date().toISOString()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.general.faviconClearFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
 }
 
 // MOUNTED
 
-onMounted(() => {
-  if (adminStore.currentSiteId) {
-    load()
-  }
-  checkSharpAvailability()
+// -> Site-independent, so this runs once on mount rather than on every `load()` (which re-runs per
+//    site switch). Drives the "requires Sharp" indicator on both uploaders.
+onMounted(async () => {
+  state.sharpMissing = !(await isSharpAvailable())
 })
 </script>
 

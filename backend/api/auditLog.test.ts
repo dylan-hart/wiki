@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
 import auditLogRoutes from './auditLog.ts'
-import { registerSchemas as registerAuditLogSchema } from './schemas/auditLog.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 import { AUDIT_LOG_RETENTION_DAYS_FLOOR } from '../models/auditLog.ts'
 
@@ -38,39 +35,21 @@ describe('audit-log settings API (DB-backed)', { skip: !hasTestDatabase() }, () 
       saveToDb: async () => true
     }
 
-    app = fastify()
-    await app.register(fastifySensible)
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    app.addHook('preHandler', async (req, reply) => {
-      const required = (req.routeOptions.config as any)?.permissions as string[] | undefined
-      if (!required) {
-        return
-      }
-      const raw = req.headers['x-test-permissions']
-      const held = typeof raw === 'string' ? JSON.parse(raw) : []
-      if (!held.includes('manage:system') && !required.some((p) => held.includes(p))) {
-        return reply.forbidden('Missing permission.')
-      }
-    })
-    await registerAuditLogSchema(app)
-    await registerErrorSchema(app)
-    await app.register(auditLogRoutes)
-    await app.ready()
+    // -> The REAL permission hook, over a session seeded from a test header rather than a cookie.
+    //    No `wiki`: `setupTestDb()` already installed the real one.
+    app = await buildTestApp({ routes: auditLogRoutes, session: 'header', permissions: true })
   })
 
   after(async () => {
-    await app.close()
+    await closeTestApp(app)
     await teardownTestDb()
   })
 
   const asAdmin = { 'x-test-permissions': JSON.stringify(['manage:system']) }
+  // -> An authenticated caller holding SOMETHING, just not what the route asks for: that is the 403
+  //    case. A request carrying no session at all is a 401, which the real hook answers and this
+  //    test is not about.
+  const asUnprivileged = { 'x-test-permissions': JSON.stringify(['read:pages']) }
 
   test('PUT /settings records auditLog.retentionChanged before the new retention takes effect', async () => {
     const from = auditLogModel.getRetentionDays()
@@ -125,6 +104,7 @@ describe('audit-log settings API (DB-backed)', { skip: !hasTestDatabase() }, () 
     const res = await app.inject({
       method: 'PUT',
       url: '/settings',
+      headers: asUnprivileged,
       payload: { retentionDays: 60 }
     })
     assert.equal(res.statusCode, 403)

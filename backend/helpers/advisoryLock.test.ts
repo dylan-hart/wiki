@@ -8,6 +8,9 @@ import {
   _resetLockPoolForTests
 } from './advisoryLock.ts'
 
+let wikiHandle: { restore(): void }
+import { installTestWiki } from '../test/mocks.ts'
+
 /**
  * Exercises `withAdvisoryLock` against a real Postgres instance — the whole point of this helper is
  * genuine cross-connection locking semantics (`pg_try_advisory_lock`/`pg_advisory_unlock`), which a
@@ -33,10 +36,10 @@ before(() => {
   if (!DATABASE_URL) {
     return
   }
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     dbManager: { config: { connectionString: DATABASE_URL } },
     INSTANCE_ID: 'advisory-lock-test'
-  }
+  })
 })
 
 after(async () => {
@@ -200,12 +203,11 @@ describe('when the unlock query itself rejects', () => {
     const connectMock = mock.method(Pool.prototype, 'connect', async () => client)
     const warn = mock.fn()
 
-    const previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       dbManager: { config: {} },
       INSTANCE_ID: 'advisory-lock-unlock-reject-test',
       logger: { warn }
-    }
+    })
     try {
       await assert.rejects(
         withAdvisoryLock('some-key', async () => {
@@ -216,7 +218,7 @@ describe('when the unlock query itself rejects', () => {
     } finally {
       connectMock.mock.restore()
       await _resetLockPoolForTests()
-      ;(globalThis as any).WIKI = previousWiki
+      wikiHandle.restore()
     }
 
     // -> `fn`'s own error survives unchanged — not replaced by the unlock query's rejection.

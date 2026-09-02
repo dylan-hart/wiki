@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import UserSearchDialog from './UserSearchDialog.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * OpenProject #986: `singleSelect` and `excludeUserIds` are additive props for the reassignment
@@ -21,7 +22,7 @@ afterEach(() => {
 
 function mountDialog(props = {}) {
   setActivePinia(createPinia())
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   currentWrapper = mount(UserSearchDialog, {
     props,

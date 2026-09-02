@@ -2,11 +2,12 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from './redirectTarget.ts'
+import { installTestWiki } from '../test/mocks.ts'
 
 // -> absoluteRedirectsAllowed() reads WIKI.config.security.disallowOpenRedirect through the ambient
 //    global; stub just enough of it, the same way security.test.ts does for corsOrigin()'s own
 //    WIKI-touching branch.
-;(globalThis as any).WIKI = { config: { security: { disallowOpenRedirect: true } } }
+installTestWiki({ config: { security: { disallowOpenRedirect: true } } })
 
 describe('isFollowableRedirectTarget', () => {
   test('refuses a protocol-relative //host target', () => {

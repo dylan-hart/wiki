@@ -6,21 +6,9 @@ import {
   type GroupRulesRow
 } from './audit-site-scoped-rules.ts'
 import type { GroupRule } from '../models/groups.ts'
+import { makeGroupRule } from '../test/builders.ts'
 
-/** A rule with sane defaults, overridden per test. Mirrors the shape stored on a group row. */
-function makeRule(overrides: Partial<GroupRule> = {}): GroupRule {
-  return {
-    id: 'rule-1',
-    name: 'Test Rule',
-    roles: ['read:pages'],
-    match: 'START',
-    mode: 'ALLOW',
-    path: '',
-    locales: [],
-    sites: [],
-    ...overrides
-  }
-}
+const makeRule = makeGroupRule
 
 function makeGroup(overrides: Partial<GroupRulesRow> = {}): GroupRulesRow {
   return {

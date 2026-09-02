@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import ProfileAuth from './ProfileAuth.vue'
 
+import { createTestI18n } from '../../test/i18n.js'
+import { stubApi } from '../../test/mocks.js'
+
 /**
- * OpenProject #1874: `GET /users/profile/tfa/recovery-codes` (`backend/api/users.ts`) was a
+ * OpenProject #1874: `GET /users/profile/tfa/recovery-codes` (`backend/api/users/profile.ts`) was a
  * finished, tested route with no caller -- `ProfileAuth.vue` only ever POSTed the same path to
  * regenerate. This locks in the fetch-and-display: the count is pulled once the auth methods load,
  * only for a local-strategy method with 2FA active, and rendered as an "N of M remaining" line with
@@ -13,33 +15,31 @@ import ProfileAuth from './ProfileAuth.vue'
  */
 
 const MESSAGES = {
-  en: {
-    profile: {
-      auth: 'Login',
-      authInfo: 'Your account is associated with the following authentication methods:',
-      authActions: 'Actions',
-      authTfaActive: 'Two-factor authentication is enabled on this account.',
-      authTfaBadge: '2FA',
-      authChangePassword: 'Change Password',
-      authDisableTfa: 'Disable 2FA',
-      authSetTfa: 'Set Up 2FA',
-      authDisablePasswordLogin: 'Disable Password Login',
-      authEnablePasswordLogin: 'Enable Password Login',
-      authLoadingFailed: 'Failed to load',
-      passkeys: 'Passkeys',
-      passkeysIntro: 'Passkeys registered on this account:',
-      passkeysAdd: 'Add Passkey',
-      passkeysDeactivateConfirm: 'Remove this passkey?',
-      tfaRecoveryCodesRegenerate: 'Regenerate Recovery Codes',
-      tfaRecoveryCodesRemaining: '{remaining} of {total} recovery codes remaining',
-      tfaRecoveryCodesLow:
-        "You're running low on recovery codes — regenerate them soon so you don't get locked out."
-    },
-    common: {
-      actions: {
-        confirm: 'Confirm',
-        delete: 'Delete'
-      }
+  profile: {
+    auth: 'Login',
+    authInfo: 'Your account is associated with the following authentication methods:',
+    authActions: 'Actions',
+    authTfaActive: 'Two-factor authentication is enabled on this account.',
+    authTfaBadge: '2FA',
+    authChangePassword: 'Change Password',
+    authDisableTfa: 'Disable 2FA',
+    authSetTfa: 'Set Up 2FA',
+    authDisablePasswordLogin: 'Disable Password Login',
+    authEnablePasswordLogin: 'Enable Password Login',
+    authLoadingFailed: 'Failed to load',
+    passkeys: 'Passkeys',
+    passkeysIntro: 'Passkeys registered on this account:',
+    passkeysAdd: 'Add Passkey',
+    passkeysDeactivateConfirm: 'Remove this passkey?',
+    tfaRecoveryCodesRegenerate: 'Regenerate Recovery Codes',
+    tfaRecoveryCodesRemaining: '{remaining} of {total} recovery codes remaining',
+    tfaRecoveryCodesLow:
+      "You're running low on recovery codes — regenerate them soon so you don't get locked out."
+  },
+  common: {
+    actions: {
+      confirm: 'Confirm',
+      delete: 'Delete'
     }
   }
 }
@@ -63,17 +63,12 @@ function localAuthMethod(config = {}) {
 }
 
 async function mountPage({ authMethods, recoveryCodesResponse }) {
-  API_CLIENT.get.mockImplementation((url) => {
-    if (url === 'users/profile/auth') {
-      return { json: () => Promise.resolve({ authMethods, passkeys: [] }) }
-    }
-    if (url === 'users/profile/tfa/recovery-codes') {
-      return { json: () => Promise.resolve(recoveryCodesResponse) }
-    }
-    return { json: () => Promise.resolve(undefined) }
+  stubApi({
+    'users/profile/auth': { authMethods, passkeys: [] },
+    'users/profile/tfa/recovery-codes': recoveryCodesResponse
   })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: MESSAGES })
+  const i18n = createTestI18n(MESSAGES)
   const wrapper = mount(ProfileAuth, {
     global: { plugins: [i18n] }
   })
@@ -132,7 +127,7 @@ describe('ProfileAuth recovery-code count', () => {
       return { json: () => Promise.resolve(undefined) }
     })
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: MESSAGES })
+    const i18n = createTestI18n(MESSAGES)
     const wrapper = mount(ProfileAuth, { global: { plugins: [i18n] } })
     await flushPromises()
 

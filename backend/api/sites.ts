@@ -1,9 +1,10 @@
 import { and, count, eq, inArray } from 'drizzle-orm'
 import { pages as pagesTable } from '../db/schema.ts'
-import { CustomError, isValidUuid } from '../helpers/common.ts'
+import { CustomError } from '../helpers/common.ts'
+import { resolveSiteParam } from '../helpers/siteResolution.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
 import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
-import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
+import { maySiteAdmin, SITE_PERMISSIONS } from '../helpers/siteRules.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 import { siteAssetKinds } from '../models/sites.ts'
 import type { SiteAssetKind } from '../models/sites.ts'
@@ -81,30 +82,16 @@ const SITE_IMAGE_KIND_PERMISSIONS: Record<SiteAssetKind, string> = {
 }
 
 /**
- * Whether this caller may replace or clear one of a site's images.
- *
- * `manage:sites` keeps working exactly as it did before delegation existed; `site:general` /
- * `site:login` are the new, narrower alternative a rule can grant per site.
- */
-function maySaveSiteImage(req: FastifyRequest, siteId: string, kind: SiteAssetKind): boolean {
-  const actor = WIKI.models.groups.actorForRequest(req)
-  return (
-    actor.permissions.includes('manage:sites') ||
-    WIKI.models.groups.checkSiteAccess(actor, SITE_IMAGE_KIND_PERMISSIONS[kind], siteId)
-  )
-}
-
-/**
  * Every `site:*` permission (see `helpers/siteRules.ts`) this requester holds on this site.
  *
- * The site-scoped counterpart to `pagePermissionsFor` in `api/pages.ts`: what the interface hides
+ * The site-scoped counterpart to `pagePermissionsFor` in `helpers/pageAccess.ts`: what the interface hides
  * `AdminGeneral.vue`, `AdminTheme.vue` and the rest of the nine site-scoped admin pages by, asked the
  * same way that route's own handlers decide it (`checkSiteAccess`) rather than a broader question.
  *
  * Deliberately does NOT fold in `manage:sites`, `manage:theme` or `manage:navigation` — each of those
- * covers a different subset of the eight surfaces (see `SITE_FIELD_PERMISSIONS`, `mayManageBlocks` in
- * `api/blocks.ts`, `canManageNavigation` in `api/navigation.ts`, `mayAdministerApprovals` in
- * `api/approvals.ts`), so folding any one of them in here would tell the caller they hold a permission
+ * covers a different subset of the eight surfaces (see `SITE_FIELD_PERMISSIONS`, and the
+ * `checkSiteAdminAccess` calls in `api/blocks.ts`, `api/navigation.ts` and `api/approvals.ts`), so
+ * folding any one of them in here would tell the caller they hold a permission
  * a specific route would still refuse. The frontend already has all three of those in
  * `userStore.permissions` and combines them itself — see `frontend/src/composables/siteAdminAccess.js`.
  */
@@ -121,7 +108,7 @@ function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
 /**
  * Assemble the payload a site's config alone doesn't cover: the row fields (`id`, `hostname`,
  * `isEnabled`) plus `pdfExportAvailable`, which isn't something a site chooses — it's whether this
- * whole instance ever installed the Puppeteer extension, per `WIKI.models.rendering.isAvailable()`,
+ * whole instance ever installed the Puppeteer extension, per `WIKI.models.renderQueue.isAvailable()`,
  * the same check `renderPdf` itself gates on before ever launching a browser. Surfaced here, on the
  * payload the frontend already loads per-site (`sites/:siteIdorHostname` via `siteStore.loadSite`)
  * and reused by `bootstrap` for the same payload at app load, so the PDF export control can hide or
@@ -152,7 +139,7 @@ export async function buildSitePayload(site: {
     id: site.id,
     hostname: site.hostname,
     isEnabled: site.isEnabled,
-    pdfExportAvailable: await WIKI.models.rendering.isAvailable(),
+    pdfExportAvailable: await WIKI.models.renderQueue.isAvailable(),
     docsBase: WIKI.config.docsBase,
     blocksConfig,
     blocksIndex,
@@ -307,20 +294,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      let site: any
-      if (req.params.siteIdorHostname === 'current' && req.hostname) {
-        site = await WIKI.models.sites.getSiteByHostname({
-          hostname: req.hostname,
-          strict: req.query.strict ?? false
-        })
-      } else if (isValidUuid(req.params.siteIdorHostname)) {
-        site = await WIKI.models.sites.getSiteById({ id: req.params.siteIdorHostname })
-      } else {
-        site = await WIKI.models.sites.getSiteByHostname({
-          hostname: req.params.siteIdorHostname,
-          strict: req.query.strict ?? false
-        })
-      }
+      const site = await resolveSiteParam(req.params.siteIdorHostname, req.hostname, {
+        strict: req.query.strict ?? false
+      })
       if (site) {
         return buildSitePayload(site)
       } else {
@@ -336,7 +312,7 @@ async function routes(app: FastifyInstance) {
     '/:siteId/userPermissions',
     {
       /*
-        No route-level `permissions`: same reasoning as `pages/userPermissions` in `api/pages.ts` --
+        No route-level `permissions`: same reasoning as `pages/userPermissions` in `api/pages/read.ts` --
         this answers what the caller may do, which for an anonymous or under-permissioned caller is
         an empty array rather than a 403.
       */
@@ -345,16 +321,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Which `site:*` permissions (see `helpers/siteRules.ts`) the caller holds on this site. This is what the interface hides the nine site-scoped admin pages by. Deliberately does not fold in `manage:sites` / `manage:theme` / `manage:navigation` -- see `sitePermissionsFor`'s own comment for why.",
         tags: ['Sites'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Site-admin permissions the current user holds for this site',
@@ -517,16 +484,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Requires `manage:sites`, or — per key touched — the matching `site:*` permission on this site: `site:general` for `hostname`/`title`/`description`/`company`/`contentLicense`/`footerExtra`/`pageExtensions`/`logoText`/`sitemap`/`discoverable`/`defaults`/`features`/`robots`/`uploads`, `site:theme` for `theme`, `site:login` for `auth`/`authStrategies`, `site:locale` for `locales`, `site:editors` for `editors`. `isEnabled` is not delegable and always requires `manage:sites`. The instance-wide `manage:theme` permission (see task #681) also covers a patch that touches nothing but `theme`.',
         tags: ['Sites'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           properties: {
@@ -836,7 +794,7 @@ async function routes(app: FastifyInstance) {
       /*
         No route-level `permissions`: which `site:*` permission applies depends on `kind` (`logo`
         and `favicon` are `site:general`, `loginBg` is `site:login`), which a route-level list can't
-        express. Checked in the handler via `maySaveSiteImage`.
+        express. Checked in the handler via `checkSiteAdminAccess`, over `SITE_IMAGE_KIND_PERMISSIONS`.
       */
       schema: {
         summary: "Replace one of a site's images",
@@ -883,7 +841,8 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
-      if (!maySaveSiteImage(req, req.params.siteId, req.params.kind)) {
+      const kindPermission = SITE_IMAGE_KIND_PERMISSIONS[req.params.kind]
+      if (!maySiteAdmin(req, 'manage:sites', kindPermission, req.params.siteId)) {
         return reply.forbidden()
       }
 
@@ -917,7 +876,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the PUT above — `kind` decides which `site:*`
-        permission applies, checked in the handler via `maySaveSiteImage`.
+        permission applies, checked in the handler via `checkSiteAdminAccess`.
       */
       schema: {
         summary: "Remove one of a site's images",
@@ -963,7 +922,8 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
-      if (!maySaveSiteImage(req, req.params.siteId, req.params.kind)) {
+      const kindPermission = SITE_IMAGE_KIND_PERMISSIONS[req.params.kind]
+      if (!maySiteAdmin(req, 'manage:sites', kindPermission, req.params.siteId)) {
         return reply.forbidden()
       }
 
@@ -996,16 +956,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Delete a site',
         tags: ['Sites'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           204: {
             description: 'Site deleted successfully'

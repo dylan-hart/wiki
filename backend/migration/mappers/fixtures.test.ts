@@ -1,15 +1,12 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { before, describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import { mapSiteSettings, type SiteSettingsSourceRow } from './site-settings.ts'
-import {
-  createAuthenticationMapperState,
-  mapAuthenticationRows,
-  type SourceAuthenticationRow
-} from './authentication.ts'
+import { mapAuthenticationRows, type SourceAuthenticationRow } from './authentication.ts'
 import { mapStorageRow, type SourceStorageRow } from './storage.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 /**
  * Task 768 — "Fixture tests and docs/variances.md entries for the confirmed gaps".
@@ -27,16 +24,17 @@ import { ensureTemporal } from '../../test/temporal.ts'
  * mapper that alters its output shape shows up here even if it doesn't happen to touch whichever
  * narrower case the other test files already assert on.
  *
- * The four behaviors the task names explicitly are each covered by a fixture row:
+ * The behaviors the task names explicitly are each covered by a fixture row:
  *   - `2.5x-authentication-source-a.json`'s `github` row: `domainWhitelist` → `allowedEmailRegex`
  *     (wrapped-array → anchored, escaped, case-folded regex).
  *   - `2.5x-authentication-source-a.json`'s `firebase` row: an unsupported 2.x auth provider (no
  *     `backend/modules/authentication/firebase/` directory) — reported, not silently dropped.
  *   - `2.5x-storage.json`'s `dropbox` row: an unsupported 2.x storage module (no
  *     `backend/modules/storage/dropbox/` directory) — same "no destination yet, report it" shape.
- *   - the two authentication source fixtures run together through the *same*
- *     `AuthenticationMapperState`, under both `'additive'` (default) and `'first-source-wins'`
- *     conflict policies — the multi-source consolidation branch task 765 built.
+ *
+ * Both authentication source fixtures are still mapped here, but as two independent runs: an import
+ * consolidates exactly one 2.5.x source into one fresh 3.0 instance, so there is no cross-source
+ * conflict policy left to exercise (spec D5).
  */
 
 const FIXTURES_DIR = path.join(import.meta.dirname, 'fixtures')
@@ -46,19 +44,21 @@ async function loadFixture<T>(name: string): Promise<T> {
   return JSON.parse(raw) as T
 }
 
+let wikiHandle: { restore(): void }
+
 before(async () => {
   await ensureTemporal()
-  ;(globalThis as any).WIKI = {
-    SERVERPATH: path.join(import.meta.dirname, '..', '..'),
-    data: {},
-    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
-  }
+  wikiHandle = installTestWiki({ SERVERPATH: path.join(import.meta.dirname, '..', '..') })
   const { authentication } = await import('../../models/authentication.ts')
   await authentication.refreshStrategiesFromDisk()
   const { storage } = await import('../../models/storage.ts')
   await storage.refreshFromDisk()
-  assert.ok((globalThis as any).WIKI.data.authentication?.length > 0)
+  assert.ok(WIKI.data.authentication?.length > 0)
   assert.ok(storage.definitions.length > 0)
+})
+
+after(() => {
+  wikiHandle.restore()
 })
 
 // ---------------------------------------------------------------------------
@@ -134,22 +134,17 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
     return (await import('../../models/authentication.ts')).authentication
   }
 
-  test('additive (default) policy: domainWhitelist->regex, unsupported firebase, and cross-source displayName disambiguation', async () => {
+  test('domainWhitelist->regex, unsupported firebase, and the per-module config remaps', async () => {
     const sourceA = await loadFixture<SourceAuthenticationRow[]>(
       '2.5x-authentication-source-a.json'
     )
     const sourceB = await loadFixture<SourceAuthenticationRow[]>(
       '2.5x-authentication-source-b.json'
     )
-    const groupIdMap = new Map([
-      [1, 'grp-uuid-1'],
-      [2, 'grp-uuid-2']
-    ])
-    const state = createAuthenticationMapperState()
     const res = await resolver()
 
-    const resultA = await mapAuthenticationRows(sourceA, { resolver: res, state, groupIdMap })
-    const resultB = await mapAuthenticationRows(sourceB, { resolver: res, state, groupIdMap })
+    const resultA = await mapAuthenticationRows(sourceA, { resolver: res })
+    const resultB = await mapAuthenticationRows(sourceB, { resolver: res })
 
     assert.equal(resultA.results.length, 3)
     assert.equal(resultB.results.length, 2)
@@ -183,7 +178,9 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         selfRegistration: false,
         autoProvision: false,
         allowedEmailRegex: '^[^@]+@(acme\\.com|acme\\.org)$',
-        autoEnrollGroups: ['grp-uuid-1', 'grp-uuid-2'],
+        // -> Always empty: `settings` runs before `users`, so no group has been imported yet and the
+        //    2.x integer ids have nothing to remap onto (see `mappers/authentication.ts`).
+        autoEnrollGroups: [],
         config: {
           clientId: 'gh-client-a',
           clientSecret: 'gh-secret-a',
@@ -203,8 +200,7 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
     assert.equal(resultA.results[2].row, undefined)
     assert.match(resultA.results[2].message!, /firebase/)
 
-    // -- source B: local — same module as source A's `local` row, additive policy: a second row is
-    // still created, with its displayName disambiguated rather than the row being dropped.
+    // -- source B: local
     assert.deepEqual(resultB.results[0], {
       sourceKey: 'local',
       module: 'local',
@@ -212,7 +208,7 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
       row: {
         module: 'local',
         isEnabled: true,
-        displayName: 'Local Database (2)',
+        displayName: 'Local Database',
         selfRegistration: false,
         autoProvision: false,
         allowedEmailRegex: '',
@@ -257,41 +253,6 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         }
       }
     })
-  })
-
-  test("first-source-wins policy: source B's colliding local row is skipped, not renamed — the conflict-policy branch itself", async () => {
-    const sourceA = await loadFixture<SourceAuthenticationRow[]>(
-      '2.5x-authentication-source-a.json'
-    )
-    const sourceB = await loadFixture<SourceAuthenticationRow[]>(
-      '2.5x-authentication-source-b.json'
-    )
-    const state = createAuthenticationMapperState()
-    const res = await resolver()
-
-    const resultA = await mapAuthenticationRows(sourceA, {
-      resolver: res,
-      state,
-      conflictPolicy: 'first-source-wins'
-    })
-    const resultB = await mapAuthenticationRows(sourceB, {
-      resolver: res,
-      state,
-      conflictPolicy: 'first-source-wins'
-    })
-
-    // source A's local row still claims the module first.
-    assert.equal(resultA.results[0].status, 'created')
-    assert.equal(resultA.results[0].row!.displayName, 'Local Database')
-
-    // source B's local row loses the collision outright — skipped, not disambiguated, not merged.
-    assert.equal(resultB.results[0].status, 'conflict-skipped')
-    assert.equal(resultB.results[0].row, undefined)
-    assert.match(resultB.results[0].message!, /already configured by an earlier source/)
-
-    // a different module from source B (oidc) is unaffected by the other module's collision.
-    assert.equal(resultB.results[1].status, 'created')
-    assert.equal(resultB.results[1].module, 'oidc')
   })
 })
 

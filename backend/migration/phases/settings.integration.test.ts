@@ -8,22 +8,16 @@ import {
 } from '../../db/schema.ts'
 import configSvc from '../../core/config.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb } from '../../test/db.ts'
-import { NotYetImplementedError } from '../connector.ts'
 import { settingsPhase } from './settings.ts'
 import type { TestFixtures } from '../../test/db.ts'
 import type { SourceConnector, SourceRecord } from '../connector.ts'
 import type { MigrationContext } from '../context.ts'
+import { iterate as iter, stubSourceConnector } from '../../test/migrationFixtures.ts'
 
 const LOCAL_STRATEGY_ID = 'integration-local-strategy-uuid'
 const FAKE_ADMIN_GROUP_ID = 'integration-admin-group-uuid'
 const FAKE_GUEST_GROUP_ID = 'integration-guest-group-uuid'
 const OPERATOR_ACTOR_ID = 'integration-operator-uuid'
-
-async function* iter<T>(items: T[]): AsyncGenerator<T> {
-  for (const item of items) {
-    yield item
-  }
-}
 
 /**
  * A minimal `SourceConnector`: a real `settings()` generator yielding tagged rows
@@ -37,20 +31,7 @@ async function* iter<T>(items: T[]): AsyncGenerator<T> {
  * `wouldCreate` (3: one sentinel + one authentication row + one storage row) for this phase.
  */
 function fakeSourceConnector(): SourceConnector {
-  const notImplemented = (method: string) => () => {
-    throw new NotYetImplementedError(method, 'not needed by this test')
-  }
-  return {
-    kind: 'postgres',
-    connect: async () => {},
-    disconnect: async () => {},
-    describe: async () => ({ kind: 'postgres', location: 'fake', notes: [] }),
-    users: notImplemented('users'),
-    groups: notImplemented('groups'),
-    pages: notImplemented('pages'),
-    pageHistory: notImplemented('pageHistory'),
-    tags: notImplemented('tags'),
-    navigation: notImplemented('navigation'),
+  return stubSourceConnector({
     settings: () =>
       iter<SourceRecord>([
         { entity: 'settings', key: 'title', value: 'Migrated Wiki' },
@@ -89,10 +70,8 @@ function fakeSourceConnector(): SourceConnector {
           syncInterval: null,
           state: {}
         }
-      ]),
-    comments: notImplemented('comments'),
-    assets: notImplemented('assets')
-  }
+      ])
+  })
 }
 
 describe(

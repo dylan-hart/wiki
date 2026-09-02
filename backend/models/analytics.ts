@@ -1,8 +1,6 @@
-import fs from 'node:fs/promises'
 import path from 'node:path'
-import { load } from 'js-yaml'
-import { parseModuleProps } from '../helpers/common.ts'
-import type { ModuleProp } from '../helpers/common.ts'
+import { readModuleDefinitions } from '../helpers/moduleRegistry.ts'
+import type { ModuleProp } from '../helpers/moduleProps.ts'
 
 /** An analytics module, as declared by its `definition.yml`. */
 export interface AnalyticsModule {
@@ -42,32 +40,23 @@ class Analytics {
   }
 
   async refreshFromDisk(): Promise<void> {
+    // -> Emptied before the scan, not merely reassigned on success: `base.yml` declares no
+    //    `analytics` key, so a failed scan would otherwise leave the field `undefined` for every
+    //    reader of it -- see the same note in `models/authentication.ts`, whose consumers call
+    //    `.find(...)` on it unguarded.
+    WIKI.data.analytics = []
     try {
-      // -> Fetch definitions from disk. Filtered to directories only: a loose per-module test file
-      //    sitting alongside the module directories has no `definition.yml` of its own, and this
-      //    loop has no per-entry try/catch -- one such file would abort the whole scan and silently
-      //    lose every real module.
-      const analyticsEntries = await fs.readdir(path.join(WIKI.SERVERPATH, 'modules/analytics'), {
-        withFileTypes: true
-      })
-      const analyticsDirs = analyticsEntries
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-      WIKI.data.analytics = []
-      for (const dir of analyticsDirs) {
-        const def = await fs.readFile(
-          path.join(WIKI.SERVERPATH, 'modules/analytics', dir, 'definition.yml'),
-          'utf8'
-        )
-        const defParsed = load(def) as Record<string, any>
-        if (!defParsed.isAvailable) {
-          continue
+      // -> Only a module declaring `isAvailable` is loaded: a definition on disk that this build does
+      //    not actually ship a provider for must not reach a site's analytics settings.
+      WIKI.data.analytics = await readModuleDefinitions<AnalyticsModule>(
+        path.join(WIKI.SERVERPATH, 'modules/analytics'),
+        {
+          label: 'analytics module',
+          parseProps: true,
+          skipUnavailable: true,
+          logEach: true
         }
-        defParsed.key = dir
-        defParsed.props = parseModuleProps(defParsed.props)
-        WIKI.data.analytics.push(defParsed)
-        WIKI.logger.debug(`Loaded analytics module definition ${dir} [ OK ]`)
-      }
+      )
 
       WIKI.logger.info(`Loaded ${WIKI.data.analytics.length} analytics module definitions [ OK ]`)
     } catch (err: any) {

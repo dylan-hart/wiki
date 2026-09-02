@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  emptyRedirect,
   isFollowable,
   isFollowableRedirectTarget,
   parseRedirect,
@@ -71,12 +70,6 @@ describe('isFollowable', () => {
   it('refuses an empty target', () => {
     expect(isFollowable({ kind: 'page', target: '' })).toBe(false)
     expect(isFollowable(undefined)).toBe(false)
-  })
-})
-
-describe('emptyRedirect', () => {
-  it('is not followable', () => {
-    expect(isFollowable(emptyRedirect())).toBe(false)
   })
 })
 

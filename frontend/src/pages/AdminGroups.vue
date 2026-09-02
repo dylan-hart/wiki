@@ -121,23 +121,22 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onBeforeUnmount, onMounted, reactive, watch } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { computed, onMounted, reactive } from 'vue'
+import { useRouter } from 'vue-router'
 
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
-import { dialog } from '@/composables/dialog'
+import { confirm, dialog } from '@/composables/dialog'
+import { useAdminOverlayRoute } from '@/composables/adminOverlayRoute'
 
-import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 import { apiErrorMessage } from '@/helpers/apiError'
 
 import GroupCreateDialog from '../components/GroupCreateDialog.vue'
-import GroupDeleteDialog from '../components/GroupDeleteDialog.vue'
 
 // COMPOSABLES
 
@@ -145,14 +144,12 @@ const dark = useDark()
 
 // STORES
 
-const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
 // ROUTER
 
 const router = useRouter()
-const route = useRoute()
 
 // I18N
 
@@ -213,19 +210,13 @@ const headers = [
   }
 ]
 
-// WATCHERS
+// OVERLAY ROUTE
 
-watch(
-  () => adminStore.overlay,
-  (newValue, oldValue) => {
-    if (newValue === '' && oldValue === 'GroupEditOverlay') {
-      router.push('/_admin/groups')
-      load()
-    }
-  }
-)
-
-watch(() => route.params.id, checkOverlay)
+useAdminOverlayRoute({
+  overlay: 'GroupEditOverlay',
+  listPath: '/_admin/groups',
+  onClosed: load
+})
 
 // METHODS
 
@@ -245,19 +236,6 @@ async function load() {
   state.loading--
 }
 
-function checkOverlay() {
-  if (route.params?.id) {
-    adminStore.$patch({
-      overlayOpts: { id: route.params.id },
-      overlay: 'GroupEditOverlay'
-    })
-  } else {
-    adminStore.$patch({
-      overlay: ''
-    })
-  }
-}
-
 function createGroup() {
   dialog({
     component: GroupCreateDialog
@@ -271,29 +249,37 @@ function editGroup(gr) {
 }
 
 function deleteGroup(gr) {
-  dialog({
-    component: GroupDeleteDialog,
-    componentProps: {
-      group: gr
+  confirm({
+    title: t('admin.groups.delete'),
+    message: [
+      t('admin.groups.deleteConfirm', { groupName: `**${gr.name}**` }),
+      `**${t('admin.groups.deleteConfirmWarn')}**`
+    ],
+    destructive: true,
+    persistent: true
+  }).onOk(async () => {
+    try {
+      await API_CLIENT.delete(`groups/${gr.id}`)
+      notify({
+        type: 'positive',
+        message: t('admin.groups.deleteSuccess')
+      })
+      load()
+    } catch (err) {
+      // -> ky throws for statuses above 400 (e.g. 409 for a system group), where the reason the API
+      //    gave is in the response body rather than in the error message
+      notify({
+        type: 'negative',
+        message: apiErrorMessage(err)
+      })
     }
-  }).onOk(() => {
-    load()
   })
 }
 
 // MOUNTED
 
 onMounted(() => {
-  checkOverlay()
   load()
-})
-
-// BEFORE UNMOUNT
-
-onBeforeUnmount(() => {
-  adminStore.$patch({
-    overlay: ''
-  })
 })
 </script>
 

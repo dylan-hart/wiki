@@ -540,17 +540,13 @@ function addTag(tag) {
 // MOUNTED
 
 onMounted(() => {
-  if (!import.meta.env.SSR) {
-    window.addEventListener('keydown', handleKeyPress)
-  }
+  window.addEventListener('keydown', handleKeyPress)
   if (route.path.startsWith('/_search')) {
     searchField.value.focus()
   }
 })
 onBeforeUnmount(() => {
-  if (!import.meta.env.SSR) {
-    window.removeEventListener('keydown', handleKeyPress)
-  }
+  window.removeEventListener('keydown', handleKeyPress)
   resetPreview()
 })
 

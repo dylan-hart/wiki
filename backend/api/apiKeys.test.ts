@@ -1,11 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, before, mock, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
 import apiKeysRoutes from './apiKeys.ts'
-import { registerSchemas as registerApiKeySchema } from './schemas/apiKey.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * `POST /_api/api-keys`'s `scope` field is validated against the closed permission vocabulary
@@ -26,10 +23,10 @@ let revokeKeyCalls: string[] = []
 let app: FastifyInstance
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
+  const wiki = {
     models: {
       groups: {
-        getAllGroups: async () => [{ id: GROUP_ID, name: 'Editors' }]
+        hasUnknownGroupIds: async (ids: string[]) => ids.some((id) => id !== GROUP_ID)
       },
       apiKeys: {
         createKey: async (args: any) => {
@@ -61,39 +58,23 @@ before(async () => {
     }
   }
 
-  app = fastify()
-  await app.register(fastifySensible)
-  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`badRequest()`/etc. is a
-  //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-  //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-  app.setErrorHandler((error: any, req, reply) => {
-    reply.code(error.statusCode ?? 500).send({
-      ok: false,
-      error: error.name,
-      statusCode: error.statusCode ?? 500,
-      message: error.message
-    })
-  })
-  // -> Mirrors `index.ts`'s real `apiKey` decoration/hook, simplified to what these tests need: a
-  //    request carrying the `x-simulate-api-key` test header is treated as bearer-token-authenticated
-  //    (OpenProject #2190) — `manage:system`, so it would pass the real route-permission gate too, the
-  //    same as any admin-issued key that `preHandler` in `index.ts` resolves permissions from.
-  app.decorateRequest('apiKey', null)
-  app.addHook('onRequest', async (req) => {
-    if (req.headers['x-simulate-api-key']) {
-      ;(req as any).apiKey = { id: 'caller-key-id', permissions: ['manage:system'] }
+  app = await buildTestApp({
+    routes: apiKeysRoutes,
+    wiki,
+    // -> A request carrying the `x-simulate-api-key` test header is treated as
+    //    bearer-token-authenticated (OpenProject #2190) — `manage:system`, so it would pass the real
+    //    route-permission gate too, the same as any admin-issued key that the real `onRequest` hook
+    //    resolves permissions from.
+    session: (req: any) => {
+      if (req.headers['x-simulate-api-key']) {
+        req.apiKey = { id: 'caller-key-id', permissions: ['manage:system'] }
+      }
+      return undefined
     }
   })
-  await registerErrorSchema(app)
-  await registerApiKeySchema(app)
-  await app.register(apiKeysRoutes)
-  await app.ready()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 test('rejects a scope entry outside the known permission vocabulary', async () => {
   createKeyCalls = []

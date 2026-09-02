@@ -1,5 +1,6 @@
 import { and, count, desc, eq, gte, lte } from 'drizzle-orm'
 import { auditLog as auditLogTable, users as usersTable } from '../db/schema.ts'
+import { paginate } from '../helpers/pagination.ts'
 import type { FastifyRequest } from 'fastify'
 
 /**
@@ -45,7 +46,7 @@ export const AUDIT_EVENTS = [
   //   transport called them, so this fires for both.
   'mcp.sessionOpened',
   'mcp.writeToolCalled',
-  // -> #2231: every write route in `api/system.ts` -- instance-wide administration with no per-target
+  // -> #2231: every write route in `api/system/` -- instance-wide administration with no per-target
   //   row of its own (no `targetType` fits), so `detail` alone carries what changed. For
   //   `flagsUpdated`/`securityUpdated`, `detail` is the exact `patch` object `pickFlags`/`pickFields`
   //   already produced -- filtered to each model's own closed field list, which is what guarantees an
@@ -271,31 +272,32 @@ class AuditLog {
     ].filter((c) => c !== undefined)
     const where = conditions.length > 0 ? and(...conditions) : undefined
 
-    const [rows, totals] = await Promise.all([
-      WIKI.db
-        .select({
-          id: auditLogTable.id,
-          event: auditLogTable.event,
-          actorId: auditLogTable.actorId,
-          actorName: auditLogTable.actorName,
-          actorIp: auditLogTable.actorIp,
-          targetType: auditLogTable.targetType,
-          targetId: auditLogTable.targetId,
-          targetLabel: auditLogTable.targetLabel,
-          detail: auditLogTable.detail,
-          siteId: auditLogTable.siteId,
-          createdAt: auditLogTable.createdAt
-        })
-        .from(auditLogTable)
-        .where(where)
-        .orderBy(desc(auditLogTable.createdAt))
-        .limit(limit)
-        .offset(offset),
-      WIKI.db.select({ total: count() }).from(auditLogTable).where(where)
-    ])
+    const { total, rows } = await paginate({
+      rows: () =>
+        WIKI.db
+          .select({
+            id: auditLogTable.id,
+            event: auditLogTable.event,
+            actorId: auditLogTable.actorId,
+            actorName: auditLogTable.actorName,
+            actorIp: auditLogTable.actorIp,
+            targetType: auditLogTable.targetType,
+            targetId: auditLogTable.targetId,
+            targetLabel: auditLogTable.targetLabel,
+            detail: auditLogTable.detail,
+            siteId: auditLogTable.siteId,
+            createdAt: auditLogTable.createdAt
+          })
+          .from(auditLogTable)
+          .where(where)
+          .orderBy(desc(auditLogTable.createdAt))
+          .limit(limit)
+          .offset(offset),
+      total: () => WIKI.db.select({ total: count() }).from(auditLogTable).where(where)
+    })
 
     return {
-      total: totals[0]?.total ?? 0,
+      total,
       entries: rows.map((row: any) => ({
         id: row.id,
         event: row.event,

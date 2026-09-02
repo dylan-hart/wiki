@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../../test/db.ts'
 import { locales as localesTable } from '../../db/schema.ts'
 import { isFlatStringMap, task } from './update-locales.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 /**
  * `isFlatStringMap` is the shape guard OpenProject #2255 added: `strings` comes straight off
@@ -237,7 +238,7 @@ describe('update-locales.task (DB-backed)', { skip: !hasTestDatabase() }, () => 
  * `DATABASE_URL`.
  */
 describe('update-locales.task (unit, no DB)', () => {
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
   let previousFetch: typeof fetch
   let insertValues: ReturnType<typeof mock.fn>
   let onConflictDoUpdate: ReturnType<typeof mock.fn>
@@ -245,12 +246,11 @@ describe('update-locales.task (unit, no DB)', () => {
   let broadcastReload: ReturnType<typeof mock.fn>
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
     previousFetch = globalThis.fetch
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
     globalThis.fetch = previousFetch
   })
 
@@ -259,7 +259,7 @@ describe('update-locales.task (unit, no DB)', () => {
     insertValues = mock.fn(() => ({ onConflictDoUpdate }))
     loggerWarn = mock.fn()
     broadcastReload = mock.fn(async () => {})
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: {},
       logger: { info: mock.fn(), error: mock.fn(), warn: loggerWarn, debug: mock.fn() },
       db: { insert: () => ({ values: insertValues }) },
@@ -269,7 +269,7 @@ describe('update-locales.task (unit, no DB)', () => {
       //    `WIKI.models.locales.reloadCache()` directly instead of routing through the HA
       //    cache-broadcast path, that call would throw rather than silently succeed.
       models: { locales: { broadcastReload } }
-    }
+    })
   })
 
   function makeLang(overrides: Record<string, any> = {}) {

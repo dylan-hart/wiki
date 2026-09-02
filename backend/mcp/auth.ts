@@ -135,7 +135,7 @@ export function actorFor(ctx: McpAuthContext): AccessActor {
 /**
  * Who a write tool call (`create_page`/`update_page`) saves as, or `null` when it may not save at all.
  *
- * Mirrors `api/pages.ts`'s `actorFrom()`: a page records a real author, and only a personal access
+ * Mirrors `helpers/pageAccess.ts`'s `actorFrom()`: a page records a real author, and only a personal access
  * token (`ctx.userId` set) has one to offer — an admin-issued key has no user behind it to attribute
  * the page to, exactly as it grants no page-saving through `/_api/` either. `write:scripts`/
  * `write:styles` are page-rule-scoped, so `groupIds` travels with the actor the same way it does there.
@@ -161,7 +161,7 @@ export function pageActorFor(ctx: McpAuthContext): PageActor | null {
 
 /**
  * Whether this actor holds `write:pages`/`manage:pages` ANYWHERE ON THIS SITE — the same question
- * `api/pages.ts`'s search route asks before deciding whether unpublished pages and password-protected
+ * `api/pages/read.ts`'s search route asks before deciding whether unpublished pages and password-protected
  * excerpts belong in a result set. See `PAGE_PASSWORD_BYPASS_ROLES`'s doc comment there for why DENY
  * is ignored and why this is deliberately coarser than a per-page check.
  *

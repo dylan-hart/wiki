@@ -85,7 +85,7 @@
               <img
                 v-if="adminStore.currentSiteId"
                 class="admin-login-bg mt-4"
-                :src="`/_site/` + adminStore.currentSiteId + `/loginBg?` + state.assetTimestamp"
+                :src="`/_site/` + adminStore.currentSiteId + `/loginBg?` + bgTimestamp"
                 :alt="t(`admin.login.background`)" />
             </w-item-section>
           </w-item>
@@ -236,25 +236,18 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive, watch } from 'vue'
+import { onMounted, toRef } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useMeta } from '@/composables/meta'
-import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
-import { apiErrorMessage } from '@/helpers/apiError'
+import { useSiteImage } from '@/composables/siteImage'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 
-import {
-  clearSiteImage,
-  isAcceptedSiteImage,
-  pickSiteImage,
-  uploadSiteImage
-} from '@/helpers/siteImages'
+import { isSharpAvailable } from '@/helpers/siteImages'
 
-import { toMerged } from 'es-toolkit/object'
 import { Sortable } from 'sortablejs-vue3'
 
 // ACCESS
@@ -294,73 +287,42 @@ function defaultConfig() {
   }
 }
 
-const state = reactive({
-  invalidCharsRegex: /^[^<>"]+$/,
-  loading: 0,
-  config: defaultConfig(),
-  providers: [],
-  // -> Whether this site has a background of its own, i.e. whether there is anything to clear. The
-  //    preview always renders: without one it shows the default the login page falls back to.
-  hasBg: false,
-  // -> Drives the "requires Sharp" indicator on the background uploader. Starts false rather than
-  //    true so a slow or failed `system/extensions` call understates the warning instead of crying
-  //    wolf while it's still unknown.
-  sharpMissing: false,
-  assetTimestamp: new Date().toISOString()
-})
-
-const sortableOptions = {
-  handle: '.handle',
-  animation: 150
-}
-
-// WATCHERS
-
-watch(
-  () => adminStore.currentSiteId,
-  (newValue) => {
-    load()
-  }
-)
-
-// METHODS
-
-async function load() {
-  state.loading++
-  loading.show()
-  try {
-    const [site, providers] = await Promise.all([
-      API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json(),
-      API_CLIENT.get(`sites/${adminStore.currentSiteId}/auth/strategies`, {
+const { state, load, save } = useAdminSettings({
+  i18nPrefix: 'admin.login',
+  defaults: defaultConfig,
+  extraState: {
+    invalidCharsRegex: /^[^<>"]+$/,
+    providers: [],
+    // -> Whether this site has a background of its own, i.e. whether there is anything to clear. The
+    //    preview always renders: without one it shows the default the login page falls back to.
+    hasBg: false,
+    // -> Drives the "requires Sharp" indicator on the background uploader. Starts false rather than
+    //    true so a slow or failed `system/extensions` call understates the warning instead of crying
+    //    wolf while it's still unknown.
+    sharpMissing: false
+  },
+  fetch: (siteId) =>
+    Promise.all([
+      API_CLIENT.get(`sites/${siteId}?strict=true`).json(),
+      API_CLIENT.get(`sites/${siteId}/auth/strategies`, {
         searchParams: { visibleOnly: false }
       }).json()
-    ])
-    state.config = toMerged(defaultConfig(), site?.auth ?? {})
+    ]),
+  pick: ([site]) => site?.auth ?? {},
+  onLoaded: ([site, providers]) => {
     state.providers = providers ?? []
     state.hasBg = site?.assets?.loginBg ?? false
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.login.loadFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  loading.hide()
-  state.loading--
-}
-
-async function save() {
-  state.loading++
-  try {
-    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
+  },
+  commit: (siteId, config) =>
+    API_CLIENT.put(`sites/${siteId}`, {
       json: {
         auth: {
-          autoLogin: state.config.autoLogin ?? false,
-          bypassUnauthorized: state.config.bypassUnauthorized ?? false,
-          hideLocal: state.config.hideLocal ?? false,
-          loginRedirect: state.config.loginRedirect ?? '/',
-          welcomeRedirect: state.config.welcomeRedirect ?? '/',
-          logoutRedirect: state.config.logoutRedirect ?? '/'
+          autoLogin: config.autoLogin ?? false,
+          bypassUnauthorized: config.bypassUnauthorized ?? false,
+          hideLocal: config.hideLocal ?? false,
+          loginRedirect: config.loginRedirect ?? '/',
+          welcomeRedirect: config.welcomeRedirect ?? '/',
+          logoutRedirect: config.logoutRedirect ?? '/'
         },
         // -> Order comes from the current position in the drag-sortable list
         authStrategies: state.providers.map((provider, index) => ({
@@ -370,102 +332,39 @@ async function save() {
         }))
       }
     }).json()
-    notify({
-      type: 'positive',
-      message: t('admin.login.saveSuccess')
-    })
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.login.saveFailed'),
-      caption: t(
-        `admin.login.${err.data?.error}`,
-        apiErrorMessage(err, t('common.error.unexpected'))
-      )
-    })
-  }
-  state.loading--
+})
+
+const sortableOptions = {
+  handle: '.handle',
+  animation: 150
 }
 
-/**
- * Whether the Sharp extension is usable on this server, which decides whether an uploaded
- * background gets resized and re-encoded or stored as-is. Site-independent, so this runs once on
- * mount rather than on every `load()` (which re-runs per site switch).
- */
-async function checkSharpAvailability() {
-  try {
-    const extensions = (await API_CLIENT.get('system/extensions').json()) ?? []
-    const sharp = extensions.find((ext) => ext.key === 'sharp')
-    state.sharpMissing = !sharp?.isInstalled
-  } catch (err) {
-    // -> Leave state.sharpMissing at its default rather than surface a second, unrelated error here.
-  }
-}
+// COMPOSABLES (site images)
+
+const {
+  upload: uploadBg,
+  clear: clearBg,
+  timestamp: bgTimestamp
+} = useSiteImage('loginBg', {
+  siteId: () => adminStore.currentSiteId,
+  has: toRef(state, 'hasBg'),
+  i18nPrefix: 'admin.login.bg',
+  loading: toRef(state, 'loading')
+})
+
+// METHODS
 
 function updateAuthPosition(ev) {
   const item = state.providers.splice(ev.oldIndex, 1)[0]
   state.providers.splice(ev.newIndex, 0, item)
 }
 
-async function uploadBg() {
-  const file = await pickSiteImage()
-  if (!file) {
-    return
-  }
-  if (!isAcceptedSiteImage(file)) {
-    notify({
-      type: 'negative',
-      message: t('admin.login.bgUploadFailed'),
-      caption: t('admin.login.bgUploadInvalidType')
-    })
-    return
-  }
-  state.loading++
-  try {
-    await uploadSiteImage(adminStore.currentSiteId, 'loginBg', file)
-    notify({
-      type: 'positive',
-      message: t('admin.login.bgUploadSuccess')
-    })
-    state.hasBg = true
-    state.assetTimestamp = new Date().toISOString()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.login.bgUploadFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
-}
-
-async function clearBg() {
-  state.loading++
-  try {
-    await clearSiteImage(adminStore.currentSiteId, 'loginBg')
-    notify({
-      type: 'positive',
-      message: t('admin.login.bgClearSuccess')
-    })
-    state.hasBg = false
-    state.assetTimestamp = new Date().toISOString()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.login.bgClearFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
-}
-
 // MOUNTED
 
-onMounted(() => {
-  if (adminStore.currentSiteId) {
-    load()
-  }
-  checkSharpAvailability()
+// -> Site-independent, so this runs once on mount rather than on every `load()` (which re-runs per
+//    site switch). Drives the "requires Sharp" indicator on the background uploader.
+onMounted(async () => {
+  state.sharpMissing = !(await isSharpAvailable())
 })
 </script>
 

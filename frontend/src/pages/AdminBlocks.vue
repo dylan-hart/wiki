@@ -48,7 +48,7 @@
           color="secondary"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
-          @click="refresh">
+          @click="load">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
@@ -289,12 +289,12 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 import { confirm, dialog } from '@/composables/dialog'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 
@@ -335,28 +335,41 @@ useMeta(() => ({
   title: t('admin.blocks.title')
 }))
 
-const state = reactive({
-  loading: 0,
-  blocks: [],
-  credentials: [],
-  configDialog: {
-    open: false,
-    /** The block being configured -- the same object as in `state.blocks`, not a copy. */
-    block: null,
-    /** Local reactive copy of `block.config`, edited by `BlockPropsForm` and merged back on save. */
-    values: {}
-  }
+const { state, load, save } = useAdminSettings({
+  i18nPrefix: 'admin.blocks',
+  extraState: {
+    blocks: [],
+    credentials: [],
+    configDialog: {
+      open: false,
+      /** The block being configured -- the same object as in `state.blocks`, not a copy. */
+      block: null,
+      /** Local reactive copy of `block.config`, edited by `BlockPropsForm` and merged back on save. */
+      values: {}
+    }
+  },
+  fetch: async (siteId) => {
+    try {
+      return await API_CLIENT.get(`sites/${siteId}/blocks`).json()
+    } finally {
+      // -> Loaded whether or not the blocks list came back, and with its own error handling: an
+      //    empty credentials table is its own thing to explain, not a consequence of the list above
+      //    having failed.
+      await loadCredentials()
+    }
+  },
+  onLoaded: (blocks) => {
+    // -> `config` is always an object from the API, but guarded here too so `v-model="block.config.server"`
+    //    never writes onto `undefined` if that ever stops being true
+    state.blocks = (blocks ?? []).map((block) => ({ ...block, config: block.config ?? {} }))
+  },
+  commit: (siteId) =>
+    API_CLIENT.put(`sites/${siteId}/blocks`, {
+      json: {
+        states: state.blocks.map((bl) => pick(bl, ['id', 'isEnabled', 'config']))
+      }
+    }).json()
 })
-
-// WATCHERS
-
-watch(
-  () => adminStore.currentSiteId,
-  (newValue) => {
-    loading.show()
-    load()
-  }
-)
 
 // METHODS
 
@@ -388,25 +401,6 @@ function configurableFields(block) {
  * site with neither Kroki nor PlantUML enabled.
  */
 const hasServerConfigurableBlocks = computed(() => state.blocks.some(hasServerProp))
-
-async function load() {
-  state.loading++
-  try {
-    const blocks = (await API_CLIENT.get(`sites/${adminStore.currentSiteId}/blocks`).json()) ?? []
-    // -> `config` is always an object from the API, but guarded here too so `v-model="block.config.server"`
-    //    never writes onto `undefined` if that ever stops being true
-    state.blocks = blocks.map((block) => ({ ...block, config: block.config ?? {} }))
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.blocks.loadFailed'),
-      caption: err.message
-    })
-  }
-  await loadCredentials()
-  loading.hide()
-  state.loading--
-}
 
 /**
  * Loaded separately from `load()`'s own error handling: a caller without `site:blocks` on this
@@ -493,35 +487,6 @@ async function copyCredentialId(id) {
   }
 }
 
-async function save() {
-  state.loading++
-  try {
-    await API_CLIENT.put(`sites/${adminStore.currentSiteId}/blocks`, {
-      json: {
-        states: state.blocks.map((bl) => pick(bl, ['id', 'isEnabled', 'config']))
-      }
-    }).json()
-    notify({
-      type: 'positive',
-      message: t('admin.blocks.saveSuccess')
-    })
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.blocks.saveFailed'),
-      caption: t(
-        `admin.blocks.${err.data?.error}`,
-        apiErrorMessage(err, 'An unexpected error occured.')
-      )
-    })
-  }
-  state.loading--
-}
-
-async function refresh() {
-  await load()
-}
-
 function addBlock() {
   dialog({ component: BlockUploadDialog }).onOk((block) => {
     if (block) {
@@ -588,15 +553,6 @@ function saveConfig() {
   Object.assign(state.configDialog.block.config, state.configDialog.values)
   state.configDialog.open = false
 }
-
-// MOUNTED
-
-onMounted(async () => {
-  if (adminStore.currentSiteId) {
-    loading.show()
-    await load()
-  }
-})
 </script>
 
 <style lang="scss"></style>

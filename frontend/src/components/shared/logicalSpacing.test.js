@@ -32,16 +32,10 @@ describe('components/shared carries no physical spacing utilities or declaration
    * and so cannot be swapped 1:1 for a logical property without a wider redesign. Each entry names
    * the reason so a future pass knows what it is signing up for before removing it.
    */
-  const ALLOWLIST = {
-    // The elbow/vertical-run tree connectors are drawn with absolutely positioned pseudo-elements
-    // whose `left`/`border-left` offsets are geometrically paired with these padding/margin values
-    // (e.g. `.w-tree__node { padding: 0 0 3px 22px }` lines up with `.w-tree__node::after`'s
-    // `left: -13px`). Converting the padding/margin alone would desync the indentation from the
-    // connector lines under RTL, which is worse than leaving both physical -- the whole geometry
-    // needs a single coordinated redesign, tracked by OpenProject #1590's deliberately-physical
-    // triage, not a mechanical spacing-only swap.
-    'WTreeNode.vue': 'connector-line geometry — needs a coordinated redesign, see OpenProject #1590'
-  }
+  // Empty today: its one entry, `WTreeNode.vue`, was deleted along with `WTree.vue`/`WRating.vue`
+  // (nothing in the app ever mounted them). Kept as the documented place for the next such case,
+  // and guarded below so an entry naming a file that no longer exists fails rather than lingering.
+  const ALLOWLIST = {}
 
   const files = readdirSync(dir).filter((f) => f.endsWith('.vue') && !(f in ALLOWLIST))
 

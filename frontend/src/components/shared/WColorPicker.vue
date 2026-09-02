@@ -52,6 +52,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useDictText } from '@/composables/i18nText'
+import { trackPointerDrag } from '@/helpers/pointerDrag'
 
 /**
  * Hex colour picker: saturation/brightness field, hue rail, and the hex value as text.
@@ -133,20 +134,7 @@ function ratio(event, el, axis) {
 /** Wires a press plus the subsequent drag on one of the two surfaces. */
 function drag(ev, el, apply) {
   apply(ev)
-  const move = (e) => apply(e)
-  const up = () => {
-    el.removeEventListener('pointermove', move)
-    try {
-      el.releasePointerCapture(ev.pointerId)
-    } catch {}
-  }
-  // -> Throws for a synthetic pointer; the drag works regardless, so it must not abort here
-  try {
-    el.setPointerCapture(ev.pointerId)
-  } catch {}
-  el.addEventListener('pointermove', move)
-  el.addEventListener('pointerup', up, { once: true })
-  el.addEventListener('pointercancel', up, { once: true })
+  trackPointerDrag(ev, el, apply)
 }
 
 function onFieldDown(ev) {

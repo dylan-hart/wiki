@@ -16,7 +16,7 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { bootstrapFailureRedirectFor } from '@/helpers/bootstrap'
 import { setCssVar } from '@/helpers/cssVars'
 import { applyFonts } from '@/helpers/fonts'
-import { applyInjectCss } from '@/helpers/injectCss'
+import { applyInjectCss, replaceHeadStyle } from '@/helpers/injectCss'
 import { applyInjectBody, applyInjectHead } from '@/helpers/injectHtml'
 import { resolveRouteLocale, stripPageExtension } from '@/helpers/pagePaths'
 import { isFollowableRedirectTarget } from '@/helpers/pageRedirect'
@@ -255,7 +255,9 @@ const HLJS_THEMES = import.meta.glob('../node_modules/highlight.js/styles/**/*.m
  * relationship wanted. With no theme chosen, nothing is injected and that fallback is what shows.
  */
 async function applyCodeBlocksTheme() {
-  document.querySelector('#hljs-theme')?.remove()
+  // -> Cleared up front rather than only on the way in: the stylesheet loads asynchronously, and
+  //    leaving the previous theme painted until the new one arrives is what this always did
+  replaceHeadStyle('hljs-theme', null)
 
   // -> A colour-vision-deficient palette cannot be honoured per theme, so it takes a neutral one
   const desiredHljsTheme = userStore.cvd !== 'none' ? 'github' : siteStore.theme.codeBlocksTheme
@@ -270,10 +272,7 @@ async function applyCodeBlocksTheme() {
     return
   }
 
-  const styleEl = document.createElement('style')
-  styleEl.id = 'hljs-theme'
-  styleEl.textContent = `.page-contents {\n${await load()}\n}`
-  document.head.appendChild(styleEl)
+  replaceHeadStyle('hljs-theme', `.page-contents {\n${await load()}\n}`)
 }
 
 // INIT SITE STORE

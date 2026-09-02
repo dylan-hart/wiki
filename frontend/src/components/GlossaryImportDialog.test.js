@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 import { TimeoutError } from 'ky'
 
 import { confirm } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -48,7 +49,7 @@ beforeEach(() => {
 })
 
 function mountDialog(siteId = 'site-1') {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   currentWrapper = mount(GlossaryImportDialog, {
     props: { siteId },
     global: { plugins: [i18n] }

@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import UserDeleteDialog from './UserDeleteDialog.vue'
 import UserSearchDialog from './UserSearchDialog.vue'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * OpenProject #986: `UserDeleteDialog.vue` gained a "Reassign Content To..." picker, so an admin who
@@ -34,21 +35,15 @@ function httpError(message) {
 function mountDialog(user = { id: 'user-1', name: 'Departing User' }) {
   setActivePinia(createPinia())
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        admin: {
-          users: {
-            deleteSuccess: '{username} has been deleted.',
-            deleteReassignChoose: 'Reassign Content To...'
-          }
-        },
-        error: {
-          ERR_REASSIGN_SAME_USER: 'Content cannot be reassigned to the same user.'
-        }
+  const i18n = createTestI18n({
+    admin: {
+      users: {
+        deleteSuccess: '{username} has been deleted.',
+        deleteReassignChoose: 'Reassign Content To...'
       }
+    },
+    error: {
+      ERR_REASSIGN_SAME_USER: 'Content cannot be reassigned to the same user.'
     }
   })
 

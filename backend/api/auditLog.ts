@@ -19,8 +19,10 @@ async function routes(app: FastifyInstance) {
       event?: AuditEvent
       from?: string
       to?: string
-      limit?: number
-      offset?: number
+      // -> Non-optional: the querystring schema declares a `default` for each, and fastify's AJV
+      //    runs with `useDefaults`, so a missing param is filled in before the handler sees it.
+      limit: number
+      offset: number
     }
   }>(
     '/',
@@ -68,8 +70,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      const limit = req.query.limit ?? 100
-      const offset = req.query.offset ?? 0
+      const { limit, offset } = req.query
       const { total, entries } = await WIKI.models.auditLog.list({
         actorId: req.query.actorId,
         event: req.query.event,

@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
-import fastify from 'fastify'
-import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
+import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
+import { createSiteAdminAccessStub } from '../test/mocks.ts'
 import blockCredentialsRoutes from './blockCredentials.ts'
-import { registerSchemas as registerBlockCredentialSchema } from './schemas/blockCredential.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
- * A unit-level test of the route's own wiring — site lookup, the `manage:sites`/`site:blocks` gate,
- * response shape — with `WIKI.models.sites`/`blockCredentials`/`groups` stubbed rather than a real
- * database, the same way `api/blocks.test.ts`'s PUT/DELETE suite covers `mayManageBlocks`.
+ * A unit-level test of the route's own wiring — the shared site preHandler, the `manage:sites`/
+ * `site:blocks` gate, response shape — with `WIKI.sites`/`models.blockCredentials`/`models.groups`
+ * stubbed rather than a real database, the same way `api/blocks.test.ts`'s PUT/DELETE suite covers
+ * the same `checkSiteAdminAccess` gate.
  * `models/blockCredentials.test.ts` is what proves the model itself against a real database.
  */
 describe('block credentials API (site-scoped delegation)', () => {
@@ -18,9 +18,6 @@ describe('block credentials API (site-scoped delegation)', () => {
   const CREDENTIAL_ID = 'a1b2c3d4-e5f6-4789-9abc-def012345678'
 
   const sites: Record<string, any> = { [SITE_ID]: { id: SITE_ID } }
-  async function getSiteById({ id }: { id: string }) {
-    return sites[id] ?? null
-  }
 
   let createCredentialCalls: Array<{
     siteId: string
@@ -92,47 +89,43 @@ describe('block credentials API (site-scoped delegation)', () => {
     return { groupIds: [], permissions }
   }
 
+  const checkSiteAdminAccess = createSiteAdminAccessStub(actorForRequest, checkSiteAccess)
+
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      models: {
-        sites: { getSiteById },
-        blockCredentials: {
-          getSiteCredentials,
-          createCredential,
-          rotateSecret,
-          updateAllowedOrigins,
-          deleteCredential
-        },
-        groups: { actorForRequest, checkSiteAccess }
-      }
+    // -> The unknown-site 404 lives in one hook now (spec D1), not in each route handler, so a
+    //    plugin-only app has to register it to answer that case the way the real app does.
+    const guardedRoutes: FastifyPluginAsync = async (instance) => {
+      instance.addHook('preHandler', siteEnabledPreHandler)
+      await instance.register(blockCredentialsRoutes)
     }
 
-    app = fastify()
-    await app.register(fastifySensible)
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
+    app = await buildTestApp({
+      routes: guardedRoutes,
+      // -> The site-permission stub takes no `req`, so it reads this suite's per-test grants off a
+      //    module-level variable, populated once per request.
+      session: (req: any) => {
+        currentSitePermissionHeader = req.headers['x-test-site-permissions']
+        return undefined
+      },
+      wiki: {
+        sites,
+        models: {
+          blockCredentials: {
+            getSiteCredentials,
+            createCredential,
+            rotateSecret,
+            updateAllowedOrigins,
+            deleteCredential
+          },
+          groups: { actorForRequest, checkSiteAccess, checkSiteAdminAccess }
+        }
+      }
     })
-    await registerErrorSchema(app)
-    await registerBlockCredentialSchema(app)
-    app.addHook('preHandler', (req: any, reply, done) => {
-      currentSitePermissionHeader = req.headers['x-test-site-permissions']
-      done()
-    })
-    await app.register(blockCredentialsRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     createCredentialCalls = []

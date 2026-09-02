@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import routes from './routes.js'
+
+import { buildTestRouter } from '../../test/router.js'
 
 /**
  * Regression test for wiring the admin Comments page into the router (Task 614, Feature 394 --
@@ -72,7 +73,7 @@ describe('inbox routes', () => {
  * instead, which `pageEdit` does not expect.
  */
 describe('edit route', () => {
-  const router = createRouter({ history: createMemoryHistory(), routes })
+  const router = buildTestRouter(routes)
 
   it('matches a bare /_edit with no pagePath param', async () => {
     await router.push('/_edit')

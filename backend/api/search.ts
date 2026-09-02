@@ -68,16 +68,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Every dictionary named in `dictOverrides` must exist in this database, otherwise indexing would fail later, long after the setting was accepted. Changing a mapping affects pages the next time they are indexed — rebuild the index to apply it to existing content.',
         tags: ['Search'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           properties: {
@@ -107,11 +98,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-
       if (req.body.dictOverrides === undefined) {
         return reply.badRequest('No search settings provided to update.')
       }
@@ -156,16 +142,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Queues a job that recomputes the search vector of every page of this site from its stored content, using the dictionary mapping in force. Runs in the background: the response only says the job was queued.',
         tags: ['Search'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Rebuild queued successfully',
@@ -190,11 +167,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-
       const added = await WIKI.scheduler.addJob({
         task: 'rebuildSearchIndex',
         payload: { siteId: req.params.siteId }
@@ -224,16 +196,7 @@ async function routes(app: FastifyInstance) {
         description:
           "One entry per search engine module installed in `modules/search`, whether or not it is the one currently selected. Configuration values may include a module's credentials, hence the `manage:system` requirement.",
         tags: ['Search'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'List of search engines',
@@ -245,11 +208,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
+    async (req) => {
       return withDbSearchExtras(
         await WIKI.models.search.getSiteEngines(req.params.siteId, { mask: true }),
         req.params.siteId
@@ -313,10 +272,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
       const definition = WIKI.models.search.getDefinition(req.params.key)
       if (!definition) {
         return reply.notFound(`Search engine "${req.params.key}" does not exist.`)
@@ -361,16 +316,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Re-scans `modules/search` for `definition.yml` files, picking up an engine added or removed since boot, then returns the refreshed list for this site -- same shape as `GET .../search/engines`.',
         tags: ['Search'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Refreshed list of search engines',
@@ -382,11 +328,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
+    async (req) => {
       await WIKI.models.search.refreshFromDisk()
       return withDbSearchExtras(
         await WIKI.models.search.getSiteEngines(req.params.siteId, { mask: true }),

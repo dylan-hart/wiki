@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { and, eq, inArray } from 'drizzle-orm'
-import { CustomError } from '../helpers/common.ts'
+import { CustomError, isUniqueViolation } from '../helpers/common.ts'
 import {
   blockCode as blockCodeTable,
   blocks as blocksTable,
@@ -338,7 +338,7 @@ class Blocks {
   }
 
   /**
-   * A site's custom blocks, in just the shape `blockAllowances()` (`models/rendering.ts`) needs to
+   * A site's custom blocks, in just the shape `blockAllowances()` (`helpers/htmlSanitizePolicy.ts`) needs to
    * admit them to the sanitizer's per-block allowlist: the tag they register under and the prop names
    * a saved page may put on them.
    *
@@ -397,7 +397,7 @@ class Blocks {
    *
    * Deliberately loose beyond that: values are written as given, with no per-field type check against
    * `BlockProp.type`. This mirrors how page-authored `props` are already trusted — `blockAllowances()`
-   * in `models/rendering.ts` allow-lists an embedded block's attributes by name only, taking whatever
+   * in `helpers/htmlSanitizePolicy.ts` allow-lists an embedded block's attributes by name only, taking whatever
    * string value came with them — so `config` is held to the same standard as the sibling data an
    * admin's site-level form and an author's page-level markup both ultimately feed into the same
    * component. This was a deliberate choice for new code, not a preserved pre-existing gap, with one
@@ -479,7 +479,7 @@ class Blocks {
    * object `{}` is a deliberate "clear whatever was set", not the same as "say nothing about it".
    *
    * Deliberately does not queue a re-render of pages that already embed a block moved to disabled here
-   * — see `models/rendering.ts#blockAllowances`'s doc comment (OpenProject #1738) for why, and for what
+   * — see `helpers/htmlSanitizePolicy.ts#blockAllowances`'s doc comment (OpenProject #1738) for why, and for what
    * keeps a disabled block from reaching a reader in the meantime regardless.
    *
    * @param states Block IDs with their desired state, and optionally a new site-level config
@@ -625,7 +625,7 @@ class Blocks {
           })
           .returning()
       } catch (err: any) {
-        if (err.cause?.code === '23505' || err.code === '23505') {
+        if (isUniqueViolation(err)) {
           throw new CustomError(
             'blockTagTaken',
             `A block already registers the tag "block-${definition.block}" on this site.`,

@@ -27,13 +27,9 @@ export interface CommentImportOptions {
   siteId: string
   // -> `UserIdMap` (`id-map.ts`), reused here for `pageIdMap` too — despite the name, it is just the
   //    generic read-only "old numeric id -> new UUID" `.get()` contract, and this module never calls
-  //    anything beyond that on either map. Adapted from the design brief's sketch, which typed both as
-  //    the concrete `IdMap<number>` class: `context.ts`'s `MigrationContext.userIdMap` field is itself
-  //    a plain `Map<number, string>`, not an `IdMap`, so a hand-built fallback for a `MigrationContext`
-  //    that never ran the owning phase would not type-check against `IdMap<number>` — confirmed by
-  //    `npm run typecheck`, not assumed. `pageIdMap` (populated by the `content` phase as a real
-  //    `IdMap<number>`) is left this way for symmetry, and because it also only ever needs `.get()`
-  //    here.
+  //    anything beyond that on either map. Deliberately narrower than the concrete
+  //    `Map<number, string>` the `users`/`content` phases populate, so a caller can hand in a
+  //    hand-built fallback for a `MigrationContext` that never ran the owning phase.
   pageIdMap: UserIdMap
   userIdMap: UserIdMap
 }
@@ -49,15 +45,6 @@ export interface CommentImportFailure {
 export interface CommentImportSuccess {
   oldId: number
   commentId: string
-}
-
-export interface CommentImportResult {
-  succeeded: CommentImportSuccess[]
-  failed: CommentImportFailure[]
-  /** Comments whose 2.x pageId named a page that failed to import (or was never staged at all) — the
-   * comment itself is real, it just has nowhere to attach; reported rather than silently dropped, the
-   * same treatment `navigation-import.ts` gives a `'page'`-type nav link with no matching page. */
-  droppedForMissingPage: number
 }
 
 /** Imports one 2.x comment row into the destination `comments` table directly — no staging bundle
@@ -141,28 +128,4 @@ export async function importComment(
   } catch (err: any) {
     return { result: 'failure', failure: { oldId, reason: 'create-error', message: err.message } }
   }
-}
-
-/** Batch form of `importComment()`, for a caller (a test, or any future standalone use) holding a
- * whole `AsyncIterable` rather than driving it one record at a time. */
-export async function importComments(
-  comments: AsyncIterable<SourceRecord>,
-  deps: CommentImportDeps,
-  options: CommentImportOptions
-): Promise<CommentImportResult> {
-  const succeeded: CommentImportSuccess[] = []
-  const failed: CommentImportFailure[] = []
-  let droppedForMissingPage = 0
-
-  for await (const raw of comments) {
-    const outcome = await importComment(raw, deps, options)
-    if (outcome.result === 'success') {
-      succeeded.push(outcome.success)
-    } else {
-      failed.push(outcome.failure)
-      if (outcome.failure.reason === 'unknown-page') droppedForMissingPage++
-    }
-  }
-
-  return { succeeded, failed, droppedForMissingPage }
 }

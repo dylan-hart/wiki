@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
+import { flushPromises } from '@vue/test-utils'
 
 import AdminPagesDeleted from './AdminPagesDeleted.vue'
-import { useAdminStore } from '@/stores/admin'
 import { openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { buildTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 /**
  * Regression coverage for task 515's two distinct recover-failure paths.
@@ -33,36 +33,28 @@ const row = {
 }
 
 function mockLoadEndpoints(rows = [row]) {
-  globalThis.API_CLIENT.get.mockImplementation((url) => {
-    if (String(url).includes('pages/deleted')) {
-      // -> One page, already exhausted -- `fetchAllRecoverable`'s cursor loop stops as soon as
-      //    `nextCursor` is null, so a single-page mock is enough for tests that don't care about
-      //    pagination itself.
-      return { json: () => Promise.resolve({ items: rows, nextCursor: null }) }
-    }
-    // -> The site lookup `load()` makes alongside the row list, for its currently active locales
-    return { json: () => Promise.resolve({ locales: { active: ['en', 'fr'] } }) }
+  stubApi(new Map([[/pages\/deleted/, { items: rows, nextCursor: null }]]), {
+    fallback: { locales: { active: ['en', 'fr'] } }
   })
 }
 
 async function mountPage() {
-  setActivePinia(createPinia())
-  const adminStore = useAdminStore()
-  adminStore.currentSiteId = 'site-1'
-  adminStore.locales = [
-    { code: 'en', name: 'English', nativeName: 'English' },
-    { code: 'fr', name: 'French', nativeName: 'French' }
-  ]
-
   mockLoadEndpoints()
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-  })
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const router = buildTestRouter(['/:pathMatch(.*)*'])
 
-  const wrapper = mount(AdminPagesDeleted, { global: { plugins: [router, i18n] } })
+  const { wrapper } = mountWithApp(AdminPagesDeleted, {
+    router,
+    stores: {
+      admin: {
+        currentSiteId: 'site-1',
+        locales: [
+          { code: 'en', name: 'English', nativeName: 'English' },
+          { code: 'fr', name: 'French', nativeName: 'French' }
+        ]
+      }
+    }
+  })
   await flushPromises()
 
   return { wrapper, router }
@@ -91,10 +83,6 @@ describe('AdminPagesDeleted: load()', () => {
     const rowB = { ...row, id: 'hist-b', path: 'b' }
     const seenUrls = []
 
-    setActivePinia(createPinia())
-    const adminStore = useAdminStore()
-    adminStore.currentSiteId = 'site-1'
-
     globalThis.API_CLIENT.get.mockImplementation((url) => {
       seenUrls.push(String(url))
       if (String(url).includes('pages/deleted')) {
@@ -106,12 +94,11 @@ describe('AdminPagesDeleted: load()', () => {
       return { json: () => Promise.resolve({ locales: { active: ['en'] } }) }
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
+    const router = buildTestRouter(['/:pathMatch(.*)*'])
+    const { wrapper } = mountWithApp(AdminPagesDeleted, {
+      router,
+      stores: { admin: { currentSiteId: 'site-1' } }
     })
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-    const wrapper = mount(AdminPagesDeleted, { global: { plugins: [router, i18n] } })
     await flushPromises()
 
     // -> Both server pages' rows landed in the same list, and the second request carried the first

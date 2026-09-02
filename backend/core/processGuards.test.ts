@@ -119,6 +119,34 @@ describe('registerUnhandledRejectionHandler', () => {
     assert.equal(logger.error.mock.calls[1].arguments[0], err)
   })
 
+  test('calls exit(1) after logging when an exit is injected', () => {
+    // -> `index.ts` passes `process.exit` here: an unhandled rejection means some in-flight
+    //    operation already gave up, so the process gives up too rather than carrying on in that
+    //    state. Injected as a function so this can be asserted without terminating the test runner.
+    const logger = createLoggerStub()
+    const target = new EventEmitter()
+    const exit = mock.fn()
+
+    registerUnhandledRejectionHandler(logger, { target, exit })
+    target.emit('unhandledRejection', new Error('search engine init failed'))
+
+    assert.equal(logger.error.mock.calls.length, 1)
+    assert.equal(exit.mock.calls.length, 1)
+    assert.equal(exit.mock.calls[0].arguments[0], 1)
+  })
+
+  test('logs without exiting when no exit is injected', () => {
+    const logger = createLoggerStub()
+    const target = new EventEmitter()
+
+    registerUnhandledRejectionHandler(logger, { target })
+
+    assert.doesNotThrow(() => {
+      target.emit('unhandledRejection', new Error('boom'))
+    })
+    assert.equal(logger.error.mock.calls.length, 1)
+  })
+
   test('does not crash the process—the handler runs instead of the default termination', () => {
     // -> Registering against a real EventEmitter (not `process`) and asserting the emit doesn't
     //    throw is this suite's stand-in for "an unhandledRejection raised after boot is logged

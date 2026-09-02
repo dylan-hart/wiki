@@ -1,13 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
 import classificationLevelsRoutes from './classificationLevels.ts'
-import { registerSchemas as registerClassificationSchema } from './schemas/classificationLevel.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * DB-backed route test (OpenProject #1079): a real Fastify instance with `app.inject`, gating
@@ -26,41 +22,27 @@ describe('classification-levels API (DB-backed)', { skip: !hasTestDatabase() }, 
     ;({ classificationLevels: levelsModel } = await import('../models/classificationLevels.ts'))
     await levelsModel.reloadCache()
 
-    app = fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
-    await app.register(fastifySensible)
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
+    // -> The REAL `preHandler` permission hook (`core/http/authHooks.ts`), reading a session seeded
+    //    from a test header rather than a real cookie. No `wiki`: `setupTestDb()` already installed
+    //    the real one, and these routes run against it.
+    app = await buildTestApp({
+      routes: classificationLevelsRoutes,
+      ajv: true,
+      session: 'header',
+      permissions: true
     })
-    // -> Stands in for the real `preHandler` permission hook in `index.ts`: reads `permissions`
-    //    straight off a test header rather than a real session/cookie.
-    app.addHook('preHandler', async (req, reply) => {
-      const required = (req.routeOptions.config as any)?.permissions as string[] | undefined
-      if (!required) {
-        return
-      }
-      const raw = req.headers['x-test-permissions']
-      const held = typeof raw === 'string' ? JSON.parse(raw) : []
-      if (!held.includes('manage:system') && !required.some((p) => held.includes(p))) {
-        return reply.forbidden('Missing permission.')
-      }
-    })
-    await registerClassificationSchema(app)
-    await registerErrorSchema(app)
-    await app.register(classificationLevelsRoutes)
-    await app.ready()
   })
 
   after(async () => {
-    await app.close()
+    await closeTestApp(app)
     await teardownTestDb()
   })
 
   const asAdmin = { 'x-test-permissions': JSON.stringify(['manage:system']) }
+  // -> An authenticated caller holding SOMETHING, just not what the route asks for: that is the 403
+  //    case. A request carrying no session at all is a 401 instead, which is the real hook's answer
+  //    and is not what these two tests are about.
+  const asUnprivileged = { 'x-test-permissions': JSON.stringify(['read:pages']) }
 
   test('GET / needs no permission at all and lists the seeded defaults', async () => {
     const res = await app.inject({ method: 'GET', url: '/' })
@@ -74,7 +56,12 @@ describe('classification-levels API (DB-backed)', { skip: !hasTestDatabase() }, 
   })
 
   test('POST / is refused without manage:system', async () => {
-    const res = await app.inject({ method: 'POST', url: '/', payload: { name: 'Confidential' } })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/',
+      headers: asUnprivileged,
+      payload: { name: 'Confidential' }
+    })
     assert.equal(res.statusCode, 403)
   })
 
@@ -150,7 +137,11 @@ describe('classification-levels API (DB-backed)', { skip: !hasTestDatabase() }, 
   })
 
   test('DELETE /:id is refused without manage:system', async () => {
-    const res = await app.inject({ method: 'DELETE', url: `/${fixtures.classificationId}` })
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/${fixtures.classificationId}`,
+      headers: asUnprivileged
+    })
     assert.equal(res.statusCode, 403)
   })
 

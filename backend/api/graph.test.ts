@@ -1,12 +1,8 @@
 import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
 import { eq } from 'drizzle-orm'
 import graphRoutes, { assembleGraph, folderOf, GRAPH_NODE_CAP, type GraphPageRow } from './graph.ts'
-import { registerSchemas as registerGraphSchema } from './schemas/graph.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import {
   hasTestDatabase,
   seedLocale,
@@ -17,6 +13,7 @@ import {
 import { groups as groupsTable } from '../db/schema.ts'
 import type { GroupRule } from '../models/groups.ts'
 import type { PageActor, PageInput } from '../models/pages.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 function makeRow(overrides: Partial<GraphPageRow> = {}): GraphPageRow {
   // -> `id` defaults to `path` (not a fixed constant) so a test giving several rows distinct
@@ -448,32 +445,16 @@ describe('GET /sites/:siteId/graph (DB-backed)', { skip: !hasTestDatabase() }, (
       .where(eq(groupsTable.id, fixtures.groupId))
     await groupsModel.reloadCache()
 
-    app = fastify()
-    app.addHook('onRequest', async (req) => {
-      ;(req as any).session = testSession
-    })
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.unauthorized()`/`notFound()`/etc. is a
-    //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-    //    shapes it into the `{ ok, error, statusCode, message }` the route's `401`/`403` `ApiError`
-    //    responses expect. Without it, `reply.unauthorized()` fails schema serialization instead of
-    //    answering 401 (`ok` is a required property `ApiError#` declares).
-    app.setErrorHandler((error: any, _req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerErrorSchema(app)
-    await registerGraphSchema(app)
-    await app.register(graphRoutes)
-    await app.ready()
+    // -> `buildTestApp` installs the REAL error handler, which is what shapes a thrown
+    //    `reply.unauthorized()`/`notFound()` into the `{ ok, error, statusCode, message }` the
+    //    route's `401`/`403` `ApiError` responses expect. Without it, `reply.unauthorized()` fails
+    //    schema serialization instead of answering 401 (`ok` is a required property `ApiError#`
+    //    declares). No `wiki`: `setupTestDb()` already installed the real one.
+    app = await buildTestApp({ routes: graphRoutes, session: () => testSession })
   })
 
   after(async () => {
-    await app.close()
+    await closeTestApp(app)
     await teardownTestDb()
   })
 
@@ -778,28 +759,16 @@ describe('GET /sites/:siteId/graph — actor hoisted out of the per-row filter (
   let app: FastifyInstance
   let actorForRequest: ReturnType<typeof mock.fn>
   let checkAccess: ReturnType<typeof mock.fn>
-  // -> A bare Map stands in for `WIKI.cache` (a real `NodeCache` in production) -- the route reads
-  //    and writes the graph bundle through it (`helpers/graphCache.ts`), so `loadGraphData` needs
-  //    somewhere to look before it will ever call `listAllForGraph` et al.
-  let cacheStore: Map<string, unknown>
 
   before(async () => {
     actorForRequest = mock.fn(() => ({ groupIds: [], permissions: [] }))
     checkAccess = mock.fn(
       (_actor: unknown, _permission: string, page: { path: string }) => page.path !== 'secret'
     )
-    cacheStore = new Map()
-    ;(globalThis as any).WIKI = {
-      sites: {},
-      cache: {
-        get: (key: string) => cacheStore.get(key),
-        set: (key: string, value: unknown) => {
-          cacheStore.set(key, value)
-        },
-        delete: (key: string) => {
-          cacheStore.delete(key)
-        }
-      },
+    // -> `createWikiStub`'s own `WIKI.cache` stub backs this: the route reads and writes the graph
+    //    bundle through it (`helpers/graphCache.ts`), so `loadGraphData` needs somewhere to look
+    //    before it will ever call `listAllForGraph` et al.
+    const wiki = {
       models: {
         pages: {
           listAllForGraph: async () => [
@@ -824,21 +793,14 @@ describe('GET /sites/:siteId/graph — actor hoisted out of the per-row filter (
       }
     }
 
-    app = fastify()
-    app.addHook('onRequest', async (req) => {
-      ;(req as any).session = { authenticated: true }
+    app = await buildTestApp({
+      routes: graphRoutes,
+      wiki,
+      session: { authenticated: true }
     })
-    await app.register(fastifySensible)
-    await registerErrorSchema(app)
-    await registerGraphSchema(app)
-    await app.register(graphRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   test('filters out a row checkAccess refuses, keeping the rest -- same node set as the unhoisted call', async () => {
     const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/graph` })

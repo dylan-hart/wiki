@@ -1,42 +1,37 @@
 import { AzureKeyCredential, SearchClient, SearchIndexClient } from '@azure/search-documents'
 import { chunk } from 'es-toolkit/array'
-import { and, asc, eq } from 'drizzle-orm'
-import { pages as pagesTable } from '../../../db/schema.ts'
+import { search } from '../../../models/search.ts'
+import { ExternalSearchModule } from '../externalBase.ts'
+import {
+  defaultPageSource,
+  fillEmptyStringDefaults,
+  filterVisible,
+  HL_START,
+  HL_STOP,
+  localePageStream,
+  normalizeMarkers,
+  REBUILD_BATCH_SIZE,
+  SCAN_CAP,
+  toSearchPagesResult
+} from '../shared.ts'
 import type { SearchIndex } from '@azure/search-documents'
+import type { RebuildPageSource } from '../shared.ts'
 import type {
   RebuildResult,
   SearchIndexablePage,
-  SearchModule,
   SearchOrderBy,
   SearchPagesParams,
-  SearchPagesResult,
-  SearchResult
+  SearchPagesResult
 } from '../../../models/search.ts'
 
 /** This module's own key, i.e. the directory name of its `definition.yml`. */
 const MODULE_KEY = 'azure-search'
-
-/** The index name a site gets when it hasn't set one, matching `definition.yml`'s declared default. */
-const DEFAULT_INDEX_NAME = 'wiki'
 
 /**
  * Name of the scoring profile every index is provisioned with, and set as the index's default so a
  * query needs no `scoringProfile` parameter to get the weighting below.
  */
 const SCORING_PROFILE_NAME = 'wikiRelevancy'
-
-/**
- * Markers requested via `highlightPreTag`/`highlightPostTag` in place of Azure's own default
- * (`<em>`/`</em>`).
- *
- * Control characters, same reasoning as the `db` engine's `ts_headline` markers (`modules/search/db/
- * search.ts`): the excerpt is page text that may itself contain anything, and it is HTML-escaped
- * before these are turned into `<b>` tags. Leaving Azure's own `<em>`/`</em>` as the markers would mean
- * a page whose text happens to contain the literal string `<em>` gets it turned into emphasis too,
- * which is exactly the collision the `db` engine's own comment on this explains.
- */
-const HL_START = ''
-const HL_STOP = ''
 
 /** Fields the main, unrestricted search matches and highlights against. */
 const FULL_SEARCH_FIELDS = ['title', 'description', 'content']
@@ -47,14 +42,6 @@ const PROTECTED_SEARCH_FIELDS = ['title', 'description']
 /** `highlightFields` value: one fragment each from `content` and `description`, matching the `db`
  *  engine's `ts_headline` call (`MaxFragments=1`). */
 const HIGHLIGHT_FIELDS = 'content-1,description-1'
-
-/**
- * Ceiling on how many of Azure's own matches `query()` scans (per half, when split) before deriving
- * `totalHits` and the requested page from what survives `checkAccess()` (OpenProject #2156,
- * mirroring `db/search.ts`'s own `SCAN_CAP`). Bounded rather than unbounded, since page-rule
- * filtering cannot be expressed as an OData `$filter` and has to run per-row in this process.
- */
-const SCAN_CAP = 500
 
 /**
  * The subset of `SearchIndexClient` this module actually calls.
@@ -106,60 +93,6 @@ export interface AzureSearchQueryClient {
   ): Promise<{ count?: number; results: AsyncIterable<AzureSearchRow> }>
 }
 
-/**
- * Where `rebuild()` reads pages from — narrowed to what it needs, the same reasoning as
- * `AzureSearchIndexClient`/`AzureSearchQueryClient` above: a test hands it a fake that returns fixed
- * pages with no real postgres involved, rather than requiring a live database for logic that is really
- * about pagination and per-locale counting.
- */
-export interface RebuildPageSource {
-  /** Every distinct locale a site currently has at least one page in, in a stable order. */
-  locales(siteId: string): Promise<string[]>
-  /**
-   * One page of a site's rows for one locale, ordered by `id` so repeated calls with an increasing
-   * `offset` walk the whole set exactly once each, with no gaps or duplicates.
-   */
-  pageBatch(
-    siteId: string,
-    locale: string,
-    offset: number,
-    limit: number
-  ): Promise<SearchIndexablePage[]>
-}
-
-/** Rows read from postgres, and documents sent per `mergeOrUploadDocuments` call, in one `rebuild()` step. */
-export const REBUILD_BATCH_SIZE = 500
-
-/**
- * The real, database-backed `RebuildPageSource`.
- *
- * Paginated rather than one `SELECT *`, the same reason `rebuild()` itself streams through the bulk
- * indexing client instead of building one giant document array: a site's full page set should never
- * have to fit in memory at once, and Azure's own `mergeOrUploadDocuments` has request-size limits of
- * its own that a `REBUILD_BATCH_SIZE`-sized chunk comfortably stays under.
- */
-function defaultPageSource(): RebuildPageSource {
-  return {
-    async locales(siteId) {
-      const rows = await WIKI.db
-        .selectDistinct({ locale: pagesTable.locale })
-        .from(pagesTable)
-        .where(eq(pagesTable.siteId, siteId))
-        .orderBy(pagesTable.locale)
-      return rows.map((r) => r.locale)
-    },
-    async pageBatch(siteId, locale, offset, limit) {
-      return WIKI.db
-        .select()
-        .from(pagesTable)
-        .where(and(eq(pagesTable.siteId, siteId), eq(pagesTable.locale, locale)))
-        .orderBy(asc(pagesTable.id))
-        .limit(limit)
-        .offset(offset)
-    }
-  }
-}
-
 /** Builds the real SDK index-management client from a site's stored `serviceName`/`adminApiKey` config. */
 function defaultClientFactory(config: Record<string, any>): AzureSearchIndexClient {
   const endpoint = `https://${config.serviceName}.search.windows.net`
@@ -169,7 +102,7 @@ function defaultClientFactory(config: Record<string, any>): AzureSearchIndexClie
 /** Builds the real SDK document/query client from a site's stored config. */
 function defaultSearchClientFactory(config: Record<string, any>): AzureSearchQueryClient {
   const endpoint = `https://${config.serviceName}.search.windows.net`
-  const indexName = config.indexName || DEFAULT_INDEX_NAME
+  const indexName = config.indexName
   const client = new SearchClient<Record<string, any>>(
     endpoint,
     indexName,
@@ -265,7 +198,7 @@ export function toIndexDocument(page: SearchIndexablePage): Record<string, any> 
     icon: page.icon ?? '',
     hasPassword: page.password != null,
     classification: page.classification,
-    // -> Same conversion `api/pages.ts` uses for a `Date` column headed into an ISO string: an exact
+    // -> Same conversion `api/pages/write.ts` uses for a `Date` column headed into an ISO string: an exact
     //    instant, so millisecond precision (what the rest of the codebase emits) is enough.
     updatedAt: page.updatedAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
   }
@@ -274,15 +207,6 @@ export function toIndexDocument(page: SearchIndexablePage): Record<string, any> 
 /** Escapes a literal for an OData string constant by doubling embedded single quotes. */
 function escapeODataLiteral(value: string): string {
   return value.replaceAll("'", "''")
-}
-
-/** `escapeHtml` from the `db` engine, copied rather than imported: each engine module stays self-contained. */
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
 }
 
 /** The delimiter `search.in()` splits its value list on — not a comma, so a value containing one is safe. */
@@ -393,14 +317,13 @@ export function buildOrderBy(orderBy: SearchOrderBy, direction: 'asc' | 'desc'):
   return [`${orderBy} ${dir}`]
 }
 
-/** The first highlighted fragment found (`content` preferred over `description`), normalized to `<b>`. */
+/**
+ * The first highlighted fragment found (`content` preferred over `description`), normalized to `<b>`
+ * by the shared `normalizeMarkers` — which escapes it first, so the only markup that survives is the
+ * emphasis Azure itself marked.
+ */
 function normalizeHighlight(highlights: Record<string, string[]> | undefined): string | null {
-  const fragment = highlights?.content?.[0] ?? highlights?.description?.[0]
-  if (!fragment) {
-    return null
-  }
-  // -> Escaped first, so the only markup that survives is the emphasis Azure itself marked
-  return escapeHtml(fragment).replaceAll(HL_START, '<b>').replaceAll(HL_STOP, '</b>')
+  return normalizeMarkers(highlights?.content?.[0] ?? highlights?.description?.[0])
 }
 
 /** Compares two rows the same way Azure's own `$orderby` would, for merging two already-sorted result sets. */
@@ -435,7 +358,7 @@ function compareRows(
  * client with no real Azure resource, network call, or credential involved — there is no local Azure
  * AI Search emulator (Feature #381).
  */
-export class AzureSearchModule implements SearchModule {
+export class AzureSearchModule extends ExternalSearchModule {
   private readonly clientFactory: (config: Record<string, any>) => AzureSearchIndexClient
   private readonly searchClientFactory: (config: Record<string, any>) => AzureSearchQueryClient
   private readonly pageSource: RebuildPageSource
@@ -461,6 +384,7 @@ export class AzureSearchModule implements SearchModule {
     ) => AzureSearchQueryClient = defaultSearchClientFactory,
     pageSource: RebuildPageSource = defaultPageSource()
   ) {
+    super()
     this.clientFactory = clientFactory
     this.searchClientFactory = searchClientFactory
     this.pageSource = pageSource
@@ -489,18 +413,23 @@ export class AzureSearchModule implements SearchModule {
   }
 
   /**
-   * The stored config for one site's `azure-search` engine (`serviceName`/`adminApiKey`/`indexName`).
+   * The config for one site's `azure-search` engine (`serviceName`/`adminApiKey`/`indexName`),
+   * completed with this engine's own `definition.yml` defaults.
    *
-   * Read straight off `WIKI.sites`, the same place `models/search.ts`'s `getEngineConfig` itself reads
-   * `stored` from, rather than going through that method: `getEngineConfig` completes its result with
-   * this engine's declared prop defaults, which needs `search.definitions` to already have been
-   * populated by `refreshFromDisk()` — a boot-time precondition this module has no reason to depend
-   * on. Every default that matters here is already applied locally wherever it's used (`indexName ||
-   * DEFAULT_INDEX_NAME` in the client factories above), so reading the stored value directly is
-   * equivalent for this module's purposes and keeps every hook usable in isolation.
+   * Read through `models/search.ts`'s `getEngineConfig`, the same path `algolia` and `elasticsearch`
+   * already used, rather than straight off `WIKI.sites`. This module used to read the raw stored
+   * object instead, on the grounds that `getEngineConfig` needs `search.definitions` to have been
+   * populated by `refreshFromDisk()` first — but `index.ts` does call `refreshFromDisk()` before
+   * `initActiveEngines()`, and before any request can reach a hook here, so that precondition always
+   * holds. Going through it is what lets `definition.yml` be the single place `indexName`'s default
+   * is written down, instead of a `|| DEFAULT_INDEX_NAME` re-applied at each use site.
+   *
+   * `fillEmptyStringDefaults` is what keeps the *other* half of that `||`'s behaviour: a value the
+   * operator cleared is stored as `''`, which `getEngineConfig`'s merge treats as a real value rather
+   * than as unset, so without it a blanked `indexName` would reach Azure as an empty index name.
    */
   private configFor(siteId: string): Record<string, any> {
-    return (WIKI.sites[siteId]?.config?.search?.engines?.[MODULE_KEY] ?? {}) as Record<string, any>
+    return fillEmptyStringDefaults(search.getEngineConfig(siteId, MODULE_KEY), MODULE_KEY)
   }
 
   /**
@@ -513,9 +442,13 @@ export class AzureSearchModule implements SearchModule {
    * schema is later changed incompatibly for an index that already holds documents (e.g. flipping
    * `filterable` on an existing field), which is a schema-authoring concern for whoever next edits
    * `buildIndexSchema`, not something `init()` itself needs to guard against.
+   *
+   * `incoming` is completed the same way `configFor()` completes what it reads, so a cleared
+   * `indexName` provisions `wiki` rather than an unnamed index — see `fillEmptyStringDefaults`.
    */
-  async init(siteId: string, config: Record<string, any>): Promise<void> {
-    const indexName = config.indexName || DEFAULT_INDEX_NAME
+  async init(siteId: string, incoming: Record<string, any>): Promise<void> {
+    const config = fillEmptyStringDefaults(incoming, MODULE_KEY)
+    const indexName = config.indexName
     const client = this.clientFor(siteId, config)
     await client.createOrUpdateIndex(buildIndexSchema(indexName))
     WIKI.logger.info(
@@ -526,55 +459,29 @@ export class AzureSearchModule implements SearchModule {
   /**
    * Write (or overwrite) one page's document in the index.
    *
-   * Never throws: a page that saved correctly must not report failure because its index entry could
-   * not be written — the same contract `indexPage` gives `models/search.ts`'s dispatcher in the `db`
-   * engine. A later `rebuild()` (task #564) puts a missed write right.
+   * Never throws — see `ExternalSearchModule#neverThrows`: a page that saved correctly must not
+   * report failure because its index entry could not be written. A later `rebuild()` puts a missed
+   * write right.
    */
-  private async indexPage(page: SearchIndexablePage): Promise<void> {
-    try {
-      const client = this.queryClientFor(page.siteId, this.configFor(page.siteId))
-      await client.mergeOrUploadDocuments([toIndexDocument(page)])
-    } catch (err: any) {
-      WIKI.logger.warn(
-        `Failed to update the Azure AI Search index for page ${page.id}: ${err.message}`
-      )
-    }
+  protected async indexPage(page: SearchIndexablePage): Promise<void> {
+    await this.neverThrows(
+      async () => {
+        const client = this.queryClientFor(page.siteId, this.configFor(page.siteId))
+        await client.mergeOrUploadDocuments([toIndexDocument(page)])
+      },
+      (message) => `Failed to update the Azure AI Search index for page ${page.id}: ${message}`
+    )
   }
 
   /** Remove one page's document from the index. Never throws — same contract as `indexPage`. */
-  private async removePage(siteId: string, pageId: string): Promise<void> {
-    try {
-      const client = this.queryClientFor(siteId, this.configFor(siteId))
-      await client.deleteDocuments('id', [pageId])
-    } catch (err: any) {
-      WIKI.logger.warn(
-        `Failed to remove page ${pageId} from the Azure AI Search index: ${err.message}`
-      )
-    }
-  }
-
-  async created(page: SearchIndexablePage): Promise<void> {
-    await this.indexPage(page)
-  }
-
-  async updated(page: SearchIndexablePage): Promise<void> {
-    await this.indexPage(page)
-  }
-
-  async deleted(siteId: string, pageId: string): Promise<void> {
-    await this.removePage(siteId, pageId)
-  }
-
-  /**
-   * `previousPath` goes unused: the document's key is the page's `id`, not its `path`, so a move is
-   * just a normal reindex of the (now differently-pathed) document rather than a delete-then-recreate
-   * under a new key. Unlike the `db` engine — whose `ts` vector never stores the path at all, making a
-   * path-only rename a genuine no-op there — this module's index does store `path` as a filterable
-   * field, so it does need rewriting here. A locale change is rewritten by the same reindex, which is
-   * why this module needs no `previousLocale` of its own.
-   */
-  async renamed(siteId: string, page: SearchIndexablePage, _previousPath: string): Promise<void> {
-    await this.indexPage(page)
+  protected async removePage(siteId: string, pageId: string): Promise<void> {
+    await this.neverThrows(
+      async () => {
+        const client = this.queryClientFor(siteId, this.configFor(siteId))
+        await client.deleteDocuments('id', [pageId])
+      },
+      (message) => `Failed to remove page ${pageId} from the Azure AI Search index: ${message}`
+    )
   }
 
   /** Runs one search and drains its result iterator into a plain array. */
@@ -701,54 +608,29 @@ export class AzureSearchModule implements SearchModule {
       rows = result.rows
     }
 
-    /*
-      Filtered here rather than in the OData filter: a page rule can be a regular expression or a set
-      of tags, so the deciding rule is only knowable per row. Search must not be a way around page
-      permissions — a title and an excerpt are content too. Same discipline as the `db` engine.
-    */
-    const visible = actor
-      ? rows.filter((row) =>
-          WIKI.models.groups.checkAccess(actor, 'read:pages', {
-            path: row.document.path as string,
-            locale: row.document.locale as string,
-            siteId,
-            tags: (row.document.tags ?? []) as string[],
-            // -> Indexed at write time by `toIndexDocument` (OpenProject #1125) -- a document written
-            //    before this field existed has none, which falls back to the same fail-closed `null`
-            //    treatment `helpers/pageRules.ts` documents for a genuinely unknown classification. A
-            //    full reindex (`rebuild()`) backfills every existing document with its real value.
-            classification: (row.document.classification as string | null) ?? null
-          })
-        )
-      : rows
-
-    const results: SearchResult[] = visible.slice(offset, offset + limit).map((row) => ({
-      id: row.document.id as string,
+    const visible = filterVisible(rows, actor, siteId, (row) => ({
       path: row.document.path as string,
       locale: row.document.locale as string,
-      title: row.document.title as string,
-      description: (row.document.description || null) as string | null,
-      icon: (row.document.icon || null) as string | null,
       tags: (row.document.tags ?? []) as string[],
-      updatedAt: row.document.updatedAt as string,
-      relevancy: row.score,
-      highlight: normalizeHighlight(row.highlights)
+      classification: (row.document.classification as string | null) ?? null
     }))
 
-    return {
-      results,
-      // -> OpenProject #2151/#2156: derived from `visible` alone -- never a count Azure reported
-      //    before filtering, and therefore never able to exceed what the actor can actually read.
-      //    See `db/search.ts#query()`'s comment for the exact/floor distinction.
-      totalHits: visible.length,
-      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
-      //    above actually dropped a row from this page, same signal `db/search.ts` uses.
-      totalHitsApproximate: rows.length !== visible.length,
-      // -> No "did you mean" here: Azure AI Search's own fuzzy/suggester features are a separate
-      //    setup step (a suggester definition on the index) this module does not configure, and
-      //    building one out of band is future scope, not this task's.
-      suggestion: null
-    }
+    return toSearchPagesResult(rows, visible, {
+      offset,
+      limit,
+      toResult: (row) => ({
+        id: row.document.id as string,
+        path: row.document.path as string,
+        locale: row.document.locale as string,
+        title: row.document.title as string,
+        description: (row.document.description || null) as string | null,
+        icon: (row.document.icon || null) as string | null,
+        tags: (row.document.tags ?? []) as string[],
+        updatedAt: row.document.updatedAt as string,
+        relevancy: row.score,
+        highlight: normalizeHighlight(row.highlights)
+      })
+    })
   }
 
   /**
@@ -850,20 +732,14 @@ export class AzureSearchModule implements SearchModule {
     const result: RebuildResult = { pages: 0, locales: [] }
 
     for (const locale of locales) {
-      let offset = 0
       let localePages = 0
-      let batch: SearchIndexablePage[]
-      do {
-        batch = await this.pageSource.pageBatch(siteId, locale, offset, REBUILD_BATCH_SIZE)
-        if (batch.length > 0) {
-          await client.mergeOrUploadDocuments(batch.map(toIndexDocument))
-          for (const page of batch) {
-            uploadedIds.add(page.id)
-          }
-          localePages += batch.length
-          offset += batch.length
+      for await (const batch of localePageStream(this.pageSource, siteId, locale)) {
+        await client.mergeOrUploadDocuments(batch.map(toIndexDocument))
+        for (const page of batch) {
+          uploadedIds.add(page.id)
         }
-      } while (batch.length === REBUILD_BATCH_SIZE)
+        localePages += batch.length
+      }
 
       result.pages += localePages
       result.locales.push({ locale, pages: localePages })

@@ -1,9 +1,9 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { load } from 'js-yaml'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { readModuleDefinitions } from '../helpers/moduleRegistry.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -190,23 +190,9 @@ class Extensions {
    */
   async refreshFromDisk(): Promise<void> {
     const extensionsPath = path.join(WIKI.SERVERPATH, 'modules/extensions')
-    const definitions: ExtensionDefinition[] = []
     try {
-      // -> Filtered to directories only: this listing also contains loose per-module test files
-      //    (e.g. `definitions.test.ts`) sitting alongside the module directories, which have no
-      //    `definition.yml` of their own to read -- and since this loop has no per-entry try/catch,
-      //    one such file previously aborted the whole scan, silently losing every real extension.
-      const extensionEntries = await fs.readdir(extensionsPath, { withFileTypes: true })
-      const extensionDirs = extensionEntries
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-      for (const dir of extensionDirs) {
-        const raw = await fs.readFile(path.join(extensionsPath, dir, 'definition.yml'), 'utf8')
-        const parsed = load(raw) as ExtensionDefinition
-        // -> The directory name is the key, as it is for every other module type
-        parsed.key = dir
-        definitions.push(parsed)
-      }
+      // -> No `parseProps`: an extension declares how to detect and install itself, not a config form
+      const definitions = await readModuleDefinitions<ExtensionDefinition>(extensionsPath)
       this.definitions = definitions.sort((a, b) => a.title.localeCompare(b.title))
       WIKI.logger.info(`Found ${this.definitions.length} extensions [ OK ]`)
     } catch (err: any) {
@@ -335,7 +321,7 @@ class Extensions {
    *   which scripts to trust, npm itself has no such per-package allowlist, and this codebase installs
    *   no tool (such as `@lavamoat/allow-scripts`) that would add one. That is accepted rather than
    *   mediated because the caller must already hold `manage:system` (see the route's
-   *   `config.permissions` in `api/system.ts`) — an operator with that permission can already run
+   *   `config.permissions` in `api/system/extensions.ts`) — an operator with that permission can already run
    *   arbitrary code on this server by other means, so gating install scripts specifically would add
    *   friction without adding a boundary.
    *

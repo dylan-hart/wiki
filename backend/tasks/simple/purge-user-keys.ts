@@ -6,7 +6,7 @@
  * something.
  */
 export async function task(): Promise<void> {
-  const count = await WIKI.models.users.purgeExpiredKeys()
+  const count = await WIKI.models.userCredentials.purgeExpiredKeys()
   if (count > 0) {
     WIKI.logger.info(`Purged ${count} expired user key(s).`)
   }

@@ -1,5 +1,5 @@
-import { actorFrom } from './pages.ts'
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { requireActorId } from '../helpers/pageAccess.ts'
+import type { FastifyInstance } from 'fastify'
 
 /**
  * In-App Notification Inbox API Routes (task 535)
@@ -21,25 +21,6 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
  * live row to check permissions against) is handled.
  */
 
-/** The caller, or a 401. Identical to `watching.ts#watcherOf` — kept local rather than exported there
- *  to avoid coupling two otherwise-independent route files over one three-line helper. */
-function callerOf(req: FastifyRequest, reply: FastifyReply): string | null {
-  const actor = actorFrom(req)
-  if (!actor) {
-    reply.unauthorized('This requires a logged in user.')
-    return null
-  }
-  return actor.id
-}
-
-const siteIdParam = {
-  type: 'object',
-  properties: {
-    siteId: { type: 'string', format: 'uuid' }
-  },
-  required: ['siteId']
-}
-
 async function routes(app: FastifyInstance) {
   /**
    * LIST UNREAD NOTIFICATIONS
@@ -52,7 +33,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Every unread page-watch notification for the caller on this site, most recent change first. A notification disappears from this list once marked read — see PATCH on this same collection — the same way InboxReview lists only pending submissions.',
         tags: ['Pages'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Unread notifications',
@@ -63,7 +44,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const userId = callerOf(req, reply)
+      const userId = requireActorId(req, reply)
       if (!userId) {
         return reply
       }
@@ -110,7 +91,7 @@ async function routes(app: FastifyInstance) {
         description:
           "A single number, for a badge that needs no page permission check and no page's worth of rows to answer.",
         tags: ['Pages'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Unread count',
@@ -123,7 +104,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const userId = callerOf(req, reply)
+      const userId = requireActorId(req, reply)
       if (!userId) {
         return reply
       }
@@ -163,7 +144,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const userId = callerOf(req, reply)
+      const userId = requireActorId(req, reply)
       if (!userId) {
         return reply
       }

@@ -8,6 +8,8 @@ import {
   resetLaunchSemaphoreForTests
 } from './puppeteer.ts'
 
+import { installTestWiki } from '../test/mocks.ts'
+
 /**
  * `launchUnderSemaphore` is the process-wide gate `launchPuppeteerBrowser` puts every real
  * `puppeteer.launch()` call through (OpenProject #2258/#2259). Tested directly here with a stubbed
@@ -132,7 +134,7 @@ describe('getPuppeteerLaunchArgs', () => {
 
   beforeEach(() => {
     warnCalls = []
-    ;(globalThis as any).WIKI = {
+    installTestWiki({
       config: {
         security: {
           allowPuppeteerNoSandbox: false
@@ -141,7 +143,7 @@ describe('getPuppeteerLaunchArgs', () => {
       logger: {
         warn: (...args: any[]) => warnCalls.push(args)
       }
-    }
+    })
   })
 
   afterEach(() => {

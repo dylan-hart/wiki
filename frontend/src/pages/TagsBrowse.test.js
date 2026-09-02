@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createMemoryHistory, createRouter } from 'vue-router'
-import { createI18n } from 'vue-i18n'
 
 import TagsBrowse from './TagsBrowse.vue'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import { confirm } from '@/composables/dialog'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -22,18 +23,8 @@ vi.mock('@/composables/dialog', async (importOriginal) => ({
  * as soon as more results exist, whether or not a given test cares about it -- while `messages`
  * layers in whatever ELSE that one test needs resolved (e.g. `MANAGEMENT_MESSAGES` below).
  */
-function createTestI18n(messages = {}) {
-  return createI18n({
-    legacy: false,
-    locale: 'en',
-    fallbackWarn: false,
-    messages: {
-      en: {
-        search: { loadMore: 'Load More' },
-        ...messages
-      }
-    }
-  })
+function createTagsBrowseI18n(messages = {}) {
+  return createTestI18n({ search: { loadMore: 'Load More' }, ...messages })
 }
 
 function findLoadMoreButton(wrapper) {
@@ -84,16 +75,11 @@ const FIXTURE_PAGE_3 = { ...FIXTURE_PAGE, id: 'p3', path: 'some/third-page', tit
 
 const EMPTY_RESULTS = { results: [], totalHits: 0, suggestion: null }
 
-async function createTestRouter(initialPath) {
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: '/_tags', component: TagsBrowse },
-      { path: '/:pathMatch(.*)*', component: { template: '<div />' } }
-    ]
-  })
-  router.push(initialPath)
-  await router.isReady()
+async function createTagsRouter(initialPath) {
+  const router = await createTestRouter(
+    [{ path: '/_tags', component: TagsBrowse }, '/:pathMatch(.*)*'],
+    initialPath
+  )
   return router
 }
 
@@ -127,9 +113,9 @@ async function mountTagsBrowse(
   }
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_TAGS) })
 
-  const router = await createTestRouter(initialPath)
+  const router = await createTagsRouter(initialPath)
   const wrapper = mount(TagsBrowse, {
-    global: { plugins: [router, createTestI18n(i18nMessages)] }
+    global: { plugins: [router, createTagsBrowseI18n(i18nMessages)] }
   })
   await flushPromises()
   return { wrapper, router, siteStore, userStore }
@@ -270,8 +256,8 @@ describe('TagsBrowse.vue (OpenProject #987)', () => {
 
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_TAGS) })
 
-    const router = await createTestRouter('/_tags')
-    mount(TagsBrowse, { global: { plugins: [router, createTestI18n()] } })
+    const router = await createTagsRouter('/_tags')
+    mount(TagsBrowse, { global: { plugins: [router, createTagsBrowseI18n()] } })
     await flushPromises()
 
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/tags')
@@ -287,8 +273,8 @@ describe('TagsBrowse.vue (OpenProject #987)', () => {
     })
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_TAGS) })
 
-    const router = await createTestRouter('/_tags?tags=equipment')
-    const wrapper = mount(TagsBrowse, { global: { plugins: [router, createTestI18n()] } })
+    const router = await createTagsRouter('/_tags?tags=equipment')
+    const wrapper = mount(TagsBrowse, { global: { plugins: [router, createTagsBrowseI18n()] } })
     await flushPromises()
 
     expect(wrapper.vm.state.results).toEqual([])

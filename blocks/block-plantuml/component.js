@@ -1,7 +1,5 @@
-import { LitElement, html, css } from 'lit'
 import { compress } from '../shared/compress.js'
-import { DarkMode } from '../shared/theme.js'
-import { MAX_DIAGRAM_URL_LENGTH, explainUrlTooLarge } from '../shared/url-limit.js'
+import { DiagramImageElement } from '../shared/diagram-image.js'
 
 /** The default server, which is the one PlantUML runs for everybody. */
 const DEFAULT_SERVER = 'https://www.plantuml.com/plantuml'
@@ -44,7 +42,7 @@ async function encodeForUrl(source) {
 /**
  * Block PlantUML
  */
-export class BlockPlantumlElement extends LitElement {
+export class BlockPlantumlElement extends DiagramImageElement {
   /**
    * Metadata for the admin area and the editor's block picker. Collected at build time into
    * `compiled/blocks.manifest.json`, which the server reads to register the block. Values must be
@@ -124,113 +122,16 @@ Bob --> Alice : hi
     ]
   }
 
-  static get styles() {
-    return css`
-      :host {
-        display: block;
-      }
-
-      /* -> The gap below the block. On this element rather than :host: see block-index. */
-      .diagram,
-      .error {
-        margin-bottom: 16px;
-      }
-
-      .diagram {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 8px;
-      }
-      .diagram.is-center {
-        align-items: center;
-      }
-
-      /*
-        The drawing sits on white in both themes, padded, the way a QR code does. PlantUML draws in
-        black on nothing at all, so on a dark page a diagram left to the page's background is black on
-        black — and its own colours, where a diagram has them, are picked to sit on paper.
-      */
-      .sheet {
-        max-width: 100%;
-        padding: 12px;
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        border-radius: 5px;
-        background-color: #fff;
-        /* -> A diagram wider than the column scrolls rather than shrinking to illegibility */
-        overflow-x: auto;
-      }
-      :host([dark]) .sheet {
-        border-color: rgba(255, 255, 255, 0.15);
-      }
-
-      img {
-        display: block;
-        /* -> Its own size, up to the width of the column */
-        max-width: 100%;
-        height: auto;
-      }
-
-      .caption {
-        color: #424242;
-        font-size: 0.8em;
-      }
-      :host([dark]) .caption {
-        color: rgba(255, 255, 255, 0.7);
-      }
-
-      .error {
-        color: var(--q-negative, #c10015);
-        border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-        border-radius: 5px;
-        padding: 1rem;
-        white-space: pre-wrap;
-      }
-    `
+  _defaultServer() {
+    return DEFAULT_SERVER
   }
 
-  static get properties() {
-    return {
-      /**
-       * PlantUML server to draw with
-       * @type {string}
-       */
-      server: { type: String },
-
-      /**
-       * Image format to ask the server for, `svg` or `png`
-       * @type {string}
-       */
-      format: { type: String },
-
-      /**
-       * Text shown under the diagram
-       * @type {string}
-       */
-      caption: { type: String },
-
-      /**
-       * Where the diagram sits in the column, `left` or `center`
-       * @type {string}
-       */
-      align: { type: String },
-
-      // Internal Properties
-      _src: { state: true },
-      _error: { state: true }
-    }
+  _fenceName() {
+    return 'plantuml'
   }
 
-  constructor() {
-    super()
-    this.server = DEFAULT_SERVER
-    this.format = 'svg'
-    this.caption = ''
-    this.align = 'left'
-    this._src = ''
-    this._error = ''
-    // -> Puts `dark` on this element for the styles above to key off
-    this._darkMode = new DarkMode(this)
+  _alt() {
+    return this.caption || 'PlantUML diagram'
   }
 
   /**
@@ -241,109 +142,31 @@ Bob --> Alice : hi
    * proxy may well not send. It also means the browser caches the drawing like any other image.
    */
   async _url(source) {
-    const server = (this.server?.trim() || DEFAULT_SERVER).replace(/\/+$/, '')
-    const format = this.format === 'png' ? 'png' : 'svg'
-    return `${server}/${format}/${await encodeForUrl(source)}`
+    return `${this._serverBase()}/${this._imageFormat()}/${await encodeForUrl(source)}`
   }
 
   /**
-   * Say what went wrong, having been told only that the image did not load.
+   * PlantUML's own reason for refusing a diagram, when the second request carries one.
    *
-   * Not the case of a diagram PlantUML cannot read: it answers those with a picture saying so, and a
-   * browser draws it whatever status came with it — so a mistake in the source shows up as the
-   * server's own message where the diagram would have been, which is the best place for it.
-   *
-   * What is left is a server that did not answer, or answered with something that is not an image: a
-   * wrong address, a host that cannot be reached from where the reader is, a login page. The request
-   * is made a second time to tell those apart, and to read `X-PlantUML-Diagram-Error` if it is there.
-   * Best effort — a server that sends no CORS headers refuses this second request, and the message
-   * below stands as it is. Nothing about drawing a diagram depends on any of it.
+   * The block's `_explain()` otherwise has only "the image did not load" to go on. PlantUML answers
+   * a diagram it cannot read with a picture saying so — which is where a mistake in the source
+   * shows up, and the best place for it — but it also puts the reason in this header, which is worth
+   * repeating for the case where the picture itself never arrived.
    */
-  async _explain(url) {
-    // -> Resolved against the page, since a server may perfectly well be a path on this wiki
-    const absolute = new URL(url, window.location.href)
-    this._error = `The diagram could not be drawn by ${absolute.origin}.`
-    try {
-      const response = await fetch(absolute)
-      const reason = response.headers.get('x-plantuml-diagram-error')
-      if (reason) {
-        this._error = `PlantUML could not read this diagram: ${reason}`
-      } else if (!response.ok) {
-        this._error = `The server answered ${response.status} ${response.statusText} for this diagram.`
-      }
-    } catch {
-      // -> Unreachable, blocked, or simply not a PlantUML server; the message above says as much
-      this._error += ' Check the server address, and that the page may reach it.'
-    }
+  _explainBody(response) {
+    const reason = response.headers.get('x-plantuml-diagram-error')
+    return reason ? `PlantUML could not read this diagram: ${reason}` : null
   }
 
-  firstUpdated() {
-    /*
-      The source is the block's body, taken from the fence markdown left behind. `textContent` is what
-      undoes the escaping that put `--&gt;` in the markup, and gives back what the author typed.
-    */
-    const fence = this.querySelector('pre')
-    const source = ((fence ?? this).textContent ?? '').trim()
-    if (!source) {
-      this._error =
-        'This diagram is empty. Its source goes in the body of the block, inside a ```plantuml fence.'
-      if (this.querySelector('img')) {
-        // -> Something already put an image where the source should be — pasted-in markup, most
-        //    likely, since nothing in this wiki's own render pipeline ever does
-        this._error +=
-          "\n\nAn image sits here instead of source text. Replace it with the diagram's PlantUML source, inside the ```plantuml fence."
-      }
-      return
+  _emptySourceMessage() {
+    let message = super._emptySourceMessage()
+    if (this.querySelector('img')) {
+      // -> Something already put an image where the source should be — pasted-in markup, most
+      //    likely, since nothing in this wiki's own render pipeline ever does
+      message +=
+        "\n\nAn image sits here instead of source text. Replace it with the diagram's PlantUML source, inside the ```plantuml fence."
     }
-    // -> Not awaited: Lit does not wait on firstUpdated's return value, and there is nothing here
-    //    that needs to block it. Kept on the instance so a test can await the draw finishing.
-    this._ready = this._draw(source)
-  }
-
-  /**
-   * Encodes the source and, if the result fits, draws it -- the async continuation of
-   * `firstUpdated()`, split out because encoding now goes through the async `CompressionStream`.
-   */
-  async _draw(source) {
-    const url = await this._url(source)
-    /*
-      A pre-flight guard, not a reaction to the request that would otherwise follow: without it, a
-      diagram whose encoded URL outgrows what a server or reverse proxy accepts fails only once the
-      browser tries to load the `img` below, surfacing as `_explain()`'s generic "could not be
-      drawn" message with no hint that size is the actual problem. Checking the string's own length
-      here catches it before any request is made, with an explanation the vague network failure
-      never gave.
-    */
-    if (url.length > MAX_DIAGRAM_URL_LENGTH) {
-      this._error = explainUrlTooLarge(url.length)
-      return
-    }
-    this._src = url
-  }
-
-  render() {
-    if (this._error) {
-      return html`<div class="error">${this._error}</div>`
-    }
-    /*
-      Nothing at all until the URL exists, which is the first thing `firstUpdated` does — and it runs
-      after this. An `img` rendered without one carries `src=""`, which a browser resolves to the page
-      itself, fetches, fails to read as an image, and reports as a failed diagram.
-    */
-    if (!this._src) {
-      return null
-    }
-    return html`
-      <div class="diagram ${this.align === 'center' ? 'is-center' : ''}">
-        <div class="sheet">
-          <img
-            src="${this._src}"
-            alt="${this.caption || 'PlantUML diagram'}"
-            @error="${() => this._explain(this._src)}" />
-        </div>
-        ${this.caption ? html`<div class="caption">${this.caption}</div>` : null}
-      </div>
-    `
+    return message
   }
 }
 

@@ -13,6 +13,8 @@ import { simpleGit } from 'simple-git'
 import { syncUntracked, importAll, purge } from './actions.ts'
 import { ensureRepo } from './repo.ts'
 import { generatePathHash } from '../../../helpers/common.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
+import { makeStorageTarget } from '../../../test/builders.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 const SITE_ID = 'site-1'
@@ -48,9 +50,8 @@ function installWiki(
     upload: [] as any[]
   }
 
-  ;(globalThis as any).WIKI = {
+  installTestWiki({
     ROOTPATH: rootPath,
-    logger: { info: () => {}, warn: () => {}, error: () => {} },
     sites: {
       [SITE_ID]: { config: { locales: { primary: PRIMARY_LOCALE } } }
     },
@@ -119,7 +120,7 @@ function installWiki(
         }))
       }
     }
-  }
+  })
 
   return calls
 }
@@ -129,17 +130,10 @@ async function makeTempDir(prefix: string): Promise<string> {
 }
 
 function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
-  return {
+  return makeStorageTarget('git', {
     id: 'target-1',
     siteId: SITE_ID,
-    module: 'git',
-    isEnabled: true,
     title: 'Local Git',
-    description: '',
-    icon: '',
-    banner: '',
-    vendor: '',
-    website: '',
     contentTypes: {
       activeTypes: ['pages', 'images', 'documents', 'others', 'large'],
       largeThreshold: '5MB'
@@ -151,7 +145,6 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
       directAccess: false
     },
     versioning: { isSupported: true, isForceEnabled: true, enabled: true },
-    props: {},
     config: {
       authType: 'basic',
       repoUrl: 'https://example.com/org/repo.git',
@@ -160,9 +153,8 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
       defaultName: 'Fallback Name',
       defaultEmail: ADMIN_EMAIL
     },
-    actions: [],
     ...overrides
-  } as StorageTarget
+  })
 }
 
 async function latestCommit(repoPath: string) {

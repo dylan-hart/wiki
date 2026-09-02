@@ -4,6 +4,9 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import thumbRoutes from './thumb.ts'
+import { installTestWiki } from '../test/mocks.ts'
+
+let wikiHandle: { restore(): void }
 
 /**
  * OpenProject #2178: `/_thumb/:fileName` used to answer any valid-UUID asset id with no
@@ -40,7 +43,7 @@ describe('/_thumb site scoping and read:assets enforcement (OpenProject #2178)',
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: {},
       models: {
         sites: {
@@ -61,7 +64,7 @@ describe('/_thumb site scoping and read:assets enforcement (OpenProject #2178)',
           }
         }
       }
-    }
+    })
     app = fastify()
     await app.register(fastifySensible)
     await app.register(thumbRoutes)
@@ -70,7 +73,7 @@ describe('/_thumb site scoping and read:assets enforcement (OpenProject #2178)',
 
   after(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('an invalid UUID 404s before any query runs', async () => {

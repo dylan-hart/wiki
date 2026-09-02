@@ -8,19 +8,13 @@ import {
   tree as treeTable
 } from '../../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb } from '../../test/db.ts'
-import { NotYetImplementedError } from '../connector.ts'
 import { assetsPhase } from './assets.ts'
 import { contentPhase } from './content.ts'
 import { settingsPhase } from './settings.ts'
 import type { TestFixtures } from '../../test/db.ts'
 import type { SourceAssetFile, SourceConnector, SourceRecord } from '../connector.ts'
 import type { MigrationContext } from '../context.ts'
-
-async function* iter<T>(items: T[]): AsyncGenerator<T> {
-  for (const item of items) {
-    yield item
-  }
-}
+import { iterate as iter, stubSourceConnector } from '../../test/migrationFixtures.ts'
 
 /**
  * A `SourceConnector` for a 2.x install whose primary locale is French (`lang.code: 'fr'`), not the
@@ -30,16 +24,7 @@ async function* iter<T>(items: T[]): AsyncGenerator<T> {
  * menu directly proves which locale `contentPhase` actually resolved.
  */
 function fakeSourceConnector(): SourceConnector {
-  const notImplemented = (method: string) => () => {
-    throw new NotYetImplementedError(method, 'not needed by this suite')
-  }
-  return {
-    kind: 'postgres',
-    connect: async () => {},
-    disconnect: async () => {},
-    describe: async () => ({ kind: 'postgres', location: 'fake', notes: [] }),
-    users: notImplemented('users'),
-    groups: notImplemented('groups'),
+  return stubSourceConnector({
     settings: () =>
       iter<SourceRecord>([{ entity: 'settings', key: 'lang', value: { code: 'fr' } }]),
     pages: () =>
@@ -70,7 +55,6 @@ function fakeSourceConnector(): SourceConnector {
         }
       ]),
     pageHistory: () => iter<SourceRecord>([]),
-    tags: notImplemented('tags'),
     navigation: () =>
       iter<SourceRecord>([
         {
@@ -108,7 +92,7 @@ function fakeSourceConnector(): SourceConnector {
           mimeType: 'image/png'
         }
       ])
-  }
+  })
 }
 
 /**

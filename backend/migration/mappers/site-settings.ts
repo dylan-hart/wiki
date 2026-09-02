@@ -1,7 +1,8 @@
+import { isPlainObject, pickPresent, unwrapKnexValue } from './shared.ts'
 import type { SourceRecord } from '../connector.ts'
 
 /**
- * `mapSiteSettings` (task 764 — "Site-settings mapper: title/theme/branding/locale/mail")
+ * `mapSiteSettings` — site title/theme/branding/locale/mail
  *
  * A pure transform: no DB access, no side effects. Takes a parsed dump of a 2.5.x install's
  * `settings` table rows and produces (a) a `sites.config` JSONB patch, deep-mergeable onto
@@ -11,11 +12,11 @@ import type { SourceRecord } from '../connector.ts'
  * per row key, each itself `toMerged`-mergeable onto that row's own default
  * (`backend/models/settings.ts`'s `Settings.init()`).
  *
- * The importer engine that will actually apply these (Feature 421, not yet built) owns reading a
- * source and calling `toMerged` for real; this module only computes what to merge.
+ * `phases/settings.ts` owns reading a source and calling `toMerged` for real; this module only
+ * computes what to merge.
  *
- * Scope, per the task description and `docs/migration/2.5x-settings-auth-storage-field-mapping.md`
- * (task 763's field-by-field spec, the source of every mapping below):
+ * Scope, per `docs/migration/2.5x-settings-auth-storage-field-mapping.md` (the field-by-field spec
+ * that is the source of every mapping below):
  *
  * - `sites.config`: `title`, `description` (from 2.x `seo.description`), `company`,
  *   `contentLicense`, `logoUrl`, `theme` (only the sub-fields with a 3.0 destination — colors and
@@ -29,8 +30,8 @@ import type { SourceRecord } from '../connector.ts'
  * Everything else the field-mapping doc catalogs (`features`, `robots`, `footerExtra`,
  * `pageExtensions`, `auth.autoLogin`/`hideLocal`, `enforce2FA`, the `loginBg` asset, `api`, the
  * `auth` certs/secret settings row, `flags`, `metrics`) is out of this task's named scope — either a
- * sibling task's concern (auth strategies: task 765; storage: task 767) or left, same as the doc
- * itself does, as documented NO DESTINATION / follow-up scope.
+ * sibling mapper's concern (`./authentication.ts`, `./storage.ts`) or left, same as the doc itself
+ * does, as documented NO DESTINATION / follow-up scope.
  *
  * A 2.x key that is absent from `rows` altogether (a source that never wrote it — the doc's `mail`
  * "never configured" example is the task description's own worked case) is never synthesized here:
@@ -44,9 +45,9 @@ import type { SourceRecord } from '../connector.ts'
  * carries nothing this mapper needs). `value` is exactly what a raw row carries: 2.x's own
  * `configSvc.saveToDb()` wraps every non-plain-object value as `{ v: <value> }`
  * (`server/core/config.js`, vendored under `docs/migration/vendor/2x-settings/`) and stores plain
- * objects (`mail`, `theming`, `lang`, `seo`, `security`, `uploads`, ...) unwrapped — `unwrapValue()`
- * below undoes exactly that, mirroring the identical unwrap 3.0's own `Settings.getConfig()` already
- * does (`backend/models/settings.ts`).
+ * objects (`mail`, `theming`, `lang`, `seo`, `security`, `uploads`, ...) unwrapped — `./shared.ts`'s
+ * `unwrapKnexValue()` undoes exactly that, mirroring the identical unwrap 3.0's own
+ * `Settings.getConfig()` already does (`backend/models/settings.ts`).
  */
 export interface SiteSettingsSourceRow extends SourceRecord {
   key: string
@@ -65,30 +66,6 @@ export interface SiteSettingsMapping {
     mail?: Record<string, any>
     security?: Record<string, any>
   }
-}
-
-/** Undoes 2.x `configSvc.saveToDb()`'s `{ v: <value> }` wrapping of non-plain-object values. */
-function unwrapValue(value: unknown): unknown {
-  if (value !== null && typeof value === 'object' && 'v' in (value as Record<string, unknown>)) {
-    return (value as Record<string, unknown>).v
-  }
-  return value
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-/** Copies only the given keys from `source` into a fresh object, and only when actually present
- * (`in`, not a truthiness/undefined check — an explicit `false`/`0`/`''` is a real value to copy). */
-function pick(source: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  for (const key of keys) {
-    if (key in source) {
-      result[key] = source[key]
-    }
-  }
-  return result
 }
 
 const MAIL_FIELDS = [
@@ -140,7 +117,7 @@ const UPLOADS_TO_SECURITY_RENAMES: Record<string, string> = {
 export function mapSiteSettings(rows: readonly SiteSettingsSourceRow[]): SiteSettingsMapping {
   const byKey = new Map<string, unknown>()
   for (const row of rows) {
-    byKey.set(row.key, unwrapValue(row.value))
+    byKey.set(row.key, unwrapKnexValue(row.value))
   }
 
   const siteConfigPatch: Record<string, any> = {}
@@ -172,7 +149,7 @@ export function mapSiteSettings(rows: readonly SiteSettingsSourceRow[]): SiteSet
 
   const theming = byKey.get('theming')
   if (isPlainObject(theming)) {
-    const theme: Record<string, unknown> = pick(theming, [
+    const theme: Record<string, unknown> = pickPresent(theming, [
       'tocPosition',
       'injectCSS',
       'injectHead',
@@ -195,7 +172,7 @@ export function mapSiteSettings(rows: readonly SiteSettingsSourceRow[]): SiteSet
 
   const mail = byKey.get('mail')
   if (isPlainObject(mail)) {
-    const mailPatch = pick(mail, MAIL_FIELDS)
+    const mailPatch = pickPresent(mail, MAIL_FIELDS)
     if (Object.keys(mailPatch).length > 0) {
       instanceSettings.mail = mailPatch
     }

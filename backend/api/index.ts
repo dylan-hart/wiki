@@ -1,11 +1,14 @@
 import type { FastifyInstance } from 'fastify'
-import { siteEnabledPreHandler } from '../helpers/common.ts'
+import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 
 /**
- * API Routes
+ * Registers every shared JSON Schema a route file may `$ref`.
+ *
+ * Exported (TEST-F2) so a test harness booting a subset of the route files registers the exact same
+ * set this does, rather than each suite maintaining its own hand-picked list of `registerSchemas`
+ * imports that drifts as schemas are added.
  */
-async function routes(app: FastifyInstance) {
-  // Register schemas
+export async function registerAllSchemas(app: FastifyInstance) {
   await import('./schemas/analytics.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/apiKey.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/approval.ts').then((m) => m.registerSchemas(app))
@@ -32,6 +35,10 @@ async function routes(app: FastifyInstance) {
   await import('./schemas/notification.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/page.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/pageImport.ts').then((m) => m.registerSchemas(app))
+  // -> Named `registerParamsSchemas` rather than `registerSchemas` like its 33 neighbours: this file
+  //    registers path-PARAMETER shapes, not an entity, and the distinct name is what keeps a route
+  //    file's `params: { $ref: 'SiteIdParams#' }` traceable to it.
+  await import('./schemas/params.ts').then((m) => m.registerParamsSchemas(app))
   await import('./schemas/scheduler.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/search.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/security.ts').then((m) => m.registerSchemas(app))
@@ -39,6 +46,14 @@ async function routes(app: FastifyInstance) {
   await import('./schemas/storage.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/tree.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/user.ts').then((m) => m.registerSchemas(app))
+}
+
+/**
+ * API Routes
+ */
+async function routes(app: FastifyInstance) {
+  // Register schemas
+  await registerAllSchemas(app)
 
   // Register routes
 
@@ -67,7 +82,7 @@ async function routes(app: FastifyInstance) {
     contentApp.register(import('./approvals.ts'))
     contentApp.register(import('./assets.ts'))
     contentApp.register(import('./auditLog.ts'), { prefix: '/audit-log' })
-    contentApp.register(import('./authentication.ts'))
+    contentApp.register(import('./auth/index.ts'))
     contentApp.register(import('./blockCredentials.ts'))
     contentApp.register(import('./blocks.ts'))
     contentApp.register(import('./bootstrap.ts'), { prefix: '/bootstrap' })
@@ -85,14 +100,14 @@ async function routes(app: FastifyInstance) {
     contentApp.register(import('./mail.ts'), { prefix: '/mail' })
     contentApp.register(import('./navigation.ts'))
     contentApp.register(import('./notifications.ts'))
-    contentApp.register(import('./pages.ts'))
+    contentApp.register(import('./pages/index.ts'))
     contentApp.register(import('./scheduler.ts'), { prefix: '/scheduler' })
     contentApp.register(import('./search.ts'))
     contentApp.register(import('./storage.ts'))
-    contentApp.register(import('./system.ts'), { prefix: '/system' })
+    contentApp.register(import('./system/index.ts'), { prefix: '/system' })
     contentApp.register(import('./tags.ts'))
     contentApp.register(import('./tree.ts'))
-    contentApp.register(import('./users.ts'), { prefix: '/users' })
+    contentApp.register(import('./users/index.ts'), { prefix: '/users' })
     contentApp.register(import('./watching.ts'))
   })
 }

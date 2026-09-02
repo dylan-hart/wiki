@@ -1,5 +1,6 @@
 import { isEqual } from 'es-toolkit/predicate'
-import { and, desc, eq, lt, notExists, or, sql } from 'drizzle-orm'
+import { and, desc, eq, lt, notExists, or, sql, type SQL } from 'drizzle-orm'
+import type { PgColumn } from 'drizzle-orm/pg-core'
 import {
   pageHistory as pageHistoryTable,
   pages as pagesTable,
@@ -239,6 +240,74 @@ function decodeHistoryCursor(raw: string): HistoryCursor {
 }
 
 /**
+ * The nine columns every history read starts from: what happened, when, through what, and where the
+ * page was at the time. `list`, `getVersion` and `listRecoverable`'s inner scan each spread this and
+ * add only what is theirs — the source and the author's email for a diff, the `meta` blob a
+ * recoverable entry lifts tags and classification out of.
+ */
+const entrySelection = {
+  id: pageHistoryTable.id,
+  action: pageHistoryTable.action,
+  via: pageHistoryTable.via,
+  changedFields: pageHistoryTable.changedFields,
+  reason: pageHistoryTable.reason,
+  versionDate: pageHistoryTable.versionDate,
+  locale: pageHistoryTable.locale,
+  path: pageHistoryTable.path,
+  title: pageHistoryTable.title
+}
+
+/**
+ * An {@link entrySelection} row plus its joined author, as an entry.
+ *
+ * The defaulting is the part worth having in one place: a null `changedFields` reads as no fields, a
+ * null `reason` as no reason, and a null author id as an account that is gone — the version outlives
+ * it, see that column's own note — rather than any of the three surfacing as `null`/`undefined` in an
+ * API response.
+ */
+function toEntry(row: any) {
+  return {
+    id: row.id,
+    action: row.action,
+    via: row.via,
+    changedFields: row.changedFields ?? [],
+    reason: row.reason ?? '',
+    versionDate: row.versionDate,
+    locale: row.locale,
+    path: row.path,
+    title: row.title,
+    author: {
+      // -> Null once the account is gone: the version outlives it, see the column's own note
+      id: row.authorId ?? null,
+      name: row.authorName ?? ''
+    }
+  }
+}
+
+/**
+ * The keyset predicate for "strictly after this cursor" in the `(versionDate DESC, id DESC)` order
+ * both paged reads scan in, or `undefined` for the first page.
+ *
+ * Takes the columns rather than assuming `pageHistoryTable`: `listRecoverable` pages over its own
+ * `DISTINCT ON` subquery, whose columns are the subquery's, not the table's.
+ *
+ * @throws {CustomError} `pageHistoryInvalidCursor` (400), from {@link decodeHistoryCursor}
+ */
+function keysetAfter(
+  cols: { versionDate: PgColumn; id: PgColumn },
+  cursor?: string | null
+): SQL | undefined {
+  if (!cursor) {
+    return undefined
+  }
+  const after = decodeHistoryCursor(cursor)
+  return or(
+    lt(cols.versionDate, after.versionDate),
+    and(eq(cols.versionDate, after.versionDate), lt(cols.id, after.id))
+  )
+}
+
+/**
  * Unique-contributor counts for one page, split by `via` (OpenProject #1141's edit-volume node
  * sizing) -- `editor`/`mcp` are `pageHistory.via`'s own two buckets, and `all` is the union across
  * both, precomputed here rather than left for a caller to add `editor + mcp` together: a
@@ -392,19 +461,9 @@ class PageHistory {
       Math.max(1, Math.trunc(options.limit ?? HISTORY_LIST_DEFAULT_LIMIT)),
       HISTORY_LIST_MAX_LIMIT
     )
-    const after = options.cursor ? decodeHistoryCursor(options.cursor) : null
-
     const rows = await WIKI.db
       .select({
-        id: pageHistoryTable.id,
-        action: pageHistoryTable.action,
-        via: pageHistoryTable.via,
-        changedFields: pageHistoryTable.changedFields,
-        reason: pageHistoryTable.reason,
-        versionDate: pageHistoryTable.versionDate,
-        locale: pageHistoryTable.locale,
-        path: pageHistoryTable.path,
-        title: pageHistoryTable.title,
+        ...entrySelection,
         authorId: usersTable.id,
         authorName: usersTable.name
       })
@@ -414,15 +473,7 @@ class PageHistory {
         and(
           eq(pageHistoryTable.siteId, siteId),
           eq(pageHistoryTable.pageId, pageId),
-          after
-            ? or(
-                lt(pageHistoryTable.versionDate, after.versionDate),
-                and(
-                  eq(pageHistoryTable.versionDate, after.versionDate),
-                  lt(pageHistoryTable.id, after.id)
-                )
-              )
-            : undefined
+          keysetAfter(pageHistoryTable, options.cursor)
         )
       )
       .orderBy(desc(pageHistoryTable.versionDate), desc(pageHistoryTable.id))
@@ -435,22 +486,7 @@ class PageHistory {
     const last = page.at(-1)
 
     return {
-      items: page.map((row: any) => ({
-        id: row.id,
-        action: row.action,
-        via: row.via,
-        changedFields: row.changedFields ?? [],
-        reason: row.reason ?? '',
-        versionDate: row.versionDate,
-        locale: row.locale,
-        path: row.path,
-        title: row.title,
-        author: {
-          // -> Null once the account is gone: the version outlives it, see the column's own note
-          id: row.authorId ?? null,
-          name: row.authorName ?? ''
-        }
-      })),
+      items: page.map(toEntry),
       nextCursor:
         hasMore && last ? encodeHistoryCursor({ versionDate: last.versionDate, id: last.id }) : null
     }
@@ -523,15 +559,7 @@ class PageHistory {
   ): Promise<PageHistoryVersion | null> {
     const rows = await WIKI.db
       .select({
-        id: pageHistoryTable.id,
-        action: pageHistoryTable.action,
-        via: pageHistoryTable.via,
-        changedFields: pageHistoryTable.changedFields,
-        reason: pageHistoryTable.reason,
-        versionDate: pageHistoryTable.versionDate,
-        locale: pageHistoryTable.locale,
-        path: pageHistoryTable.path,
-        title: pageHistoryTable.title,
+        ...entrySelection,
         content: pageHistoryTable.content,
         meta: pageHistoryTable.meta,
         authorId: usersTable.id,
@@ -553,23 +581,14 @@ class PageHistory {
     if (!row) {
       return null
     }
+    const entry = toEntry(row)
     return {
-      id: row.id,
-      action: row.action,
-      via: row.via,
-      changedFields: row.changedFields ?? [],
-      reason: row.reason ?? '',
-      versionDate: row.versionDate,
-      locale: row.locale,
-      path: row.path,
-      title: row.title,
+      ...entry,
       content: row.content ?? '',
       meta: (row.meta ?? {}) as Record<string, any>,
-      author: {
-        id: row.authorId ?? null,
-        name: row.authorName ?? '',
-        email: row.authorEmail ?? ''
-      }
+      // -> The one place an author's email is disclosed: a diff names who wrote the side being
+      //    compared, which the list view has no need for
+      author: { ...entry.author, email: row.authorEmail ?? '' }
     }
   }
 
@@ -612,19 +631,10 @@ class PageHistory {
     { limit = RECOVERABLE_LIST_DEFAULT_LIMIT, cursor }: { limit?: number; cursor?: string } = {}
   ): Promise<PageHistoryRecoverablePage> {
     const boundedLimit = Math.min(Math.max(1, limit), RECOVERABLE_LIST_MAX_LIMIT)
-    const after = cursor ? decodeHistoryCursor(cursor) : null
 
     const recoverable = WIKI.db
       .selectDistinctOn([pageHistoryTable.locale, pageHistoryTable.path], {
-        id: pageHistoryTable.id,
-        action: pageHistoryTable.action,
-        via: pageHistoryTable.via,
-        changedFields: pageHistoryTable.changedFields,
-        reason: pageHistoryTable.reason,
-        versionDate: pageHistoryTable.versionDate,
-        locale: pageHistoryTable.locale,
-        path: pageHistoryTable.path,
-        title: pageHistoryTable.title,
+        ...entrySelection,
         meta: pageHistoryTable.meta,
         authorId: pageHistoryTable.authorId
       })
@@ -667,14 +677,7 @@ class PageHistory {
       })
       .from(recoverable)
       .leftJoin(usersTable, eq(usersTable.id, recoverable.authorId))
-      .where(
-        after
-          ? or(
-              lt(recoverable.versionDate, after.versionDate),
-              and(eq(recoverable.versionDate, after.versionDate), lt(recoverable.id, after.id))
-            )
-          : undefined
-      )
+      .where(keysetAfter(recoverable, cursor))
       .orderBy(desc(recoverable.versionDate), desc(recoverable.id))
       // -> One extra row, never returned, just to tell whether a further page exists
       .limit(boundedLimit + 1)
@@ -685,21 +688,11 @@ class PageHistory {
 
     return {
       items: page.map((row: any) => {
+        // -> Lifted out of the snapshot rather than read off a live page row: the page is gone, and
+        //    what a recovery offers back is what it was classified and tagged as when it went
         const meta = (row.meta ?? {}) as Record<string, any>
         return {
-          id: row.id,
-          action: row.action,
-          via: row.via,
-          changedFields: row.changedFields ?? [],
-          reason: row.reason ?? '',
-          versionDate: row.versionDate,
-          locale: row.locale,
-          path: row.path,
-          title: row.title,
-          author: {
-            id: row.authorId ?? null,
-            name: row.authorName ?? ''
-          },
+          ...toEntry(row),
           tags: (meta.tags ?? []) as string[],
           classification: (meta.classification ?? null) as string | null
         }
@@ -738,7 +731,7 @@ class PageHistory {
     /**
      * The version's own tags/classification (OpenProject #2168), lifted out of `meta` as named fields
      * rather than left for the caller to reach in for -- neither is `EXCLUDED_FROM_META`, so both
-     * already travel with every version; this is what `api/pages.ts`'s recover route checks
+     * already travel with every version; this is what `api/pages/history.ts`'s recover route checks
      * `read:pages`/`read:source` against at the SOURCE path, before its existing `write:pages` check
      * against the destination.
      */

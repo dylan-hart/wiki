@@ -1,5 +1,10 @@
 import { LitElement, html, css } from 'lit'
 
+import { readFencedSource } from '../shared/body.js'
+import { inlineIcon, MDI_PATHS } from '../shared/icons.js'
+import { boolean } from '../shared/props.js'
+import { renderError } from '../shared/render.js'
+import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 
 /** Where an uploaded file is served from, and so what a bare path in the body is taken to mean. */
@@ -10,28 +15,6 @@ const FILES_PREFIX = '/_files/'
  * or one of the wiki's own `/_` routes, `/_files/` among them.
  */
 const ABSOLUTE = /^(?:[a-z][a-z0-9+.-]*:|\/\/|\/_)/i
-
-/**
- * An attribute that means "off" when it says so.
- *
- * MDC writes every prop with a value, and Lit's own Boolean converter reads any string at all as
- * true — `unlockAspectRatio="false"` included. The picker never writes that one, since it leaves a
- * prop out while it holds its default, but a page written by hand can say it and means it.
- */
-const boolean = {
-  converter: {
-    fromAttribute: (value) => value !== null && value !== 'false',
-    toAttribute: (value) => (value ? 'true' : null)
-  }
-}
-
-/** Icons, as the path of a 24x24 MDI glyph. */
-const ICONS = {
-  previous: 'M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z',
-  next: 'M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z',
-  close:
-    'M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z'
-}
 
 /**
  * The address a line of the body points at.
@@ -135,49 +118,51 @@ https://example.com/photo-2.jpg`
   }
 
   static get styles() {
-    return css`
-      :host {
-        display: block;
+    return [
+      errorBox,
+      css`
+        :host {
+          display: block;
 
-        --gallery-border: #e0e0e0;
-        --gallery-tile-bg: #f1f3f5;
-        --gallery-fg: #424242;
-      }
-      :host([dark]) {
-        --gallery-border: rgba(255, 255, 255, 0.15);
-        --gallery-tile-bg: #12161d;
-        --gallery-fg: rgba(255, 255, 255, 0.7);
-      }
+          --gallery-border: #e0e0e0;
+          --gallery-tile-bg: #f1f3f5;
+          --gallery-fg: #424242;
+        }
+        :host([dark]) {
+          --gallery-border: rgba(255, 255, 255, 0.15);
+          --gallery-tile-bg: #12161d;
+          --gallery-fg: rgba(255, 255, 255, 0.7);
+        }
 
-      /*
+        /*
         The grid, and the gap below the block. On this element rather than :host: see block-index.
 
         -> min() rather than the thumbnail size on its own, so a gallery asked for at 300 on a phone
            is one column the width of the phone instead of pushing the page sideways.
       */
-      .gallery {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(min(var(--gallery-thumb), 100%), 1fr));
-        gap: 8px;
-        margin-bottom: 16px;
-      }
+        .gallery {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(min(var(--gallery-thumb), 100%), 1fr));
+          gap: 8px;
+          margin-bottom: 16px;
+        }
 
-      .tile {
-        display: block;
-        padding: 0;
-        border: 1px solid var(--gallery-border);
-        border-radius: 5px;
-        overflow: hidden;
-        background-color: var(--gallery-tile-bg);
-        aspect-ratio: 1;
-        cursor: zoom-in;
-      }
-      .tile:focus-visible {
-        outline: 2px solid var(--q-primary, #1976d2);
-        outline-offset: 2px;
-      }
+        .tile {
+          display: block;
+          padding: 0;
+          border: 1px solid var(--gallery-border);
+          border-radius: 5px;
+          overflow: hidden;
+          background-color: var(--gallery-tile-bg);
+          aspect-ratio: 1;
+          cursor: zoom-in;
+        }
+        .tile:focus-visible {
+          outline: 2px solid var(--q-primary, #1976d2);
+          outline-offset: 2px;
+        }
 
-      /*
+        /*
         A gallery whose tiles take the shape of their images rather than being held square.
 
         Dropping the ratio is not enough on its own: a grid item stretches to the height of its row,
@@ -185,39 +170,39 @@ https://example.com/photo-2.jpg`
         deciding the shape of the rest, which is the thing being unlocked. So the row lets go of them
         as well, and the image is left to its own height.
       */
-      .gallery.is-unlocked {
-        align-items: start;
-      }
-      .gallery.is-unlocked .tile {
-        aspect-ratio: auto;
-      }
-      .gallery.is-unlocked .tile img {
-        height: auto;
-      }
+        .gallery.is-unlocked {
+          align-items: start;
+        }
+        .gallery.is-unlocked .tile {
+          aspect-ratio: auto;
+        }
+        .gallery.is-unlocked .tile img {
+          height: auto;
+        }
 
-      .tile img {
-        display: block;
-        width: 100%;
-        height: 100%;
-        object-fit: var(--gallery-fit);
-        /* -> The alt text of an image that did not load, which has no room to be centred in */
-        font-size: 12px;
-        color: var(--gallery-fg);
-        transition: transform 200ms ease;
-      }
-      .tile:hover img {
-        transform: scale(1.05);
-      }
-      @media (prefers-reduced-motion: reduce) {
         .tile img {
-          transition: none;
+          display: block;
+          width: 100%;
+          height: 100%;
+          object-fit: var(--gallery-fit);
+          /* -> The alt text of an image that did not load, which has no room to be centred in */
+          font-size: 12px;
+          color: var(--gallery-fg);
+          transition: transform 200ms ease;
         }
         .tile:hover img {
-          transform: none;
+          transform: scale(1.05);
         }
-      }
+        @media (prefers-reduced-motion: reduce) {
+          .tile img {
+            transition: none;
+          }
+          .tile:hover img {
+            transform: none;
+          }
+        }
 
-      /*
+        /*
         The lightbox is a modal dialog, which is what puts it over the whole site.
 
         An element in the top layer is drawn above the page whatever the block is nested in -- where a
@@ -227,134 +212,131 @@ https://example.com/photo-2.jpg`
         closes it, the page behind cannot be tabbed into or clicked, and focus returns to the
         thumbnail that was opened. Scrolling is the exception -- see _holdPage below.
       */
-      .lightbox {
-        width: 100vw;
-        max-width: 100vw;
-        height: 100vh;
-        max-height: 100vh;
-        margin: 0;
-        padding: 0;
-        border: 0;
-        background-color: transparent;
-        overflow: hidden;
-        opacity: 0;
-        transition:
-          opacity 150ms ease,
-          overlay 150ms allow-discrete,
-          display 150ms allow-discrete;
-      }
-      .lightbox[open] {
-        opacity: 1;
-      }
-      /* -> Where the fade starts from. Without it the dialog is simply there, which is no worse. */
-      @starting-style {
-        .lightbox[open] {
+        .lightbox {
+          width: 100vw;
+          max-width: 100vw;
+          height: 100vh;
+          max-height: 100vh;
+          margin: 0;
+          padding: 0;
+          border: 0;
+          background-color: transparent;
+          overflow: hidden;
           opacity: 0;
+          transition:
+            opacity 150ms ease,
+            overlay 150ms allow-discrete,
+            display 150ms allow-discrete;
         }
-      }
-      /*
+        .lightbox[open] {
+          opacity: 1;
+        }
+        /* -> Where the fade starts from. Without it the dialog is simply there, which is no worse. */
+        @starting-style {
+          .lightbox[open] {
+            opacity: 0;
+          }
+        }
+        /*
         -> A shade lighter than a flat backdrop would be, since the blur is doing some of the work of
            putting the page away. Not much lighter: dark enough on its own that a browser without
            backdrop-filter loses the softness and nothing else.
       */
-      .lightbox::backdrop {
-        background-color: rgb(0 0 0 / 0.82);
-        backdrop-filter: blur(18px);
-      }
+        .lightbox::backdrop {
+          background-color: rgb(0 0 0 / 0.82);
+          backdrop-filter: blur(18px);
+        }
 
-      /*
+        /*
         The clickable ground the image sits on: anywhere off the image closes the lightbox.
 
         -> border-box, because the padding is what keeps the image clear of the chevrons over it and
            a content-box stage is the width of the dialog plus that padding, which pushes what it is
            centring off to one side. The app's own reset does not reach in here.
       */
-      .stage {
-        box-sizing: border-box;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 100%;
-        height: 100%;
-        padding: 4rem;
-        cursor: zoom-out;
-      }
-      @media (max-width: 640px) {
         .stage {
-          padding: 3.5rem 0.5rem;
+          box-sizing: border-box;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 100%;
+          height: 100%;
+          padding: 4rem;
+          cursor: zoom-out;
         }
-      }
+        @media (max-width: 640px) {
+          .stage {
+            padding: 3.5rem 0.5rem;
+          }
+        }
 
-      .stage img {
-        max-width: 100%;
-        max-height: 100%;
-        object-fit: contain;
-        cursor: default;
-      }
+        .stage img {
+          max-width: 100%;
+          max-height: 100%;
+          object-fit: contain;
+          cursor: default;
+        }
 
-      .chrome {
-        position: absolute;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 44px;
-        height: 44px;
-        padding: 0;
-        border: 0;
-        border-radius: 50%;
-        background-color: rgb(255 255 255 / 0.1);
-        color: #fff;
-        cursor: pointer;
-      }
-      .chrome:hover {
-        background-color: rgb(255 255 255 / 0.25);
-      }
-      .chrome:focus-visible {
-        outline: 2px solid #fff;
-        outline-offset: 2px;
-      }
-      .chrome svg {
-        width: 28px;
-        height: 28px;
-        fill: currentColor;
-      }
+        .chrome {
+          position: absolute;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 44px;
+          height: 44px;
+          padding: 0;
+          border: 0;
+          border-radius: 50%;
+          background-color: rgb(255 255 255 / 0.1);
+          color: #fff;
+          cursor: pointer;
+        }
+        .chrome:hover {
+          background-color: rgb(255 255 255 / 0.25);
+        }
+        .chrome:focus-visible {
+          outline: 2px solid #fff;
+          outline-offset: 2px;
+        }
+        .chrome svg {
+          width: 28px;
+          height: 28px;
+          fill: currentColor;
+        }
 
-      .chrome.is-close {
-        top: 12px;
-        right: 12px;
-      }
-      .chrome.is-previous {
-        top: 50%;
-        left: 12px;
-        transform: translateY(-50%);
-      }
-      .chrome.is-next {
-        top: 50%;
-        right: 12px;
-        transform: translateY(-50%);
-      }
+        .chrome.is-close {
+          top: 12px;
+          right: 12px;
+        }
+        .chrome.is-previous {
+          top: 50%;
+          left: 12px;
+          transform: translateY(-50%);
+        }
+        .chrome.is-next {
+          top: 50%;
+          right: 12px;
+          transform: translateY(-50%);
+        }
 
-      .counter {
-        position: absolute;
-        bottom: 16px;
-        left: 50%;
-        transform: translateX(-50%);
-        padding: 4px 10px;
-        border-radius: 12px;
-        background-color: rgb(0 0 0 / 0.5);
-        color: rgb(255 255 255 / 0.85);
-        font-size: 13px;
-        line-height: 1;
-      }
+        .counter {
+          position: absolute;
+          bottom: 16px;
+          left: 50%;
+          transform: translateX(-50%);
+          padding: 4px 10px;
+          border-radius: 12px;
+          background-color: rgb(0 0 0 / 0.5);
+          color: rgb(255 255 255 / 0.85);
+          font-size: 13px;
+          line-height: 1;
+        }
 
-      .error {
-        margin-bottom: 16px;
-        padding: 1rem;
-        border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-        border-radius: 5px;
-        color: var(--q-negative, #c10015);
-      }
-    `
+        .error {
+          margin-bottom: 16px;
+        }
+      `
+    ]
   }
 
   static get properties() {
@@ -424,10 +406,9 @@ https://example.com/photo-2.jpg`
    * wins outright, as everywhere else: it is the way to hand a block a body markdown has not touched.
    */
   firstUpdated() {
-    const fence = this.querySelector('pre')
-    const source = ((fence ?? this).textContent ?? '').trim()
+    const { source, fenced } = readFencedSource(this)
     const found = source.split(/\s+/).filter(Boolean).map(resolveSource)
-    if (!fence) {
+    if (!fenced) {
       for (const image of this.querySelectorAll('img')) {
         found.push(resolveSource(image.getAttribute('src') ?? ''))
       }
@@ -538,10 +519,6 @@ https://example.com/photo-2.jpg`
     }
   }
 
-  _icon(path) {
-    return html`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}" /></svg>`
-  }
-
   /**
    * The lightbox, empty until it is opened.
    *
@@ -573,7 +550,7 @@ https://example.com/photo-2.jpg`
                           title="Previous image"
                           aria-label="Previous image"
                           @click=${this._previous}>
-                          ${this._icon(ICONS.previous)}
+                          ${inlineIcon(MDI_PATHS.previous)}
                         </button>
                         <button
                           class="chrome is-next"
@@ -581,7 +558,7 @@ https://example.com/photo-2.jpg`
                           title="Next image"
                           aria-label="Next image"
                           @click=${this._next}>
-                          ${this._icon(ICONS.next)}
+                          ${inlineIcon(MDI_PATHS.next)}
                         </button>
                         <div class="counter">${this._index + 1} / ${this._images.length}</div>
                       `
@@ -595,7 +572,7 @@ https://example.com/photo-2.jpg`
                   title="Close"
                   aria-label="Close"
                   @click=${this._close}>
-                  ${this._icon(ICONS.close)}
+                  ${inlineIcon(MDI_PATHS.close)}
                 </button>
               `
             : null
@@ -606,11 +583,9 @@ https://example.com/photo-2.jpg`
 
   render() {
     if (this._images.length < 1) {
-      return html`
-        <div class="error">
-          This gallery is empty. Its images go in the body of the block, one address per line.
-        </div>
-      `
+      return renderError(
+        'This gallery is empty. Its images go in the body of the block, one address per line.'
+      )
     }
 
     const size = Number(this.thumbnailSize)

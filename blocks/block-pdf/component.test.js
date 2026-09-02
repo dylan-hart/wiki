@@ -1,5 +1,27 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
+
+/*
+  jsdom implements neither `IntersectionObserver` nor `ResizeObserver`, and `_setupObservers()`
+  constructs both in `firstUpdated()` -- so mounting this block at all throws in this environment
+  without them. Stubbed rather than worked around, the same way `pdfjs-dist` is mocked below and
+  `block-diagram`'s suite polyfills the two SVG measurement calls mermaid reaches for: what the
+  observers drive (lazy page rendering, re-fitting on a resize) is the real viewer, which jsdom
+  cannot lay out in the first place.
+*/
+globalThis.IntersectionObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
 /*
   `pdfjs-dist/build/pdf.mjs` pulls in a canvas backend that reads `DOMMatrix` at module-eval time --
   jsdom (this workspace's pinned 30.0.1) does not implement it, so even IMPORTING the real module
@@ -20,9 +42,7 @@ vi.mock('pdfjs-dist/build/pdf.mjs', () => ({
 const { BlockPdfElement } = await import('./component.js')
 
 describe('block-pdf', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-  })
+  afterEach(resetBlockDom)
 
   it('registers itself as a custom element', () => {
     expect(customElements.get('block-pdf')).toBe(BlockPdfElement)
@@ -102,4 +122,8 @@ describe('block-pdf', () => {
       expect(el._openingPage()).toBe(1)
     })
   })
+
+  // -> Mounted with no `src`, which lands in the "this viewer needs an address" state rather than
+  //    touching the mocked pdf.js at all -- the controller is constructed either way.
+  describeDarkMode(() => mountBlock('block-pdf'))
 })

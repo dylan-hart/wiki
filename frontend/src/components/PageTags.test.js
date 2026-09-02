@@ -1,33 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import PageTags from './PageTags.vue'
 import { usePageStore } from '@/stores/page'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 async function mountPageTags(props = {}) {
   setActivePinia(createPinia())
   const pageStore = usePageStore()
   pageStore.tags = ['equipment', 'procedure']
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: '/', component: { template: '<div />' } },
-      { path: '/_tags', component: { template: '<div />' } }
-    ]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/', '/_tags'])
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    fallbackWarn: false,
-    messages: { en: {} }
-  })
+  const i18n = createTestI18n()
 
   const wrapper = mount(PageTags, {
     props,

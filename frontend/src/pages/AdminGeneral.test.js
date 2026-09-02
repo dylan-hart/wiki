@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminGeneral from './AdminGeneral.vue'
 import BlueprintIcon from '@/components/BlueprintIcon.vue'
@@ -12,6 +10,12 @@ import { useSiteStore } from '@/stores/site'
 import { queue as notifyQueue } from '@/composables/notify'
 import { isActive as loadingIsActive } from '@/composables/loading'
 
+import { createTestI18n } from '../../test/i18n.js'
+
+import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
+
 /**
  * Regression test: `<blueprint-icon indicator ...>` (a bare attribute, no `:` binding) always sends
  * the empty string as the `indicator` prop, which `BlueprintIcon`'s `indicatorDot` computed treats
@@ -20,39 +24,11 @@ import { isActive as loadingIsActive } from '@/composables/loading'
  * mount and only passes a truthy `indicator` when the `sharp` entry reports `!isInstalled`.
  */
 async function mountPage(extensionsResponse) {
-  setActivePinia(createPinia())
+  stubApi({ 'system/extensions': extensionsResponse })
 
-  API_CLIENT.get.mockImplementation((url) => {
-    if (url === 'system/extensions') {
-      return { json: () => Promise.resolve(extensionsResponse) }
-    }
-    return { json: () => Promise.resolve(undefined) }
-  })
+  const router = await createTestRouter(['/'], '/')
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
-
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: { en: {} },
-    missingWarn: false,
-    fallbackWarn: false
-  })
-
-  const wrapper = mount(AdminGeneral, {
-    global: {
-      plugins: [router, i18n],
-      // -> `BlueprintIcon` is registered globally by `boot/components.js` in the real app, not
-      //    imported per-file — this test needs the same registration for `<blueprint-icon>` to
-      //    resolve.
-      components: { BlueprintIcon }
-    }
-  })
+  const { wrapper } = mountWithApp(AdminGeneral, { router })
   await flushPromises()
 
   return wrapper
@@ -93,26 +69,21 @@ const FIXTURE_SITE = {
 }
 
 async function mountLoaded() {
-  setActivePinia(createPinia())
-  const adminStore = useAdminStore()
-  adminStore.currentSiteId = FIXTURE_SITE.id
   // -> `manage:sites` satisfies `useSiteAdminAccess('site:general')`'s GLOBAL_FALLBACKS check on its
   //    own, so it skips its site-scoped `fetchSitePermissions` network call entirely -- otherwise
   //    that call, not `load()`'s, would consume the single `mockReturnValueOnce` below.
-  const userStore = useUserStore()
-  userStore.permissions = ['manage:sites']
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_SITE) })
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/_admin/:siteid/general', component: { template: '<div />' } }]
-  })
-  router.push(`/_admin/${FIXTURE_SITE.id}/general`)
-  await router.isReady()
+  const router = await createTestRouter(
+    ['/_admin/:siteid/general'],
+    `/_admin/${FIXTURE_SITE.id}/general`
+  )
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-  const wrapper = mount(AdminGeneral, { global: { plugins: [router, i18n] } })
+  const { wrapper } = mountWithApp(AdminGeneral, {
+    router,
+    stores: { admin: { currentSiteId: FIXTURE_SITE.id }, user: { permissions: ['manage:sites'] } }
+  })
   await flushPromises()
 
   return wrapper
@@ -202,23 +173,12 @@ describe('AdminGeneral — preview toolbar across a site switch', () => {
       return { json: () => Promise.resolve(undefined) }
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
-    router.push('/')
-    await router.isReady()
+    const router = await createTestRouter(['/'], '/')
 
-    const i18n = createI18n({
-      legacy: false,
-      locale: 'en',
-      messages: { en: {} },
-      missingWarn: false,
-      fallbackWarn: false
-    })
+    const i18n = createTestI18n()
 
     const wrapper = mount(AdminGeneral, {
-      global: { plugins: [router, i18n], components: { BlueprintIcon } }
+      global: { plugins: [router, i18n] }
     })
     await flushPromises()
 
@@ -342,26 +302,15 @@ async function mountRenamePage() {
   const userStore = useUserStore()
   userStore.permissions = ['manage:sites']
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/_admin/:siteid/general', component: { template: '<div />' } }]
-  })
-  router.push('/_admin/site-1/general')
-  await router.isReady()
+  const router = await createTestRouter(['/_admin/:siteid/general'], '/_admin/site-1/general')
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        common: { actions: { apply: 'Apply' } },
-        admin: {
-          general: {
-            siteHostname: 'Site Hostname',
-            hostnameChangedWarning:
-              "Saved. This site's hostname changed -- navigate to {hostname} to keep administering it."
-          }
-        }
+  const i18n = createTestI18n({
+    common: { actions: { apply: 'Apply' } },
+    admin: {
+      general: {
+        siteHostname: 'Site Hostname',
+        hostnameChangedWarning:
+          "Saved. This site's hostname changed -- navigate to {hostname} to keep administering it."
       }
     }
   })
@@ -462,23 +411,15 @@ describe('AdminGeneral load() error handling (OpenProject #947)', () => {
 
   it('hides the loading overlay and notifies instead of leaving it stuck when load() rejects', async () => {
     notifyQueue.splice(0, notifyQueue.length)
-    setActivePinia(createPinia())
-    const adminStore = useAdminStore()
-    adminStore.currentSiteId = 'site-1'
-    const userStore = useUserStore()
-    userStore.permissions = ['manage:sites']
 
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.reject(new Error('Network error')) })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/_admin/:siteid/general', component: { template: '<div />' } }]
-    })
-    router.push('/_admin/site-1/general')
-    await router.isReady()
+    const router = await createTestRouter(['/_admin/:siteid/general'], '/_admin/site-1/general')
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-    const wrapper = mount(AdminGeneral, { global: { plugins: [router, i18n] } })
+    const { wrapper } = mountWithApp(AdminGeneral, {
+      router,
+      stores: { admin: { currentSiteId: 'site-1' }, user: { permissions: ['manage:sites'] } }
+    })
     // -> `loading.show()`'s own 500ms delay -- see `composables/loading.js` -- has to actually
     //    elapse for `isActive` to ever flip `true` at all; advancing past it is what would have
     //    caught the overlay stuck on `true` forever pre-fix, since a bare, unguarded `await` never

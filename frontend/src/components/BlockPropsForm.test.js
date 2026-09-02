@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import BlockPropsForm from './BlockPropsForm.vue'
 import WInput from '@/components/shared/WInput.vue'
 import WToggle from '@/components/shared/WToggle.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Part of OpenProject #1624/#1631: a field's label/hint resolve through the
@@ -15,7 +16,7 @@ import WToggle from '@/components/shared/WToggle.vue'
  * suppresses its own `ariaLabel` prop, so passing both here would be redundant.
  */
 function mountForm({ block, fields, messages = {} }) {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: messages } })
+  const i18n = createTestI18n(messages)
   return mount(BlockPropsForm, {
     props: { block, fields, values: {} },
     global: { plugins: [i18n] }

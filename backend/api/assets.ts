@@ -1,8 +1,9 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 
 import { decodeTreePath, normalizePagePath } from '../helpers/common.ts'
 import { needsSvgCsp, SVG_CSP } from '../helpers/security.ts'
 import { dispositionFor } from '../models/assets.ts'
+import { mayOnAsset } from '../helpers/pageAccess.ts'
 
 const assetIdParam = {
   type: 'object',
@@ -22,31 +23,6 @@ const assetIdParam = {
 /**
  * Assets API Routes
  */
-/**
- * Whether the caller holds an asset permission on an asset, judged on where it sits.
- *
- * Assets live in the same tree as pages and are addressed by the same rules — a rule over a branch
- * covers the files in it as well as the pages, which is why the asset permissions are offered
- * alongside the page ones in the group editor.
- */
-export function mayOnAsset(
-  req: FastifyRequest,
-  permission: string,
-  siteId: string,
-  asset: { folderPath?: string | null; fileName: string; locale: string }
-): boolean {
-  const folder = asset.folderPath ?? ''
-  return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
-    path: folder ? `${folder}/${asset.fileName}` : asset.fileName,
-    siteId,
-    locale: asset.locale,
-    // -> An asset carries no classification of its own (OpenProject #1079 is a page metadata
-    //    field) — a CLASSIFICATION rule never matches an asset, the same as any other unknown
-    //    classification fails closed.
-    classification: null
-  })
-}
-
 async function routes(app: FastifyInstance) {
   // -> An upload is the raw file rather than a multipart form: one file per request, with the name and
   //    the destination in the query string. The catch-all only claims content types nothing else
@@ -81,16 +57,7 @@ async function routes(app: FastifyInstance) {
         description: `The body is the file itself, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round((WIKI.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB. The file name is sanitized, so the stored name in the response may differ from the one sent; the type served back later comes from that name's extension rather than from the request. Images get a thumbnail when the Sharp extension is installed.\n\nA file already at that name in that folder is settled by the site's upload conflict behavior: \`overwrite\` (the default) replaces it in place and answers with its existing ID, \`reject\` answers 409, and \`new\` stores the arrival as the next free \`name-1.ext\`. So the name and ID in the response are what to link to — never the ones that were sent. A page or a folder holding the name is answered 409 whichever behavior is set.`,
         tags: ['Assets'],
         consumes: ['*/*'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -314,7 +281,7 @@ async function routes(app: FastifyInstance) {
       // -> Through the same local disk cache `/_files/` serves from, since this is the download
       //    button in the file manager rather than an administrative route: anyone who may read a
       //    file may press it
-      const content = await WIKI.models.assets.readContent(asset, req.params.siteId)
+      const content = await WIKI.models.assetServing.readContent(asset, req.params.siteId)
       if (!content) {
         return reply.notFound('This asset has no content.')
       }

@@ -1,35 +1,35 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, test } from 'node:test'
 import {
+  composeUserConverters,
   createDrizzleWriter,
   createDryRunWriter,
   createGroupConverter,
+  createLocalUserConverter,
   createGroupImporter,
   createProviderFallbackUserConverter,
   createUserGroupImporter,
   createUserImporter,
   deriveUserGroupsFromEmbeddedGroups,
-  importUsersAndGroups,
   needsProviderFallback,
-  stubConvertGroup,
-  stubConvertUser,
+  type EntityImportSummary,
+  type GroupConverter,
   type NewGroupRow,
   type NewUserRow,
+  type ProviderFallbackFlag,
+  type SystemGroupIds,
+  type UserConverter,
   type UsersGroupsWriter
 } from './users-groups.ts'
 import type { SourceRecord } from '../connector.ts'
+import { iterate as iter } from '../../test/migrationFixtures.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 const TARGET_ADMIN_GROUP_ID = 'target-admin-group-uuid'
 const TARGET_GUEST_GROUP_ID = 'target-guest-group-uuid'
 
 /** Wraps a plain array as the `AsyncIterable<SourceRecord>` the engine consumes, matching how a
  * real `SourceConnector` generator would be read. */
-async function* iter<T>(items: T[]): AsyncIterable<T> {
-  for (const item of items) {
-    yield item
-  }
-}
-
 /** A writer that records every call it receives, in order, on top of a real (non-DB) uuid-minting
  * implementation — lets a test assert both write order and write content without a database. */
 function recordingWriter(): UsersGroupsWriter & { calls: string[] } {
@@ -68,11 +68,78 @@ const passthroughConvertUser = (source: { email?: unknown; name?: unknown }) =>
     row: { email: String(source.email), name: String(source.name) } as NewUserRow
   }) as const
 
-describe('importUsersAndGroups', () => {
+/** A converter that writes nothing, standing in for a caller that supplied no real one. */
+const flagEverythingGroupConverter: GroupConverter = () => ({
+  status: 'flagged',
+  message: 'no group converter supplied'
+})
+
+const flagEverythingUserConverter: UserConverter = () => ({
+  status: 'flagged',
+  message: 'no user converter supplied'
+})
+
+interface UsersGroupsRun {
+  groups: EntityImportSummary
+  users: EntityImportSummary
+  userGroups: EntityImportSummary
+  providerFallbacks: ProviderFallbackFlag[]
+}
+
+/** Drives the three per-record importers in the order `phases/users.ts` drives them — groups, then
+ * users, then `userGroups`, each fully drained before the next starts, since a membership can only
+ * resolve once both id maps are built — and folds the run's three summaries together, so a test can
+ * assert against a whole run rather than call-by-call. */
+async function runUsersGroupsImport(input: {
+  source: {
+    groups: AsyncIterable<SourceRecord>
+    users: AsyncIterable<SourceRecord>
+    userGroups: AsyncIterable<SourceRecord>
+  }
+  writer: UsersGroupsWriter
+  convertGroup?: GroupConverter
+  convertUser?: UserConverter
+  systemGroupIds?: SystemGroupIds
+}): Promise<UsersGroupsRun> {
+  const groupImporter = createGroupImporter(
+    input.convertGroup ?? flagEverythingGroupConverter,
+    input.writer
+  )
+  for await (const sourceRecord of input.source.groups) {
+    await groupImporter.importOne(sourceRecord)
+  }
+
+  const userImporter = createUserImporter(
+    input.convertUser ?? flagEverythingUserConverter,
+    input.writer
+  )
+  for await (const sourceRecord of input.source.users) {
+    await userImporter.importOne(sourceRecord)
+  }
+
+  const userGroupImporter = createUserGroupImporter(
+    userImporter.idMap,
+    groupImporter.idMap,
+    input.writer,
+    input.systemGroupIds
+  )
+  for await (const sourceRecord of input.source.userGroups) {
+    await userGroupImporter.importOne(sourceRecord)
+  }
+
+  return {
+    groups: groupImporter.summary,
+    users: userImporter.summary,
+    userGroups: userGroupImporter.summary,
+    providerFallbacks: userImporter.providerFallbacks
+  }
+}
+
+describe('the three importers driven in write order', () => {
   test('writes in the order groups, then users, then userGroups', async () => {
     const writer = recordingWriter()
 
-    await importUsersAndGroups({
+    await runUsersGroupsImport({
       source: {
         groups: iter([{ id: 1, name: 'Editors' }]),
         users: iter([{ id: 10, email: 'a@example.com', name: 'A' }]),
@@ -92,7 +159,7 @@ describe('importUsersAndGroups', () => {
   test('threads source-id -> target-uuid maps through so userGroups resolves the real target ids', async () => {
     const writer = createDryRunWriter()
 
-    const result = await importUsersAndGroups({
+    const result = await runUsersGroupsImport({
       source: {
         groups: iter([{ id: 1, name: 'Editors' }]),
         users: iter([{ id: 10, email: 'a@example.com', name: 'A' }]),
@@ -117,7 +184,7 @@ describe('importUsersAndGroups', () => {
   test('skips a membership row when its group was never created (referential integrity across phases)', async () => {
     const writer = createDryRunWriter()
 
-    const result = await importUsersAndGroups({
+    const result = await runUsersGroupsImport({
       source: {
         groups: iter([]), // group 1 never gets created
         users: iter([{ id: 10, email: 'a@example.com', name: 'A' }]),
@@ -133,10 +200,10 @@ describe('importUsersAndGroups', () => {
     assert.match(result.userGroups.records[0].message ?? '', /group/)
   })
 
-  test('default stub converters flag every group/user record without writing anything', async () => {
+  test('a converter that flags every record writes nothing at all', async () => {
     const writer = recordingWriter()
 
-    const result = await importUsersAndGroups({
+    const result = await runUsersGroupsImport({
       source: {
         groups: iter([{ id: 1, name: 'Editors' }]),
         users: iter([{ id: 10, email: 'a@example.com', name: 'A' }]),
@@ -150,16 +217,12 @@ describe('importUsersAndGroups', () => {
     assert.equal(writer.calls.length, 0)
     // With neither id map populated, the membership row has nothing to resolve against.
     assert.equal(result.userGroups.skipped, 1)
-
-    // Confirms the exported stubs are in fact what gets used by default.
-    assert.equal((await stubConvertGroup({ id: 1 })).status, 'flagged')
-    assert.equal((await stubConvertUser({ id: 1 })).status, 'flagged')
   })
 
   test('a record with a missing/non-integer source id is skipped rather than crashing the phase', async () => {
     const writer = createDryRunWriter()
 
-    const result = await importUsersAndGroups({
+    const result = await runUsersGroupsImport({
       source: {
         groups: iter([{ name: 'No id here' }]),
         users: iter([]),
@@ -185,7 +248,7 @@ describe('importUsersAndGroups', () => {
       async assignUserToSystemGroup() {}
     }
 
-    const result = await importUsersAndGroups({
+    const result = await runUsersGroupsImport({
       source: {
         groups: iter([{ id: 1, name: 'Editors' }]),
         users: iter([]),
@@ -207,31 +270,19 @@ describe('importUsersAndGroups', () => {
 describe('needsProviderFallback', () => {
   test('local never falls back', () => {
     assert.equal(needsProviderFallback('local'), false)
-    assert.equal(needsProviderFallback('local', { local: 'some-uuid' }), false)
   })
 
-  test('any provider with no strategy mapping supplied always falls back, whether or not 3.0 has the module', () => {
+  test('every non-local provider falls back, whether or not 3.0 has the module', () => {
     // -> ldap/saml/auth0 are all real 3.0 modules today (Epic #333's territory since this test was
-    //    written), but `needsProviderFallback` never special-cases which providers are implemented —
-    //    it falls back for anything not named in `strategyMapping`. `providerFallbackReason` is what
-    //    branches on implementedness, tested separately above via `createProviderFallbackUserConverter`.
+    //    written), but `needsProviderFallback` never special-cases which providers are implemented.
+    //    `providerFallbackReason` is what branches on implementedness, tested separately via
+    //    `createProviderFallbackUserConverter`.
     assert.equal(needsProviderFallback('ldap'), true)
     assert.equal(needsProviderFallback('saml'), true)
     assert.equal(needsProviderFallback('auth0'), true)
-  })
-
-  test('a 3.0-implemented provider (github/google/oidc) falls back when unmapped', () => {
     assert.equal(needsProviderFallback('github'), true)
     assert.equal(needsProviderFallback('google'), true)
     assert.equal(needsProviderFallback('oidc'), true)
-  })
-
-  test('a 3.0-implemented provider does not fall back once the caller supplies a strategy mapping for it', () => {
-    assert.equal(needsProviderFallback('github', { github: 'target-github-strategy-uuid' }), false)
-  })
-
-  test('a mapping for a different provider does not exempt this one', () => {
-    assert.equal(needsProviderFallback('github', { google: 'target-google-strategy-uuid' }), true)
   })
 })
 
@@ -263,7 +314,7 @@ describe('createProviderFallbackUserConverter', () => {
     assert.match(outcome.providerFallback!.reason, /no 3\.0-native implementation/)
   })
 
-  test('creates a 3.0-implemented-but-unmapped provider (e.g. ldap) account through the local strategy, with a mapping-specific reason', async () => {
+  test('creates a 3.0-implemented provider (e.g. ldap) account through the local strategy, with an implemented-but-unresolvable reason', async () => {
     const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
 
     const outcome = await convert({
@@ -277,13 +328,10 @@ describe('createProviderFallbackUserConverter', () => {
     if (outcome.status !== 'created') return // -> type narrowing for the assertions below
     assert.ok(outcome.providerFallback)
     assert.equal(outcome.providerFallback!.sourceProvider, 'ldap')
-    assert.match(
-      outcome.providerFallback!.reason,
-      /is implemented in 3\.0, but no target-strategy mapping was supplied/
-    )
+    assert.match(outcome.providerFallback!.reason, /is implemented in 3\.0/)
   })
 
-  test('creates a github account via fallback when no strategy mapping is supplied, with a mapping-specific reason', async () => {
+  test('creates a github account via fallback, with an implemented-but-unresolvable reason', async () => {
     const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
 
     const outcome = await convert({
@@ -296,23 +344,7 @@ describe('createProviderFallbackUserConverter', () => {
     assert.equal(outcome.status, 'created')
     if (outcome.status !== 'created') return
     assert.equal(outcome.providerFallback?.sourceProvider, 'github')
-    assert.match(outcome.providerFallback!.reason, /no target-strategy mapping was supplied/)
-  })
-
-  test('does not route a mapped github account through fallback', async () => {
-    const convert = createProviderFallbackUserConverter({
-      localStrategyId: LOCAL_STRATEGY_ID,
-      strategyMapping: { github: 'target-github-strategy-uuid' }
-    })
-
-    const outcome = await convert({
-      id: 3,
-      email: 'gh@example.com',
-      name: 'GH User',
-      providerKey: 'github'
-    })
-
-    assert.equal(outcome.status, 'flagged')
+    assert.match(outcome.providerFallback!.reason, /is implemented in 3\.0/)
   })
 
   test("flags rather than converts a local-provider source user — not this converter's job", async () => {
@@ -440,11 +472,11 @@ describe('createProviderFallbackUserConverter', () => {
     assert.equal(outcome.row.createdAt, undefined)
   })
 
-  test('end-to-end through importUsersAndGroups: fallback-routed accounts are written and reported in providerFallbacks', async () => {
+  test('end-to-end through all three importers: fallback-routed accounts are written and reported in providerFallbacks', async () => {
     const writer = createDryRunWriter()
     const convertUser = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
 
-    const result = await importUsersAndGroups({
+    const result = await runUsersGroupsImport({
       source: {
         groups: (async function* () {})(),
         users: (async function* () {
@@ -606,10 +638,10 @@ describe('createGroupConverter', () => {
     assert.equal(outcome.message, undefined)
   })
 
-  test('end-to-end through importUsersAndGroups: a converted group is written and its rule shape survives the writer round-trip', async () => {
+  test('end-to-end through all three importers: a converted group is written and its rule shape survives the writer round-trip', async () => {
     const writer = createDryRunWriter()
 
-    const result = await importUsersAndGroups({
+    const result = await runUsersGroupsImport({
       source: {
         groups: (async function* () {
           yield {
@@ -655,9 +687,8 @@ describe('createDrizzleWriter insertGroup', () => {
   })
 
   test('delegates to WIKI.models.groups.createGroupFromImport rather than inserting the row directly', async () => {
-    const previous = (globalThis as any).WIKI
     const calls: any[] = []
-    ;(globalThis as any).WIKI = {
+    const handle = installTestWiki({
       models: {
         groups: {
           async createGroupFromImport(input: any) {
@@ -666,10 +697,8 @@ describe('createDrizzleWriter insertGroup', () => {
           }
         }
       }
-    }
-    restoreWiki = () => {
-      ;(globalThis as any).WIKI = previous
-    }
+    })
+    restoreWiki = () => handle.restore()
 
     // `db` is never touched by insertGroup on this task's writer, so a stub that throws on any use
     // proves the raw-insert path is genuinely gone rather than merely unused by this particular row.
@@ -703,7 +732,7 @@ describe('system-row exclusion (Task 731)', () => {
       return { status: 'created', row: { name: String(source.name) } as NewGroupRow } as const
     }
 
-    const result = await importUsersAndGroups({
+    const result = await runUsersGroupsImport({
       source: {
         groups: iter([
           { id: 1, name: 'Administrators', isSystem: true },
@@ -732,7 +761,7 @@ describe('system-row exclusion (Task 731)', () => {
       return { status: 'created', row: { name: String(source.name) } as NewGroupRow } as const
     }
 
-    const result = await importUsersAndGroups({
+    const result = await runUsersGroupsImport({
       source: {
         groups: iter([
           { id: 1, name: 'Administrators', isSystem: 1 },
@@ -761,7 +790,7 @@ describe('system-row exclusion (Task 731)', () => {
       } as const
     }
 
-    const result = await importUsersAndGroups({
+    const result = await runUsersGroupsImport({
       source: {
         groups: iter([]),
         users: iter([
@@ -791,7 +820,7 @@ describe('system-row exclusion (Task 731)', () => {
     async () => {
       const writer = recordingWriter()
 
-      const result = await importUsersAndGroups({
+      const result = await runUsersGroupsImport({
         source: {
           // The source Administrators (id 1) and Guests (id 2) groups themselves are never even
           // part of this feed — a real SourceConnector wouldn't yield them once isSystem rows are
@@ -820,7 +849,7 @@ describe('system-row exclusion (Task 731)', () => {
   test('an ordinary user in the source Guests group is remapped onto the target guest group id', async () => {
     const writer = recordingWriter()
 
-    const result = await importUsersAndGroups({
+    const result = await runUsersGroupsImport({
       source: {
         groups: iter([]),
         users: iter([{ id: 11, email: 'bob@example.com', name: 'Bob', isSystem: false }]),
@@ -838,7 +867,7 @@ describe('system-row exclusion (Task 731)', () => {
   test('without systemGroupIds supplied, a membership pointing at the source system group is still just skipped (pre-731 behavior)', async () => {
     const writer = createDryRunWriter()
 
-    const result = await importUsersAndGroups({
+    const result = await runUsersGroupsImport({
       source: {
         groups: iter([]),
         users: iter([{ id: 10, email: 'alice@example.com', name: 'Alice', isSystem: false }]),
@@ -856,7 +885,7 @@ describe('system-row exclusion (Task 731)', () => {
   test('an ordinary group with the same numeric id as a source system group is unaffected — real resolution wins over the remap fallback', async () => {
     const writer = recordingWriter()
 
-    const result = await importUsersAndGroups({
+    const result = await runUsersGroupsImport({
       source: {
         // Group id 1 here is a genuine, non-system, created group — not the source's Administrators.
         groups: iter([{ id: 1, name: 'Editors', isSystem: false }]),
@@ -876,9 +905,8 @@ describe('system-row exclusion (Task 731)', () => {
   })
 
   test('createDrizzleWriter.assignUserToSystemGroup delegates to Groups.assignUserToGroup(groupId, userId)', async () => {
-    const previous = (globalThis as any).WIKI
     const calls: any[] = []
-    ;(globalThis as any).WIKI = {
+    const handle = installTestWiki({
       models: {
         groups: {
           async assignUserToGroup(groupId: string, userId: string) {
@@ -887,7 +915,7 @@ describe('system-row exclusion (Task 731)', () => {
           }
         }
       }
-    }
+    })
     try {
       const explodingDb = {
         insert() {
@@ -900,7 +928,7 @@ describe('system-row exclusion (Task 731)', () => {
 
       assert.deepEqual(calls, [{ groupId: 'group-uuid', userId: 'user-uuid' }])
     } finally {
-      ;(globalThis as any).WIKI = previous
+      handle.restore()
     }
   })
 })
@@ -909,7 +937,7 @@ describe('system-row exclusion (Task 731)', () => {
  * Coverage for the Task 12 extraction: `createGroupImporter()`/`createUserImporter()`/
  * `createUserGroupImporter()` expose a per-record `importOne()` that Task 14's phase wiring drives
  * one source record at a time, instead of only ever being handed a whole iterable up front (as
- * `importUsersAndGroups()` still does, now as a thin composition of these three factories).
+ * `phases/users.ts` drives them).
  */
 describe('createGroupImporter / createUserGroupImporter (Task 12 extraction)', () => {
   test('createGroupImporter accumulates idMap across multiple importOne() calls', async () => {
@@ -971,7 +999,7 @@ describe('importOne() return value (Task 14 review fix)', () => {
   })
 
   test("createGroupImporter's importOne() returns the converter's own status for a non-created outcome", async () => {
-    const importer = createGroupImporter(stubConvertGroup, createDryRunWriter())
+    const importer = createGroupImporter(flagEverythingGroupConverter, createDryRunWriter())
     assert.equal(await importer.importOne({ id: 1, name: 'Editors' }), 'flagged')
   })
 
@@ -995,8 +1023,8 @@ describe('importOne() return value (Task 14 review fix)', () => {
     assert.equal(await importer.importOne({ id: 10, email: 'a@example.com', name: 'A' }), 'created')
   })
 
-  test("createUserImporter's importOne() returns 'flagged' for the default stub converter", async () => {
-    const importer = createUserImporter(stubConvertUser, createDryRunWriter())
+  test("createUserImporter's importOne() returns the converter's own status for a non-created outcome", async () => {
+    const importer = createUserImporter(flagEverythingUserConverter, createDryRunWriter())
     assert.equal(await importer.importOne({ id: 10, email: 'a@example.com', name: 'A' }), 'flagged')
   })
 
@@ -1064,5 +1092,131 @@ describe('deriveUserGroupsFromEmbeddedGroups', () => {
     }
 
     assert.deepEqual(pairs, [{ userId: 1, groupId: 10 }])
+  })
+})
+
+describe('createLocalUserConverter', () => {
+  const LOCAL_STRATEGY_ID = 'local-uuid'
+  const convert = createLocalUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+  test('copies the source bcrypt hash verbatim', async () => {
+    const outcome = await convert({
+      email: 'a@b.com',
+      name: 'A',
+      password: '$2a$12$fakehash',
+      providerKey: 'local'
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
+    assert.equal(authEntry.password, '$2a$12$fakehash')
+  })
+
+  test('flags a local user with no password hash to carry over, rather than minting one', async () => {
+    const outcome = await convert({ email: 'a@b.com', name: 'A', providerKey: 'local' })
+
+    assert.equal(outcome.status, 'flagged')
+    assert.match((outcome as any).message, /password hash/)
+  })
+
+  test('skips a record with no email address', async () => {
+    const outcome = await convert({ name: 'A', password: '$2a$12$fakehash', providerKey: 'local' })
+
+    assert.equal(outcome.status, 'skipped')
+    assert.match((outcome as any).message, /email/)
+  })
+
+  test('lowercases the email and falls back to it for name when the source has none', async () => {
+    const outcome = await convert({ email: 'Mixed.Case@Example.com', password: '$2a$12$fakehash' })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    assert.equal(outcome.row.email, 'mixed.case@example.com')
+    assert.equal(outcome.row.name, 'mixed.case@example.com')
+  })
+
+  test('widens mustChangePwd/isActive/isVerified to accept an export-bundle integer 0/1 (OpenProject #1845/#1850)', async () => {
+    const outcome = await convert({
+      email: 'a@b.com',
+      name: 'A',
+      password: '$2a$12$fakehash',
+      mustChangePwd: 1,
+      isActive: 1,
+      isVerified: 0
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    assert.equal((outcome.row.auth as any)[LOCAL_STRATEGY_ID].mustChangePwd, true)
+    assert.equal(outcome.row.isActive, true)
+    assert.equal(outcome.row.isVerified, false)
+  })
+
+  test('degrades a malformed source timestamp to undefined rather than failing the whole record', async () => {
+    const outcome = await convert({
+      email: 'a@b.com',
+      name: 'A',
+      password: '$2a$12$fakehash',
+      createdAt: 'not-a-date'
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    assert.equal(outcome.row.createdAt, undefined)
+  })
+
+  test('carries an ISO-string createdAt over (export-bundle connector shape) same as a real Date', async () => {
+    const outcome = await convert({
+      email: 'a@b.com',
+      name: 'A',
+      password: '$2a$12$fakehash',
+      createdAt: '2020-01-02T03:04:05.000Z'
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    assert.deepEqual(outcome.row.createdAt, new Date('2020-01-02T03:04:05.000Z'))
+  })
+})
+
+describe('composeUserConverters', () => {
+  test("routes a 'local' providerKey to the local converter", async () => {
+    let localCalls = 0
+    let fallbackCalls = 0
+    const local = (() => {
+      localCalls++
+      return { status: 'created', row: {} } as const
+    }) as any
+    const fallback = (() => {
+      fallbackCalls++
+      return { status: 'created', row: {} } as const
+    }) as any
+    const convert = composeUserConverters(local, fallback)
+
+    await convert({ providerKey: 'local' })
+
+    assert.equal(localCalls, 1)
+    assert.equal(fallbackCalls, 0)
+  })
+
+  test('routes every other providerKey to the fallback converter', async () => {
+    let localCalls = 0
+    let fallbackCalls = 0
+    const local = (() => {
+      localCalls++
+      return { status: 'created', row: {} } as const
+    }) as any
+    const fallback = (() => {
+      fallbackCalls++
+      return { status: 'created', row: {} } as const
+    }) as any
+    const convert = composeUserConverters(local, fallback)
+
+    await convert({ providerKey: 'github' })
+    await convert({}) // -> no providerKey at all also routes to fallback, not local
+
+    assert.equal(localCalls, 0)
+    assert.equal(fallbackCalls, 2)
   })
 })

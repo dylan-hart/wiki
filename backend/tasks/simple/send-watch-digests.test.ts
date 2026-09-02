@@ -1,7 +1,8 @@
-import { describe, test, before, after, beforeEach, mock } from 'node:test'
+import { describe, test, after, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { task as sendWatchDigests } from './send-watch-digests.ts'
 import type { PendingDigestEvent } from '../../models/pageWatchEvents.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 /**
  * Task 534: the digest job's own grouping/branching logic (per user, per event, empty-cycle no-op,
@@ -11,7 +12,7 @@ import type { PendingDigestEvent } from '../../models/pageWatchEvents.ts'
  * does with the rows it's handed without standing up a database for it.
  */
 
-let previousWiki: any
+let wikiHandle: { restore(): void }
 let listPendingForDigest: ReturnType<typeof mock.fn>
 let markManyDelivered: ReturnType<typeof mock.fn>
 let filterReadable: ReturnType<typeof mock.fn>
@@ -35,12 +36,8 @@ function pendingEvent(overrides: Partial<PendingDigestEvent> = {}): PendingDiges
   }
 }
 
-before(() => {
-  previousWiki = (globalThis as any).WIKI
-})
-
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
 })
 
 beforeEach(() => {
@@ -57,14 +54,14 @@ beforeEach(() => {
   }))
   sendPageWatchDigest = mock.fn(async () => {})
   loggerError = mock.fn()
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     logger: { info: mock.fn(), warn: mock.fn(), error: loggerError, debug: mock.fn() },
     models: {
       pageWatchEvents: { listPendingForDigest, markManyDelivered, filterReadable },
       users: { getById },
       mail: { sendPageWatchDigest }
     }
-  }
+  })
 })
 
 describe('send-watch-digests task', () => {

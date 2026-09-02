@@ -8,5 +8,5 @@
  * job for a batch this one already swept) returns without launching anything.
  */
 export async function task(): Promise<void> {
-  await WIKI.models.rendering.drainQueue()
+  await WIKI.models.renderQueue.drainQueue()
 }

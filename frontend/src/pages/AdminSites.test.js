@@ -1,12 +1,9 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminSites from './AdminSites.vue'
+
+import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 const SITES = [
   { id: 1, title: 'Docs', hostname: 'docs.example.com', isEnabled: true },
@@ -14,22 +11,11 @@ const SITES = [
 ]
 
 async function mountPage() {
-  setActivePinia(createPinia())
-
   API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve(SITES) }))
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/_admin/sites', component: { template: '<div />' } }]
-  })
-  router.push('/_admin/sites')
-  await router.isReady()
+  const router = await createTestRouter(['/_admin/sites'], '/_admin/sites')
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-
-  const wrapper = mount(AdminSites, {
-    global: { plugins: [router, i18n] }
-  })
+  const { wrapper } = mountWithApp(AdminSites, { router })
   await vi.waitUntil(() => API_CLIENT.get.mock.calls.length >= 1)
   await wrapper.vm.$nextTick()
 
@@ -74,20 +60,5 @@ describe('AdminSites hostname links (OpenProject #1990)', () => {
     //    button beside Edit/Delete.
     const links = wrapper.findAll('a[href="//docs.example.com"]')
     expect(links).toHaveLength(2)
-  })
-})
-
-/**
- * OpenProject #1929: `/admin/sites` names a multi-site-administration concept this fork invented (no
- * upstream Wiki.js docs site can describe it), so the `docsBase`-based help button was deleted rather
- * than left pointing at a page that does not exist. Reads the raw source rather than mounting the
- * component -- a full mount is out of proportion for asserting that some markup is simply gone -- so
- * this also guards against the button quietly being reintroduced.
- */
-const source = readFileSync(join(import.meta.dirname, 'AdminSites.vue'), 'utf-8')
-
-describe('AdminSites help link', () => {
-  it('has no docsBase-based help/docs button', () => {
-    expect(source).not.toContain('docsBase')
   })
 })

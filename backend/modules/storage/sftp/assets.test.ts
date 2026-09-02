@@ -2,13 +2,8 @@ import assert from 'node:assert/strict'
 import { mock } from 'node:test'
 import { describe, test } from 'node:test'
 import type Client from 'ssh2-sftp-client'
-import {
-  contentTypeBucketForAsset,
-  exportAssets,
-  parseSizeToBytes,
-  remotePathForAsset,
-  type AssetExportRow
-} from './assets.ts'
+import { exportAssets, remotePathForAsset, type AssetExportRow } from './assets.ts'
+import { makeStorageTarget } from '../../../test/builders.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 function makeRow(overrides: Partial<AssetExportRow> = {}): AssetExportRow {
@@ -24,28 +19,15 @@ function makeRow(overrides: Partial<AssetExportRow> = {}): AssetExportRow {
 }
 
 function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
-  return {
+  return makeStorageTarget('sftp', {
     id: 'target-1',
-    siteId: 'site-1',
-    module: 'sftp',
-    isEnabled: true,
     title: 'SFTP',
-    description: '',
-    icon: '',
-    banner: '',
-    vendor: '',
-    website: '',
-    contentTypes: {
-      activeTypes: ['images', 'documents', 'others', 'large'],
-      largeThreshold: '5MB'
-    },
     assetDelivery: {
       isStreamingSupported: false,
       isDirectAccessSupported: false,
       streaming: false,
       directAccess: false
     },
-    versioning: { isSupported: false, isForceEnabled: false, enabled: false },
     sync: {
       supportedModes: ['push'],
       schedule: false,
@@ -53,11 +35,9 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
       scheduleOverride: null,
       supportsContentSync: false
     },
-    props: {},
     config: { basePath: '/srv/wiki' },
-    actions: [],
     ...overrides
-  }
+  })
 }
 
 function makeStubClient(overrides: Record<string, any> = {}): any {
@@ -82,49 +62,44 @@ describe('remotePathForAsset', () => {
   })
 })
 
-describe('parseSizeToBytes', () => {
-  test('parses plain bytes', () => {
-    assert.equal(parseSizeToBytes('512B'), 512)
-  })
-
-  test('parses KB/MB/GB/TB decimally, matching the `filesize` package this repo already formats with', () => {
-    assert.equal(parseSizeToBytes('5MB'), 5_000_000)
-    assert.equal(parseSizeToBytes('1KB'), 1_000)
-    assert.equal(parseSizeToBytes('2GB'), 2_000_000_000)
-    assert.equal(parseSizeToBytes('1TB'), 1_000_000_000_000)
-  })
-
-  test('is case-insensitive and tolerates a space before the unit', () => {
-    assert.equal(parseSizeToBytes('5 mb'), 5_000_000)
-  })
-
-  test('rejects a malformed threshold', () => {
-    assert.throws(() => parseSizeToBytes('huge'), /not a valid size threshold/)
-  })
-})
-
-describe('contentTypeBucketForAsset', () => {
-  test('classifies by kind when under the large threshold', () => {
-    assert.equal(contentTypeBucketForAsset({ kind: 'image', fileSize: 1024 }, 5_000_000), 'images')
-    assert.equal(
-      contentTypeBucketForAsset({ kind: 'document', fileSize: 1024 }, 5_000_000),
-      'documents'
+/**
+ * The large-file threshold is `helpers/blobTarget.ts`'s, not this module's own any more: binary
+ * (1024-based) units and `>=` at the boundary, the same classification `models/storage.ts`'s
+ * write-path dispatch gate and the s3/azure/gcs targets apply. This module used to parse 1000-based
+ * units and test `>`, so a 5,000,000-byte file on a `5MB` target was "large" here and nowhere else.
+ * `helpers/blobTarget.test.ts` covers the parser and `categoryOf` directly; these two cases pin the
+ * converged semantics where `exportAssets` actually acts on them.
+ */
+describe('exportAssets / large-file classification', () => {
+  test('a file exactly at the threshold IS large (">=", 5MB = 5 * 1024²)', async () => {
+    const client = makeStubClient()
+    const target = makeTarget({
+      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+    })
+    const row = makeRow({ kind: 'image', fileSize: 5 * 1024 ** 2, fileName: 'exactly-5mb.png' })
+    const fetchBatch = mock.fn(async ({ afterId }: { afterId: string | null }) =>
+      afterId === null ? [row] : []
     )
-    assert.equal(contentTypeBucketForAsset({ kind: 'other', fileSize: 1024 }, 5_000_000), 'others')
+
+    await exportAssets(client as unknown as Client, target, { fetchBatch })
+
+    assert.equal(client.put.mock.calls.length, 0)
   })
 
-  test('reclassifies as large once fileSize exceeds the threshold, regardless of kind', () => {
-    assert.equal(
-      contentTypeBucketForAsset({ kind: 'image', fileSize: 6_000_000 }, 5_000_000),
-      'large'
+  test('units are binary: a 5,000,000-byte file is still under a 5MB threshold', async () => {
+    const client = makeStubClient()
+    const target = makeTarget({
+      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+    })
+    const row = makeRow({ kind: 'image', fileSize: 5_000_000, fileName: 'just-under.png' })
+    const fetchBatch = mock.fn(async ({ afterId }: { afterId: string | null }) =>
+      afterId === null ? [row] : []
     )
-  })
 
-  test('a file exactly at the threshold is not yet large ("above" is strict)', () => {
-    assert.equal(
-      contentTypeBucketForAsset({ kind: 'image', fileSize: 5_000_000 }, 5_000_000),
-      'images'
-    )
+    await exportAssets(client as unknown as Client, target, { fetchBatch })
+
+    assert.equal(client.put.mock.calls.length, 1)
+    assert.equal(client.put.mock.calls[0].arguments[1], '/srv/wiki/just-under.png')
   })
 })
 

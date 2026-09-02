@@ -3,20 +3,14 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 /**
- * OpenProject #1929: `/guide/table-editor` names a table-editor concept this fork invented (no
- * upstream Wiki.js docs site can describe it), so the `docsBase`-based help button was deleted rather
- * than left pointing at a page that does not exist. Reads the raw source rather than mounting the
- * component -- a full mount is out of proportion for asserting that some markup is simply gone -- so
- * this also guards against the button quietly being reintroduced. `siteStore` itself is still used
- * elsewhere in this component (`overlayOpts`, the overlay-close patch), so only the button is gone.
+ * The other half of OpenProject #1929's change here: deleting the `docsBase`-based help button left
+ * `siteStore` still in use elsewhere in this component, so removing the button must not have taken
+ * the store with it. The "no docsBase button" assertion itself lives in `src/docsBaseGate.test.js`
+ * alongside the six other fork-invented surfaces it applies to.
  */
 const source = readFileSync(join(import.meta.dirname, 'TableEditorOverlay.vue'), 'utf-8')
 
 describe('TableEditorOverlay help link', () => {
-  it('has no docsBase-based help/docs button', () => {
-    expect(source).not.toContain('docsBase')
-  })
-
   it('still uses siteStore elsewhere in the component', () => {
     expect(source).toContain('siteStore.overlayOpts')
   })

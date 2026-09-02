@@ -122,12 +122,11 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 import { relativeDate } from '@/helpers/datetime'
 
 import { useAdminStore } from '@/stores/admin'
@@ -153,28 +152,25 @@ useMeta(() => ({
 
 // DATA
 
-const state = reactive({
-  enabled: false,
-  loading: 0,
-  isToggleLoading: false,
-  // -> Instance-wide evidence that tracking is actually recording something (OpenProject #2335),
-  //    not just the on/off state above -- see `admin.pageviews.*` template block.
-  summary: {
-    totalViews: 0,
-    last24h: 0,
-    last7d: 0,
-    distinctPages: 0,
-    mostRecentAt: null
-  }
-})
-
-// METHODS
-
-async function load() {
-  state.loading++
-  loading.show()
-  try {
-    const resp = await API_CLIENT.get('system/pageviews').json()
+const { state, load, refresh } = useAdminSettings({
+  i18nPrefix: 'admin.pageviews',
+  // -> Instance-wide, not one site's: no site picker, no reload on switching site
+  siteScoped: false,
+  extraState: {
+    enabled: false,
+    isToggleLoading: false,
+    // -> Instance-wide evidence that tracking is actually recording something (OpenProject #2335),
+    //    not just the on/off state above -- see `admin.pageviews.*` template block.
+    summary: {
+      totalViews: 0,
+      last24h: 0,
+      last7d: 0,
+      distinctPages: 0,
+      mostRecentAt: null
+    }
+  },
+  fetch: () => API_CLIENT.get('system/pageviews').json(),
+  onLoaded: (resp) => {
     state.enabled = resp?.isEnabled === true
     // -> Keeps the sidebar status light in step without another round trip
     adminStore.info.isPageviewsEnabled = state.enabled
@@ -185,24 +181,10 @@ async function load() {
       distinctPages: resp?.summary?.distinctPages ?? 0,
       mostRecentAt: resp?.summary?.mostRecentAt ?? null
     }
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.pageviews.loadFailed'),
-      caption: err.message
-    })
   }
-  loading.hide()
-  state.loading--
-}
+})
 
-async function refresh() {
-  await load()
-  notify({
-    type: 'positive',
-    message: t('admin.pageviews.refreshSuccess')
-  })
-}
+// METHODS
 
 async function globalSwitch() {
   state.isToggleLoading = true
@@ -227,10 +209,6 @@ async function globalSwitch() {
   }
   state.isToggleLoading = false
 }
-
-// MOUNTED
-
-onMounted(load)
 </script>
 
 <style lang="scss"></style>

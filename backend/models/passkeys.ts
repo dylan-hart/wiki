@@ -15,7 +15,7 @@ import type {
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON
 } from '@simplewebauthn/server'
-import type { AfterLoginResult } from './users.ts'
+import type { AfterLoginResult } from './login.ts'
 
 /**
  * One registered authenticator, as stored in the user's `passkeys` blob. Every binary value is held
@@ -445,7 +445,7 @@ class Passkeys {
 
     // -> Attributed to the local strategy, which is where an account's own credentials belong. Neither
     //    a password change nor a 2FA code is asked for on top of a passkey.
-    return WIKI.models.users.afterLoginChecks(
+    return WIKI.models.login.afterLoginChecks(
       user,
       WIKI.data.systemIds.localAuthId,
       { ip, siteId: pending.siteId },

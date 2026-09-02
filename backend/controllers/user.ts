@@ -1,4 +1,5 @@
 import { isValidUuid } from '../helpers/common.ts'
+import { notModifiedOrPrepare } from '../helpers/httpCache.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -40,14 +41,11 @@ async function routes(app: FastifyInstance) {
       return reply.notFound('This user has no avatar')
     }
 
-    const etag = `"${hash}"`
-    reply.header('ETag', etag)
-    reply.header('Cache-Control', AVATAR_CACHE)
-    // -> The bytes came from a user, so the browser must take the type at its word rather than looking
-    //    for something more interesting in them
-    reply.header('X-Content-Type-Options', 'nosniff')
-    if (req.headers['if-none-match'] === etag) {
-      return reply.code(304).send()
+    // -> `notModifiedOrPrepare` also sends `X-Content-Type-Options: nosniff`: the bytes came from a
+    //    user, so the browser must take the type at its word rather than looking for something more
+    //    interesting in them
+    if (notModifiedOrPrepare(req, reply, { etag: `"${hash}"`, cacheControl: AVATAR_CACHE })) {
+      return
     }
 
     const avatar = await WIKI.models.users.getAvatar(userId)

@@ -10,17 +10,12 @@ import {
   type McpAuthContextGetter
 } from '../auth.ts'
 import { resolveRequestedSite } from '../site.ts'
+import { localeArg, siteIdArg, toResult } from './shared.ts'
 
 const getPageInputSchema = {
   path: z.string().describe('Slash-separated path of the page to read. The home page when empty.'),
-  siteId: z
-    .string()
-    .uuid()
-    .optional()
-    .describe(
-      'Which site to read from. Omit on a single-site instance; see `list_sites` otherwise.'
-    ),
-  locale: z.string().optional().describe("The site's primary locale when omitted."),
+  siteId: siteIdArg('Which site to read from.'),
+  locale: localeArg,
   includeSource: z
     .boolean()
     .optional()
@@ -34,19 +29,15 @@ export interface GetPageArgs {
   includeSource?: boolean
 }
 
-function toResult(payload: unknown): CallToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(payload) }] }
-}
-
 /**
  * Read a single page by path, restricted to what the configured key may actually read. Mirrors
- * `GET /_api/sites/:siteId/pages/:pageIdOrHash` (`api/pages.ts`): `read:pages` gates the page at all,
+ * `GET /_api/sites/:siteId/pages/:pageIdOrHash` (`api/pages/read.ts`): `read:pages` gates the page at all,
  * `read:source` gates the raw source on top of that, a password-protected page comes back with
  * `isLocked: true` and no body unless the key holds `write:pages`/`manage:pages` on it, and
  * `publicOnly` is derived from `pageActorFor(ctx)` exactly as the REST route derives it from
- * `actorFrom(req)` — an admin-issued key (no `ctx.userId`) is therefore a `publicOnly` reader over
- * MCP too, not a full-publish-state one; see `pageActorFor()`'s doc comment for why that mirrors
- * `actorFrom()` deliberately.
+ * `actorFrom(req)` (`helpers/pageAccess.ts`) — an admin-issued key (no `ctx.userId`) is therefore a
+ * `publicOnly` reader over MCP too, not a full-publish-state one; see `pageActorFor()`'s doc comment
+ * for why that mirrors `actorFrom()` deliberately.
  *
 
  * `includeSource` is honored best-effort: asked for without `read:source` on the page, the call still
@@ -80,14 +71,15 @@ export async function handleGetPage(
   if (!page) {
     throw new McpToolError('This page does not exist.')
   }
-  // -> Not readable is indistinguishable from not there, same as `loadReadablePage()` in `api/pages.ts`
+  // -> Not readable is indistinguishable from not there, same as `loadReadablePage()` in
+  //    `helpers/pageAccess.ts`
   if (!WIKI.models.groups.checkAccess(actor, 'read:pages', { ...page, siteId: site.id })) {
     throw new McpToolError('This page does not exist.')
   }
 
   // -> Best-effort, never awaited: `models/pageviews.ts#record()` swallows its own failures and
   //    no-ops entirely under the admin opt-out, so a logging failure can never break this read.
-  //    `ctx.keyId` is hashed rather than stored -- the same convention `api/pages.ts`'s
+  //    `ctx.keyId` is hashed rather than stored -- the same convention `api/pages/read.ts`'s
   //    `recordPageview()` uses for a bearer-key REST caller, and for the same reason: two different
   //    keys are two different visitors, the same key reused is one. This is the `mcp` counterpart to
   //    that route's `api`/`browser` split (OpenProject #1140's "web browser vs. API/MCP access").

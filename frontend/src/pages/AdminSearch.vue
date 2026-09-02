@@ -158,9 +158,10 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
@@ -200,11 +201,25 @@ useMeta(() => ({
 
 // DATA
 
-const state = reactive({
-  loading: 0,
-  rebuildLoading: false,
-  engines: [],
-  selectedEngineKey: ''
+/**
+ * The site the engine list on screen was last loaded for. What tells an ordinary reload (a save, the
+ * refresh button) apart from a site switch, which has to force the picker back onto the new site's
+ * own active engine -- see `applyEngines`'s `resetSelection`.
+ */
+let loadedSiteId = null
+
+const { state, load } = useAdminSettings({
+  i18nPrefix: 'admin.search',
+  extraState: {
+    rebuildLoading: false,
+    engines: [],
+    selectedEngineKey: ''
+  },
+  fetch: (siteId) => API_CLIENT.get(`sites/${siteId}/search/engines`).json(),
+  onLoaded: (engines) => {
+    applyEngines(engines, { resetSelection: adminStore.currentSiteId !== loadedSiteId })
+    loadedSiteId = adminStore.currentSiteId
+  }
 })
 
 // COMPUTED
@@ -214,21 +229,6 @@ const selectedEngine = computed(
 )
 const hasConfigurableProps = computed(
   () => Object.keys(selectedEngine.value?.props ?? {}).length > 0
-)
-
-// WATCHERS
-
-// -> Switching sites in the admin header must not leave this page pinned to the previous site's
-//    engine list/selection: `resetSelection` forces the picker back onto whichever engine the NEW
-//    site actually has active, rather than merely keeping the old key if it happens to also exist
-//    there (every site has a `db` engine, so a naive "keep if still present" check would silently
-//    stay on it even when the new site's active engine is something else).
-watch(
-  () => adminStore.currentSiteId,
-  () => {
-    loading.show()
-    load({ resetSelection: true })
-  }
 )
 
 // METHODS
@@ -244,8 +244,13 @@ watch(
  * turned into editable state once per load. Harmless on every other engine, whose `dictOverrides` is
  * always absent -- it just seeds `'{}'`, never rendered since the template gates on the engine key.
  *
- * @param resetSelection Force the selection back onto the site's active engine (a site switch),
- *   rather than keeping the currently viewed one when it is still in the list (an ordinary reload).
+ * @param resetSelection Force the selection back onto the site's active engine -- what a site
+ *   switch (and the first load of all) asks for, rather than keeping the currently viewed one when
+ *   it is still in the list, which is what an ordinary reload wants. Switching sites in the admin
+ *   header must not leave this page pinned to the previous site's selection, and merely keeping the
+ *   old key when it happens to also exist there is not enough: every site has a `db` engine, so a
+ *   naive "keep if still present" check would silently stay on it even when the new site's active
+ *   engine is something else.
  */
 function applyEngines(engines, { resetSelection = false } = {}) {
   state.engines = (engines ?? []).map((eng) => ({
@@ -257,23 +262,6 @@ function applyEngines(engines, { resetSelection = false } = {}) {
     state.selectedEngineKey =
       state.engines.find((eng) => eng.isSelected)?.key || state.engines[0]?.key || ''
   }
-}
-
-async function load({ resetSelection = false } = {}) {
-  state.loading++
-  loading.show()
-  try {
-    const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}/search/engines`).json()
-    applyEngines(resp, { resetSelection })
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.search.loadFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  loading.hide()
-  state.loading--
 }
 
 async function refresh() {
@@ -404,14 +392,6 @@ async function rebuild() {
   }
   state.rebuildLoading = false
 }
-
-// MOUNTED
-
-onMounted(async () => {
-  if (adminStore.currentSiteId) {
-    await load({ resetSelection: true })
-  }
-})
 </script>
 
 <style lang="scss"></style>

@@ -15,6 +15,7 @@ import diskStorageModule, {
 } from './storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 import { ensureTemporal } from '../../../test/temporal.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
 
 /**
  * Exercises `validateConfig`, `dump` and `backup` entirely against the real filesystem (temp
@@ -34,6 +35,11 @@ async function makeTempDir(): Promise<string> {
 
 /** A minimal target for `site-1` configured to write to `dir` -- all `dump`/`backup` read from it. */
 function makeTarget(dir: string): StorageTarget {
+  // -> Deliberately NOT `test/builders.ts#makeStorageTarget`: that builder fills in the whole
+  //    blob-module capability superset, and the whole point of this suite's fixture is that `disk`
+  //    reads nothing beyond `siteId` and `config.path` — a target carrying `contentTypes`,
+  //    `assetDelivery`, `versioning` and `sync` could not fail if the module started reaching for
+  //    one of them.
   return { siteId: 'site-1', config: { path: dir } } as unknown as StorageTarget
 }
 
@@ -47,7 +53,9 @@ function fakeDumpDeps({
   getPage?: (args: { siteId: string; id: string; withContent: boolean }) => Promise<any>
   getContent?: (id: string) => Promise<any>
 } = {}) {
-  global.WIKI = {
+  // -> `models` names exactly what `dump()` calls and nothing else, so a reach past them still
+  //    throws (`createWikiStub` defaults `models` to `{}` for precisely this reason).
+  installTestWiki({
     db: {
       select: () => ({
         from: () => ({
@@ -61,7 +69,7 @@ function fakeDumpDeps({
       pages: { getPage },
       assets: { getContent }
     }
-  } as unknown as WikiGlobal
+  })
 }
 
 test('diskStorageModule declares validateConfig, dump, importAll, backup and dailyBackup', () => {
@@ -305,10 +313,9 @@ function fakeImportDeps({
   createPage?: (siteId: string, input: any, actor: any) => Promise<any>
   upload?: (args: any) => Promise<any>
 } = {}) {
-  global.WIKI = {
+  installTestWiki({
     sites: { 'site-1': { config: { locales: { active: locales } } } },
     data: { systemIds: { userAdminId: 'admin-user-id' } },
-    logger: { info: () => {}, warn: () => {}, debug: () => {} },
     models: {
       // -> No `queueRerender` stub: `importPage()` no longer calls it (OpenProject #1723) --
       //    `createPage()` alone now owns queuing its own re-render, so a test whose scenario
@@ -317,7 +324,7 @@ function fakeImportDeps({
       pages: { createPage },
       assets: { upload }
     }
-  } as unknown as WikiGlobal
+  })
 }
 
 async function writeFile(dir: string, ...segments: string[]): Promise<string> {

@@ -83,9 +83,9 @@ function interpolate(str, params) {
 }
 
 /**
- * Test-only: forgets every cached fetch, so a new call issues a fresh request. Mirrors `./config.js`'s
- * `_resetBlockConfigCache` / `./site.js`'s `_resetSiteIdCache` for the same reason -- the module-level
- * cache is deliberate in production but would otherwise leak one test's mocked response into the next.
+ * Test-only: forgets every cached fetch, so a new call issues a fresh request. Mirrors `./site.js`'s
+ * `_resetSiteCache` for the same reason -- the module-level cache is deliberate in production but
+ * would otherwise leak one test's mocked response into the next.
  */
 export function _resetI18nCache() {
   dictionaryPromises.clear()

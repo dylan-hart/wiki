@@ -310,12 +310,12 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 import { dialog } from '@/composables/dialog'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { copyToClipboard } from '@/helpers/clipboard'
@@ -344,13 +344,21 @@ useMeta(() => ({
 
 // DATA
 
-const state = reactive({
-  loading: 0,
-  isUpgrading: false,
-  isUpgradingStarted: false,
-  upgradeProgress: 0,
-  info: {
-    platform: ''
+const { state, load } = useAdminSettings({
+  i18nPrefix: 'admin.system',
+  // -> One instance's own report, not a site's settings: no site picker, no reload on switching site
+  siteScoped: false,
+  extraState: {
+    isUpgrading: false,
+    isUpgradingStarted: false,
+    upgradeProgress: 0,
+    info: {
+      platform: ''
+    }
+  },
+  fetch: () => API_CLIENT.get('system/info').json(),
+  onLoaded: (info) => {
+    state.info = info
   }
 })
 
@@ -377,44 +385,15 @@ const platformLogo = computed(() => {
       return 'washing-machine'
   }
 })
-const clientBrowser = computed(() => {
-  return !import.meta.env.SSR ? navigator.userAgent : ''
-})
-const clientPlatform = computed(() => {
-  return !import.meta.env.SSR ? navigator.platform : ''
-})
-const clientLanguage = computed(() => {
-  return !import.meta.env.SSR ? navigator.language : ''
-})
-const clientCookies = computed(() => {
-  return !import.meta.env.SSR ? navigator.cookieEnabled : ''
-})
-const clientViewport = computed(() => {
-  return !import.meta.env.SSR
-    ? `${document.documentElement.clientWidth}x${document.documentElement.clientHeight}`
-    : ''
-})
+const clientBrowser = computed(() => navigator.userAgent)
+const clientPlatform = computed(() => navigator.platform)
+const clientLanguage = computed(() => navigator.language)
+const clientCookies = computed(() => navigator.cookieEnabled)
+const clientViewport = computed(
+  () => `${document.documentElement.clientWidth}x${document.documentElement.clientHeight}`
+)
 
 // METHODS
-
-async function load() {
-  state.loading++
-  loading.show()
-  // -> Unlike every sibling admin page's own `load()`, this ran bare between `loading.show()`/
-  //    `hide()` with no try/catch -- a network blip, 403, or restarting backend left the full-screen
-  //    overlay stuck over the whole admin area with no error shown (OpenProject #947).
-  try {
-    state.info = await API_CLIENT.get('system/info').json()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.system.loadFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  loading.hide()
-  state.loading--
-}
 
 function checkForUpdates() {
   dialog({
@@ -448,12 +427,6 @@ Total RAM: ${state.info.ramTotal}`
     })
   }
 }
-
-// MOUNTED
-
-onMounted(() => {
-  load()
-})
 </script>
 
 <style lang="scss">

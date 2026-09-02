@@ -1,14 +1,13 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
-import fastify from 'fastify'
-import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
+import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 import liveDataRoutes from './liveData.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
- * A unit-level test of the route's own wiring — site lookup, the block-enabled gate, response
- * pass-through — with `WIKI.models.sites`/`blocks`/`liveData` stubbed rather than a real database or
+ * A unit-level test of the route's own wiring — the shared site preHandler, the block-enabled gate,
+ * response pass-through — with `WIKI.sites`/`models.blocks`/`models.liveData` stubbed rather than a real database or
  * network call. `models/liveData.test.ts` proves `resolve()` itself (caching, credential resolution,
  * JSONPath extraction, upstream error handling).
  */
@@ -16,9 +15,6 @@ describe('POST /sites/:siteId/live-data/resolve', () => {
   const SITE_ID = '5d9c8f1e-2b3a-4c5d-9e6f-7a8b9c0d1e2f'
 
   const sites: Record<string, any> = { [SITE_ID]: { id: SITE_ID } }
-  async function getSiteById({ id }: { id: string }) {
-    return sites[id] ?? null
-  }
 
   let enabledKeys = new Set(['live-data'])
   let resolveCalls: Array<{ siteId: string; request: any }>
@@ -35,45 +31,36 @@ describe('POST /sites/:siteId/live-data/resolve', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      models: {
-        sites: { getSiteById },
-        blocks: { getEnabledKeys },
-        liveData: { resolve }
-      }
+    // -> The unknown-site 404 lives in one hook now (spec D1), not in each route handler, so a
+    //    plugin-only app has to register it to answer that case the way the real app does.
+    const guardedRoutes: FastifyPluginAsync = async (instance) => {
+      instance.addHook('preHandler', siteEnabledPreHandler)
+      await instance.register(liveDataRoutes)
     }
 
-    app = fastify()
-    await app.register(fastifySensible)
-    // -> This unit test registers no session plugin (see the class comment: it stubs the route's own
-    //    collaborators, not the app's auth stack), so an authenticated caller is simulated by a test-only
-    //    header this hook translates into the same `req.session`/`req.apiKey` shape the real hooks in
-    //    `index.ts` populate.
-    app.addHook('onRequest', async (req) => {
-      if (req.headers['x-test-authenticated'] === 'true') {
-        ;(req as any).session = { authenticated: true }
-      }
-      if (req.headers['x-test-api-key'] === 'true') {
-        ;(req as any).apiKey = { id: 'test-key', permissions: [] }
+    app = await buildTestApp({
+      routes: guardedRoutes,
+      // -> This unit test registers no session plugin (see the class comment: it stubs the route's
+      //    own collaborators, not the app's auth stack), so an authenticated caller is simulated by
+      //    a test-only header translated into the same `req.session`/`req.apiKey` shape the real
+      //    hooks populate.
+      session: (req: any) => {
+        if (req.headers['x-test-api-key'] === 'true') {
+          req.apiKey = { id: 'test-key', permissions: [] }
+        }
+        return req.headers['x-test-authenticated'] === 'true' ? { authenticated: true } : undefined
+      },
+      wiki: {
+        sites,
+        models: {
+          blocks: { getEnabledKeys },
+          liveData: { resolve }
+        }
       }
     })
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerErrorSchema(app)
-    await app.register(liveDataRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     enabledKeys = new Set(['live-data'])

@@ -86,7 +86,7 @@ const state = reactive({
  *
  * The response is a plain array of the groups the user belongs to, UNLESS the site has
  * `features.showOtherGroups` enabled, in which case it is `{ groups, otherGroups }` -- see
- * `backend/api/users.ts`'s `/profile/groups` route for why the shape itself is what carries the
+ * `backend/api/users/profile.ts`'s `/profile/groups` route for why the shape itself is what carries the
  * gating, rather than the frontend filtering a fetched-in-full list.
  */
 async function fetchGroups() {

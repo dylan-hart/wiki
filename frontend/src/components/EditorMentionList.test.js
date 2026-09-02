@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import EditorMentionList from './EditorMentionList.vue'
 
+import { createTestI18n } from '../../test/i18n.js'
+
 function mountList(props) {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   return mount(EditorMentionList, {
     props: { command: vi.fn(), ...props },
     global: { plugins: [i18n] }

@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
-import treeRoutes, { mayOnFolder, visibleTreeItems } from './tree.ts'
-import { registerSchemas as registerTreeSchema } from './schemas/tree.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import treeRoutes from './tree.ts'
+import { mayOnFolder, visibleTreeItems } from '../helpers/pageAccess.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Regression tests for task 676: `visibleTreeItems` and `mayOnFolder` take an explicit `siteId` and
@@ -23,7 +20,7 @@ const FOLDER_ID = '55555555-5555-4555-8555-555555555555'
 let app: FastifyInstance
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
+  const wiki = {
     sites: { [ENABLED_SITE_ID]: { id: ENABLED_SITE_ID, isEnabled: true, config: {} } },
     models: {
       tree: {
@@ -49,16 +46,15 @@ before(async () => {
           locale: 'en',
           meta: {}
         }),
-        listDescendantPages: async () => [],
         getTree: async () => [],
-        // -> DELETE FOLDER's own default: no descendants, nothing to authorize. Tests covering
-        //    OpenProject #2100 override this per-test.
+        // -> The RENAME and DELETE FOLDER routes' shared default: no descendants, nothing to
+        //    authorize. Tests covering OpenProject #2100/#2102 override this per-test.
         listDescendants: async () => ({ pages: [], assets: [] }),
         deleteFolder: async () => ({ pages: [], assets: [] })
       },
       groups: {
         actorForRequest: () => ({ permissions: [] }),
-        // -> `actorFrom(req)` (DELETE FOLDER's session-to-actor resolution, `api/pages.ts`) reads this
+        // -> `actorFrom(req)` (DELETE FOLDER's session-to-actor resolution, `helpers/pageAccess.ts`) reads this
         //    for a session-backed request.
         groupIdsForRequest: () => []
       },
@@ -71,46 +67,24 @@ before(async () => {
     }
   }
 
-  app = fastify({
-    ajv: {
-      plugins: [[ajvFormats.default, {}] as any]
+  app = await buildTestApp({
+    routes: treeRoutes,
+    ajv: true,
+    wiki,
+    // -> Stands in for the real session plugin: a request carrying `x-test-session` gets the session
+    //    it names, exactly the shape `!req.session?.authenticated` in BROWSE THE TREE's handler
+    //    reads, and what DELETE FOLDER's `actorFrom(req)` needs to get past its own 401 -- tests
+    //    exercising that route send the header explicitly (`sessionHeader()`), so the default here
+    //    stays unauthenticated, matching the existing "publicOnly: true for an unauthenticated
+    //    request" coverage below.
+    session: (req: any) => {
+      const raw = req.headers['x-test-session']
+      return typeof raw === 'string' ? JSON.parse(raw) : {}
     }
   })
-  await app.register(fastifySensible)
-  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/`unauthorized()`
-  //    is a thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-  //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError#` response schema every
-  //    route's 4xx entries reference requires. Needed here because DELETE FOLDER's #2100 tests are the
-  //    first in this file to actually exercise a 4xx response.
-  app.setErrorHandler((error: any, _req, reply) => {
-    reply.code(error.statusCode ?? 500).send({
-      ok: false,
-      error: error.name,
-      statusCode: error.statusCode ?? 500,
-      message: error.message
-    })
-  })
-  // -> Stands in for the real session plugin (`@fastify/session`, wired in `index.ts`): a request
-  //    carrying this header gets the session it names, exactly the shape
-  //    `!req.session?.authenticated` in BROWSE THE TREE's handler reads, and what DELETE FOLDER's
-  //    `actorFrom(req)` needs to get past its own 401 -- tests exercising that route send the header
-  //    explicitly (`sessionHeader()`), so the default here stays unauthenticated, matching the
-  //    existing "publicOnly: true for an unauthenticated request" coverage below.
-  app.decorateRequest('session', null as any)
-  app.addHook('onRequest', async (req) => {
-    const raw = req.headers['x-test-session']
-    ;(req as any).session = typeof raw === 'string' ? JSON.parse(raw) : {}
-  })
-  await registerTreeSchema(app)
-  await registerErrorSchema(app)
-  await app.register(treeRoutes)
-  await app.ready()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 test('visibleTreeItems: threads siteId into every filtered item, not just the first', () => {
   const calls: any[] = []
@@ -339,9 +313,10 @@ test('RENAME FOLDER route: refuses when the caller lacks write:pages at the dest
     renameCalled = true
     return {}
   }
-  ;(globalThis as any).WIKI.models.tree.listDescendantPages = async () => [
-    { path: 'sub/child', tags: [], classification: null }
-  ]
+  ;(globalThis as any).WIKI.models.tree.listDescendants = async () => ({
+    pages: [{ path: 'sub/child', tags: [], classification: null }],
+    assets: []
+  })
   ;(globalThis as any).WIKI.models.groups.checkAccess = (
     _actor: any,
     permission: string,
@@ -362,9 +337,10 @@ test('RENAME FOLDER route: refuses when a descendant page would land where the c
     renameCalled = true
     return {}
   }
-  ;(globalThis as any).WIKI.models.tree.listDescendantPages = async () => [
-    { path: 'sub/child', tags: [], classification: null }
-  ]
+  ;(globalThis as any).WIKI.models.tree.listDescendants = async () => ({
+    pages: [{ path: 'sub/child', tags: [], classification: null }],
+    assets: []
+  })
   ;(globalThis as any).WIKI.models.groups.checkAccess = (
     _actor: any,
     permission: string,

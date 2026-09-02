@@ -1,7 +1,9 @@
-import { dirname, join, relative } from 'node:path'
+import { dirname, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+
+import { listSourceFiles } from '../../test/sourceFiles.js'
 
 /**
  * OpenProject #1620 ("Thread an accessible name through the 60 dialog and overlay consumers"),
@@ -27,21 +29,7 @@ import { describe, expect, it } from 'vitest'
  * the literal string `<w-dialog` in mock template strings, which would otherwise produce false
  * negatives (a `.test.js` "usage" that never reaches `WDialog.vue` at all) or mask a real one.
  */
-
 const componentsDir = dirname(fileURLToPath(import.meta.url))
-
-function walk(dir, results) {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry)
-    const st = statSync(full)
-    if (st.isDirectory()) {
-      walk(full, results)
-    } else if (entry.endsWith('.vue')) {
-      results.push(full)
-    }
-  }
-  return results
-}
 
 /**
  * Extracts every `<w-dialog ...>` opening tag (attributes included) from a component's source,
@@ -94,7 +82,7 @@ function extractDialogTags(source) {
 }
 
 describe('every <w-dialog usage under components/ supplies an accessible name', () => {
-  const files = walk(componentsDir, []).filter((f) => !f.endsWith('.test.js'))
+  const files = listSourceFiles(componentsDir, { ext: ['.vue'] })
 
   const violations = []
   for (const file of files) {

@@ -179,7 +179,9 @@ async function routes(app: FastifyInstance) {
   /**
    * LIST JOB HISTORY
    */
-  app.get<{ Querystring: { states?: JobState[]; limit?: number } }>(
+  // -> `limit` is non-optional: the querystring schema declares a `default` for it, and fastify's
+  //    AJV runs with `useDefaults`, so a missing param is filled in before the handler sees it.
+  app.get<{ Querystring: { states?: JobState[]; limit: number } }>(
     '/jobs',
     {
       config: {
@@ -229,7 +231,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      const limit = req.query.limit ?? 100
+      const { limit } = req.query
       const { total, jobs } = await WIKI.models.jobs.getHistory({
         states: req.query.states ?? [],
         limit

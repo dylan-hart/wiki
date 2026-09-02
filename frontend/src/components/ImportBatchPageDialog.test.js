@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 import { TimeoutError } from 'ky'
 
 import ImportBatchPageDialog from './ImportBatchPageDialog.vue'
@@ -10,6 +8,9 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useEditorStore } from '@/stores/editor'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { buildTestRouter } from '../../test/router.js'
 
 /*
   `WDialog` (and `WSelect`'s own `WMenu` popup) render through `<teleport to="body">`, so none of it
@@ -39,8 +40,8 @@ async function mountDialog(props = {}, { pandocInstalled = true } = {}) {
     json: vi.fn().mockResolvedValue({ pandoc: pandocInstalled })
   })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-  const router = createRouter({ history: createMemoryHistory(), routes: [] })
+  const i18n = createTestI18n()
+  const router = buildTestRouter([])
 
   const wrapper = mount(ImportBatchPageDialog, {
     props: { basePath: 'docs', ...props },

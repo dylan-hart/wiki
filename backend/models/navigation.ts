@@ -1,13 +1,13 @@
-import { and, asc, eq, exists, inArray, ne, or, sql } from 'drizzle-orm'
-import { alias } from 'drizzle-orm/pg-core'
+import { and, asc, eq, inArray, ne, or, sql } from 'drizzle-orm'
 import {
   navigation as navigationTable,
   pages as pagesTable,
   tree as treeTable
 } from '../db/schema.ts'
-import { CustomError, decodeTreePath, localizedPagePath } from '../helpers/common.ts'
+import { CustomError, decodeTreePath } from '../helpers/common.ts'
+import { localizedPagePath } from '../helpers/localeRouting.ts'
 import { isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
-import { MAX_DEPTH, compareFoldersFirst, pageIsVisible } from './tree.ts'
+import { MAX_DEPTH, compareFoldersFirst, holdsVisiblePagesUnder, pageIsVisible } from './tree.ts'
 import type { TreeItemType } from './tree.ts'
 import type { AccessActor } from './groups.ts'
 
@@ -453,7 +453,7 @@ class Navigation {
    * per-page/per-folder menus, and copying one of those across sites isn't a use case this covers.
    *
    * Reads `siteId`'s active locales from the cached site config rather than taking them as a
-   * parameter, same as `defaultLocale` in `helpers/common.ts` reaching into `WIKI.sites` directly —
+   * parameter, same as `defaultLocale` in `helpers/localeRouting.ts` reaching into `WIKI.sites` directly —
    * a site with none configured (or one this instance doesn't know about) resolves to an empty list
    * rather than an error, since there is nothing to enumerate.
    */
@@ -613,7 +613,7 @@ class Navigation {
    * into it.
    *
    * `actor` (OpenProject #2155): each candidate is also checked against `read:pages` — a page with its
-   * own tags/classification, a folder with neither (same treatment `api/tree.ts#mayOnFolder` gives a
+   * own tags/classification, a folder with neither (same treatment `helpers/pageAccess.ts#mayOnFolder` gives a
    * folder) — the same permission a direct tree browse or page read already enforces, which this walk
    * had never asked before. A denied row is dropped outright rather than merely hidden from its own
    * subtree, so a DENY over a branch hides the branch without ever querying below it — the recursive
@@ -642,27 +642,10 @@ class Navigation {
       return []
     }
 
-    const descendant = alias(treeTable, 'navGenDescendantTree')
-    const descendantPage = alias(pagesTable, 'navGenDescendantPage')
-    // -> Text rather than an ltree operator, so the child path can be built from a bound prefix and the
-    //    row's own name -- the same trick `tree.browse()`'s `holdsVisiblePages` uses
-    const childPathPrefix = rootFolderPath ? `${rootFolderPath}.` : ''
-
-    const holdsVisiblePages = exists(
-      WIKI.db
-        .select({ one: sql`1` })
-        .from(descendant)
-        .innerJoin(descendantPage, eq(descendantPage.id, descendant.id))
-        .where(
-          and(
-            eq(descendant.siteId, treeTable.siteId),
-            eq(descendant.locale, treeTable.locale),
-            eq(descendant.type, 'page'),
-            sql`${descendant.folderPath} <@ (${childPathPrefix}::text || ${treeTable.fileName})::ltree`,
-            ...pageIsVisible(descendantPage, true)
-          )
-        )
-    )
+    // -> Literally the same subquery `tree.browse()` runs, now that it is one function (its own doc
+    //    comment carries the reasoning); the alias suffix only keeps the two from colliding if a future
+    //    statement ever carries both.
+    const holdsVisiblePages = holdsVisiblePagesUnder(rootFolderPath, true, 'NavGen')
 
     const rows = await WIKI.db
       .select({
@@ -675,7 +658,7 @@ class Navigation {
         holdsVisiblePages: sql<boolean>`${holdsVisiblePages}`.mapWith(Boolean),
         // -> Only ever populated for a page row (the left-join's page-side columns), which is all
         //    `read:pages`'s tag/classification axes ever need -- a folder carries neither of its own,
-        //    same treatment `api/tree.ts#mayOnFolder` gives it.
+        //    same treatment `helpers/pageAccess.ts#mayOnFolder` gives it.
         tags: pagesTable.tags,
         classification: pagesTable.classification
       })
@@ -686,7 +669,6 @@ class Navigation {
           eq(treeTable.siteId, siteId),
           eq(treeTable.locale, locale),
           eq(treeTable.folderPath, rootFolderPath),
-          ne(treeTable.type, 'asset'),
           or(
             eq(treeTable.type, 'folder'),
             and(eq(treeTable.type, 'page'), ...pageIsVisible(pagesTable, true))
@@ -705,7 +687,7 @@ class Navigation {
       .filter((row) => !(['hide', 'hideExact'] as NavigationMode[]).includes(row.navigationMode))
       // -> OpenProject #2155: the `read:pages` gate itself. `null` (an `unfiltered` read) skips it
       //    entirely, same as the `visibilityGroups` pass in `getNav` does for that read. A folder
-      //    carries no tags/classification of its own -- same treatment `api/tree.ts#mayOnFolder`
+      //    carries no tags/classification of its own -- same treatment `helpers/pageAccess.ts#mayOnFolder`
       //    gives it -- so only a page row's real values narrow a TAG/TAGALL/CLASSIFICATION rule.
       .filter((row) => {
         if (!actor) {

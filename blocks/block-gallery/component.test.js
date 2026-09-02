@@ -1,24 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import './component.js'
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /**
  * Appends a `<block-gallery>` carrying `body` as its light-DOM content (the way the wiki's own
  * markdown renderer leaves it — one address per line) and waits for Lit's first render.
  */
-async function mountGallery(body = '') {
-  const el = document.createElement('block-gallery')
-  el.textContent = body
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountGallery = (body = '') => mountBlock('block-gallery', { text: body })
 
 describe('block-gallery', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-    document.body.className = ''
-  })
+  afterEach(resetBlockDom)
 
   it('reads the body, one address per line, into a grid of tiles', async () => {
     const el = await mountGallery('/photos/one.jpg\n/photos/two.jpg')
@@ -54,23 +47,5 @@ describe('block-gallery', () => {
     expect(el.shadowRoot.querySelector('.gallery').classList.contains('is-unlocked')).toBe(true)
   })
 
-  describe('dark mode', () => {
-    beforeEach(() => {
-      document.body.classList.remove('body--dark')
-    })
-
-    it('follows body--dark on mount and on later toggles, via the shared DarkMode controller', async () => {
-      document.body.classList.add('body--dark')
-      const el = await mountGallery('/photos/one.jpg')
-
-      expect(el.hasAttribute('dark')).toBe(true)
-
-      document.body.classList.remove('body--dark')
-      // -> The controller reacts to a MutationObserver callback, which runs as a microtask
-      await new Promise((resolve) => queueMicrotask(resolve))
-      await el.updateComplete
-
-      expect(el.hasAttribute('dark')).toBe(false)
-    })
-  })
+  describeDarkMode(() => mountGallery('/photos/one.jpg'))
 })

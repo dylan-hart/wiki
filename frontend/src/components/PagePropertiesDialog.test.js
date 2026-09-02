@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 import { nextTick } from 'vue'
 
 import { useEditorStore } from '@/stores/editor'
@@ -11,54 +10,50 @@ import { useUserStore } from '@/stores/user'
 
 import PagePropertiesDialog from './PagePropertiesDialog.vue'
 
-const i18n = createI18n({
-  legacy: false,
-  locale: 'en',
-  messages: {
-    en: {
-      editor: {
-        props: {
-          pageProperties: 'Page Properties',
-          info: 'Info',
-          title: 'Title',
-          shortDescription: 'Short Description',
-          icon: 'Icon',
-          alias: 'Alias',
-          publishState: 'Publish State',
-          draft: 'Draft',
-          published: 'Published',
-          dateRange: 'Date Range',
-          publishedHint: '',
-          draftHint: '',
-          dateRangeHint: '',
-          relations: 'Relations',
-          relationAdd: 'Add Relation',
-          relationAddHint: '',
-          sidebar: 'Sidebar',
-          showSidebar: 'Show Sidebar',
-          showToc: 'Show Table of Contents',
-          tocMinMaxDepth: '',
-          showTags: 'Show Tags',
-          social: 'Social',
-          allowComments: 'Allow Comments',
-          allowContributions: 'Allow Contributions',
-          tags: 'Tags',
-          tagsPlaceholder: '',
-          classification: 'Classification',
-          classificationHint: '',
-          classificationGuardHint: '',
-          showInTree: 'Show in Tree',
-          isSearchable: 'Searchable',
-          requirePassword: 'Require Password',
-          password: 'Password',
-          passwordHint: '',
-          passwordKeepHint: ''
-        }
-      },
-      iconPicker: { open: 'Open Icon Picker' },
-      common: { actions: { close: 'Close' } }
+import { createTestI18n } from '../../test/i18n.js'
+
+const i18n = createTestI18n({
+  editor: {
+    props: {
+      pageProperties: 'Page Properties',
+      info: 'Info',
+      title: 'Title',
+      shortDescription: 'Short Description',
+      icon: 'Icon',
+      alias: 'Alias',
+      publishState: 'Publish State',
+      draft: 'Draft',
+      published: 'Published',
+      dateRange: 'Date Range',
+      publishedHint: '',
+      draftHint: '',
+      dateRangeHint: '',
+      relations: 'Relations',
+      relationAdd: 'Add Relation',
+      relationAddHint: '',
+      sidebar: 'Sidebar',
+      showSidebar: 'Show Sidebar',
+      showToc: 'Show Table of Contents',
+      tocMinMaxDepth: '',
+      showTags: 'Show Tags',
+      social: 'Social',
+      allowComments: 'Allow Comments',
+      allowContributions: 'Allow Contributions',
+      tags: 'Tags',
+      tagsPlaceholder: '',
+      classification: 'Classification',
+      classificationHint: '',
+      classificationGuardHint: '',
+      showInTree: 'Show in Tree',
+      isSearchable: 'Searchable',
+      requirePassword: 'Require Password',
+      password: 'Password',
+      passwordHint: '',
+      passwordKeepHint: ''
     }
-  }
+  },
+  iconPicker: { open: 'Open Icon Picker' },
+  common: { actions: { close: 'Close' } }
 })
 
 /**

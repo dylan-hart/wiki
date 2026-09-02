@@ -4,42 +4,30 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { ensureTemporal } from '../../../test/temporal.ts'
+import { installTestWiki } from '../../../test/mocks.ts'
+import { makeIndexablePage, stubPageStreamDb } from '../../../test/builders.ts'
+import { runSearchModuleContract } from '../../../test/searchModuleContract.ts'
 import { search } from '../../../models/search.ts'
 import {
   ElasticsearchSearchModule,
-  MAX_INDEXING_COUNT,
   batchOperations,
   buildEsQuery,
   getTlsOptions,
-  pageToDocument,
-  toSniffIntervalMs,
-  type ElasticsearchPageDocument
+  toSniffIntervalMs
 } from './search.ts'
-import type { AccessActor } from '../../../models/groups.ts'
-import type { SearchIndexablePage, SearchPagesParams } from '../../../models/search.ts'
+import { buildSearchDocument, MAX_INDEXING_COUNT, type SearchDocument } from '../shared.ts'
+import type { SearchPagesParams } from '../../../models/search.ts'
 
 const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 
-function fakePage(overrides: Partial<Record<string, any>> = {}): SearchIndexablePage {
-  return {
-    id: 'page-1',
-    siteId: 'site-1',
-    locale: 'en',
-    path: 'docs/getting-started',
-    title: 'Getting Started',
-    description: 'How to get started',
-    icon: null,
-    tags: ['guide'],
-    editor: 'markdown',
-    publishState: 'published',
-    isSearchable: true,
-    classification: 'classification-1',
-    password: null,
-    searchContent: 'Some page content about getting started.',
-    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-    ...overrides
-  } as unknown as SearchIndexablePage
-}
+/** The engine config both this file's own suite and the shared contract run against. */
+const ES_CONFIG = { hosts: 'http://localhost:9200', indexName: 'wiki-test', analyzer: 'standard' }
+
+before(() => ensureTemporal())
+
+/** The 28-field superset lives in `test/builders.ts` — see `makeIndexablePage`'s own doc. */
+const fakePage = makeIndexablePage
 
 /** A fake Elasticsearch client: every method a test needs, recording every call it received. */
 function fakeElasticsearchClient() {
@@ -186,27 +174,9 @@ describe('toSniffIntervalMs()', () => {
   })
 })
 
-describe('pageToDocument()', () => {
-  test('carries every field a document needs, including content for an unprotected page', () => {
-    const doc = pageToDocument(fakePage())
-    assert.equal(doc.siteId, 'site-1')
-    assert.equal(doc.path, 'docs/getting-started')
-    assert.equal(doc.title, 'Getting Started')
-    assert.equal(doc.content, 'Some page content about getting started.')
-    assert.deepEqual(doc.tags, ['guide'])
-    assert.equal(doc.editor, 'markdown')
-    assert.equal(doc.publishState, 'published')
-    assert.equal(doc.isSearchable, true)
-    assert.equal(doc.classification, 'classification-1')
-  })
-
-  test('omits content entirely for a password-protected page', () => {
-    const doc = pageToDocument(fakePage({ password: 'secret-hash' }))
-    assert.equal('content' in doc, false)
-    // -> Title and description remain: only the body is withheld
-    assert.equal(doc.title, 'Getting Started')
-  })
-})
+// -> What this module indexes is `shared.ts`'s `buildSearchDocument` unchanged (it needs none of the
+//    extra fields Algolia's own record carries), so the field-by-field coverage that used to sit here
+//    lives in `modules/search/shared.test.ts` rather than being repeated per engine.
 
 describe('buildEsQuery()', () => {
   function params(overrides: Partial<SearchPagesParams> = {}): SearchPagesParams {
@@ -301,8 +271,8 @@ describe('buildEsQuery()', () => {
 })
 
 describe('batchOperations()', () => {
-  function op(id: string): { id: string; document: ElasticsearchPageDocument } {
-    return { id, document: pageToDocument(fakePage({ id })) }
+  function op(id: string): { id: string; document: SearchDocument } {
+    return { id, document: buildSearchDocument(fakePage({ id })) }
   }
 
   test('a handful of small operations stays in a single batch', () => {
@@ -333,25 +303,17 @@ describe('batchOperations()', () => {
  */
 describe('ElasticsearchSearchModule', () => {
   const siteId = 'site-1'
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
 
   before(async () => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       SERVERPATH: backendDir,
-      logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} },
       sites: {
         [siteId]: {
           config: {
             search: {
               engine: 'elasticsearch',
-              engines: {
-                elasticsearch: {
-                  hosts: 'http://localhost:9200',
-                  indexName: 'wiki-test',
-                  analyzer: 'standard'
-                }
-              }
+              engines: { elasticsearch: ES_CONFIG }
             }
           }
         }
@@ -361,22 +323,18 @@ describe('ElasticsearchSearchModule', () => {
           checkAccess: () => true
         }
       }
-    }
+    })
     await search.refreshFromDisk()
   })
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   test("init() creates the index with this module's mapping when it does not exist yet", async () => {
     const { mod, calls, setIndexExists } = moduleWithFakeClient()
     setIndexExists(false)
-    await mod.init(siteId, {
-      hosts: 'http://localhost:9200',
-      indexName: 'wiki-test',
-      analyzer: 'standard'
-    })
+    await mod.init(siteId, ES_CONFIG)
 
     assert.equal(calls.indicesCreate!.length, 1)
     const [{ index, mappings }] = calls.indicesCreate!
@@ -388,328 +346,27 @@ describe('ElasticsearchSearchModule', () => {
     assert.deepEqual(mappings.properties.path, { type: 'text' })
   })
 
+  test('an index name and analyzer the operator CLEARED fall back to their declared defaults', async () => {
+    // -> `getEngineConfig`'s merge only substitutes a declared default for `undefined`, and an
+    //    emptied text field is stored as `''` — so the module completes empty strings itself
+    //    (`shared.ts#fillEmptyStringDefaults`). This is what the per-engine `|| 'wiki'` /
+    //    `|| 'standard'` used to cover; without it the cluster would be asked for an index named `''`
+    //    analyzed by `''`.
+    const { mod, calls, setIndexExists } = moduleWithFakeClient()
+    setIndexExists(false)
+    await mod.init(siteId, { hosts: 'http://localhost:9200', indexName: '', analyzer: '' })
+
+    assert.equal(calls.indicesCreate!.length, 1)
+    assert.equal(calls.indicesCreate![0].index, 'wiki')
+    assert.equal(calls.indicesCreate![0].settings.analysis.analyzer.default.type, 'standard')
+  })
+
   test('init() does not recreate an index that already exists', async () => {
     const { mod, calls, setIndexExists } = moduleWithFakeClient()
     setIndexExists(true)
     await mod.init(siteId, { hosts: 'http://localhost:9200', indexName: 'wiki-test' })
 
     assert.equal(calls.indicesCreate!.length, 0)
-  })
-
-  test('created() indexes the page under its own id', async () => {
-    const { mod, calls } = moduleWithFakeClient()
-    await mod.created(fakePage())
-
-    assert.equal(calls.index!.length, 1)
-    const [{ index, id, document }] = calls.index!
-    assert.equal(index, 'wiki-test')
-    assert.equal(id, 'page-1')
-    assert.equal(document.title, 'Getting Started')
-  })
-
-  test('updated() also indexes via client.index, keeping the document fully in sync', async () => {
-    const { mod, calls } = moduleWithFakeClient()
-    await mod.updated(fakePage({ title: 'Renamed Title' }))
-
-    assert.equal(calls.index!.length, 1)
-    assert.equal(calls.index![0].document.title, 'Renamed Title')
-  })
-
-  test('deleted() removes the document by id', async () => {
-    const { mod, calls } = moduleWithFakeClient()
-    await mod.deleted(siteId, 'page-1')
-
-    assert.equal(calls.delete!.length, 1)
-    assert.equal(calls.delete![0].index, 'wiki-test')
-    assert.equal(calls.delete![0].id, 'page-1')
-  })
-
-  test('renamed() re-indexes the same document in place rather than delete+add', async () => {
-    const { mod, calls } = moduleWithFakeClient()
-    await mod.renamed(siteId, fakePage({ path: 'docs/new-path' }), 'docs/old-path')
-
-    assert.equal(calls.delete!.length, 0)
-    assert.equal(calls.index!.length, 1)
-    assert.equal(calls.index![0].document.path, 'docs/new-path')
-    assert.equal(calls.index![0].id, 'page-1')
-  })
-
-  test('created() never throws when Elasticsearch fails -- a page save must not fail because of it', async () => {
-    const { mod } = moduleWithFakeClient()
-    ;(mod as any).createClient = () => ({
-      indices: {
-        exists: async () => {
-          throw new Error('boom')
-        }
-      }
-    })
-    await assert.doesNotReject(mod.created(fakePage()))
-  })
-
-  /**
-   * OpenProject #2156: `offset`/`limit` are no longer sent straight through as Elasticsearch's own
-   * `from`/`size` -- page-rule filtering happens after the query, so the module now always scans a
-   * bounded window from the start (`from: 0, size: SCAN_CAP`) and applies the caller's own
-   * pagination in JS, over the filtered set. See `query()`'s own comment for the full reasoning.
-   */
-  test('query() always scans from the start with a bounded size, regardless of the caller’s own offset/limit', async () => {
-    const { mod, calls } = moduleWithFakeClient()
-    await mod.query({ siteId, query: 'kangaroo', tags: ['guide'], offset: 10, limit: 5 })
-
-    assert.equal(calls.search!.length, 1)
-    const [{ index, from, size, query }] = calls.search!
-    assert.equal(index, 'wiki-test')
-    assert.equal(from, 0)
-    assert.ok(size > 5, 'expected a bounded scan window larger than the requested page size')
-    assert.equal(query.bool.must[0].simple_query_string.query, 'kangaroo')
-    assert.ok(query.bool.filter.some((f: any) => f.match?.tags === 'guide'))
-  })
-
-  test('query() applies the caller’s offset/limit in JS, over the filtered (visible) set', async () => {
-    const { mod, calls, setSearchResponse } = moduleWithFakeClient()
-    setSearchResponse({
-      hits: {
-        total: { value: 3 },
-        hits: [
-          {
-            _id: 'p1',
-            _score: 3,
-            _source: {
-              path: 'a',
-              locale: 'en',
-              title: 'A',
-              description: '',
-              tags: [],
-              updatedAt: 'x'
-            }
-          },
-          {
-            _id: 'p2',
-            _score: 2,
-            _source: {
-              path: 'b',
-              locale: 'en',
-              title: 'B',
-              description: '',
-              tags: [],
-              updatedAt: 'x'
-            }
-          },
-          {
-            _id: 'p3',
-            _score: 1,
-            _source: {
-              path: 'c',
-              locale: 'en',
-              title: 'C',
-              description: '',
-              tags: [],
-              updatedAt: 'x'
-            }
-          }
-        ]
-      }
-    })
-
-    const result = await mod.query({ siteId, query: 'x', offset: 1, limit: 1 })
-    assert.equal(result.results.length, 1)
-    assert.equal(result.results[0]!.path, 'b')
-    assert.equal(result.totalHits, 3)
-    assert.equal(calls.search!.length, 1)
-  })
-
-  test('query() applies actor-based checkAccess filtering to the hits Elasticsearch returned', async () => {
-    const { mod, calls, setSearchResponse } = moduleWithFakeClient()
-    setSearchResponse({
-      hits: {
-        total: { value: 2 },
-        hits: [
-          {
-            _id: 'p1',
-            _score: 2,
-            _source: {
-              path: 'open',
-              locale: 'en',
-              title: 'Open',
-              description: '',
-              tags: [],
-              updatedAt: 'x'
-            }
-          },
-          {
-            _id: 'p2',
-            _score: 1,
-            _source: {
-              path: 'secret',
-              locale: 'en',
-              title: 'Secret',
-              description: '',
-              tags: [],
-              updatedAt: 'x'
-            }
-          }
-        ]
-      }
-    })
-    const denyForSecret = (_actor: AccessActor, _permission: string, page: { path: string }) =>
-      page.path !== 'secret'
-    const previousCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-    ;(globalThis as any).WIKI.models.groups.checkAccess = denyForSecret
-
-    try {
-      // -> OpenProject #2151/#2156: totalHits is derived from `visible` alone now, never Elasticsearch's
-      //    own raw hit count -- asserted at limit=1 too, the audit's own repro shape, since the old
-      //    arithmetic only ever corrected for what was dropped from the SINGLE fetched page.
-      for (const limit of [undefined, 1]) {
-        const result = await mod.query({
-          siteId,
-          query: '',
-          actor: { groupIds: [], permissions: [] },
-          ...(limit ? { limit } : {})
-        })
-        assert.equal(result.results.length, 1)
-        assert.equal(result.results[0]!.path, 'open')
-        assert.equal(result.totalHits, 1, `expected totalHits=1 at limit=${limit ?? 'default'}`)
-      }
-    } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = previousCheckAccess
-    }
-    assert.equal(calls.search!.length, 2)
-  })
-
-  test('totalHits never reflects the reported total when it exceeds what this page can vouch for', async () => {
-    const { mod, setSearchResponse } = moduleWithFakeClient()
-    setSearchResponse({
-      // -> Elasticsearch reports 100 total matches across many pages this call never fetched -- the
-      //    old arithmetic (total - hits.length + visible.length) would have leaked most of that into
-      //    totalHits even though only this one page was ever checked against checkAccess.
-      hits: {
-        total: { value: 100 },
-        hits: [
-          {
-            _id: 'p1',
-            _score: 3,
-            _source: {
-              path: 'open-1',
-              locale: 'en',
-              title: 'Open 1',
-              description: '',
-              tags: [],
-              updatedAt: 'x'
-            }
-          },
-          {
-            _id: 'p2',
-            _score: 2,
-            _source: {
-              path: 'secret-1',
-              locale: 'en',
-              title: 'Secret 1',
-              description: '',
-              tags: [],
-              updatedAt: 'x'
-            }
-          },
-          {
-            _id: 'p3',
-            _score: 1,
-            _source: {
-              path: 'open-2',
-              locale: 'en',
-              title: 'Open 2',
-              description: '',
-              tags: [],
-              updatedAt: 'x'
-            }
-          }
-        ]
-      }
-    })
-    const denySecret = (_actor: AccessActor, _permission: string, page: { path: string }) =>
-      !page.path.startsWith('secret')
-    const previousCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-    ;(globalThis as any).WIKI.models.groups.checkAccess = denySecret
-
-    try {
-      const result = await mod.query({
-        siteId,
-        query: 'x',
-        offset: 0,
-        actor: { groupIds: [], permissions: [] }
-      })
-      assert.equal(result.results.length, 2)
-      // -> Exactly the readable count within the scanned window (2 visible), never Elasticsearch's 100
-      assert.equal(result.totalHits, 2)
-    } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = previousCheckAccess
-    }
-  })
-
-  test('query() passes each hit’s own indexed classification to checkAccess, not a hardcoded null (OpenProject #1125)', async () => {
-    const { mod, setSearchResponse } = moduleWithFakeClient()
-    setSearchResponse({
-      hits: {
-        total: { value: 1 },
-        hits: [
-          {
-            _id: 'p1',
-            _score: 1,
-            _source: {
-              path: 'restricted',
-              locale: 'en',
-              title: 'Restricted',
-              description: '',
-              tags: [],
-              classification: 'classification-restricted',
-              updatedAt: 'x'
-            }
-          }
-        ]
-      }
-    })
-    const seen: any[] = []
-    const previousCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
-      _actor: AccessActor,
-      _permission: string,
-      page: any
-    ) => {
-      seen.push(page.classification)
-      return true
-    }
-
-    try {
-      await mod.query({ siteId, query: '', actor: { groupIds: [], permissions: [] } })
-      assert.deepEqual(seen, ['classification-restricted'])
-    } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = previousCheckAccess
-    }
-  })
-
-  test('query() with no actor returns every hit unfiltered', async () => {
-    const { mod, setSearchResponse } = moduleWithFakeClient()
-    setSearchResponse({
-      hits: {
-        total: { value: 1 },
-        hits: [
-          {
-            _id: 'p1',
-            _score: 1,
-            _source: {
-              path: 'a',
-              locale: 'en',
-              title: 'A',
-              description: '',
-              tags: [],
-              updatedAt: 'x'
-            }
-          }
-        ]
-      }
-    })
-    const result = await mod.query({ siteId, query: '' })
-    assert.equal(result.results.length, 1)
-    assert.equal(result.results[0]!.highlight, null)
   })
 
   describe('rebuild()', () => {
@@ -723,43 +380,26 @@ describe('ElasticsearchSearchModule', () => {
       ;(globalThis as any).WIKI.db = previousDb
     })
 
-    /** A fake `WIKI.db` serving one page of rows, then an empty page, matching the keyset-loop shape. */
-    function fakeDb(rowsBySiteId: Record<string, any[]>) {
-      return {
-        select: () => ({
-          from: () => ({
-            where: () => ({
-              orderBy: () => ({
-                limit: async () => {
-                  const rows = rowsBySiteId[siteId] ?? []
-                  rowsBySiteId[siteId] = []
-                  return rows
-                }
-              })
-            })
-          })
-        })
-      }
-    }
-
-    test("deletes only this site's documents, then batches and sends every page found", async () => {
+    /**
+     * The batching and per-locale tally are `test/searchModuleContract.ts`'s to assert, once for
+     * every engine. What is Elasticsearch's alone: the purge is a `deleteByQuery` on a `term` over
+     * this site, the bulk body interleaves one index-meta entry per document (6 entries for 3
+     * pages), and each locale entry reports `dictionary: 'n/a'` — the analyzer is index-wide here,
+     * not per locale.
+     */
+    test("deletes only this site's documents, and bulk-sends meta/document pairs", async () => {
       const { mod, calls } = moduleWithFakeClient()
-      ;(globalThis as any).WIKI.db = fakeDb({
-        [siteId]: [
-          fakePage({ id: 'p1', locale: 'en' }),
-          fakePage({ id: 'p2', locale: 'en' }),
-          fakePage({ id: 'p3', locale: 'fr' })
-        ]
-      })
+      ;(globalThis as any).WIKI.db = stubPageStreamDb([
+        fakePage({ id: 'p1', locale: 'en' }),
+        fakePage({ id: 'p2', locale: 'en' }),
+        fakePage({ id: 'p3', locale: 'fr' })
+      ])
 
       const result = await mod.rebuild(siteId)
 
       assert.equal(calls.deleteByQuery!.length, 1)
       assert.deepEqual(calls.deleteByQuery![0].query, { term: { siteId } })
-      assert.equal(calls.bulk!.length, 1)
-      // -> 2 index-meta + 2 documents = 4 entries for the two `en` pages, doubled again for `fr`: 6
       assert.equal(calls.bulk![0].operations.length, 6)
-      assert.equal(result.pages, 3)
       assert.deepEqual(
         result.locales.sort((a: any, b: any) => a.locale.localeCompare(b.locale)),
         [
@@ -769,15 +409,14 @@ describe('ElasticsearchSearchModule', () => {
       )
     })
 
-    test('an empty site deletes its documents and sends no batches', async () => {
+    /** That an empty site sends no batches is the contract's; that it still purges is this engine's. */
+    test('an empty site still deletes its documents', async () => {
       const { mod, calls } = moduleWithFakeClient()
-      ;(globalThis as any).WIKI.db = fakeDb({ [siteId]: [] })
+      ;(globalThis as any).WIKI.db = stubPageStreamDb([])
 
       const result = await mod.rebuild(siteId)
 
       assert.equal(calls.deleteByQuery!.length, 1)
-      assert.equal(calls.bulk!.length, 0)
-      assert.equal(result.pages, 0)
       assert.deepEqual(result.locales, [])
     })
 
@@ -843,4 +482,63 @@ describe('ElasticsearchSearchModule', () => {
       ])
     })
   })
+})
+
+/**
+ * The thirteen claims every external engine owes `models/search.ts`, translated into Elasticsearch's
+ * own request and response shapes — see `test/searchModuleContract.ts` for what they are and why they
+ * live in one place. Everything above this line is Elasticsearch's alone.
+ */
+runSearchModuleContract('elasticsearch', {
+  config: ES_CONFIG,
+  siteConfig: { search: { engine: 'elasticsearch', engines: { elasticsearch: ES_CONFIG } } },
+  makeModule: () => {
+    const { mod, calls, setSearchResponse } = moduleWithFakeClient()
+    return {
+      mod,
+      breakClient() {
+        ;(mod as any).createClient = () => ({
+          indices: {
+            exists: async () => {
+              throw new Error('boom')
+            }
+          }
+        })
+      },
+      setHits(hits, reportedTotal) {
+        setSearchResponse({
+          hits: {
+            total: { value: reportedTotal ?? hits.length },
+            hits: hits.map((hit, index) => ({
+              _id: hit.id,
+              _score: hits.length - index,
+              _source: {
+                path: hit.path,
+                locale: hit.locale ?? 'en',
+                title: hit.title ?? hit.path,
+                description: '',
+                tags: hit.tags ?? [],
+                updatedAt: 'x',
+                ...(hit.classification === undefined ? {} : { classification: hit.classification })
+              }
+            }))
+          }
+        })
+      },
+      windows: () => calls.search!.map(({ from, size }: any) => ({ offset: from, size })),
+      indexedIds: () => calls.index!.map((call: any) => call.id),
+      lastIndexedPath: () => calls.index!.at(-1)?.document.path,
+      removedIds: () => calls.delete!.map((call: any) => call.id),
+      setPages(pages) {
+        ;(globalThis as any).WIKI.db = stubPageStreamDb(pages)
+      },
+      rebuiltIds: () =>
+        calls.bulk!.flatMap((call: any) =>
+          call.operations
+            .filter((operation: any) => operation.index)
+            .map((operation: any) => operation.index._id)
+        ),
+      uploadCalls: () => calls.bulk!.length
+    }
+  }
 })

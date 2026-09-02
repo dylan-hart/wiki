@@ -4,6 +4,7 @@ import './component.js'
 import { BlockDiagramElement } from './component.js'
 import { BlockKrokiElement } from '../block-kroki/component.js'
 import { BlockPlantumlElement } from '../block-plantuml/component.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /*
   jsdom implements no SVG layout at all -- `getBBox`, `getComputedTextLength` and the rest of
@@ -26,19 +27,9 @@ if (typeof SVGElement.prototype.getComputedTextLength !== 'function') {
  * renderer leaves a fenced ```mermaid block, and waits both for Lit's first render and for the
  * component's own async `_draw()` (mermaid's `render()` is a promise) to settle.
  */
-async function mountDiagram(body = '', attrs = {}) {
-  const el = document.createElement('block-diagram')
-  const pre = document.createElement('pre')
-  pre.textContent = body
-  el.appendChild(pre)
-  Object.assign(el, attrs)
-  document.body.appendChild(el)
-  await el.updateComplete
-  // -> `_draw()` isn't awaited by `firstUpdated`, so give its promise a turn to resolve
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  await el.updateComplete
-  return el
-}
+// -> `settle: 1`: `_draw()` isn't awaited by `firstUpdated`, so give its promise a turn to resolve
+const mountDiagram = (body = '', props = {}) =>
+  mountBlock('block-diagram', { pre: body, props, settle: 1 })
 
 const VALID_SOURCE = 'flowchart LR\n  A[Start] --> B{Ready?}'
 
@@ -82,10 +73,7 @@ describe('static definition', () => {
 })
 
 describe('block-diagram', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-    document.body.className = ''
-  })
+  afterEach(resetBlockDom)
 
   it('draws the fenced mermaid source into an inline svg', async () => {
     const el = await mountDiagram(VALID_SOURCE)
@@ -96,12 +84,7 @@ describe('block-diagram', () => {
 
   it('shows an error, naming the fence, for a source markdown has already mangled', async () => {
     // -> No `<pre>` around it: the same shape an un-fenced body would leave behind
-    const el = document.createElement('block-diagram')
-    el.textContent = 'not a diagram'
-    document.body.appendChild(el)
-    await el.updateComplete
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    await el.updateComplete
+    const el = await mountBlock('block-diagram', { text: 'not a diagram', settle: 1 })
 
     const error = el.shadowRoot.querySelector('.error')
     expect(error).not.toBeNull()
@@ -110,7 +93,7 @@ describe('block-diagram', () => {
 
   describe('dark mode', () => {
     /*
-     * `block-gallery/component.test.js`'s dark-mode suite is the template for the mechanics (the
+     * `blocks/test/darkMode.js`'s `describeDarkMode` is the template for the mechanics (the
      * `DarkMode` controller reacts through a `MutationObserver` callback, a microtask away). What is
      * specific to this block is the assertion: unlike every other block, dark mode is not just a CSS
      * attribute here — mermaid bakes its colours into the SVG it draws, so a theme of `auto` has to

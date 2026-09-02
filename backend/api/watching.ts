@@ -1,51 +1,15 @@
-import { actorFrom, mayOnPage, unlockedFor } from './pages.ts'
+import { loadReadablePage, requireActorId } from '../helpers/pageAccess.ts'
 import type { WatchNotifyPreference } from '../models/pageWatching.ts'
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 
 /**
- * The page being watched, as this requester is allowed to see it.
- *
- * Watching a page is a thing done TO a page, so it goes through the same gate as reading one: an
- * anonymous requester never gets here at all, and a page somebody may not read is answered as though
- * it were not there. A password is not part of it — the watcher is asking to be told when the page
- * changes, not to read what it says.
- */
-async function loadWatchablePage(req: FastifyRequest, siteId: string, pageId: string) {
-  const page = await WIKI.models.pages.getPage({
-    siteId,
-    id: pageId,
-    unlocked: (page) => unlockedFor(req, siteId, page)
-  })
-  if (!page || !mayOnPage(req, 'read:pages', siteId, page)) {
-    return null
-  }
-  return page
-}
-
-/**
- * The user doing the watching, or a refusal.
+ * How `requireActorId` (`helpers/pageAccess.ts`) refuses an anonymous caller here.
  *
  * Watching belongs to an account: it is a list somebody comes back to, and a row has to point at a
  * person for a notification to ever have a recipient. There is no permission for it beyond being
  * logged in — anybody who may read a page may ask to hear about it.
  */
-function watcherOf(req: FastifyRequest, reply: FastifyReply): string | null {
-  const actor = actorFrom(req)
-  if (!actor) {
-    reply.unauthorized('Watching a page requires a logged in user.')
-    return null
-  }
-  return actor.id
-}
-
-const pageParams = {
-  type: 'object',
-  properties: {
-    siteId: { type: 'string', format: 'uuid' },
-    pageId: { type: 'string', format: 'uuid' }
-  },
-  required: ['siteId', 'pageId']
-}
+const WATCHER_REQUIRED = 'Watching a page requires a logged in user.'
 
 /**
  * Page Watching API Routes
@@ -69,7 +33,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Records that the caller wants to hear about changes to this page. Watching a page already watched changes nothing and still answers 200, so the button can be pressed twice without it meaning anything different — including a preference in the body of a repeat call is therefore also a no-op; use PATCH on this same route to change the preference of a watch that already exists.',
         tags: ['Pages'],
-        params: pageParams,
+        params: { $ref: 'SitePageParams#' },
         body: { $ref: 'WatchPreferenceInput#' },
         response: {
           200: {
@@ -87,11 +51,18 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const userId = watcherOf(req, reply)
+      const userId = requireActorId(req, reply, WATCHER_REQUIRED)
       if (!userId) {
         return reply
       }
-      const page = await loadWatchablePage(req, req.params.siteId, req.params.pageId)
+      /*
+        Watching a page is a thing done TO a page, so it goes through the same gate as reading one: an
+        anonymous requester never gets here at all (refused just above), and a page somebody may not
+        read is answered as though it were not there. A password is not part of it — the watcher is
+        asking to be told when the page changes, not to read what it says — so `isLocked` goes
+        unchecked here on purpose.
+      */
+      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
@@ -118,7 +89,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Sets how the caller wants to hear about changes to a page they are already watching. Fields left out of the body are left as they were. There is nothing to set a preference ON for a page the caller is not watching, so this answers 404 rather than creating a watch as a side effect — call PUT first.',
         tags: ['Pages'],
-        params: pageParams,
+        params: { $ref: 'SitePageParams#' },
         body: { $ref: 'WatchPreferenceInput#' },
         response: {
           200: {
@@ -133,7 +104,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const userId = watcherOf(req, reply)
+      const userId = requireActorId(req, reply, WATCHER_REQUIRED)
       if (!userId) {
         return reply
       }
@@ -162,7 +133,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Forgets that the caller wanted to hear about this page. A page that was not being watched answers the same way, since the outcome asked for — no longer watching it — already holds.',
         tags: ['Pages'],
-        params: pageParams,
+        params: { $ref: 'SitePageParams#' },
         response: {
           200: {
             description: 'The page is no longer being watched',
@@ -177,7 +148,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const userId = watcherOf(req, reply)
+      const userId = requireActorId(req, reply, WATCHER_REQUIRED)
       if (!userId) {
         return reply
       }
@@ -203,13 +174,7 @@ async function routes(app: FastifyInstance) {
         description:
           'The watch list of the caller on this site, most recently watched first. Titles and paths come from the pages themselves, so a page that has been renamed or moved is listed where it is now.',
         tags: ['Pages'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Watched pages',
@@ -221,7 +186,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const userId = watcherOf(req, reply)
+      const userId = requireActorId(req, reply, WATCHER_REQUIRED)
       if (!userId) {
         return reply
       }

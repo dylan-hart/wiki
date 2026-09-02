@@ -1,11 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import InboxLayout from './InboxLayout.vue'
-import { useUserStore } from '@/stores/user'
+import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Regression coverage for OpenProject #2000: the rail used to have a first "Inbox" entry pointing at
@@ -16,49 +13,42 @@ import { useUserStore } from '@/stores/user'
  */
 
 const messages = {
-  en: {
-    common: {
-      actions: {
-        goback: 'Go Back'
-      }
-    },
-    inbox: {
-      title: 'Inbox',
-      inbox: 'Inbox',
-      pendingReview: 'Pending Review'
+  common: {
+    actions: {
+      goback: 'Go Back'
     }
+  },
+  inbox: {
+    title: 'Inbox',
+    inbox: 'Inbox',
+    pendingReview: 'Pending Review'
   }
 }
 
 async function mountInboxLayout() {
-  setActivePinia(createPinia())
-  const userStore = useUserStore()
-  userStore.$patch({ authenticated: true })
-
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: '/login', component: { template: '<div />' } },
-      { path: '/_inbox/:path(.*)', component: { template: '<router-view />' } },
-      // -> Stand-in for whatever the reader was previously viewing (an admin page, a wiki page, home)
+  const router = await createTestRouter(
+    [
+      '/login',
+      { path: '/_inbox/:path(.*)', component: { template: '<router-view />' } }, // -> Stand-in for whatever the reader was previously viewing (an admin page, a wiki page, home)
       //    so a captured "Go Back" push resolves to a real route instead of warning on no match.
       { path: '/:pathMatch(.*)*', component: { template: '<div />' } }
-    ]
-  })
-  router.push('/_inbox/watching')
-  await router.isReady()
+    ],
+    '/_inbox/watching'
+  )
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages })
-
-  return mount(InboxLayout, {
-    global: {
-      plugins: [router, i18n],
-      stubs: {
-        HeaderNav: true,
-        MainOverlayDialog: true
+  return mountWithApp(InboxLayout, {
+    messages,
+    router,
+    stores: {
+      user: (store) => {
+        store.$patch({ authenticated: true })
       }
+    },
+    stubs: {
+      HeaderNav: true,
+      MainOverlayDialog: true
     }
-  })
+  }).wrapper
 }
 
 describe('InboxLayout sidenav', () => {

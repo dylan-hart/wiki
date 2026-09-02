@@ -1,21 +1,13 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import { ORIGIN_PATTERN_SOURCE } from '../helpers/network.ts'
+import { maySiteAdmin } from '../helpers/siteRules.ts'
 
-/**
- * Whether this caller may create, rotate or delete this site's block credentials.
- *
- * Same gate `api/blocks.ts#mayManageBlocks` uses: `manage:sites`, or the narrower `site:blocks`
- * delegation. Credential management lives beside block administration rather than behind a
- * permission of its own — a group trusted to decide which blocks a site runs is the same group
- * trusted to decide which endpoints those blocks may authenticate to.
- */
-function mayManageCredentials(req: FastifyRequest, siteId: string): boolean {
-  const actor = WIKI.models.groups.actorForRequest(req)
-  return (
-    actor.permissions.includes('manage:sites') ||
-    WIKI.models.groups.checkSiteAccess(actor, 'site:blocks', siteId)
-  )
-}
+/*
+  Credential management is gated by the same `manage:sites` / `site:blocks` pair `api/blocks.ts`'s own
+  routes use, not a permission of its own — a group trusted to decide which blocks a site runs is the
+  same group trusted to decide which endpoints those blocks may authenticate to. See
+  `models/groups.ts#checkSiteAdminAccess` for why the global half is site-blind.
+*/
 
 /**
  * Block Credentials API Routes (OpenProject #868)
@@ -34,17 +26,13 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/block-credentials',
     {
       // No route-level `permissions`: gated by `site:blocks` (a site-scoped rule, see
-      // `helpers/siteRules.ts`), which the group-wide hook cannot check — see `mayManageCredentials`.
+      // `helpers/siteRules.ts`), which the group-wide hook cannot check — see `checkSiteAdminAccess`.
       schema: {
         summary: "List a site's block credentials",
         description:
           'Names and ids only — never the secret. Requires `manage:sites`, or `site:blocks` on this site.',
         tags: ['Blocks'],
-        params: {
-          type: 'object',
-          properties: { siteId: { type: 'string', format: 'uuid' } },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'List of block credentials',
@@ -57,11 +45,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-      if (!mayManageCredentials(req, req.params.siteId)) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
       return WIKI.models.blockCredentials.getSiteCredentials(req.params.siteId)
@@ -82,11 +66,7 @@ async function routes(app: FastifyInstance) {
         description:
           'The secret is written once, here — it is never returned by this or any other route again. `allowedOrigins` must name at least one origin: an empty list would mean the credential can never actually be used (see `models/liveData.ts`), which is never a state worth creating on purpose. Requires `manage:sites`, or `site:blocks` on this site.',
         tags: ['Blocks'],
-        params: {
-          type: 'object',
-          properties: { siteId: { type: 'string', format: 'uuid' } },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['name', 'secret', 'allowedOrigins'],
@@ -116,11 +96,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-      if (!mayManageCredentials(req, req.params.siteId)) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
       return WIKI.models.blockCredentials.createCredential(
@@ -169,11 +145,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-      if (!mayManageCredentials(req, req.params.siteId)) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
       const rotated = await WIKI.models.blockCredentials.rotateSecret(
@@ -235,11 +207,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-      if (!mayManageCredentials(req, req.params.siteId)) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
       const updated = await WIKI.models.blockCredentials.updateAllowedOrigins(
@@ -281,11 +249,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-      if (!mayManageCredentials(req, req.params.siteId)) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
       const deleted = await WIKI.models.blockCredentials.deleteCredential(

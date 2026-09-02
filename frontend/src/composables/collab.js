@@ -393,9 +393,9 @@ function applySave(info) {
   const editorStore = useEditorStore()
   const pageStore = usePageStore()
 
-  // -> The same instant in both, because "no pending changes" is those two fields being the same value
-  const now = Temporal.Now.instant()
-  editorStore.$patch({ lastChangeTimestamp: now, lastSaveTimestamp: now })
+  // -> Somebody's save IS this editor's save as far as pending changes go; `markClean` equalizes the
+  //    two timestamps, which is what `hasPendingChanges` reads
+  editorStore.markClean()
   pageStore.$patch({
     updatedAt: info.versionDate,
     authorId: info.authorId,

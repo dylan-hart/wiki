@@ -90,63 +90,6 @@
         <div class="flex flex-wrap gap-4">
           <div class="min-w-0 flex-1">
             <!-- ----------------------- -->
-            <!-- Setup -->
-            <!-- ----------------------- -->
-            <w-card class="pb-2 mb-4" v-if="state.target.setup && state.target.setup.handler">
-              <w-card-header>
-                {{ t('admin.storage.setup') }}
-                <template #hint>{{
-                  state.target.setup.state === `configured`
-                    ? t('admin.storage.setupConfiguredHint')
-                    : t('admin.storage.setupNotConfiguredHint')
-                }}</template>
-              </w-card-header>
-              <!--
-                Task 1895: the module-agnostic counterpart to Uninstall below -- POST .../setup was
-                previously caller-less, since nothing here ever ran the FIRST step of a module's setup
-                process, only reset one already finished. `runSetupStep()` sends `'start'` from
-                `notconfigured` and the module's own reported state past that, so this one button both
-                starts and advances setup with no separate step tracked on this page -- see
-                `helpers/storageSetup.js#nextSetupStepName`.
-              -->
-              <w-item v-if="state.target.setup.state !== `configured`">
-                <blueprint-icon class="self-start" icon="matches" :hue-rotate="140" />
-                <w-item-section>
-                  <w-item-label>{{ t('admin.storage.startSetup') }}</w-item-label>
-                  <w-item-label caption>{{ t('admin.storage.startSetupInfo') }}</w-item-label>
-                </w-item-section>
-                <w-item-section side>
-                  <w-btn
-                    class="acrylic-btn"
-                    flat
-                    icon="la:arrow-circle-right"
-                    color="primary"
-                    :loading="state.runningSetup"
-                    @click="runSetupStep"
-                    :label="t('admin.storage.startSetup')" />
-                </w-item-section>
-              </w-item>
-              <w-item v-if="state.target.setup.state === `configured`">
-                <blueprint-icon class="self-start" icon="matches" :hue-rotate="140" />
-                <w-item-section>
-                  <w-item-label>{{ t('admin.storage.uninstall') }}</w-item-label>
-                  <w-item-label caption>{{ t('admin.storage.destroyHint') }}</w-item-label>
-                  <w-item-label class="text-red" caption>
-                    <strong>{{ t('admin.storage.destroyWarn') }}</strong>
-                  </w-item-label>
-                </w-item-section>
-                <w-item-section side>
-                  <w-btn
-                    class="acrylic-btn"
-                    flat
-                    icon="la:arrow-circle-right"
-                    color="negative"
-                    @click="setupDestroy"
-                    :label="t(`admin.storage.uninstall`)" />
-                </w-item-section>
-              </w-item>
-            </w-card>
-            <!-- ----------------------- -->
             <!-- Content Types -->
             <!-- ----------------------- -->
             <w-card class="pb-2">
@@ -544,15 +487,9 @@
                   <w-item-section avatar>
                     <w-toggle
                       v-model="state.target.isEnabled"
-                      :disabled="state.target.module === `db` || isSetupNeeded"
+                      :disabled="state.target.module === `db`"
                       :aria-label="t(`admin.storage.enabled`)" />
                   </w-item-section>
-                  <w-inner-loading :showing="isSetupNeeded">
-                    <w-icon name="la:exclamation-triangle" size="sm" color="negative" />
-                    <div class="text-body2 text-negative">
-                      {{ t('admin.storage.setupRequired') }}
-                    </div>
-                  </w-inner-loading>
                 </w-item>
                 <w-separator class="my-2" inset />
               </template>
@@ -659,58 +596,11 @@
                 :width="(config.radius - 5) * scale * 2"
                 :height="(config.radius - 5) * scale * 2"
                 :xlink:href="state.deliveryNodes[nodeId].icon" />
-              <text
-                v-if="state.deliveryNodes[nodeId].icon && state.deliveryNodes[nodeId].iconText"
-                :class="state.deliveryNodes[nodeId].icon"
-                :font-size="22 * scale"
-                fill="#ffffff"
-                text-anchor="middle"
-                dominant-baseline="central"
-                v-html="state.deliveryNodes[nodeId].iconText" />
             </template>
           </v-network-graph>
         </w-card>
       </div>
     </div>
-    <!-- .overline.my-5 {{t('admin.storage.syncDirection')}} -->
-    <!-- .body-2.ml-3 {{t('admin.storage.syncDirectionSubtitle')}} -->
-    <!-- .pr-3.pt-3 -->
-    <!-- v-radio-group.ml-3.py-0(v-model='target.mode') -->
-    <!-- v-radio( -->
-    <!-- :label='t(`admin.storage.syncDirBi`)' -->
-    <!-- color='primary' -->
-    <!-- value='sync' -->
-    <!-- :disabled='target.supportedModes.indexOf(`sync`) < 0' -->
-    <!-- ) -->
-    <!-- v-radio( -->
-    <!-- :label='t(`admin.storage.syncDirPush`)' -->
-    <!-- color='primary' -->
-    <!-- value='push' -->
-    <!-- :disabled='target.supportedModes.indexOf(`push`) < 0' -->
-    <!-- ) -->
-    <!-- v-radio( -->
-    <!-- :label='t(`admin.storage.syncDirPull`)' -->
-    <!-- color='primary' -->
-    <!-- value='pull' -->
-    <!-- :disabled='target.supportedModes.indexOf(`pull`) < 0' -->
-    <!-- ) -->
-    <!-- .body-2.ml-3 -->
-    <!-- strong {{t('admin.storage.syncDirBi')}} #[em.red--text.text--lighten-2(v-if='target.supportedModes.indexOf(`sync`) < 0') {{t('admin.storage.unsupported')}}] -->
-    <!-- .pb-3 {{t('admin.storage.syncDirBiHint')}} -->
-    <!-- strong {{t('admin.storage.syncDirPush')}} #[em.red--text.text--lighten-2(v-if='target.supportedModes.indexOf(`push`) < 0') {{t('admin.storage.unsupported')}}] -->
-    <!-- .pb-3 {{t('admin.storage.syncDirPushHint')}} -->
-    <!-- strong {{t('admin.storage.syncDirPull')}} #[em.red--text.text--lighten-2(v-if='target.supportedModes.indexOf(`pull`) < 0') {{t('admin.storage.unsupported')}}] -->
-    <!-- .pb-3 {{t('admin.storage.syncDirPullHint')}} -->
-    <!-- template(v-if='target.hasSchedule') -->
-    <!-- v-divider.mt-3 -->
-    <!-- .overline.my-5 {{t('admin.storage.syncSchedule')}} -->
-    <!-- .body-2.ml-3 {{t('admin.storage.syncScheduleHint')}} -->
-    <!-- .pa-3 -->
-    <!-- duration-picker(v-model='target.syncInterval') -->
-    <!-- i18next.caption.mt-3(path='admin.storage.syncScheduleCurrent', tag='div') -->
-    <!-- strong(place='schedule') {{getDefaultSchedule(target.syncInterval)}} -->
-    <!-- i18next.caption(path='admin.storage.syncScheduleDefault', tag='div') -->
-    <!-- strong(place='schedule') {{getDefaultSchedule(target.syncIntervalDefault)}} -->
   </w-page>
 </template>
 
@@ -734,8 +624,8 @@ import ModuleConfigForm from '@/components/ModuleConfigForm.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeIsoDuration, relativeDate } from '@/helpers/datetime'
 import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
+import { generateGraph as buildDeliveryGraph } from '@/helpers/storageDeliveryGraph'
 import { isQueuedAction, syncPayloadFor, syncStatusKind } from '@/helpers/storageSync'
-import { nextSetupStepName } from '@/helpers/storageSetup'
 
 // COMPOSABLES
 
@@ -797,8 +687,6 @@ const state = reactive({
   displayMode: 'targets',
   runningAction: false,
   runningActionHandler: '',
-  /** A setup step (task 1895) is in flight -- see `runSetupStep()`. */
-  runningSetup: false,
   selectedTarget: '',
   desiredTarget: '',
   target: null,
@@ -806,11 +694,6 @@ const state = reactive({
   // -> Per-target, refetched on selection change -- see `loadSyncStatus()`. Null while loading or for
   //    a target whose module has nothing to schedule (the Synchronization section is hidden then).
   syncStatus: null,
-  setupCfg: {
-    action: '',
-    manifest: '',
-    loading: false
-  },
   deliveryNodes: {},
   deliveryEdges: {},
   deliveryLayouts: {
@@ -874,10 +757,6 @@ const state = reactive({
 })
 
 // COMPUTED
-
-const isSetupNeeded = computed(() => {
-  return state.target?.setup?.handler && state.target.setup.state !== 'configured'
-})
 
 // -> Same duplication note as `SYNC_SHAPED_ACTIONS` in helpers/storageSync.js: mirrors the three sync
 //    modes `backend/models/storage.ts` knows about, with no shared source to import them from.
@@ -1008,13 +887,6 @@ async function loadSyncStatus() {
   } catch {
     state.syncStatus = null
   }
-}
-
-function configIfCheck(ifs) {
-  if (!ifs || ifs.length < 1) {
-    return true
-  }
-  return ifs.every((s) => state.target.config[s.key]?.value === s.eq)
 }
 
 /**
@@ -1153,254 +1025,16 @@ async function executeAction(act) {
 }
 
 /**
- * Run the next step of the selected target's setup process (task 1895).
- *
- * `nextSetupStepName()` decides what `step` to send -- `'start'` the first time, the module's own
- * previously-reported state past that -- so this button is both "Start Setup" and "Continue Setup"
- * with no separate progress tracked here. The target list is reloaded rather than patched locally:
- * `target.setup.state` is whatever the module just set it to, and `load()` already knows how to turn
- * a freshly-fetched target back into what this page renders.
+ * Rebuild the Delivery Paths diagram from the current targets. The graph itself is built by
+ * `helpers/storageDeliveryGraph.js`, which is a pure function of them; this only hands the result to
+ * the four props `v-network-graph` reads.
  */
-async function runSetupStep() {
-  const step = nextSetupStepName(state.target?.setup?.state)
-  if (!step) {
-    return
-  }
-  state.runningSetup = true
-  try {
-    const resp = await API_CLIENT.post(
-      `sites/${adminStore.currentSiteId}/storage/targets/${state.target.id}/setup`,
-      { json: { step } }
-    ).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
-    notify({
-      type: 'positive',
-      message: resp.message || t('admin.storage.setupStepSuccess')
-    })
-    await load()
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.storage.setupStepFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.runningSetup = false
-}
-
-async function setupDestroy() {
-  confirm({
-    title: t('admin.storage.destroyConfirm'),
-    message: t('admin.storage.destroyConfirmInfo'),
-    cancel: true,
-    persistent: true,
-    color: 'negative',
-    okLabel: t('common.actions.delete')
-  }).onOk(async () => {
-    loading.show({
-      message: t('admin.storage.destroyingSetup')
-    })
-
-    try {
-      await API_CLIENT.delete(
-        `sites/${adminStore.currentSiteId}/storage/targets/${state.selectedTarget}/setup`
-      ).json()
-      state.target.setup.state = 'notconfigured'
-      // -> A provider-backed setup handler may need a moment to settle before it can be started over
-      setTimeout(() => {
-        loading.hide()
-        notify({
-          type: 'positive',
-          message: t('admin.storage.setupDestroySuccess')
-        })
-      }, 2000)
-    } catch (err) {
-      loading.hide()
-      notify({
-        type: 'negative',
-        message: t('admin.storage.setupDestroyFailed'),
-        caption: apiErrorMessage(err)
-      })
-    }
-  })
-}
-
 function generateGraph() {
-  const types = [
-    {
-      key: 'images',
-      label: t('admin.storage.contentTypeImages'),
-      icon: 'las',
-      iconText: '&#xf1c5;'
-    },
-    {
-      key: 'documents',
-      label: t('admin.storage.contentTypeDocuments'),
-      icon: 'las',
-      iconText: '&#xf1c1;'
-    },
-    {
-      key: 'others',
-      label: t('admin.storage.contentTypeOthers'),
-      icon: 'las',
-      iconText: '&#xf15b;'
-    },
-    {
-      key: 'large',
-      label: t('admin.storage.contentTypeLargeFiles'),
-      icon: 'las',
-      iconText: '&#xf1c6;'
-    }
-  ]
-
-  // -> Create PagesNodes
-
-  state.deliveryNodes = {
-    user: {
-      name: t('admin.storage.deliveryPathsUser'),
-      borderRadius: 16,
-      icon: '/_assets/icons/fluent-account.svg'
-    },
-    pages: {
-      name: t('admin.storage.contentTypePages'),
-      color: '#3f51b5',
-      icon: 'las',
-      iconText: '&#xf15c;'
-    },
-    pages_wiki: { name: 'Wiki.js', icon: '/_assets/logo-wikijs.svg', color: '#161b22' }
-  }
-  state.deliveryEdges = {
-    user_pages: { source: 'user', target: 'pages' },
-    pages_in: { source: 'pages', target: 'pages_wiki' },
-    pages_out: { source: 'pages_wiki', target: 'pages' }
-  }
-  state.deliveryLayouts.nodes = {
-    user: { x: -30, y: 30 },
-    pages: { x: 0, y: 0 },
-    pages_wiki: { x: 60, y: 0 }
-  }
-  state.deliveryPaths = []
-
-  // -> Create Asset Nodes
-
-  for (const [i, tp] of types.entries()) {
-    state.deliveryNodes[tp.key] = {
-      name: tp.label,
-      color: '#3f51b5',
-      icon: tp.icon,
-      iconText: tp.iconText
-    }
-    state.deliveryEdges[`user_${tp.key}`] = { source: 'user', target: tp.key }
-    state.deliveryLayouts.nodes[tp.key] = { x: 0, y: (i + 1) * 15 }
-
-    // -> Find target with direct access
-    const dt = state.targets.find((tgt) => {
-      return (
-        tgt.module !== 'db' &&
-        tgt.contentTypes.activeTypes.includes(tp.key) &&
-        tgt.isEnabled &&
-        tgt.assetDelivery.isDirectAccessSupported &&
-        tgt.assetDelivery.directAccess
-      )
-    })
-
-    if (dt) {
-      state.deliveryNodes[`${tp.key}_${dt.module}`] = { name: dt.title, icon: dt.icon }
-      state.deliveryNodes[`${tp.key}_wiki`] = {
-        name: 'Wiki.js',
-        icon: '/_assets/logo-wikijs.svg',
-        color: '#161b22'
-      }
-      state.deliveryLayouts.nodes[`${tp.key}_${dt.module}`] = { x: 60, y: (i + 1) * 15 }
-      state.deliveryLayouts.nodes[`${tp.key}_wiki`] = { x: 120, y: (i + 1) * 15 }
-      state.deliveryEdges[`${tp.key}_${dt.module}_in`] = {
-        source: tp.key,
-        target: `${tp.key}_${dt.module}`
-      }
-      state.deliveryEdges[`${tp.key}_${dt.module}_out`] = {
-        source: `${tp.key}_${dt.module}`,
-        target: tp.key
-      }
-      state.deliveryEdges[`${tp.key}_${dt.module}_wiki`] = {
-        source: `${tp.key}_wiki`,
-        target: `${tp.key}_${dt.module}`,
-        color: '#02c39a',
-        animationSpeed: 25
-      }
-      continue
-    }
-
-    // -> Find target with streaming
-
-    const st = state.targets.find((tgt) => {
-      return (
-        tgt.module !== 'db' &&
-        tgt.contentTypes.activeTypes.includes(tp.key) &&
-        tgt.isEnabled &&
-        tgt.assetDelivery.isStreamingSupported &&
-        tgt.assetDelivery.streaming
-      )
-    })
-
-    if (st) {
-      state.deliveryNodes[`${tp.key}_${st.module}`] = { name: st.title, icon: st.icon }
-      state.deliveryNodes[`${tp.key}_wiki`] = {
-        name: 'Wiki.js',
-        icon: '/_assets/logo-wikijs.svg',
-        color: '#161b22'
-      }
-      state.deliveryLayouts.nodes[`${tp.key}_${st.module}`] = { x: 120, y: (i + 1) * 15 }
-      state.deliveryLayouts.nodes[`${tp.key}_wiki`] = { x: 60, y: (i + 1) * 15 }
-      state.deliveryEdges[`${tp.key}_wiki_in`] = { source: tp.key, target: `${tp.key}_wiki` }
-      state.deliveryEdges[`${tp.key}_wiki_out`] = { source: `${tp.key}_wiki`, target: tp.key }
-      state.deliveryEdges[`${tp.key}_${st.module}_out`] = {
-        source: `${tp.key}_${st.module}`,
-        target: `${tp.key}_wiki`
-      }
-      state.deliveryEdges[`${tp.key}_${st.module}_in`] = {
-        source: `${tp.key}_wiki`,
-        target: `${tp.key}_${st.module}`
-      }
-      state.deliveryEdges[`${tp.key}_${st.module}_wiki`] = {
-        source: `${tp.key}_wiki`,
-        target: `${tp.key}_${st.module}`,
-        color: '#02c39a',
-        animationSpeed: 25
-      }
-      continue
-    }
-
-    // -> Check DB fallback
-
-    const dbt = state.targets.find((tgt) => tgt.module === 'db')
-    if (dbt?.contentTypes?.activeTypes?.includes(tp.key)) {
-      state.deliveryNodes[`${tp.key}_wiki`] = {
-        name: 'Wiki.js',
-        icon: '/_assets/logo-wikijs.svg',
-        color: '#161b22'
-      }
-      state.deliveryLayouts.nodes[`${tp.key}_wiki`] = { x: 60, y: (i + 1) * 15 }
-      state.deliveryEdges[`${tp.key}_db_in`] = { source: tp.key, target: `${tp.key}_wiki` }
-      state.deliveryEdges[`${tp.key}_db_out`] = { source: `${tp.key}_wiki`, target: tp.key }
-    } else {
-      state.deliveryNodes[`${tp.key}_wiki`] = {
-        name: t('admin.storage.missingOrigin'),
-        color: '#f03a47',
-        icon: 'las',
-        iconText: '&#xf071;'
-      }
-      state.deliveryLayouts.nodes[`${tp.key}_wiki`] = { x: 60, y: (i + 1) * 15 }
-      state.deliveryEdges[`${tp.key}_db_in`] = {
-        source: tp.key,
-        target: `${tp.key}_wiki`,
-        color: '#f03a47',
-        animate: false
-      }
-      state.deliveryPaths.push({ edges: [`${tp.key}_db_in`], color: '#f03a4755' })
-    }
-  }
+  const graph = buildDeliveryGraph(state.targets, t)
+  state.deliveryNodes = graph.nodes
+  state.deliveryEdges = graph.edges
+  state.deliveryLayouts.nodes = graph.layouts.nodes
+  state.deliveryPaths = graph.paths
 }
 
 // MOUNTED

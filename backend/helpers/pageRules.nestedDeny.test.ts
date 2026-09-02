@@ -2,6 +2,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { resolvePageRule, rulesAllow, type RulePageRef } from './pageRules.ts'
 import type { GroupRule } from '../models/groups.ts'
+import { makeGroupRule, makeRulePageRef } from '../test/builders.ts'
 
 /**
  * OpenProject #787 / #839.
@@ -22,27 +23,12 @@ import type { GroupRule } from '../models/groups.ts'
  * *structurally* unreachable, only as reachable as its rules say.
  */
 
-function makeRule(overrides: Partial<GroupRule> = {}): GroupRule {
-  return {
-    id: 'rule',
-    name: 'Test Rule',
-    roles: ['read:pages'],
-    match: 'START',
-    mode: 'ALLOW',
-    path: '',
-    locales: [],
-    sites: [],
-    ...overrides
-  }
-}
+/** `id: 'rule'`, not the shared builder's `'rule-1'`: this suite generates whole rule SETS and
+ *  overrides the id per rule, so the default only ever shows up in a single-rule case. */
+const makeRule = (overrides: Partial<GroupRule> = {}): GroupRule =>
+  makeGroupRule({ id: 'rule', ...overrides })
 
-const page = (path: string): RulePageRef => ({
-  path,
-  locale: 'en',
-  siteId: null,
-  classification: null,
-  tags: []
-})
+const page = (path: string): RulePageRef => makeRulePageRef({ path })
 
 function permutations<T>(items: T[]): T[][] {
   if (items.length <= 1) {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { after, before, describe, mock, test } from 'node:test'
+import { after, describe, mock, test } from 'node:test'
 import {
   detectImageMime,
   detectSvg,
@@ -10,6 +10,8 @@ import {
   resizeImageToSquareJpeg,
   sanitizeSvg
 } from './images.ts'
+
+import { installTestWiki } from '../test/mocks.ts'
 
 /** An 8-byte PNG signature, optionally padded out to a given total length. */
 function pngBytes(length = 16): Buffer {
@@ -195,14 +197,10 @@ describe('sanitizeSvg', () => {
  * surface rather than the full `test/db.ts` fixture — none of the three needs a database.
  */
 describe('normalizeImage / resizeImageToSquareJpeg / makeImageThumbnail — Sharp unavailable', () => {
-  let previousWiki: any
-
-  before(() => {
-    previousWiki = (globalThis as any).WIKI
-  })
+  let wikiHandle: { restore(): void }
 
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   function installWiki({
@@ -211,7 +209,7 @@ describe('normalizeImage / resizeImageToSquareJpeg / makeImageThumbnail — Shar
   }: { definition?: any; isInstalled?: () => Promise<boolean> } = {}) {
     const noteLoadFailure = mock.fn()
     const warn = mock.fn()
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       models: {
         extensions: {
           getDefinition: () => definition,
@@ -220,7 +218,7 @@ describe('normalizeImage / resizeImageToSquareJpeg / makeImageThumbnail — Shar
         }
       },
       logger: { warn, debug: mock.fn() }
-    }
+    })
     return { noteLoadFailure, warn }
   }
 

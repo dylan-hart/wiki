@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import NavEditMenu from './NavEditMenu.vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 const MESSAGES = {
   'navEdit.title': 'Edit Navigation',
@@ -51,7 +52,7 @@ function mountMenu({ path = '', navigationId = 'nav-1', navigationMode = 'inheri
     return { json: vi.fn().mockResolvedValue({}) }
   })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
+  const i18n = createTestI18n(MESSAGES)
   const wrapper = mount(NavEditMenu, {
     global: { plugins: [i18n] }
   })

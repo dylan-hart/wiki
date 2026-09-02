@@ -174,6 +174,7 @@ import Tree from '@/components/TreeNav.vue'
 
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { fetchTreeEntries, mergeFolderEntries } from '@/helpers/treeNodes'
 import { normalizePagePath } from '@/helpers/pagePaths'
 
 // PROPS
@@ -439,51 +440,20 @@ async function loadTree({ parentId = null, parentPath = null, initLoad = false }
     state.fileList = []
   }
   try {
-    const items = await API_CLIENT.get(`sites/${props.siteId || siteStore.id}/tree`, {
-      searchParams: {
-        ...(parentId ? { parentId } : {}),
-        ...(parentPath ? { parentPath } : {}),
-        ...(state.typesToFetch?.length > 0 ? { types: state.typesToFetch.join(',') } : {}),
-        ...(props.locale ? { locale: props.locale } : {}),
-        includeAncestors: initLoad,
-        includeRootFolders: initLoad
-      }
-    }).json()
+    const items = await fetchTreeEntries(props.siteId || siteStore.id, {
+      parentId,
+      parentPath,
+      types: state.typesToFetch,
+      locale: props.locale,
+      initLoad
+    })
     if (items?.length > 0) {
-      const newTreeRoots = []
+      // -> The folder half of the response is the tree, merged the same way the File Manager and the
+      //    link picker merge it; the file list below is this dialog's own projection
+      const { roots: newTreeRoots } = mergeFolderEntries(state.treeNodes, items, parentId)
       for (const item of items) {
         switch (item.type) {
           case 'folder': {
-            // -> Tree Nodes
-            state.treeNodes[item.id] = {
-              folderPath: item.folderPath,
-              fileName: item.fileName,
-              title: item.title,
-              children: state.treeNodes[item.id]?.children ?? []
-            }
-
-            // -> Set Ancestors / Tree Roots
-            if (item.folderPath) {
-              let folderParentId = parentId
-              if (!folderParentId) {
-                const parentFolderParts = item.folderPath.split('/')
-                const parentFolder = items.find(
-                  (i) =>
-                    i.folderPath === parentFolderParts.slice(0, -1).join('/') &&
-                    i.fileName === parentFolderParts.at(-1)
-                )
-                folderParentId = parentFolder?.id
-              }
-              if (
-                item.id !== folderParentId &&
-                !state.treeNodes[folderParentId]?.children?.includes(item.id)
-              ) {
-                state.treeNodes[folderParentId]?.children?.push(item.id)
-              }
-            } else {
-              newTreeRoots.push(item.id)
-            }
-
             // -> File List
             if (isCurrentFolder && !item.isAncestor) {
               state.fileList.push({

@@ -6,6 +6,9 @@ import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import filesRoutes from './files.ts'
 import { SVG_CSP } from '../helpers/security.ts'
+import { installTestWiki } from '../test/mocks.ts'
+
+let wikiHandle: { restore(): void }
 
 describe('response headers (byte-serving behavior)', () => {
   /**
@@ -38,7 +41,7 @@ describe('response headers (byte-serving behavior)', () => {
    * description ("non-image files"); the fix scopes it to non-`INLINE_EXTS` extensions only).
    */
   async function buildApp(security: Record<string, unknown> = { forceAssetDownload: true }) {
-    global.WIKI = {
+    wikiHandle = installTestWiki({
       config: { security },
       models: {
         sites: { getSiteByHostname: async () => ({ id: 'site-1' }) },
@@ -46,13 +49,13 @@ describe('response headers (byte-serving behavior)', () => {
           actorForRequest: () => ({ permissions: [] }),
           checkAccess: () => true
         },
-        assets: {
+        assetServing: {
           resolveAssetPath: async () => resolvedAsset ?? asset,
           forgetPath: () => {},
           readContent: async () => readContentResult
         }
       }
-    } as unknown as WikiGlobal
+    })
 
     const app = fastify()
     await app.register(fastifySensible)
@@ -64,7 +67,7 @@ describe('response headers (byte-serving behavior)', () => {
   before(async () => {
     // -> app.inject() needs no real socket, but building the app still requires WIKI to exist for the
     //    plugin registration path (fastify-sensible etc. don't touch it, but set a baseline anyway).
-    global.WIKI = { config: {} } as unknown as WikiGlobal
+    wikiHandle = installTestWiki({ config: {} })
   })
 
   test('serves the buffer path (streaming off) with ETag, Cache-Control, Content-Disposition set', async () => {
@@ -201,11 +204,11 @@ describe('isEnabled guard (task 699)', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: { security: {} },
       models: {
         sites: { getSiteByHostname },
-        assets: {
+        assetServing: {
           resolveAssetPath: async () => {
             resolveAssetPathCalls++
             return null
@@ -216,7 +219,7 @@ describe('isEnabled guard (task 699)', () => {
           checkAccess: () => false
         }
       }
-    }
+    })
     app = fastify()
     await app.register(fastifySensible)
     await app.register(filesRoutes)
@@ -225,7 +228,7 @@ describe('isEnabled guard (task 699)', () => {
 
   after(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('answers 404 for a hostname with no site behind it', async () => {
@@ -270,10 +273,10 @@ describe('isEnabled guard (task 699)', () => {
    * standing up its own, since both cover the same hostname-resolved file routes.
    */
   test('passes the hostname-resolved siteId through to checkAccess', async () => {
-    const originalResolveAssetPath = (globalThis as any).WIKI.models.assets.resolveAssetPath
+    const originalResolveAssetPath = (globalThis as any).WIKI.models.assetServing.resolveAssetPath
     const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
     const calls: any[] = []
-    ;(globalThis as any).WIKI.models.assets.resolveAssetPath = async () => ({
+    ;(globalThis as any).WIKI.models.assetServing.resolveAssetPath = async () => ({
       id: 'asset-1',
       folderPath: '',
       fileName: 'file.png',
@@ -298,7 +301,7 @@ describe('isEnabled guard (task 699)', () => {
       assert.equal(calls.length, 1)
       assert.equal(calls[0].siteId, ENABLED_SITE_ID)
     } finally {
-      ;(globalThis as any).WIKI.models.assets.resolveAssetPath = originalResolveAssetPath
+      ;(globalThis as any).WIKI.models.assetServing.resolveAssetPath = originalResolveAssetPath
       ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
     }
   })
@@ -319,7 +322,7 @@ describe('enforceApiKeySite (OpenProject #2201)', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: { security: {} },
       models: {
         sites: {
@@ -330,7 +333,7 @@ describe('enforceApiKeySite (OpenProject #2201)', () => {
           actorForRequest: () => ({ permissions: [] }),
           checkAccess: () => true
         },
-        assets: {
+        assetServing: {
           resolveAssetPath: async () => {
             resolveAssetPathCalls++
             return null
@@ -338,7 +341,7 @@ describe('enforceApiKeySite (OpenProject #2201)', () => {
           forgetPath: () => {}
         }
       }
-    }
+    })
     app = fastify()
     await app.register(fastifySensible)
     await app.register(filesRoutes)
@@ -347,7 +350,7 @@ describe('enforceApiKeySite (OpenProject #2201)', () => {
 
   after(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('refuses 403 when the key is pinned to a different site than the one the hostname resolves to', async () => {

@@ -1,8 +1,9 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { listSourceFiles } from './sourceFiles.ts'
 
 /**
  * Drift check for the "## TODO/FIXME audit" section of docs/variances.md (task #780, section added
@@ -38,31 +39,15 @@ const MARKER = /\b(TODO|FIXME)\b/
 // Matches this task's stated scope: "under backend/ and frontend/src/".
 const SCAN_ROOTS = ['backend', 'frontend/src']
 
-const SKIP_DIR_NAMES = new Set(['node_modules', 'compiled'])
 // Test files that talk *about* markers in prose/regex (this file included) aren't markers to
 // classify themselves; generated bundles are machine output, not something to triage by hand.
 const SKIP_FILE_SUFFIXES = ['.test.ts', '.test.js', '.test.mjs', '.generated.js']
-
-function walk(dir: string, out: string[]): string[] {
-  for (const entry of readdirSync(dir)) {
-    const full = path.join(dir, entry)
-    const st = statSync(full)
-    if (st.isDirectory()) {
-      if (SKIP_DIR_NAMES.has(entry)) continue
-      walk(full, out)
-    } else if (st.isFile()) {
-      if (SKIP_FILE_SUFFIXES.some((suf) => entry.endsWith(suf))) continue
-      out.push(full)
-    }
-  }
-  return out
-}
 
 function findMarkerFiles(): string[] {
   const files = new Set<string>()
   for (const root of SCAN_ROOTS) {
     const absRoot = path.join(REPO_ROOT, root)
-    for (const file of walk(absRoot, [])) {
+    for (const file of listSourceFiles(absRoot, { skip: SKIP_FILE_SUFFIXES })) {
       let content: string
       try {
         content = readFileSync(file, 'utf8')
@@ -178,7 +163,7 @@ describe('deferral-marker vocabulary stays closed', () => {
     const offenders: string[] = []
     for (const root of SCAN_ROOTS) {
       const absRoot = path.join(REPO_ROOT, root)
-      for (const file of walk(absRoot, [])) {
+      for (const file of listSourceFiles(absRoot, { skip: SKIP_FILE_SUFFIXES })) {
         let content: string
         try {
           content = readFileSync(file, 'utf8')

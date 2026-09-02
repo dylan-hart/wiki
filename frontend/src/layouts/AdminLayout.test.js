@@ -4,16 +4,16 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminLayout from './AdminLayout.vue'
-import StatusLight from '@/components/StatusLight.vue'
-import { useAdminStore } from '@/stores/admin'
-import { useFlagsStore } from '@/stores/flags'
 import { useUserStore } from '@/stores/user'
 import { useDirection } from '@/composables/direction'
 import WMenu from '@/components/shared/WMenu.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 /*
   `stores/common.js` reads `localStorage.getItem('locale')` at store-creation time. Node 26 (this
@@ -45,14 +45,6 @@ describe('AdminLayout sidebar nav', () => {
     permissions = ['access:admin', 'manage:sites'],
     sitePermissions = []
   }) {
-    setActivePinia(createPinia())
-
-    const userStore = useUserStore()
-    userStore.permissions = permissions
-
-    const flagsStore = useFlagsStore()
-    flagsStore.experimental = experimental
-
     // -> Avoids the pre-existing `this.sites[0].id` crash in `adminStore.fetchSites()` (called from
     //    `onMounted`) when the stubbed API_CLIENT response is empty by default. The
     //    `userPermissions` branch avoids a similar crash in `userStore.fetchSitePermissions()`,
@@ -68,17 +60,11 @@ describe('AdminLayout sidebar nav', () => {
       return { json: () => Promise.resolve(undefined) }
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/_admin/:siteid/general', component: { template: '<div />' } }]
-    })
-    router.push('/_admin/site1/general')
-    await router.isReady()
+    const router = await createTestRouter(['/_admin/:siteid/general'], '/_admin/site1/general')
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-
-    const wrapper = mount(AdminLayout, {
-      global: { plugins: [router, i18n], components: { StatusLight } }
+    const { wrapper } = mountWithApp(AdminLayout, {
+      router,
+      stores: { user: { permissions: permissions }, flags: { experimental: experimental } }
     })
     await flushPromises()
 
@@ -155,31 +141,18 @@ describe('AdminLayout Navigation nav-tree entry', () => {
    * alone, regardless of the experimental flag.
    */
   async function mountLayout({ permissions = [], experimental = false } = {}) {
-    setActivePinia(createPinia())
+    const router = await createTestRouter(['/:pathMatch(.*)*'], '/_admin/site-1/navigation')
 
-    const userStore = useUserStore()
-    userStore.permissions = permissions
-
-    const flagsStore = useFlagsStore()
-    flagsStore.$patch({ loaded: true, experimental })
-
-    const adminStore = useAdminStore()
-    adminStore.currentSiteId = 'site-1'
-
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-    })
-    router.push('/_admin/site-1/navigation')
-    await router.isReady()
-
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-
-    return mount(AdminLayout, {
-      global: {
-        plugins: [router, i18n]
+    return mountWithApp(AdminLayout, {
+      router,
+      stores: {
+        user: { permissions: permissions },
+        flags: (store) => {
+          store.$patch({ loaded: true, experimental })
+        },
+        admin: { currentSiteId: 'site-1' }
       }
-    })
+    }).wrapper
   }
 
   function findNavigationLink(wrapper) {
@@ -280,27 +253,17 @@ async function mountAdminLayout() {
   setActivePinia(createPinia())
   useUserStore().$patch({ permissions: ['manage:system'] })
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: '/_admin/:siteid?/:rest*', component: { template: '<div />' } },
-      { path: '/_error/unauthorized', component: { template: '<div />' } }
-    ]
-  })
-  router.push('/_admin/site-1/dashboard')
-  await router.isReady()
+  const router = await createTestRouter(
+    ['/_admin/:siteid?/:rest*', '/_error/unauthorized'],
+    '/_admin/site-1/dashboard'
+  )
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   // -> `fetchSites()` (called from `onMounted`) does `this.sites[0].id` when nothing came back --
   //    the default `API_CLIENT` stub resolves every call to `undefined`, which would throw. A
   //    stubbed site list is what a real backend would return here.
-  API_CLIENT.get.mockImplementation((url) => {
-    if (url === 'sites') {
-      return { json: () => Promise.resolve([{ id: 'site-1', title: 'Test Site' }]) }
-    }
-    return { json: () => Promise.resolve([]) }
-  })
+  stubApi({ sites: [{ id: 'site-1', title: 'Test Site' }] }, { fallback: [] })
 
   const wrapper = mount(AdminLayout, {
     global: {
@@ -365,24 +328,14 @@ describe('AdminLayout toolbar hover treatment (task 822)', () => {
     setActivePinia(createPinia())
     useUserStore().$patch({ permissions: ['manage:system'] })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        { path: '/_admin/:siteid?/:rest*', component: { template: '<div />' } },
-        { path: '/_error/unauthorized', component: { template: '<div />' } }
-      ]
-    })
-    router.push('/_admin/site-1/dashboard')
-    await router.isReady()
+    const router = await createTestRouter(
+      ['/_admin/:siteid?/:rest*', '/_error/unauthorized'],
+      '/_admin/site-1/dashboard'
+    )
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'sites') {
-        return { json: () => Promise.resolve([{ id: 'site-1', title: 'Test Site' }]) }
-      }
-      return { json: () => Promise.resolve([]) }
-    })
+    stubApi({ sites: [{ id: 'site-1', title: 'Test Site' }] }, { fallback: [] })
 
     const wrapper = mount(AdminLayout, {
       global: {
@@ -469,9 +422,9 @@ describe('AdminLayout admin-overlay accessible-name map', () => {
         }
       }
     }
-    // -> Strips `//`-to-end-of-line comments first: `overlays` has a commented-out
-    //    `MailTemplateEditorOverlay` entry (not yet implemented), which a purely textual `\w+:` scan
-    //    would otherwise still pick up as a real key.
+    // -> Strips `//`-to-end-of-line comments first: a commented-out entry in either map (an overlay
+    //    that is not yet implemented, say) would otherwise still be picked up as a real key by a
+    //    purely textual `\w+:` scan.
     const body = source
       .slice(braceStart + 1, braceEnd)
       .split('\n')
@@ -494,8 +447,6 @@ describe('AdminLayout admin-overlay accessible-name map', () => {
   it('ADMIN_OVERLAY_TITLES covers exactly the same keys as overlays', () => {
     const source = readFileSync(join(import.meta.dirname, 'AdminLayout.vue'), 'utf-8')
 
-    // -> `MailTemplateEditorOverlay` is commented out in `overlays` (not yet implemented), so it
-    //    correctly appears in neither map.
     expect(topLevelKeys(source, 'ADMIN_OVERLAY_TITLES')).toEqual(topLevelKeys(source, 'overlays'))
   })
 })

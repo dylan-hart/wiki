@@ -1,8 +1,15 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import { TREE_ORDER_BY, type TreeItemType, type TreeOrderBy } from '../models/tree.ts'
-import { decodeTreePath, defaultLocale, normalizePagePath } from '../helpers/common.ts'
-import { actorFrom, mayOnPage } from './pages.ts'
-import { mayOnAsset } from './assets.ts'
+import { decodeTreePath, normalizePagePath } from '../helpers/common.ts'
+import { defaultLocale } from '../helpers/localeRouting.ts'
+import {
+  actorFrom,
+  mayOnAsset,
+  mayOnFolder,
+  mayOnPage,
+  splitList,
+  visibleTreeItems
+} from '../helpers/pageAccess.ts'
 
 interface TreeQuery {
   parentId?: string
@@ -27,39 +34,10 @@ interface FolderBody {
   locale?: string
 }
 
-/** Comma-separated query lists, which is how the browser sends a multi-valued filter here. */
-function splitList(value?: string): string[] | null {
-  const items = value
-    ?.split(',')
-    .map((v) => v.trim())
-    .filter(Boolean)
-  return items && items.length > 0 ? items : null
-}
-
-const siteIdParam = {
-  type: 'object',
-  properties: {
-    siteId: {
-      type: 'string',
-      format: 'uuid'
-    }
-  },
-  required: ['siteId']
-}
-
-const folderIdParam = {
-  type: 'object',
-  properties: {
-    siteId: {
-      type: 'string',
-      format: 'uuid'
-    },
-    folderId: {
-      type: 'string',
-      format: 'uuid'
-    }
-  },
-  required: ['siteId', 'folderId']
+/** A folder's own slash-separated path, which is what a rule over that branch addresses. */
+function folderPathOf(folder: { folderPath?: string | null; fileName: string }): string {
+  const parent = decodeTreePath(folder.folderPath ?? '') ?? ''
+  return parent ? `${parent}/${folder.fileName}` : folder.fileName
 }
 
 /**
@@ -69,73 +47,6 @@ const folderIdParam = {
  * pages and assets. Folders are the only kind created here — a page or an asset gets its tree entry
  * from whatever created it.
  */
-/**
- * The entries of a tree listing this caller may see, and the folders leading to them.
- *
- * Filtered here rather than in the query for the same reason as everywhere else: a page rule can be a
- * regular expression or a set of tags, so which rule decides an entry is only knowable per entry.
- *
- * A folder is judged on its own path, so a DENY over a branch hides the branch itself rather than
- * leaving an empty folder to walk into. The consequence worth knowing is the other way round: a
- * folder stays listed when the rules deny everything inside it but say nothing about the folder, and
- * a reader opening it finds it empty. Hiding those would mean resolving every descendant of every
- * folder on every listing, which is not worth what it costs.
- */
-export function visibleTreeItems<
-  T extends {
-    type?: string
-    folderPath?: string
-    fileName?: string
-    classification?: string | null
-  }
->(req: FastifyRequest, siteId: string, locale: string, items: T[]): T[] {
-  const actor = WIKI.models.groups.actorForRequest(req)
-  return items.filter((item) => {
-    const path = item.folderPath ? `${item.folderPath}/${item.fileName}` : (item.fileName ?? '')
-    const permission = item.type === 'asset' ? 'read:assets' : 'read:pages'
-    return WIKI.models.groups.checkAccess(actor, permission, {
-      path,
-      siteId,
-      locale,
-      tags: (item as any).tags ?? [],
-      // -> `getTree()` (OpenProject #1128) joins `pages.classification` in for a page-type item;
-      //    a folder or asset carries none, the same "no CLASSIFICATION rule matches" null it always
-      //    had.
-      classification: item.classification ?? null
-    })
-  })
-}
-
-/** A folder's own slash-separated path, which is what a rule over that branch addresses. */
-function folderPathOf(folder: { folderPath?: string | null; fileName: string }): string {
-  const parent = decodeTreePath(folder.folderPath ?? '') ?? ''
-  return parent ? `${parent}/${folder.fileName}` : folder.fileName
-}
-
-/**
- * Whether the caller holds a page permission over a folder, judged on the folder's own path.
- *
- * A folder is not a page and has no permissions of its own, so what governs it is what governs the
- * branch it opens: a rule denying `read:pages` under `geography` hides the folder as well as the
- * pages in it, and only somebody who may reorganise pages there may rename or remove it.
- */
-export function mayOnFolder(
-  req: FastifyRequest,
-  permission: string,
-  siteId: string,
-  path: string,
-  locale: string
-): boolean {
-  return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
-    path,
-    siteId,
-    locale,
-    // -> A folder is not a page and carries no classification of its own -- same treatment as
-    //    `mayOnAsset` in `api/assets.ts`.
-    classification: null
-  })
-}
-
 async function routes(app: FastifyInstance) {
   /**
    * BROWSE THE TREE
@@ -153,7 +64,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Lists the contents of one folder. `parentId` and `parentPath` both address the folder to list, the ID winning when both are given; neither means the site root. `includeAncestors` and `includeRootFolders` add the folders above the one being listed, so that a client opening a deep folder can draw the whole branch from a single request — those entries come back with `isAncestor` set.',
         tags: ['Tree'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -230,13 +141,17 @@ async function routes(app: FastifyInstance) {
     async (req) => {
       const q = req.query
       const locale = q.locale ?? defaultLocale(req.params.siteId)
+      // -> `null` rather than `[]` for an absent filter: the model reads an empty array as "match
+      //    nothing", so the two are not interchangeable here the way they are in `api/pages/read.ts`.
+      const types = splitList(q.types)
+      const tags = splitList(q.tags)
       const items = await WIKI.models.tree.getTree({
         siteId: req.params.siteId,
         parentId: q.parentId,
         parentPath: q.parentPath,
         locale,
-        types: splitList(q.types) as TreeItemType[] | null,
-        tags: splitList(q.tags),
+        types: (types.length ? types : null) as TreeItemType[] | null,
+        tags: tags.length ? tags : null,
         limit: q.limit,
         offset: q.offset,
         orderBy: q.orderBy,
@@ -261,7 +176,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Lists one folder for the sidebar's browse menu: the pages a reader may open and the folders holding some, with assets, hidden pages and dead-end folders left out.\n\nA page and a folder can share a path — `/foo/bar` alongside the folder of pages under it — and such a pair comes back as a single entry with both `isPage` and `isFolder` set, since a reader sees one name with two ways in.\n\nReadable without a session, because a wiki is browsed by people who are not logged in — an anonymous request sees only published pages with no password on them, which is exactly what the page view itself would serve them. Requires the site's `browse` feature to be on.",
         tags: ['Tree'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -306,10 +221,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      // -> `siteEnabledPreHandler` (`helpers/siteResolution.ts`) has already answered 404 for an unknown
+      //    `:siteId` before any handler here runs, so this is the site, not a maybe.
       const site = WIKI.sites[req.params.siteId]
-      if (!site) {
-        return reply.notFound('This site does not exist.')
-      }
       // -> The same setting that hides the sidebar's Browse button, enforced where it counts: with
       //    browsing off, the tree is not something to hand out one folder at a time either
       if (!site.config?.features?.browse) {
@@ -370,7 +284,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Lists the pages under a path, ordered and limited, for an index block drawn inside a page. Folders are not part of the answer — this is a list of pages, at `depth` folders below the path when asked for.\n\nReadable without a session, because the page holding the block is: an anonymous request sees only published pages, the same set the page view would serve it. Unlike `/tree/browse` it is not gated on the site's `browse` feature, which governs the sidebar's browse menu rather than what a page may render.",
         tags: ['Tree'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -423,16 +337,15 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       const locale = req.query.locale ?? defaultLocale(req.params.siteId)
+      // -> `null` rather than `[]` for an absent filter, same as BROWSE THE TREE above
+      const tags = splitList(req.query.tags)
       const pages = await WIKI.models.tree.listPages({
         siteId: req.params.siteId,
         path: req.query.path,
         locale,
-        tags: splitList(req.query.tags),
+        tags: tags.length ? tags : null,
         limit: req.query.limit,
         orderBy: req.query.orderBy,
         orderByDirection: req.query.orderByDirection,
@@ -464,7 +377,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get a single folder',
         tags: ['Tree'],
-        params: folderIdParam,
+        params: { $ref: 'SiteFolderParams#' },
         response: {
           200: { $ref: 'Folder#' },
           404: { $ref: 'ApiError#' }
@@ -504,7 +417,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Any folder missing between the site root and the new one is created along with it, so a path can be filled in from the middle out.',
         tags: ['Tree'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         body: {
           allOf: [
             { $ref: 'FolderInput#' },
@@ -611,7 +524,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Everything under the folder moves with it. Sending the current path name back changes only the title, and leaves every descendant untouched.',
         tags: ['Tree'],
-        params: folderIdParam,
+        params: { $ref: 'SiteFolderParams#' },
         body: {
           allOf: [{ $ref: 'FolderInput#' }, { type: 'object', required: ['pathName', 'title'] }]
         },
@@ -666,7 +579,7 @@ async function routes(app: FastifyInstance) {
         //    silently drag the denied branch to a path where the DENY no longer matches. Real `tags`
         //    and `classification` travel with each descendant page, not `classification: null` --
         //    that hardcoded null is only correct for the folder entry itself, which is not a page.
-        const descendants = await WIKI.models.tree.listDescendantPages(
+        const { pages: descendants } = await WIKI.models.tree.listDescendants(
           req.params.folderId,
           req.params.siteId
         )
@@ -727,7 +640,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Everything under the folder goes with it, pages and assets included. Each deleted page is recorded in its history first, so the branch can be recovered from there.\n\nAll-or-nothing, the same shape the page move route's `includeTranslations` uses: the caller needs `manage:pages` on the folder's own path, `delete:pages` on every descendant page (judged on its own real path, tags and classification, not the folder's), and `manage:assets` on every descendant asset. A single unauthorized descendant refuses the whole request (403) and deletes nothing.",
         tags: ['Tree'],
-        params: folderIdParam,
+        params: { $ref: 'SiteFolderParams#' },
         response: {
           204: {
             description: 'Folder deleted successfully'
@@ -765,7 +678,8 @@ async function routes(app: FastifyInstance) {
       //    not be able to drag along a page under a `delete:pages` DENY, or an asset outside their
       //    `manage:assets` reach, just because the folder itself was theirs to manage (OpenProject
       //    #2100). Judged on each descendant's own real path/tags/classification -- never the
-      //    folder's -- the same way `mayOnFolder` above is judged on the folder's.
+      //    folder's -- the same way this handler's own `mayOnFolder` check (`helpers/pageAccess.ts`)
+      //    is judged on the folder's.
       const descendants = await WIKI.models.tree.listDescendants(
         req.params.folderId,
         req.params.siteId

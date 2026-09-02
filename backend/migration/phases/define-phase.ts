@@ -2,7 +2,6 @@ import { NotYetImplementedError } from '../connector.ts'
 import { createRecorder } from '../recorder.ts'
 import { emptyPhaseReport } from '../report.ts'
 import type { WriteRecorder } from '../recorder.ts'
-import type { UnmappableEntry } from '../report.ts'
 import type { MigrationContext, MigrationPhase, MigrationPhaseId, PhaseResult } from '../context.ts'
 
 /**
@@ -10,7 +9,7 @@ import type { MigrationContext, MigrationPhase, MigrationPhaseId, PhaseResult } 
  *
  * `classify`, when given, is called for every record read and decides how it counts toward the
  * phase's `PhaseReport` — typically `recorder.unmappable(...)` for a record this task's named
- * unmappable categories cover (see `../unmappable.ts`), otherwise `recorder.create(...)`. An entity
+ * unmappable categories cover (see `../report.ts`), otherwise `recorder.create(...)`. An entity
  * that omits it still gets every record it reads counted as a plain "would create" via the default
  * below — the correct behavior for an entity this task has no per-record reconciliation rule for.
  */
@@ -32,37 +31,6 @@ async function defaultClassify(
   index: number
 ): Promise<void> {
   await recorder.create(identifierFor(record, index))
-}
-
-/**
- * Wraps a real `WriteRecorder` to notice whether any `create()` call across the whole phase run was
- * ever given a `write` callback — i.e. whether *any* entity actually has a destination write path,
- * as opposed to merely classifying records for the dry-run report (see `../recorder.ts`'s own header
- * comment: `write` is optional so a phase with no real model write yet — or a source connector kind
- * that never will, like `ExportBundleSourceConnector` — can still classify for the dry-run report).
- * `dryRun` still suppresses invoking `write()` itself; this only tracks whether one was *supplied*,
- * since a dry run against a phase that genuinely can write must not be reported as `not_implemented`.
- */
-function trackWriteCapability(recorder: WriteRecorder): {
-  recorder: WriteRecorder
-  hasWriteCapability: () => boolean
-} {
-  let sawWrite = false
-  return {
-    recorder: {
-      create: (identifier, write) => {
-        if (write) {
-          sawWrite = true
-        }
-        return recorder.create(identifier, write)
-      },
-      skipExisting: (identifier) => recorder.skipExisting(identifier),
-      conflict: (identifier, detail) => recorder.conflict(identifier, detail),
-      unmappable: (identifier, reason, detail) => recorder.unmappable(identifier, reason, detail),
-      snapshot: () => recorder.snapshot()
-    },
-    hasWriteCapability: () => sawWrite
-  }
 }
 
 /**
@@ -112,14 +80,6 @@ export function definePhase(config: {
   label: string
   dependsOn: MigrationPhaseId[]
   entities: (ctx: MigrationContext) => Record<string, PhaseEntity>
-  /** Unmappable entries that hold regardless of what the source connector can read yet — a fact about
-   * this codebase's schema, not about any particular record read off the source. The assets phase used
-   * to pass one here ("comments have no destination table"), before Task 16 built comments a real
-   * `models/comments.ts#create()` import path — no phase currently supplies one, but the mechanism
-   * stays for the next entity that turns out to have no 3.0 destination (see `../report.ts`'s
-   * `UnmappableReason` doc comment on `'no-destination-table'`). Always included in
-   * `report.unmappable` on a successful or partially-implemented run. */
-  staticUnmappable?: UnmappableEntry[]
 }): MigrationPhase {
   return {
     id: config.id,
@@ -127,7 +87,7 @@ export function definePhase(config: {
     dependsOn: config.dependsOn,
     async run(ctx: MigrationContext): Promise<PhaseResult> {
       const startedAt = performance.now()
-      const { recorder, hasWriteCapability } = trackWriteCapability(createRecorder(ctx.dryRun))
+      const recorder = createRecorder(ctx.dryRun)
       const counts: Record<string, number> = {}
       const notImplemented: string[] = []
       try {
@@ -139,23 +99,6 @@ export function definePhase(config: {
             counts[name] = result
           }
         }
-        // No entity in this phase ever supplied `create()` a `write` callback, so nothing this phase
-        // "counted" was actually written anywhere — every entity that looked like a successful read
-        // is really just an honest report of what *would* be created. Real against a
-        // `PostgresSourceConnector` source (every phase has a genuine write path there), this still
-        // fires for an `ExportBundleSourceConnector` source's `users`/`settings`/`assets` phases, whose
-        // entity generators remain `NotYetImplementedError` stubs — bundle write support is out of this
-        // plan's scope, so `readEntity()` never even reaches this reclassification for them (it already
-        // returned `'not_implemented'` per-entity). Kept here for the phase where a read genuinely
-        // succeeds but no write path exists at all, so an operator never sees success for a phase with
-        // no destination write path.
-        if (!hasWriteCapability()) {
-          for (const name of Object.keys(counts)) {
-            if (!notImplemented.includes(name)) {
-              notImplemented.push(name)
-            }
-          }
-        }
         const durationMs = performance.now() - startedAt
         const snapshot = recorder.snapshot()
         const report = {
@@ -164,7 +107,7 @@ export function definePhase(config: {
           wouldCreate: snapshot.wouldCreate,
           wouldSkipExisting: snapshot.wouldSkipExisting,
           conflicts: snapshot.conflicts,
-          unmappable: [...snapshot.unmappable, ...(config.staticUnmappable ?? [])]
+          unmappable: snapshot.unmappable
         }
         if (notImplemented.length > 0) {
           return {

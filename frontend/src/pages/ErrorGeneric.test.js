@@ -3,12 +3,11 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import ErrorGeneric from './ErrorGeneric.vue'
+
+import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * OpenProject #2110: `.errorpage-code` / `.errorpage-title` used to be fixed at 12rem/5rem with no
@@ -36,41 +35,22 @@ function ruleFor(className) {
 }
 
 async function mountErrorGeneric(action = 'notfound') {
-  setActivePinia(createPinia())
+  const router = await createTestRouter(['/', '/_error/:action'], `/_error/${action}`)
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: '/', component: { template: '<div />' } },
-      { path: '/_error/:action', component: { template: '<div />' } }
-    ]
-  })
-  router.push(`/_error/${action}`)
-  await router.isReady()
-
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
+  return mountWithApp(ErrorGeneric, {
     messages: {
-      en: {
-        common: {
-          error: {
-            title: 'Error',
-            goHome: 'Go Home',
-            loginAs: 'Login',
-            notfound: { title: 'Page Not Found', hint: 'The page does not exist' },
-            unauthorized: { title: 'Unauthorized', hint: 'You are not authorized' }
-          }
+      common: {
+        error: {
+          title: 'Error',
+          goHome: 'Go Home',
+          loginAs: 'Login',
+          notfound: { title: 'Page Not Found', hint: 'The page does not exist' },
+          unauthorized: { title: 'Unauthorized', hint: 'You are not authorized' }
         }
       }
-    }
-  })
-
-  return mount(ErrorGeneric, {
-    global: {
-      plugins: [router, i18n]
-    }
-  })
+    },
+    router
+  }).wrapper
 }
 
 describe('ErrorGeneric responsive type (OpenProject #2110)', () => {

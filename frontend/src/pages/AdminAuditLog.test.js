@@ -1,34 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AdminAuditLog from './AdminAuditLog.vue'
+
+import { mountWithApp } from '../../test/mount.js'
+import { stubApi } from '../../test/mocks.js'
 
 /**
  * OpenProject #989: the instance-wide audit log's admin list — filtering by actor/type/date, and the
  * retention setting saved alongside it.
  */
 function mountPage() {
-  setActivePinia(createPinia())
-
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
+  return mountWithApp(AdminAuditLog, {
     messages: {
-      en: {
-        'admin.audit.title': 'Audit Log',
-        'admin.audit.event.user.created': 'User Created',
-        'common.actions.save': 'Save'
-      }
+      'admin.audit.title': 'Audit Log',
+      'admin.audit.event.user.created': 'User Created',
+      'common.actions.save': 'Save'
     }
-  })
-
-  return mount(AdminAuditLog, {
-    global: {
-      plugins: [i18n]
-    }
-  })
+  }).wrapper
 }
 
 async function flush(wrapper) {
@@ -164,12 +152,7 @@ describe('AdminAuditLog', () => {
   })
 
   it('commits the retention setting from its own card-local Save button, not a page-header action (OpenProject #2089)', async () => {
-    API_CLIENT.get.mockImplementation((url) => {
-      if (url === 'audit-log/settings') {
-        return { json: () => Promise.resolve({ retentionDays: 180 }) }
-      }
-      return { json: () => Promise.resolve(undefined) }
-    })
+    stubApi({ 'audit-log/settings': { retentionDays: 180 } })
     API_CLIENT.put.mockReturnValueOnce({
       json: () => Promise.resolve({ ok: true, message: 'Audit log retention setting updated.' })
     })

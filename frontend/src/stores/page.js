@@ -18,6 +18,56 @@ import { apiErrorBody, apiErrorMessage } from '@/helpers/apiError'
  */
 export const DEFAULT_PAGE_ICON = 'mdi:file-document-outline'
 
+/**
+ * A page response, shaped for `$patch`.
+ *
+ * Three actions apply a page the server just handed back -- `pageLoad`, `pageUnlock` and the tail of
+ * `pageSave` -- and each has to do the same three things to it first: keep only the relation fields
+ * this store models, keep only the two `tocDepth` bounds, and clear the password fields, which the
+ * API never returns (OpenProject #2232) and which must therefore not be left holding the previous
+ * page's -- or the just-saved -- typed value.
+ */
+function pagePatch(pageData) {
+  return {
+    ...pageData,
+    relations: (pageData.relations ?? []).map((r) =>
+      pick(r, ['id', 'position', 'label', 'caption', 'icon', 'target'])
+    ),
+    tocDepth: pick(pageData.tocDepth, ['min', 'max']),
+    password: '',
+    removePassword: false
+  }
+}
+
+/**
+ * The page fields shared by the two resets -- `pageNotFound` and `pageCreate`.
+ *
+ * Neither is showing a stored page, so every one of these has to stop saying whatever the previously
+ * open page said. Each caller spreads this first and then states what IS true of its own case: a
+ * page that does not exist is `notFound`, a page being created has a path, a title and content.
+ */
+const BLANK_PAGE = {
+  id: '',
+  path: '',
+  title: '',
+  description: '',
+  icon: DEFAULT_PAGE_ICON,
+  content: '',
+  contentLoaded: false,
+  render: '',
+  tags: [],
+  relations: [],
+  publishState: '',
+  // -> The server resolves the default (the parent page's own level, or the most-open configured
+  //    one) when a create request omits it; blank here so neither reset shows the last page's level
+  classification: '',
+  // -> Nothing here should carry the previously-open page's typed-but-unsaved password value
+  password: '',
+  hasPassword: false,
+  removePassword: false,
+  notFound: false
+}
+
 export const usePageStore = defineStore('page', {
   state: () => ({
     alias: '',
@@ -220,27 +270,14 @@ export const usePageStore = defineStore('page', {
         }
         // Update page store
         this.$patch({
-          ...pageData,
+          ...pagePatch(pageData),
           // -> The field is present exactly when the source came with the page, which is what makes
           //    the copy in this store safe to save; a view-mode load leaves the previous one in place
-          contentLoaded: Object.hasOwn(pageData, 'content'),
-          relations: pageData.relations.map((r) =>
-            pick(r, ['id', 'position', 'label', 'caption', 'icon', 'target'])
-          ),
-          tocDepth: pick(pageData.tocDepth, ['min', 'max']),
-          // -> `pageData` never carries a `password` -- the API only ever hashes it, never returns it
-          //    (OpenProject #2232) -- so without this the field would keep whatever the PREVIOUS page
-          //    left typed into it rather than starting empty for this one.
-          password: '',
-          removePassword: false
+          contentLoaded: Object.hasOwn(pageData, 'content')
         })
         this.applyViewerState(pageData.viewer)
-        // Update editor state timestamps
-        const curDate = Temporal.Now.instant()
-        editorStore.$patch({
-          lastChangeTimestamp: curDate,
-          lastSaveTimestamp: curDate
-        })
+        // -> Nothing has been typed into this freshly-loaded page yet
+        editorStore.markClean()
       } catch (err) {
         // -> A missing page is an ordinary outcome, not a failure: it is what puts a new instance in
         //    front of the welcome screen, and what offers to create the page anywhere else
@@ -279,12 +316,8 @@ export const usePageStore = defineStore('page', {
         json: { password }
       }).json()
       this.$patch({
-        ...pageData,
-        contentLoaded: Object.hasOwn(pageData, 'content'),
-        relations: pageData.relations.map((r) =>
-          pick(r, ['id', 'position', 'label', 'caption', 'icon', 'target'])
-        ),
-        tocDepth: pick(pageData.tocDepth, ['min', 'max'])
+        ...pagePatch(pageData),
+        contentLoaded: Object.hasOwn(pageData, 'content')
       })
     },
     /**
@@ -356,25 +389,12 @@ export const usePageStore = defineStore('page', {
      */
     pageNotFound({ path }) {
       this.$patch({
-        id: '',
+        ...BLANK_PAGE,
         path: (path ?? '').replace(/^\/+/, ''),
-        title: '',
-        description: '',
-        icon: DEFAULT_PAGE_ICON,
-        content: '',
-        contentLoaded: false,
-        render: '',
         toc: [],
-        tags: [],
-        relations: [],
         createdAt: '',
         updatedAt: '',
-        publishState: '',
-        classification: '',
         isLocked: false,
-        password: '',
-        hasPassword: false,
-        removePassword: false,
         canSuggestEdits: false,
         hasOpenSuggestion: false,
         resolvedSubmission: null,
@@ -427,9 +447,7 @@ export const usePageStore = defineStore('page', {
       const siteStore = useSiteStore()
 
       // -> Load editor config
-      if (!editorStore.configIsLoaded) {
-        await editorStore.fetchConfigs()
-      }
+      await editorStore.ensureConfigs()
 
       // -> Path normalization
       if (path?.startsWith('/')) {
@@ -470,14 +488,11 @@ export const usePageStore = defineStore('page', {
         (and clears it) before `App.vue`'s router guard -- which only runs once that push's own promise
         machinery gets a turn -- ever gets to read `hasPendingChanges` for this navigation.
       */
-      const curDate = Temporal.Now.instant()
-      editorStore.$patch({
+      editorStore.markClean({
         originPageId: editorStore.isActive ? editorStore.originPageId : this.id, // Don't replace if already in edit mode
         isActive: true,
         mode: 'create',
-        editor,
-        lastChangeTimestamp: curDate,
-        lastSaveTimestamp: curDate
+        editor
       })
 
       // -> Default Page Path
@@ -490,6 +505,7 @@ export const usePageStore = defineStore('page', {
 
       // -> Set Default Page Data
       this.$patch({
+        ...BLANK_PAGE,
         id: 0,
         locale: locale || this.locale,
         path: newPath,
@@ -501,19 +517,12 @@ export const usePageStore = defineStore('page', {
         editor,
         title: title ?? '',
         description: description ?? '',
-        icon: DEFAULT_PAGE_ICON,
         alias: '',
         publishState: 'published',
-        // -> Left unset: the server resolves the default (the parent page's own level, or the
-        //    most-open configured one) when the create request omits it. Explicitly reset here so a
-        //    new page does not start on whatever the previously-open page's picker showed.
-        classification: '',
-        relations: [],
         tags: tags ?? [],
         content: content ?? '',
         // -> A page being created has no stored source to lose: whatever it starts with IS the source
         contentLoaded: true,
-        render: '',
         isBrowsable: true,
         /*
           A redirection is browsable like any other page and findable in none: a search result for one
@@ -522,13 +531,6 @@ export const usePageStore = defineStore('page', {
           than deciding it.
         */
         isSearchable: editor !== 'redirect',
-        // -> A page being created has never had a password set, and nothing here should carry the
-        //    previously-open page's typed-but-unsaved value into a brand new one
-        password: '',
-        hasPassword: false,
-        removePassword: false,
-        // -> The page being created is very often the one that was missing, and it is not missing now
-        notFound: false,
         /*
           Neither is real yet, so both are blanked rather than left as whatever `pageLoad` last put
           here -- unblanked, a page created from an existing one (the header's New Page button, a
@@ -595,17 +597,12 @@ export const usePageStore = defineStore('page', {
         hasOpenSuggestion: Boolean(resp.submission)
       })
 
-      if (!editorStore.configIsLoaded) {
-        await editorStore.fetchConfigs()
-      }
+      await editorStore.ensureConfigs()
 
-      const curDate = Temporal.Now.instant()
-      editorStore.$patch({
+      editorStore.markClean({
         isActive: true,
         mode: 'suggest',
-        editor: this.editor,
-        lastChangeTimestamp: curDate,
-        lastSaveTimestamp: curDate
+        editor: this.editor
       })
     },
     /**
@@ -665,9 +662,7 @@ export const usePageStore = defineStore('page', {
         await this.pageLoad(loadArgs)
       }
 
-      if (!editorStore.configIsLoaded) {
-        await editorStore.fetchConfigs()
-      }
+      await editorStore.ensureConfigs()
 
       editorStore.$patch({
         isActive: true,
@@ -892,19 +887,9 @@ export const usePageStore = defineStore('page', {
 
         const wasCreate = editorStore.mode === 'create'
 
-        // Update page store
-        this.$patch({
-          ...pageData,
-          relations: (pageData.relations ?? []).map((r) =>
-            pick(r, ['id', 'position', 'label', 'caption', 'icon', 'target'])
-          ),
-          tocDepth: pick(pageData.tocDepth, ['min', 'max']),
-          // -> Whatever was just sent has already been written, and `pageData` carries no `password`
-          //    back to keep it in sync with (OpenProject #2232) -- so this is cleared explicitly
-          //    rather than left holding a plaintext secret, and pending, past the save it was for.
-          password: '',
-          removePassword: false
-        })
+        // -> Whatever was just sent has already been written, so `pagePatch`'s password reset is
+        //    what stops a plaintext secret sitting there, pending, past the save it was for
+        this.$patch(pagePatch(pageData))
 
         /*
           OpenProject #1012: a newly created page can change what an `auto`/`mixed` menu generates
@@ -926,12 +911,7 @@ export const usePageStore = defineStore('page', {
           leaving the editor with unsaved changes and prompt to discard the very save that just
           succeeded.
         */
-        const curDate = Temporal.Now.instant()
-        editorStore.$patch({
-          lastChangeTimestamp: curDate,
-          lastSaveTimestamp: curDate,
-          reasonForChange: ''
-        })
+        editorStore.markClean({ reasonForChange: '' })
 
         if (editorStore.mode === 'create') {
           editorStore.$patch({ mode: 'edit' })

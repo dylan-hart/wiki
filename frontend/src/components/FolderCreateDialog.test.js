@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import FolderCreateDialog from './FolderCreateDialog.vue'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * OpenProject #1668: 13 dialogs carried a dead `<w-input autofocus>` attribute (it lands on
@@ -18,7 +19,7 @@ async function mountDialog() {
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   // -> `<w-dialog>` teleports its panel to `<body>` (see `WDialog.vue`) -- stubbing `teleport` keeps
   //    it under the wrapper's own root so `wrapper.find()` can still reach it, and `attachTo` puts the
   //    wrapper itself in the real `document.body` so `document.activeElement` actually reflects a

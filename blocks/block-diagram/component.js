@@ -1,6 +1,10 @@
 import { LitElement, html, css } from 'lit'
 import { unsafeSVG } from 'lit/directives/unsafe-svg.js'
 import mermaid from 'mermaid'
+import { readFencedSource } from '../shared/body.js'
+import { explainEmptySource, explainSourceFailure } from '../shared/figure.js'
+import { renderError } from '../shared/render.js'
+import { captionStyles, errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
 
 /**
@@ -97,53 +101,41 @@ flowchart LR
   }
 
   static get styles() {
-    return css`
-      :host {
-        display: block;
-      }
+    return [
+      errorBox,
+      captionStyles,
+      css`
+        :host {
+          display: block;
+        }
 
-      /* -> The gap below the block. On this element rather than :host: see block-index. */
-      .diagram,
-      .error {
-        margin-bottom: 16px;
-      }
+        /* -> The gap below the block. On this element rather than :host: see block-index. */
+        .diagram,
+        .error {
+          margin-bottom: 16px;
+        }
 
-      .diagram {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 8px;
-      }
-      .diagram.is-center {
-        align-items: center;
-      }
+        .diagram {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 8px;
+        }
+        .diagram.is-center {
+          align-items: center;
+        }
 
-      /*
+        /*
         Mermaid sizes the drawing itself — it writes a max-width on the SVG at the width the diagram
         came out to, so a small one is left at its own size and a large one shrinks to the column. Only
         the height is settled here, so that shrinking keeps the shapes in proportion.
       */
-      svg {
-        max-width: 100%;
-        height: auto;
-      }
-
-      .caption {
-        color: #424242;
-        font-size: 0.8em;
-      }
-      :host([dark]) .caption {
-        color: rgba(255, 255, 255, 0.7);
-      }
-
-      .error {
-        color: var(--q-negative, #c10015);
-        border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-        border-radius: 5px;
-        padding: 1rem;
-        white-space: pre-wrap;
-      }
-    `
+        svg {
+          max-width: 100%;
+          height: auto;
+        }
+      `
+    ]
   }
 
   static get properties() {
@@ -249,25 +241,16 @@ flowchart LR
         the fence, because a diagram that renders in every other tool and not here is nearly always a
         source markdown got to first — see `template`.
       */
-      this._error = `This diagram could not be drawn: ${err.message ?? err}`
-      if (!this._fenced) {
-        this._error +=
-          '\n\nThe source has to go inside a fenced code block, or markdown rewrites it before this block sees it.'
-      }
+      this._error = explainSourceFailure('diagram could not be drawn', err, this._fenced)
     }
   }
 
   firstUpdated() {
-    /*
-      The source is the block's body, taken from the fence markdown left behind. `textContent` is what
-      undoes the escaping that put `--&gt;` in the markup, and gives back what the author typed.
-    */
-    const fence = this.querySelector('pre')
-    this._fenced = Boolean(fence)
-    this._source = ((fence ?? this).textContent ?? '').trim()
+    const { source, fenced } = readFencedSource(this)
+    this._fenced = fenced
+    this._source = source
     if (!this._source) {
-      this._error =
-        'This diagram is empty. Its source goes in the body of the block, inside a fenced code block.'
+      this._error = explainEmptySource('diagram')
       return
     }
     this._draw()
@@ -275,7 +258,7 @@ flowchart LR
 
   render() {
     if (this._error) {
-      return html`<div class="error">${this._error}</div>`
+      return renderError(this._error)
     }
     return html`
       <div class="diagram ${this.align === 'center' ? 'is-center' : ''}">

@@ -95,12 +95,11 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 
 import { useAdminStore } from '@/stores/admin'
 import { apiErrorMessage } from '@/helpers/apiError'
@@ -125,40 +124,23 @@ useMeta(() => ({
 
 // DATA
 
-const state = reactive({
-  enabled: false,
-  loading: 0,
-  isToggleLoading: false
-})
-
-// METHODS
-
-async function load() {
-  state.loading++
-  loading.show()
-  try {
-    const resp = await API_CLIENT.get('system/metrics').json()
+const { state, load, refresh } = useAdminSettings({
+  i18nPrefix: 'admin.metrics',
+  // -> Instance-wide, not one site's: no site picker, no reload on switching site
+  siteScoped: false,
+  extraState: {
+    enabled: false,
+    isToggleLoading: false
+  },
+  fetch: () => API_CLIENT.get('system/metrics').json(),
+  onLoaded: (resp) => {
     state.enabled = resp?.isEnabled === true
     // -> Keeps the status light in the admin sidebar in step without another round trip
     adminStore.info.isMetricsEnabled = state.enabled
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.metrics.loadFailed'),
-      caption: err.message
-    })
   }
-  loading.hide()
-  state.loading--
-}
+})
 
-async function refresh() {
-  await load()
-  notify({
-    type: 'positive',
-    message: t('admin.metrics.refreshSuccess')
-  })
-}
+// METHODS
 
 async function globalSwitch() {
   state.isToggleLoading = true
@@ -183,10 +165,6 @@ async function globalSwitch() {
   }
   state.isToggleLoading = false
 }
-
-// MOUNTED
-
-onMounted(load)
 </script>
 
 <style lang="scss"></style>

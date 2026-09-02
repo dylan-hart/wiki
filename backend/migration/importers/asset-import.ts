@@ -47,13 +47,10 @@ export interface AssetImportOptions {
   siteId: string
   locale: string
   // -> `UserIdMap` (`id-map.ts`): the same read-only "old numeric id -> new UUID" structural contract
-  //    `content-staging.ts#ContentStagingOptions.userIdMap` uses, not the concrete `IdMap<number>`
-  //    class the `users` phase (Task 14) builds and populates — this module only ever calls `.get()`.
-  //    Adapted from the design brief's sketch (which used `IdMap<number>` directly): `context.ts`'s
-  //    `MigrationContext.userIdMap` field is itself a plain `Map<number, string>`, not an `IdMap`, so a
-  //    hand-built fallback (`ctx.userIdMap ?? new Map()`, for a `MigrationContext` that never ran the
-  //    `users` phase) would not type-check against `IdMap<number>` — confirmed by `npm run typecheck`,
-  //    not assumed.
+  //    `content-staging.ts#ContentStagingOptions.userIdMap` uses, rather than the concrete
+  //    `Map<number, string>` the `users` phase (Task 14) builds and populates — this module only ever
+  //    calls `.get()`, and the narrower type is what lets a caller hand in a hand-built fallback
+  //    (`ctx.userIdMap ?? new Map()`, for a `MigrationContext` that never ran the `users` phase).
   userIdMap: UserIdMap
   fallbackActorId: string
 }
@@ -70,11 +67,6 @@ export interface AssetImportSuccess {
   relativePath: string
   assetId: string
   warnings: string[]
-}
-
-export interface AssetImportResult {
-  succeeded: AssetImportSuccess[]
-  failed: AssetImportFailure[]
 }
 
 /**
@@ -210,23 +202,4 @@ export async function importAsset(
       failure: { relativePath, reason: 'upload-error', message: err.message }
     }
   }
-}
-
-/** Imports every asset file from the source, one at a time (never buffering more than one file's
- * bytes at once — see `importAsset`). Batch form for a caller (a test, or any future standalone use)
- * holding a whole `AsyncIterable` rather than driving it one record at a time — `phases/assets.ts`
- * drives `importAsset` directly, per-record, from its own `classify`. */
-export async function importAssets(
-  files: AsyncIterable<SourceAssetFile>,
-  deps: AssetImportDeps,
-  options: AssetImportOptions
-): Promise<AssetImportResult> {
-  const succeeded: AssetImportSuccess[] = []
-  const failed: AssetImportFailure[] = []
-  for await (const file of files) {
-    const outcome = await importAsset(file, deps, options)
-    if (outcome.result === 'success') succeeded.push(outcome.success)
-    else failed.push(outcome.failure)
-  }
-  return { succeeded, failed }
 }

@@ -1,4 +1,4 @@
-import { LitElement, html, css } from 'lit'
+import { LitElement, html } from 'lit'
 import {
   getDocument,
   GlobalWorkerOptions,
@@ -8,7 +8,12 @@ import {
   TextLayer
 } from 'pdfjs-dist/build/pdf.mjs'
 
+import { boolean } from '../shared/props.js'
+import { renderError } from '../shared/render.js'
+import { errorBox } from '../shared/styles.js'
 import { DarkMode } from '../shared/theme.js'
+import { PAGE_GAP, textLayerStyles, viewerStyles } from './styles.js'
+import { renderToolbar, ZOOM_LEVELS } from './toolbar.js'
 
 /*
   Where the parsing happens.
@@ -39,28 +44,8 @@ GlobalWorkerOptions.workerSrc = new URL('block-pdf.worker.js', import.meta.url).
 */
 const DATA_URL = new URL('block-pdf/', import.meta.url).href
 
-/**
- * An attribute that means "off" when it says so.
- *
- * MDC writes every prop with a value — `hideToolbar="false"` is what the block picker produces for a
- * toggle that was switched on and off again — and Lit's own Boolean converter reads any string at all
- * as true, that one included.
- */
-const boolean = {
-  converter: {
-    fromAttribute: (value) => value !== null && value !== 'false',
-    toAttribute: (value) => (value ? 'true' : null)
-  }
-}
-
-/** The zoom steps, and so also what the toolbar's list offers besides the two fitting modes. */
-const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3]
-
 const MIN_SCALE = 0.1
 const MAX_SCALE = 10
-
-/** The space around a page, and between one page and the next. */
-const PAGE_GAP = 12
 
 /**
  * How far either side of what is on screen to keep drawn.
@@ -82,15 +67,6 @@ const KEEP_PAGES = 2
 */
 const MAX_CANVAS_PIXELS = 2 ** 25
 const MAX_CANVAS_DIM = 32767
-
-/** Icons, as the path of a 24x24 MDI glyph. */
-const ICONS = {
-  previous: 'M15.41,16.58L10.83,12L15.41,7.41L14,6L8,12L14,18L15.41,16.58Z',
-  next: 'M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z',
-  zoomOut: 'M19,13H5V11H19V13Z',
-  zoomIn: 'M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z',
-  open: 'M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z'
-}
 
 /**
  * Block PDF
@@ -153,256 +129,7 @@ export class BlockPdfElement extends LitElement {
   }
 
   static get styles() {
-    return css`
-      :host {
-        display: block;
-
-        --pdf-border: #e0e0e0;
-        --pdf-toolbar-bg: linear-gradient(to bottom, #fdfdfd, #eeeeee);
-        --pdf-toolbar-fg: #424242;
-        --pdf-canvas-bg: #f1f3f5;
-        --pdf-page-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
-      }
-      :host([dark]) {
-        --pdf-border: rgba(255, 255, 255, 0.15);
-        --pdf-toolbar-bg: linear-gradient(to bottom, #1b212a, #12161d);
-        --pdf-toolbar-fg: rgba(255, 255, 255, 0.7);
-        --pdf-canvas-bg: #12161d;
-        --pdf-page-shadow: 0 1px 4px rgb(0 0 0 / 0.6);
-      }
-
-      /*
-        One raised box, with the toolbar and the pages clipped to its corners.
-
-        -> It also carries the gap below the block. On this element rather than :host: see block-index.
-      */
-      .viewer {
-        margin-bottom: 16px;
-        border: 1px solid var(--pdf-border);
-        border-radius: 6px;
-        overflow: hidden;
-        box-shadow:
-          0 1px 3px rgb(0 0 0 / 0.1),
-          0 1px 2px rgb(0 0 0 / 0.06);
-      }
-      :host([dark]) .viewer {
-        box-shadow:
-          0 1px 3px rgb(0 0 0 / 0.5),
-          0 1px 2px rgb(0 0 0 / 0.35);
-      }
-
-      .toolbar {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 4px;
-        padding: 4px 8px;
-        border-bottom: 1px solid var(--pdf-border);
-        background-image: var(--pdf-toolbar-bg);
-        color: var(--pdf-toolbar-fg);
-        font-size: 13px;
-        line-height: 1;
-      }
-
-      .spacer {
-        flex: 1 1 auto;
-      }
-
-      .tool {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 28px;
-        height: 28px;
-        padding: 0;
-        border: 0;
-        border-radius: 4px;
-        background: transparent;
-        color: inherit;
-        text-decoration: none;
-        cursor: pointer;
-      }
-      .tool:hover:not(:disabled) {
-        background-color: rgb(0 0 0 / 0.07);
-        color: var(--q-primary, #1976d2);
-      }
-      :host([dark]) .tool:hover:not(:disabled) {
-        background-color: rgb(255 255 255 / 0.1);
-      }
-      .tool:disabled {
-        opacity: 0.4;
-        cursor: default;
-      }
-      .tool svg {
-        width: 18px;
-        height: 18px;
-        fill: currentColor;
-      }
-
-      .pager {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        white-space: nowrap;
-      }
-
-      /* -> A number input wide enough for four digits, without the spinner taking half of it */
-      .pager input {
-        width: 4ch;
-        padding: 4px 2px;
-        border: 1px solid var(--pdf-border);
-        border-radius: 4px;
-        background-color: rgb(255 255 255 / 0.6);
-        color: inherit;
-        font: inherit;
-        text-align: center;
-        appearance: textfield;
-        -moz-appearance: textfield;
-      }
-      .pager input::-webkit-inner-spin-button,
-      .pager input::-webkit-outer-spin-button {
-        appearance: none;
-        margin: 0;
-      }
-      :host([dark]) .pager input {
-        background-color: rgb(0 0 0 / 0.25);
-      }
-
-      select {
-        max-width: 9rem;
-        padding: 4px 6px;
-        border: 1px solid var(--pdf-border);
-        border-radius: 4px;
-        background-color: rgb(255 255 255 / 0.6);
-        color: inherit;
-        font: inherit;
-        cursor: pointer;
-      }
-      :host([dark]) select {
-        background-color: rgb(0 0 0 / 0.25);
-      }
-
-      /*
-        The scrolling surface.
-
-        -> scrollbar-gutter keeps the width the pages are fitted to from changing the moment the
-           scrollbar appears, which at "fit width" is a measurement that decides the very layout that
-           brings the scrollbar in.
-      */
-      .scroller {
-        position: relative;
-        overflow: auto;
-        scrollbar-gutter: stable;
-        background-color: var(--pdf-canvas-bg);
-      }
-
-      .pages {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: ${PAGE_GAP}px;
-        padding: ${PAGE_GAP}px;
-        min-width: min-content;
-      }
-
-      .page {
-        position: relative;
-        flex: none;
-        background-color: #fff;
-        box-shadow: var(--pdf-page-shadow);
-
-        /* -> What pdf.js sizes the text layer against; see setLayerDimensions in its source. */
-        --scale-factor: 1;
-        --user-unit: 1;
-        --total-scale-factor: calc(var(--scale-factor) * var(--user-unit));
-        --scale-round-x: 1px;
-        --scale-round-y: 1px;
-      }
-
-      .page canvas {
-        display: block;
-        width: 100%;
-        height: 100%;
-      }
-
-      .status {
-        padding: 2rem 1rem;
-        color: var(--pdf-toolbar-fg);
-        text-align: center;
-        font-size: 13px;
-      }
-
-      .error {
-        margin-bottom: 16px;
-        padding: 1rem;
-        border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
-        border-radius: 5px;
-        color: var(--q-negative, #c10015);
-      }
-
-      /*
-        The text layer: a transparent copy of the page's words, positioned over the drawing so they
-        can be selected and searched for. Lifted from pdf.js's own stylesheet, which is 160 kB of
-        viewer chrome this block has no other use for.
-      */
-      .textLayer {
-        position: absolute;
-        inset: 0;
-        overflow: clip;
-        z-index: 1;
-        opacity: 1;
-        line-height: 1;
-        text-align: initial;
-        letter-spacing: normal;
-        word-spacing: normal;
-        text-size-adjust: none;
-        forced-color-adjust: none;
-        transform-origin: 0 0;
-        caret-color: CanvasText;
-
-        --min-font-size: 1;
-        --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
-        --min-font-size-inv: calc(1 / var(--min-font-size));
-      }
-
-      .textLayer :is(span, br) {
-        position: absolute;
-        color: transparent;
-        white-space: pre;
-        cursor: text;
-        transform-origin: 0% 0%;
-        user-select: text;
-      }
-
-      .textLayer > :not(.markedContent),
-      .textLayer .markedContent span:not(.markedContent) {
-        z-index: 1;
-
-        --font-height: 0;
-        --scale-x: 1;
-        --rotate: 0deg;
-        font-size: calc(var(--text-scale-factor) * var(--font-height));
-        transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
-      }
-
-      .textLayer .markedContent {
-        display: contents;
-      }
-
-      .textLayer span[role='img'] {
-        user-select: none;
-        cursor: default;
-      }
-
-      .textLayer ::selection {
-        background: color-mix(in srgb, AccentColor, transparent 50%);
-        color: transparent;
-      }
-
-      .textLayer br::selection {
-        background: transparent;
-      }
-    `
+    return [errorBox, viewerStyles, textLayerStyles]
   }
 
   static get properties() {
@@ -1043,99 +770,29 @@ export class BlockPdfElement extends LitElement {
     this._stepZoom(-1)
   }
 
-  _icon(path) {
-    return html` <svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}" /></svg> `
-  }
-
   _renderToolbar() {
-    return html`
-      <div class="toolbar">
-        <div class="pager">
-          <button
-            class="tool"
-            type="button"
-            title="Previous page"
-            aria-label="Previous page"
-            ?disabled=${this._currentPage <= 1}
-            @click=${this._previousPage}>
-            ${this._icon(ICONS.previous)}
-          </button>
-          <input
-            type="number"
-            min="1"
-            max=${this._pageCount}
-            aria-label="Page number"
-            .value=${String(this._currentPage)}
-            @change=${this._onPageInput} />
-          <span>/ ${this._pageCount || '—'}</span>
-          <button
-            class="tool"
-            type="button"
-            title="Next page"
-            aria-label="Next page"
-            ?disabled=${this._currentPage >= this._pageCount}
-            @click=${this._nextPage}>
-            ${this._icon(ICONS.next)}
-          </button>
-        </div>
-
-        <span class="spacer"></span>
-
-        <button
-          class="tool"
-          type="button"
-          title="Zoom out"
-          aria-label="Zoom out"
-          ?disabled=${this._scale <= ZOOM_LEVELS[0]}
-          @click=${this._zoomOut}>
-          ${this._icon(ICONS.zoomOut)}
-        </button>
-        <!--
-          -> Which one is showing is set on the options rather than on the select: Lit writes an
-             attribute or property on an element before it fills in its children, so a .value binding here
-             would be assigned while the list is still empty and come back as nothing.
-        -->
-        <select aria-label="Zoom" @change=${this._onZoomSelect}>
-          <option value="page-width" .selected=${this._zoomValue === 'page-width'}>
-            Fit width
-          </option>
-          <option value="page-fit" .selected=${this._zoomValue === 'page-fit'}>Fit page</option>
-          ${ZOOM_LEVELS.map(
-            (level) => html`
-              <option value="${level * 100}%" .selected=${this._zoomValue === `${level * 100}%`}>
-                ${level * 100}%
-              </option>
-            `
-          )}
-        </select>
-        <button
-          class="tool"
-          type="button"
-          title="Zoom in"
-          aria-label="Zoom in"
-          ?disabled=${this._scale >= ZOOM_LEVELS.at(-1)}
-          @click=${this._zoomIn}>
-          ${this._icon(ICONS.zoomIn)}
-        </button>
-
-        <span class="spacer"></span>
-
-        <a
-          class="tool"
-          href=${this.src}
-          target="_blank"
-          rel="noopener noreferrer"
-          title="Open in a new tab"
-          aria-label="Open in a new tab">
-          ${this._icon(ICONS.open)}
-        </a>
-      </div>
-    `
+    return renderToolbar(
+      {
+        currentPage: this._currentPage,
+        pageCount: this._pageCount,
+        scale: this._scale,
+        zoomValue: this._zoomValue,
+        src: this.src
+      },
+      {
+        onPreviousPage: this._previousPage,
+        onNextPage: this._nextPage,
+        onPageInput: this._onPageInput,
+        onZoomOut: this._zoomOut,
+        onZoomIn: this._zoomIn,
+        onZoomSelect: this._onZoomSelect
+      }
+    )
   }
 
   render() {
     if (this._error) {
-      return html`<div class="error">${this._error}</div>`
+      return renderError(this._error)
     }
     return html`
       <div class="viewer">

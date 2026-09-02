@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
+import { flushPromises } from '@vue/test-utils'
 
 vi.mock('browser-fs-access', () => ({
   fileSave: vi.fn().mockResolvedValue(undefined)
@@ -10,10 +7,11 @@ vi.mock('browser-fs-access', () => ({
 
 import { fileSave } from 'browser-fs-access'
 import AdminUtilities from './AdminUtilities.vue'
-import BlueprintIcon from '@/components/BlueprintIcon.vue'
-import { useSiteStore } from '@/stores/site'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * The `import` utility used to be `disabled` with no handler at all (task 585). These tests cover the
@@ -25,60 +23,45 @@ import { queue as notifyQueue } from '@/composables/notify'
  */
 
 const messages = {
-  en: {
-    'admin.utilities.title': 'Utilities',
-    'admin.utilities.subtitle': '',
-    'admin.utilities.export': 'Export',
-    'admin.utilities.exportHint': "Export this site's pages, files and folders to a tarball.",
-    'admin.utilities.exportExclusions':
-      'Does not include accounts, page history, comments, settings, authentication strategies, storage targets or site branding. See docs/operations.md for the full recovery procedure.',
-    'admin.utilities.exportSuccess': 'Content export saved.',
-    'admin.utilities.exportFailed': "Failed to export the site's content.",
-    'admin.utilities.import': 'Import',
-    'admin.utilities.importHint': '',
-    'admin.utilities.importConfirm': "This will replace {site}'s content.",
-    'admin.utilities.importConfirmWarn': 'This cannot be undone.',
-    'admin.utilities.importSuccess': 'Content import queued successfully.',
-    'admin.utilities.importFailed': 'Failed to queue the content import.',
-    'admin.utilities.scanPageProblems': 'Scan for Page Problems',
-    'admin.utilities.scanPageProblemsHint': '',
-    'admin.utilities.scanPageProblemsResults': 'Scan results',
-    'admin.utilities.scanPageProblemsScannedAt': 'Scanned {date}',
-    'admin.utilities.scanPageProblemsNone': 'No problems found.',
-    'admin.utilities.scanPageProblemsHashDrift': 'Hash drift',
-    'admin.utilities.scanPageProblemsTreeDivergence': 'Tree / page divergence',
-    'admin.utilities.scanPageProblemsDuplicatePaths': 'Duplicate paths',
-    'admin.utilities.scanPageProblemsBrokenRelations': 'Broken relations',
-    'admin.utilities.scanPageProblemsLocaleCollisions': 'Locale-code collisions',
-    'admin.utilities.scanPageProblemsOrphanTreeEntry': '/{path} — has no matching page',
-    'admin.utilities.scanPageProblemsOrphanPageRow': '/{path} — has no matching tree entry',
-    'admin.utilities.scanPageProblemsFailed': 'The scan could not be completed.',
-    'common.actions.proceed': 'Proceed',
-    'common.actions.viewDocs': 'View docs'
-  }
+  'admin.utilities.title': 'Utilities',
+  'admin.utilities.subtitle': '',
+  'admin.utilities.export': 'Export',
+  'admin.utilities.exportHint': "Export this site's pages, files and folders to a tarball.",
+  'admin.utilities.exportExclusions':
+    'Does not include accounts, page history, comments, settings, authentication strategies, storage targets or site branding. See docs/operations.md for the full recovery procedure.',
+  'admin.utilities.exportSuccess': 'Content export saved.',
+  'admin.utilities.exportFailed': "Failed to export the site's content.",
+  'admin.utilities.import': 'Import',
+  'admin.utilities.importHint': '',
+  'admin.utilities.importConfirm': "This will replace {site}'s content.",
+  'admin.utilities.importConfirmWarn': 'This cannot be undone.',
+  'admin.utilities.importSuccess': 'Content import queued successfully.',
+  'admin.utilities.importFailed': 'Failed to queue the content import.',
+  'admin.utilities.scanPageProblems': 'Scan for Page Problems',
+  'admin.utilities.scanPageProblemsHint': '',
+  'admin.utilities.scanPageProblemsResults': 'Scan results',
+  'admin.utilities.scanPageProblemsScannedAt': 'Scanned {date}',
+  'admin.utilities.scanPageProblemsNone': 'No problems found.',
+  'admin.utilities.scanPageProblemsHashDrift': 'Hash drift',
+  'admin.utilities.scanPageProblemsTreeDivergence': 'Tree / page divergence',
+  'admin.utilities.scanPageProblemsDuplicatePaths': 'Duplicate paths',
+  'admin.utilities.scanPageProblemsBrokenRelations': 'Broken relations',
+  'admin.utilities.scanPageProblemsLocaleCollisions': 'Locale-code collisions',
+  'admin.utilities.scanPageProblemsOrphanTreeEntry': '/{path} — has no matching page',
+  'admin.utilities.scanPageProblemsOrphanPageRow': '/{path} — has no matching tree entry',
+  'admin.utilities.scanPageProblemsFailed': 'The scan could not be completed.',
+  'common.actions.proceed': 'Proceed',
+  'common.actions.viewDocs': 'View docs'
 }
 
 async function mountUtilities() {
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
-  siteStore.id = 'aaaaaaaa-0000-4000-8000-000000000001'
-  siteStore.hostname = 'example.com'
+  const router = await createTestRouter(['/'])
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
-
-  const i18n = createI18n({ legacy: false, locale: 'en', messages })
-
-  return mount(AdminUtilities, {
-    global: {
-      plugins: [router, i18n],
-      components: { BlueprintIcon }
-    }
-  })
+  return mountWithApp(AdminUtilities, {
+    messages,
+    router,
+    stores: { site: { id: 'aaaaaaaa-0000-4000-8000-000000000001', hostname: 'example.com' } }
+  }).wrapper
 }
 
 /** Picks a fake `.tar.gz` through the hidden file input, the way a real user's file picker would. */

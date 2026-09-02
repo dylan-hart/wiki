@@ -1,38 +1,31 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import './component.js'
-import { _resetSiteIdCache } from '../shared/site.js'
+import { _resetSiteCache } from '../shared/site.js'
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom, stubSiteFetch, TEST_SITE_ID as SITE_ID } from '../test/mount.js'
 
-const SITE_ID = 'site-1'
 const PAGE_ID = 'page-1'
 
 /**
  * Appends a `<block-checklist>` carrying `items` as its light-DOM content, one `<li>` per item — the
  * shape MDC leaves behind for a plain markdown bullet list nested inside `::block-checklist` (see the
  * component's own header comment). Waits for the load this block always kicks off on connect.
+ *
+ * `settle: 2`: `_load()`'s fetches are awaited but not blocking connectedCallback itself, and chain
+ * several hops deep (site -> page-by-hash -> latest execution). Each macrotask turn drains every
+ * microtask queued in between, however many hops there are.
  */
-async function mountChecklist({
+const mountChecklist = ({
   runKey = 'shift-open',
   heading = '',
   items = ['First', 'Second']
-} = {}) {
-  const el = document.createElement('block-checklist')
-  el.runKey = runKey
-  el.heading = heading
-  el.innerHTML =
-    items.length > 0 ? `<ul>${items.map((label) => `<li>${label}</li>`).join('')}</ul>` : ''
-  document.body.appendChild(el)
-  await el.updateComplete
-  // -> `_load()`'s fetches are awaited but not blocking connectedCallback itself, and now chain
-  //    several hops deep (site -> page-by-hash -> latest execution). `setTimeout(0)` -- a macrotask
-  //    -- drains every microtask queued in between, however many hops there are, the same pattern
-  //    `block-live-data`'s own test uses for its own `getSiteId` fetch.
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  await el.updateComplete
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  await el.updateComplete
-  return el
-}
+} = {}) =>
+  mountBlock('block-checklist', {
+    props: { runKey, heading },
+    html: items.length > 0 ? `<ul>${items.map((label) => `<li>${label}</li>`).join('')}</ul>` : '',
+    settle: 2
+  })
 
 function stubExecution(overrides = {}) {
   return {
@@ -67,29 +60,28 @@ function stubFetch({
   postResult
 } = {}) {
   const state = { permissions, latest, history, postResult: postResult ?? stubExecution() }
-  const fetchMock = vi.fn(async (url, init) => {
-    if (url === '/_api/sites/current') {
-      return { ok: true, json: async () => ({ id: SITE_ID, locales: null }) }
-    }
-    if (!url.includes('/checklist/')) {
-      // -> The page-by-hash lookup `getCurrentPageAccess` makes to resolve pageId + viewer.permissions
-      return {
-        ok: true,
-        json: async () => ({ id: PAGE_ID, viewer: { permissions: state.permissions } })
+  const fetchMock = stubSiteFetch({
+    site: { locales: null },
+    onRequest: async (url, init) => {
+      if (!url.includes('/checklist/')) {
+        // -> The page-by-hash lookup `getCurrentPageAccess` makes to resolve pageId + viewer.permissions
+        return {
+          ok: true,
+          json: async () => ({ id: PAGE_ID, viewer: { permissions: state.permissions } })
+        }
       }
+      if (url.endsWith('/executions/latest')) {
+        return { ok: true, json: async () => state.latest }
+      }
+      if (init?.method === 'POST' && url.endsWith('/items')) {
+        return { ok: true, json: async () => state.postResult }
+      }
+      if (url.endsWith('/executions')) {
+        return { ok: true, json: async () => state.history }
+      }
+      throw new Error(`Unexpected fetch: ${url}`)
     }
-    if (url.endsWith('/executions/latest')) {
-      return { ok: true, json: async () => state.latest }
-    }
-    if (init?.method === 'POST' && url.endsWith('/items')) {
-      return { ok: true, json: async () => state.postResult }
-    }
-    if (url.endsWith('/executions')) {
-      return { ok: true, json: async () => state.history }
-    }
-    throw new Error(`Unexpected fetch: ${url}`)
   })
-  vi.stubGlobal('fetch', fetchMock)
   return { fetchMock, state }
 }
 
@@ -100,12 +92,11 @@ function checklistCalls(fetchMock) {
 
 describe('block-checklist', () => {
   beforeEach(() => {
-    _resetSiteIdCache()
+    _resetSiteCache()
   })
 
   afterEach(() => {
-    document.body.replaceChildren()
-    document.body.className = ''
+    resetBlockDom()
     vi.unstubAllGlobals()
   })
 
@@ -274,14 +265,7 @@ describe('block-checklist', () => {
 
   describe('when the site or page cannot be resolved', () => {
     it('shows the run-log error rather than throwing, and leaves checking disabled', async () => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async (url) =>
-          url === '/_api/sites/current'
-            ? { ok: false, json: async () => null }
-            : { ok: false, json: async () => null }
-        )
-      )
+      stubSiteFetch({ ok: false, onRequest: async () => ({ ok: false, json: async () => null }) })
 
       const el = await mountChecklist()
 
@@ -289,23 +273,8 @@ describe('block-checklist', () => {
     })
   })
 
-  describe('dark mode', () => {
-    beforeEach(() => {
-      document.body.classList.remove('body--dark')
-    })
-
-    it('follows body--dark on mount and on later toggles, via the shared DarkMode controller', async () => {
-      stubFetch()
-      document.body.classList.add('body--dark')
-      const el = await mountChecklist()
-
-      expect(el.hasAttribute('dark')).toBe(true)
-
-      document.body.classList.remove('body--dark')
-      await new Promise((resolve) => queueMicrotask(resolve))
-      await el.updateComplete
-
-      expect(el.hasAttribute('dark')).toBe(false)
-    })
+  describeDarkMode(() => {
+    stubFetch()
+    return mountChecklist()
   })
 })

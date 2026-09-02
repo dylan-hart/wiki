@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import Search from './Search.vue'
 import { extractTags, MAX_QUERY_LENGTH } from './searchTags.js'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * The regex `extractTags()` replaces (see `searchTags.js`'s own header comment for the full
@@ -116,25 +118,14 @@ afterEach(() => {
 })
 
 async function mountSearch() {
-  setActivePinia(createPinia())
+  const router = await createTestRouter(['/_search'], '/_search')
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/_search', component: { template: '<div />' } }]
-  })
-  router.push('/_search')
-  await router.isReady()
-
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-
-  const wrapper = mount(Search, {
-    global: {
-      plugins: [router, i18n],
-      stubs: {
-        HeaderNav: true,
-        FooterNav: true,
-        MainOverlayDialog: true
-      }
+  const { wrapper } = mountWithApp(Search, {
+    router,
+    stubs: {
+      HeaderNav: true,
+      FooterNav: true,
+      MainOverlayDialog: true
     }
   })
   activeWrapper = wrapper
@@ -207,21 +198,14 @@ describe('Search.vue results list keying (WP #1728)', () => {
  * `search.totalResultsApprox`) produce. Also carries `search.loadMore`, shared with the offset-paging
  * tests below (OpenProject #2001) since both groups mount the real `Search` component.
  */
-function createTestI18n() {
-  return createI18n({
-    legacy: false,
-    locale: 'en',
-    fallbackWarn: false,
-    messages: {
-      en: {
-        search: {
-          results: 'Search Results',
-          emptyQuery: 'Enter a query in the search field above and press Enter.',
-          totalResults: 'No result | {0} result | {0} results',
-          totalResultsApprox: 'No result | At least {0} result | At least {0} results',
-          loadMore: 'Load More'
-        }
-      }
+function createSearchI18n() {
+  return createTestI18n({
+    search: {
+      results: 'Search Results',
+      emptyQuery: 'Enter a query in the search field above and press Enter.',
+      totalResults: 'No result | {0} result | {0} results',
+      totalResultsApprox: 'No result | At least {0} result | At least {0} results',
+      loadMore: 'Load More'
     }
   })
 }
@@ -255,16 +239,11 @@ const FIXTURE_PAGE_A = {
 const FIXTURE_PAGE_B = { ...FIXTURE_PAGE_A, id: 'p2', path: 'page-b', title: 'Page B' }
 const FIXTURE_PAGE_C = { ...FIXTURE_PAGE_A, id: 'p3', path: 'page-c', title: 'Page C' }
 
-async function createTestRouter(initialPath) {
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: '/_search', component: Search },
-      { path: '/:pathMatch(.*)*', component: { template: '<div />' } }
-    ]
-  })
-  router.push(initialPath)
-  await router.isReady()
+async function createSearchRouter(initialPath) {
+  const router = await createTestRouter(
+    [{ path: '/_search', component: Search }, '/:pathMatch(.*)*'],
+    initialPath
+  )
   return router
 }
 
@@ -275,10 +254,10 @@ async function mountSearchWithResponse(searchResponse) {
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(searchResponse) })
 
-  const router = await createTestRouter('/_search?q=onboarding')
+  const router = await createSearchRouter('/_search?q=onboarding')
   const wrapper = mount(Search, {
     global: {
-      plugins: [router, createTestI18n()],
+      plugins: [router, createSearchI18n()],
       // -> Real HeaderNav/FooterNav/MainOverlayDialog pull in more stores and API calls than this
       //    test cares about; stubbed by name so the page around them still renders for real.
       stubs: { HeaderNav: true, FooterNav: true, MainOverlayDialog: true }
@@ -303,10 +282,10 @@ async function mountSearchWithOffset(initialPath = '/_search?q=test', firstRespo
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(firstResponse) })
   }
 
-  const router = await createTestRouter(initialPath)
+  const router = await createSearchRouter(initialPath)
   const wrapper = mount(Search, {
     global: {
-      plugins: [router, createTestI18n()],
+      plugins: [router, createSearchI18n()],
       // -> Layout chrome, irrelevant to offset paging. HeaderNav in particular pulls in
       //    HeaderSearch, whose onMounted() unconditionally focuses its search field whenever the
       //    route starts with `/_search` -- exactly this page's own route -- which throws under

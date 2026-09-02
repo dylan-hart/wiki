@@ -1,6 +1,6 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,9 +13,9 @@ import type {
   SearchPagesParams,
   SearchPagesResult
 } from './search.ts'
-import type { ModuleProp } from '../helpers/common.ts'
+import type { ModuleProp } from '../helpers/moduleProps.ts'
 
-/** A prop shaped the way `parseModuleProps` (helpers/common.ts) normalizes a `definition.yml` entry. */
+/** A prop shaped the way `parseModuleProps` (helpers/moduleProps.ts) normalizes a `definition.yml` entry. */
 function fakeProp(overrides: Partial<ModuleProp> = {}): ModuleProp {
   return {
     default: false,
@@ -453,55 +453,13 @@ describe('search dispatcher (query/rebuild/created/updated/deleted/renamed)', ()
 
     assert.deepEqual(calls, ['renamed:site-default:page-moved:de/old/path'])
   })
-})
 
-/**
- * `search.getActiveEngine(siteId)`, task #549: the public resolver every future caller (a new engine
- * implementation, an admin action that needs the raw module rather than one of the dispatcher's
- * pass-through methods) can use instead of re-deriving `WIKI.sites[siteId].config.search.engine`
- * itself. `query()`/`rebuild()`/`created()`/`updated()`/`deleted()`/`renamed()` above already resolve
- * through the same logic (`engineFor`, folded into this method) — this just gives that resolution a
- * public name and return value, so it's a resolver in the same sense `WIKI.models.groups.checkAccess`
- * is: one place every caller asks "what should handle this", rather than a store to write to.
- */
-describe('search.getActiveEngine()', () => {
-  let previousWiki: any
-
-  before(() => {
-    previousWiki = (globalThis as any).WIKI
-    ;(globalThis as any).WIKI = {
-      sites: {},
-      logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
-    }
-  })
-
-  after(() => {
-    ;(globalThis as any).WIKI = previousWiki
-  })
-
-  test('resolves the db module for a site with no engine configured', async () => {
-    const { module: dbModule } = makeFakeSearchModule()
-    search.modules.db = dbModule
-    ;(globalThis as any).WIKI.sites['site-default'] = { id: 'site-default', config: {} }
-
-    assert.equal(await search.getActiveEngine('site-default'), dbModule)
-  })
-
-  test('resolves the site’s configured engine over db', async () => {
-    const { module: dbModule } = makeFakeSearchModule()
-    const { module: customModule } = makeFakeSearchModule()
-    search.modules.db = dbModule
-    search.modules['custom-engine'] = customModule
-    ;(globalThis as any).WIKI.sites['site-custom'] = {
-      id: 'site-custom',
-      config: { search: { engine: 'custom-engine' } }
-    }
-
-    assert.equal(await search.getActiveEngine('site-custom'), customModule)
-  })
-
+  /**
+   * Engine resolution itself is private to the dispatcher (`getActiveEngine`), so its two failure
+   * branches are exercised through `query()` -- the same way every real caller reaches them.
+   */
   test('falls back to db when the configured engine has no loaded implementation', async () => {
-    const { module: dbModule } = makeFakeSearchModule()
+    const { calls, module: dbModule } = makeFakeSearchModule()
     search.modules.db = dbModule
     delete search.modules['missing-engine']
     ;(globalThis as any).WIKI.sites['site-missing'] = {
@@ -509,7 +467,9 @@ describe('search.getActiveEngine()', () => {
       config: { search: { engine: 'missing-engine' } }
     }
 
-    assert.equal(await search.getActiveEngine('site-missing'), dbModule)
+    await search.query({ siteId: 'site-missing', query: 'wiki' })
+
+    assert.deepEqual(calls, ['query:site-missing:wiki'])
   })
 
   test('throws when neither the configured engine nor db has a loaded implementation', async () => {
@@ -521,7 +481,7 @@ describe('search.getActiveEngine()', () => {
     }
 
     await assert.rejects(
-      () => search.getActiveEngine('site-none'),
+      () => search.query({ siteId: 'site-none', query: 'wiki' }),
       /No search engine implementation is available/
     )
   })
@@ -1164,5 +1124,38 @@ describe('search.initActiveEngines()', () => {
     assert.deepEqual(dbCalls, ['init:site-ok:{}'])
     assert.ok(warnings.some((w) => w.includes('hanging-engine-a')))
     assert.ok(warnings.some((w) => w.includes('hanging-engine-b')))
+  })
+})
+
+/**
+ * `index.ts`'s boot order, as a structural check against the file itself.
+ *
+ * Load-bearing since CORE-F5 phase 4: every search engine module now reads its per-site config
+ * through `getEngineConfig()`, which completes the stored values with the props declared in that
+ * engine's `definition.yml` — and those props only exist once `refreshFromDisk()` has read them off
+ * disk. `azure-search` and `aws-cloudsearch` used to sidestep that by reading
+ * `WIKI.sites[...].config.search.engines[key]` raw and re-applying each default by hand at every use
+ * site; they no longer do, so the ordering `index.ts` has always had is now something a reorder could
+ * silently break — an engine would come up with an empty config rather than a defaulted one.
+ *
+ * Text-level rather than behavioural because `index.ts` is a boot script with no seam to call into:
+ * `postBoot()` connects to postgres, starts the scheduler and binds a port.
+ */
+describe("index.ts boots search's definitions before it provisions any engine", () => {
+  test('refreshFromDisk() is called before initActiveEngines()', async () => {
+    const indexPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'index.ts')
+    const source = await readFile(indexPath, 'utf8')
+
+    // -> Matched with the `await ` prefix so a mention in a comment (or an unawaited call, which
+    //    would break the ordering just as surely) cannot satisfy or skew this
+    const refresh = source.indexOf('await WIKI.models.search.refreshFromDisk()')
+    const init = source.indexOf('await WIKI.models.search.initActiveEngines()')
+
+    assert.notEqual(refresh, -1, 'index.ts no longer awaits WIKI.models.search.refreshFromDisk()')
+    assert.notEqual(init, -1, 'index.ts no longer awaits WIKI.models.search.initActiveEngines()')
+    assert.ok(
+      refresh < init,
+      'index.ts must call search.refreshFromDisk() before search.initActiveEngines(): every engine resolves its config through getEngineConfig(), which needs the definitions loaded'
+    )
   })
 })

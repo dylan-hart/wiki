@@ -36,11 +36,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Fetches the given URL server-side — with the stored credential's secret as a bearer token, when `credentialId` is given — and extracts one value from the JSON response by JSONPath. Cached per site/credential/url/jsonPath for the given `refreshInterval` (clamped to 10s–24h), so several readers with the same block open share one upstream request. Fresh (cache-miss) fetches are rate-limited independent of that cache, per credential (or per site for a credential-free request) — see `models/liveData.ts`. `credentialId` requires an authenticated caller (a session or an API key); a credential-free request needs neither. Gated by the site's `live-data` block toggle, same as every other block.",
         tags: ['Blocks'],
-        params: {
-          type: 'object',
-          properties: { siteId: { type: 'string', format: 'uuid' } },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['url', 'jsonPath'],
@@ -103,10 +99,6 @@ async function routes(app: FastifyInstance) {
         return reply.unauthorized(
           'Authentication is required to resolve a credentialed live-data request.'
         )
-      }
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
       }
       const enabledBlocks = await WIKI.models.blocks.getEnabledKeys(req.params.siteId)
       if (!enabledBlocks.has('live-data')) {

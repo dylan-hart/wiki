@@ -1,13 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
+import { DOMWrapper, flushPromises } from '@vue/test-utils'
 import { TimeoutError } from 'ky'
 
 import ImportPageDialog from './ImportPageDialog.vue'
-import { useSiteStore } from '@/stores/site'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { buildTestRouter } from '../../test/router.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /*
   `WDialog` renders its panel through `<teleport to="body">`, so none of it is a descendant of the
@@ -26,19 +25,19 @@ function body() {
  * this per-call, same as any other endpoint.
  */
 async function mountDialog(props = {}, { pandocInstalled = true } = {}) {
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
-  siteStore.id = 'site-1'
   globalThis.API_CLIENT.get.mockReturnValueOnce({
     json: vi.fn().mockResolvedValue({ pandoc: pandocInstalled })
   })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-  const router = createRouter({ history: createMemoryHistory(), routes: [] })
+  const router = buildTestRouter([])
 
-  const wrapper = mount(ImportPageDialog, {
+  const { wrapper } = mountWithApp(ImportPageDialog, {
     props: { basePath: 'docs', ...props },
-    global: { plugins: [i18n, router] }
+    router,
+    stores: { site: { id: 'site-1' } },
+    // -> Opts out of `mountWithApp`'s default `teleport: true` stub: `w-dialog` really teleports
+    //    its body to `document.body`, which is where this suite asserts.
+    stubs: {}
   })
   // -> `useDialogComponent` mounts hidden then flips visible on a following tick, so the teleported
   //    panel -- everything this test interacts with -- exists only after that tick runs, and

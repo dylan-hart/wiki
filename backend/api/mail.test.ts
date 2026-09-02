@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, mock, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
 import mailRoutes from './mail.ts'
-import { registerSchemas as registerMailSchema } from './schemas/mail.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { createSilentLogger } from '../test/mocks.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * `POST /_api/mail/test` — the manual verification path for the whole mail transport feature.
@@ -19,38 +17,34 @@ let app: FastifyInstance
 let sendTestEmailMock: ReturnType<typeof mock.fn>
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
-    models: {
-      mail: {
-        sendTestEmail: (...args: any[]) => sendTestEmailMock(...args)
+  app = await buildTestApp({
+    routes: mailRoutes,
+    prefix: '/mail',
+    wiki: {
+      models: {
+        mail: {
+          sendTestEmail: (...args: any[]) => sendTestEmailMock(...args)
+        }
+      },
+      config: {
+        mail: {}
+      },
+      configSvc: {
+        saveToDb: mock.fn(async () => true)
+      },
+      // -> Not the silent default: tests assert on what the route logged.
+      logger: {
+        ...createSilentLogger(),
+        warn: mock.fn(),
+        error: mock.fn(),
+        info: mock.fn(),
+        debug: mock.fn()
       }
-    },
-    config: {
-      mail: {}
-    },
-    configSvc: {
-      saveToDb: mock.fn(async () => true)
-    },
-    logger: {
-      warn: mock.fn(),
-      error: mock.fn(),
-      info: mock.fn(),
-      debug: mock.fn()
     }
-  }
-
-  app = fastify()
-  await app.register(fastifySensible)
-  await registerErrorSchema(app)
-  await registerMailSchema(app)
-  await app.register(mailRoutes, { prefix: '/mail' })
-  await app.ready()
+  })
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 beforeEach(() => {
   sendTestEmailMock = mock.fn(async () => {})

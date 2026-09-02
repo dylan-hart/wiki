@@ -963,7 +963,7 @@ describe('sites.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () =
  * stored, and every lookup indexed it with `req.hostname` exactly as received — so a client or proxy
  * that preserved `Host` case (`Wiki.Example.Com`) missed a site stored as `wiki.example.com` and fell
  * through to the catch-all, or to not-found with none configured. Both sides now go through
- * `normalizeHostname()` (`helpers/common.ts`). No `WIKI.db`/database needed for any of this: each
+ * `normalizeHostname()` (`helpers/siteResolution.ts`). No `WIKI.db`/database needed for any of this: each
  * test installs its own minimal `WIKI` stub, restored afterward.
  */
 describe('sites hostname normalization (pure unit)', () => {

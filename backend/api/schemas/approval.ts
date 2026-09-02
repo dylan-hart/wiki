@@ -1,4 +1,4 @@
-import { approvalMatchModes } from '../../models/approvals.ts'
+import { approvalMatchModes } from '../../models/approvalRules.ts'
 import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {

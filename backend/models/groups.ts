@@ -2,9 +2,13 @@ import crypto from 'node:crypto'
 import { and, count, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import { uniq } from 'es-toolkit/array'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
-import { CustomError, normalizePagePath } from '../helpers/common.ts'
+import { ClusterReloaded } from '../helpers/clusterCache.ts'
+import { CustomError, escapeLikePattern, normalizePagePath } from '../helpers/common.ts'
 import { clearPageRuleRegexCache, resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
+import { paginate } from '../helpers/pagination.ts'
 import { resolveSiteRule, ruleMatchesSite } from '../helpers/siteRules.ts'
+import { userSelection } from './users.ts'
+import type { UserPage } from './users.ts'
 import type { SystemIds } from './types.ts'
 import type { FastifyRequest } from 'fastify'
 
@@ -18,13 +22,13 @@ export const SYSTEM_PERMISSION = 'manage:system'
  * `ruleMatchesPage` in `helpers/pageRules.ts`.
  *
  * A runtime `as const` array rather than a bare union (no `enum` -- erasable syntax only, see
- * CLAUDE.md's TypeScript section) so `api/schemas/group.ts`'s `GroupRule#` JSON Schema can import
- * this instead of restating the member list: the two used to drift (OpenProject #2116 -- the schema's
- * `match` enum was missing `CLASSIFICATION` entirely, so any request creating such a rule failed
- * validation with a 400), and `models/groups.test.ts` pins the two lists staying equal so that can't
- * happen silently again the next time a match kind is added.
+ * CLAUDE.md's TypeScript section). Module-private: it exists purely to derive `GroupRuleMatch` below,
+ * and nothing outside this file reads it. What `api/schemas/group.ts`'s `GroupRule#` JSON Schema
+ * imports is `GROUP_RULE_MATCH_VALUES` further down, which ajv can consume as a literal array -- see
+ * `GROUP_RULE_MATCH_MEMBERS`'s own doc comment for how that one is pinned to this union at compile
+ * time, and `api/schemas/group.test.ts` for the runtime half.
  */
-export const GROUP_RULE_MATCH_KINDS = [
+const GROUP_RULE_MATCH_KINDS = [
   'START',
   'END',
   'REGEX',
@@ -109,34 +113,6 @@ export interface GroupPatch {
  * `userCount` comes from a left join on `userGroups` aggregated per group, so groups with no members
  * count 0 rather than dropping out of the result.
  */
-/** A member of a group, mirroring the `UserCore` API schema. */
-export interface GroupUser {
-  id: string
-  name: string
-  email: string
-  hasAvatar: boolean
-  isSystem: boolean
-  isActive: boolean
-  isVerified: boolean
-  createdAt: Date
-  updatedAt: Date
-  lastLoginAt: Date | null
-}
-
-export interface GroupUserPage {
-  total: number
-  users: GroupUser[]
-}
-
-/**
- * Escape the LIKE wildcards `%` and `_` (and the escape character itself) so that a user-supplied
- * filter is matched literally. Values are still parameterized by the driver — this is about a `%`
- * in the filter silently matching everything, not about injection.
- */
-function escapeLikePattern(value: string): string {
-  return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
-}
-
 const groupSelection = {
   id: groupsTable.id,
   name: groupsTable.name,
@@ -248,7 +224,9 @@ let rulesPoolCache: Record<string, GroupRule[]> = {}
 /**
  * Groups model
  */
-class Groups {
+class Groups extends ClusterReloaded {
+  protected readonly reloadEvent = 'reloadGroups'
+
   /**
    * Reload the page rules of every group into memory.
    *
@@ -271,35 +249,6 @@ class Groups {
     //    recompiled promptly instead of the cache growing across every group edit an instance sees.
     clearPageRuleRegexCache()
     WIKI.logger.info(`Loaded page rules for ${rows.length} groups [ OK ]`)
-  }
-
-  /**
-   * Reload this instance's own cache, then tell every other instance in the cluster to do the same.
-   *
-   * The write already happened in the database by the time a caller reaches this — what's left is
-   * making every instance's in-memory cache agree with it, this one included. Never call
-   * `WIKI.events.outbound.emit('reloadGroups')` directly, and never call it from inside
-   * `reloadCache()` itself: `reloadCache()` also runs when `subscribeToEvents()`'s handler answers
-   * *another* instance's event, and broadcasting from there would echo the event back around the
-   * cluster forever.
-   *
-   * Public rather than internal-only: a write that bypasses this model's own insert/update/delete
-   * methods — `models/siteImport.ts#importSite`'s raw `tx.insert(groupsTable).onConflictDoUpdate(...)`
-   * upsert of imported groups is the one case today — still needs this same reload-then-notify shape,
-   * called by whoever performed the write (`tasks/simple/import-content.ts`) once it lands.
-   */
-  async broadcastReload(): Promise<void> {
-    await this.reloadCache()
-    WIKI.events.outbound.emit('reloadGroups')
-  }
-
-  /**
-   * Subscribe to HA propagation events
-   */
-  subscribeToEvents(): void {
-    WIKI.events.inbound.on('reloadGroups', async () => {
-      await this.reloadCache()
-    })
   }
 
   /**
@@ -368,7 +317,7 @@ class Groups {
 
   /**
    * The actor for a caller that speaks for no specific requester (OpenProject #1127) — the one caller
-   * today is `models/rendering.ts`'s background re-render job, which reprocesses already-published
+   * today is `models/renderQueue.ts`'s background re-render job, which reprocesses already-published
    * content generically rather than on behalf of any one reader. It resolves permission-gated content
    * (a glossary term's canonical-page link) the same way an anonymous visitor's own request would,
    * rather than skipping the check entirely.
@@ -533,7 +482,7 @@ class Groups {
    * the only options were widen (answer as if unrestricted) or refuse outright for any actor carrying
    * a non-null allow-set. Widening was chosen because every caller re-checks per row against a real
    * page with `checkAccess()` before that page's content is ever exposed, making this method's answer
-   * a cheap upstream hint rather than the actual gate: `api/pages.ts`'s search route uses it only to
+   * a cheap upstream hint rather than the actual gate: `api/pages/read.ts`'s search route uses it only to
    * decide the coarse `includeDrafts`/`hideProtectedContent` flags, while the page-by-page visibility
    * filter every search backend applies (each `modules/search/<engine>/search.ts`'s own `visible`
    * filter) already calls `checkAccess(actor, 'read:pages', ...)` per candidate — so a
@@ -587,13 +536,10 @@ class Groups {
     const rules = this.rulesForGroups(actor.groupIds).filter(
       (rule) => siteId == null || ruleMatchesSite(rule, siteId)
     )
+    // -> No second site check here: the `ruleMatchesSite` filter above is that check, and repeating
+    //    it inline can only ever agree with itself.
     return inScope.some((permission) =>
-      rules.some(
-        (rule) =>
-          rule.mode !== 'DENY' &&
-          rule.roles.includes(permission) &&
-          (siteId === null || rule.sites.length === 0 || rule.sites.includes(siteId))
-      )
+      rules.some((rule) => rule.mode !== 'DENY' && rule.roles.includes(permission))
     )
   }
 
@@ -628,6 +574,43 @@ class Groups {
     }
     const rule = resolveSiteRule(this.rulesForGroups(actor.groupIds), permission, siteId)
     return rule ? rule.mode !== 'DENY' : false
+  }
+
+  /**
+   * Whether this request may administer one delegable settings surface of one site: the older,
+   * site-blind global permission, OR the narrower `site:*` delegation a rule can grant per site.
+   *
+   * The one place that "or" is written. Every site-scoped admin surface answers the same shape of
+   * question, and five route files each carried their own byte-identical copy of it —
+   * `mayAdministerApprovals`, `mayManageBlocks`, `mayManageCredentials`, `canManageNavigation`,
+   * `maySaveSiteImage` — each with its own paragraph saying the same thing (finding API-F3).
+   *
+   * `globalPermission` is checked first and site-blind, because that is what makes delegation
+   * additive rather than a migration: an administrator who held `manage:sites` (or
+   * `manage:navigation`) before any `site:*` permission existed keeps reaching every site's surface
+   * exactly as they did, and a rule only ever hands the same surface to somebody narrower. Nothing
+   * here can take a grant away — a DENY on a `site:*` rule stops that delegation, not the global
+   * permission it sits beside. Because the global half is a group-wide permission it is not a rule,
+   * and `siteId` therefore has nothing to say about it.
+   *
+   * The site half is `checkSiteAccess()` unchanged, so the site pin, the API-key scope boundary and
+   * the `manage:system` bypass all apply to it exactly as they do everywhere else.
+   *
+   * @param globalPermission The pre-delegation group-wide permission, e.g. `manage:sites`
+   * @param sitePermission The delegable `SITE_PERMISSIONS` entry, e.g. `site:blocks`
+   * @param siteId The site being administered
+   */
+  checkSiteAdminAccess(
+    req: FastifyRequest,
+    globalPermission: string,
+    sitePermission: string,
+    siteId: string
+  ): boolean {
+    const actor = this.actorForRequest(req)
+    return (
+      actor.permissions.includes(globalPermission) ||
+      this.checkSiteAccess(actor, sitePermission, siteId)
+    )
   }
 
   async init(ids: SystemIds): Promise<void> {
@@ -757,6 +740,34 @@ class Groups {
       .groupBy(groupsTable.id)
       .orderBy(groupsTable.name)
     return results as GroupWithUserCount[]
+  }
+
+  /**
+   * Whether any of the given ids does not name a real group on this instance.
+   *
+   * The one owner of "are these real group ids", asked from three places that each had their own
+   * spelling: assigning a user's groups (`api/users/admin.ts`), naming the groups an API key draws its
+   * permissions from (`api/apiKeys.ts`), and naming an approval rule's submitter/reviewer groups
+   * (`api/approvals.ts`, which asked `models/approvals.ts` for the unknown ids and then only ever
+   * checked whether the list was empty).
+   *
+   * A route handler asks this because `setUserGroups` and friends resolve their input with `inArray`
+   * and silently keep only the rows that came back — deliberately lenient there, since IdP enrolment
+   * maps provider groups that may not exist locally. A stale client naming a deleted group should be
+   * told, not have the id quietly dropped, especially on a `PUT` that replaces membership wholesale.
+   *
+   * Duplicates are collapsed and an empty list is trivially all-known, so neither costs a query.
+   */
+  async hasUnknownGroupIds(groupIds: string[]): Promise<boolean> {
+    const wanted = [...new Set(groupIds)]
+    if (wanted.length < 1) {
+      return false
+    }
+    const found = await WIKI.db
+      .select({ id: groupsTable.id })
+      .from(groupsTable)
+      .where(inArray(groupsTable.id, wanted))
+    return found.length < wanted.length
   }
 
   /**
@@ -952,7 +963,7 @@ class Groups {
   async getGroupUsers(
     groupId: string,
     { filter = '', page = 1, limit = 20 }: { filter?: string; page?: number; limit?: number } = {}
-  ): Promise<GroupUserPage> {
+  ): Promise<UserPage> {
     const conditions = [eq(userGroups.groupId, groupId)]
     if (filter) {
       const pattern = `%${escapeLikePattern(filter)}%`
@@ -960,37 +971,25 @@ class Groups {
     }
     const where = and(...conditions)
 
-    const [users, totals] = await Promise.all([
-      WIKI.db
-        .select({
-          id: usersTable.id,
-          name: usersTable.name,
-          email: usersTable.email,
-          hasAvatar: usersTable.hasAvatar,
-          isSystem: usersTable.isSystem,
-          isActive: usersTable.isActive,
-          isVerified: usersTable.isVerified,
-          createdAt: usersTable.createdAt,
-          updatedAt: usersTable.updatedAt,
-          lastLoginAt: usersTable.lastLoginAt
-        })
-        .from(userGroups)
-        .innerJoin(usersTable, eq(usersTable.id, userGroups.userId))
-        .where(where)
-        .orderBy(usersTable.name)
-        .limit(limit)
-        .offset((page - 1) * limit),
-      WIKI.db
-        .select({ total: count() })
-        .from(userGroups)
-        .innerJoin(usersTable, eq(usersTable.id, userGroups.userId))
-        .where(where)
-    ])
+    const { total, rows } = await paginate({
+      rows: () =>
+        WIKI.db
+          .select(userSelection)
+          .from(userGroups)
+          .innerJoin(usersTable, eq(usersTable.id, userGroups.userId))
+          .where(where)
+          .orderBy(usersTable.name)
+          .limit(limit)
+          .offset((page - 1) * limit),
+      total: () =>
+        WIKI.db
+          .select({ total: count() })
+          .from(userGroups)
+          .innerJoin(usersTable, eq(usersTable.id, userGroups.userId))
+          .where(where)
+    })
 
-    return {
-      total: totals[0]?.total ?? 0,
-      users
-    }
+    return { total, users: rows }
   }
 
   /**
@@ -1029,7 +1028,7 @@ class Groups {
    * (`WIKI.config.auth.rootAdminGroupId`) even on the off chance it is ever queried before that
    * permission is flattened onto it — losing the ability to grant `manage:system` back is
    * unrecoverable, so this list is the single shared definition of "never touch this group without
-   * already holding `manage:system`" that both `api/users.ts`'s membership-change guard and
+   * already holding `manage:system`" that both `api/users/admin.ts`'s membership-change guard and
    * `models/users.ts#syncProviderGroups`'s provider-group sync read from.
    */
   async systemGroupIds(): Promise<string[]> {

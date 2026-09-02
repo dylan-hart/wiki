@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import RecoveryCodesDisplay from './RecoveryCodesDisplay.vue'
 
@@ -14,10 +13,12 @@ vi.mock('@/helpers/clipboard', () => ({
 import { fileSave } from 'browser-fs-access'
 import { copyToClipboard } from '@/helpers/clipboard'
 
+import { createTestI18n } from '../../test/i18n.js'
+
 const CODES = ['AAAA-1111-BBBB-2222', 'CCCC-3333-DDDD-4444']
 
 function mountDisplay(props = {}) {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   return mount(RecoveryCodesDisplay, {
     props: { codes: CODES, ...props },
     global: { plugins: [i18n] }

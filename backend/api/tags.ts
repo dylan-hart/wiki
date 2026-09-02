@@ -1,19 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { mayOnPage } from './pages.ts'
-
-const siteIdTagParam = {
-  type: 'object',
-  properties: {
-    siteId: {
-      type: 'string',
-      format: 'uuid'
-    },
-    tag: {
-      type: 'string'
-    }
-  },
-  required: ['siteId', 'tag']
-}
+import { mayOnPage } from '../helpers/pageAccess.ts'
 
 const tagActionResponse = {
   type: 'object',
@@ -51,16 +37,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Every tag carried by at least one page the caller may read, most used first, counted over those pages only. This is what the tag field offers as suggestions while a page is being edited, and what the search screen filters by.',
         tags: ['Pages'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: {
-              type: 'string',
-              format: 'uuid'
-            }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         querystring: {
           type: 'object',
           properties: {
@@ -113,7 +90,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Renames :tag to newTag on every page of this site the caller holds manage:pages on. A page that already carries newTag ends up with one entry, not two — this is also how merging two tags into one works. Pages the caller lacks manage:pages on are left untouched rather than failing the call.',
         tags: ['Pages'],
-        params: siteIdTagParam,
+        params: { $ref: 'SiteTagParams#' },
         body: {
           type: 'object',
           required: ['newTag'],
@@ -161,7 +138,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Removes :tag from every page of this site the caller holds manage:pages on. Pages the caller lacks manage:pages on are left untouched rather than failing the call.',
         tags: ['Pages'],
-        params: siteIdTagParam,
+        params: { $ref: 'SiteTagParams#' },
         response: {
           200: tagActionResponse,
           404: { $ref: 'ApiError#' }

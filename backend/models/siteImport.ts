@@ -19,6 +19,7 @@ import {
 } from '../db/schema.ts'
 import type { GroupRule } from './groups.ts'
 import { CustomError } from '../helpers/common.ts'
+import { purgeFilesOlderThan } from '../helpers/fsPurge.ts'
 import { EXPORT_FORMAT_VERSION } from './export.ts'
 
 /** How long an uploaded import sits on disk before `purgeExpired` sweeps it, in seconds. */
@@ -64,10 +65,10 @@ const ASSET_INSERT_CHUNK_SIZE = 50
  * A tar entry's declared size is not something the archive can lie about: the format's own parser
  * reads exactly that many decompressed bytes for that entry and no more, so this is checked against
  * `entry.size` before a single byte of the entry's body is consumed. Set to the same magnitude as
- * `importUploadLimit` (`api/system.ts`'s compressed-upload cap) — no legitimate single asset inside
+ * `importUploadLimit` (`api/system/transfer.ts`'s compressed-upload cap) — no legitimate single asset inside
  * an archive should decompress to more than the whole upload was ever allowed to weigh.
  */
-export const IMPORT_MAX_ENTRY_BYTES = 500 * 1024 * 1024
+const IMPORT_MAX_ENTRY_BYTES = 500 * 1024 * 1024
 
 /**
  * The largest an archive's total decompressed size may be, summed across every entry, before
@@ -78,7 +79,7 @@ export const IMPORT_MAX_ENTRY_BYTES = 500 * 1024 * 1024
  * grow unbounded. This is the actual fix for the "zip bomb" concern: bounding real decompressed bytes
  * read, rather than trying to infer one from a compression ratio.
  */
-export const IMPORT_MAX_TOTAL_BYTES = 4 * IMPORT_MAX_ENTRY_BYTES
+const IMPORT_MAX_TOTAL_BYTES = 4 * IMPORT_MAX_ENTRY_BYTES
 
 export interface ImportResult {
   pages: number
@@ -303,7 +304,7 @@ class ImportModel {
    * Save an uploaded archive to `<dataPath>/imports/`, streaming it straight from the request rather
    * than buffering the whole thing in memory first — a whole archive materialised as one `Buffer` in
    * the request thread was previously what stood between one legitimate large import and an OOM (see
-   * `api/system.ts`'s content-type parser, which hands this the raw request stream rather than a
+   * `api/system/transfer.ts`'s content-type parser, which hands this the raw request stream rather than a
    * parsed buffer).
    *
    * `bodyLimit` is enforced here as bytes arrive, since a streamed body bypasses Fastify's own
@@ -387,27 +388,7 @@ class ImportModel {
    * @returns How many files were removed
    */
   async purgeExpired(): Promise<number> {
-    let files: string[]
-    try {
-      files = await fs.readdir(this.importsPath)
-    } catch (err: any) {
-      if (err.code === 'ENOENT') {
-        return 0
-      }
-      throw err
-    }
-
-    const cutoff = Temporal.Now.instant().subtract({ seconds: IMPORT_TTL_SECONDS })
-    let purged = 0
-    for (const entry of files) {
-      const entryPath = path.join(this.importsPath, entry)
-      const stat = await fs.stat(entryPath)
-      if (Temporal.Instant.compare(stat.mtime.toTemporalInstant(), cutoff) < 0) {
-        await fs.unlink(entryPath)
-        purged++
-      }
-    }
-    return purged
+    return purgeFilesOlderThan(this.importsPath, IMPORT_TTL_SECONDS)
   }
 
   /**

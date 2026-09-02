@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { before, describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import {
   KNOWN_3_0_STORAGE_MODULES,
   mapStorageRow,
@@ -9,6 +9,7 @@ import {
   type SourceStorageRow
 } from './storage.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 /**
  * `mapStorageRow(s)` (task 767) tests.
@@ -21,18 +22,21 @@ import { ensureTemporal } from '../../test/temporal.ts'
  * this mapper calls touches `WIKI.db`, so this needs no database.
  */
 
+let wikiHandle: { restore(): void }
+
 before(async () => {
   await ensureTemporal()
-  ;(globalThis as any).WIKI = {
-    SERVERPATH: path.join(import.meta.dirname, '..', '..'),
-    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
-  }
+  wikiHandle = installTestWiki({ SERVERPATH: path.join(import.meta.dirname, '..', '..') })
   const { storage } = await import('../../models/storage.ts')
   await storage.refreshFromDisk()
   assert.ok(
     storage.definitions.length > 0,
     'refreshFromDisk should have loaded the real on-disk module definitions'
   )
+})
+
+after(() => {
+  wikiHandle.restore()
 })
 
 async function resolver() {
@@ -278,14 +282,16 @@ describe('mapStorageRows: per-site replay, no cross-call state', () => {
     const resultA = await mapStorageRows(rows, { resolver: res, siteId: SITE_A })
     const resultB = await mapStorageRows(rows, { resolver: res, siteId: SITE_B })
 
-    assert.equal(resultA.updates.length, 2)
-    assert.equal(resultB.updates.length, 2)
-    assert.ok(resultA.updates.every((u) => u.siteId === SITE_A))
-    assert.ok(resultB.updates.every((u) => u.siteId === SITE_B))
+    const updatesA = resultA.results.filter((r) => r.status === 'updated').map((r) => r.update!)
+    const updatesB = resultB.results.filter((r) => r.status === 'updated').map((r) => r.update!)
+    assert.equal(updatesA.length, 2)
+    assert.equal(updatesB.length, 2)
+    assert.ok(updatesA.every((u) => u.siteId === SITE_A))
+    assert.ok(updatesB.every((u) => u.siteId === SITE_B))
     // -> Identical config on both sides: nothing about site A's replay affected site B's
     assert.deepEqual(
-      resultA.updates.map((u) => u.values.config),
-      resultB.updates.map((u) => u.values.config)
+      updatesA.map((u) => u.values.config),
+      updatesB.map((u) => u.values.config)
     )
   })
 })

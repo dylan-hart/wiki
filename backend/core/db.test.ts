@@ -12,19 +12,20 @@ import configSvc from './config.ts'
 import maintenance from './maintenance.ts'
 import { groups } from '../models/groups.ts'
 import { sites } from '../models/sites.ts'
-import { approvals } from '../models/approvals.ts'
+import { approvalRules } from '../models/approvalRules.ts'
 import { classificationLevels } from '../models/classificationLevels.ts'
 import { glossary } from '../models/glossary.ts'
 import { locales } from '../models/locales.ts'
 import { relations } from '../db/relations.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb } from '../test/db.ts'
+import { installTestWiki } from '../test/mocks.ts'
 
 /**
  * Task 708 (feature 411): confirms what `core/db.ts`'s `subscribeToNotifications()` /
  * `notifyViaDB()` actually guarantee for a cross-instance event relayed over the `wiki` NOTIFY
  * channel, and whether any current subscriber (`core/config.ts`'s `reloadConfig`,
  * `core/maintenance.ts`'s `disconnectWebsockets`/`flushCaches`, — added by OpenProject #966 —
- * `models/groups.ts`/`sites.ts`/`approvals.ts`'s `reloadGroups`/`reloadSites`/`reloadApprovals`,
+ * `models/groups.ts`/`sites.ts`/`approvalRules.ts`'s `reloadGroups`/`reloadSites`/`reloadApprovals`,
  * — added by OpenProject #2042 — `models/locales.ts`'s `reloadLocales`, — added by OpenProject
  * #2038 — `models/glossary.ts`'s `invalidateGlossaryCache`, and — added by OpenProject #2030 —
  * `models/classificationLevels.ts`'s `reloadClassificationLevels`) depends on more than
@@ -98,7 +99,7 @@ class FakePool {
   }
 }
 
-let previousWiki: any
+let wikiHandle: { restore(): void }
 let loadFromDbMock: any
 let flushCachesMock: any
 let disconnectWebsocketsMock: any
@@ -108,10 +109,6 @@ let approvalsReloadCacheMock: any
 let localesReloadCacheMock: any
 let glossaryDropLocalCacheMock: any
 let classificationLevelsReloadCacheMock: any
-
-before(() => {
-  previousWiki = (globalThis as any).WIKI
-})
 
 beforeEach(() => {
   loadFromDbMock = mock.fn(async () => true)
@@ -139,19 +136,18 @@ beforeEach(() => {
   maintenance.disconnectWebsockets = disconnectWebsocketsMock
   groups.reloadCache = groupsReloadCacheMock
   sites.reloadCache = sitesReloadCacheMock
-  approvals.reloadCache = approvalsReloadCacheMock
+  approvalRules.reloadCache = approvalsReloadCacheMock
   locales.reloadCache = localesReloadCacheMock
   glossary.dropLocalCache = glossaryDropLocalCacheMock
   classificationLevels.reloadCache = classificationLevelsReloadCacheMock
 
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     INSTANCE_ID: 'instance-a',
-    logger: { warn: () => {}, info: () => {}, debug: () => {}, error: () => {} },
     events: { inbound: new Emittery(), outbound: new Emittery() },
     configSvc,
     dbManager,
-    models: { groups, sites, approvals, locales, glossary, classificationLevels }
-  }
+    models: { groups, sites, approvalRules, locales, glossary, classificationLevels }
+  })
 
   dbManager.pool = null
   dbManager.listenerPool = null
@@ -164,7 +160,7 @@ afterEach(async () => {
 })
 
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
 })
 
 describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery', () => {
@@ -327,20 +323,16 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
  * trigger's own `if`.
  */
 describe('queryLogger.logQuery() — bound-parameter redaction', () => {
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
   let infoCalls: string[]
 
-  before(() => {
-    previousWiki = (globalThis as any).WIKI
-  })
-
   after(() => {
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
   })
 
   beforeEach(() => {
     infoCalls = []
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       logger: {
         info: (msg: string) => {
           infoCalls.push(msg)
@@ -350,7 +342,7 @@ describe('queryLogger.logQuery() — bound-parameter redaction', () => {
         error: () => {}
       },
       config: { flags: { sqlLog: false }, dev: {} }
-    }
+    })
   })
 
   // -> A PEM-shaped string (stands in for the API signing key) and a JSON blob carrying a `secret`
@@ -551,13 +543,12 @@ describe('main pool bounds (task 2249)', { skip: !hasTestDatabase() }, () => {
  * only other DB-touching step `init()` takes.
  */
 describe('init() attaches an error listener to the main pool (OpenProject #2049)', () => {
-  let previousWiki: any
+  let wikiHandle: { restore(): void }
   let previousDatabaseUrl: string | undefined
   let queryMock: ReturnType<typeof mock.method>
   let loggerErrorMock: any
 
   before(() => {
-    previousWiki = (globalThis as any).WIKI
     previousDatabaseUrl = process.env.DATABASE_URL
     delete process.env.DATABASE_URL
 
@@ -572,7 +563,7 @@ describe('init() attaches an error listener to the main pool (OpenProject #2049)
 
   after(() => {
     queryMock.mock.restore()
-    ;(globalThis as any).WIKI = previousWiki
+    wikiHandle.restore()
     if (previousDatabaseUrl === undefined) {
       delete process.env.DATABASE_URL
     } else {
@@ -582,7 +573,7 @@ describe('init() attaches an error listener to the main pool (OpenProject #2049)
 
   beforeEach(() => {
     loggerErrorMock = mock.fn(() => {})
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       INSTANCE_ID: 'instance-a',
       logger: { warn: () => {}, info: () => {}, debug: () => {}, error: loggerErrorMock },
       config: {
@@ -597,7 +588,7 @@ describe('init() attaches an error listener to the main pool (OpenProject #2049)
         },
         pool: {}
       }
-    }
+    })
     dbManager.pool = null
     dbManager.pubsubClient = null
     dbManager.listenerHandle = null
@@ -769,11 +760,10 @@ describe('syncSchemas() — advisory lock across DDL and migrate() (task 2041)',
     //    left there.
     pool = new Pool({ connectionString: DATABASE_URL, options: `-c search_path=${schema},public` })
     dbManager.pool = pool
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: { db: { schema } },
-      SERVERPATH: path.join(import.meta.dirname, '..'),
-      logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }
-    }
+      SERVERPATH: path.join(import.meta.dirname, '..')
+    })
   })
 
   afterEach(async () => {

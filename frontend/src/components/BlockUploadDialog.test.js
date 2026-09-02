@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import BlockUploadDialog from './BlockUploadDialog.vue'
 import { useAdminStore } from '@/stores/admin'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * `useDialogComponent()` mounts the panel hidden and flips `dialogVisible` true on the tick after
@@ -21,7 +22,7 @@ async function mountDialog() {
   //    `manage:system` for whom the real backend would 403.
   API_CLIENT.get.mockReturnValueOnce({ json: vi.fn().mockResolvedValue({}) })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   // -> `<w-dialog>` renders its panel through `<teleport to="body">` (see `WDialog.vue`), which moves
   //    that DOM out from under the component's own root -- stubbing it keeps the panel in place so
   //    `wrapper.find()` can still reach it.

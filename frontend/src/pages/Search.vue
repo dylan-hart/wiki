@@ -93,20 +93,6 @@
               :loading="state.loading > 0">
               <template #prepend><w-icon name="la:hashtag" size="xs" /></template>
             </w-select>
-            <!-- q-input.q-mt-sm( -->
-            <!-- outlined -->
-            <!-- dense -->
-            <!-- placeholder='Last updated...' -->
-            <!-- ) -->
-            <!-- template(v-slot:prepend) -->
-            <!-- q-icon(name='la:calendar', size='xs') -->
-            <!-- q-input.q-mt-sm( -->
-            <!-- outlined -->
-            <!-- dense -->
-            <!-- placeholder='Last edited by...' -->
-            <!-- ) -->
-            <!-- template(v-slot:prepend) -->
-            <!-- q-icon(name='la:user-edit', size='xs') -->
             <w-select
               class="mt-2"
               outlined

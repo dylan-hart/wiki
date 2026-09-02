@@ -40,13 +40,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'List a site’s glossary terms',
         tags: ['Glossary'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Glossary terms, alphabetical',
@@ -59,10 +53,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.listTerms(req.params.siteId)
     }
   )
@@ -88,13 +79,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Cached, and invalidated on every term create/update/delete. Empty when the site has no glossary terms defined — which is also how the feature degrades to plain text.',
         tags: ['Glossary'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             description: 'Resolved glossary terms',
@@ -105,10 +90,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.getCachedTerms(
         req.params.siteId,
         WIKI.models.groups.actorForRequest(req)
@@ -128,13 +110,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Create a glossary term',
         tags: ['Glossary'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           allOf: [
             { $ref: 'GlossaryTermInput#' },
@@ -151,10 +127,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.createTerm(
         req.params.siteId,
         {
@@ -200,10 +173,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.updateTerm(
         req.params.siteId,
         req.params.termId,
@@ -252,9 +222,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
       const deleted = await WIKI.models.glossary.deleteTerm(
         req.params.siteId,
         req.params.termId,
@@ -281,13 +248,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Every term, carrying its canonical page as a `path` rather than a `pageId` -- portable across instances, and round-trippable through `POST .../glossary/import` after external editing (OpenProject #1114).',
         tags: ['Glossary'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: { $ref: 'GlossaryExport#' },
           401: { $ref: 'ApiError#' },
@@ -296,10 +257,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.exportTerms(req.params.siteId)
     }
   )
@@ -318,13 +276,7 @@ async function routes(app: FastifyInstance) {
         description:
           'The imported term list REPLACES the entire existing glossary -- not a per-term merge. Every entry is validated, and every `path` resolved to a page, before anything is written, so a bad entry anywhere in the payload leaves the existing glossary untouched (OpenProject #1114).',
         tags: ['Glossary'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: { $ref: 'GlossaryExport#' },
         response: {
           200: {
@@ -339,10 +291,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.importTerms(req.params.siteId, req.body)
     }
   )
@@ -361,13 +310,7 @@ async function routes(app: FastifyInstance) {
         description:
           "The admin glossary screen's Save action (OpenProject #1113): edits are staged locally and NOT applied to the live glossary until this is called, which atomically replaces the whole term list with `terms` and records the result as a new version. Not a per-term merge -- the same wholesale-replace semantics, and the same `GlossaryExportTerm` shape (`path`, not `pageId`), as `POST .../glossary/import` -- the admin UI's own canonical-page picker is a live-validated path input, not a dropdown (OpenProject #1112), so its staged edits are already in this shape.",
         tags: ['Glossary'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         body: {
           type: 'object',
           required: ['terms'],
@@ -387,10 +330,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.saveVersion(
         req.params.siteId,
         req.body.terms,
@@ -413,13 +353,7 @@ async function routes(app: FastifyInstance) {
         description:
           'Whole-glossary snapshots (OpenProject #1113), most recent first -- not the per-term history `pageHistory` keeps for individual pages. Metadata only; fetch one by id for its full term list.',
         tags: ['Glossary'],
-        params: {
-          type: 'object',
-          properties: {
-            siteId: { type: 'string', format: 'uuid' }
-          },
-          required: ['siteId']
-        },
+        params: { $ref: 'SiteIdParams#' },
         response: {
           200: {
             type: 'array',
@@ -431,10 +365,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.listVersions(req.params.siteId)
     }
   )
@@ -468,9 +399,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
       const version = await WIKI.models.glossary.getVersion(req.params.siteId, req.params.versionId)
       if (!version) {
         return reply.notFound('This glossary version does not exist.')
@@ -509,10 +437,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.restoreVersion(
         req.params.siteId,
         req.params.versionId,

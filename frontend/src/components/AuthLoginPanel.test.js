@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AuthLoginPanel from './AuthLoginPanel.vue'
 import { useSiteStore } from '@/stores/site'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * Regression coverage for the login-time recovery-code toggle (task 428): switching the `tfa`
@@ -30,16 +32,9 @@ const LOCAL_STRATEGY = {
 }
 
 async function mountAtTfaScreen() {
-  setActivePinia(createPinia())
-  const siteStore = useSiteStore()
-  siteStore.id = 'site-1'
-
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([LOCAL_STRATEGY]) })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-  const wrapper = mount(AuthLoginPanel, {
-    global: { plugins: [i18n] }
-  })
+  const { wrapper } = mountWithApp(AuthLoginPanel, { stores: { site: { id: 'site-1' } } })
   await flushPromises()
 
   const inputs = wrapper.findAll('input')
@@ -161,30 +156,24 @@ function mountAuthLoginPanel() {
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        auth: {
-          registering: 'Creating account...',
-          registerCheckEmail: 'Check your emails to activate your account.',
-          verifySuccess: 'Your email address has been verified. You can now log in.',
-          switchToRegister: { link: 'Create an Account' },
-          switchToLogin: { link: 'Back to Login' },
-          changePwd: { instructions: 'You must choose a new password:' },
-          forgotPasswordLink: 'Forgot Password',
-          forgotPasswordSubtitle: 'Enter your email address:',
-          forgotPasswordSuccess: 'Check your emails for password reset instructions!',
-          resetPassword: {
-            subtitle: 'Choose a new password for your account:',
-            success: 'Your password has been changed.'
-          },
-          tfa: { subtitle: 'Security code required:' },
-          fields: { email: 'Email Address' },
-          errors: { register: 'One or more fields are invalid.' }
-        }
-      }
+  const i18n = createTestI18n({
+    auth: {
+      registering: 'Creating account...',
+      registerCheckEmail: 'Check your emails to activate your account.',
+      verifySuccess: 'Your email address has been verified. You can now log in.',
+      switchToRegister: { link: 'Create an Account' },
+      switchToLogin: { link: 'Back to Login' },
+      changePwd: { instructions: 'You must choose a new password:' },
+      forgotPasswordLink: 'Forgot Password',
+      forgotPasswordSubtitle: 'Enter your email address:',
+      forgotPasswordSuccess: 'Check your emails for password reset instructions!',
+      resetPassword: {
+        subtitle: 'Choose a new password for your account:',
+        success: 'Your password has been changed.'
+      },
+      tfa: { subtitle: 'Security code required:' },
+      fields: { email: 'Email Address' },
+      errors: { register: 'One or more fields are invalid.' }
     }
   })
 
@@ -332,7 +321,7 @@ describe('AuthLoginPanel verified landing', () => {
 /**
  * `forgotPassword()` used to be a stub (`// TODO: Implement forgot password`). The route it now calls
  * (`POST sites/:siteId/auth/forgotPassword`) always answers the same generic 200 whatever it did behind
- * the scenes -- see the route's own doc comment in `backend/api/authentication.ts` -- so this only
+ * the scenes -- see the route's own doc comment in `backend/api/auth/site.ts` -- so this only
  * checks the request shape and that the UI shows the fixed success message, never that it branches on
  * the response.
  */
@@ -482,14 +471,9 @@ describe('AuthLoginPanel reset password', () => {
  */
 describe('AuthLoginPanel redirect handling (OpenProject #2208)', () => {
   async function mountAndLogin(redirect) {
-    setActivePinia(createPinia())
-    const siteStore = useSiteStore()
-    siteStore.id = 'site-1'
-
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([LOCAL_STRATEGY]) })
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-    const wrapper = mount(AuthLoginPanel, { global: { plugins: [i18n] } })
+    const { wrapper } = mountWithApp(AuthLoginPanel, { stores: { site: { id: 'site-1' } } })
     await flushPromises()
 
     const inputs = wrapper.findAll('input')

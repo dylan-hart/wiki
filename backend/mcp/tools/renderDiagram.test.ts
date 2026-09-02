@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { after, test } from 'node:test'
 import { CustomError } from '../../helpers/common.ts'
 import { McpToolError } from '../auth.ts'
 import { handleRenderDiagram } from './renderDiagram.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 const CTX = {
   keyId: 'key-1',
@@ -13,14 +14,10 @@ const CTX = {
   scope: null as string[] | null
 }
 
-let previousWiki: any
-
-before(() => {
-  previousWiki = (globalThis as any).WIKI
-})
+let wikiHandle: { restore(): void }
 
 after(() => {
-  ;(globalThis as any).WIKI = previousWiki
+  wikiHandle.restore()
 })
 
 function install({
@@ -32,7 +29,7 @@ function install({
 } = {}) {
   const consumeCalls: any[] = []
   const renderCalls: any[] = []
-  ;(globalThis as any).WIKI = {
+  wikiHandle = installTestWiki({
     models: {
       rateLimits: {
         consume: async (key: string, policy: any) => {
@@ -48,7 +45,7 @@ function install({
           (async () => ({ contentType: 'image/svg+xml', data: Buffer.from('<svg></svg>') }))
       }
     }
-  }
+  })
   return { consumeCalls, renderCalls }
 }
 

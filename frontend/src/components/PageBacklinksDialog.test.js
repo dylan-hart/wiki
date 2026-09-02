@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import PageBacklinksDialog from './PageBacklinksDialog.vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * OpenProject #1917: the backlinks side panel, fetching `GET
@@ -31,14 +32,9 @@ async function mountDialog(backlinks) {
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/:pathMatch(.*)*'])
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: REAL_STRINGS } })
+  const i18n = createTestI18n(REAL_STRINGS)
 
   API_CLIENT.get.mockReturnValueOnce({
     json: () => Promise.resolve(backlinks)

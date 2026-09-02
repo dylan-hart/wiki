@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { mountBlock, resetBlockDom } from '../test/mount.js'
+
 /*
   `create()` from `asciinema-player` builds a real terminal renderer -- canvas 2D context, a
   ResizeObserver -- neither of which jsdom implements, so it throws outright in this environment
@@ -12,19 +14,11 @@ vi.mock('asciinema-player', () => ({ create: createMock }))
 
 const { BlockAsciinemaElement } = await import('./component.js')
 
-async function mountAsciinema(attrs = {}) {
-  const el = document.createElement('block-asciinema')
-  for (const [key, value] of Object.entries(attrs)) {
-    el[key] = value
-  }
-  document.body.appendChild(el)
-  await el.updateComplete
-  return el
-}
+const mountAsciinema = (props = {}) => mountBlock('block-asciinema', { props })
 
 describe('block-asciinema', () => {
   afterEach(() => {
-    document.body.replaceChildren()
+    resetBlockDom()
     createMock.mockClear()
   })
 

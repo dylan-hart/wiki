@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import { useCollabStore } from '@/stores/collab'
 import { useCommonStore } from '@/stores/common'
@@ -11,6 +10,8 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 import { queue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Split into its own file, separate from `EditorMarkdown.test.js`, specifically to exercise the
@@ -96,19 +97,13 @@ async function mountEditor() {
   //    `mountEditor` documents and relies on.
   useCommonStore().loadBlocks = vi.fn().mockResolvedValue(undefined)
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        editor: {
-          collab: {
-            activeEditors:
-              'No one else has this page open | 1 other person has this page open | {count} other people have this page open',
-            notAllowed: 'You are no longer allowed to edit this page collaboratively.',
-            savedBy: '{name} saved this page.'
-          }
-        }
+  const i18n = createTestI18n({
+    editor: {
+      collab: {
+        activeEditors:
+          'No one else has this page open | 1 other person has this page open | {count} other people have this page open',
+        notAllowed: 'You are no longer allowed to edit this page collaboratively.',
+        savedBy: '{name} saved this page.'
       }
     }
   })

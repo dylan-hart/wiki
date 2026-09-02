@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import UserCreateDialog from './UserCreateDialog.vue'
 import { queue as notifyQueue } from '@/composables/notify'
 import { useAdminStore } from '@/stores/admin'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /*
   `WDialog`'s content lives behind a `<teleport to="body">`, which lands it as a REAL child of
@@ -34,11 +35,7 @@ function mountDialog() {
   adminStore.sites = [{ id: 'site-1', title: 'My Site' }]
   adminStore.currentSiteId = 'site-1'
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: { en: { admin: { users: {} } } }
-  })
+  const i18n = createTestI18n({ admin: { users: {} } })
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })
 

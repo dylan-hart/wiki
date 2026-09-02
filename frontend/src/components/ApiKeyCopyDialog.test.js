@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
-import BlueprintIcon from './BlueprintIcon.vue'
 import ApiKeyCopyDialog from './ApiKeyCopyDialog.vue'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Covers #1117: the dialog's `mcpInstallCommand` computed builds a ready-to-paste `claude mcp add`
@@ -13,21 +13,14 @@ import { queue as notifyQueue } from '@/composables/notify'
  * -- see the component's own doc comment).
  */
 function mountDialog(props = {}) {
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        admin: { api: { copyKeyTitle: 'Copy API Key', key: 'API Key' } },
-        profile: { api: { copyKeyTitle: 'Copy Access Token', key: 'Access Token' } }
-      }
-    }
+  const i18n = createTestI18n({
+    admin: { api: { copyKeyTitle: 'Copy API Key', key: 'API Key' } },
+    profile: { api: { copyKeyTitle: 'Copy Access Token', key: 'Access Token' } }
   })
   return mount(ApiKeyCopyDialog, {
     props: { keyValue: 'wiki_abc123.def456', ...props },
     global: {
-      plugins: [i18n],
-      components: { BlueprintIcon }
+      plugins: [i18n]
     }
   })
 }
@@ -91,35 +84,28 @@ describe('ApiKeyCopyDialog mcp install command', () => {
  * `ApiKeyRevokeDialog`'s own prop of the same name) lets each caller supply its own vocabulary.
  */
 function mountWithPrefix(props) {
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        admin: {
-          api: {
-            copyKeyTitle: 'Copy API Key',
-            key: 'API Key',
-            copySuccess: 'API key copied to the clipboard.',
-            copyFailed: 'Could not copy the API key to the clipboard.'
-          }
-        },
-        profile: {
-          api: {
-            copyKeyTitle: 'Copy Access Token',
-            key: 'Access Token',
-            copySuccess: 'Token copied to the clipboard.',
-            copyFailed: 'Could not copy the token to the clipboard.'
-          }
-        }
+  const i18n = createTestI18n({
+    admin: {
+      api: {
+        copyKeyTitle: 'Copy API Key',
+        key: 'API Key',
+        copySuccess: 'API key copied to the clipboard.',
+        copyFailed: 'Could not copy the API key to the clipboard.'
+      }
+    },
+    profile: {
+      api: {
+        copyKeyTitle: 'Copy Access Token',
+        key: 'Access Token',
+        copySuccess: 'Token copied to the clipboard.',
+        copyFailed: 'Could not copy the token to the clipboard.'
       }
     }
   })
   return mount(ApiKeyCopyDialog, {
     props: { keyValue: 'wiki_abc123.def456', ...props },
     global: {
-      plugins: [i18n],
-      components: { BlueprintIcon }
+      plugins: [i18n]
     }
   })
 }

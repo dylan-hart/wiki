@@ -4,85 +4,41 @@ import { after, before, describe, test } from 'node:test'
 import { and, eq } from 'drizzle-orm'
 import { comments as commentsTable, tree as treeTable } from '../../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb } from '../../test/db.ts'
-import { NotYetImplementedError } from '../connector.ts'
 import { assetsPhase } from './assets.ts'
 import { contentPhase } from './content.ts'
 import type { TestFixtures } from '../../test/db.ts'
 import type { SourceAssetFile, SourceConnector, SourceRecord } from '../connector.ts'
 import type { MigrationContext } from '../context.ts'
-
-async function* iter<T>(items: T[]): AsyncGenerator<T> {
-  for (const item of items) {
-    yield item
-  }
-}
-
-const notImplemented = (method: string) => () => {
-  throw new NotYetImplementedError(method, 'not needed by this test')
-}
+import {
+  iterate as iter,
+  makeSourcePageRow,
+  stubSourceConnector
+} from '../../test/migrationFixtures.ts'
 
 /** A minimal `SourceConnector` for seeding one real page through `contentPhase` — reusing Task 13's own
  * write path (`WIKI.models.pages.createPage()`) rather than hand-building a raw `pages`/`tree` row,
  * per this task's own "reuse Task 13's integration test's page import as a fixture" instruction. */
 function fakeContentConnector(): SourceConnector {
-  return {
-    kind: 'postgres',
-    connect: async () => {},
-    disconnect: async () => {},
-    describe: async () => ({ kind: 'postgres', location: 'fake', notes: [] }),
-    users: notImplemented('users'),
-    groups: notImplemented('groups'),
+  return stubSourceConnector({
     pages: () =>
       iter<SourceRecord>([
-        {
-          id: 1,
-          path: 'welcome',
-          localeCode: 'en',
-          title: 'Welcome',
-          hash: 'hash-1',
+        makeSourcePageRow({
           description: null,
-          content: '# Welcome',
-          render: '<h1>Welcome</h1>',
-          toc: null,
-          contentType: 'markdown',
-          isPrivate: false,
-          privateNS: null,
-          isPublished: true,
-          publishStartDate: null,
-          publishEndDate: null,
-          createdAt: '2023-01-01T00:00:00.000Z',
           updatedAt: '2023-01-01T00:00:00.000Z',
-          extra: {},
-          editorKey: 'markdown',
-          tags: [],
+          // -> Resolved through `ctx.userIdMap`, standing in for a completed users-phase run.
           authorId: 555,
           creatorId: 555
-        }
+        })
       ]),
     pageHistory: () => iter<SourceRecord>([]),
-    tags: notImplemented('tags'),
-    navigation: () => iter<SourceRecord>([]),
-    settings: notImplemented('settings'),
-    comments: notImplemented('comments'),
-    assets: notImplemented('assets')
-  }
+    navigation: () => iter<SourceRecord>([])
+  })
 }
 
 /** A minimal `SourceConnector`: real `assets()`/`comments()` generators, everything else a
  * `NotYetImplementedError` stub since `assetsPhase` never reads them. */
 function fakeSourceConnector(): SourceConnector {
-  return {
-    kind: 'postgres',
-    connect: async () => {},
-    disconnect: async () => {},
-    describe: async () => ({ kind: 'postgres', location: 'fake', notes: [] }),
-    users: notImplemented('users'),
-    groups: notImplemented('groups'),
-    pages: notImplemented('pages'),
-    pageHistory: notImplemented('pageHistory'),
-    tags: notImplemented('tags'),
-    navigation: notImplemented('navigation'),
-    settings: notImplemented('settings'),
+  return stubSourceConnector({
     assets: () =>
       iter<SourceAssetFile>([
         {
@@ -113,7 +69,7 @@ function fakeSourceConnector(): SourceConnector {
           email: 'guest@example.com'
         }
       ])
-  }
+  })
 }
 
 describe(
@@ -165,10 +121,8 @@ describe(
         systemGroupIds: { admin: 'unused-admin-group', guest: 'unused-guest-group' },
         operatorActorId: fixtures.userId,
         userIdMap: new Map([[555, fixtures.userId]]),
-        // -> Reuses the real IdMap<number> the content-phase fixture setup above already populated,
-        //    rather than a plain Map -- context.ts types MigrationContext.pageIdMap as the concrete
-        //    IdMap<number> class (unlike userIdMap, which is a plain Map), so this is the live
-        //    reference a real migrate.ts run would hand from one phase to the next.
+        // -> Reuses the live map the content-phase fixture setup above already populated, so this is
+        //    the live reference a real migrate.ts run would hand from one phase to the next.
         pageIdMap: seededPageIdMap
       }
 

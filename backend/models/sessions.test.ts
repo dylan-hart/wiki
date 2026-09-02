@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, describe, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { and, eq, sql } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import {
@@ -10,12 +10,13 @@ import {
 } from '../db/schema.ts'
 import { authSecretSigner } from '../helpers/authSecretSigner.ts'
 import configSvc from '../core/config.ts'
+import { sessionStoreAdapter } from './sessions.ts'
 
 /**
  * OpenProject #936: `session.groups`/`session.permissions` are snapshots taken at login and
  * otherwise live for up to the 30-day cookie age -- `clearSessionsFromUser` existed with zero
  * callers, and `clearSessionsForGroup` is new here, both wired into the deactivation /
- * group-membership / group-permission-change routes in `api/users.ts` and `api/groups.ts`.
+ * group-membership / group-permission-change routes in `api/users/admin.ts` and `api/groups.ts`.
  *
  * OpenProject #2248: `purgeExpiredSessions` is the same table's housekeeping counterpart --
  * `@fastify/session` never calls `store.destroy` on a stale row, so a row past the cookie's 30-day
@@ -198,5 +199,85 @@ describe('sessions model (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const purged = await sessionsModel.purgeExpiredSessions()
     assert.equal(purged, 0)
     assert.equal((await fixtures.db.select().from(sessionsTable)).length, 1)
+  })
+})
+
+/**
+ * The @fastify/session store adapter (CORE-F12): three copies of the same
+ * `try { clb(null, await …) } catch (err) { clb(err, null) }` wrapper, written out inline in
+ * `index.ts` until they collapsed onto one `settle()` here. No database — what is under test is the
+ * promise-to-callback translation, including the rejection path, which nothing exercised before.
+ */
+describe('sessionStoreAdapter', () => {
+  let previousWiki: any
+
+  /** Installs a `WIKI.models.sessions` whose three methods are whatever this test needs. */
+  function installSessionsModel(stub: Record<string, (...args: any[]) => Promise<any>>) {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = { models: { sessions: stub } }
+  }
+
+  afterEach(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('get resolves through the callback as (null, result)', async () => {
+    installSessionsModel({ get: async (id: string) => ({ id, user: { id: 'u1' } }) })
+    const calls: any[] = []
+    await sessionStoreAdapter().get('sess-1', (err, result) => calls.push([err, result]))
+    assert.deepEqual(calls, [[null, { id: 'sess-1', user: { id: 'u1' } }]])
+  })
+
+  test('set passes both the id and the session data through, and reports (null, undefined)', async () => {
+    const seen: any[] = []
+    installSessionsModel({
+      set: async (id: string, data: any) => {
+        seen.push([id, data])
+      }
+    })
+    const calls: any[] = []
+    await sessionStoreAdapter().set('sess-1', { user: { id: 'u1' } }, (err, result) =>
+      calls.push([err, result])
+    )
+    assert.deepEqual(seen, [['sess-1', { user: { id: 'u1' } }]])
+    assert.deepEqual(calls, [[null, undefined]])
+  })
+
+  test('destroy resolves through the callback', async () => {
+    const seen: string[] = []
+    installSessionsModel({
+      destroy: async (id: string) => {
+        seen.push(id)
+        return { rowCount: 1 }
+      }
+    })
+    const calls: any[] = []
+    await sessionStoreAdapter().destroy('sess-1', (err, result) => calls.push([err, result]))
+    assert.deepEqual(seen, ['sess-1'])
+    assert.deepEqual(calls, [[null, { rowCount: 1 }]])
+  })
+
+  test('a rejection is reported as (err, null) rather than escaping the store', async () => {
+    const boom = new Error('connection terminated')
+    installSessionsModel({
+      get: async () => {
+        throw boom
+      }
+    })
+    const calls: any[] = []
+    await sessionStoreAdapter().get('sess-1', (err, result) => calls.push([err, result]))
+    assert.deepEqual(calls, [[boom, null]])
+  })
+
+  test('a synchronous throw is reported the same way, not left unhandled', async () => {
+    const boom = new Error('no database')
+    installSessionsModel({
+      destroy: () => {
+        throw boom
+      }
+    })
+    const calls: any[] = []
+    await sessionStoreAdapter().destroy('sess-1', (err, result) => calls.push([err, result]))
+    assert.deepEqual(calls, [[boom, null]])
   })
 })

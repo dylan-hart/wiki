@@ -10,6 +10,9 @@ import fastifySensible from '@fastify/sensible'
 import siteRoutes from './site.ts'
 import { svgMimeType } from '../helpers/images.ts'
 import { SVG_CSP } from '../helpers/security.ts'
+import { installTestWiki } from '../test/mocks.ts'
+
+let wikiHandle: { restore(): void }
 
 describe('GET /_site/current/<resource> — hostname resolution', () => {
   /**
@@ -66,7 +69,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       ROOTPATH: process.cwd(),
       models: {
         sites: {
@@ -76,7 +79,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
           getAssetHash
         }
       }
-    }
+    })
 
     app = fastify()
     await app.register(siteRoutes)
@@ -85,7 +88,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
 
   after(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test("resolves site A's own logo when the Host header is site A's hostname", async () => {
@@ -154,7 +157,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
     }
 
     let localApp: FastifyInstance
-    let previousWiki: any
+    let wikiHandle: { restore(): void }
     let rootDir: string
     /** What `getAsset` returns for the current test; null reproduces "nothing uploaded". */
     let currentAsset: { data: Buffer; mime: string } | null = null
@@ -165,7 +168,6 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
     let getAsset: ReturnType<typeof mock.fn>
 
     before(async () => {
-      previousWiki = (globalThis as any).WIKI
       rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-site-fallback-'))
       // -> Mirrors `SITE_ASSET_FALLBACKS['logo']` in controllers/site.ts exactly, so the real
       //    `replyWithFile` fallback branch has a real file to stream.
@@ -176,7 +178,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
       )
 
       getAsset = mock.fn(async () => currentAsset)
-      ;(globalThis as any).WIKI = {
+      wikiHandle = installTestWiki({
         ROOTPATH: rootDir,
         models: {
           sites: {
@@ -189,7 +191,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
                 : null
           }
         }
-      }
+      })
 
       localApp = fastify()
       await localApp.register(siteRoutes)
@@ -199,7 +201,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
     after(async () => {
       await localApp.close()
       await fs.rm(rootDir, { recursive: true, force: true })
-      ;(globalThis as any).WIKI = previousWiki
+      wikiHandle.restore()
     })
 
     afterEach(() => {
@@ -410,12 +412,12 @@ describe('GET /_site/:siteId/<resource> — isEnabled guard (task 699)', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       ROOTPATH: process.cwd(),
       models: {
         sites: { getSiteById, getSiteByHostname: async () => null, getAsset, getAssetHash }
       }
-    }
+    })
     app = fastify()
     await app.register(fastifySensible)
     await app.register(siteRoutes)
@@ -424,7 +426,7 @@ describe('GET /_site/:siteId/<resource> — isEnabled guard (task 699)', () => {
 
   after(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('answers 404 for a siteId that matches nothing', async () => {
@@ -485,12 +487,12 @@ describe('GET /_site/:siteId/<resource> — enforceApiKeySite (OpenProject #2201
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       ROOTPATH: process.cwd(),
       models: {
         sites: { getSiteById, getSiteByHostname: async () => null, getAsset, getAssetHash }
       }
-    }
+    })
     app = fastify()
     await app.register(fastifySensible)
     app.addHook('onRequest', (req, _reply, done) => {
@@ -503,7 +505,7 @@ describe('GET /_site/:siteId/<resource> — enforceApiKeySite (OpenProject #2201
 
   after(async () => {
     await app.close()
-    delete (globalThis as any).WIKI
+    wikiHandle.restore()
   })
 
   test('refuses 403 when a key pinned to site A requests site B by UUID', async () => {

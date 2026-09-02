@@ -17,20 +17,13 @@
  * Fetched once per page load and cached, the same pattern as `fetchIcon` in `./icons.js`: the whole
  * payload in one request, not one request per block instance, so a page with several maps -- or a
  * transcluded page with several custom blocks in it (`block-include`'s `_loadNestedBlocks`) -- still
- * only asks once.
+ * only asks once. That cache is `./site.js`'s `fetchSite()`, which this module imports rather than
+ * keeping a second one of its own over the identical request (BLK-F5): a page with a map and a
+ * checklist on it used to ask for the same payload twice, and needed two test-reset hooks to
+ * forget it.
  */
 
-/** The site-info payload, once fetched. Holds the promise, so concurrent callers share one request. */
-let sitePromise = null
-
-function fetchSite() {
-  if (!sitePromise) {
-    sitePromise = fetch('/_api/sites/current')
-      .then((resp) => (resp.ok ? resp.json() : null))
-      .catch(() => null)
-  }
-  return sitePromise
-}
+import { fetchSite } from './site.js'
 
 /**
  * The site-level config for one block tag.
@@ -74,15 +67,4 @@ export async function getBlockImportUrl(elementTag) {
     return `/_blocks/custom/${site.id}/${record.id}.js`
   }
   return `/_blocks/${elementTag}.js`
-}
-
-/**
- * Test-only: forgets the cached fetch, so a new `getBlockConfig`/`getBlockImportUrl` call issues a
- * fresh request.
- *
- * The module-level cache is deliberate in production (see above) but would otherwise leak the first
- * test's mocked response into every test that runs after it in the same file.
- */
-export function _resetBlockConfigCache() {
-  sitePromise = null
 }

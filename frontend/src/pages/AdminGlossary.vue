@@ -117,9 +117,10 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed } from 'vue'
 import { fileSave } from 'browser-fs-access'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
@@ -170,12 +171,23 @@ useMeta(() => ({
 
 // DATA
 
-const state = reactive({
-  loading: 0,
-  saving: false,
-  terms: [],
-  /** The last-loaded-or-saved state, for the dirty check below -- `stripKeys(state.terms)`. */
-  baseline: '[]'
+const { state, load } = useAdminSettings({
+  i18nPrefix: 'admin.glossary',
+  // -> A staged-edit list, not a settings form: reading the terms has never raised the full-screen
+  //    overlay, and "Save Glossary" drives its own `state.saving` button instead.
+  overlay: false,
+  extraState: {
+    saving: false,
+    terms: [],
+    /** The last-loaded-or-saved state, for the dirty check below -- `stripKeys(state.terms)`. */
+    baseline: '[]'
+  },
+  fetch: (siteId) => API_CLIENT.get(`sites/${siteId}/glossary/export`).json(),
+  onLoaded: (exported) => {
+    const terms = (exported?.terms ?? []).map((entry) => ({ ...entry, _key: newKey() }))
+    state.terms = terms
+    state.baseline = JSON.stringify(stripKeys(terms))
+  }
 })
 
 let nextKey = 0
@@ -188,36 +200,10 @@ function newKey() {
 
 const isDirty = computed(() => JSON.stringify(stripKeys(state.terms)) !== state.baseline)
 
-// WATCHERS
-
-watch(() => adminStore.currentSiteId, load)
-
 // METHODS
 
 function stripKeys(terms) {
   return terms.map(({ term, definition, aliases, path }) => ({ term, definition, aliases, path }))
-}
-
-async function load() {
-  if (!adminStore.currentSiteId) {
-    return
-  }
-  state.loading++
-  try {
-    const exported = await API_CLIENT.get(
-      `sites/${adminStore.currentSiteId}/glossary/export`
-    ).json()
-    const terms = (exported?.terms ?? []).map((entry) => ({ ...entry, _key: newKey() }))
-    state.terms = terms
-    state.baseline = JSON.stringify(stripKeys(terms))
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.glossary.loadFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
 }
 
 function createTerm() {
@@ -335,8 +321,4 @@ function openImportDialog() {
     }
   }).onOk(load)
 }
-
-// MOUNTED
-
-onMounted(load)
 </script>

@@ -3,7 +3,6 @@ import type { GraphPageRow } from '../models/pages.ts'
 import type { PageHistoryContributorCounts } from '../models/pageHistory.ts'
 import type { PageviewCountsForGraph } from '../models/pageviews.ts'
 import { zeroPageviewCountsForGraph } from '../models/pageviews.ts'
-import { guardSiteEnabled } from '../helpers/common.ts'
 import {
   getCachedGraphData,
   setCachedGraphData,
@@ -196,12 +195,6 @@ export function assembleGraph(
   return { nodes, edges, truncated, totalNodes }
 }
 
-const siteIdParam = {
-  type: 'object',
-  properties: { siteId: { type: 'string', format: 'uuid' } },
-  required: ['siteId']
-}
-
 /** OpenProject #1863: opt-in to each node's `contributors`/`pageviews` count objects, which
  *  dominate the per-node payload and which most readers of the default view never look at.
  *  `Graph.vue` sends its currently-active "Size by" mode as the value, but only presence is
@@ -269,7 +262,7 @@ async function routes(app: FastifyInstance) {
         description:
           "Every page the caller may read on this site, across all locales, as nodes -- plus the relation and internal-link edges between pages that are both visible. Fetched once; every drill-down filter and re-cluster after that (OpenProject #874/#875) runs client-side against this response, per #848's design. The underlying data is cached per site for a short TTL (OpenProject #2269); a cold cache is only rebuilt for a signed-in caller.",
         tags: ['Pages'],
-        params: siteIdParam,
+        params: { $ref: 'SiteIdParams#' },
         querystring: graphQuerystring,
         response: {
           200: { $ref: 'Graph#' },
@@ -278,9 +271,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
-        return
-      }
       const authenticated = req.session?.authenticated === true
       const data = await loadGraphData(req.params.siteId, authenticated)
       if (!data) {

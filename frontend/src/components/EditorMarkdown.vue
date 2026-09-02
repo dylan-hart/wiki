@@ -350,14 +350,14 @@ import {
 } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import {
-  bindCollabEditor,
-  collabStatusEffects,
-  startCollabSession,
-  stopCollabSession
-} from '@/composables/collab'
 import { dialog } from '@/composables/dialog'
+import { useMarkdownCollab } from '@/composables/markdownCollab'
 import { notify } from '@/composables/notify'
+import {
+  EDITOR_MIN_WIDTH_PX,
+  PREVIEW_HIDE_THRESHOLD_PX,
+  usePreviewResize
+} from '@/composables/previewResize'
 import { useMinWidth } from '@/composables/screen'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { assetPath } from '@/helpers/assets'
@@ -375,6 +375,7 @@ import {
   findBlocks,
   hasEditableParams
 } from '@/helpers/markdownBlocks'
+import * as insertCmd from '@/helpers/markdownInsert'
 import { resolveWordMarkup } from '@/helpers/markdownMarkup'
 import { findEditableTables } from '@/helpers/markdownTable'
 
@@ -383,50 +384,30 @@ import EditorEmojiMenu from '@/components/EditorEmojiMenu.vue'
 import IconPickerDialog from '@/components/IconPickerDialog.vue'
 import LinkPickerDialog from '@/components/LinkPickerDialog.vue'
 
-import { useCollabStore } from '@/stores/collab'
 import { useCommonStore } from '@/stores/common'
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
-import { useUserStore } from '@/stores/user'
 
 import { enhanceRenderedContent } from '@/helpers/renderedContent'
 
 import { debounce } from 'es-toolkit/function'
 import * as monaco from 'monaco-editor'
 import { Position, Range } from 'monaco-editor'
-import { MonacoBinding } from 'y-monaco'
 import { MarkdownRenderer } from '@/renderers/markdown'
 
 // STORES
 
-const collabStore = useCollabStore()
 const commonStore = useCommonStore()
 const editorStore = useEditorStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
-const userStore = useUserStore()
 
 // I18N
 
 const { t } = useI18n()
 
 // COMPUTED
-
-/**
- * Whether this edit is shared with whoever else has the page open.
- *
- * Deliberately narrow. A page being created has no id to gather anyone around yet, and a suggestion is
- * one person's private draft of a page they may not write to — the server refuses a room for it, and
- * asking for one anyway would only produce a rejected socket on every keystroke of every suggestion.
- */
-const collabEnabled = computed(
-  () =>
-    siteStore.features.collaborativeEditing &&
-    userStore.authenticated &&
-    editorStore.mode === 'edit' &&
-    Boolean(pageStore.id)
-)
 
 /*
   The side toolbar's tooltips and dropdown menus popped OUTWARD, away from the icon column, which
@@ -477,19 +458,6 @@ let siteBlocks = []
 let debouncedContentChange = null
 let debouncedCursorPositionChange = null
 /**
- * Stop handles for the two collab watchers started in `onMounted`, kept for the same reason as the
- * debounced handlers above: both are created after this hook's first `await` (the settings/blocks
- * fetch), and Vue only auto-binds a `watch()` to the component's effect scope when it is created
- * synchronously during setup -- one created after an `await` is never auto-stopped on unmount, and
- * fires on for the life of the store. Left running past unmount, the `status` watcher calls
- * `editor.updateOptions()` against an editor `onBeforeUnmount` has already `dispose()`d (a console
- * error on every exit from a collab-enabled edit), and the `lastSave` watcher fires once per past
- * mount for a save from another collaborator -- duplicate "saved by X" notifications (OpenProject
- * #942). Explicitly `stop()`ed below instead.
- */
-let stopCollabStatusWatch = null
-let stopCollabLastSaveWatch = null
-/**
  * The pending `editor.focus()` timeout `insertAssetClb` schedules 500ms after an insert, kept so
  * `onBeforeUnmount` can `clearTimeout()` it -- left to fire after unmount it calls `.focus()` on an
  * editor `dispose()` has already torn down (OpenProject #943's related minor).
@@ -500,8 +468,6 @@ const editorPreviewContainerRef = ref(null)
 const editorMidRef = ref(null)
 const previewPaneRef = ref(null)
 
-/** Whether the resize divider is currently being dragged -- drives its highlight and the app-wide cursor/selection lockdown while dragging (`.is-resizing` on the component root). */
-const isDragging = ref(false)
 /**
  * Whether the preview pane has already played its entrance once this mount.
  *
@@ -513,22 +479,6 @@ const isDragging = ref(false)
  * this fix.
  */
 const previewEverRevealed = ref(false)
-
-/*
-  The active drag's own scratch state. Plain `let`s rather than `reactive`, matching `editor`/`md`/
-  `siteBlocks` above -- nothing here is read by the template directly (`state.previewWidth` and
-  `isDragging` are what render), so there is nothing reactivity would buy.
-*/
-/** Pointer clientX at the drag's start. */
-let dragStartX = 0
-/** `state.previewWidth` resolved to a concrete px number at the drag's start -- see `onDividerPointerDown`. */
-let dragStartWidthPx = 0
-/** +1 or -1: which way a growing `clientX` should move the width, measured fresh each drag (see `onDividerPointerDown`'s doc comment for why). */
-let dragSign = 1
-/** The most the preview may grow to in this drag, measured once at pointer-down (see `onDividerPointerDown`). */
-let dragMaxWidthPx = Infinity
-/** `state.previewWidth` as it was immediately before this drag began -- what a hide-snap restores. */
-let previousPreviewWidth = null
 
 /**
  * Blocks this site has switched off, as the tags they are written as.
@@ -574,23 +524,6 @@ const HEADER_ICONS = [
 const SYNC_SCROLL = { behavior: 'smooth', block: 'start', inline: 'nearest' }
 
 /**
- * Below this width (CSS px) the preview pane reads as broken rather than "small" -- dragging the
- * divider past this point snaps it into the existing hidden state instead of leaving an awkward
- * sliver. Picked from the middle of a reasonable 80-150px range: narrow enough that a deliberately
- * small-but-legible preview is still reachable before the snap, wide enough that "keep dragging and
- * it vanishes" reads as an intentional threshold rather than the pane getting stuck.
- */
-const PREVIEW_HIDE_THRESHOLD_PX = 100
-
-/**
- * The source pane never gives up more than this many px to the preview, however far the divider is
- * dragged. 280px is comfortably enough to still read a line of code past Monaco's line-number
- * gutter, and clamping here means every width check below only has to bound the preview's own
- * maximum, not chase "how small can the editor get" as a separate calculation.
- */
-const EDITOR_MIN_WIDTH_PX = 280
-
-/**
  * Whether the window is wide enough to open the preview beside the source.
  *
  * 1024 is the app's `md` breakpoint (`css/tailwind.css`). Below it the two panes are half a small window
@@ -632,6 +565,17 @@ const state = reactive({
   renderIsStale: false
 })
 
+/*
+  The resize divider's whole drag, and live collaboration's Monaco wiring -- both lifted out whole
+  (`composables/previewResize.js`, `composables/markdownCollab.js`). Each still reads this
+  component's own state: the divider writes `state.previewWidth`/`previewShown` and measures the two
+  panes, and the collab half is handed the editor once `onMounted` has created it.
+*/
+const { isDragging, onDividerPointerDown, onDividerPointerMove, onDividerPointerUp } =
+  usePreviewResize({ state, previewPaneRef, editorMidRef })
+
+const { start: startCollab, stop: stopCollab } = useMarkdownCollab()
+
 /**
  * Whether the resize divider is offered at all.
  *
@@ -666,6 +610,23 @@ const previewInlineStyle = computed(() => {
 
 // METHODS
 
+/*
+  The insert commands themselves live in `helpers/markdownInsert.js`, as plain functions over the
+  Monaco editor rather than closures over this component's own `editor`. Bound to it here, once, so
+  the template, the overlays' callbacks and the keybindings below go on calling them by exactly the
+  names and argument shapes they always have.
+*/
+const insertAtCursor = (opts) => insertCmd.insertAtCursor(editor, opts)
+const insertCodeBlock = (language) => insertCmd.insertCodeBlock(editor, language)
+const insertBlockClb = (markdown) => insertCmd.insertBlockClb(editor, markdown)
+const insertTableClb = (opts) => insertCmd.insertTableClb(editor, opts)
+const insertFootnote = () => insertCmd.insertFootnote(editor)
+const setHeaderLine = (lvl, focus) => insertCmd.setHeaderLine(editor, lvl, focus)
+const getHeaderLevel = () => insertCmd.getHeaderLevel(editor)
+const insertBeforeEachLine = (opts) => insertCmd.insertBeforeEachLine(editor, opts)
+const insertHorizontalBar = () => insertCmd.insertHorizontalBar(editor)
+const continueList = () => insertCmd.continueList(editor)
+
 function insertAssets() {
   siteStore.openFileManager({ insertMode: true })
 }
@@ -699,37 +660,6 @@ function insertAssetClb(opts) {
   insertAssetFocusTimeout = setTimeout(() => {
     editor.focus()
   }, 500)
-}
-
-/**
- * A fenced code block in the chosen language.
- *
- * Wraps the selection when there is one — marking a few lines and picking a language reads as "this is
- * code" — and otherwise opens an empty block with the caret on the line inside it, ready to type.
- *
- * The fence has to start a line of its own, so a cursor sitting mid-sentence breaks out of it first.
- */
-function insertCodeBlock(language) {
-  const model = editor.getModel()
-  const selection = editor.getSelection()
-  const selected = model.getValueInRange(selection)
-  const startLine = model.getLineContent(selection.startLineNumber)
-  const endLine = model.getLineContent(selection.endLineNumber)
-  const before = startLine.slice(0, selection.startColumn - 1).trim().length > 0 ? '\n\n' : ''
-  const after = endLine.slice(selection.endColumn - 1).trim().length > 0 ? '\n\n' : '\n'
-  editor.executeEdits('', [
-    {
-      range: selection,
-      text: `${before}\`\`\`${language}\n${selected}\n\`\`\`${after}`,
-      forceMoveMarkers: true
-    }
-  ])
-  if (!selected) {
-    // -> Onto the empty line between the fences, which is the only place typing makes sense next
-    const openerLine = selection.startLineNumber + (before ? 2 : 0)
-    editor.setPosition({ lineNumber: openerLine + 1, column: 1 })
-  }
-  editor.focus()
 }
 
 /**
@@ -788,20 +718,6 @@ async function insertTabset() {
       caption: apiErrorMessage(err)
     })
   }
-}
-
-/**
- * The block the picker built, on its own lines.
- *
- * MDC's block syntax only opens a component when `::` starts a line, so a cursor mid-sentence breaks
- * out of it first — the same rule the table follows.
- */
-function insertBlockClb(markdown) {
-  const position = editor.getPosition()
-  const line = editor.getModel().getLineContent(position.lineNumber)
-  const before = line.slice(0, position.column - 1).trim().length > 0 ? '\n\n' : ''
-  const after = line.slice(position.column - 1).trim().length > 0 ? '\n\n' : '\n'
-  insertAtCursor({ content: `${before}${markdown}${after}` })
 }
 
 function insertTable() {
@@ -879,42 +795,6 @@ function editBlock(line, name) {
 }
 
 /**
- * The table the overlay built: over the lines it was read from, or at the cursor when it is a new one.
- *
- * A new table is kept on its own line — a table only parses as one when its first row starts a line, so
- * inserting into the middle of a sentence has to break out of it, and the blank line after is what
- * separates it from whatever the cursor was sitting in front of.
- *
- * An edited one replaces exactly the lines it occupied, so nothing around it moves and one undo takes
- * the whole table back. The cursor lands at the top of it rather than staying wherever it was, which may
- * be inside the text that was just replaced.
- */
-function insertTableClb({ markdown, replace = null }) {
-  const model = editor.getModel()
-  if (replace) {
-    editor.executeEdits('table', [
-      {
-        range: new Range(
-          replace.startLine,
-          1,
-          replace.endLine,
-          model.getLineMaxColumn(replace.endLine)
-        ),
-        text: markdown
-      }
-    ])
-    editor.setPosition(new Position(replace.startLine, 1))
-    editor.focus()
-    return
-  }
-  const position = editor.getPosition()
-  const line = model.getLineContent(position.lineNumber)
-  const before = line.slice(0, position.column - 1).trim().length > 0 ? '\n\n' : ''
-  const after = line.slice(position.column - 1).trim().length > 0 ? '\n\n' : '\n'
-  insertAtCursor({ content: `${before}${markdown}${after}` })
-}
-
-/**
  * Insert a link, from the shared picker.
  *
  * Whatever is selected becomes the link's text, so marking a phrase and pressing the button reads as
@@ -924,87 +804,6 @@ function insertTableClb({ markdown, replace = null }) {
  * `{target="_blank"}` is markdown-it-attrs syntax, and `target` is one of the three attributes the
  * stored render is allowed to keep — see `renderers/markdown.js` and `models/rendering.ts`.
  */
-/**
- * The number to give the next footnote.
- *
- * Markdown numbers footnotes in the order they are referenced, not by their labels, so these are
- * names rather than positions — but an author reading the source expects them to count up, and two
- * notes sharing a name would collapse into one. Anything the author named themselves is left alone
- * and simply counted past.
- */
-function nextFootnoteLabel(text) {
-  let highest = 0
-  for (const [, label] of text.matchAll(/\[\^([^\]\s]+)\]/g)) {
-    if (/^\d+$/.test(label)) {
-      highest = Math.max(highest, Number.parseInt(label, 10))
-    }
-  }
-  return String(highest + 1)
-}
-
-/**
- * A footnote: the marker where the cursor is, and the note itself at the foot of the source.
- *
- * Both halves in one `executeEdits` call, because either alone is broken — a marker with no note
- * renders as literal text, and a note nothing refers to renders as nothing at all — and one call is
- * one undo step, so a single Ctrl+Z removes both rather than leaving the other stranded.
- *
- * The two edit ranges are computed from the same pre-edit snapshot, which collides them into one
- * when the cursor sits exactly at the document's end: that is where `insertFootnote` itself always
- * leaves the cursor afterwards (see below), so it is also where the cursor already is on every
- * repeated click with no typing in between. Two edits at an identical range would otherwise be
- * inserted concatenated with no separation — `[^1][^1]: ` instead of a properly delimited marker and
- * note. Detected explicitly as `cursorAtEnd` and folded into one edit instead of two, so the ranges
- * never collide to begin with. The cursor ends on the note, since writing it is what the author was
- * about to do; the marker is already where they left it.
- */
-function insertFootnote() {
-  const model = editor.getModel()
-  const label = nextFootnoteLabel(model.getValue())
-  const cursor = editor.getPosition()
-  const lastLine = model.getLineCount()
-  const lastLineLength = model.getLineContent(lastLine).length
-  const cursorAtEnd = cursor.lineNumber === lastLine && cursor.column === lastLineLength + 1
-
-  const marker = `[^${label}]`
-  /*
-    -> On a line of its own at the end, one blank line clear of whatever the page ends with. When the
-       cursor is at that end, the marker itself is what the line will end with once inserted, so the
-       gap is always needed there even if the line was empty beforehand.
-  */
-  const lead = cursorAtEnd || lastLineLength > 0 ? `\n\n` : ``
-  const note = `${lead}[^${label}]: `
-
-  editor.executeEdits(
-    '',
-    cursorAtEnd
-      ? [
-          {
-            range: new Range(cursor.lineNumber, cursor.column, cursor.lineNumber, cursor.column),
-            text: `${marker}${note}`,
-            forceMoveMarkers: true
-          }
-        ]
-      : [
-          {
-            range: new Range(cursor.lineNumber, cursor.column, cursor.lineNumber, cursor.column),
-            text: marker,
-            forceMoveMarkers: true
-          },
-          {
-            range: new Range(lastLine, lastLineLength + 1, lastLine, lastLineLength + 1),
-            text: note,
-            forceMoveMarkers: true
-          }
-        ]
-  )
-
-  const noteLine = model.getLineCount()
-  editor.setPosition({ lineNumber: noteLine, column: model.getLineContent(noteLine).length + 1 })
-  editor.revealLineInCenterIfOutsideViewport(noteLine)
-  editor.focus()
-}
-
 function insertLink() {
   dialog({ component: LinkPickerDialog }).onOk(({ href, openInNewTab, title }) => {
     const selection = editor.getSelection()
@@ -1024,321 +823,6 @@ function insertLink() {
     ])
     editor.focus()
   })
-}
-
-/**
- * Set current line as header
- */
-function setHeaderLine(lvl, focus = true) {
-  const curLine = editor.getPosition().lineNumber
-  let lineContent = editor.getModel().getLineContent(curLine)
-  const lineLength = lineContent.length
-  if (lineContent.startsWith('#')) {
-    lineContent = lineContent.replace(/^(#+ )/, '')
-  }
-  lineContent = '#'.repeat(lvl) + ' ' + lineContent
-  editor.executeEdits('', [
-    {
-      range: new Range(curLine, 1, curLine, lineLength + 1),
-      text: lineContent,
-      forceMoveMarkers: true
-    }
-  ])
-  if (focus) {
-    editor.focus()
-  }
-}
-
-/**
- * Get the header lever of the current line
- */
-function getHeaderLevel() {
-  const curLine = editor.getPosition().lineNumber
-  const lineContent = editor.getModel().getLineContent(curLine)
-  let lvl = 0
-  const result = lineContent.match(/^(#+) /)
-  if (result) {
-    lvl = (result?.[1] ?? '').length
-  }
-  return lvl
-}
-
-/**
- * Insert content at cursor
- */
-function insertAtCursor({ content, focus = true }) {
-  const cursor = editor.getPosition()
-  editor.executeEdits('', [
-    {
-      range: new Range(cursor.lineNumber, cursor.column, cursor.lineNumber, cursor.column),
-      text: content,
-      forceMoveMarkers: true
-    }
-  ])
-  if (focus) {
-    editor.focus()
-  }
-}
-
-/**
- * Insert content after current line
- */
-function insertAfter({ content, newLine, focus = true }) {
-  const curLine = editor.getPosition().lineNumber
-  const lineLength = editor.getModel().getLineContent(curLine).length
-  editor.executeEdits('', [
-    {
-      range: new Range(curLine, lineLength + 1, curLine, lineLength + 1),
-      text: newLine ? `\n\n${content}\n` : `\n${content}`,
-      forceMoveMarkers: true
-    }
-  ])
-  if (focus) {
-    editor.focus()
-    editor.revealLineInCenterIfOutsideViewport(editor.getPosition().lineNumber)
-  }
-}
-
-const TASK_LIST_MARKER_RE = /^(\s*)-\s\[([ xX])\]\s/
-const ORDERED_LIST_MARKER_RE = /^(\s*)(\d+)([.)])\s/
-const UNORDERED_LIST_MARKER_RE = /^(\s*)([-*+])\s/
-
-function detectListMarker(lineContent) {
-  let match = lineContent.match(TASK_LIST_MARKER_RE)
-  if (match) {
-    return { type: 'task', indent: match[1], markerLength: match[0].length }
-  }
-  match = lineContent.match(ORDERED_LIST_MARKER_RE)
-  if (match) {
-    return {
-      type: 'ordered',
-      indent: match[1],
-      markerLength: match[0].length,
-      number: Number.parseInt(match[2], 10),
-      delimiter: match[3]
-    }
-  }
-  match = lineContent.match(UNORDERED_LIST_MARKER_RE)
-  if (match) {
-    return { type: 'unordered', indent: match[1], markerLength: match[0].length, bullet: match[2] }
-  }
-  return null
-}
-
-function nextMarkerText(detected) {
-  switch (detected.type) {
-    case 'task':
-      return '- [ ] '
-    case 'ordered':
-      return `${detected.number + 1}${detected.delimiter} `
-    default:
-      return `${detected.bullet} `
-  }
-}
-
-function fallbackToDefaultEnter() {
-  editor.trigger('keyboard', 'type', { text: '\n' })
-}
-
-function continueList() {
-  const selections = editor.getSelections()
-  if (selections.length !== 1 || !selections[0].isEmpty()) {
-    fallbackToDefaultEnter()
-    return
-  }
-
-  const selection = selections[0]
-  const line = selection.startLineNumber
-  const column = selection.startColumn
-  const lineContent = editor.getModel().getLineContent(line)
-  const detected = detectListMarker(lineContent)
-
-  // -> A regex match doesn't mean the CURSOR is past the marker -- Enter pressed ahead of or
-  //    inside the marker itself (e.g. column 1, before the leading whitespace) isn't
-  //    continuation. Without this guard the split below would duplicate the marker onto the line
-  //    it pushes down, since "text before the cursor" would be empty and "text at/after the
-  //    cursor" would be the whole original marker-and-content line.
-  if (!detected || column < detected.markerLength + 1) {
-    fallbackToDefaultEnter()
-    return
-  }
-
-  const remainder = lineContent.slice(detected.markerLength)
-
-  if (remainder.length === 0) {
-    const lineMaxColumn = editor.getModel().getLineMaxColumn(line)
-    editor.executeEdits('wikijs.continueList', [
-      { range: new Range(line, 1, line, lineMaxColumn), text: '', forceMoveMarkers: true }
-    ])
-    return
-  }
-
-  const marker = detected.indent + nextMarkerText(detected)
-  editor.executeEdits('wikijs.continueList', [
-    { range: new Range(line, column, line, column), text: `\n${marker}`, forceMoveMarkers: true }
-  ])
-}
-
-/**
- * Insert content before current line
- *
- * `before` is a line of its own, put above the first of them — the `> [!NOTE]` that opens an
- * admonition. It rides along in that line's own edit rather than as an insertion of its own, so no
- * two edits in the batch start at the same position.
- */
-function insertBeforeEachLine({ content, before, focus = true }) {
-  const edits = []
-  for (const selection of editor.getSelections()) {
-    const lineCount = selection.endLineNumber - selection.startLineNumber + 1
-    const lines = Array.from({ length: lineCount }, (_, l) => l + selection.startLineNumber)
-    for (const line of lines) {
-      let lineContent = editor.getModel().getLineContent(line)
-      const lineLength = lineContent.length
-      if (lineContent.startsWith(content)) {
-        lineContent = lineContent.substring(content.length)
-      }
-      const opening = before && line === lines[0] ? `${before}\n` : ''
-      edits.push({
-        range: new Range(line, 1, line, lineLength + 1),
-        text: `${opening}${content}${lineContent}`,
-        forceMoveMarkers: true
-      })
-    }
-  }
-
-  editor.executeEdits('', edits)
-
-  if (focus) {
-    editor.focus()
-  }
-}
-
-/**
- * Insert an Horizontal Bar
- */
-function insertHorizontalBar() {
-  insertAfter({ content: '---', newLine: true })
-}
-
-/**
- * Pointer-down on the resize divider: begins tracking a drag, VS Code pane-resize style -- live
- * visual tracking on move (`onDividerPointerMove`), committed on release (`onDividerPointerUp`).
- *
- * Pointer capture is what lets a fast drag keep tracking correctly even once the pointer has moved
- * off the (deliberately narrow) divider itself and over the editor or preview pane -- without it,
- * `pointermove` would stop firing on this element the moment the cursor left its few px of width.
- *
- * The direction a growing `clientX` should move the width in is measured fresh from where the
- * divider actually sits relative to the preview pane, rather than assumed from `document.dir` the
- * way `sideToolbarTooltip` above does for a fixed anchor -- a resize divider's physical side of its
- * pane is exactly what a flex-row mirror under `dir="rtl"` swaps, so asking the DOM directly is what
- * keeps this correct in both directions without a parallel branch to keep in sync.
- */
-function onDividerPointerDown(ev) {
-  if (!previewPaneRef.value || !editorMidRef.value) {
-    return
-  }
-  ev.currentTarget.setPointerCapture(ev.pointerId)
-  const previewRect = previewPaneRef.value.getBoundingClientRect()
-  const midRect = editorMidRef.value.getBoundingClientRect()
-  const dividerRect = ev.currentTarget.getBoundingClientRect()
-
-  dragStartX = ev.clientX
-  previousPreviewWidth = state.previewWidth
-  dragStartWidthPx = state.previewWidth ?? previewRect.width
-  dragSign = previewRect.left < dividerRect.left ? 1 : -1
-  /*
-    Both panes' current widths, combined, are exactly the space the two of them have to split between
-    them -- independent of the sidebar or the viewport, and stable for the length of one drag (the
-    window is not expected to be resized mid-drag).
-  */
-  dragMaxWidthPx = Math.max(
-    PREVIEW_HIDE_THRESHOLD_PX,
-    midRect.width + previewRect.width - EDITOR_MIN_WIDTH_PX
-  )
-  isDragging.value = true
-}
-
-/** Live drag tracking: applies the new width immediately, clamped to this drag's own bounds. */
-function onDividerPointerMove(ev) {
-  if (!isDragging.value) {
-    return
-  }
-  const delta = (ev.clientX - dragStartX) * dragSign
-  state.previewWidth = Math.min(Math.max(dragStartWidthPx + delta, 0), dragMaxWidthPx)
-}
-
-/**
- * Pointer-up (or -cancel): commits the drag.
- *
- * A release at or above the hide threshold persists the new width. A release below it hands off to
- * the existing hidden state (the same `previewShown = false` the toolbar's own hide button sets)
- * instead of leaving an awkward sliver, restoring `previewWidth` to the width the pane actually had
- * before this drag (`previousPreviewWidth`) rather than leaving it at the small in-drag value --
- * otherwise the close animation would shrink from that sliver instead of the pane's real size.
- *
- * That restore is written to the DOM directly, synchronously, in the same turn as flipping
- * `previewShown` -- not through the reactive `state.previewWidth` binding a moment earlier, and not
- * deferred to after the close transition (`@after-leave`) the way this used to work. Two things rule
- * those out:
- *
- * - Writing `state.previewWidth` here and letting Vue's own render pick it up does nothing for the
- *   *leaving* element: once `previewShown` is false in the same update, the pane's `v-if` branch is
- *   absent from the new vnode tree, so Vue never re-patches its style from the new state -- it just
- *   tears down the DOM node as last rendered (still at the small in-drag width). Deferring the
- *   restore to `@after-leave` used to work around exactly that, at the cost of the underlying value
- *   staying wrong, invisibly, for the whole close animation.
- * - Splitting the restore into its own render first (e.g. an `await nextTick()` before the flip)
- *   would let Vue patch the big width onto the still-open pane, but does not guarantee no paint lands
- *   between that patch and the leave starting -- which would show the exact pop-then-shut this snap
- *   exists to avoid: a static hold at the full width before it starts shrinking.
- *
- * Setting the inline style imperatively and flipping `previewShown` in the same synchronous call
- * sidesteps both: the DOM already reflects the real width by the time Vue's `<transition>` captures
- * its leave-active starting point, with no intervening render for the browser to paint.
- */
-function onDividerPointerUp() {
-  if (!isDragging.value) {
-    return
-  }
-  isDragging.value = false
-  if (state.previewWidth < PREVIEW_HIDE_THRESHOLD_PX) {
-    if (previewPaneRef.value && typeof previousPreviewWidth === 'number') {
-      previewPaneRef.value.style.setProperty('--preview-width', `${previousPreviewWidth}px`)
-      previewPaneRef.value.style.flex = `0 0 ${previousPreviewWidth}px`
-    }
-    state.previewWidth = previousPreviewWidth
-    state.previewShown = false
-  } else {
-    persistPreviewWidth(state.previewWidth)
-  }
-}
-
-/**
- * Saves this user's chosen preview width the same way `EditorMarkdownUserSettingsOverlay` saves font
- * size and preview-shown -- a full replace of `users/profile/editor-settings/markdown` (see that
- * overlay's `save()`).
- *
- * The merge base is `editorStore.userSettings.markdown`, not this component's own live `previewShown`
- * / font size: those are session-only here (this component never saves either on its own, only the
- * settings overlay's explicit Save does), so writing them out from this path would start silently
- * persisting a toggle the user never asked to persist. `fetchUserSettings` populates the store field
- * on mount, and the settings overlay patches it too on its own successful save, so either order --
- * drag then open settings, or open settings then drag -- reads the other's latest write rather than
- * stomping it.
- */
-async function persistPreviewWidth(px) {
-  const payload = { ...editorStore.userSettings.markdown, previewWidth: px }
-  try {
-    await API_CLIENT.put('users/profile/editor-settings/markdown', {
-      json: payload
-    }).json()
-    editorStore.$patch({
-      userSettings: { ...editorStore.userSettings, markdown: payload }
-    })
-  } catch (err) {
-    console.warn(`Could not save the Markdown editor's preview width: ${apiErrorMessage(err)}`)
-  }
 }
 
 /**
@@ -1995,9 +1479,7 @@ onMounted(async () => {
 
   // -> Handle content change
   debouncedContentChange = debounce((ev) => {
-    editorStore.$patch({
-      lastChangeTimestamp: Temporal.Now.instant()
-    })
+    editorStore.markDirty()
     // -> What the author has typed IS the source, whatever the load did or did not deliver; see
     //    the guard in `pageSave`
     pageStore.contentLoaded = true
@@ -2054,73 +1536,7 @@ onMounted(async () => {
 
   // -> Live collaboration
 
-  if (collabEnabled.value) {
-    /*
-      "Someone else already has this open" -- said once, before the collab session below has even
-      asked to connect. `pageStore.activeEditors` came with the page itself (`viewer.activeEditors` on
-      `GET .../pages/:id`, task 546), read off whatever room `core/collab.ts` already has for it on
-      this instance -- so this can be shown immediately, without waiting on a socket.
-    */
-    if (pageStore.activeEditors.count > 0) {
-      notify({
-        type: 'info',
-        message: t('editor.collab.activeEditors', pageStore.activeEditors.count, {
-          count: pageStore.activeEditors.count
-        })
-      })
-    }
-
-    /*
-      Read-only until the shared document has arrived, and only that first time.
-
-      The binding below starts by making the editor say what the document says, so anything typed
-      before it exists is about to be overwritten -- by an empty document, if the sync has not landed
-      yet. The session gives up after a few seconds (a proxy that does not forward websocket upgrades
-      is the usual reason) and the editor is released as an ordinary one, so this cannot strand an
-      author in a page they are unable to type in.
-    */
-    editor.updateOptions({ readOnly: true })
-    startCollabSession({ siteId: siteStore.id, pageId: pageStore.id })
-
-    stopCollabStatusWatch = watch(
-      () => collabStore.status,
-      (status) => {
-        const effects = collabStatusEffects(status, collabStore.hasSynced)
-        if (effects.shouldBindEditor) {
-          bindCollabEditor((ytext, awareness) => {
-            const model = editor.getModel()
-            if (!model) {
-              return null
-            }
-            return new MonacoBinding(ytext, model, new Set([editor]), awareness)
-          })
-        }
-        editor.updateOptions({ readOnly: effects.readOnly })
-        if (effects.notifyDenied) {
-          notify({
-            type: 'warning',
-            message: t('editor.collab.notAllowed')
-          })
-        }
-      }
-    )
-
-    /*
-      Somebody else saved the page. The editor state has already been put back to "nothing pending" by
-      the session -- this is only so that the author is told why their Save button went quiet.
-    */
-    stopCollabLastSaveWatch = watch(
-      () => collabStore.lastSave,
-      (lastSave) => {
-        if (lastSave && lastSave.authorId !== userStore.id) {
-          notify({
-            type: 'positive',
-            message: t('editor.collab.savedBy', { name: lastSave.authorName })
-          })
-        }
-      }
-    )
-  }
+  startCollab(editor)
 
   // -> Post init
 
@@ -2174,15 +1590,9 @@ onBeforeUnmount(() => {
   debouncedContentChange?.cancel()
   debouncedCursorPositionChange?.cancel()
   clearTimeout(insertAssetFocusTimeout)
-  // -> Stopped before `stopCollabSession()` below patches `collabStore.status` to `off` -- these were
-  //    started after `onMounted`'s first `await` so Vue never auto-bound them to this component's
-  //    effect scope, and left running they fire past unmount against a disposed editor (OpenProject
-  //    #942).
-  stopCollabStatusWatch?.()
-  stopCollabLastSaveWatch?.()
-  // -> Before the editor goes: the binding is holding the model, and leaving the room is what takes
-  //    this author's avatar out of everyone else's header
-  stopCollabSession()
+  // -> Before the editor goes: the collab watchers still reach for it, the binding is holding the
+  //    model, and leaving the room is what takes this author's avatar out of everyone else's header
+  stopCollab()
   if (editor) {
     editor.dispose()
   }

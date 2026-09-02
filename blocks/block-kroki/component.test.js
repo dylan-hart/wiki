@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
 import './component.js'
+import { describeDarkMode } from '../test/darkMode.js'
+import { mountBlock, resetBlockDom } from '../test/mount.js'
 
 /**
  * `block-kroki` encodes diagram source straight into a GET URL with no POST fallback (see
@@ -11,25 +13,14 @@ import './component.js'
  * made.
  */
 
-async function mountKroki(body = '', attrs = {}) {
-  const el = document.createElement('block-kroki')
-  const pre = document.createElement('pre')
-  pre.textContent = body
-  el.appendChild(pre)
-  Object.assign(el, attrs)
-  document.body.appendChild(el)
-  await el.updateComplete
-  // -> firstUpdated() kicks off _draw() without awaiting it (encoding now goes through the async
-  //    CompressionStream), so the state change it produces lands after this first update cycle.
-  await el._ready
-  await el.updateComplete
-  return el
-}
+// -> The `settle` hook: firstUpdated() kicks off _draw() without awaiting it (encoding goes through
+//    the async CompressionStream), so the state change it produces lands after the first update
+//    cycle — `_ready` is the handle `DiagramImageElement` keeps on that work for exactly this.
+const mountKroki = (body = '', props = {}) =>
+  mountBlock('block-kroki', { pre: body, props, settle: (el) => el._ready })
 
 describe('block-kroki', () => {
-  afterEach(() => {
-    document.body.replaceChildren()
-  })
+  afterEach(resetBlockDom)
 
   it('draws a small diagram normally, with no error', async () => {
     const el = await mountKroki('digraph G {\n  Hello -> World\n}')
@@ -58,4 +49,9 @@ describe('block-kroki', () => {
     // -> No request should ever have been attempted for a diagram refused before it was drawn
     expect(el.shadowRoot.querySelector('img')).toBeNull()
   })
+
+  // -> Inherited from `shared/diagram-image.js`'s `DiagramImageElement`, which constructs the
+  //    controller for both remote-image diagram blocks — see `shared/video-embed.test.js` for the
+  //    other half of that split.
+  describeDarkMode(() => mountKroki('digraph G {\n  Hello -> World\n}'))
 })

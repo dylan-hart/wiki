@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
+import { flushPromises } from '@vue/test-utils'
 
 import WebhookHistoryDialog from './WebhookHistoryDialog.vue'
 import { useUserStore } from '@/stores/user'
+
+import { mountWithApp } from '../../test/mount.js'
 
 /**
  * `getDeliveryHistory()`'s API surface — a status icon/color per row plus the error message on
@@ -12,8 +12,6 @@ import { useUserStore } from '@/stores/user'
  * own state. The dialog fetches on mount via `API_CLIENT`, stubbed here per `test/setup.js`.
  */
 function mountDialog(deliveries, { total } = {}) {
-  setActivePinia(createPinia())
-
   API_CLIENT.get.mockReturnValueOnce({
     json: () =>
       Promise.resolve({
@@ -23,20 +21,15 @@ function mountDialog(deliveries, { total } = {}) {
       })
   })
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: { en: { common: { datetime: '{date} at {time}' } } }
-  })
-
-  return mount(WebhookHistoryDialog, {
+  return mountWithApp(WebhookHistoryDialog, {
     props: {
       hook: { id: 'hook-1', name: 'My Webhook' }
     },
-    global: {
-      plugins: [i18n]
-    }
-  })
+    messages: { common: { datetime: '{date} at {time}' } },
+    // -> Opts out of `mountWithApp`'s default `teleport: true` stub: `w-dialog` really teleports
+    //    its body to `document.body`, which is where this suite asserts.
+    stubs: {}
+  }).wrapper
 }
 
 describe('WebhookHistoryDialog', () => {

@@ -5,11 +5,12 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AdminSearch from './AdminSearch.vue'
 import { useAdminStore } from '@/stores/admin'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Task #571 -- `AdminSearch.vue` rebuilt around a per-site engine picker -- plus task #572's dynamic
@@ -42,7 +43,7 @@ function engine(overrides = {}) {
 }
 
 function mountAdminSearch() {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   return mount(AdminSearch, {
     global: {
       plugins: [i18n]
@@ -182,7 +183,7 @@ describe('AdminSearch engine picker', () => {
 
     expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).toContain('API Key')
-    expect(wrapper.find('[aria-label="API Key"] input').element.value).toBe('stored-value')
+    expect(wrapper.find('input[aria-label="API Key"]').element.value).toBe('stored-value')
   })
 
   describe('config form (task #572)', () => {
@@ -215,7 +216,7 @@ describe('AdminSearch engine picker', () => {
       await flushPromises()
 
       expect(wrapper.find('[role="switch"]').exists()).toBe(true)
-      const pwInput = wrapper.find('[aria-label="API Key"] input')
+      const pwInput = wrapper.find('input[aria-label="API Key"]')
       expect(pwInput.attributes('type')).toBe('password')
     })
 
@@ -265,7 +266,7 @@ describe('AdminSearch engine picker', () => {
       const wrapper = mountAdminSearch()
       await flushPromises()
 
-      const indexInput = wrapper.find('[aria-label="Index Name"] input')
+      const indexInput = wrapper.find('input[aria-label="Index Name"]')
       expect(indexInput.attributes('disabled')).toBeDefined()
 
       API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })

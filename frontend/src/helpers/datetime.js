@@ -9,7 +9,7 @@ import { useCommonStore } from '@/stores/common'
  * had each grown their own ABSOLUTE-timestamp formatter, calling
  * `Temporal.Instant.prototype.toLocaleString` directly with a hardcoded field list in the browser's
  * system zone — ignoring the `timezone`, `dateFormat` and `timeFormat` a user actually chose in their
- * profile. Both delegate to `userStore.formatDateTime`/`formatDateTimeWithSeconds`, the single source
+ * profile. Both delegate to `userStore.formatDateTime`, the single source
  * of truth for those three preferences (built on `toUserZone`, `stores/user.js:39-52`) — this file just
  * adds the `'---'` guard every call site wants and gives the delegation one importable name, so a
  * screen no longer needs its own `humanizeDate(val) { … }` wrapper just to pass `t` through.
@@ -59,6 +59,19 @@ export function humanizeDateWithSeconds(t, value) {
     return '---'
   }
   return useUserStore().formatDateTime(t, value, { seconds: true })
+}
+
+/**
+ * Whether a moment has already gone by.
+ *
+ * Temporal types carry no `valueOf`, so `a < b` throws rather than comparing — `Instant.compare` is
+ * the comparison, and `<= 0` puts "exactly now" in the past, which is what an expiry means.
+ *
+ * @param {string} iso An ISO instant, as the API returns.
+ * @returns {boolean}
+ */
+export function isPast(iso) {
+  return Temporal.Instant.compare(Temporal.Instant.from(iso), Temporal.Now.instant()) <= 0
 }
 
 const formatterCache = new Map()

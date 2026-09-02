@@ -42,6 +42,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { useToggleModel } from '@/composables/toggleModel'
 
 /**
  * Checkbox. Binds either a boolean, or a value within an array of selections via `val`.
@@ -94,24 +95,10 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue'])
 
-const isArrayModel = computed(() => Array.isArray(props.modelValue))
-const isOn = computed(() =>
-  isArrayModel.value ? props.modelValue.includes(props.val) : props.modelValue === true
-)
-const isDisabled = computed(() => props.disabled)
+// -> The boolean-or-array model is shared with WToggle; see `composables/toggleModel.js`
+const { isOn, toggle } = useToggleModel(props, emit)
 
-function toggle() {
-  if (isArrayModel.value) {
-    emit(
-      'update:modelValue',
-      isOn.value
-        ? props.modelValue.filter((v) => v !== props.val)
-        : [...props.modelValue, props.val]
-    )
-  } else {
-    emit('update:modelValue', !isOn.value)
-  }
-}
+const isDisabled = computed(() => props.disabled)
 </script>
 
 <style scoped>

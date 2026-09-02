@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, test } from 'node:test'
-import fastify from 'fastify'
-import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import { randomUUID } from 'node:crypto'
+import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 import glossaryRoutes from './glossary.ts'
-import { registerSchemas as registerGlossarySchema } from './schemas/glossaryTerm.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Route-level coverage for `api/glossary.ts` (OpenProject #870), against a fake `WIKI.models.glossary`
@@ -38,91 +36,82 @@ let getVersionResult: any
 let restoreVersionCalls: any[]
 
 before(async () => {
-  app = fastify()
-  await app.register(fastifySensible)
-  // -> Mirrors `index.ts`'s real `setErrorHandler` -- see `hooks.test.ts`'s identical comment
-  app.setErrorHandler((error: any, req, reply) => {
-    reply.code(error.statusCode ?? 500).send({
-      ok: false,
-      error: error.name,
-      statusCode: error.statusCode ?? 500,
-      message: error.message
-    })
-  })
-  await registerGlossarySchema(app)
-  await registerErrorSchema(app)
-  await app.register(glossaryRoutes)
-  await app.ready()
-
-  ;(globalThis as any).WIKI = {
-    sites: { [SITE_1_ID]: { id: SITE_1_ID, config: {} } },
-    models: {
-      groups: {
-        // -> OpenProject #1127: the route hands this straight to `getCachedTerms` as its `actor` --
-        //    a fixed sentinel is enough to prove the wiring, since permission filtering itself is
-        //    `models/groups.ts`/`models/glossary.ts`'s own DB-backed coverage, not this route's.
-        actorForRequest: () => ACTOR_SENTINEL
-      },
-      glossary: {
-        listTerms: async (siteId: string) => {
-          listTermsCalls.push(siteId)
-          return [{ id: TERM_ID, term: 'API', definition: 'Application Programming Interface.' }]
+  // -> The unknown-site 404 lives in one hook now (spec D1), not in each route handler, so a
+  //    plugin-only app has to register it to answer that case the way the real app does. Wrapped
+  //    around the route plugin so it runs inside the same encapsulation the routes are in.
+  const guardedRoutes: FastifyPluginAsync = async (instance) => {
+    instance.addHook('preHandler', siteEnabledPreHandler)
+    await instance.register(glossaryRoutes)
+  }
+  app = await buildTestApp({
+    routes: guardedRoutes,
+    wiki: {
+      sites: { [SITE_1_ID]: { id: SITE_1_ID, config: {} } },
+      models: {
+        groups: {
+          // -> OpenProject #1127: the route hands this straight to `getCachedTerms` as its `actor` --
+          //    a fixed sentinel is enough to prove the wiring, since permission filtering itself is
+          //    `models/groups.ts`/`models/glossary.ts`'s own DB-backed coverage, not this route's.
+          actorForRequest: () => ACTOR_SENTINEL
         },
-        getCachedTerms: async (siteId: string, actor: any) => {
-          getCachedTermsCalls.push({ siteId, actor })
-          return [{ term: 'API', definition: 'Application Programming Interface.', link: null }]
-        },
-        createTerm: async (siteId: string, values: any) => {
-          createTermCalls.push({ siteId, values })
-          return { id: 'new-term-id', ...values }
-        },
-        updateTerm: async (siteId: string, id: string, values: any) => {
-          updateTermCalls.push({ siteId, id, values })
-          return { id, term: 'API', definition: 'Updated.', pageId: null, ...values }
-        },
-        deleteTerm: async (siteId: string, id: string) => {
-          deleteTermCalls.push({ siteId, id })
-          return deleteTermResult
-        },
-        exportTerms: async (siteId: string) => {
-          exportTermsCalls.push(siteId)
-          return { formatVersion: 1, terms: [] }
-        },
-        importTerms: async (siteId: string, data: any) => {
-          importTermsCalls.push({ siteId, data })
-          return [{ id: 'imported-1', ...data.terms[0] }]
-        },
-        saveVersion: async (siteId: string, terms: any, actor: any) => {
-          saveVersionCalls.push({ siteId, terms, actor })
-          return {
-            terms: terms.map((t: any, i: number) => ({ id: `saved-${i}`, ...t })),
-            version: { id: VERSION_ID, termCount: terms.length, actorId: null, actorName: '' }
-          }
-        },
-        listVersions: async (siteId: string) => {
-          listVersionsCalls.push(siteId)
-          return [{ id: VERSION_ID, termCount: 1, actorId: null, actorName: '' }]
-        },
-        getVersion: async (siteId: string, versionId: string) => {
-          getVersionCalls.push({ siteId, versionId })
-          return getVersionResult
-        },
-        restoreVersion: async (siteId: string, versionId: string, actor: any) => {
-          restoreVersionCalls.push({ siteId, versionId, actor })
-          return {
-            terms: [],
-            version: { id: 'restored-version', termCount: 0, actorId: null, actorName: '' }
+        glossary: {
+          listTerms: async (siteId: string) => {
+            listTermsCalls.push(siteId)
+            return [{ id: TERM_ID, term: 'API', definition: 'Application Programming Interface.' }]
+          },
+          getCachedTerms: async (siteId: string, actor: any) => {
+            getCachedTermsCalls.push({ siteId, actor })
+            return [{ term: 'API', definition: 'Application Programming Interface.', link: null }]
+          },
+          createTerm: async (siteId: string, values: any) => {
+            createTermCalls.push({ siteId, values })
+            return { id: 'new-term-id', ...values }
+          },
+          updateTerm: async (siteId: string, id: string, values: any) => {
+            updateTermCalls.push({ siteId, id, values })
+            return { id, term: 'API', definition: 'Updated.', pageId: null, ...values }
+          },
+          deleteTerm: async (siteId: string, id: string) => {
+            deleteTermCalls.push({ siteId, id })
+            return deleteTermResult
+          },
+          exportTerms: async (siteId: string) => {
+            exportTermsCalls.push(siteId)
+            return { formatVersion: 1, terms: [] }
+          },
+          importTerms: async (siteId: string, data: any) => {
+            importTermsCalls.push({ siteId, data })
+            return [{ id: 'imported-1', ...data.terms[0] }]
+          },
+          saveVersion: async (siteId: string, terms: any, actor: any) => {
+            saveVersionCalls.push({ siteId, terms, actor })
+            return {
+              terms: terms.map((t: any, i: number) => ({ id: `saved-${i}`, ...t })),
+              version: { id: VERSION_ID, termCount: terms.length, actorId: null, actorName: '' }
+            }
+          },
+          listVersions: async (siteId: string) => {
+            listVersionsCalls.push(siteId)
+            return [{ id: VERSION_ID, termCount: 1, actorId: null, actorName: '' }]
+          },
+          getVersion: async (siteId: string, versionId: string) => {
+            getVersionCalls.push({ siteId, versionId })
+            return getVersionResult
+          },
+          restoreVersion: async (siteId: string, versionId: string, actor: any) => {
+            restoreVersionCalls.push({ siteId, versionId, actor })
+            return {
+              terms: [],
+              version: { id: 'restored-version', termCount: 0, actorId: null, actorName: '' }
+            }
           }
         }
       }
     }
-  }
+  })
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 beforeEach(() => {
   listTermsCalls = []
