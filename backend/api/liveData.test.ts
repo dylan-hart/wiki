@@ -3,12 +3,13 @@ import { after, before, beforeEach, describe, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
+import { siteEnabledPreHandler } from '../helpers/common.ts'
 import liveDataRoutes from './liveData.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 
 /**
- * A unit-level test of the route's own wiring — site lookup, the block-enabled gate, response
- * pass-through — with `WIKI.models.sites`/`blocks`/`liveData` stubbed rather than a real database or
+ * A unit-level test of the route's own wiring — the shared site preHandler, the block-enabled gate,
+ * response pass-through — with `WIKI.sites`/`models.blocks`/`models.liveData` stubbed rather than a real database or
  * network call. `models/liveData.test.ts` proves `resolve()` itself (caching, credential resolution,
  * JSONPath extraction, upstream error handling).
  */
@@ -16,9 +17,6 @@ describe('POST /sites/:siteId/live-data/resolve', () => {
   const SITE_ID = '5d9c8f1e-2b3a-4c5d-9e6f-7a8b9c0d1e2f'
 
   const sites: Record<string, any> = { [SITE_ID]: { id: SITE_ID } }
-  async function getSiteById({ id }: { id: string }) {
-    return sites[id] ?? null
-  }
 
   let enabledKeys = new Set(['live-data'])
   let resolveCalls: Array<{ siteId: string; request: any }>
@@ -36,8 +34,8 @@ describe('POST /sites/:siteId/live-data/resolve', () => {
 
   before(async () => {
     ;(globalThis as any).WIKI = {
+      sites,
       models: {
-        sites: { getSiteById },
         blocks: { getEnabledKeys },
         liveData: { resolve }
       }
@@ -66,6 +64,9 @@ describe('POST /sites/:siteId/live-data/resolve', () => {
       })
     })
     await registerErrorSchema(app)
+    // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
+    //    plugin-only app has to register it to answer that case the way the real app does.
+    app.addHook('preHandler', siteEnabledPreHandler)
     await app.register(liveDataRoutes)
     await app.ready()
   })

@@ -3,13 +3,15 @@ import { after, before, beforeEach, describe, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
+import { siteEnabledPreHandler } from '../helpers/common.ts'
 import blockCredentialsRoutes from './blockCredentials.ts'
 import { registerSchemas as registerBlockCredentialSchema } from './schemas/blockCredential.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 
 /**
- * A unit-level test of the route's own wiring — site lookup, the `manage:sites`/`site:blocks` gate,
- * response shape — with `WIKI.models.sites`/`blockCredentials`/`groups` stubbed rather than a real
+ * A unit-level test of the route's own wiring — the shared site preHandler, the `manage:sites`/
+ * `site:blocks` gate, response shape — with `WIKI.sites`/`models.blockCredentials`/`models.groups`
+ * stubbed rather than a real
  * database, the same way `api/blocks.test.ts`'s PUT/DELETE suite covers `mayManageBlocks`.
  * `models/blockCredentials.test.ts` is what proves the model itself against a real database.
  */
@@ -18,9 +20,6 @@ describe('block credentials API (site-scoped delegation)', () => {
   const CREDENTIAL_ID = 'a1b2c3d4-e5f6-4789-9abc-def012345678'
 
   const sites: Record<string, any> = { [SITE_ID]: { id: SITE_ID } }
-  async function getSiteById({ id }: { id: string }) {
-    return sites[id] ?? null
-  }
 
   let createCredentialCalls: Array<{
     siteId: string
@@ -96,8 +95,8 @@ describe('block credentials API (site-scoped delegation)', () => {
 
   before(async () => {
     ;(globalThis as any).WIKI = {
+      sites,
       models: {
-        sites: { getSiteById },
         blockCredentials: {
           getSiteCredentials,
           createCredential,
@@ -125,6 +124,9 @@ describe('block credentials API (site-scoped delegation)', () => {
       currentSitePermissionHeader = req.headers['x-test-site-permissions']
       done()
     })
+    // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
+    //    plugin-only app has to register it to answer that case the way the real app does.
+    app.addHook('preHandler', siteEnabledPreHandler)
     await app.register(blockCredentialsRoutes)
     await app.ready()
   })

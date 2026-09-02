@@ -4,6 +4,7 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import { randomUUID } from 'node:crypto'
+import { siteEnabledPreHandler } from '../helpers/common.ts'
 import glossaryRoutes from './glossary.ts'
 import { registerSchemas as registerGlossarySchema } from './schemas/glossaryTerm.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
@@ -51,6 +52,9 @@ before(async () => {
   })
   await registerGlossarySchema(app)
   await registerErrorSchema(app)
+  // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
+  //    plugin-only app has to register it to answer that case the way the real app does.
+  app.addHook('preHandler', siteEnabledPreHandler)
   await app.register(glossaryRoutes)
   await app.ready()
 

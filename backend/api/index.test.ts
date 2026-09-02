@@ -6,7 +6,11 @@ import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import ajvFormats from 'ajv-formats'
 import apiRoutes from './index.ts'
-import { siteEnabledPreHandler, SITE_DISABLED_MESSAGE } from '../helpers/common.ts'
+import {
+  siteEnabledPreHandler,
+  SITE_DISABLED_MESSAGE,
+  SITE_MISSING_MESSAGE
+} from '../helpers/common.ts'
 
 /**
  * OpenProject task 1593: `guardSiteEnabled` moved from nine hand-applied call sites (one per route
@@ -15,9 +19,12 @@ import { siteEnabledPreHandler, SITE_DISABLED_MESSAGE } from '../helpers/common.
  * are worth locking down, since none of them can regress silently the way a hand-applied call site's
  * *absence* used to:
  *
- * 1. The preHandler function itself answers the four cases correctly (below, direct unit tests).
- * 2. Wired into a real Fastify request lifecycle, it actually blocks a disabled site's request before
- *    a route handler ever runs, and lets everything else through (below, an `app.inject` round trip).
+ * 1. The preHandler function itself answers the four cases correctly (below, direct unit tests) —
+ *    including the unknown-site `404` it also owns now (spec D1): the 36 hand-written site-existence
+ *    preambles that used to answer that per route, in two different spellings, are gone.
+ * 2. Wired into a real Fastify request lifecycle, it actually blocks a disabled site's request (and an
+ *    unknown site's) before a route handler ever runs, and lets everything else through (below, an
+ *    `app.inject` round trip).
  * 3. The site-scoped route surface it is meant to cover is broad — GET PAGE, UNLOCK, history,
  *    exports, the tree, asset upload/rename/delete, comments, navigation, live-data and glossary —
  *    not just the three routes (LIST/SEARCH/INCLUDE) OpenProject task 699 originally guarded by hand.
@@ -35,12 +42,16 @@ import { siteEnabledPreHandler, SITE_DISABLED_MESSAGE } from '../helpers/common.
  * `bootstrap.ts`'s own doc comment on that call site.
  */
 
-/** A stand-in for `FastifyReply` that records the one method `guardSiteEnabled` may call. */
+/** A stand-in for `FastifyReply` recording the two methods `siteEnabledPreHandler` may call. */
 function fakeReply() {
-  const calls: { forbidden: string[] } = { forbidden: [] }
+  const calls: { forbidden: string[]; notFound: string[] } = { forbidden: [], notFound: [] }
   const reply: any = {
     forbidden(message: string) {
       calls.forbidden.push(message)
+      return reply
+    },
+    notFound(message: string) {
+      calls.notFound.push(message)
       return reply
     }
   }
@@ -77,6 +88,7 @@ describe('siteEnabledPreHandler', () => {
     siteEnabledPreHandler({ params: {} } as any, reply, done)
     assert.equal(wasCalled(), true)
     assert.deepEqual(calls.forbidden, [])
+    assert.deepEqual(calls.notFound, [])
   })
 
   test('an enabled site passes through', () => {
@@ -85,6 +97,7 @@ describe('siteEnabledPreHandler', () => {
     siteEnabledPreHandler({ params: { siteId: ENABLED_SITE_ID } } as any, reply, done)
     assert.equal(wasCalled(), true)
     assert.deepEqual(calls.forbidden, [])
+    assert.deepEqual(calls.notFound, [])
   })
 
   test('a disabled site is refused 403 and never reaches done()', () => {
@@ -93,13 +106,15 @@ describe('siteEnabledPreHandler', () => {
     siteEnabledPreHandler({ params: { siteId: DISABLED_SITE_ID } } as any, reply, done)
     assert.equal(wasCalled(), false)
     assert.deepEqual(calls.forbidden, [SITE_DISABLED_MESSAGE])
+    assert.deepEqual(calls.notFound, [])
   })
 
-  test("an unknown siteId is not this preHandler's problem — passes through, same as guardSiteEnabled always has", () => {
+  test('an unknown siteId is refused 404 and never reaches done()', () => {
     const { reply, calls } = fakeReply()
     const { done, wasCalled } = fakeDone()
     siteEnabledPreHandler({ params: { siteId: UNKNOWN_SITE_ID } } as any, reply, done)
-    assert.equal(wasCalled(), true)
+    assert.equal(wasCalled(), false)
+    assert.deepEqual(calls.notFound, [SITE_MISSING_MESSAGE])
     assert.deepEqual(calls.forbidden, [])
   })
 })
@@ -107,6 +122,7 @@ describe('siteEnabledPreHandler', () => {
 describe('siteEnabledPreHandler — wired into a real request lifecycle', () => {
   const ENABLED_SITE_ID = '11111111-1111-4111-8111-111111111111'
   const DISABLED_SITE_ID = '22222222-2222-4222-8222-222222222222'
+  const UNKNOWN_SITE_ID = '99999999-9999-4999-8999-999999999999'
 
   const sites: Record<string, any> = {
     [ENABLED_SITE_ID]: { id: ENABLED_SITE_ID, isEnabled: true },
@@ -149,6 +165,14 @@ describe('siteEnabledPreHandler — wired into a real request lifecycle', () => 
     const res = await app.inject({ method: 'GET', url: `/sites/${DISABLED_SITE_ID}/probe` })
     assert.equal(res.statusCode, 403)
     assert.match(res.json().message, /disabled/i)
+    assert.equal(handlerCalls, 0)
+  })
+
+  test('an unknown site is refused 404 before the handler runs', async () => {
+    handlerCalls = 0
+    const res = await app.inject({ method: 'GET', url: `/sites/${UNKNOWN_SITE_ID}/probe` })
+    assert.equal(res.statusCode, 404)
+    assert.equal(res.json().message, SITE_MISSING_MESSAGE)
     assert.equal(handlerCalls, 0)
   })
 
@@ -302,6 +326,7 @@ describe('site-scoped route surface (covered by the shared preHandler)', () => {
  */
 describe('the real api/index.ts, fully booted', () => {
   const DISABLED_SITE_ID = '22222222-2222-4222-8222-222222222222'
+  const UNKNOWN_SITE_ID = '99999999-9999-4999-8999-999999999999'
 
   let app: FastifyInstance
 
@@ -374,6 +399,12 @@ describe('the real api/index.ts, fully booted', () => {
     const res = await app.inject({ method: 'GET', url: `/_api/sites/${DISABLED_SITE_ID}/tree` })
     assert.equal(res.statusCode, 403)
     assert.match(res.json().message, /disabled/i)
+  })
+
+  test('a content route on an unknown site is refused 404 by the same hook', async () => {
+    const res = await app.inject({ method: 'GET', url: `/_api/sites/${UNKNOWN_SITE_ID}/tree` })
+    assert.equal(res.statusCode, 404)
+    assert.equal(res.json().message, SITE_MISSING_MESSAGE)
   })
 
   test('PUT /sites/:siteId — the route that re-enables a disabled site — is NOT swept in, and succeeds', async () => {

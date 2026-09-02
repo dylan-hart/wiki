@@ -45,9 +45,8 @@ function toResult(payload: unknown): CallToolResult {
  * `isLocked: true` and no body unless the key holds `write:pages`/`manage:pages` on it, and
  * `publicOnly` is derived from `pageActorFor(ctx)` exactly as the REST route derives it from
  * `actorFrom(req)` (`helpers/pageAccess.ts`) — an admin-issued key (no `ctx.userId`) is therefore a
- * `publicOnly` reader over
- * MCP too, not a full-publish-state one; see `pageActorFor()`'s doc comment for why that mirrors
- * `actorFrom()` deliberately.
+ * `publicOnly` reader over MCP too, not a full-publish-state one; see `pageActorFor()`'s doc comment
+ * for why that mirrors `actorFrom()` deliberately.
  *
 
  * `includeSource` is honored best-effort: asked for without `read:source` on the page, the call still

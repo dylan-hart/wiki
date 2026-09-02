@@ -57,10 +57,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
       if (!mayManageCredentials(req, req.params.siteId)) {
         return reply.forbidden()
       }
@@ -116,10 +112,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
       if (!mayManageCredentials(req, req.params.siteId)) {
         return reply.forbidden()
       }
@@ -169,10 +161,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
       if (!mayManageCredentials(req, req.params.siteId)) {
         return reply.forbidden()
       }
@@ -235,10 +223,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
       if (!mayManageCredentials(req, req.params.siteId)) {
         return reply.forbidden()
       }
@@ -281,10 +265,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
       if (!mayManageCredentials(req, req.params.siteId)) {
         return reply.forbidden()
       }

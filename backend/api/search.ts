@@ -107,11 +107,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-
       if (req.body.dictOverrides === undefined) {
         return reply.badRequest('No search settings provided to update.')
       }
@@ -190,11 +185,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-
       const added = await WIKI.scheduler.addJob({
         task: 'rebuildSearchIndex',
         payload: { siteId: req.params.siteId }
@@ -245,11 +235,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
+    async (req) => {
       return withDbSearchExtras(
         await WIKI.models.search.getSiteEngines(req.params.siteId, { mask: true }),
         req.params.siteId
@@ -313,10 +299,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
       const definition = WIKI.models.search.getDefinition(req.params.key)
       if (!definition) {
         return reply.notFound(`Search engine "${req.params.key}" does not exist.`)
@@ -382,11 +364,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
+    async (req) => {
       await WIKI.models.search.refreshFromDisk()
       return withDbSearchExtras(
         await WIKI.models.search.getSiteEngines(req.params.siteId, { mask: true }),

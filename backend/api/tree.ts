@@ -246,10 +246,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      // -> `siteEnabledPreHandler` (`helpers/common.ts`) has already answered 404 for an unknown
+      //    `:siteId` before any handler here runs, so this is the site, not a maybe.
       const site = WIKI.sites[req.params.siteId]
-      if (!site) {
-        return reply.notFound('This site does not exist.')
-      }
       // -> The same setting that hides the sidebar's Browse button, enforced where it counts: with
       //    browsing off, the tree is not something to hand out one folder at a time either
       if (!site.config?.features?.browse) {
@@ -363,10 +362,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       const locale = req.query.locale ?? defaultLocale(req.params.siteId)
       // -> `null` rather than `[]` for an absent filter, same as BROWSE THE TREE above
       const tags = splitList(req.query.tags)
@@ -707,7 +703,8 @@ async function routes(app: FastifyInstance) {
       //    not be able to drag along a page under a `delete:pages` DENY, or an asset outside their
       //    `manage:assets` reach, just because the folder itself was theirs to manage (OpenProject
       //    #2100). Judged on each descendant's own real path/tags/classification -- never the
-      //    folder's -- the same way `mayOnFolder` above is judged on the folder's.
+      //    folder's -- the same way this handler's own `mayOnFolder` check (`helpers/pageAccess.ts`)
+      //    is judged on the folder's.
       const descendants = await WIKI.models.tree.listDescendants(
         req.params.folderId,
         req.params.siteId

@@ -319,7 +319,7 @@ class Tree {
    *                   anonymous reader — a draft/scheduled page, or one marked `isBrowsable: false` —
    *                   so BROWSE THE TREE (OpenProject #1587 §2) cannot enumerate them to a guest
    *                   session holding `read:pages`, the one thing `visibleTreeItems`' page-RULE
-   *                   filter in `api/tree.ts` never checked. `false` (an authenticated caller, and
+   *                   filter in `helpers/pageAccess.ts` never checked. `false` (an authenticated caller, and
    *                   every other current caller of this method) keeps every entry, same as before
    *                   this parameter existed — a folder or asset entry is never affected either way.
    */

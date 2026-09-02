@@ -283,9 +283,6 @@ async function routes(app: FastifyInstance) {
       if (!canManageNavigation(req, req.params.siteId)) {
         return reply.forbidden()
       }
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
       return WIKI.models.navigation.siteRoots(req.params.siteId)
     }
   )

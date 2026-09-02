@@ -4,6 +4,7 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import ajvFormats from 'ajv-formats'
+import { siteEnabledPreHandler } from '../helpers/common.ts'
 import blocksRoutes from './blocks.ts'
 import { registerSchemas as registerBlockSchema } from './schemas/block.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
@@ -43,10 +44,8 @@ customElements.define('block-widget', BlockWidget)
   before(async () => {
     ;(globalThis as any).WIKI = {
       config: { security: { uploadMaxFileSize: 10485760 } },
+      sites: { [SITE_ID]: { id: SITE_ID } },
       models: {
-        sites: {
-          getSiteById: async ({ id }: { id: string }) => (id === SITE_ID ? { id } : null)
-        },
         blocks: {
           isTagTaken: async () => isTagTakenResult,
           createCustomBlock: async (siteId: string, definition: any, code: Buffer) => {
@@ -73,6 +72,9 @@ customElements.define('block-widget', BlockWidget)
     await app.register(fastifySensible)
     await registerErrorSchema(app)
     await registerBlockSchema(app)
+    // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
+    //    plugin-only app has to register it to answer that case the way the real app does.
+    app.addHook('preHandler', siteEnabledPreHandler)
     await app.register(blocksRoutes)
     await app.ready()
   })
@@ -270,9 +272,6 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
   const BLOCK_ID = 'a1b2c3d4-e5f6-4789-9abc-def012345678'
 
   const sites: Record<string, any> = { [SITE_ID]: { id: SITE_ID } }
-  async function getSiteById({ id }: { id: string }) {
-    return sites[id] ?? null
-  }
 
   let setBlocksStateCalls: Array<{ siteId: string; states: any }> = []
   let deleteCustomBlockCalls: Array<{ siteId: string; blockId: string }> = []
@@ -317,8 +316,8 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
 
   before(async () => {
     ;(globalThis as any).WIKI = {
+      sites,
       models: {
-        sites: { getSiteById },
         blocks: { getSiteBlocks, setBlocksState, deleteCustomBlock },
         groups: { actorForRequest, checkSiteAccess },
         approvals: {
@@ -349,6 +348,8 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
       currentSitePermissionHeader = req.headers['x-test-site-permissions']
       done()
     })
+    // -> See the upload describe above: the unknown-site 404 is this hook's job now (spec D1).
+    app.addHook('preHandler', siteEnabledPreHandler)
     await app.register(blocksRoutes)
     await app.ready()
   })
@@ -468,6 +469,8 @@ describe('PUT /sites/:siteId/blocks (per-block config passthrough)', () => {
     })
     await registerErrorSchema(app)
     await registerBlockSchema(app)
+    // -> See the upload describe above: the unknown-site 404 is this hook's job now (spec D1).
+    app.addHook('preHandler', siteEnabledPreHandler)
     await app.register(blocksRoutes)
     await app.ready()
   })
@@ -481,10 +484,8 @@ describe('PUT /sites/:siteId/blocks (per-block config passthrough)', () => {
     lastCall = null
     ;(globalThis as any).WIKI = {
       config: { security: { uploadMaxFileSize: 10485760 } },
+      sites: { [SITE_ID]: { id: SITE_ID } },
       models: {
-        sites: {
-          getSiteById: async ({ id }: { id: string }) => (id === SITE_ID ? { id } : null)
-        },
         blocks: {
           setBlocksState: async (siteId: string, states: any[]) => {
             lastCall = { siteId, states }

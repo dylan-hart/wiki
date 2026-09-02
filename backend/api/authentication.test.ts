@@ -10,6 +10,7 @@ import authenticationRoutes from './authentication.ts'
 import { registerSchemas as registerAuthSchema } from './schemas/authentication.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { AccountRateLimitedError } from '../helpers/rateLimit.ts'
+import { siteEnabledPreHandler, SITE_MISSING_MESSAGE } from '../helpers/common.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 import { authentication as authenticationTable } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
@@ -1191,18 +1192,18 @@ describe('GET /sites/:siteId/auth/strategies', () => {
           }
         ]
       },
+      sites: {
+        [SITE_ID]: {
+          id: SITE_ID,
+          config: {
+            authStrategies: [
+              { id: LOCAL_STRATEGY_ID, order: 0, isVisible: true },
+              { id: SAML_STRATEGY_ID, order: 1, isVisible: true }
+            ]
+          }
+        }
+      },
       models: {
-        sites: {
-          getSiteById: async () => ({
-            id: SITE_ID,
-            config: {
-              authStrategies: [
-                { id: LOCAL_STRATEGY_ID, order: 0, isVisible: true },
-                { id: SAML_STRATEGY_ID, order: 1, isVisible: true }
-              ]
-            }
-          })
-        },
         authentication: {
           getActiveStrategies: async () => [
             {
@@ -1264,7 +1265,10 @@ describe('GET /sites/:siteId/auth/strategies', () => {
 /**
  * Task #1680: `GET /sites/:siteId/auth/strategies` used to answer `reply.badRequest('Invalid Site
  * ID')` (400) for an unknown siteId — the only occurrence of that message in the backend, and out of
- * step with every other site-scoped route's 404 for the same condition. Fixed to `reply.notFound()`.
+ * step with every other site-scoped route's 404 for the same condition. Fixed to `reply.notFound()`,
+ * and since spec D1 that 404 comes from `siteEnabledPreHandler` — one condition, one message
+ * (`SITE_MISSING_MESSAGE`), for every `:siteId` route — rather than from this route's own preamble,
+ * so the hook is registered here the way `index.ts` registers it around the real plugin.
  */
 describe('GET /sites/:siteId/auth/strategies (unknown siteId)', () => {
   let app: FastifyInstance
@@ -1272,11 +1276,8 @@ describe('GET /sites/:siteId/auth/strategies (unknown siteId)', () => {
 
   before(async () => {
     ;(globalThis as any).WIKI = {
+      sites: { [KNOWN_SITE_ID]: { id: KNOWN_SITE_ID, config: { authStrategies: [] } } },
       models: {
-        sites: {
-          getSiteById: async ({ id }: { id: string }) =>
-            id === KNOWN_SITE_ID ? { id: KNOWN_SITE_ID, config: { authStrategies: [] } } : null
-        },
         authentication: {
           getActiveStrategies: async () => []
         }
@@ -1305,6 +1306,7 @@ describe('GET /sites/:siteId/auth/strategies (unknown siteId)', () => {
     })
     await registerErrorSchema(app)
     await registerAuthSchema(app)
+    app.addHook('preHandler', siteEnabledPreHandler)
     await app.register(authenticationRoutes)
     await app.ready()
   })
@@ -1321,7 +1323,7 @@ describe('GET /sites/:siteId/auth/strategies (unknown siteId)', () => {
     })
 
     assert.equal(res.statusCode, 404)
-    assert.equal(res.json().message, 'Site does not exist.')
+    assert.equal(res.json().message, SITE_MISSING_MESSAGE)
   })
 
   test('a known siteId lists its (empty) strategies', async () => {

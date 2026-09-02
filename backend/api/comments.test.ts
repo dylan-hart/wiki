@@ -4,6 +4,7 @@ import fastify from 'fastify'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import ajvFormats from 'ajv-formats'
+import { siteEnabledPreHandler } from '../helpers/common.ts'
 import commentsRoutes from './comments.ts'
 import { registerSchemas as registerCommentSchema } from './schemas/comment.ts'
 import { registerSchemas as registerCommentProviderSchema } from './schemas/commentProvider.ts'
@@ -25,7 +26,7 @@ describe('comment provider routes', () => {
    * `WIKI.models.sites` and `WIKI.models.commentProviders` are stubbed rather than pulling in the real
    * db/schema/drizzle graph — `models/commentProviders.test.ts` is what covers the model's own logic
    * (discovery, sync, the single-active-provider invariant) against a real database. This file only
-   * proves the route wiring: site existence checks, status codes, and how the model's return values and
+   * proves the route wiring: the shared site preHandler, status codes, and how the model's return values and
    * thrown errors map onto the HTTP response.
    */
   const SITE_ID = '11111111-1111-1111-1111-111111111111'
@@ -48,10 +49,6 @@ describe('comment provider routes', () => {
   }
 
   let setActiveProviderCalls: Array<{ siteId: string; module: string; config: Record<string, any> }>
-
-  async function getSiteById({ id }: { id: string }) {
-    return sites[id] ?? null
-  }
 
   async function getSiteProviders(siteId: string) {
     return siteId === SITE_ID ? [ALPHA_PROVIDER] : []
@@ -77,8 +74,8 @@ describe('comment provider routes', () => {
 
   before(async () => {
     ;(globalThis as any).WIKI = {
+      sites,
       models: {
-        sites: { getSiteById },
         commentProviders: { getSiteProviders, setActiveProvider }
       }
     }
@@ -88,6 +85,9 @@ describe('comment provider routes', () => {
     await registerErrorSchema(app)
     await registerCommentSchema(app)
     await registerCommentProviderSchema(app)
+    // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
+    //    plugin-only app has to register it to answer that case the way the real app does.
+    app.addHook('preHandler', siteEnabledPreHandler)
     await app.register(commentsRoutes)
     await app.ready()
   })

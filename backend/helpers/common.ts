@@ -268,6 +268,9 @@ export function resolveRequestSite({
 /** The message every disabled-site `403` answers with — see `guardSiteEnabled`. */
 export const SITE_DISABLED_MESSAGE = 'This wiki site is currently disabled.'
 
+/** The message every unknown-`:siteId` `404` answers with — see `siteEnabledPreHandler`. */
+export const SITE_MISSING_MESSAGE = 'This site does not exist.'
+
 /**
  * Response contract for a site resolved OUTSIDE the page/shell hook in `index.ts` — an API route or
  * static controller that already has a siteId or hostname of its own (a JSON endpoint, an image, a
@@ -285,9 +288,9 @@ export const SITE_DISABLED_MESSAGE = 'This wiki site is currently disabled.'
  * A caller that already resolved a site row (`bootstrap.ts`, `controllers/site.ts`,
  * `controllers/files.ts`) passes it directly. A caller scoped only to a bare `siteId` (the
  * `/sites/:siteId/...` API routes) passes `WIKI.sites[siteId]` — `undefined` for an id that does not
- * exist, which this deliberately treats as "nothing to guard here" rather than a second 404: those
- * routes already answer "no such thing" through their own lookup once this guard lets the request
- * through.
+ * exist, which this deliberately treats as "nothing to guard here" rather than a second 404: the one
+ * `:siteId` caller left, `siteEnabledPreHandler` below, has already answered that 404 itself before
+ * it ever asks this function anything.
  *
  * Returns `true` once a reply has been sent, so the caller can `return` immediately after.
  */
@@ -326,8 +329,9 @@ export function guardSiteEnabled(
 }
 
 /**
- * Fastify `preHandler`, registered once for the whole `/_api` tree in `api/index.ts`, that applies
- * `guardSiteEnabled()` to every route whose path names `siteId` (OpenProject #1587/#1593).
+ * Fastify `preHandler`, registered once for the whole `/_api` tree in `api/index.ts`, that answers
+ * both "no such site" and "site disabled" for every route whose path names `siteId`
+ * (OpenProject #1587/#1593).
  *
  * Before this existed, the guard was nine hand-applied call sites (`bootstrap.ts`, three in
  * `pages.ts`, two in `assets.ts`, one in `graph.ts`, plus the three `controllers/` sites outside
@@ -343,11 +347,30 @@ export function guardSiteEnabled(
  * actually declares (`api/index.test.ts`) without booting a real HTTP server per route or hand-filling
  * each one's querystring/body schema just to get a request past validation and into the hook chain.
  *
- * `req.params.siteId` reads as `undefined` on a route with no such param, which `guardSiteEnabled` is
- * not even asked about — exactly "nothing to guard here", not a second 404. `bootstrap.ts`'s own
- * `guardSiteEnabled` call is the one deliberate exception this preHandler does not subsume: that route
- * resolves its site by hostname (`getSiteByHostname`), not a `:siteId` param, so nothing keyed off
- * `req.params.siteId` would ever reach it — its call stays in place.
+ * The unknown-site `404` is the same consolidation one step further out. Thirty-six route handlers
+ * across ten files opened with a hand-written site-existence preamble in two spellings — an `await
+ * WIKI.models.sites.getSiteById(...)` (which is just `WIKI.sites[id]`, `models/sites.ts`) answering
+ * `'Site does not exist.'`, and a bare `WIKI.sites[...]` lookup answering `'This site does not
+ * exist.'` — while every OTHER `:siteId` route (all of `pages.ts`, `assets.ts`, `checklists.ts`,
+ * `watching.ts`, `notifications.ts`, `graph.ts`, ...) simply never checked, answering "page does not
+ * exist" or an empty list for a site id that was never real. One condition, checked in one place,
+ * with one message (`SITE_MISSING_MESSAGE`): a route reached from here can assume its site exists,
+ * and a route file added later inherits that the moment it registers under `api/index.ts`, exactly
+ * as it already inherits the disabled-site 403.
+ *
+ * Order matters and is deliberate: `index.ts`'s global permission `preHandler` is registered on the
+ * root app, so it runs BEFORE this encapsulated one — an unauthorized caller still gets 401/403 for
+ * an unknown site rather than being told, unauthenticated, which site ids do not exist.
+ *
+ * `req.params.siteId` reads as `undefined` on a route with no such param, which is neither a missing
+ * site nor a disabled one — nothing to answer, so the request passes straight through.
+ * `bootstrap.ts`'s own `guardSiteEnabled` call is the one deliberate exception this preHandler does
+ * not subsume: that route resolves its site by hostname (`getSiteByHostname`), not a `:siteId` param,
+ * so nothing keyed off `req.params.siteId` would ever reach it — its call stays in place.
+ *
+ * `api/sites.ts` is the other deliberate exception, by virtue of being registered outside the guarded
+ * `contentApp` scope (see `api/index.ts`): its routes administer the site RECORD, keep their own
+ * `'Site does not exist.'` 404s, and must go on working against a disabled site.
  */
 export function siteEnabledPreHandler(
   req: FastifyRequest,
@@ -355,8 +378,14 @@ export function siteEnabledPreHandler(
   done: (err?: Error) => void
 ): void {
   const siteId = (req.params as { siteId?: string } | undefined)?.siteId
-  if (siteId && guardSiteEnabled(WIKI.sites[siteId], reply)) {
-    return
+  if (siteId) {
+    if (!WIKI.sites[siteId]) {
+      reply.notFound(SITE_MISSING_MESSAGE)
+      return
+    }
+    if (guardSiteEnabled(WIKI.sites[siteId], reply)) {
+      return
+    }
   }
   done()
 }

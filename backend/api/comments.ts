@@ -240,11 +240,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.commentProviders.getSiteProviders(req.params.siteId, { mask: true })
     }
   )
@@ -285,10 +281,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
       try {
         const provider = await WIKI.models.commentProviders.setActiveProvider(
           req.params.siteId,
@@ -388,12 +380,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-
+    async (req) => {
       const actor = WIKI.models.groups.actorForRequest(req)
       const pageIds = await accessiblePageIdsForAdmin(actor, req.params.siteId, req.query.pagePath)
 
@@ -435,11 +422,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-
       const comment = await WIKI.models.comments.getWithPage(req.params.commentId)
       // -> Existence is checked only after confirming it belongs to this site, so a comment id from a
       //    different site is indistinguishable from one that does not exist at all.

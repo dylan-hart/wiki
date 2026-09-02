@@ -34,7 +34,7 @@ import type { GroupRule } from '../models/groups.ts'
 
 /**
  * The closed vocabulary of site-scoped administration permissions — one per delegable settings
- * surface. Parallel to `PAGE_PERMISSIONS` in `api/pages.ts`, but namespaced `site:*` so the strings
+ * surface. Parallel to `PAGE_PERMISSIONS` in `helpers/permissions.ts`, but namespaced `site:*` so the strings
  * cannot collide with the global `manage:*` tier or with `PAGE_PERMISSIONS`'s `verb:pages` shape.
  * Nothing outside this list may be invented ad hoc — see CLAUDE.md's Permissions section.
  */

@@ -93,3 +93,44 @@
     `api/assets.ts`; shared logic goes in `helpers/`. This also keeps `api/*.ts` uniformly
     "everything here is a Fastify route plugin", which `api/routeTags.test.ts`,
     `api/responseErrors.test.ts` and `api/index.test.ts` structurally depend on.
+
+- **Task A9 (`helpers/moduleRegistry.ts`, MOD-F1).** Two things CLAUDE.md should now say:
+  - **The pluggable-module boilerplate lives in `backend/helpers/moduleRegistry.ts`, once.** The six
+    module-backed models (`storage`, `search`, `authentication`, `commentProviders`, `analytics`,
+    `extensions`) no longer each carry their own definition scan, config merge, config validation,
+    implementation probe, module loader and per-site row sync — they bind to
+    `readModuleDefinitions` / `mergeModuleConfig` / `validateModuleConfig` / `moduleHasFile` /
+    `loadModule` / `syncSiteModuleRows`. Their public method names and return shapes are unchanged
+    (`buildConfig`, `validateConfig`, `hasImplementation`, `ensureModule`, `syncSite`, …), so nothing
+    outside them changes. The `modules/` bullet in the `backend/` layout table could name the helper
+    as the shared machinery behind "pluggable extensions, discovered from disk".
+  - **The extension-sensitive dynamic `import()` strings are unaffected, by design.** `loadModule`
+    takes an importer *closure*, so `models/storage.ts`'s `../modules/storage/${key}/storage.ts`,
+    `models/search.ts`'s `../modules/search/${key}/search.ts` and `models/authentication.ts`'s
+    `../modules/authentication/${stg.module}/authentication.ts` all still sit literally at their own
+    call sites — CLAUDE.md's "Five dynamic paths are extension-sensitive" list stays correct
+    verbatim, and a future model must keep its specifier at the call site rather than passing a
+    string into the helper. The three probed implementation filenames (`storage.ts`, `search.ts`,
+    `comments.ts`) likewise stay literal at each model's `hasImplementation`.
+
+- **Task A7, step 1 (shared unknown-site 404, spec D1).** CLAUDE.md's "Backend patterns" and
+  "Permissions" sections should now say:
+  - **An unknown `:siteId` answers `404 'This site does not exist.'` from one place** —
+    `helpers/common.ts#siteEnabledPreHandler`, the `preHandler` `api/index.ts` registers on its
+    guarded `contentApp` scope — not from each route handler. The 36 hand-written site-existence
+    preambles (23 `await WIKI.models.sites.getSiteById(...)` + `'Site does not exist.'`, 13 bare
+    `WIKI.sites[...]` + `'This site does not exist.'`) are gone, and every other `:siteId` route
+    that never checked at all is covered for the first time. **A route under `api/index.ts` may
+    assume its `:siteId` site exists**, and a new route file inherits that with no call of its own.
+  - **The two deliberate exemptions** are `api/sites.ts` (registered outside `contentApp`, since
+    `PUT /sites/:siteId` is how a disabled site is re-enabled — it keeps its own
+    `'Site does not exist.'` 404s) and `api/bootstrap.ts` (resolves its site by hostname, not a
+    `:siteId` param).
+  - **Hook order is load-bearing**: `index.ts`'s global permission `preHandler` is on the root app
+    and therefore runs first, so an unauthorized caller still gets 401/403 rather than learning
+    which site ids exist.
+  - **A per-file test suite that mounts one route plugin alone must register the hook in its
+    `buildApp`** (`app.addHook('preHandler', siteEnabledPreHandler)`) and stub `WIKI.sites` — not
+    `WIKI.models.sites.getSiteById` — for its unknown-site cases to mean anything. Eight suites do
+    this now (`approvals`, `authentication`, `blockCredentials`, `blocks`, `comments`,
+    `comments.admin`, `glossary`, `liveData`, `search`). This belongs in "Testing (backend)".

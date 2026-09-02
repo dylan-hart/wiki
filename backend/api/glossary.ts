@@ -59,10 +59,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.listTerms(req.params.siteId)
     }
   )
@@ -105,10 +102,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.getCachedTerms(
         req.params.siteId,
         WIKI.models.groups.actorForRequest(req)
@@ -151,10 +145,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.createTerm(
         req.params.siteId,
         {
@@ -200,10 +191,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.updateTerm(
         req.params.siteId,
         req.params.termId,
@@ -252,9 +240,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
       const deleted = await WIKI.models.glossary.deleteTerm(
         req.params.siteId,
         req.params.termId,
@@ -296,10 +281,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.exportTerms(req.params.siteId)
     }
   )
@@ -339,10 +321,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.importTerms(req.params.siteId, req.body)
     }
   )
@@ -387,10 +366,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.saveVersion(
         req.params.siteId,
         req.body.terms,
@@ -431,10 +407,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.listVersions(req.params.siteId)
     }
   )
@@ -468,9 +441,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
       const version = await WIKI.models.glossary.getVersion(req.params.siteId, req.params.versionId)
       if (!version) {
         return reply.notFound('This glossary version does not exist.')
@@ -509,10 +479,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (!WIKI.sites[req.params.siteId]) {
-        return reply.notFound('This site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.glossary.restoreVersion(
         req.params.siteId,
         req.params.versionId,

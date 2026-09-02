@@ -269,11 +269,11 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
+    async (req) => {
+      // -> `siteEnabledPreHandler` (`helpers/common.ts`) has already answered 404 for an unknown
+      //    `:siteId` before any handler here runs, so this is the site, not a maybe —
+      //    `models/sites.ts#getSiteById` is this same map lookup with an `await` in front of it.
+      const site = WIKI.sites[req.params.siteId]
       /*
         `getActiveStrategies` rather than the raw rows: it completes each config from the module's
         declared defaults, so a prop added to a module after a strategy was configured reads as its

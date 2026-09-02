@@ -18,6 +18,7 @@ import {
   shouldPrefixLocale,
   siteEnabledPreHandler,
   SITE_DISABLED_MESSAGE,
+  SITE_MISSING_MESSAGE,
   stripLocalePrefix,
   unmaskSensitiveConfig,
   type LocaleRoutingConfig,
@@ -571,10 +572,14 @@ describe('resolveRequestSite via Fastify: X-Forwarded-Host trust boundary (task 
 
 /** A stand-in for `FastifyReply` that records the one method `guardSiteEnabled` may call. */
 function fakeReply() {
-  const calls: { forbidden: string[] } = { forbidden: [] }
+  const calls: { forbidden: string[]; notFound: string[] } = { forbidden: [], notFound: [] }
   const reply: any = {
     forbidden(message: string) {
       calls.forbidden.push(message)
+      return reply
+    },
+    notFound(message: string) {
+      calls.notFound.push(message)
       return reply
     }
   }
@@ -709,7 +714,8 @@ describe('trustProxy gates X-Forwarded-Host trust for site resolution', () => {
  * registers for the whole `/_api` tree, replacing nine hand-applied `guardSiteEnabled()` call sites
  * and — for the first time — covering the dozen-plus `:siteId` routes across `pages.ts`, `tree.ts`,
  * `assets.ts`, `comments.ts`, `navigation.ts`, `liveData.ts` and `glossary.ts` that never had a guard
- * at all. Tested as the plain function it is, against a synthetic `req`/`reply`/`done` rather than a
+ * at all. Spec D1 folded the unknown-site 404 in here too, replacing 36 hand-written per-route
+ * preambles that answered it in two different spellings. Tested as the plain function it is, against a synthetic `req`/`reply`/`done` rather than a
  * booted Fastify app — see `api/index.test.ts` for the companion structural test that calls this same
  * function against every `:siteId` route the API actually declares.
  */
@@ -757,12 +763,13 @@ describe('siteEnabledPreHandler', () => {
     assert.deepEqual(doneCalls, [undefined])
   })
 
-  test('calls done() for a siteId that does not resolve to any known site — the route’s own lookup answers that', () => {
-    const { reply, calls: forbiddenCalls } = fakeReply()
+  test('404s and never calls done() for a siteId that resolves to no known site (spec D1)', () => {
+    const { reply, calls: replyCalls } = fakeReply()
     const { done, calls: doneCalls } = fakeDone()
     siteEnabledPreHandler({ params: { siteId: 'no-such-site' } } as any, reply, done)
-    assert.deepEqual(forbiddenCalls.forbidden, [])
-    assert.deepEqual(doneCalls, [undefined])
+    assert.deepEqual(replyCalls.notFound, [SITE_MISSING_MESSAGE])
+    assert.deepEqual(replyCalls.forbidden, [])
+    assert.equal(doneCalls.length, 0)
   })
 })
 

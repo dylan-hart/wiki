@@ -86,6 +86,16 @@ export function requireActorId(
   return actor.id
 }
 
+/**
+ * Whether this requester's page permissions make a page's password irrelevant to them ON THIS PAGE:
+ * an author or manager of the page is not asked for the password they themselves could remove.
+ *
+ * Asked per page, through `mayOnPage`, which is what distinguishes it from `PAGE_PASSWORD_BYPASS_ROLES`
+ * in `api/pages.ts` — the same two permission names, but asked site-wide via
+ * `mayHoldPermissionSomewhere()` because search spans many pages with no single rule to consult. Where
+ * there IS one page to judge, this is the check to use; see that constant's own doc comment for why
+ * search deliberately settles for the coarser answer.
+ */
 export function mayBypassPassword(
   req: FastifyRequest,
   siteId: string,
@@ -230,6 +240,26 @@ export async function loadReadablePage(
 }
 
 /**
+ * `requireReadablePage`'s options, shaped so that a `permission` with no `forbiddenMessage` cannot be
+ * written at all: the two travel together or not at all. `reply.forbidden()` with no message answers
+ * a bare `'Forbidden'`, which for a page-permission refusal is exactly the unhelpful reply the
+ * thirteen hand-written preambles this replaced each avoided by naming what was refused — a default
+ * this helper has no way to supply, since only the caller knows what the caller was trying to do.
+ *
+ * The first member types `permission` as `string | undefined` rather than `string` so a caller that
+ * decides the permission from the request (`api/pages.ts`'s export route asks for `read:source` only
+ * when `format=markdown`) still writes one call rather than two — the key is still REQUIRED there, so
+ * naming it at all is what obliges the message.
+ */
+type RequireReadablePageOptions = {
+  withContent?: boolean
+  allowLocked?: boolean
+} & (
+  | { permission: string | undefined; forbiddenMessage: string }
+  | { permission?: undefined; forbiddenMessage?: undefined }
+)
+
+/**
  * `loadReadablePage`, plus the refusals every page-scoped route made by hand.
  *
  * The preamble this replaces was written out thirteen times, always in the same order and always with
@@ -261,12 +291,7 @@ export async function requireReadablePage(
     forbiddenMessage,
     withContent = false,
     allowLocked = false
-  }: {
-    permission?: string
-    forbiddenMessage?: string
-    withContent?: boolean
-    allowLocked?: boolean
-  } = {}
+  }: RequireReadablePageOptions = {}
 ): Promise<Page | null> {
   const page = await loadReadablePage(req, siteId, pageId, { withContent })
   if (!page) {

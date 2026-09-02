@@ -4,6 +4,7 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import ajvFormats from 'ajv-formats'
+import { siteEnabledPreHandler } from '../helpers/common.ts'
 import searchRoutes from './search.ts'
 import { registerSchemas as registerSearchSchema } from './schemas/search.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
@@ -61,10 +62,8 @@ before(async () => {
   validateResult = null
 
   ;(globalThis as any).WIKI = {
+    sites,
     models: {
-      sites: {
-        getSiteById: async ({ id }: { id: string }) => sites[id] ?? null
-      },
       search: {
         // -> A fresh object per call: `withDbSearchExtras` mutates the `db` entry it's handed, and a
         //    shared object here would let one test's mutation leak into the next test's assertions
@@ -96,6 +95,9 @@ before(async () => {
   await app.register(fastifySensible)
   await registerErrorSchema(app)
   await registerSearchSchema(app)
+  // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
+  //    plugin-only app has to register it to answer that case the way the real app does.
+  app.addHook('preHandler', siteEnabledPreHandler)
   await app.register(searchRoutes)
   await app.ready()
 })

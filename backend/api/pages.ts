@@ -2224,7 +2224,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: `read:pages` is a page permission granted by a group's
-        RULES. Checked against the target page via `loadReadablePage` (folded into 404 when
+        RULES. Checked against the target page via `requireReadablePage` (folded into 404 when
         missing or unreadable), and again per candidate row below -- exactly as `api/graph.ts`'s
         edge assembly filters graph nodes.
       */
@@ -2277,7 +2277,7 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: `read:pages` is a page permission granted by a group's RULES,
-        checked against this page below (through `loadReadablePage`). `format=markdown` sends back the
+        checked against this page below (through `requireReadablePage`). `format=markdown` sends back the
         raw stored `content` — the same thing `withContent=true` on the GET route above returns — so it
         needs `read:source` ON TOP of `read:pages`, checked the same way. `format=html` sends back the
         already-rendered, already-sanitized `render` a reader sees anyway, so it needs only `read:pages`,

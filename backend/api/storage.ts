@@ -43,11 +43,7 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
+    async (req) => {
       return WIKI.models.storage.getSiteTargets(req.params.siteId, { mask: true })
     }
   )
@@ -159,11 +155,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
-
       // -> Validated as a whole first: a partially applied storage configuration is worse than a
       //    refused one, since the admin area saves every target at once
       const current = await WIKI.models.storage.getSiteTargets(req.params.siteId)

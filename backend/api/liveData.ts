@@ -104,10 +104,6 @@ async function routes(app: FastifyInstance) {
           'Authentication is required to resolve a credentialed live-data request.'
         )
       }
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
       const enabledBlocks = await WIKI.models.blocks.getEnabledKeys(req.params.siteId)
       if (!enabledBlocks.has('live-data')) {
         return reply.notFound('The live-data block is not enabled on this site.')

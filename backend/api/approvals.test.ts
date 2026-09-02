@@ -3,6 +3,7 @@ import { after, before, beforeEach, describe, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
+import { siteEnabledPreHandler } from '../helpers/common.ts'
 import approvalsRoutes from './approvals.ts'
 import { registerSchemas as registerApprovalSchema } from './schemas/approval.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
@@ -28,9 +29,6 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
   const REVIEWER_GROUP = 'c3d4e5f6-a7b8-49ab-cdef-012345678901'
 
   const sites: Record<string, any> = { [SITE_ID]: { id: SITE_ID } }
-  async function getSiteById({ id }: { id: string }) {
-    return sites[id] ?? null
-  }
 
   const existingRule = {
     id: RULE_ID,
@@ -91,8 +89,8 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
 
   before(async () => {
     ;(globalThis as any).WIKI = {
+      sites,
       models: {
-        sites: { getSiteById },
         groups: { actorForRequest, checkSiteAccess },
         approvals: {
           getRules,
@@ -127,6 +125,9 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
       currentSitePermissionHeader = req.headers['x-test-site-permissions']
       done()
     })
+    // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
+    //    plugin-only app has to register it to answer that case the way the real app does.
+    app.addHook('preHandler', siteEnabledPreHandler)
     await app.register(approvalsRoutes)
     await app.ready()
   })

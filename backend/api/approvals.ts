@@ -212,10 +212,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
       if (!mayAdministerApprovals(req, req.params.siteId)) {
         return reply.forbidden()
       }
@@ -271,10 +267,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
-      if (!site) {
-        return reply.notFound('Site does not exist.')
-      }
       if (!mayAdministerApprovals(req, req.params.siteId)) {
         return reply.forbidden()
       }
@@ -767,18 +759,11 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       reply.preventCache()
-      /*
-        The page a suggestion is about, with the source it would be edited from. Loaded the way the
-        public page route loads it — an anonymous reader sees published pages only, and a password
-        still has to have been entered — so eligibility to suggest an edit never becomes a way to read
-        something that was not readable. `withContent` fetches the source regardless of who is asking,
-        because the caller has to be able to edit what they are looking at; the checks below only hand
-        it over once a rule says this actor may suggest edits to this page.
-
-        Reading the page comes first, for suggesting an edit to it and for reviewing one alike: neither
-        is something to be done to a page the caller may not see, and answering as though it were not
-        there is how every other page-scoped route treats that.
-      */
+      // -> The page a suggestion is about, loaded exactly as `loadReadablePage`'s doc
+      //    (`helpers/pageAccess.ts`) describes, `withContent`/`withPassword` included. Reading it comes
+      //    first, for suggesting an edit and for reviewing one alike: neither is something to do to a
+      //    page the caller may not see, and answering as though it were not there is how every other
+      //    page-scoped route treats that.
       const page = await loadReadablePage(req, req.params.siteId, req.params.pageId, {
         withContent: true,
         withPassword: true
@@ -867,18 +852,11 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      /*
-        The page a suggestion is about, with the source it would be edited from. Loaded the way the
-        public page route loads it — an anonymous reader sees published pages only, and a password
-        still has to have been entered — so eligibility to suggest an edit never becomes a way to read
-        something that was not readable. `withContent` fetches the source regardless of who is asking,
-        because the caller has to be able to edit what they are looking at; the checks below only hand
-        it over once a rule says this actor may suggest edits to this page.
-
-        Reading the page comes first, for suggesting an edit to it and for reviewing one alike: neither
-        is something to be done to a page the caller may not see, and answering as though it were not
-        there is how every other page-scoped route treats that.
-      */
+      // -> The page a suggestion is about, loaded exactly as `loadReadablePage`'s doc
+      //    (`helpers/pageAccess.ts`) describes, `withContent`/`withPassword` included. Reading it comes
+      //    first, for suggesting an edit and for reviewing one alike: neither is something to do to a
+      //    page the caller may not see, and answering as though it were not there is how every other
+      //    page-scoped route treats that.
       const page = await loadReadablePage(req, req.params.siteId, req.params.pageId, {
         withContent: true,
         withPassword: true
