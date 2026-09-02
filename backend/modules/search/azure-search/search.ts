@@ -4,12 +4,14 @@ import { search } from '../../../models/search.ts'
 import { ExternalSearchModule } from '../externalBase.ts'
 import {
   defaultPageSource,
+  filterVisible,
   HL_START,
   HL_STOP,
   localePageStream,
   normalizeMarkers,
   REBUILD_BATCH_SIZE,
-  SCAN_CAP
+  SCAN_CAP,
+  toSearchPagesResult
 } from '../shared.ts'
 import type { SearchIndex } from '@azure/search-documents'
 import type { RebuildPageSource } from '../shared.ts'
@@ -18,8 +20,7 @@ import type {
   SearchIndexablePage,
   SearchOrderBy,
   SearchPagesParams,
-  SearchPagesResult,
-  SearchResult
+  SearchPagesResult
 } from '../../../models/search.ts'
 
 /** This module's own key, i.e. the directory name of its `definition.yml`. */
@@ -598,54 +599,29 @@ export class AzureSearchModule extends ExternalSearchModule {
       rows = result.rows
     }
 
-    /*
-      Filtered here rather than in the OData filter: a page rule can be a regular expression or a set
-      of tags, so the deciding rule is only knowable per row. Search must not be a way around page
-      permissions — a title and an excerpt are content too. Same discipline as the `db` engine.
-    */
-    const visible = actor
-      ? rows.filter((row) =>
-          WIKI.models.groups.checkAccess(actor, 'read:pages', {
-            path: row.document.path as string,
-            locale: row.document.locale as string,
-            siteId,
-            tags: (row.document.tags ?? []) as string[],
-            // -> Indexed at write time by `toIndexDocument` (OpenProject #1125) -- a document written
-            //    before this field existed has none, which falls back to the same fail-closed `null`
-            //    treatment `helpers/pageRules.ts` documents for a genuinely unknown classification. A
-            //    full reindex (`rebuild()`) backfills every existing document with its real value.
-            classification: (row.document.classification as string | null) ?? null
-          })
-        )
-      : rows
-
-    const results: SearchResult[] = visible.slice(offset, offset + limit).map((row) => ({
-      id: row.document.id as string,
+    const visible = filterVisible(rows, actor, siteId, (row) => ({
       path: row.document.path as string,
       locale: row.document.locale as string,
-      title: row.document.title as string,
-      description: (row.document.description || null) as string | null,
-      icon: (row.document.icon || null) as string | null,
       tags: (row.document.tags ?? []) as string[],
-      updatedAt: row.document.updatedAt as string,
-      relevancy: row.score,
-      highlight: normalizeHighlight(row.highlights)
+      classification: (row.document.classification as string | null) ?? null
     }))
 
-    return {
-      results,
-      // -> OpenProject #2151/#2156: derived from `visible` alone -- never a count Azure reported
-      //    before filtering, and therefore never able to exceed what the actor can actually read.
-      //    See `db/search.ts#query()`'s comment for the exact/floor distinction.
-      totalHits: visible.length,
-      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
-      //    above actually dropped a row from this page, same signal `db/search.ts` uses.
-      totalHitsApproximate: rows.length !== visible.length,
-      // -> No "did you mean" here: Azure AI Search's own fuzzy/suggester features are a separate
-      //    setup step (a suggester definition on the index) this module does not configure, and
-      //    building one out of band is future scope, not this task's.
-      suggestion: null
-    }
+    return toSearchPagesResult(rows, visible, {
+      offset,
+      limit,
+      toResult: (row) => ({
+        id: row.document.id as string,
+        path: row.document.path as string,
+        locale: row.document.locale as string,
+        title: row.document.title as string,
+        description: (row.document.description || null) as string | null,
+        icon: (row.document.icon || null) as string | null,
+        tags: (row.document.tags ?? []) as string[],
+        updatedAt: row.document.updatedAt as string,
+        relevancy: row.score,
+        highlight: normalizeHighlight(row.highlights)
+      })
+    })
   }
 
   /**

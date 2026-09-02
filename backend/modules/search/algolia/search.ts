@@ -4,10 +4,12 @@ import { ExternalSearchModule } from '../externalBase.ts'
 import {
   batchBySize,
   buildSearchDocument,
+  filterVisible,
   MAX_INDEXING_BYTES,
   MAX_INDEXING_COUNT,
   pageStream,
-  SCAN_CAP
+  SCAN_CAP,
+  toSearchPagesResult
 } from '../shared.ts'
 import type { Algoliasearch } from 'algoliasearch'
 import type { SearchDocument } from '../shared.ts'
@@ -15,8 +17,7 @@ import type {
   RebuildResult,
   SearchIndexablePage,
   SearchPagesParams,
-  SearchPagesResult,
-  SearchResult
+  SearchPagesResult
 } from '../../../models/search.ts'
 
 /** This module's own key, i.e. the directory name of its `definition.yml`. */
@@ -328,42 +329,21 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
     })
     const hits = response.hits ?? []
 
-    /*
-      Algolia has no server-side permission model of its own, so a result it returns has to be
-      filtered the same way `db/search.ts` filters its own rows: per-row, against the actor's page
-      rules, since which rule applies can depend on a regular expression or a page's tags that no
-      Algolia `filters` clause could express.
-    */
-    // -> Paired with its ORIGINAL position in `hits` before filtering, so relevancy (below) still
-    //    reflects Algolia's own overall ordering after a denied hit is dropped and after the
-    //    caller's own page is sliced out of the filtered set.
-    const visible = (
-      actor
-        ? hits
-            .map((hit, originalIndex) => ({ hit, originalIndex }))
-            .filter(({ hit }) =>
-              WIKI.models.groups.checkAccess(actor, 'read:pages', {
-                path: hit.path,
-                locale: hit.locale,
-                siteId,
-                tags: hit.tags ?? [],
-                // -> Indexed at write time by `pageToDocument` (OpenProject #1125) -- a document
-                //    written before this field existed has none, which falls back to the same
-                //    fail-closed `null` treatment `helpers/pageRules.ts` documents for a genuinely
-                //    unknown classification. A full reindex (`rebuild()`) backfills every existing
-                //    document with its real value.
-                classification: hit.classification ?? null
-              })
-            )
-        : hits.map((hit, originalIndex) => ({ hit, originalIndex }))
-    ) as {
-      hit: AlgoliaPageDocument
-      originalIndex: number
-    }[]
+    // -> Each hit is paired with its ORIGINAL position in `hits` before filtering, so relevancy
+    //    (below) still reflects Algolia's own overall ordering after a denied hit is dropped and
+    //    after the caller's own page is sliced out of the filtered set.
+    const scanned = hits.map((hit, originalIndex) => ({ hit, originalIndex }))
+    const visible = filterVisible(scanned, actor, siteId, ({ hit }) => ({
+      path: hit.path,
+      locale: hit.locale,
+      tags: hit.tags ?? [],
+      classification: hit.classification ?? null
+    }))
 
-    const results: SearchResult[] = visible
-      .slice(offset, offset + limit)
-      .map(({ hit, originalIndex }) => ({
+    return toSearchPagesResult(scanned, visible, {
+      offset,
+      limit,
+      toResult: ({ hit, originalIndex }) => ({
         id: hit.objectID,
         path: hit.path,
         locale: hit.locale,
@@ -381,23 +361,8 @@ export class AlgoliaSearchModule extends ExternalSearchModule {
         //    and every protected page's `content` is never indexed in the first place (`pageToDocument`),
         //    so there would be nothing to snippet from for those regardless.
         highlight: null
-      }))
-
-    return {
-      results,
-      // -> OpenProject #2151/#2156: derived from `visible` alone -- the whole `SCAN_CAP` window,
-      //    filtered, before `offset`/`limit` slices this page's `results` out of it -- never
-      //    Algolia's own `nbHits`, and therefore never able to exceed what the actor can actually
-      //    read. See `db/search.ts#query()`'s comment for the exact/floor distinction.
-      totalHits: visible.length,
-      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
-      //    above actually dropped a row from this page, same signal `db/search.ts` uses.
-      totalHitsApproximate: hits.length !== visible.length,
-      // -> No "did you mean" here: Algolia's own typo-tolerance already retries a query internally,
-      //    which is a different mechanism from `db`'s pg_trgm-based post-hoc suggestion and not
-      //    something this module surfaces as a distinct suggestion string.
-      suggestion: null
-    }
+      })
+    })
   }
 
   /**

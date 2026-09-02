@@ -5,10 +5,12 @@ import { ExternalSearchModule } from '../externalBase.ts'
 import {
   batchBySize,
   buildSearchDocument,
+  filterVisible,
   MAX_INDEXING_BYTES,
   MAX_INDEXING_COUNT,
   pageStream,
-  SCAN_CAP
+  SCAN_CAP,
+  toSearchPagesResult
 } from '../shared.ts'
 import type { ConnectionOptions as TlsConnectionOptions } from 'node:tls'
 import type { SearchDocument } from '../shared.ts'
@@ -16,8 +18,7 @@ import type {
   RebuildResult,
   SearchIndexablePage,
   SearchPagesParams,
-  SearchPagesResult,
-  SearchResult
+  SearchPagesResult
 } from '../../../models/search.ts'
 
 /** This module's own key, i.e. the directory name of its `definition.yml`. */
@@ -345,62 +346,35 @@ export class ElasticsearchSearchModule extends ExternalSearchModule {
     })
     const hits = (response.hits?.hits ?? []).filter((hit) => hit._source)
 
-    /*
-      Elasticsearch has no application-aware permission model of its own, so a hit it returns has to be
-      filtered the same way `db/search.ts` filters its own rows: per-row, against the actor's page
-      rules, since which rule applies can depend on a regular expression or a page's tags that no
-      Elasticsearch filter clause could express.
-    */
-    const visible = actor
-      ? hits.filter((hit) =>
-          WIKI.models.groups.checkAccess(actor, 'read:pages', {
-            path: hit._source!.path,
-            locale: hit._source!.locale,
-            siteId,
-            tags: hit._source!.tags ?? [],
-            // -> Indexed at write time by `buildSearchDocument` (OpenProject #1125) -- a document written
-            //    before this field existed has none, which falls back to the same fail-closed `null`
-            //    treatment `helpers/pageRules.ts` documents for a genuinely unknown classification. A
-            //    full reindex (`rebuild()`) backfills every existing document with its real value.
-            classification: hit._source!.classification ?? null
-          })
-        )
-      : hits
+    const visible = filterVisible(hits, actor, siteId, (hit) => ({
+      path: hit._source!.path,
+      locale: hit._source!.locale,
+      tags: hit._source!.tags ?? [],
+      classification: hit._source!.classification ?? null
+    }))
 
-    const results: SearchResult[] = visible.slice(offset, offset + limit).map((hit) => {
-      const source = hit._source!
-      return {
-        id: hit._id!,
-        path: source.path,
-        locale: source.locale,
-        title: source.title,
-        description: source.description || null,
-        icon: source.icon ?? null,
-        tags: source.tags ?? [],
-        updatedAt: source.updatedAt,
-        relevancy: hit._score ?? 0,
-        // -> 2.5.x parity: its `query()` returned no excerpt either. A protected page's `content` is
-        //    never indexed in the first place (`buildSearchDocument`), so there is nothing to highlight from
-        //    for those regardless.
-        highlight: null
+    return toSearchPagesResult(hits, visible, {
+      offset,
+      limit,
+      toResult: (hit) => {
+        const source = hit._source!
+        return {
+          id: hit._id!,
+          path: source.path,
+          locale: source.locale,
+          title: source.title,
+          description: source.description || null,
+          icon: source.icon ?? null,
+          tags: source.tags ?? [],
+          updatedAt: source.updatedAt,
+          relevancy: hit._score ?? 0,
+          // -> 2.5.x parity: its `query()` returned no excerpt either. A protected page's `content` is
+          //    never indexed in the first place (`buildSearchDocument`), so there is nothing to
+          //    highlight from for those regardless.
+          highlight: null
+        }
       }
     })
-
-    return {
-      results,
-      // -> OpenProject #2151/#2156: derived from `visible` alone -- never a count Elasticsearch
-      //    reported before filtering, and therefore never able to exceed what the actor can
-      //    actually read. Exact whenever the true match count is within SCAN_CAP; a floor beyond
-      //    that (see the `query()` comment above), never an overcount.
-      totalHits: visible.length,
-      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
-      //    above actually dropped a hit from this page, same signal `db/search.ts` uses.
-      totalHitsApproximate: hits.length !== visible.length,
-      // -> No "did you mean" here: Elasticsearch's own fuzzy-suggestion features (a "suggest"
-      //    context or a completion suggester) need dedicated index-side setup this module does not
-      //    configure, unlike `db`'s pg_trgm similarity which needs nothing beyond the extension.
-      suggestion: null
-    }
   }
 
   /**

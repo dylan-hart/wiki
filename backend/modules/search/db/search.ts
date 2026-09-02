@@ -4,7 +4,7 @@ import {
   SUGGEST_TITLE_CANDIDATES,
   SUGGEST_TITLE_THRESHOLD
 } from '../../../models/search.ts'
-import { HL_START, HL_STOP, normalizeMarkers } from '../shared.ts'
+import { filterVisible, HL_START, HL_STOP, normalizeMarkers } from '../shared.ts'
 import type {
   RebuildResult,
   SearchIndexablePage,
@@ -348,25 +348,22 @@ class DbSearchModule implements SearchModule {
     `
 
     /*
-      Filtered here rather than in SQL: a page rule can be a regular expression or a set of tags, so
-      the deciding rule is only knowable per row. Search must not be a way around page permissions —
-      a title and an excerpt are content too.
+      Filtered by `shared.ts`'s `filterVisible` rather than in SQL: a page rule can be a regular
+      expression or a set of tags, so the deciding rule is only knowable per row. Search must not be
+      a way around page permissions — a title and an excerpt are content too. The same helper, and
+      the same discipline, as all four external engines.
 
       This runs over every scanned row in the candidate window (see the over-fetch loop below), not
       just the caller's page of `limit` results -- `totalHits` further down is derived from
       `visibleRows.length`, so it has to see every row that survived the query before the caller's
       `offset`/`limit` window is sliced out of it.
     */
-    const filterVisible = (candidates: any[]): any[] =>
-      candidates.filter((row) =>
-        WIKI.models.groups.checkAccess(actor!, 'read:pages', {
-          path: row.path as string,
-          locale: row.locale as string,
-          siteId,
-          tags: (row.tags ?? []) as string[],
-          classification: (row.classification as string | null) ?? null
-        })
-      )
+    const toRef = (row: any) => ({
+      path: row.path as string,
+      locale: row.locale as string,
+      tags: (row.tags ?? []) as string[],
+      classification: (row.classification as string | null) ?? null
+    })
 
     /*
       A plain `LIMIT`/`OFFSET` window filtered afterward shrinks whenever a rule denies a row inside
@@ -392,7 +389,7 @@ class DbSearchModule implements SearchModule {
       for (;;) {
         const fetched = await WIKI.db.execute(rowsQuery(candidateLimit, 0))
         rawRows = fetched.rows as any[]
-        visibleRows = filterVisible(rawRows)
+        visibleRows = filterVisible(rawRows, actor, siteId, toRef)
         const exhausted = rawRows.length < candidateLimit
         if (visibleRows.length >= needed || exhausted || candidateLimit >= OVERFETCH_HARD_CAP) {
           break
@@ -489,17 +486,12 @@ class DbSearchModule implements SearchModule {
 
     // -> Same reasoning as `query`: which rule covers a candidate can depend on a regular
     //    expression or its tags, neither of which the query above could express.
-    const visible = actor
-      ? (rows.rows as any[]).filter((row) =>
-          WIKI.models.groups.checkAccess(actor, 'read:pages', {
-            path: row.path as string,
-            locale: row.locale as string,
-            siteId,
-            tags: (row.tags ?? []) as string[],
-            classification: (row.classification as string | null) ?? null
-          })
-        )
-      : (rows.rows as any[])
+    const visible = filterVisible(rows.rows as any[], actor, siteId, (row) => ({
+      path: row.path as string,
+      locale: row.locale as string,
+      tags: (row.tags ?? []) as string[],
+      classification: (row.classification as string | null) ?? null
+    }))
 
     return (visible[0]?.title as string | undefined) ?? null
   }

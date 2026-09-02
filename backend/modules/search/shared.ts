@@ -1,7 +1,8 @@
 import { and, asc, eq, gt } from 'drizzle-orm'
 import { pages as pagesTable } from '../../db/schema.ts'
 import type { SQL } from 'drizzle-orm'
-import type { SearchIndexablePage } from '../../models/search.ts'
+import type { AccessActor } from '../../models/groups.ts'
+import type { SearchIndexablePage, SearchPagesResult, SearchResult } from '../../models/search.ts'
 
 /**
  * Helpers every `modules/search/*` engine shares.
@@ -360,5 +361,92 @@ export async function* localePageStream(
     if (batch.length !== batchSize) {
       return
     }
+  }
+}
+
+/**
+ * The parts of a row a `read:pages` page rule is decided against, whatever shape that row came in.
+ *
+ * Each engine reads these out of its own document (an Algolia hit's flat fields, an Elasticsearch
+ * hit's `_source`, an Azure row's `document`, a CloudSearch hit's array-valued `fields`, a postgres
+ * row's columns), which is why `filterVisible` takes a mapper rather than a fixed row type.
+ */
+export interface VisibilityRef {
+  path: string
+  locale: string
+  tags: string[]
+  /**
+   * The page's classification level id, or `null` for a document indexed before that field existed
+   * (OpenProject #1125) — which falls through to the same fail-closed treatment `helpers/pageRules.ts`
+   * documents for a genuinely unknown classification. A full `rebuild()` backfills every document
+   * with its real value.
+   */
+  classification: string | null
+}
+
+/**
+ * The rows of a search response an actor is actually allowed to read.
+ *
+ * Applied to the rows rather than folded into the engine's own query, in every engine: which rule
+ * covers a page can depend on a regular expression or on that page's tags, and none of an Algolia
+ * `filters` clause, an Elasticsearch filter clause, an OData `$filter`, a CloudSearch `filterQuery`
+ * or a SQL `WHERE` can express that. Search must not be a way around page permissions — a title and
+ * an excerpt are content too.
+ *
+ * No actor means nothing is filtered: an internal caller, or a configuration that trusts the caller
+ * to have filtered already. `checkAccess` is not consulted at all in that case.
+ */
+export function filterVisible<T>(
+  rows: T[],
+  actor: AccessActor | undefined,
+  siteId: string,
+  toRef: (row: T) => VisibilityRef
+): T[] {
+  if (!actor) {
+    return rows
+  }
+  return rows.filter((row) => {
+    const { path, locale, tags, classification } = toRef(row)
+    return WIKI.models.groups.checkAccess(actor, 'read:pages', {
+      path,
+      locale,
+      siteId,
+      tags,
+      classification
+    })
+  })
+}
+
+/**
+ * One page of results plus its counts, built from a scanned window and the subset of it the actor may
+ * actually read.
+ *
+ * OpenProject #2151/#2156, and the reason this is one function rather than four copies: `results` and
+ * `totalHits` are both derived from `visible` ALONE. Slicing the caller's `offset`/`limit` out of the
+ * scanned rows before filtering — which is what every engine used to do — let a page-rule DENY
+ * several rows in both occupy a slot on the page the caller asked for and count toward the total it
+ * was told about, so `?query=<phrase>&limit=1` could confirm a phrase existed inside a page the
+ * caller could not open. A count that can only ever be a floor closes that: it can never vouch for
+ * anything beyond the rows already checked.
+ *
+ * `totalHits` is therefore exact whenever the true match count fits inside the scanned window
+ * (`SCAN_CAP`), and a floor beyond it — never an overcount.
+ *
+ * `suggestion` is always `null` here: no external engine surfaces a "did you mean" of its own. The
+ * `db` engine's pg_trgm-backed one is why `SearchPagesResult` has the field at all, and why `db`
+ * builds its own tail rather than calling this.
+ */
+export function toSearchPagesResult<T>(
+  scanned: T[],
+  visible: T[],
+  { offset, limit, toResult }: { offset: number; limit: number; toResult: (row: T) => SearchResult }
+): SearchPagesResult {
+  return {
+    results: visible.slice(offset, offset + limit).map(toResult),
+    totalHits: visible.length,
+    // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
+    //    actually dropped a row the engine had counted.
+    totalHitsApproximate: scanned.length !== visible.length,
+    suggestion: null
   }
 }

@@ -5,17 +5,20 @@ import {
   buildSearchDocument,
   defaultPageSource,
   escapeHtml,
+  filterVisible,
   HL_START,
   HL_STOP,
   localePageStream,
   normalizeMarkers,
   pageStream,
   REBUILD_BATCH_SIZE,
-  SCAN_CAP
+  SCAN_CAP,
+  toSearchPagesResult
 } from './shared.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
 import type { RebuildPageSource } from './shared.ts'
-import type { SearchIndexablePage } from '../../models/search.ts'
+import type { AccessActor } from '../../models/groups.ts'
+import type { SearchIndexablePage, SearchResult } from '../../models/search.ts'
 
 /**
  * `buildSearchDocument` calls `Date.prototype.toTemporalInstant()` to build a document's `updatedAt`.
@@ -392,5 +395,163 @@ describe('localePageStream()', () => {
       // -> nothing to consume; the assertion is on what was asked for
     }
     assert.equal(asked[0]!.limit, REBUILD_BATCH_SIZE)
+  })
+})
+
+describe('filterVisible()', () => {
+  let previousModels: any
+
+  before(() => {
+    ;(globalThis as any).WIKI = (globalThis as any).WIKI ?? {}
+    previousModels = (globalThis as any).WIKI.models
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI.models = previousModels
+  })
+
+  /** Installs a `checkAccess` recording every ref it was asked about, and answering from `allow`. */
+  function stubCheckAccess(allow: (ref: any) => boolean) {
+    const seen: any[] = []
+    ;(globalThis as any).WIKI.models = {
+      groups: {
+        checkAccess: (_actor: any, permission: string, ref: any) => {
+          seen.push({ permission, ref })
+          return allow(ref)
+        }
+      }
+    }
+    return seen
+  }
+
+  const row = (path: string, extra: Record<string, any> = {}) => ({
+    path,
+    locale: 'en',
+    tags: [],
+    classification: null,
+    ...extra
+  })
+
+  const actor = { id: 'user-1' } as unknown as AccessActor
+
+  test('with no actor, every row is visible and checkAccess is never consulted', () => {
+    const seen = stubCheckAccess(() => false)
+    const rows = [row('a'), row('b')]
+
+    assert.deepEqual(
+      filterVisible(rows, undefined, 'site-1', (r) => r),
+      rows
+    )
+    assert.equal(seen.length, 0)
+  })
+
+  test('drops exactly the rows the actor has no read:pages access to, keeping order', () => {
+    stubCheckAccess((ref) => ref.path !== 'secret')
+    const rows = [row('a'), row('secret'), row('b')]
+
+    assert.deepEqual(
+      filterVisible(rows, actor, 'site-1', (r) => r).map((r) => r.path),
+      ['a', 'b']
+    )
+  })
+
+  test('asks about read:pages, threading the site id onto every ref (task 678)', () => {
+    const seen = stubCheckAccess(() => true)
+    filterVisible([row('a')], actor, 'site-9', (r) => r)
+
+    assert.equal(seen.length, 1)
+    assert.equal(seen[0].permission, 'read:pages')
+    assert.equal(seen[0].ref.siteId, 'site-9')
+  })
+
+  test('the ref is whatever the caller maps out of its own row shape', () => {
+    const seen = stubCheckAccess(() => true)
+    // -> An engine's hits are not page rows: each pulls path/locale/tags/classification out of its
+    //    own document shape before this can check them.
+    const hits = [{ _source: { p: 'docs/x', l: 'fr', t: ['guide'], c: 'confidential' } }]
+
+    filterVisible(hits, actor, 'site-1', (hit) => ({
+      path: hit._source.p,
+      locale: hit._source.l,
+      tags: hit._source.t,
+      classification: hit._source.c
+    }))
+
+    assert.deepEqual(seen[0].ref, {
+      path: 'docs/x',
+      locale: 'fr',
+      siteId: 'site-1',
+      tags: ['guide'],
+      classification: 'confidential'
+    })
+  })
+})
+
+describe('toSearchPagesResult()', () => {
+  const hit = (id: string) => ({ id })
+  const toResult = (h: { id: string }) =>
+    ({
+      id: h.id,
+      path: `docs/${h.id}`,
+      locale: 'en',
+      title: h.id,
+      description: null,
+      icon: null,
+      tags: [],
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      relevancy: 1,
+      highlight: null
+    }) as SearchResult
+
+  test('slices the caller’s page out of the VISIBLE rows, not the scanned ones', () => {
+    const scanned = [hit('a'), hit('denied'), hit('b'), hit('c')]
+    const visible = [hit('a'), hit('b'), hit('c')]
+
+    const result = toSearchPagesResult(scanned, visible, { offset: 1, limit: 2, toResult })
+
+    assert.deepEqual(
+      result.results.map((r) => r.id),
+      ['b', 'c']
+    )
+  })
+
+  test('totalHits counts only what survived filtering — never what the engine reported', () => {
+    const scanned = [hit('a'), hit('denied'), hit('b')]
+    const visible = [hit('a'), hit('b')]
+
+    // -> OpenProject #2151/#2156: the count oracle is closed by deriving this from `visible` alone
+    assert.equal(
+      toSearchPagesResult(scanned, visible, { offset: 0, limit: 25, toResult }).totalHits,
+      2
+    )
+  })
+
+  test('totalHitsApproximate is true exactly when filtering dropped something', () => {
+    const scanned = [hit('a'), hit('b')]
+
+    assert.equal(
+      toSearchPagesResult(scanned, scanned, { offset: 0, limit: 25, toResult })
+        .totalHitsApproximate,
+      false
+    )
+    assert.equal(
+      toSearchPagesResult(scanned, [hit('a')], { offset: 0, limit: 25, toResult })
+        .totalHitsApproximate,
+      true
+    )
+  })
+
+  test('suggestion is null: no external engine has a "did you mean" of its own', () => {
+    assert.equal(toSearchPagesResult([], [], { offset: 0, limit: 25, toResult }).suggestion, null)
+  })
+
+  test('an offset past the end of the visible set is an empty page, not an error', () => {
+    const result = toSearchPagesResult([hit('a')], [hit('a')], {
+      offset: 50,
+      limit: 25,
+      toResult
+    })
+    assert.deepEqual(result.results, [])
+    assert.equal(result.totalHits, 1)
   })
 })

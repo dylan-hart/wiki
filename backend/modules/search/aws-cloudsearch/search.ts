@@ -17,11 +17,13 @@ import { search } from '../../../models/search.ts'
 import { ExternalSearchModule } from '../externalBase.ts'
 import {
   defaultPageSource,
+  filterVisible,
   HL_START,
   HL_STOP,
   localePageStream,
   normalizeMarkers,
-  SCAN_CAP
+  SCAN_CAP,
+  toSearchPagesResult
 } from '../shared.ts'
 import type { RebuildPageSource } from '../shared.ts'
 import type {
@@ -29,8 +31,7 @@ import type {
   SearchIndexablePage,
   SearchOrderBy,
   SearchPagesParams,
-  SearchPagesResult,
-  SearchResult
+  SearchPagesResult
 } from '../../../models/search.ts'
 
 /** This module's own key, i.e. the directory name of its `definition.yml`. */
@@ -989,54 +990,29 @@ export class AwsCloudSearchModule extends ExternalSearchModule {
       rows = result.rows
     }
 
-    /*
-      Filtered here rather than in the filter query: a page rule can be a regular expression or a set
-      of tags, so the deciding rule is only knowable per row. Search must not be a way around page
-      permissions — a title and an excerpt are content too. Same discipline as the `db`/`azure-search`
-      engines.
-    */
-    const visible = actor
-      ? rows.filter((row) =>
-          WIKI.models.groups.checkAccess(actor, 'read:pages', {
-            path: fieldValue(row, 'path'),
-            locale: fieldValue(row, 'locale'),
-            siteId,
-            tags: fieldValues(row, 'tags'),
-            // -> Indexed at write time by `toIndexDocument` (OpenProject #1125) -- a document written
-            //    before this field existed has none, which falls back to the same fail-closed `null`
-            //    treatment `helpers/pageRules.ts` documents for a genuinely unknown classification. A
-            //    full reindex (`rebuild()`) backfills every existing document with its real value.
-            classification: fieldValue(row, 'classification') || null
-          })
-        )
-      : rows
-
-    const results: SearchResult[] = visible.slice(offset, offset + limit).map((row) => ({
-      id: row.id,
+    const visible = filterVisible(rows, actor, siteId, (row) => ({
       path: fieldValue(row, 'path'),
       locale: fieldValue(row, 'locale'),
-      title: fieldValue(row, 'title'),
-      description: fieldValue(row, 'description') || null,
-      icon: fieldValue(row, 'icon') || null,
       tags: fieldValues(row, 'tags'),
-      updatedAt: fieldValue(row, 'updatedAt'),
-      relevancy: Number(fieldValue(row, '_score') || 0),
-      highlight: normalizeHighlight(row.highlights)
+      classification: fieldValue(row, 'classification') || null
     }))
 
-    return {
-      results,
-      // -> OpenProject #2151/#2156: derived from `visible` alone -- never a count CloudSearch
-      //    reported before filtering, and therefore never able to exceed what the actor can
-      //    actually read. See `db/search.ts#query()`'s comment for the exact/floor distinction.
-      totalHits: visible.length,
-      // -> See `SearchPagesResult.totalHitsApproximate`'s own doc: true whenever the rules filter
-      //    above actually dropped a row from this page, same signal `db/search.ts` uses.
-      totalHitsApproximate: rows.length !== visible.length,
-      // -> No "did you mean" here: CloudSearch has no built-in fuzzy-title suggestion API comparable
-      //    to `db`'s `pg_trgm` similarity, and building one out of band is future scope, not this task's.
-      suggestion: null
-    }
+    return toSearchPagesResult(rows, visible, {
+      offset,
+      limit,
+      toResult: (row) => ({
+        id: row.id,
+        path: fieldValue(row, 'path'),
+        locale: fieldValue(row, 'locale'),
+        title: fieldValue(row, 'title'),
+        description: fieldValue(row, 'description') || null,
+        icon: fieldValue(row, 'icon') || null,
+        tags: fieldValues(row, 'tags'),
+        updatedAt: fieldValue(row, 'updatedAt'),
+        relevancy: Number(fieldValue(row, '_score') || 0),
+        highlight: normalizeHighlight(row.highlights)
+      })
+    })
   }
 
   /**
