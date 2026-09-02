@@ -24,6 +24,7 @@ import { importModel as siteImportModel } from './siteImport.ts'
 import { jobs } from './jobs.ts'
 import { liveData } from './liveData.ts'
 import { locales } from './locales.ts'
+import { login } from './login.ts'
 import { mail } from './mail.ts'
 import { navigation } from './navigation.ts'
 import { pageHistory } from './pageHistory.ts'
@@ -45,6 +46,7 @@ import { sites } from './sites.ts'
 import { storage } from './storage.ts'
 import { tags } from './tags.ts'
 import { tree } from './tree.ts'
+import { userCredentials } from './userCredentials.ts'
 import { users } from './users.ts'
 
 export default {
@@ -74,6 +76,7 @@ export default {
   jobs,
   liveData,
   locales,
+  login,
   mail,
   navigation,
   pageHistory,
@@ -95,5 +98,6 @@ export default {
   storage,
   tags,
   tree,
+  userCredentials,
   users
 }

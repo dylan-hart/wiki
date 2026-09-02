@@ -142,7 +142,7 @@ async function finishProviderLogin(
       ticket: extra.ticket,
       body: extra.body
     })
-    const result = await WIKI.models.users.loginWithProvider(
+    const result = await WIKI.models.login.loginWithProvider(
       { siteId: flow.siteId, strategy, profile, ip: req.ip },
       req
     )
@@ -371,7 +371,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const result = await WIKI.models.users.login(
+        const result = await WIKI.models.login.login(
           {
             siteId: req.params.siteId,
             strategyId: req.body.strategyId,
@@ -464,7 +464,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const result = await WIKI.models.users.register(
+        const result = await WIKI.models.login.register(
           {
             siteId: req.params.siteId,
             strategyId: req.body.strategyId,
@@ -538,7 +538,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const result = await WIKI.models.users.loginChangePassword(
+        const result = await WIKI.models.login.loginChangePassword(
           {
             siteId: req.params.siteId,
             strategyId: req.body.strategyId,
@@ -619,7 +619,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       try {
-        await WIKI.models.users.forgotPassword({
+        await WIKI.models.login.forgotPassword({
           strategyId: req.body.strategyId,
           email: req.body.email
         })
@@ -688,7 +688,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const result = await WIKI.models.users.resetPassword(
+        const result = await WIKI.models.login.resetPassword(
           {
             siteId: req.params.siteId,
             strategyId: req.body.strategyId,
@@ -791,7 +791,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const result = await WIKI.models.users.loginTFA(
+        const result = await WIKI.models.login.loginTFA(
           {
             siteId: req.params.siteId,
             strategyId: req.body.strategyId,
@@ -1217,7 +1217,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        const { user } = await WIKI.models.users.validateToken({
+        const { user } = await WIKI.models.userCredentials.validateToken({
           kind: 'verify',
           token: req.params.token
         })
@@ -1270,7 +1270,7 @@ async function routes(app: FastifyInstance) {
       const user = req.session?.authenticated ? req.session.user : null
 
       // -> Resolved before the session goes away, since it depends on who was logged in
-      const redirect = await WIKI.models.users.getLogoutRedirect(
+      const redirect = await WIKI.models.login.getLogoutRedirect(
         user?.id ?? null,
         req.params.siteId
       )

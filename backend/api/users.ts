@@ -1009,7 +1009,7 @@ async function routes(app: FastifyInstance) {
         return reply.unauthorized()
       }
       return {
-        authMethods: await WIKI.models.users.getProfileAuthMethods(userId),
+        authMethods: await WIKI.models.userCredentials.getProfileAuthMethods(userId),
         passkeys: await WIKI.models.passkeys.list(userId)
       }
     }
@@ -1060,7 +1060,7 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        await WIKI.models.users.changeOwnPassword({
+        await WIKI.models.userCredentials.changeOwnPassword({
           userId,
           strategyId: req.body.strategyId,
           currentPassword: req.body.currentPassword,
@@ -1122,7 +1122,7 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        await WIKI.models.users.setPasswordLoginEnabled({
+        await WIKI.models.userCredentials.setPasswordLoginEnabled({
           userId,
           strategyId: req.body.strategyId,
           isEnabled: req.body.isEnabled
@@ -1195,7 +1195,7 @@ async function routes(app: FastifyInstance) {
 
       try {
         const { continuationToken, tfaQRImage, tfaSecret } =
-          await WIKI.models.users.startProfileTfaSetup({
+          await WIKI.models.login.startProfileTfaSetup({
             userId,
             strategyId: req.body.strategyId,
             siteId: site?.id
@@ -1263,7 +1263,7 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        const { recoveryCodes } = await WIKI.models.users.confirmTfaSetup({
+        const { recoveryCodes } = await WIKI.models.login.confirmTfaSetup({
           userId,
           strategyId: req.body.strategyId,
           continuationToken: req.body.continuationToken,
@@ -1314,7 +1314,7 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        await WIKI.models.users.disableTfa(userId, req.params.strategyId)
+        await WIKI.models.userCredentials.disableTfa(userId, req.params.strategyId)
       } catch (err: any) {
         rethrowAsBadRequest(err)
       }
@@ -1369,7 +1369,7 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        const { total, remaining } = await WIKI.models.users.getRecoveryCodesStatus(
+        const { total, remaining } = await WIKI.models.userCredentials.getRecoveryCodesStatus(
           userId,
           req.query.strategyId
         )
@@ -1425,10 +1425,8 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        const { recoveryCodes, hadUnusedCodes } = await WIKI.models.users.regenerateRecoveryCodes(
-          userId,
-          req.body.strategyId
-        )
+        const { recoveryCodes, hadUnusedCodes } =
+          await WIKI.models.userCredentials.regenerateRecoveryCodes(userId, req.body.strategyId)
         return { ok: true, recoveryCodes, hadUnusedCodes }
       } catch (err: any) {
         rethrowAsBadRequest(err)
@@ -1877,7 +1875,7 @@ async function routes(app: FastifyInstance) {
         })
         if (req.body.sendWelcomeEmail) {
           try {
-            const token = await WIKI.models.users.generateToken({
+            const token = await WIKI.models.userCredentials.generateToken({
               kind: 'resetPwd',
               userId: id,
               meta: { strategyId: WIKI.data.systemIds.localAuthId }
@@ -2192,7 +2190,7 @@ async function routes(app: FastifyInstance) {
         throw systemUserRefusal
       }
 
-      const updated = await WIKI.models.users.setUserPassword({
+      const updated = await WIKI.models.userCredentials.setUserPassword({
         id: req.params.userId,
         newPassword: req.body.newPassword,
         mustChangePassword: req.body.mustChangePassword ?? false
@@ -2386,7 +2384,7 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        await WIKI.models.users.adminInvalidateTfa(req.params.userId, req.body.strategyId)
+        await WIKI.models.userCredentials.adminInvalidateTfa(req.params.userId, req.body.strategyId)
       } catch (err: any) {
         rethrowAsBadRequest(err)
       }

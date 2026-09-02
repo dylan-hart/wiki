@@ -23,7 +23,7 @@ import { registerParamsSchemas } from './schemas/params.ts'
  * `SAMLResponse` and `RelayState` this way, `RelayState` carrying this route's `state` since SAML
  * defines no `state` parameter of its own (see `AuthFlow.state` in `models/authentication.ts`).
  *
- * `WIKI.auth.strategies[...].profile()` and `WIKI.models.users.loginWithProvider()` are stubbed:
+ * `WIKI.auth.strategies[...].profile()` and `WIKI.models.login.loginWithProvider()` are stubbed:
  * what is under test here is the route's flow-matching/expiry/`state` wiring and body parsing, not a
  * real protocol module or the login model, which have their own coverage.
  */
@@ -73,7 +73,7 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
                 ? { id: CAS_STRATEGY_ID, module: 'cas', isEnabled: true, autoProvision: true }
                 : null
         },
-        users: {
+        login: {
           loginWithProvider: async (args: any) => {
             loginCalls.push(args)
             return loginResult
@@ -543,7 +543,7 @@ describe('GET/POST /auth/:strategyId/callback — result.redirect validation', (
               ? { id: STRATEGY_ID, module: 'oidc', isEnabled: true, registration: true }
               : null
         },
-        users: {
+        login: {
           loginWithProvider: async () => providerResult
         }
       },
@@ -638,7 +638,8 @@ describe('GET/POST /auth/:strategyId/callback — result.redirect validation', (
 
 /**
  * `POST /sites/:siteId/auth/register` and `GET /auth/verify/:token` — the request/response wiring
- * around `WIKI.models.users.register()` / `validateToken()` / `updateUser()`, which are stubbed here
+ * around `WIKI.models.login.register()` / `userCredentials.validateToken()` / `users.updateUser()`,
+ * which are stubbed here
  * rather than run for real (that's `models/users.test.ts`'s DB-backed coverage of `register()` itself).
  * Registers the whole `authentication.ts` plugin, matching `api/mail.test.ts`'s pattern, since Fastify
  * compiles every route's schema at `ready()` regardless of which ones a given test actually hits.
@@ -655,11 +656,18 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
     ;(globalThis as any).WIKI = {
       models: {
         users: {
+          updateUser: (...args: any[]) => updateUserMock(...args)
+        },
+        // -> `register`/`forgotPassword`/`resetPassword` moved to `models/login.ts` and token
+        //    validation to `models/userCredentials.ts` when `models/users.ts` was split; the routes
+        //    reach them here now.
+        login: {
           register: (...args: any[]) => registerMock(...args),
-          validateToken: (...args: any[]) => validateTokenMock(...args),
-          updateUser: (...args: any[]) => updateUserMock(...args),
           forgotPassword: (...args: any[]) => forgotPasswordMock(...args),
           resetPassword: (...args: any[]) => resetPasswordMock(...args)
+        },
+        userCredentials: {
+          validateToken: (...args: any[]) => validateTokenMock(...args)
         },
         flags: {
           authDebug: () => {}
@@ -1034,7 +1042,7 @@ describe('POST /sites/:siteId/auth/logout — clearCookie attributes', () => {
       config: { security: { cookieSecure } },
       models: {
         flags: { authDebug: () => {} },
-        users: {
+        login: {
           getLogoutRedirect: async () => '/'
         },
         hooks: {
@@ -1363,7 +1371,7 @@ describe('PUT login: password is required by the route schema', () => {
     ;(globalThis as any).WIKI = {
       config: { security: { authRateLimitEnabled: false } },
       models: {
-        users: {
+        login: {
           login: (...args: any[]) => loginMock(...args)
         },
         flags: {

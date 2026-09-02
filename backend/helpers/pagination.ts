@@ -16,7 +16,9 @@
  * a bare number — deliberately: `count()` from `drizzle-orm` is the one spelling all six sites now
  * use (one of them had hand-written `sql<number>\`count(*)::int\``), and one of them counts across an
  * `innerJoin`, which `db.$count`'s table-or-subquery shape cannot express. Taking the query's own
- * result keeps every site on that single spelling and puts the `?? 0` in one place.
+ * result keeps every site on that single spelling and puts the `?? 0` in one place. The `total`
+ * column alias is load-bearing: this function reads `totals[0]?.total`, so a caller that spells its
+ * count query any other way silently paginates everything as `total: 0`.
  */
 export async function paginate<T>(opts: {
   rows: () => Promise<T[]>

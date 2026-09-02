@@ -208,7 +208,7 @@ export interface PageInput {
   /**
    * Backdates the new page's `createdAt` column instead of stamping the moment `createPage()` runs.
    * The editor UI has no field for this and never sets it, so ordinary saves keep the column's
-   * `now()` default; only the migration importer (`backend/migration/page-import.ts`) supplies it, to
+   * `now()` default; only the migration importer (`backend/migration/importers/page-import.ts`) supplies it, to
    * carry a source page's real creation time across rather than replacing it with import time — the
    * bug upstream requarks/wiki#4631 describes ("Importing from Local File System is ignoring
    * dateCreated and date fields").

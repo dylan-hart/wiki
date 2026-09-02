@@ -6,7 +6,7 @@ import { userKeys as userKeysTable } from '../../db/schema.ts'
 
 /**
  * `task()` is the daily `purgeUserKeys` scheduled job (OpenProject #1684): it deletes `userKeys` rows
- * whose `validUntil` has passed, behind `models/users.ts#purgeExpiredKeys()`. This is a DB-backed
+ * whose `validUntil` has passed, behind `models/userCredentials.ts#purgeExpiredKeys()`. This is a
  * suite -- a real row round-tripping through Postgres -- since the thing under test is the SQL
  * comparison against `now()`, matching how `purge-pageviews.ts` and `update-locales.ts` cover their
  * own scheduled-job siblings.
