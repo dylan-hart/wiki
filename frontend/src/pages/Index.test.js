@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import Index from './Index.vue'
 import { useCommonStore } from '@/stores/common'
@@ -12,6 +10,9 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import { isActive as loadingIsActive } from '@/composables/loading'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { buildTestRouter, createTestRouter } from '../../test/router.js'
 
 /**
  * Regression coverage for task 633's wiring: `PageComments.vue` is mounted inside the article
@@ -67,26 +68,15 @@ afterEach(() => {
 async function mountIndex() {
   setActivePinia(createPinia())
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
   // -> Real English messages for the couple of keys these tests assert the rendered text of
   //    (`common.page.unpublished`, `common.page.lastModifiedOn`); every other `t()` call in the
   //    component renders as its bare key, same as before this list existed, which none of these
   //    tests reads.
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        common: {
-          page: { unpublished: 'Unpublished', lastModifiedOn: 'Last modified on' }
-        }
-      }
+  const i18n = createTestI18n({
+    common: {
+      page: { unpublished: 'Unpublished', lastModifiedOn: 'Last modified on' }
     }
   })
 
@@ -178,12 +168,9 @@ async function mountAtMissingPath({ pagePermissions, permissions = [] }) {
     json: vi.fn().mockResolvedValue(pagePermissions)
   })
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/:pathMatch(.*)*', component: Index }]
-  })
+  const router = buildTestRouter([{ path: '/:pathMatch(.*)*', component: Index }])
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   const wrapper = mount(Index, {
     global: {
@@ -379,14 +366,9 @@ describe('Index.vue: read-path block loading for a directly-loaded/reloaded page
         })
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
-    router.push('/')
-    await router.isReady()
+    const router = await createTestRouter(['/'])
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     const wrapper = mount(Index, {
       global: {
@@ -455,14 +437,9 @@ describe('Index.vue: collapses the block scan into one loadBlocks() call (OpenPr
         })
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
-    router.push('/')
-    await router.isReady()
+    const router = await createTestRouter(['/'])
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     const wrapper = mount(Index, {
       global: {
@@ -532,14 +509,9 @@ describe('Index.vue: reader-view block scan skips a block absent from blocksInde
         })
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
-    router.push('/')
-    await router.isReady()
+    const router = await createTestRouter(['/'])
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     const wrapper = mount(Index, {
       global: {
@@ -600,15 +572,9 @@ describe('Index.vue: site-root missing-home-page screen (OpenProject #2063)', ()
       json: vi.fn().mockResolvedValue(pagePermissions)
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        { path: '/', component: Index },
-        { path: '/login', component: { template: '<div />' } }
-      ]
-    })
+    const router = buildTestRouter([{ path: '/', component: Index }, '/login'])
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     const wrapper = mount(Index, {
       global: {
@@ -687,14 +653,8 @@ describe('Index.vue: site-root missing-home-page screen (OpenProject #2063)', ()
       json: vi.fn().mockResolvedValue(undefined)
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        { path: '/', component: Index },
-        { path: '/login', component: { template: '<div />' } }
-      ]
-    })
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const router = buildTestRouter([{ path: '/', component: Index }, '/login'])
+    const i18n = createTestI18n()
 
     const wrapper = mount(Index, {
       global: {
@@ -762,14 +722,11 @@ describe('Index.vue: /_create and /_edit route-watcher error handling (OpenProje
     userStore.authenticated = true
     userStore.permissions = ['manage:system']
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        { path: '/', component: { template: '<div />' } },
-        { path: '/_create/:editor?', component: Index },
-        { path: '/_edit/:pagePath(.*)?', component: Index }
-      ]
-    })
+    const router = buildTestRouter([
+      '/',
+      { path: '/_create/:editor?', component: Index },
+      { path: '/_edit/:pagePath(.*)?', component: Index }
+    ])
     // -> Navigates straight to the target route as the FIRST navigation, matching
     //    `mountAtMissingPath`'s own pattern above -- not `/` then a second `push()`, which would run
     //    the immediate route watcher against `/` first (a 404 there, with this suite's guest/no-page
@@ -778,7 +735,7 @@ describe('Index.vue: /_create and /_edit route-watcher error handling (OpenProje
     router.push(path)
     await router.isReady()
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     const wrapper = mount(Index, {
       global: {
@@ -845,14 +802,12 @@ describe('Index.vue: generation guard on the route-path watcher (OpenProject #17
   it('discards a stale pageLoad response that resolves after a newer navigation already landed', async () => {
     setActivePinia(createPinia())
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/:pathMatch(.*)*', component: Index }]
-    })
-    router.push('/page-a')
-    await router.isReady()
+    const router = await createTestRouter(
+      [{ path: '/:pathMatch(.*)*', component: Index }],
+      '/page-a'
+    )
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     let resolvePageA
     const pageAResponse = new Promise((resolve) => {

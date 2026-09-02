@@ -5,10 +5,11 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import ErrorGeneric from './ErrorGeneric.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * OpenProject #2110: `.errorpage-code` / `.errorpage-title` used to be fixed at 12rem/5rem with no
@@ -38,30 +39,16 @@ function ruleFor(className) {
 async function mountErrorGeneric(action = 'notfound') {
   setActivePinia(createPinia())
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: '/', component: { template: '<div />' } },
-      { path: '/_error/:action', component: { template: '<div />' } }
-    ]
-  })
-  router.push(`/_error/${action}`)
-  await router.isReady()
+  const router = await createTestRouter(['/', '/_error/:action'], `/_error/${action}`)
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        common: {
-          error: {
-            title: 'Error',
-            goHome: 'Go Home',
-            loginAs: 'Login',
-            notfound: { title: 'Page Not Found', hint: 'The page does not exist' },
-            unauthorized: { title: 'Unauthorized', hint: 'You are not authorized' }
-          }
-        }
+  const i18n = createTestI18n({
+    common: {
+      error: {
+        title: 'Error',
+        goHome: 'Go Home',
+        loginAs: 'Login',
+        notfound: { title: 'Page Not Found', hint: 'The page does not exist' },
+        unauthorized: { title: 'Unauthorized', hint: 'You are not authorized' }
       }
     }
   })

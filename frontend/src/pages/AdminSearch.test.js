@@ -5,11 +5,12 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AdminSearch from './AdminSearch.vue'
 import { useAdminStore } from '@/stores/admin'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Task #571 -- `AdminSearch.vue` rebuilt around a per-site engine picker -- plus task #572's dynamic
@@ -42,7 +43,7 @@ function engine(overrides = {}) {
 }
 
 function mountAdminSearch() {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   return mount(AdminSearch, {
     global: {
       plugins: [i18n]

@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminGeneral from './AdminGeneral.vue'
 import BlueprintIcon from '@/components/BlueprintIcon.vue'
@@ -11,6 +9,10 @@ import { useUserStore } from '@/stores/user'
 import { useSiteStore } from '@/stores/site'
 import { queue as notifyQueue } from '@/composables/notify'
 import { isActive as loadingIsActive } from '@/composables/loading'
+
+import { createTestI18n } from '../../test/i18n.js'
+
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * Regression test: `<blueprint-icon indicator ...>` (a bare attribute, no `:` binding) always sends
@@ -29,20 +31,9 @@ async function mountPage(extensionsResponse) {
     return { json: () => Promise.resolve(undefined) }
   })
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'], '/')
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: { en: {} },
-    missingWarn: false,
-    fallbackWarn: false
-  })
+  const i18n = createTestI18n()
 
   const wrapper = mount(AdminGeneral, {
     global: {
@@ -100,14 +91,12 @@ async function mountLoaded() {
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_SITE) })
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/_admin/:siteid/general', component: { template: '<div />' } }]
-  })
-  router.push(`/_admin/${FIXTURE_SITE.id}/general`)
-  await router.isReady()
+  const router = await createTestRouter(
+    ['/_admin/:siteid/general'],
+    `/_admin/${FIXTURE_SITE.id}/general`
+  )
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   const wrapper = mount(AdminGeneral, { global: { plugins: [router, i18n] } })
   await flushPromises()
 
@@ -198,20 +187,9 @@ describe('AdminGeneral — preview toolbar across a site switch', () => {
       return { json: () => Promise.resolve(undefined) }
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
-    router.push('/')
-    await router.isReady()
+    const router = await createTestRouter(['/'], '/')
 
-    const i18n = createI18n({
-      legacy: false,
-      locale: 'en',
-      messages: { en: {} },
-      missingWarn: false,
-      fallbackWarn: false
-    })
+    const i18n = createTestI18n()
 
     const wrapper = mount(AdminGeneral, {
       global: { plugins: [router, i18n] }
@@ -338,26 +316,15 @@ async function mountRenamePage() {
   const userStore = useUserStore()
   userStore.permissions = ['manage:sites']
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/_admin/:siteid/general', component: { template: '<div />' } }]
-  })
-  router.push('/_admin/site-1/general')
-  await router.isReady()
+  const router = await createTestRouter(['/_admin/:siteid/general'], '/_admin/site-1/general')
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        common: { actions: { apply: 'Apply' } },
-        admin: {
-          general: {
-            siteHostname: 'Site Hostname',
-            hostnameChangedWarning:
-              "Saved. This site's hostname changed -- navigate to {hostname} to keep administering it."
-          }
-        }
+  const i18n = createTestI18n({
+    common: { actions: { apply: 'Apply' } },
+    admin: {
+      general: {
+        siteHostname: 'Site Hostname',
+        hostnameChangedWarning:
+          "Saved. This site's hostname changed -- navigate to {hostname} to keep administering it."
       }
     }
   })
@@ -466,14 +433,9 @@ describe('AdminGeneral load() error handling (OpenProject #947)', () => {
 
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.reject(new Error('Network error')) })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/_admin/:siteid/general', component: { template: '<div />' } }]
-    })
-    router.push('/_admin/site-1/general')
-    await router.isReady()
+    const router = await createTestRouter(['/_admin/:siteid/general'], '/_admin/site-1/general')
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
     const wrapper = mount(AdminGeneral, { global: { plugins: [router, i18n] } })
     // -> `loading.show()`'s own 500ms delay -- see `composables/loading.js` -- has to actually
     //    elapse for `isActive` to ever flip `true` at all; advancing past it is what would have

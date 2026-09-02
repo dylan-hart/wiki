@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises } from '@vue/test-utils'
-import { createMemoryHistory, createRouter } from 'vue-router'
-import { createI18n } from 'vue-i18n'
 import { isReactive } from 'vue'
 
 import Graph from './Graph.vue'
@@ -11,6 +9,9 @@ import Graph from './Graph.vue'
 //    these tests call it directly rather than through a page-local wrapper that nothing else needs.
 import { drawLabels, LABEL_GAP } from './graphDraw.js'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 /** Mirrors `backend/locales/en.json`'s `graph.*` namespace (OpenProject #1690) -- kept here rather
  *  than imported so this suite doesn't depend on the real locale file's exact key set, only on the
@@ -57,12 +58,8 @@ const GRAPH_MESSAGES = {
   'graph.tooltip.visits': '{count} visit | {count} visits'
 }
 
-function createTestI18n(messageOverrides = {}) {
-  return createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: { en: { ...GRAPH_MESSAGES, ...messageOverrides } }
-  })
+function createGraphI18n(messageOverrides = {}) {
+  return createTestI18n({ ...GRAPH_MESSAGES, ...messageOverrides })
 }
 
 const ZERO_TOTAL_PAGEVIEW_WINDOW = { browser: 0, api: 0, mcp: 0, all: 0 }
@@ -164,7 +161,7 @@ const FIXTURE_GRAPH_TRUNCATED = {
  *  single-locale graph); a test exercising a different node/edge shape -- the locale-duplicate case
  *  (OpenProject #1629), the locale-filter tests' multi-locale graph (OpenProject #2294), or the
  *  #1686 fallback-list tests' `NESTED_FIXTURE_GRAPH` (for a real-to-real edge) -- passes its own.
- *  `messageOverrides` is forwarded to `createTestI18n()` for a test asserting one specific
+ *  `messageOverrides` is forwarded to `createGraphI18n()` for a test asserting one specific
  *  resolved string. */
 async function mountGraph({
   pageviewsEnabled = true,
@@ -175,12 +172,7 @@ async function mountGraph({
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/:pathMatch(.*)*'])
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(graph) })
   API_CLIENT.get.mockReturnValueOnce({
@@ -188,7 +180,7 @@ async function mountGraph({
   })
 
   const wrapper = mount(Graph, {
-    global: { plugins: [router, createTestI18n(messageOverrides)] }
+    global: { plugins: [router, createGraphI18n(messageOverrides)] }
   })
   await flushPromises()
   return wrapper
@@ -216,16 +208,11 @@ describe('Graph.vue (OpenProject #891)', () => {
     setActivePinia(createPinia())
     const siteStore = useSiteStore()
     siteStore.id = 'site-1'
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-    })
-    router.push('/')
-    await router.isReady()
+    const router = await createTestRouter(['/:pathMatch(.*)*'])
 
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_GRAPH) })
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ isEnabled: true }) })
-    const wrapper = mount(Graph, { global: { plugins: [router, createTestI18n()] } })
+    const wrapper = mount(Graph, { global: { plugins: [router, createGraphI18n()] } })
     await flushPromises()
 
     wrapper.vm.sizeBy = 'visits'
@@ -243,12 +230,7 @@ describe('Graph.vue (OpenProject #891)', () => {
     setActivePinia(createPinia())
     const siteStore = useSiteStore()
     siteStore.id = 'site-1'
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-    })
-    router.push('/')
-    await router.isReady()
+    const router = await createTestRouter(['/:pathMatch(.*)*'])
 
     const sharedPathGraph = {
       nodes: [
@@ -280,7 +262,7 @@ describe('Graph.vue (OpenProject #891)', () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(sharedPathGraph) })
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ isEnabled: true }) })
 
-    const wrapper = mount(Graph, { global: { plugins: [router, createTestI18n()] } })
+    const wrapper = mount(Graph, { global: { plugins: [router, createGraphI18n()] } })
     await flushPromises()
 
     const realNodes = wrapper.vm.nodes.filter((node) => !node.synthetic)
@@ -1007,17 +989,12 @@ describe('Graph.vue (OpenProject #891)', () => {
     setActivePinia(createPinia())
     const siteStore = useSiteStore()
     siteStore.id = 'site-1'
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-    })
-    router.push('/')
-    await router.isReady()
+    const router = await createTestRouter(['/:pathMatch(.*)*'])
     API_CLIENT.get.mockImplementationOnce(() => {
       throw new Error('network')
     })
 
-    const wrapper = mount(Graph, { global: { plugins: [router, createTestI18n()] } })
+    const wrapper = mount(Graph, { global: { plugins: [router, createGraphI18n()] } })
     await flushPromises()
 
     expect(wrapper.find('canvas').exists()).toBe(true)
@@ -1138,19 +1115,14 @@ describe('Graph.vue (OpenProject #891)', () => {
     setActivePinia(createPinia())
     const siteStore = useSiteStore()
     siteStore.id = 'site-1'
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-    })
-    router.push('/')
-    await router.isReady()
+    const router = await createTestRouter(['/:pathMatch(.*)*'])
 
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.resolve({ ...FIXTURE_GRAPH, truncated: true, totalNodes: 5000 })
     })
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ isEnabled: true }) })
 
-    const wrapper = mount(Graph, { global: { plugins: [router, createTestI18n()] } })
+    const wrapper = mount(Graph, { global: { plugins: [router, createGraphI18n()] } })
     await flushPromises()
 
     expect(wrapper.vm.graphTruncated).toBe(true)

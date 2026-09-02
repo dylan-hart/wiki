@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import ClassificationReportDrillDialog from './ClassificationReportDrillDialog.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * OpenProject #1081: `AdminClassification.vue`'s coverage report opens this dialog when an admin
@@ -10,7 +11,7 @@ import ClassificationReportDrillDialog from './ClassificationReportDrillDialog.v
  * against `GET pages/classification-report/:levelId`.
  */
 async function mountDialog(props) {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   const wrapper = mount(ClassificationReportDrillDialog, {
     props: { levelId: 'level-restricted', levelName: 'Restricted', ...props },
     global: { plugins: [i18n], stubs: { teleport: true } }

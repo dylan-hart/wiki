@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 import { TimeoutError } from 'ky'
 
 import AdminExtensions from './AdminExtensions.vue'
 import { isActive as loadingIsActive } from '@/composables/loading'
 import { dismiss as dismissNotification, queue as notifyQueue } from '@/composables/notify'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /** OpenProject #1922: `siteStore.docsBase` is server-provided, with no hardcoded frontend default --
  *  set it explicitly here so `mountWithExtensions`'s tests exercise a real base rather than `''`. */
@@ -29,28 +30,26 @@ const TEST_DOCS_BASE = 'https://docs.example.test'
  * `AdminExtensions.vue` PASSES to the tooltip, which is what this task actually changed.
  */
 const messages = {
-  en: {
-    'admin.extensions.needsRestart':
-      'This extension failed to load and needs the server restarted before it can be used.',
-    'admin.extensions.incompatible': 'not compatible',
-    'admin.extensions.installed': 'Installed',
-    'admin.extensions.install': 'Install',
-    'admin.extensions.reinstall': 'Reinstall',
-    'admin.extensions.instructions': 'Instructions',
-    'admin.extensions.instructionsHint': 'Must be installed manually',
-    'admin.extensions.title': 'Extensions',
-    'admin.extensions.subtitle': 'Install extensions for extra functionality',
-    'admin.extensions.installing': 'Installing extension...',
-    'admin.extensions.installingHint': 'This may take a while depending on your server.',
-    'admin.extensions.installElapsed': 'Elapsed: {time}',
-    'admin.extensions.installFailed': 'Failed to install extension.',
-    'admin.extensions.installTimedOut': 'Still installing — the request timed out waiting for it.',
-    'admin.extensions.installTimedOutHint':
-      'This does not necessarily mean it failed. Refresh this page in a few minutes to check before trying again.',
-    'admin.extensions.installSuccess': 'Extension installed successfully.',
-    'common.actions.viewDocs': 'View docs',
-    'common.actions.refresh': 'Refresh'
-  }
+  'admin.extensions.needsRestart':
+    'This extension failed to load and needs the server restarted before it can be used.',
+  'admin.extensions.incompatible': 'not compatible',
+  'admin.extensions.installed': 'Installed',
+  'admin.extensions.install': 'Install',
+  'admin.extensions.reinstall': 'Reinstall',
+  'admin.extensions.instructions': 'Instructions',
+  'admin.extensions.instructionsHint': 'Must be installed manually',
+  'admin.extensions.title': 'Extensions',
+  'admin.extensions.subtitle': 'Install extensions for extra functionality',
+  'admin.extensions.installing': 'Installing extension...',
+  'admin.extensions.installingHint': 'This may take a while depending on your server.',
+  'admin.extensions.installElapsed': 'Elapsed: {time}',
+  'admin.extensions.installFailed': 'Failed to install extension.',
+  'admin.extensions.installTimedOut': 'Still installing — the request timed out waiting for it.',
+  'admin.extensions.installTimedOutHint':
+    'This does not necessarily mean it failed. Refresh this page in a few minutes to check before trying again.',
+  'admin.extensions.installSuccess': 'Extension installed successfully.',
+  'common.actions.viewDocs': 'View docs',
+  'common.actions.refresh': 'Refresh'
 }
 
 async function mountWithExtensions(extensions) {
@@ -59,7 +58,7 @@ async function mountWithExtensions(extensions) {
 
   globalThis.API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(extensions) })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages })
+  const i18n = createTestI18n(messages)
 
   const wrapper = mount(AdminExtensions, {
     global: {

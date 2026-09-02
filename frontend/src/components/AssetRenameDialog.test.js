@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 import { createPinia, setActivePinia } from 'pinia'
 
 import AssetRenameDialog from './AssetRenameDialog.vue'
 import { queue as notifyQueue } from '@/composables/notify'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /*
   `WDialog`'s content lives behind a `<teleport to="body">`, which lands it as a REAL child of
@@ -23,21 +24,15 @@ function mountDialog(props) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        fileman: {
-          assetRename: 'Rename Asset',
-          assetFileName: 'Asset Name',
-          assetFileNameHint: 'Filename of the asset, including the file extension.',
-          renameAssetInvalid: 'Asset name is invalid.',
-          renameAssetSuccess: 'Asset renamed successfully.'
-        },
-        common: { actions: { cancel: 'Cancel', rename: 'Rename' } }
-      }
-    }
+  const i18n = createTestI18n({
+    fileman: {
+      assetRename: 'Rename Asset',
+      assetFileName: 'Asset Name',
+      assetFileNameHint: 'Filename of the asset, including the file extension.',
+      renameAssetInvalid: 'Asset name is invalid.',
+      renameAssetSuccess: 'Asset renamed successfully.'
+    },
+    common: { actions: { cancel: 'Cancel', rename: 'Rename' } }
   })
   currentWrapper = mount(AssetRenameDialog, {
     props: { assetId: 'asset-1', ...props },

@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminPagesDeleted from './AdminPagesDeleted.vue'
 import { useAdminStore } from '@/stores/admin'
 import { openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { buildTestRouter } from '../../test/router.js'
 
 /**
  * Regression coverage for task 515's two distinct recover-failure paths.
@@ -56,11 +57,8 @@ async function mountPage() {
 
   mockLoadEndpoints()
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-  })
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const router = buildTestRouter(['/:pathMatch(.*)*'])
+  const i18n = createTestI18n()
 
   const wrapper = mount(AdminPagesDeleted, { global: { plugins: [router, i18n] } })
   await flushPromises()
@@ -106,11 +104,8 @@ describe('AdminPagesDeleted: load()', () => {
       return { json: () => Promise.resolve({ locales: { active: ['en'] } }) }
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-    })
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const router = buildTestRouter(['/:pathMatch(.*)*'])
+    const i18n = createTestI18n()
     const wrapper = mount(AdminPagesDeleted, { global: { plugins: [router, i18n] } })
     await flushPromises()
 

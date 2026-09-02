@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import EditorMarkdownUserSettingsOverlay from './EditorMarkdownUserSettingsOverlay.vue'
 import { useEditorStore } from '@/stores/editor'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 const MESSAGES = {
   'common.actions.apply': 'Apply',
@@ -22,7 +23,7 @@ const MESSAGES = {
 function mountOverlay() {
   setActivePinia(createPinia())
   const editorStore = useEditorStore()
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
+  const i18n = createTestI18n(MESSAGES)
   const wrapper = mount(EditorMarkdownUserSettingsOverlay, {
     global: { plugins: [i18n] }
   })

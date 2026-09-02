@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import NavBrowseMenu from './NavBrowseMenu.vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * OpenProject #832 (upstream #1793, recurred as upstream discussion #7316): a raw i18n key
@@ -75,14 +76,9 @@ async function mountBrowseMenu({ folderPath = '' } = {}) {
   const pageStore = usePageStore()
   pageStore.$patch({ path: folderPath ? `${folderPath}/current-page` : 'home', locale: 'en' })
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/:pathMatch(.*)*'])
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: REAL_STRINGS } })
+  const i18n = createTestI18n(REAL_STRINGS)
 
   API_CLIENT.get.mockReturnValueOnce({
     json: () => Promise.resolve(folderPath ? DOCS_LEVEL : ROOT_LEVEL)

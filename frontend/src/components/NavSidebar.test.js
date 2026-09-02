@@ -5,12 +5,13 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import NavSidebar from './NavSidebar.vue'
 import routes from '@/router/routes'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * Task 466 (feature 362): verify -- rather than assume -- every combination `destination()` feeds
@@ -36,15 +37,9 @@ async function mountNav(items, { path = '/' } = {}) {
   const siteStore = useSiteStore()
   siteStore.nav.items = items
 
-  const router = createRouter({ history: createMemoryHistory(), routes })
-  await router.push(path)
-  await router.isReady()
+  const router = await createTestRouter(routes, path)
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: { en: { common: { sidebar: { browse: 'Browse' } } } }
-  })
+  const i18n = createTestI18n({ common: { sidebar: { browse: 'Browse' } } })
 
   const wrapper = mount(NavSidebar, {
     global: {
@@ -518,18 +513,9 @@ async function mountSidebar(sidebarPosition) {
   const siteStore = useSiteStore()
   siteStore.theme.sidebarPosition = sidebarPosition
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: { en: { common: { sidebar: { browse: 'Browse' } } } }
-  })
+  const i18n = createTestI18n({ common: { sidebar: { browse: 'Browse' } } })
 
   return mount(NavSidebar, {
     global: {
@@ -548,21 +534,12 @@ describe('NavSidebar landmark', () => {
   it('wraps the nav list in a named <nav> landmark', async () => {
     setActivePinia(createPinia())
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
-    router.push('/')
-    await router.isReady()
+    const router = await createTestRouter(['/'])
 
     // -> A real message this time (`mountSidebar`'s own harness intentionally leaves `en` empty,
     //    since none of ITS assertions read a translated string) -- vue-i18n returns the bare key
     //    for a missing one, and this test needs the resolved label.
-    const i18n = createI18n({
-      legacy: false,
-      locale: 'en',
-      messages: { en: { 'common.sidebar.browse': 'Browse' } }
-    })
+    const i18n = createTestI18n({ 'common.sidebar.browse': 'Browse' })
 
     const wrapper = mount(NavSidebar, { global: { plugins: [router, i18n] } })
     await wrapper.vm.$nextTick()

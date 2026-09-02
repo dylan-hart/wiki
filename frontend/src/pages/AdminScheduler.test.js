@@ -3,9 +3,10 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AdminScheduler from './AdminScheduler.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * OpenProject #1929: `/admin/scheduler` names a job-scheduler concept this fork invented (no upstream
@@ -31,17 +32,11 @@ describe('AdminScheduler help link', () => {
 function mountPage() {
   setActivePinia(createPinia())
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        'admin.scheduler.title': 'Scheduler',
-        'admin.scheduler.groupRuns': '1 run | {count} runs',
-        'admin.scheduler.groupExpand': 'Show individual runs of {task}',
-        'admin.scheduler.groupCollapse': 'Hide individual runs of {task}'
-      }
-    }
+  const i18n = createTestI18n({
+    'admin.scheduler.title': 'Scheduler',
+    'admin.scheduler.groupRuns': '1 run | {count} runs',
+    'admin.scheduler.groupExpand': 'Show individual runs of {task}',
+    'admin.scheduler.groupCollapse': 'Hide individual runs of {task}'
   })
 
   return mount(AdminScheduler, {

@@ -4,8 +4,6 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminLayout from './AdminLayout.vue'
 import { useAdminStore } from '@/stores/admin'
@@ -13,6 +11,9 @@ import { useFlagsStore } from '@/stores/flags'
 import { useUserStore } from '@/stores/user'
 import { useDirection } from '@/composables/direction'
 import WMenu from '@/components/shared/WMenu.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 /*
   `stores/common.js` reads `localStorage.getItem('locale')` at store-creation time. Node 26 (this
@@ -67,14 +68,9 @@ describe('AdminLayout sidebar nav', () => {
       return { json: () => Promise.resolve(undefined) }
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/_admin/:siteid/general', component: { template: '<div />' } }]
-    })
-    router.push('/_admin/site1/general')
-    await router.isReady()
+    const router = await createTestRouter(['/_admin/:siteid/general'], '/_admin/site1/general')
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     const wrapper = mount(AdminLayout, {
       global: { plugins: [router, i18n] }
@@ -165,14 +161,9 @@ describe('AdminLayout Navigation nav-tree entry', () => {
     const adminStore = useAdminStore()
     adminStore.currentSiteId = 'site-1'
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-    })
-    router.push('/_admin/site-1/navigation')
-    await router.isReady()
+    const router = await createTestRouter(['/:pathMatch(.*)*'], '/_admin/site-1/navigation')
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     return mount(AdminLayout, {
       global: {
@@ -279,17 +270,12 @@ async function mountAdminLayout() {
   setActivePinia(createPinia())
   useUserStore().$patch({ permissions: ['manage:system'] })
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: '/_admin/:siteid?/:rest*', component: { template: '<div />' } },
-      { path: '/_error/unauthorized', component: { template: '<div />' } }
-    ]
-  })
-  router.push('/_admin/site-1/dashboard')
-  await router.isReady()
+  const router = await createTestRouter(
+    ['/_admin/:siteid?/:rest*', '/_error/unauthorized'],
+    '/_admin/site-1/dashboard'
+  )
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   // -> `fetchSites()` (called from `onMounted`) does `this.sites[0].id` when nothing came back --
   //    the default `API_CLIENT` stub resolves every call to `undefined`, which would throw. A
@@ -364,17 +350,12 @@ describe('AdminLayout toolbar hover treatment (task 822)', () => {
     setActivePinia(createPinia())
     useUserStore().$patch({ permissions: ['manage:system'] })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        { path: '/_admin/:siteid?/:rest*', component: { template: '<div />' } },
-        { path: '/_error/unauthorized', component: { template: '<div />' } }
-      ]
-    })
-    router.push('/_admin/site-1/dashboard')
-    await router.isReady()
+    const router = await createTestRouter(
+      ['/_admin/:siteid?/:rest*', '/_error/unauthorized'],
+      '/_admin/site-1/dashboard'
+    )
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     API_CLIENT.get.mockImplementation((url) => {
       if (url === 'sites') {

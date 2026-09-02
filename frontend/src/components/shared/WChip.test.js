@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import WChip from './WChip.vue'
+
+import { createTestI18n } from '../../../test/i18n.js'
 
 describe('WChip', () => {
   it('renders the label prop when no default slot content is given', () => {
@@ -49,11 +50,7 @@ describe('WChip', () => {
 
   describe('i18n', () => {
     it('resolves the remove button label from the dictionary when removeLabel is not overridden', () => {
-      const i18n = createI18n({
-        legacy: false,
-        locale: 'en',
-        messages: { en: { 'common.chip.remove': 'Entfernen' } }
-      })
+      const i18n = createTestI18n({ 'common.chip.remove': 'Entfernen' })
       const wrapper = mount(WChip, {
         props: { label: 'Tag', removable: true },
         global: { plugins: [i18n] }
@@ -63,11 +60,7 @@ describe('WChip', () => {
     })
 
     it('still prefers an explicit removeLabel prop over the dictionary', () => {
-      const i18n = createI18n({
-        legacy: false,
-        locale: 'en',
-        messages: { en: { 'common.chip.remove': 'Entfernen' } }
-      })
+      const i18n = createTestI18n({ 'common.chip.remove': 'Entfernen' })
       const wrapper = mount(WChip, {
         props: { label: 'Tag', removable: true, removeLabel: 'Drop Tag' },
         global: { plugins: [i18n] }

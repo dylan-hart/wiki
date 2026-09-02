@@ -19,12 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
-import {
-  createMemoryHistory,
-  createRouter,
-  isNavigationFailure,
-  NavigationFailureType
-} from 'vue-router'
+import { isNavigationFailure, NavigationFailureType } from 'vue-router'
 
 import App from './App.vue'
 import { closeDialog, openDialogs } from '@/composables/dialog'
@@ -34,6 +29,10 @@ import { useEditorStore } from '@/stores/editor'
 import { useFlagsStore } from '@/stores/flags'
 import { useUserStore } from '@/stores/user'
 import { useCommonStore } from './stores/common'
+
+import { createTestI18n } from '../test/i18n.js'
+
+import { buildTestRouter, createTestRouter } from '../test/router.js'
 let currentWrapper
 
 /**
@@ -50,14 +49,9 @@ async function mountApp() {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   currentWrapper = mount(App, {
     global: { plugins: [router, i18n] }
@@ -198,17 +192,12 @@ describe('App.vue applyTheme()', () => {
     siteStore.theme.injectHead = '<meta name="probe-head" content="1">'
     siteStore.theme.injectBody = '<div id="probe-body-el"></div>'
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        { path: '/', component: { template: '<div />' } },
-        { path: '/login', component: { template: '<div class="login-stub" />' } }
-      ]
-    })
-    router.push('/login')
-    await router.isReady()
+    const router = await createTestRouter(
+      ['/', { path: '/login', component: { template: '<div class="login-stub" />' } }],
+      '/login'
+    )
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
     currentWrapper = mount(App, { global: { plugins: [router, i18n] } })
     await triggerApplyTheme()
 
@@ -284,11 +273,8 @@ async function mountAppWithLocale(localeCode) {
   // -> Never resolves: proves the dir/lang flip does not wait on the locale-strings request
   API_CLIENT.get.mockImplementationOnce(() => new Promise(() => {}))
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const router = buildTestRouter(['/'])
+  const i18n = createTestI18n()
 
   mount(App, { global: { plugins: [router, i18n] } })
 
@@ -333,10 +319,7 @@ describe('App.vue applyLocale() en fallback eager-load', () => {
     userStore.profileLoaded = true
     commonStore.setLocale(localeCode)
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
+    const router = buildTestRouter(['/'])
     // -> `messages: {}`, matching the real boot/i18n.js -- not `{ en: {} }` as the other describe
     //    blocks in this file use, since that would put `en` in `availableLocales` from the start and
     //    the eager-load branch under test (`!i18n.availableLocales.includes('en')`) would never fire.
@@ -444,11 +427,8 @@ describe('App.vue applyLocale() idempotency', () => {
 
     API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve({}) })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const router = buildTestRouter(['/'])
+    const i18n = createTestI18n()
 
     mount(App, { global: { plugins: [router, i18n] } })
 
@@ -493,11 +473,8 @@ describe('App.vue Markdown editor settings prefetch', () => {
     seedLoadedSession({ authenticated: true })
     const fetchUserSettings = vi.spyOn(useEditorStore(), 'fetchUserSettings').mockResolvedValue({})
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const router = buildTestRouter(['/'])
+    const i18n = createTestI18n()
     mount(App, { global: { plugins: [router, i18n] } })
 
     await router.push('/')
@@ -510,11 +487,8 @@ describe('App.vue Markdown editor settings prefetch', () => {
     seedLoadedSession({ authenticated: false })
     const fetchUserSettings = vi.spyOn(useEditorStore(), 'fetchUserSettings').mockResolvedValue({})
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const router = buildTestRouter(['/'])
+    const i18n = createTestI18n()
     mount(App, { global: { plugins: [router, i18n] } })
 
     await router.push('/')
@@ -527,14 +501,8 @@ describe('App.vue Markdown editor settings prefetch', () => {
     seedLoadedSession({ authenticated: true })
     const fetchUserSettings = vi.spyOn(useEditorStore(), 'fetchUserSettings').mockResolvedValue({})
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        { path: '/', component: { template: '<div />' } },
-        { path: '/other', component: { template: '<div />' } }
-      ]
-    })
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const router = buildTestRouter(['/', '/other'])
+    const i18n = createTestI18n()
     mount(App, { global: { plugins: [router, i18n] } })
 
     await router.push('/')
@@ -564,33 +532,25 @@ describe('App.vue router.beforeEach() unsaved-changes guard', () => {
   }
 
   function makeRouter() {
-    return createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        { path: '/', component: { template: '<div />' } },
-        { path: '/other', component: { template: '<div />' } }
-      ]
-    })
+    return buildTestRouter(['/', '/other'])
   }
 
   const MESSAGES = {
-    en: {
-      editor: {
-        unsaved: {
-          title: 'Discard Unsaved Changes?',
-          body: 'You have unsaved changes. Are you sure you want to leave the editor and discard any modifications you made since the last save?'
-        }
-      },
-      common: {
-        actions: {
-          discard: 'Discard'
-        }
+    editor: {
+      unsaved: {
+        title: 'Discard Unsaved Changes?',
+        body: 'You have unsaved changes. Are you sure you want to leave the editor and discard any modifications you made since the last save?'
+      }
+    },
+    common: {
+      actions: {
+        discard: 'Discard'
       }
     }
   }
 
   async function mountReady(router) {
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: MESSAGES })
+    const i18n = createTestI18n(MESSAGES)
     mount(App, { global: { plugins: [router, i18n] } })
     await router.push('/')
     await router.isReady()
@@ -778,24 +738,14 @@ describe('App.vue router.beforeEach() unsaved-changes guard', () => {
  */
 describe('App.vue router.onError() (OpenProject #951)', () => {
   function makeErrorRouter() {
-    return createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        { path: '/', component: { template: '<div />' } },
-        { path: '/broken', component: { template: '<div />' } }
-      ]
-    })
+    return buildTestRouter(['/', '/broken'])
   }
 
   it('clears the stuck routerLoading spinner and notifies once the navigation errors', async () => {
     notifyQueue.splice(0, notifyQueue.length)
     const commonStore = useCommonStore()
     const router = makeErrorRouter()
-    const i18n = createI18n({
-      legacy: false,
-      locale: 'en',
-      messages: { en: { common: { error: { navigationFailed: 'Navigation failed.' } } } }
-    })
+    const i18n = createTestI18n({ common: { error: { navigationFailed: 'Navigation failed.' } } })
     mount(App, { global: { plugins: [router, i18n] } })
     await router.push('/')
     await router.isReady()
@@ -833,17 +783,11 @@ describe('App.vue router.onError() (OpenProject #951)', () => {
  */
 describe('App.vue logout handler (OpenProject #2208)', () => {
   function makeRouter() {
-    return createRouter({
-      history: createMemoryHistory(),
-      routes: [
-        { path: '/', component: { template: '<div />' } },
-        { path: '/other', component: { template: '<div />' } }
-      ]
-    })
+    return buildTestRouter(['/', '/other'])
   }
 
   async function mountReady(router) {
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
     currentWrapper = mount(App, { global: { plugins: [router, i18n] } })
     await router.push('/')
     await router.isReady()

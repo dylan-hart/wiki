@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import WConfirmDialog from './WConfirmDialog.vue'
 import WDialog from './WDialog.vue'
+
+import { createTestI18n } from '../../../test/i18n.js'
 
 const MESSAGES = {
   'common.actions.ok': 'OK',
@@ -12,7 +13,7 @@ const MESSAGES = {
 }
 
 async function mountDialog(props = {}) {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
+  const i18n = createTestI18n(MESSAGES)
   const wrapper = mount(WConfirmDialog, {
     props: { title: 'Delete item', message: 'Are you sure?', ...props },
     global: { plugins: [i18n], stubs: { teleport: true } }

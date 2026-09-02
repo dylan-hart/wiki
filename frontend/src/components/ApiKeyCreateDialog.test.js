@@ -1,10 +1,11 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { DOMWrapper, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import ApiKeyCreateDialog from './ApiKeyCreateDialog.vue'
 import { chromium, hasChromium, measureClassificationGrid } from '../../test/realGridLayout.js'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 afterEach(() => {
   document.body.innerHTML = ''
@@ -28,7 +29,7 @@ afterEach(() => {
  */
 function mountDialog() {
   setActivePinia(createPinia())
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   return mount(ApiKeyCreateDialog, {
     global: {
       plugins: [i18n]

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AdminAuth from './AdminAuth.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Regression coverage for Task 441: the "Add Strategy" picker's `availableStrategies` list is a flat,
@@ -14,16 +15,14 @@ import AdminAuth from './AdminAuth.vue'
  */
 
 const MESSAGES = {
-  en: {
-    admin: {
-      auth: {
-        addStrategy: 'Add Strategy',
-        filterModules: 'Filter modules...',
-        noModulesToAdd: 'No other authentication module is installed on this server.',
-        noModulesMatchFilter: 'No installed module matches your filter.',
-        mappableGroups: 'Mappable group(s)',
-        mappableGroupsHint: 'Only a group selected here can ever be granted or revoked.'
-      }
+  admin: {
+    auth: {
+      addStrategy: 'Add Strategy',
+      filterModules: 'Filter modules...',
+      noModulesToAdd: 'No other authentication module is installed on this server.',
+      noModulesMatchFilter: 'No installed module matches your filter.',
+      mappableGroups: 'Mappable group(s)',
+      mappableGroupsHint: 'Only a group selected here can ever be granted or revoked.'
     }
   }
 }
@@ -132,7 +131,7 @@ async function mountPage({ strategies = [] } = {}) {
     return { json: () => Promise.resolve(undefined) }
   })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: MESSAGES })
+  const i18n = createTestI18n(MESSAGES)
 
   const wrapper = mount(AdminAuth, {
     attachTo: document.body,
@@ -304,7 +303,7 @@ describe('AdminAuth mappable-groups picker', () => {
       }
       return { json: () => Promise.resolve(undefined) }
     })
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: MESSAGES })
+    const i18n = createTestI18n(MESSAGES)
     const wrapper = mount(AdminAuth, { attachTo: document.body, global: { plugins: [i18n] } })
     await flushPromises()
 
@@ -346,7 +345,7 @@ describe('AdminAuth mappable-groups picker', () => {
       }
       return { json: () => Promise.resolve(undefined) }
     })
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: MESSAGES })
+    const i18n = createTestI18n(MESSAGES)
     const wrapper = mount(AdminAuth, { attachTo: document.body, global: { plugins: [i18n] } })
     await flushPromises()
 

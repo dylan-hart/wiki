@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import { usePageStore } from '@/stores/page'
 import { useEditorStore } from '@/stores/editor'
 import { useCommonStore } from '@/stores/common'
 import WBtn from '@/components/shared/WBtn.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * `monaco-editor` needs real browser layout/measurement APIs that `happy-dom` (this workspace's
@@ -173,7 +174,7 @@ async function mountEditor(initialContent = '') {
   */
   useCommonStore().loadBlocks = vi.fn().mockResolvedValue(undefined)
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   const wrapper = mount(EditorMarkdown, {
     global: { plugins: [i18n] }
@@ -650,7 +651,7 @@ describe('EditorMarkdown preview pane initial reveal (OpenProject #809 follow-up
   it('does not start with the preview already shown -- it opens only once mount has resolved', () => {
     setActivePinia(createPinia())
     useCommonStore().loadBlocks = vi.fn().mockResolvedValue(undefined)
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     const wrapper = mount(EditorMarkdown, { global: { plugins: [i18n] } })
 
@@ -694,7 +695,7 @@ describe('EditorMarkdown preview pane initial reveal (OpenProject #809 follow-up
     //    the time this component mounts -- the normal case, not a special setup for this test alone.
     editorStore.userSettings.markdown = { previewShown: true, previewWidth: 725 }
     const fetchUserSettings = vi.spyOn(editorStore, 'fetchUserSettings')
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     const wrapper = mount(EditorMarkdown, { global: { plugins: [i18n] } })
     await flushPromises()
@@ -710,7 +711,7 @@ describe('EditorMarkdown preview pane initial reveal (OpenProject #809 follow-up
     const fetchUserSettings = vi
       .spyOn(editorStore, 'fetchUserSettings')
       .mockResolvedValue({ previewShown: true, previewWidth: 725 })
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     const wrapper = mount(EditorMarkdown, { global: { plugins: [i18n] } })
     await flushPromises()

@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 import { flushPromises } from '@vue/test-utils'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminEditors from './AdminEditors.vue'
 import { useAdminStore } from '@/stores/admin'
@@ -11,6 +9,9 @@ import { useFlagsStore } from '@/stores/flags'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import { loading } from '@/composables/loading'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 vi.mock('@/composables/loading', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -37,14 +38,9 @@ async function mountPage(siteId = 'site-1') {
   const userStore = useUserStore()
   userStore.permissions = ['manage:sites']
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/_admin/:siteid/editors', component: { template: '<div />' } }]
-  })
-  router.push('/_admin/site-1/editors')
-  await router.isReady()
+  const router = await createTestRouter(['/_admin/:siteid/editors'], '/_admin/site-1/editors')
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   const wrapper = mount(AdminEditors, {
     global: { plugins: [router, i18n] }

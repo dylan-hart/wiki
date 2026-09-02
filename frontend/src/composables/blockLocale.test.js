@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 import { defineComponent, h } from 'vue'
 
 import { useBlockLocale } from './blockLocale.js'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * `useBlockLocale()` needs an active i18n instance (`useI18n()` throws outside one), so each case
@@ -11,7 +12,7 @@ import { useBlockLocale } from './blockLocale.js'
  * `BlockPropsForm.test.js` exercises it through the real component instead of in isolation.
  */
 function mountHost(messages) {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: messages } })
+  const i18n = createTestI18n(messages)
   let blockText
   const Host = defineComponent({
     setup() {

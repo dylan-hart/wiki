@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createRouter, createMemoryHistory } from 'vue-router'
 
 /*
   The diff pane is real Monaco, which needs a layout engine this test has no reason to drag in -- the
@@ -47,6 +45,9 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import { openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { buildTestRouter } from '../../test/router.js'
 
 /**
  * Regression coverage for task 516: `branchFrom`'s destination locale, and the three failure shapes
@@ -104,11 +105,8 @@ async function mountOverlay({ mockEndpoints = mockGetEndpoints } = {}) {
 
   mockEndpoints()
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-  })
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const router = buildTestRouter(['/:pathMatch(.*)*'])
+  const i18n = createTestI18n()
 
   const wrapper = mount(PageHistoryOverlay, {
     attachTo: document.body,

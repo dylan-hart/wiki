@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import InboxWatching from './InboxWatching.vue'
 import { useSiteStore } from '@/stores/site'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * Task 535: the notifications section this page gained above the pre-existing watched-pages list.
@@ -38,40 +39,38 @@ const NOTIFICATION = {
 }
 
 const messages = {
-  en: {
-    common: {
-      actions: {
-        cancel: 'Cancel',
-        save: 'Save'
-      }
-    },
-    inbox: {
-      notificationsTitle: 'Notifications',
-      notificationsInfo: 'Changes to pages you watch, unread first.',
-      notificationsNone: 'You have no unread notifications.',
-      notificationsMarkRead: 'Mark as read',
-      notificationsMarkReadFailed: 'Could not mark this notification as read.',
-      notificationsLoadFailed: 'Failed to load your notifications.',
-      notificationActionUpdated: '{actor} edited {title}',
-      notificationActionMoved: '{actor} moved {title}',
-      notificationActionDeleted: '{actor} deleted {title}',
-      watching: 'Watching',
-      watchingInfo: 'Pages you asked to be told about, most recently added first.',
-      watchingNone: 'You are not watching any page yet.',
-      watchingHint: 'Open a page and press the bell in its header to start watching it.',
-      watchingLoadFailed: 'Failed to load your watched pages.',
-      watchingUnwatch: 'Stop watching',
-      watchingUnwatched: '{title} is no longer watched.',
-      watchingUnwatchFailed: 'Could not stop watching this page.',
-      watchingPreferences: 'Notification preferences',
-      watchingPreferencesMode: 'Delivery',
-      watchingPreferencesModeDigest: 'Digest',
-      watchingPreferencesModeImmediate: 'Immediate',
-      watchingPreferencesEdited: 'Notify when edited',
-      watchingPreferencesMoved: 'Notify when moved',
-      watchingPreferencesDeleted: 'Notify when deleted',
-      watchingPreferencesSaveFailed: 'Could not save your notification preferences.'
+  common: {
+    actions: {
+      cancel: 'Cancel',
+      save: 'Save'
     }
+  },
+  inbox: {
+    notificationsTitle: 'Notifications',
+    notificationsInfo: 'Changes to pages you watch, unread first.',
+    notificationsNone: 'You have no unread notifications.',
+    notificationsMarkRead: 'Mark as read',
+    notificationsMarkReadFailed: 'Could not mark this notification as read.',
+    notificationsLoadFailed: 'Failed to load your notifications.',
+    notificationActionUpdated: '{actor} edited {title}',
+    notificationActionMoved: '{actor} moved {title}',
+    notificationActionDeleted: '{actor} deleted {title}',
+    watching: 'Watching',
+    watchingInfo: 'Pages you asked to be told about, most recently added first.',
+    watchingNone: 'You are not watching any page yet.',
+    watchingHint: 'Open a page and press the bell in its header to start watching it.',
+    watchingLoadFailed: 'Failed to load your watched pages.',
+    watchingUnwatch: 'Stop watching',
+    watchingUnwatched: '{title} is no longer watched.',
+    watchingUnwatchFailed: 'Could not stop watching this page.',
+    watchingPreferences: 'Notification preferences',
+    watchingPreferencesMode: 'Delivery',
+    watchingPreferencesModeDigest: 'Digest',
+    watchingPreferencesModeImmediate: 'Immediate',
+    watchingPreferencesEdited: 'Notify when edited',
+    watchingPreferencesMoved: 'Notify when moved',
+    watchingPreferencesDeleted: 'Notify when deleted',
+    watchingPreferencesSaveFailed: 'Could not save your notification preferences.'
   }
 }
 
@@ -110,17 +109,9 @@ async function mountInboxWatching(sitePatch = {}) {
   const siteStore = useSiteStore()
   siteStore.$patch({ id: 'site-1', ...sitePatch })
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
-      { path: '/', component: { template: '<div />' } },
-      { path: '/:path(.*)', component: { template: '<div />' } }
-    ]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/', '/:path(.*)'])
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages })
+  const i18n = createTestI18n(messages)
 
   const wrapper = mount(InboxWatching, {
     global: { plugins: [router, i18n] }

@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 import { reactive, toRef } from 'vue'
 
 import { queue as notifyQueue } from '@/composables/notify'
 import { useSiteImage } from './siteImage.js'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /*
   The transport helpers are the boundary this composable orchestrates -- a real `pickSiteImage()`
@@ -31,7 +32,7 @@ function mountComposable(kind, opts) {
   const state = reactive({ loading: 0, hasImage: false })
   let api = null
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   const wrapper = mount(
     {
       setup() {

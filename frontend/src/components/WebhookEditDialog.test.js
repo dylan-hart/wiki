@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import WebhookEditDialog from './WebhookEditDialog.vue'
 import { queue as notifyQueue } from '@/composables/notify'
 import { useAdminStore } from '@/stores/admin'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * `POST /_api/hooks/test` lets an admin validate whatever is currently typed into this form -- via a
@@ -43,7 +44,7 @@ function mountDialog(hookId = null, { sites = [], siteId = null } = {}) {
     })
   }
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   return mount(WebhookEditDialog, {
     props: { hookId },

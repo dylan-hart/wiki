@@ -4,12 +4,13 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminStorage from './AdminStorage.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { buildTestRouter } from '../../test/router.js'
 
 /**
  * Regression coverage for the orphaned GitHub App setup flow that used to live in this page
@@ -86,11 +87,8 @@ async function mountPage() {
 
   globalThis.API_CLIENT.get.mockReturnValue({ json: () => Promise.resolve([]) })
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-  })
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const router = buildTestRouter(['/:pathMatch(.*)*'])
+  const i18n = createTestI18n()
 
   const wrapper = mount(AdminStorage, { global: { plugins: [router, i18n] } })
   await flushPromises()

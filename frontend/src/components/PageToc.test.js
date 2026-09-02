@@ -4,9 +4,10 @@ import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import PageToc from './PageToc.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * `useI18n()` (added for OpenProject #1630 -- the hardcoded `aria-label="Table of contents"` is now
@@ -15,11 +16,7 @@ import PageToc from './PageToc.vue'
  * same task introduced this component to.
  */
 function mountToc(props, options = {}) {
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: { en: { 'common.page.toc': 'Table of Contents' } }
-  })
+  const i18n = createTestI18n({ 'common.page.toc': 'Table of Contents' })
   return mount(PageToc, { props, global: { plugins: [i18n] }, ...options })
 }
 

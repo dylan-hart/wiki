@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import VOtpInput from 'vue3-otp-input'
 
 import SetupTfaDialog from './SetupTfaDialog.vue'
 import { openDialogs } from '@/composables/dialog'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 vi.mock('browser-fs-access', () => ({
   fileSave: vi.fn().mockResolvedValue(undefined)
@@ -27,7 +28,7 @@ function mountDialog() {
       })
   })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   return mount(SetupTfaDialog, {
     props: { strategyId: 'strat-1' },
     // -> `WDialog` teleports its panel to `<body>`; stubbing keeps it inside the wrapper's own tree

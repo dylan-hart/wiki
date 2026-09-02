@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminMail from './AdminMail.vue'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * `sendTest()` used to be a stub that always showed a warning notification (the backend had no SMTP
@@ -17,25 +18,14 @@ import { queue as notifyQueue } from '@/composables/notify'
 async function mountAdminMail() {
   setActivePinia(createPinia())
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        admin: {
-          mail: {
-            testRecipient: 'Recipient Email Address',
-            testSend: 'Send Email',
-            sendTestSuccess: 'A test email was sent successfully.'
-          }
-        }
+  const i18n = createTestI18n({
+    admin: {
+      mail: {
+        testRecipient: 'Recipient Email Address',
+        testSend: 'Send Email',
+        sendTestSuccess: 'A test email was sent successfully.'
       }
     }
   })

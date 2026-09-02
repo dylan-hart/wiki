@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import ModuleConfigForm from './ModuleConfigForm.vue'
 import WToggle from '@/components/shared/WToggle.vue'
@@ -8,13 +7,15 @@ import WSelect from '@/components/shared/WSelect.vue'
 import WInput from '@/components/shared/WInput.vue'
 import { buildConfigEditor } from '@/helpers/moduleConfig'
 
+import { createTestI18n } from '../../test/i18n.js'
+
 /**
  * `ModuleConfigForm.vue`, extracted (task #556) out of two previously-identical inline template
  * blocks in `AdminStorage.vue` and `AdminSearch.vue`. Renders `buildConfigEditor()`'s output --
  * `frontend/src/helpers/moduleConfig.test.js` covers that half separately.
  */
 function mountForm(config) {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   return mount(ModuleConfigForm, {
     props: { config },
     global: { plugins: [i18n] }

@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AdminNavEditDialog from './AdminNavEditDialog.vue'
 import NavItemEditor from './NavItemEditor.vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 const MESSAGES = {
   'navEdit.editMenuItems': 'Edit Menu Items',
@@ -49,7 +50,7 @@ function mountDialog({
     return { json: vi.fn().mockResolvedValue(SERVER_ITEMS) }
   })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
+  const i18n = createTestI18n(MESSAGES)
   const wrapper = mount(AdminNavEditDialog, {
     props: { siteId, navId },
     global: { plugins: [i18n], stubs: { teleport: true } }

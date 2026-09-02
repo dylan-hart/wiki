@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AuthLayout from './AuthLayout.vue'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Regression for task 749: `AuthLayout` (the shell behind `Login.vue` and every other auth route)
@@ -15,22 +16,14 @@ import { useSiteStore } from '@/stores/site'
 function mountLayout() {
   setActivePinia(createPinia())
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        common: {
-          footerCopyright: '© {year} {company}. All rights reserved.',
-          footerLicense: 'Content is available under the {license}, by {company}.',
-          footerGeneric: 'Powered by {link}, an open source project.',
-          footerPoweredBy: 'Powered by {link}',
-          license: { alr: 'All Rights Reserved' }
-        }
-      }
-    },
-    missingWarn: false,
-    fallbackWarn: false
+  const i18n = createTestI18n({
+    common: {
+      footerCopyright: '© {year} {company}. All rights reserved.',
+      footerLicense: 'Content is available under the {license}, by {company}.',
+      footerGeneric: 'Powered by {link}, an open source project.',
+      footerPoweredBy: 'Powered by {link}',
+      license: { alr: 'All Rights Reserved' }
+    }
   })
 
   const wrapper = mount(AuthLayout, {

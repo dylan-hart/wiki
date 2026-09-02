@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AdminSystem from './AdminSystem.vue'
 import { isActive as loadingIsActive } from '@/composables/loading'
 import { queue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Task 605 verification pass: `GET /_api/system/info` (`system.ts:77-216`) surfaces `isSchedulerHealthy`
@@ -20,19 +21,13 @@ import { queue } from '@/composables/notify'
 function mountPage() {
   setActivePinia(createPinia())
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        'admin.system.schedulerHealth': 'Scheduler Health',
-        'admin.system.schedulerHealthy': 'Healthy',
-        'admin.system.schedulerUnhealthy': 'Unhealthy',
-        'admin.system.upgradeCapable': 'Automatic Upgrades',
-        'admin.system.upgradeCapableYes': 'Enabled',
-        'admin.system.upgradeCapableNo': 'Not configured'
-      }
-    }
+  const i18n = createTestI18n({
+    'admin.system.schedulerHealth': 'Scheduler Health',
+    'admin.system.schedulerHealthy': 'Healthy',
+    'admin.system.schedulerUnhealthy': 'Unhealthy',
+    'admin.system.upgradeCapable': 'Automatic Upgrades',
+    'admin.system.upgradeCapableYes': 'Enabled',
+    'admin.system.upgradeCapableNo': 'Not configured'
   })
 
   return mount(AdminSystem, {

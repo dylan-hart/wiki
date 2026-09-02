@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminLogin from './AdminLogin.vue'
 import BlueprintIcon from '@/components/BlueprintIcon.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * Same regression as `AdminGeneral.test.js`: the login background uploader's `<blueprint-icon
@@ -22,20 +23,9 @@ async function mountPage(extensionsResponse) {
     return { json: () => Promise.resolve(undefined) }
   })
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: { en: {} },
-    missingWarn: false,
-    fallbackWarn: false
-  })
+  const i18n = createTestI18n()
 
   const wrapper = mount(AdminLogin, {
     global: {

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import CommentComposer from './CommentComposer.vue'
 import { queue as notifyQueue } from '@/composables/notify'
@@ -9,35 +8,35 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
+import { createTestI18n } from '../../test/i18n.js'
+
 const MESSAGES = {
-  en: {
-    common: {
-      comments: {
-        fieldContent: 'Comment Content',
-        fieldEmail: 'Your Email Address',
-        fieldName: 'Your Name',
-        newPlaceholder: 'Write a new comment...',
-        markdownFormat: 'Markdown Format',
-        contentMissingError: 'Comment is empty or too short!',
-        postComment: 'Post Comment',
-        postSuccess: 'New comment posted successfully.',
-        postingAs: 'Posting as {name}'
-      },
-      actions: {
-        cancel: 'Cancel'
-      },
-      error: {
-        generic: {
-          title: 'Unexpected Error'
-        }
-      }
+  common: {
+    comments: {
+      fieldContent: 'Comment Content',
+      fieldEmail: 'Your Email Address',
+      fieldName: 'Your Name',
+      newPlaceholder: 'Write a new comment...',
+      markdownFormat: 'Markdown Format',
+      contentMissingError: 'Comment is empty or too short!',
+      postComment: 'Post Comment',
+      postSuccess: 'New comment posted successfully.',
+      postingAs: 'Posting as {name}'
     },
-    auth: {
-      errors: {
-        missingName: 'Name is missing.',
-        missingEmail: 'Email is missing.',
-        invalidEmail: 'Email is invalid.'
+    actions: {
+      cancel: 'Cancel'
+    },
+    error: {
+      generic: {
+        title: 'Unexpected Error'
       }
+    }
+  },
+  auth: {
+    errors: {
+      missingName: 'Name is missing.',
+      missingEmail: 'Email is missing.',
+      invalidEmail: 'Email is invalid.'
     }
   }
 }
@@ -59,7 +58,7 @@ async function mountComposer({ replyTo = null, authenticated = true, name = 'Jan
   userStore.authenticated = authenticated
   userStore.name = name
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: MESSAGES })
+  const i18n = createTestI18n(MESSAGES)
 
   const wrapper = mount(CommentComposer, {
     props: { replyTo },

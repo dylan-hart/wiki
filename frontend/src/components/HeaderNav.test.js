@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import HeaderNav from './HeaderNav.vue'
 import { useMinWidth } from '@/composables/screen'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * `useMinWidth` (via `useScreen`) calls `window.matchMedia` -- stubbed matching wide, so the
@@ -35,14 +36,9 @@ async function mountHeaderNav() {
   const siteStore = useSiteStore()
   const userStore = useUserStore()
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   const wrapper = mount(HeaderNav, {
     global: {

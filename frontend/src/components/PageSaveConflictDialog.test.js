@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 /*
   The diff pane is real Monaco, which needs a layout engine this test has no reason to drag in --
@@ -22,22 +21,18 @@ import * as monaco from 'monaco-editor'
 
 import PageSaveConflictDialog from './PageSaveConflictDialog.vue'
 
-const i18n = createI18n({
-  legacy: false,
-  locale: 'en',
-  messages: {
-    en: {
-      editor: {
-        collab: {
-          saveConflict: {
-            title: 'Save Conflict',
-            message: '{authorName} saved a newer version of this page while you were editing it.',
-            discard: 'Discard My Changes',
-            saveAnyway: 'Save Anyway',
-            serverVersion: 'Server version',
-            yourVersion: 'Your changes'
-          }
-        }
+import { createTestI18n } from '../../test/i18n.js'
+
+const i18n = createTestI18n({
+  editor: {
+    collab: {
+      saveConflict: {
+        title: 'Save Conflict',
+        message: '{authorName} saved a newer version of this page while you were editing it.',
+        discard: 'Discard My Changes',
+        saveAnyway: 'Save Anyway',
+        serverVersion: 'Server version',
+        yourVersion: 'Your changes'
       }
     }
   }

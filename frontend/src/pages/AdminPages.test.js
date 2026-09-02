@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminPages from './AdminPages.vue'
 import { useAdminStore } from '@/stores/admin'
 import { openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { buildTestRouter } from '../../test/router.js'
 
 /**
  * OpenProject #1880: the `/_admin/:siteid/pages` inventory, built on the paginating
@@ -60,10 +61,7 @@ function siteResponse(activeLocales = ['en', 'fr']) {
 }
 
 function makeRouter() {
-  return createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-  })
+  return buildTestRouter(['/:pathMatch(.*)*'])
 }
 
 async function mountPage() {
@@ -82,7 +80,7 @@ async function mountPage() {
     return siteResponse()
   })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   const wrapper = mount(AdminPages, { global: { plugins: [makeRouter(), i18n] } })
   await flushPromises()
 
@@ -111,7 +109,7 @@ async function mountSelectionPage() {
 
   mockSelectionEndpoints()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   const wrapper = mount(AdminPages, { global: { plugins: [makeRouter(), i18n] } })
   await flushPromises()
 

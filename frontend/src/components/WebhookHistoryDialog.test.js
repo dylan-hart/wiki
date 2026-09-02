@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import WebhookHistoryDialog from './WebhookHistoryDialog.vue'
 import { useUserStore } from '@/stores/user'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * `getDeliveryHistory()`'s API surface — a status icon/color per row plus the error message on
@@ -23,11 +24,7 @@ function mountDialog(deliveries, { total } = {}) {
       })
   })
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: { en: { common: { datetime: '{date} at {time}' } } }
-  })
+  const i18n = createTestI18n({ common: { datetime: '{date} at {time}' } })
 
   return mount(WebhookHistoryDialog, {
     props: {

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AdminAuditLog from './AdminAuditLog.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * OpenProject #989: the instance-wide audit log's admin list — filtering by actor/type/date, and the
@@ -12,16 +13,10 @@ import AdminAuditLog from './AdminAuditLog.vue'
 function mountPage() {
   setActivePinia(createPinia())
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        'admin.audit.title': 'Audit Log',
-        'admin.audit.event.user.created': 'User Created',
-        'common.actions.save': 'Save'
-      }
-    }
+  const i18n = createTestI18n({
+    'admin.audit.title': 'Audit Log',
+    'admin.audit.event.user.created': 'User Created',
+    'common.actions.save': 'Save'
   })
 
   return mount(AdminAuditLog, {

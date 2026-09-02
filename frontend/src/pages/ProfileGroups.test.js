@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import { useSiteStore } from '@/stores/site'
 import ProfileGroups from './ProfileGroups.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Task 1275: the profile Groups tab's "Other groups" section is admin-gated entirely on the backend
@@ -17,19 +18,13 @@ function mountPage() {
   setActivePinia(createPinia())
   useSiteStore().title = 'Acme Wiki'
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        profile: {
-          groups: 'Groups',
-          groupsInfo: "You're currently part of the following groups:",
-          groupsLoadingFailed: 'Failed to load groups.',
-          groupsNone: "You're not part of any group.",
-          otherGroups: "You're not part of these other {siteName} groups:"
-        }
-      }
+  const i18n = createTestI18n({
+    profile: {
+      groups: 'Groups',
+      groupsInfo: "You're currently part of the following groups:",
+      groupsLoadingFailed: 'Failed to load groups.',
+      groupsNone: "You're not part of any group.",
+      otherGroups: "You're not part of these other {siteName} groups:"
     }
   })
   return mount(ProfileGroups, {

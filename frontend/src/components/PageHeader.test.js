@@ -3,8 +3,6 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import PageHeader from './PageHeader.vue'
 import { useEditorStore } from '@/stores/editor'
@@ -14,6 +12,9 @@ import { useDirection } from '@/composables/direction'
 import { openDialogs } from '@/composables/dialog'
 import { queue } from '@/composables/notify'
 import WMenu from '@/components/shared/WMenu.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * Regression test for OpenProject #2000: `notImplemented()` showed a red toast with the untranslated
@@ -42,14 +43,9 @@ describe('PageHeader dead code', () => {
 async function mountHeader() {
   setActivePinia(createPinia())
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   return mount(PageHeader, {
     global: {
@@ -195,14 +191,9 @@ describe('PageHeader save-conflict resolution (OpenProject #1747)', () => {
     const siteStore = useSiteStore()
     siteStore.features.reasonForChange = 'off'
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
-    router.push('/')
-    await router.isReady()
+    const router = await createTestRouter(['/'])
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     const wrapper = mount(PageHeader, { global: { plugins: [router, i18n] } })
 

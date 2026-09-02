@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AdminCluster from './AdminCluster.vue'
 import WTable from '@/components/shared/WTable.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Task 605 verification pass, ported to this file's task-711 rename (AdminInstances.vue ->
@@ -26,22 +27,16 @@ import WTable from '@/components/shared/WTable.vue'
 function mountPage() {
   setActivePinia(createPinia())
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        'admin.cluster.title': 'Cluster',
-        'admin.cluster.subtitle': 'Connected cluster nodes',
-        'admin.cluster.activeConnections': 'Connections',
-        'admin.cluster.activeListeners': 'Listeners',
-        'admin.cluster.firstSeen': 'First seen',
-        'admin.cluster.lastSeen': 'Last seen',
-        'common.field.id': 'ID',
-        'common.actions.viewDocs': 'View docs',
-        'common.actions.refresh': 'Refresh'
-      }
-    }
+  const i18n = createTestI18n({
+    'admin.cluster.title': 'Cluster',
+    'admin.cluster.subtitle': 'Connected cluster nodes',
+    'admin.cluster.activeConnections': 'Connections',
+    'admin.cluster.activeListeners': 'Listeners',
+    'admin.cluster.firstSeen': 'First seen',
+    'admin.cluster.lastSeen': 'Last seen',
+    'common.field.id': 'ID',
+    'common.actions.viewDocs': 'View docs',
+    'common.actions.refresh': 'Refresh'
   })
 
   return mount(AdminCluster, {

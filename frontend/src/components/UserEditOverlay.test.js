@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import UserEditOverlay from './UserEditOverlay.vue'
 import UserDeleteDialog from './UserDeleteDialog.vue'
@@ -10,6 +8,9 @@ import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
 import { openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * Regression coverage for task 432: the admin passkeys panel (list + per-row revoke) and a real
@@ -75,14 +76,9 @@ async function mountOverlay({ canManage = true } = {}) {
     return { json: () => Promise.resolve(undefined) }
   })
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/u/:section', component: { template: '<div />' } }]
-  })
-  router.push('/u/auth')
-  await router.isReady()
+  const router = await createTestRouter(['/u/:section'], '/u/auth')
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   const wrapper = mount(UserEditOverlay, {
     global: {
@@ -109,14 +105,9 @@ async function mountWithUser(groups) {
   const userStore = useUserStore()
   userStore.permissions = ['manage:users']
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/:id?/:section?', component: { template: '<div />' } }]
-  })
-  router.push('/user-1/groups')
-  await router.isReady()
+  const router = await createTestRouter(['/:id?/:section?'], '/user-1/groups')
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(groups) })
   API_CLIENT.get.mockReturnValueOnce({
@@ -329,14 +320,9 @@ describe('UserEditOverlay operations panel delete user', () => {
       return { json: () => Promise.resolve(undefined) }
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/u/:section', component: { template: '<div />' } }]
-    })
-    router.push('/u/operations')
-    await router.isReady()
+    const router = await createTestRouter(['/u/:section'], '/u/operations')
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     const wrapper = mount(UserEditOverlay, {
       global: {
@@ -408,18 +394,9 @@ describe('UserEditOverlay dates honour the stored profile timezone (OpenProject 
       return { json: () => Promise.resolve(undefined) }
     })
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/u/:section', component: { template: '<div />' } }]
-    })
-    router.push('/u/overview')
-    await router.isReady()
+    const router = await createTestRouter(['/u/:section'], '/u/overview')
 
-    const i18n = createI18n({
-      legacy: false,
-      locale: 'en',
-      messages: { en: { common: { datetime: '{date} at {time}' } } }
-    })
+    const i18n = createTestI18n({ common: { datetime: '{date} at {time}' } })
 
     const wrapper = mount(UserEditOverlay, {
       global: {

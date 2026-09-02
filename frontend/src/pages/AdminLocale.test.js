@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminLocale from './AdminLocale.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
 import { queue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * Coverage indicator on the 'Active Locales' w-item loop (task 696). Each row must surface
@@ -33,28 +34,17 @@ async function mountPage({ permissions = ['manage:sites'] } = {}) {
   const userStore = useUserStore()
   userStore.permissions = permissions
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/_admin/:siteid/locale', component: { template: '<div />' } }]
-  })
-  router.push('/_admin/site-1/locale')
-  await router.isReady()
+  const router = await createTestRouter(['/_admin/:siteid/locale'], '/_admin/site-1/locale')
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        admin: {
-          locale: {
-            completeness: '{percent}% translated',
-            sideload: 'Sideload Locale Package',
-            sideloadHelp: 'sideload help text',
-            sideloadSuccess: '{count} locale package(s) loaded successfully.',
-            sideloadNone: 'No locale packages were found to sideload.',
-            sideloadFailed: 'Failed to sideload locale packages.'
-          }
-        }
+  const i18n = createTestI18n({
+    admin: {
+      locale: {
+        completeness: '{percent}% translated',
+        sideload: 'Sideload Locale Package',
+        sideloadHelp: 'sideload help text',
+        sideloadSuccess: '{count} locale package(s) loaded successfully.',
+        sideloadNone: 'No locale packages were found to sideload.',
+        sideloadFailed: 'Failed to sideload locale packages.'
       }
     }
   })

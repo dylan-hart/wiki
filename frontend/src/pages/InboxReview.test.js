@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 /*
   `mountEditor()` reaches into the real `monaco-editor` package, which needs browser APIs jsdom does
@@ -38,6 +36,9 @@ import { useSiteStore } from '@/stores/site'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
 
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
+
 const SUBMISSION_ID = 'sub-1'
 
 function submissionDetail(overrides = {}) {
@@ -56,7 +57,7 @@ function submissionDetail(overrides = {}) {
 }
 
 /** The queue's own real message, so `<i18n-t>` actually interpolates the author slot under test. */
-const I18N_MESSAGES = { en: { 'inbox.reviewSubmittedBy': 'Suggested by {author} on {date}' } }
+const I18N_MESSAGES = { 'inbox.reviewSubmittedBy': 'Suggested by {author} on {date}' }
 
 async function mountReview(startPath = `/_inbox/review/${SUBMISSION_ID}`) {
   setActivePinia(createPinia())
@@ -64,17 +65,15 @@ async function mountReview(startPath = `/_inbox/review/${SUBMISSION_ID}`) {
   // -> Skips `editorStore.fetchConfigs()`, an API call this suite has no interest in mocking
   useEditorStore().configIsLoaded = true
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [
+  const router = await createTestRouter(
+    [
       { path: '/_inbox/review', component: InboxReview },
       { path: '/_inbox/review/:submissionId', component: InboxReview }
-    ]
-  })
-  router.push(startPath)
-  await router.isReady()
+    ],
+    startPath
+  )
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: I18N_MESSAGES })
+  const i18n = createTestI18n(I18N_MESSAGES)
 
   const wrapper = mount(InboxReview, {
     global: { plugins: [router, i18n] }

@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AdminSecurity from './AdminSecurity.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Regression coverage for task 636: the admin security view must round-trip the
@@ -16,11 +17,11 @@ import AdminSecurity from './AdminSecurity.vue'
 function mountSecurity() {
   setActivePinia(createPinia())
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   return mount(AdminSecurity, {
     global: {
-      plugins: [i18n],
+      plugins: [i18n]
       // -> Registered globally by `boot/components.js` in the real app; not part of the
       //    `sharedComponents` map `test/setup.js` wires up, so it needs registering here.
     }
@@ -106,7 +107,7 @@ describe('AdminSecurity apiRateLimit* round-trip', () => {
 function mountPage() {
   setActivePinia(createPinia())
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   return mount(AdminSecurity, {
     global: {

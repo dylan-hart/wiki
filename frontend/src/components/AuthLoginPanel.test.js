@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AuthLoginPanel from './AuthLoginPanel.vue'
 import { useSiteStore } from '@/stores/site'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Regression coverage for the login-time recovery-code toggle (task 428): switching the `tfa`
@@ -36,7 +37,7 @@ async function mountAtTfaScreen() {
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([LOCAL_STRATEGY]) })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   const wrapper = mount(AuthLoginPanel, {
     global: { plugins: [i18n] }
   })
@@ -161,30 +162,24 @@ function mountAuthLoginPanel() {
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        auth: {
-          registering: 'Creating account...',
-          registerCheckEmail: 'Check your emails to activate your account.',
-          verifySuccess: 'Your email address has been verified. You can now log in.',
-          switchToRegister: { link: 'Create an Account' },
-          switchToLogin: { link: 'Back to Login' },
-          changePwd: { instructions: 'You must choose a new password:' },
-          forgotPasswordLink: 'Forgot Password',
-          forgotPasswordSubtitle: 'Enter your email address:',
-          forgotPasswordSuccess: 'Check your emails for password reset instructions!',
-          resetPassword: {
-            subtitle: 'Choose a new password for your account:',
-            success: 'Your password has been changed.'
-          },
-          tfa: { subtitle: 'Security code required:' },
-          fields: { email: 'Email Address' },
-          errors: { register: 'One or more fields are invalid.' }
-        }
-      }
+  const i18n = createTestI18n({
+    auth: {
+      registering: 'Creating account...',
+      registerCheckEmail: 'Check your emails to activate your account.',
+      verifySuccess: 'Your email address has been verified. You can now log in.',
+      switchToRegister: { link: 'Create an Account' },
+      switchToLogin: { link: 'Back to Login' },
+      changePwd: { instructions: 'You must choose a new password:' },
+      forgotPasswordLink: 'Forgot Password',
+      forgotPasswordSubtitle: 'Enter your email address:',
+      forgotPasswordSuccess: 'Check your emails for password reset instructions!',
+      resetPassword: {
+        subtitle: 'Choose a new password for your account:',
+        success: 'Your password has been changed.'
+      },
+      tfa: { subtitle: 'Security code required:' },
+      fields: { email: 'Email Address' },
+      errors: { register: 'One or more fields are invalid.' }
     }
   })
 
@@ -488,7 +483,7 @@ describe('AuthLoginPanel redirect handling (OpenProject #2208)', () => {
 
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([LOCAL_STRATEGY]) })
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
     const wrapper = mount(AuthLoginPanel, { global: { plugins: [i18n] } })
     await flushPromises()
 

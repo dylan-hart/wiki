@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import GlossaryTermDialog from './GlossaryTermDialog.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /*
   `WDialog`'s content lives behind a `<teleport to="body">`, which lands it as a REAL child of
@@ -18,7 +19,7 @@ afterEach(() => {
 })
 
 function mountDialog({ siteId = 'site-1', term = null } = {}) {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   currentWrapper = mount(GlossaryTermDialog, {
     props: { siteId, term },
     global: { plugins: [i18n] }

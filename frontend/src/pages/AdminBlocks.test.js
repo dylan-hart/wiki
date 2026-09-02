@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminBlocks from './AdminBlocks.vue'
 import WBanner from '@/components/shared/WBanner.vue'
@@ -12,6 +10,9 @@ import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
 import { closeDialog, dialog, openDialogs } from '@/composables/dialog'
 import { loading } from '@/composables/loading'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -72,21 +73,16 @@ async function mountAdminBlocks(blocks, credentials = [], siteId = 'site-1') {
   const userStore = useUserStore()
   userStore.permissions = ['manage:sites']
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/_admin/:siteid/blocks', component: { template: '<div />' } }]
-  })
-  router.push('/_admin/site-1/blocks')
-  await router.isReady()
+  const router = await createTestRouter(['/_admin/:siteid/blocks'], '/_admin/site-1/blocks')
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(blocks) })
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(credentials) })
 
   const wrapper = mount(AdminBlocks, {
     global: {
-      plugins: [router, i18n],
+      plugins: [router, i18n]
       // -> Registered by `boot/components.js` in the real app, not by the shared-component map
       //    `test/setup.js` installs; stubbed so mounting the page does not warn about it
     }

@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import TreeBrowserDialog from './TreeBrowserDialog.vue'
 import { queue as notifyQueue } from '@/composables/notify'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Regression test for task 515's `siteId` prop.
@@ -23,7 +24,7 @@ function mountDialog(props, { viewedSiteId = 'viewed-site' } = {}) {
   const siteStore = useSiteStore()
   siteStore.id = viewedSiteId
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   globalThis.API_CLIENT.get.mockReturnValue({ json: vi.fn().mockResolvedValue([]) })
 
@@ -202,7 +203,7 @@ describe('TreeBrowserDialog includeTranslations (renamePage mode)', () => {
     const siteStore = useSiteStore()
     siteStore.id = 'site-1'
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     globalThis.API_CLIENT.get.mockImplementation((url) => ({
       json: vi.fn().mockResolvedValue(url.includes('/translations') ? translations : tree)

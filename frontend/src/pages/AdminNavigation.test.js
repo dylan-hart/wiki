@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminNavigation from './AdminNavigation.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import { dialog } from '@/composables/dialog'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -107,14 +108,9 @@ async function mountPage({ apiClient = {} } = {}) {
   const userStore = useUserStore()
   userStore.permissions = ['manage:navigation']
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/_admin/:siteid/navigation', component: { template: '<div />' } }]
-  })
-  router.push('/_admin/site-1/navigation')
-  await router.isReady()
+  const router = await createTestRouter(['/_admin/:siteid/navigation'], '/_admin/site-1/navigation')
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
+  const i18n = createTestI18n(MESSAGES)
 
   const wrapper = mount(AdminNavigation, {
     global: {

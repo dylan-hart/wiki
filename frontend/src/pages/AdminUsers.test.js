@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminUsers from './AdminUsers.vue'
 import { useUserStore } from '@/stores/user'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 const USERS_PAGE_1 = {
   total: 45,
@@ -29,14 +30,9 @@ async function mountPage() {
 
   API_CLIENT.get.mockImplementation(() => usersResponse())
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/_admin/users', component: { template: '<div />' } }]
-  })
-  router.push('/_admin/users')
-  await router.isReady()
+  const router = await createTestRouter(['/_admin/users'], '/_admin/users')
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
+  const i18n = createTestI18n(MESSAGES)
 
   const wrapper = mount(AdminUsers, {
     global: { plugins: [router, i18n] }

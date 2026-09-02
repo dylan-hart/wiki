@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AdminWebhooks from './AdminWebhooks.vue'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * The per-row "Send Test Event" button re-validates a SAVED webhook without opening the edit
@@ -28,7 +29,7 @@ async function mountPage() {
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([HOOK]) })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   const wrapper = mount(AdminWebhooks, {
     global: { plugins: [i18n] }

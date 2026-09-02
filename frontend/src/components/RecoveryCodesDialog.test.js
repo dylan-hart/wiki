@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import RecoveryCodesDialog from './RecoveryCodesDialog.vue'
 import { openDialogs } from '@/composables/dialog'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 vi.mock('browser-fs-access', () => ({
   fileSave: vi.fn().mockResolvedValue(undefined)
@@ -15,7 +16,7 @@ vi.mock('@/helpers/clipboard', () => ({
 const CODES = ['AAAA-1111-BBBB-2222', 'CCCC-3333-DDDD-4444']
 
 function mountDialog() {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   return mount(RecoveryCodesDialog, {
     props: { codes: CODES },
     global: { plugins: [i18n], stubs: { teleport: true } }

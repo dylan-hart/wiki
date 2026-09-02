@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import ProfileApi from './ProfileApi.vue'
 import { useUserStore } from '@/stores/user'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * OpenProject #788: `ProfileApi.vue` is the self-service counterpart to `AdminApi.vue` -- it lists
@@ -22,31 +23,25 @@ function mountPage({ freshPinia = true } = {}) {
     setActivePinia(createPinia())
   }
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        // -> Real wording from backend/locales/en.json:2060, needed so humanizeDate()'s
-        //    t('common.datetime', …) call renders actual text rather than the raw key.
-        common: {
-          datetime: '{date} at {time}'
-        },
-        profile: {
-          api: {
-            title: 'API Access',
-            subtitle: 'Personal access tokens',
-            none: 'You have not created any personal access tokens yet.',
-            keyEndingIn: 'Ending in {suffix}',
-            newKeyFullAccess: 'Full Access',
-            scopedTo: 'Scoped to {scope}',
-            keySite: 'Site: {site}',
-            newKeySiteAllSites: 'All Sites',
-            createdOn: 'Created on {date}',
-            expiresOn: 'Expires on {date}',
-            loadFailed: 'Failed to load'
-          }
-        }
+  const i18n = createTestI18n({
+    // -> Real wording from backend/locales/en.json:2060, needed so humanizeDate()'s
+    //    t('common.datetime', …) call renders actual text rather than the raw key.
+    common: {
+      datetime: '{date} at {time}'
+    },
+    profile: {
+      api: {
+        title: 'API Access',
+        subtitle: 'Personal access tokens',
+        none: 'You have not created any personal access tokens yet.',
+        keyEndingIn: 'Ending in {suffix}',
+        newKeyFullAccess: 'Full Access',
+        scopedTo: 'Scoped to {scope}',
+        keySite: 'Site: {site}',
+        newKeySiteAllSites: 'All Sites',
+        createdOn: 'Created on {date}',
+        expiresOn: 'Expires on {date}',
+        loadFailed: 'Failed to load'
       }
     }
   })

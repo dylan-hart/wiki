@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import BlockPickerOverlay from './BlockPickerOverlay.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Regression coverage for the picker starting a newly-selected block's form on the site's configured
@@ -29,7 +30,7 @@ const BLOCK = {
 
 async function mountPicker(blocks) {
   setActivePinia(createPinia())
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(blocks) })
 

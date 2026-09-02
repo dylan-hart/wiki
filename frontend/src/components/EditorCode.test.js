@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 import { nextTick } from 'vue'
 
 import { useEditorStore } from '@/stores/editor'
@@ -9,6 +8,8 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
 import WTooltip from '@/components/shared/WTooltip.vue'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * `monaco-editor` needs real browser layout/measurement APIs (`ResizeObserver`, text metrics, a
@@ -56,7 +57,7 @@ function mountEditor(initialContent = '') {
   pageStore.content = initialContent
   const siteStore = useSiteStore()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   const editorStore = useEditorStore()
 

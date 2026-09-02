@@ -1,8 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 vi.mock('browser-fs-access', () => ({
   fileSave: vi.fn().mockResolvedValue(undefined)
@@ -17,6 +15,9 @@ import { useEditorStore } from '@/stores/editor'
 import { useFlagsStore } from '@/stores/flags'
 import { queue as notifyQueue } from '@/composables/notify'
 import { closeDialog, openDialogs } from '@/composables/dialog'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 const HOMEPAGE_GUARD_MESSAGES = {
   en: {
@@ -41,39 +42,37 @@ const HOMEPAGE_GUARD_MESSAGES = {
  * selectors and `.w-item` label assertions to keep matching resolved output.
  */
 const PAGE_ACTIONS_MESSAGES = {
-  en: {
-    ...HOMEPAGE_GUARD_MESSAGES.en,
-    common: {
-      page: {
-        properties: 'Page Properties',
-        data: 'Page Data',
-        history: 'Page History',
-        duplicate: 'Duplicate Page',
-        renameMove: 'Rename / Move Page',
-        rerender: 'Rerender Page',
-        viewBacklinks: 'View Backlinks',
-        delete: 'Delete Page'
-      },
-      pendingAssets: {
-        title: 'Pending Asset Uploads',
-        empty: 'There are no assets pending uploads.',
-        newFileName: 'New file name',
-        confirmRename: 'Confirm Rename',
-        cancelRename: 'Cancel Rename',
-        renameAsset: 'Rename Pending Asset',
-        removeAsset: 'Remove Pending Asset',
-        helpText:
-          'Assets that are pasted or dropped onto this page will be held here until the page is saved.'
-      }
+  ...HOMEPAGE_GUARD_MESSAGES.en,
+  common: {
+    page: {
+      properties: 'Page Properties',
+      data: 'Page Data',
+      history: 'Page History',
+      duplicate: 'Duplicate Page',
+      renameMove: 'Rename / Move Page',
+      rerender: 'Rerender Page',
+      viewBacklinks: 'View Backlinks',
+      delete: 'Delete Page'
     },
-    pages: {
-      ...HOMEPAGE_GUARD_MESSAGES.en.pages,
-      export: {
-        title: 'Export Page',
-        markdown: 'Markdown',
-        html: 'HTML',
-        pdf: 'PDF'
-      }
+    pendingAssets: {
+      title: 'Pending Asset Uploads',
+      empty: 'There are no assets pending uploads.',
+      newFileName: 'New file name',
+      confirmRename: 'Confirm Rename',
+      cancelRename: 'Cancel Rename',
+      renameAsset: 'Rename Pending Asset',
+      removeAsset: 'Remove Pending Asset',
+      helpText:
+        'Assets that are pasted or dropped onto this page will be held here until the page is saved.'
+    }
+  },
+  pages: {
+    ...HOMEPAGE_GUARD_MESSAGES.en.pages,
+    export: {
+      title: 'Export Page',
+      markdown: 'Markdown',
+      html: 'HTML',
+      pdf: 'PDF'
     }
   }
 }
@@ -104,14 +103,9 @@ async function mountRailForGuard({
   const userStore = useUserStore()
   userStore.permissions = permissions
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: PAGE_ACTIONS_MESSAGES })
+  const i18n = createTestI18n(PAGE_ACTIONS_MESSAGES)
 
   const wrapper = mount(PageActionsCol, {
     attachTo: document.body,
@@ -140,14 +134,9 @@ async function mountRail({ pdfExportAvailable = false } = {}) {
   siteStore.id = 'site-1'
   siteStore.pdfExportAvailable = pdfExportAvailable
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: PAGE_ACTIONS_MESSAGES })
+  const i18n = createTestI18n(PAGE_ACTIONS_MESSAGES)
 
   const wrapper = mount(PageActionsCol, {
     attachTo: document.body,
@@ -199,14 +188,9 @@ async function mountRailWithHistory({ pageId = 'page-1', creating = false } = {}
     editorStore.mode = 'create'
   }
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: PAGE_ACTIONS_MESSAGES })
+  const i18n = createTestI18n(PAGE_ACTIONS_MESSAGES)
 
   const wrapper = mount(PageActionsCol, {
     attachTo: document.body,
@@ -434,14 +418,9 @@ async function mountRailWithPageActions({
   const userStore = useUserStore()
   userStore.permissions = canWritePages ? ['write:pages'] : []
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: PAGE_ACTIONS_MESSAGES })
+  const i18n = createTestI18n(PAGE_ACTIONS_MESSAGES)
 
   const wrapper = mount(PageActionsCol, {
     attachTo: document.body,
@@ -474,14 +453,9 @@ async function mountRailWithPendingAssets({ pendingAssets = [] } = {}) {
   editorStore.isActive = true
   editorStore.pendingAssets = pendingAssets
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: PAGE_ACTIONS_MESSAGES })
+  const i18n = createTestI18n(PAGE_ACTIONS_MESSAGES)
 
   const wrapper = mount(PageActionsCol, {
     attachTo: document.body,

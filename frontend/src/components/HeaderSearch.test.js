@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import HeaderSearch from './HeaderSearch.vue'
 import { useSiteStore } from '@/stores/site'
 import { copyToClipboard } from '@/helpers/clipboard'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 vi.mock('@/helpers/clipboard', () => ({
   copyToClipboard: vi.fn()
@@ -29,14 +30,9 @@ async function mountWithTags(tags) {
   siteStore.tagsLoaded = true
   siteStore.tags = tags
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   const wrapper = mount(HeaderSearch, {
     global: {
@@ -79,14 +75,9 @@ describe('HeaderSearch "Browse by tags" entry point (OpenProject #1218)', () => 
     const siteStore = useSiteStore()
     siteStore.features.search = true
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
-    router.push('/')
-    await router.isReady()
+    const router = await createTestRouter(['/'])
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
     const wrapper = mount(HeaderSearch, {
       props: { row: true },
       global: { plugins: [router, i18n] }
@@ -116,14 +107,9 @@ describe('HeaderSearch keyboard shortcut (OpenProject #2050)', () => {
     const siteStore = useSiteStore()
     siteStore.features.search = true
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
-    router.push('/')
-    await router.isReady()
+    const router = await createTestRouter(['/'])
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     const wrapper = mount(HeaderSearch, {
       global: { plugins: [router, i18n] },
@@ -224,14 +210,9 @@ async function mountForPreview() {
   siteStore.tagsLoaded = true
   siteStore.tags = []
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   const wrapper = mount(HeaderSearch, {
     global: {
@@ -491,14 +472,9 @@ describe('HeaderSearch preview results panel', () => {
     siteStore.tagsLoaded = true
     siteStore.tags = []
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
-    router.push('/')
-    await router.isReady()
+    const router = await createTestRouter(['/'])
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
 
     const wrapper = mount(HeaderSearch, {
       props: { row: true },
@@ -718,14 +694,9 @@ describe('HeaderSearch preview edge cases', () => {
     siteStore.tagsLoaded = true
     siteStore.tags = [{ tag: 'foo', usageCount: 1 }]
 
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
-    router.push('/')
-    await router.isReady()
+    const router = await createTestRouter(['/'])
 
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const i18n = createTestI18n()
     const wrapper = mount(HeaderSearch, { global: { plugins: [router, i18n] } })
 
     await wrapper.find('.header-search-input').trigger('focus')

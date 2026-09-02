@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AdminAnalytics from './AdminAnalytics.vue'
 import { useAdminStore } from '@/stores/admin'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Coverage for Task 597: the rebuilt page fetches `GET /_api/analytics/modules` (the disk-discovered
@@ -97,7 +98,7 @@ async function mountLoaded() {
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(MODULES) })
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(SITE) })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   const wrapper = mount(AdminAnalytics, { global: { plugins: [i18n] } })
   await flushPromises()
 

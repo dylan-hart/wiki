@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AuthLoginPanel from './AuthLoginPanel.vue'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * OpenProject #2208 §2/§9: `handleLoginResponse()`'s `nextAction: 'redirect'` case used to read a
@@ -36,7 +37,7 @@ async function loginAndRespond(resp) {
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([LOCAL_STRATEGY]) })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   const wrapper = mount(AuthLoginPanel, { global: { plugins: [i18n] } })
   await flushPromises()
 

@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import PageNewMenu from './PageNewMenu.vue'
 import { useFlagsStore } from '@/stores/flags'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Regression coverage for task 493's adjacent fix: `PageNewMenu.vue` (the header's own "+ New Page"
@@ -27,21 +28,15 @@ function mountMenu({ editors = {}, experimental = false } = {}) {
 
   // -> WP #1610: these menu items render through t() now, not literal template text, so tests
   //    asserting on their labels need the resolved English strings present here.
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        common: {
-          actions: { newPage: 'New Page', newFolder: 'New Folder' },
-          newPageMenu: {
-            markdown: 'New Markdown Page',
-            code: 'New Code Page',
-            asciidoc: 'New AsciiDoc Page',
-            redirect: 'New Redirection',
-            uploadAsset: 'Upload Media Asset'
-          }
-        }
+  const i18n = createTestI18n({
+    common: {
+      actions: { newPage: 'New Page', newFolder: 'New Folder' },
+      newPageMenu: {
+        markdown: 'New Markdown Page',
+        code: 'New Code Page',
+        asciidoc: 'New AsciiDoc Page',
+        redirect: 'New Redirection',
+        uploadAsset: 'Upload Media Asset'
       }
     }
   })

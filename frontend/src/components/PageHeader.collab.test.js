@@ -1,20 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import PageHeader from './PageHeader.vue'
 import { useEditorStore } from '@/stores/editor'
 import { useCollabStore } from '@/stores/collab'
 
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
+
 const messages = {
-  en: {
-    editor: {
-      collab: {
-        disconnected:
-          'Live collaboration is unavailable. Your changes are kept locally and can still be saved.'
-      }
+  editor: {
+    collab: {
+      disconnected:
+        'Live collaboration is unavailable. Your changes are kept locally and can still be saved.'
     }
   }
 }
@@ -30,14 +29,9 @@ async function mountHeader() {
   editorStore.editor = 'markdown'
   const collabStore = useCollabStore()
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages })
+  const i18n = createTestI18n(messages)
 
   const wrapper = mount(PageHeader, { global: { plugins: [router, i18n] } })
   return { wrapper, collabStore }

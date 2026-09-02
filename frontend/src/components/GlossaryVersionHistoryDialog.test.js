@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import GlossaryVersionHistoryDialog from './GlossaryVersionHistoryDialog.vue'
 import { confirm } from '@/composables/dialog'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -55,7 +56,7 @@ function mountDialog(currentTerms = CURRENT_TERMS) {
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(VERSIONS) })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   currentWrapper = mount(GlossaryVersionHistoryDialog, {
     props: { siteId: 'site-1', currentTerms },
     global: { plugins: [i18n] }

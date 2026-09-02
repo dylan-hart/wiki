@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import SiteActivateDialog from './SiteActivateDialog.vue'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /*
   `WDialog`'s content lives behind a `<teleport to="body">`, which lands it as a REAL child of
@@ -39,14 +40,8 @@ function mountDialog({
 } = {}) {
   setActivePinia(createPinia())
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        admin: { sites: { updateSuccess: 'Site updated.' } }
-      }
-    }
+  const i18n = createTestI18n({
+    admin: { sites: { updateSuccess: 'Site updated.' } }
   })
 
   currentWrapper = mount(SiteActivateDialog, {

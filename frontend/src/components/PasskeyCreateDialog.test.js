@@ -1,29 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
-import { createI18n } from 'vue-i18n'
 
 import PasskeyCreateDialog from './PasskeyCreateDialog.vue'
 import { queue as notifyQueue } from '@/composables/notify'
 
+import { createTestI18n } from '../../test/i18n.js'
+
 const messages = {
-  en: {
-    profile: {
-      passkeysAdd: 'Add Passkey',
-      passkeysName: 'Passkey Name',
-      passkeysNameHint: 'Enter a name for your passkey:',
-      passkeysInvalidName: 'Passkey name is missing or invalid.'
-    },
-    common: {
-      actions: {
-        cancel: 'Cancel',
-        save: 'Save'
-      }
+  profile: {
+    passkeysAdd: 'Add Passkey',
+    passkeysName: 'Passkey Name',
+    passkeysNameHint: 'Enter a name for your passkey:',
+    passkeysInvalidName: 'Passkey name is missing or invalid.'
+  },
+  common: {
+    actions: {
+      cancel: 'Cancel',
+      save: 'Save'
     }
   }
 }
 
 async function mountDialog() {
-  const i18n = createI18n({ legacy: false, locale: 'en', messages })
+  const i18n = createTestI18n(messages)
   const wrapper = mount(PasskeyCreateDialog, {
     global: { plugins: [i18n], stubs: { teleport: true } }
   })

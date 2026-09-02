@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AdminPageviews from './AdminPageviews.vue'
 import { useAdminStore } from '@/stores/admin'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /**
  * Covers OpenProject #1238's admin opt-out UI: `AdminPageviews.vue` is the `manage:system`-gated
@@ -15,7 +16,7 @@ import { useAdminStore } from '@/stores/admin'
 function mountPage() {
   setActivePinia(createPinia())
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   return mount(AdminPageviews, {
     global: {

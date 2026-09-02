@@ -1,14 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import WelcomeOverlay from './WelcomeOverlay.vue'
 import { useFlagsStore } from '@/stores/flags'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * Regression coverage for task 799: with exactly one editor enabled, "Create the Homepage" used to
@@ -31,14 +32,9 @@ async function mountOverlay({ editors = {}, experimental = false } = {}) {
   const userStore = useUserStore()
   userStore.permissions = []
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
-  })
-  await router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/:pathMatch(.*)*'])
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   const wrapper = mount(WelcomeOverlay, {
     attachTo: document.body,

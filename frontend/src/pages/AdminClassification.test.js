@@ -3,12 +3,13 @@ import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import AdminClassification from './AdminClassification.vue'
 import { useSiteStore } from '@/stores/site'
 import { confirm, dialog } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -30,16 +31,10 @@ beforeEach(() => {
 function mountPage() {
   setActivePinia(createPinia())
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: {
-      en: {
-        'admin.classification.title': 'Classification',
-        'admin.classification.new': 'New Level',
-        'admin.classification.newDefaultName': 'New Level'
-      }
-    }
+  const i18n = createTestI18n({
+    'admin.classification.title': 'Classification',
+    'admin.classification.new': 'New Level',
+    'admin.classification.newDefaultName': 'New Level'
   })
 
   return mount(AdminClassification, {
@@ -134,7 +129,7 @@ async function mountReportPage(report = DRILLDOWN_REPORT) {
     return { json: () => Promise.resolve([]) }
   })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
   const wrapper = mount(AdminClassification, { global: { plugins: [i18n] } })
   await flushPromises()
 
@@ -196,7 +191,7 @@ function mountAdminClassification(levels = LEVELS, report = REPORT) {
     return { json: () => Promise.resolve([]) }
   })
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createTestI18n()
 
   return mount(AdminClassification, { global: { plugins: [i18n] } })
 }
@@ -374,14 +369,8 @@ describe('AdminClassification rename focus', () => {
       return { json: () => Promise.resolve(undefined) }
     })
 
-    const i18n = createI18n({
-      legacy: false,
-      locale: 'en',
-      messages: {
-        en: {
-          common: { actions: { rename: 'Rename' } }
-        }
-      }
+    const i18n = createTestI18n({
+      common: { actions: { rename: 'Rename' } }
     })
 
     const wrapper = mount(AdminClassification, {

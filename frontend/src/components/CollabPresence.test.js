@@ -1,19 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import CollabPresence from './CollabPresence.vue'
 import { useCollabStore } from '@/stores/collab'
 
+import { createTestI18n } from '../../test/i18n.js'
+
 const messages = {
-  en: {
-    editor: {
-      collab: {
-        participants: 'People editing this page',
-        you: 'You',
-        editingWithYou: '{name} is editing this page with you.'
-      }
+  editor: {
+    collab: {
+      participants: 'People editing this page',
+      you: 'You',
+      editingWithYou: '{name} is editing this page with you.'
     }
   }
 }
@@ -21,7 +20,7 @@ const messages = {
 function mountPresence() {
   setActivePinia(createPinia())
   const collabStore = useCollabStore()
-  const i18n = createI18n({ legacy: false, locale: 'en', messages })
+  const i18n = createTestI18n(messages)
   const wrapper = mount(CollabPresence, { global: { plugins: [i18n] } })
   return { wrapper, collabStore }
 }

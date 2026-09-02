@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
 
 import { loading } from '@/composables/loading'
 import { queue as notifyQueue } from '@/composables/notify'
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 import { useAdminSettings } from './adminSettings.js'
+
+import { createTestI18n } from '../../test/i18n.js'
 
 /*
   The composable is the load/save skeleton the admin settings pages share, so what is asserted here is
@@ -28,13 +29,7 @@ const I18N_PREFIX = 'admin.general'
  * the mount did is cleared before the test's own call, so counts are the test's own.
  */
 async function mountComposable({ siteId = null, messages = {}, ...opts } = {}) {
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    messages: { en: messages },
-    missingWarn: false,
-    fallbackWarn: false
-  })
+  const i18n = createTestI18n(messages)
 
   let api = null
   let adminStore = null

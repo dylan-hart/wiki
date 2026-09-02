@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminTheme from './AdminTheme.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
 import { contrastRatio, getAccessibleColor } from '@/helpers/accessibility'
+
+import { createTestI18n } from '../../test/i18n.js'
+import { createTestRouter } from '../../test/router.js'
 
 /**
  * Task 754: `getAccessibleColor` now has real substitutes for every themeable color name, and this
@@ -31,30 +32,18 @@ async function mountPage(theme, cvd = 'none') {
     return { json: () => Promise.resolve(undefined) }
   })
 
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: [{ path: '/', component: { template: '<div />' } }]
-  })
-  router.push('/')
-  await router.isReady()
+  const router = await createTestRouter(['/'])
 
-  const i18n = createI18n({
-    legacy: false,
-    locale: 'en',
-    // -> Real message for the one key a test needs to read back (the computed ratio); everything
-    // else stays untranslated (`missingWarn`/`fallbackWarn` off), matching upstream `en.json`.
-    messages: {
-      en: {
-        admin: {
-          theme: {
-            contrastWarning:
-              'Contrast ratio is {ratio}, below the WCAG AA minimum of 4.5:1 for this color against the text drawn over it.'
-          }
-        }
+  // -> Real message for the one key a test needs to read back (the computed ratio); everything else
+  //    stays untranslated (`createTestI18n` keeps `missingWarn`/`fallbackWarn` off), matching
+  //    upstream `en.json`.
+  const i18n = createTestI18n({
+    admin: {
+      theme: {
+        contrastWarning:
+          'Contrast ratio is {ratio}, below the WCAG AA minimum of 4.5:1 for this color against the text drawn over it.'
       }
-    },
-    missingWarn: false,
-    fallbackWarn: false
+    }
   })
 
   const wrapper = mount(AdminTheme, {
