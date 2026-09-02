@@ -187,12 +187,11 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 import { dialog } from '@/composables/dialog'
 
 import { useAdminStore } from '@/stores/admin'
@@ -222,17 +221,47 @@ useMeta(() => ({
 
 // DATA
 
-const state = reactive({
-  enabled: false,
-  loading: 0,
-  isToggleLoading: false,
-  keys: [],
-  groups: [],
-  sites: [],
-  users: [],
-  classificationLevels: [],
-  /** When the signing keypair was generated — what an invalidated key is invalidated by. */
-  certificatesGeneratedAt: null
+const { state, load, refresh } = useAdminSettings({
+  i18nPrefix: 'admin.api',
+  // -> Instance-wide, not one site's: no site picker, no reload on switching site
+  siteScoped: false,
+  extraState: {
+    enabled: false,
+    isToggleLoading: false,
+    keys: [],
+    groups: [],
+    sites: [],
+    users: [],
+    classificationLevels: [],
+    /** When the signing keypair was generated — what an invalidated key is invalidated by. */
+    certificatesGeneratedAt: null
+  },
+  // -> Groups and sites are fetched alongside the keys so the list can name the permissions and
+  //    the site each key carries, the certificate date so an invalidated key can say what
+  //    invalidated it, and users so a personal token (`key.userId` set) can name its owner --
+  //    `limit: 100` rather than every page: this is a display convenience for naming an owner, not
+  //    a picker that has to be complete, and `ownerName()` falls back to the raw ID beyond that.
+  fetch: () =>
+    Promise.all([
+      API_CLIENT.get('api-keys').json(),
+      API_CLIENT.get('system/api').json(),
+      API_CLIENT.get('groups').json(),
+      API_CLIENT.get('sites').json(),
+      API_CLIENT.get('system/certificates').json(),
+      API_CLIENT.get('users', { searchParams: { limit: 100 } }).json(),
+      API_CLIENT.get('classification-levels').json()
+    ]),
+  onLoaded: ([keys, apiState, groups, sites, certs, usersResp, classificationLevels]) => {
+    state.keys = keys ?? []
+    state.groups = groups ?? []
+    state.sites = sites ?? []
+    state.users = usersResp?.users ?? []
+    state.classificationLevels = classificationLevels ?? []
+    state.enabled = apiState?.isEnabled === true
+    state.certificatesGeneratedAt = certs?.generatedAt ?? null
+    // -> Keeps the status light in the admin sidebar in step without another round trip
+    adminStore.info.isApiEnabled = state.enabled
+  }
 })
 
 // METHODS
@@ -314,53 +343,6 @@ function classificationLevelNames(key) {
   return key.allowedClassifications.map((id) => classificationLevelName(id)).join(', ')
 }
 
-async function load() {
-  state.loading++
-  loading.show()
-  try {
-    // -> Groups and sites are fetched alongside the keys so the list can name the permissions and
-    //    the site each key carries, the certificate date so an invalidated key can say what
-    //    invalidated it, and users so a personal token (`key.userId` set) can name its owner --
-    //    `limit: 100` rather than every page: this is a display convenience for naming an owner, not
-    //    a picker that has to be complete, and `ownerName()` falls back to the raw ID beyond that.
-    const [keys, apiState, groups, sites, certs, usersResp, classificationLevels] =
-      await Promise.all([
-        API_CLIENT.get('api-keys').json(),
-        API_CLIENT.get('system/api').json(),
-        API_CLIENT.get('groups').json(),
-        API_CLIENT.get('sites').json(),
-        API_CLIENT.get('system/certificates').json(),
-        API_CLIENT.get('users', { searchParams: { limit: 100 } }).json(),
-        API_CLIENT.get('classification-levels').json()
-      ])
-    state.keys = keys ?? []
-    state.groups = groups ?? []
-    state.sites = sites ?? []
-    state.users = usersResp?.users ?? []
-    state.classificationLevels = classificationLevels ?? []
-    state.enabled = apiState?.isEnabled === true
-    state.certificatesGeneratedAt = certs?.generatedAt ?? null
-    // -> Keeps the status light in the admin sidebar in step without another round trip
-    adminStore.info.isApiEnabled = state.enabled
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.api.loadFailed'),
-      caption: err.message
-    })
-  }
-  loading.hide()
-  state.loading--
-}
-
-async function refresh() {
-  await load()
-  notify({
-    type: 'positive',
-    message: t('admin.api.refreshSuccess')
-  })
-}
-
 async function globalSwitch() {
   state.isToggleLoading = true
   const wanted = !state.enabled
@@ -403,10 +385,6 @@ function revoke(key) {
     load()
   })
 }
-
-// MOUNTED
-
-onMounted(load)
 </script>
 
 <style lang="scss"></style>

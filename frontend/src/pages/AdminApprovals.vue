@@ -122,8 +122,8 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive, watch } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
@@ -158,15 +158,27 @@ useMeta(() => ({
 
 // DATA
 
-const state = reactive({
-  loading: 0,
-  rules: [],
-  groups: []
+const { state, load } = useAdminSettings({
+  i18nPrefix: 'admin.approval',
+  // -> A listing, not a settings form: this page has never raised the full-screen overlay to read
+  //    its own rows, and the per-row saves below drive the header's own progress instead.
+  overlay: false,
+  extraState: {
+    rules: [],
+    groups: []
+  },
+  // -> The groups are what turn the stored IDs into names, so both are needed before the list means
+  //    anything; fetched together rather than in sequence
+  fetch: (siteId) =>
+    Promise.all([
+      API_CLIENT.get(`sites/${siteId}/approvals/rules`).json(),
+      API_CLIENT.get('groups').json()
+    ]),
+  onLoaded: ([rules, groups]) => {
+    state.rules = rules ?? []
+    state.groups = groups ?? []
+  }
 })
-
-// WATCHERS
-
-watch(() => adminStore.currentSiteId, load)
 
 // METHODS
 
@@ -199,30 +211,6 @@ function patternLabel(rule) {
  */
 function groupNames(groupIds) {
   return (groupIds ?? []).map((id) => state.groups.find((g) => g.id === id)?.name ?? id).join(', ')
-}
-
-async function load() {
-  if (!adminStore.currentSiteId) {
-    return
-  }
-  state.loading++
-  try {
-    // -> The groups are what turn the stored IDs into names, so both are needed before the list means
-    //    anything; fetched together rather than in sequence
-    const [rules, groups] = await Promise.all([
-      API_CLIENT.get(`sites/${adminStore.currentSiteId}/approvals/rules`).json(),
-      API_CLIENT.get('groups').json()
-    ])
-    state.rules = rules ?? []
-    state.groups = groups ?? []
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.approval.loadFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  state.loading--
 }
 
 /**
@@ -303,8 +291,4 @@ function deleteRule(rule) {
     await load()
   })
 }
-
-// MOUNTED
-
-onMounted(load)
 </script>

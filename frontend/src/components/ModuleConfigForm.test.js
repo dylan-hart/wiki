@@ -76,6 +76,44 @@ describe('ModuleConfigForm', () => {
     expect(wrapper.findComponent(WInput).props('disabled')).toBe(true)
   })
 
+  it('draws a readOnly boolean row as a plain div, not a label with an inoperable control', () => {
+    const config = buildConfigEditor(
+      { managed: { type: 'boolean', title: 'Managed', default: true, readOnly: true } },
+      {}
+    )
+    const wrapper = mountForm(config)
+    expect(wrapper.find('label').exists()).toBe(false)
+    expect(wrapper.find('div.w-item').exists()).toBe(true)
+  })
+
+  it('draws an editable boolean row as a label, so the whole row toggles it', () => {
+    const config = buildConfigEditor(
+      { managed: { type: 'boolean', title: 'Managed', default: true } },
+      {}
+    )
+    const wrapper = mountForm(config)
+    expect(wrapper.find('label').exists()).toBe(true)
+  })
+
+  it("sets a readOnly prop's hint in orange, since that hint is why the value is fixed", () => {
+    const config = buildConfigEditor(
+      {
+        indexName: {
+          type: 'string',
+          title: 'Index Name',
+          default: 'wiki',
+          hint: 'Fixed by the module.',
+          readOnly: true
+        }
+      },
+      {}
+    )
+    const wrapper = mountForm(config)
+    const caption = wrapper.findAll('span').find((el) => el.text() === 'Fixed by the module.')
+    expect(caption).toBeDefined()
+    expect(caption.classes()).toContain('text-orange')
+  })
+
   it('hides a field whose `if` condition on a sibling value is not met', () => {
     const config = buildConfigEditor(
       {

@@ -31,7 +31,7 @@
           color="secondary"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
-          @click="refresh">
+          @click="load">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
@@ -93,14 +93,13 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive, watch } from 'vue'
+import { reactive } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
-import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 import { useFlagsStore } from '@/stores/flags'
@@ -138,16 +137,57 @@ useMeta(() => ({
 //    Feature #786 under the Comments epic (OpenProject #335) for a future cycle to pick up if it
 //    wants to; `api` (API-docs editor) and `blog` (a series-of-posts editor) had no plausible
 //    near-term epic home identified and are dropped with no follow-up.
-const state = reactive({
-  loading: 0,
-  config: {
+function defaultConfig() {
+  return {
     asciidoc: false,
     code: false,
     markdown: false,
     redirect: true,
     wysiwyg: false
   }
+}
+
+/** The editors as the API expects them, and as `siteStore` holds them. */
+function activeFlags(config) {
+  return {
+    asciidoc: config.asciidoc,
+    code: config.code,
+    markdown: config.markdown,
+    wysiwyg: config.wysiwyg
+  }
+}
+
+const { state, load, save } = useAdminSettings({
+  i18nPrefix: 'admin.editors',
+  // -> This page's own stem for the load failure, from before `loadFailed` was the convention
+  keys: { loadFailed: 'admin.editors.fetchFailed' },
+  defaults: defaultConfig,
+  fetch: (siteId) => API_CLIENT.get(`sites/${siteId}?strict=true`).json(),
+  pick: (site) => ({
+    asciidoc: site?.editors?.asciidoc?.isActive ?? false,
+    code: site?.editors?.code?.isActive ?? false,
+    markdown: site?.editors?.markdown?.isActive ?? false,
+    wysiwyg: site?.editors?.wysiwyg?.isActive ?? false
+  }),
+  // -> Only `isActive` is sent, so each editor's own `config` is left untouched by the merge
+  commit: (siteId, config) => {
+    const flags = activeFlags(config)
+    return API_CLIENT.put(`sites/${siteId}`, {
+      json: {
+        editors: {
+          asciidoc: { isActive: flags.asciidoc },
+          code: { isActive: flags.code },
+          markdown: { isActive: flags.markdown },
+          wysiwyg: { isActive: flags.wysiwyg }
+        }
+      }
+    }).json()
+  },
+  onSavedCurrentSite: (config) => {
+    siteStore.$patch({ editors: activeFlags(config) })
+  }
 })
+
 const editors = reactive([
   {
     id: 'asciidoc',
@@ -185,81 +225,7 @@ const editors = reactive([
   }
 ])
 
-// WATCHERS
-
-watch(
-  () => adminStore.currentSiteId,
-  (newValue) => {
-    loading.show()
-    load()
-  }
-)
-
 // METHODS
-
-async function load() {
-  state.loading++
-  try {
-    const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
-    const data = resp?.editors
-    state.config.asciidoc = data?.asciidoc?.isActive ?? false
-    state.config.code = data?.code?.isActive ?? false
-    state.config.markdown = data?.markdown?.isActive ?? false
-    state.config.wysiwyg = data?.wysiwyg?.isActive ?? false
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.editors.fetchFailed')
-    })
-  }
-  loading.hide()
-  state.loading--
-}
-
-async function save() {
-  state.loading++
-  try {
-    // -> Only `isActive` is sent, so each editor's own `config` is left untouched by the merge
-    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
-      json: {
-        editors: {
-          asciidoc: { isActive: state.config.asciidoc },
-          code: { isActive: state.config.code },
-          markdown: { isActive: state.config.markdown },
-          wysiwyg: { isActive: state.config.wysiwyg }
-        }
-      }
-    }).json()
-    if (adminStore.currentSiteId === siteStore.id) {
-      siteStore.$patch({
-        editors: {
-          asciidoc: state.config.asciidoc,
-          code: state.config.code,
-          markdown: state.config.markdown,
-          wysiwyg: state.config.wysiwyg
-        }
-      })
-    }
-    notify({
-      type: 'positive',
-      message: t('admin.editors.saveSuccess')
-    })
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.editors.saveFailed'),
-      caption: t(
-        `admin.editors.${err.data?.error}`,
-        apiErrorMessage(err, t('common.error.unexpected'))
-      )
-    })
-  }
-  state.loading--
-}
-
-async function refresh() {
-  await load()
-}
 
 function openConfig(editorId) {
   switch (editorId) {
@@ -278,15 +244,6 @@ function openConfig(editorId) {
     }
   }
 }
-
-// MOUNTED
-
-onMounted(async () => {
-  if (adminStore.currentSiteId) {
-    loading.show()
-    await load()
-  }
-})
 </script>
 
 <style lang="scss"></style>

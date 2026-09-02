@@ -135,26 +135,18 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
-import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
-import { apiErrorMessage } from '@/helpers/apiError'
 import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
 
 import ModuleConfigForm from '@/components/ModuleConfigForm.vue'
 
-import { useAdminStore } from '@/stores/admin'
-
 // COMPOSABLES
 
 const dark = useDark()
-
-// STORES
-
-const adminStore = useAdminStore()
 
 // I18N
 
@@ -168,37 +160,18 @@ useMeta(() => ({
 
 // DATA
 
-const state = reactive({
-  loading: 0,
-  providers: [],
-  selectedProvider: ''
-})
-
-// COMPUTED
-
-const provider = computed(() => {
-  return state.providers.find((prov) => prov.key === state.selectedProvider) ?? null
-})
-
-// WATCHERS
-
-watch(
-  () => adminStore.currentSiteId,
-  () => {
-    load()
-  }
-)
-
-// METHODS
-
-async function load() {
-  state.loading++
-  loading.show()
-  try {
-    const [modules, site] = await Promise.all([
+const { state, refresh, save } = useAdminSettings({
+  i18nPrefix: 'admin.analytics',
+  extraState: {
+    providers: [],
+    selectedProvider: ''
+  },
+  fetch: (siteId) =>
+    Promise.all([
       API_CLIENT.get('analytics/modules').json(),
-      API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
-    ])
+      API_CLIENT.get(`sites/${siteId}?strict=true`).json()
+    ]),
+  onLoaded: ([modules, site]) => {
     const storedProviders = site?.analytics?.providers ?? {}
     const providers = (modules ?? []).map((mod) => {
       const stored = storedProviders[mod.key] ?? {}
@@ -217,28 +190,8 @@ async function load() {
     state.selectedProvider = providers.some((prov) => prov.key === state.selectedProvider)
       ? state.selectedProvider
       : (providers[0]?.key ?? '')
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.analytics.loadFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  loading.hide()
-  state.loading--
-}
-
-async function refresh() {
-  await load()
-  notify({
-    type: 'positive',
-    message: t('admin.analytics.refreshSuccess')
-  })
-}
-
-async function save() {
-  state.loading++
-  try {
+  },
+  commit: (siteId) => {
     const providers = {}
     for (const prov of state.providers) {
       providers[prov.key] = {
@@ -246,31 +199,14 @@ async function save() {
         config: buildConfigPayload(prov.config)
       }
     }
-    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
-      json: {
-        analytics: { providers }
-      }
-    }).json()
-    notify({
-      type: 'positive',
-      message: t('admin.analytics.saveSuccess')
-    })
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.analytics.saveFailed'),
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
-    })
+    return API_CLIENT.put(`sites/${siteId}`, { json: { analytics: { providers } } }).json()
   }
-  state.loading--
-}
+})
 
-// MOUNTED
+// COMPUTED
 
-onMounted(() => {
-  if (adminStore.currentSiteId) {
-    load()
-  }
+const provider = computed(() => {
+  return state.providers.find((prov) => prov.key === state.selectedProvider) ?? null
 })
 </script>
 

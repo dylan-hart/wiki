@@ -236,21 +236,18 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive, toRef, watch } from 'vue'
+import { onMounted, toRef } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useMeta } from '@/composables/meta'
-import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 import { useSiteImage } from '@/composables/siteImage'
-import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 
 import { isSharpAvailable } from '@/helpers/siteImages'
 
-import { toMerged } from 'es-toolkit/object'
 import { Sortable } from 'sortablejs-vue3'
 
 // ACCESS
@@ -290,18 +287,51 @@ function defaultConfig() {
   }
 }
 
-const state = reactive({
-  invalidCharsRegex: /^[^<>"]+$/,
-  loading: 0,
-  config: defaultConfig(),
-  providers: [],
-  // -> Whether this site has a background of its own, i.e. whether there is anything to clear. The
-  //    preview always renders: without one it shows the default the login page falls back to.
-  hasBg: false,
-  // -> Drives the "requires Sharp" indicator on the background uploader. Starts false rather than
-  //    true so a slow or failed `system/extensions` call understates the warning instead of crying
-  //    wolf while it's still unknown.
-  sharpMissing: false
+const { state, load, save } = useAdminSettings({
+  i18nPrefix: 'admin.login',
+  defaults: defaultConfig,
+  extraState: {
+    invalidCharsRegex: /^[^<>"]+$/,
+    providers: [],
+    // -> Whether this site has a background of its own, i.e. whether there is anything to clear. The
+    //    preview always renders: without one it shows the default the login page falls back to.
+    hasBg: false,
+    // -> Drives the "requires Sharp" indicator on the background uploader. Starts false rather than
+    //    true so a slow or failed `system/extensions` call understates the warning instead of crying
+    //    wolf while it's still unknown.
+    sharpMissing: false
+  },
+  fetch: (siteId) =>
+    Promise.all([
+      API_CLIENT.get(`sites/${siteId}?strict=true`).json(),
+      API_CLIENT.get(`sites/${siteId}/auth/strategies`, {
+        searchParams: { visibleOnly: false }
+      }).json()
+    ]),
+  pick: ([site]) => site?.auth ?? {},
+  onLoaded: ([site, providers]) => {
+    state.providers = providers ?? []
+    state.hasBg = site?.assets?.loginBg ?? false
+  },
+  commit: (siteId, config) =>
+    API_CLIENT.put(`sites/${siteId}`, {
+      json: {
+        auth: {
+          autoLogin: config.autoLogin ?? false,
+          bypassUnauthorized: config.bypassUnauthorized ?? false,
+          hideLocal: config.hideLocal ?? false,
+          loginRedirect: config.loginRedirect ?? '/',
+          welcomeRedirect: config.welcomeRedirect ?? '/',
+          logoutRedirect: config.logoutRedirect ?? '/'
+        },
+        // -> Order comes from the current position in the drag-sortable list
+        authStrategies: state.providers.map((provider, index) => ({
+          id: provider.id,
+          order: index,
+          isVisible: provider.isVisible ?? false
+        }))
+      }
+    }).json()
 })
 
 const sortableOptions = {
@@ -322,78 +352,7 @@ const {
   loading: toRef(state, 'loading')
 })
 
-// WATCHERS
-
-watch(
-  () => adminStore.currentSiteId,
-  (newValue) => {
-    load()
-  }
-)
-
 // METHODS
-
-async function load() {
-  state.loading++
-  loading.show()
-  try {
-    const [site, providers] = await Promise.all([
-      API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json(),
-      API_CLIENT.get(`sites/${adminStore.currentSiteId}/auth/strategies`, {
-        searchParams: { visibleOnly: false }
-      }).json()
-    ])
-    state.config = toMerged(defaultConfig(), site?.auth ?? {})
-    state.providers = providers ?? []
-    state.hasBg = site?.assets?.loginBg ?? false
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.login.loadFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
-  loading.hide()
-  state.loading--
-}
-
-async function save() {
-  state.loading++
-  try {
-    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
-      json: {
-        auth: {
-          autoLogin: state.config.autoLogin ?? false,
-          bypassUnauthorized: state.config.bypassUnauthorized ?? false,
-          hideLocal: state.config.hideLocal ?? false,
-          loginRedirect: state.config.loginRedirect ?? '/',
-          welcomeRedirect: state.config.welcomeRedirect ?? '/',
-          logoutRedirect: state.config.logoutRedirect ?? '/'
-        },
-        // -> Order comes from the current position in the drag-sortable list
-        authStrategies: state.providers.map((provider, index) => ({
-          id: provider.id,
-          order: index,
-          isVisible: provider.isVisible ?? false
-        }))
-      }
-    }).json()
-    notify({
-      type: 'positive',
-      message: t('admin.login.saveSuccess')
-    })
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.login.saveFailed'),
-      caption: t(
-        `admin.login.${err.data?.error}`,
-        apiErrorMessage(err, t('common.error.unexpected'))
-      )
-    })
-  }
-  state.loading--
-}
 
 function updateAuthPosition(ev) {
   const item = state.providers.splice(ev.oldIndex, 1)[0]
@@ -402,12 +361,9 @@ function updateAuthPosition(ev) {
 
 // MOUNTED
 
+// -> Site-independent, so this runs once on mount rather than on every `load()` (which re-runs per
+//    site switch). Drives the "requires Sharp" indicator on the background uploader.
 onMounted(async () => {
-  if (adminStore.currentSiteId) {
-    load()
-  }
-  // -> Site-independent, so this runs once on mount rather than on every `load()` (which re-runs per
-  //    site switch). Drives the "requires Sharp" indicator on the background uploader.
   state.sharpMissing = !(await isSharpAvailable())
 })
 </script>

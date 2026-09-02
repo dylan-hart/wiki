@@ -485,13 +485,13 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { v4 as uuid } from 'uuid'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 import { confirm } from '@/composables/dialog'
 
 import { useSiteStore } from '@/stores/site'
@@ -527,17 +527,51 @@ const BUILTIN_LOCAL_STRATEGY_ID = '5a528c4c-0a82-4ad2-96a5-2b23811e6588'
 
 // DATA
 
-const state = reactive({
-  loading: 0,
-  loadingGroups: true,
-  groups: [],
-  strategies: [],
-  activeStrategies: [],
-  selectedStrategy: '',
-  // -> Text typed into the "Add Strategy" menu's filter field; reset each time the menu reopens
-  strategyFilter: '',
-  strategy: {
-    strategy: {}
+const { state, load, refresh } = useAdminSettings({
+  i18nPrefix: 'admin.auth',
+  // -> Instance-wide, not one site's: no site picker, no reload on switching site
+  siteScoped: false,
+  extraState: {
+    loadingGroups: true,
+    groups: [],
+    strategies: [],
+    activeStrategies: [],
+    selectedStrategy: '',
+    // -> Text typed into the "Add Strategy" menu's filter field; reset each time the menu reopens
+    strategyFilter: '',
+    strategy: {
+      strategy: {}
+    }
+  },
+  fetch: async () => {
+    state.loadingGroups = true
+    try {
+      return await Promise.all([
+        API_CLIENT.get('authentication/modules').json(),
+        API_CLIENT.get('authentication/strategies').json(),
+        API_CLIENT.get('groups').json()
+      ])
+    } finally {
+      // -> Whether or not the request came back: the group picker must not be left spinning on a
+      //    failure it is not the one reporting.
+      state.loadingGroups = false
+    }
+  },
+  onLoaded: ([modules, strategies, groups]) => {
+    state.strategies = modules ?? []
+    state.activeStrategies = (strategies ?? []).map((str) => {
+      const mod = state.strategies.find((m) => m.key === str.module) ?? {
+        key: str.module,
+        title: str.module
+      }
+      return {
+        ...str,
+        strategy: mod,
+        config: buildConfigEditor(mod.props, str.config)
+      }
+    })
+    // -> Guests cannot be enrolled into, being the group of users who never logged in
+    state.groups = (groups ?? []).filter((g) => g.id !== GUESTS_GROUP_ID)
   }
 })
 
@@ -606,50 +640,6 @@ watch(
 )
 
 // METHODS
-
-async function load() {
-  state.loading++
-  state.loadingGroups = true
-  loading.show()
-  try {
-    const [modules, strategies, groups] = await Promise.all([
-      API_CLIENT.get('authentication/modules').json(),
-      API_CLIENT.get('authentication/strategies').json(),
-      API_CLIENT.get('groups').json()
-    ])
-    state.strategies = modules ?? []
-    state.activeStrategies = (strategies ?? []).map((str) => {
-      const mod = state.strategies.find((m) => m.key === str.module) ?? {
-        key: str.module,
-        title: str.module
-      }
-      return {
-        ...str,
-        strategy: mod,
-        config: buildConfigEditor(mod.props, str.config)
-      }
-    })
-    // -> Guests cannot be enrolled into, being the group of users who never logged in
-    state.groups = (groups ?? []).filter((g) => g.id !== GUESTS_GROUP_ID)
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.auth.loadFailed'),
-      caption: err.message
-    })
-  }
-  state.loadingGroups = false
-  loading.hide()
-  state.loading--
-}
-
-async function refresh() {
-  await load()
-  notify({
-    type: 'positive',
-    message: t('admin.auth.refreshSuccess')
-  })
-}
 
 /** The strategy as the API expects it. */
 function payloadFor(str) {
@@ -789,8 +779,4 @@ function confirmDelete() {
     await load()
   })
 }
-
-// MOUNTED
-
-onMounted(load)
 </script>

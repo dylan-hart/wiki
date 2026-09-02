@@ -67,6 +67,50 @@ in one pass at the end of the consolidation (agents must not edit `CLAUDE.md` mi
   average`) where they said "Medium"; `AdminGeneral`'s logo and favicon previews carry their own
   cache-busting timestamps instead of one shared `state.assetTimestamp`.
 
+## Task B3 — `useAdminSettings` for the admin settings pages
+
+- **Frontend patterns — an admin settings page's load/save skeleton is
+  `composables/adminSettings.js`, not hand-written.** `useAdminSettings({ i18nPrefix, keys,
+  siteScoped, overlay, defaults, extraState, fetch, pick, onLoaded, commit, onSaved,
+  onSavedCurrentSite })` returns `{ state, load, save, refresh }` and owns: the `state.loading`
+  gauge, the full-screen overlay paired inside `load()`, the `<prefix>.loadFailed` /
+  `.saveSuccess` / `.saveFailed` / `.refreshSuccess` toasts, the `t(\`<prefix>.${err.data?.error}\`,
+  apiErrorMessage(err, t('common.error.unexpected')))` caption on a failed save, the
+  `adminStore.currentSiteId` watcher plus its mounted load, and the "am I editing the site I am
+  browsing" gate (`adminStore.currentSiteId === siteStore.id`) in front of `onSavedCurrentSite`.
+  A page keeps only what is its own: `defaultConfig()`, the requests, the payload mapping, and any
+  action beyond loading and saving. `state` is the composable's — page-specific fields go in
+  `extraState` so the template keeps reading `state.x`. `save()` answers `true`/`false` so a page
+  can do something only on a stored change (`AdminGeneral.vue`'s `loadedHostname`).
+  Twenty pages use it: `AdminGeneral`, `AdminTheme`, `AdminLogin`, `AdminEditors`, `AdminAnalytics`,
+  `AdminBlocks`, `AdminSearch`, `AdminApprovals`, `AdminGlossary`, `AdminNavigation`,
+  `AdminPagesDeleted`, `AdminLocale` (site-scoped), plus `AdminMail`, `AdminSecurity`, `AdminFlags`,
+  `AdminSystem`, `AdminApi`, `AdminAuth`, `AdminMetrics`, `AdminPageviews` (`siteScoped: false`).
+  `AdminComments` and `AdminStorage` are the two deliberate hold-outs — see the report for why.
+- **Drift the composable settles, so a new page copies the settled shape:** a failed `load()`
+  always carries `caption: apiErrorMessage(err)`; the overlay is shown and hidden inside `load()`,
+  never by the caller's watcher; a site-scoped page never fetches without a `currentSiteId` (the
+  guard is in `load()`, so `onMounted`/the watcher need no `if`); and the raw
+  `'An unexpected error occured.'` fallback is gone from every page this task touched
+  (`t('common.error.unexpected')` instead — 14 files carried the literal, now 10).
+- **`refresh()` is the composable's**, not a per-page `await load(); notify(refreshSuccess)`
+  wrapper: five of the seven copies (`AdminAnalytics`, `AdminAuth`, `AdminMetrics`,
+  `AdminPageviews`, `AdminApi`) are now `const { refresh } = useAdminSettings(...)`. The two left
+  are `AdminSites` (its refresh re-fetches `adminStore.sites`, there is no `load()`) and
+  `ProfileApi` (a profile page, and three independent best-effort fetches).
+
+### Observed but out of scope for B3
+
+- `AdminComments.vue` and `AdminStorage.vue` keep their hand-written skeletons: both give their
+  load-failure toast a `timeout: 20000`, `AdminComments.save()` raises the overlay + reloads +
+  guards on a selected provider, `AdminStorage.save({ silent })` makes the overlay and the success
+  toast conditional, and `AdminStorage`'s site watcher awaits `load()` before rewriting the route.
+  Converting either would have meant either changing behaviour or growing three more options onto
+  the composable for one caller each.
+- The `[aria-label="X"] input` selector defect (B2's note below) is unchanged: the same 7 assertions
+  in `AdminAnalytics.test.js` (1), `AdminMail.test.js` (3) and `AdminSearch.test.js` (3) fail before
+  and after this task.
+
 ### Observed but out of scope for B2
 
 - `pages/AdminGroups.vue`'s `editGroup()` is dead — the row's edit control is a `:to` link, and

@@ -354,22 +354,17 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive, watch } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useMeta } from '@/composables/meta'
-import { notify } from '@/composables/notify'
-import { loading } from '@/composables/loading'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 
-import { useAdminStore } from '@/stores/admin'
 import { useFlagsStore } from '@/stores/flags'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 import { contrastRatio, getAccessibleColor, WCAG_AA_CONTRAST } from '@/helpers/accessibility'
-import { apiErrorMessage } from '@/helpers/apiError'
 
-import { toMerged } from 'es-toolkit/object'
 import { startCase } from 'es-toolkit/string'
 import UtilCodeEditor from '../components/UtilCodeEditor.vue'
 
@@ -381,7 +376,6 @@ useSiteAdminAccess('site:theme')
 
 // STORES
 
-const adminStore = useAdminStore()
 const flagStore = useFlagsStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
@@ -423,9 +417,46 @@ function defaultConfig() {
   }
 }
 
-const state = reactive({
-  loading: 0,
-  config: defaultConfig()
+/** The theme as the API expects it -- every control's field, and nothing else. */
+function payload(config) {
+  return {
+    dark: config.dark,
+    codeBlocksTheme: config.codeBlocksTheme,
+    colorPrimary: config.colorPrimary,
+    colorSecondary: config.colorSecondary,
+    colorAccent: config.colorAccent,
+    colorHeader: config.colorHeader,
+    colorSidebar: config.colorSidebar,
+    injectCSS: config.injectCSS,
+    injectHead: config.injectHead,
+    injectBody: config.injectBody,
+    contentWidth: config.contentWidth,
+    sidebarPosition: config.sidebarPosition,
+    tocPosition: config.tocPosition,
+    showPrintBtn: config.showPrintBtn,
+    baseFont: config.baseFont,
+    contentFont: config.contentFont
+  }
+}
+
+const { state, load, save } = useAdminSettings({
+  i18nPrefix: 'admin.theme',
+  defaults: defaultConfig,
+  fetch: (siteId) => API_CLIENT.get(`sites/${siteId}?strict=true`).json(),
+  pick: (site) => {
+    if (!site?.theme) {
+      throw new Error(t('admin.theme.loadFailed'))
+    }
+    return site.theme
+  },
+  commit: (siteId, config) =>
+    API_CLIENT.put(`sites/${siteId}`, { json: { theme: payload(config) } }).json(),
+  // -> The site being edited is the one this browser tab is reading, so the new theme applies
+  //    immediately rather than only after a reload
+  onSavedCurrentSite: (config) => {
+    siteStore.$patch({ theme: payload(config) })
+    EVENT_BUS.emit('applyTheme')
+  }
 })
 
 const colorKeys = ['primary', 'secondary', 'accent', 'header', 'sidebar']
@@ -715,15 +746,6 @@ const codeThemes = [
   { label: 'Xt 256', value: 'xt256' }
 ]
 
-// WATCHERS
-
-watch(
-  () => adminStore.currentSiteId,
-  (newValue) => {
-    load()
-  }
-)
-
 // METHODS
 
 /**
@@ -780,82 +802,6 @@ function resetFonts() {
 function resetCodeBlocks() {
   state.config.codeBlocksTheme = 'github-dark'
 }
-
-async function load() {
-  state.loading++
-  loading.show()
-  try {
-    const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
-    if (!resp?.theme) {
-      throw new Error(t('admin.theme.loadFailed'))
-    }
-    state.config = toMerged(defaultConfig(), resp.theme)
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.theme.loadFailed')
-    })
-  }
-  loading.hide()
-  state.loading--
-}
-
-async function save() {
-  state.loading++
-  try {
-    const patchTheme = {
-      dark: state.config.dark,
-      codeBlocksTheme: state.config.codeBlocksTheme,
-      colorPrimary: state.config.colorPrimary,
-      colorSecondary: state.config.colorSecondary,
-      colorAccent: state.config.colorAccent,
-      colorHeader: state.config.colorHeader,
-      colorSidebar: state.config.colorSidebar,
-      injectCSS: state.config.injectCSS,
-      injectHead: state.config.injectHead,
-      injectBody: state.config.injectBody,
-      contentWidth: state.config.contentWidth,
-      sidebarPosition: state.config.sidebarPosition,
-      tocPosition: state.config.tocPosition,
-      showPrintBtn: state.config.showPrintBtn,
-      baseFont: state.config.baseFont,
-      contentFont: state.config.contentFont
-    }
-    await API_CLIENT.put(`sites/${adminStore.currentSiteId}`, {
-      json: {
-        theme: patchTheme
-      }
-    }).json()
-    if (adminStore.currentSiteId === siteStore.id) {
-      siteStore.$patch({
-        theme: patchTheme
-      })
-      EVENT_BUS.emit('applyTheme')
-    }
-    notify({
-      type: 'positive',
-      message: t('admin.theme.saveSuccess')
-    })
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.theme.saveFailed'),
-      caption: t(
-        `admin.theme.${err.data?.error}`,
-        apiErrorMessage(err, t('common.error.unexpected'))
-      )
-    })
-  }
-  state.loading--
-}
-
-// MOUNTED
-
-onMounted(() => {
-  if (adminStore.currentSiteId) {
-    load()
-  }
-})
 </script>
 
 <style scoped>

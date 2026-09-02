@@ -318,16 +318,14 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive } from 'vue'
 
+import { useAdminSettings } from '@/composables/adminSettings'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
-
-import { toMerged } from 'es-toolkit/object'
 
 // STORES
 
@@ -369,32 +367,30 @@ function defaultConfig() {
   }
 }
 
-const state = reactive({
-  config: defaultConfig(),
-  testEmail: '',
-  testLoading: false,
-  loading: 0
-})
-
-// METHODS
-async function load() {
-  state.loading++
-  try {
-    const resp = await API_CLIENT.get('mail/config').json()
+const { state, load } = useAdminSettings({
+  i18nPrefix: 'admin.mail',
+  // -> Instance-wide settings, not one site's: no site picker, no reload on switching site
+  siteScoped: false,
+  // -> This form has never raised the full-screen overlay to read its own values
+  overlay: false,
+  defaults: defaultConfig,
+  extraState: {
+    testEmail: '',
+    testLoading: false
+  },
+  fetch: () => API_CLIENT.get('mail/config').json(),
+  pick: (resp) => {
     if (!resp) {
       throw new Error(t('admin.mail.loadFailed'))
     }
-    state.config = toMerged(defaultConfig(), resp)
+    return resp
+  },
+  onLoaded: () => {
     adminStore.info.isMailConfigured = state.config?.host?.length > 2
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('admin.mail.loadFailed'),
-      caption: err.message
-    })
   }
-  state.loading--
-}
+})
+
+// METHODS
 
 async function save() {
   if (state.loading > 0) {
@@ -431,7 +427,7 @@ async function save() {
       type: 'negative',
       message: t(
         `admin.mail.${err.data?.error}`,
-        apiErrorMessage(err, 'An unexpected error occured.')
+        apiErrorMessage(err, t('common.error.unexpected'))
       )
     })
   }
@@ -460,12 +456,6 @@ async function sendTest() {
   }
   state.testLoading = false
 }
-
-// MOUNTED
-
-onMounted(() => {
-  load()
-})
 </script>
 
 <style lang="scss"></style>

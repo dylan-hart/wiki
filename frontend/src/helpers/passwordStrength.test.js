@@ -45,6 +45,10 @@ describe('passwordStrengthBadge', () => {
 
   it('maps every one of the five score bands, each to its own colour and label', () => {
     // -> All long enough to clear the 8-character floor, so the score alone decides the band.
+    // -> Calibrated against the zxcvbn scorer currently installed: these five each land on a
+    //    different score with it, so a scorer upgrade that shifts a sample's band shows up as this
+    //    test failing on coverage rather than as an untested band -- re-pick the sample, don't
+    //    loosen the assertion.
     const samples = [
       'aaaaaaaaaa',
       'password123456',
