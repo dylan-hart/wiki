@@ -1,21 +1,40 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, mock, test } from 'node:test'
-import fastify from 'fastify'
-import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import fastifyFormBody from '@fastify/formbody'
 import fastifyCookie from '@fastify/cookie'
-import ajvFormats from 'ajv-formats'
 import authenticationRoutes from './authentication.ts'
-import { registerSchemas as registerAuthSchema } from './schemas/authentication.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { AccountRateLimitedError } from '../helpers/rateLimit.ts'
 import { siteEnabledPreHandler, SITE_MISSING_MESSAGE } from '../helpers/siteResolution.ts'
 import { ensureTemporal } from '../test/temporal.ts'
 import { authentication as authenticationTable } from '../db/schema.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { SESSION_COOKIE_NAME, SESSION_COOKIE_NAME_INSECURE } from '../helpers/security.ts'
-import { registerParamsSchemas } from './schemas/params.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
+import { installTestWiki } from '../test/mocks.ts'
+
+let wikiHandle: { restore(): void }
+
+/**
+ * The three route-plugin wrappers this file's apps need on top of the shared harness: a form-body
+ * parser (a SAML-shaped provider POSTs `application/x-www-form-urlencoded`), a cookie parser (the
+ * logout route clears the session cookie), and the site-enabled guard `api/index.ts` registers
+ * around every content route.
+ */
+const withFormBody: FastifyPluginAsync = async (instance) => {
+  await instance.register(fastifyFormBody)
+  await instance.register(authenticationRoutes)
+}
+
+const withCookies: FastifyPluginAsync = async (instance) => {
+  await instance.register(fastifyCookie)
+  await instance.register(authenticationRoutes)
+}
+
+const withSiteGuard: FastifyPluginAsync = async (instance) => {
+  instance.addHook('preHandler', siteEnabledPreHandler)
+  await instance.register(authenticationRoutes)
+}
 
 /**
  * `POST /auth/:strategyId/callback` is the form-POST counterpart of the existing GET callback, for a
@@ -61,7 +80,7 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
     loginCalls = []
     profileCalls = []
     loginResult = { authenticated: true, nextAction: 'redirect', redirect: '/welcome' }
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: { security: { authRateLimitEnabled: false } },
       models: {
         flags: { authDebug: () => {} },
@@ -97,30 +116,21 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
           }
         }
       }
-    }
+    })
 
-    app = fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
+    app = await buildTestApp({
+      routes: withFormBody,
+      ajv: true,
+      // -> No @fastify/session in this unit test: the session is a plain object this suite controls
+      //    directly, swapped out per test, standing in for what the real plugin decorates onto the
+      //    request.
+      session: () => session
     })
-    await app.register(fastifySensible)
-    await app.register(fastifyFormBody)
-    await registerErrorSchema(app)
-    await registerAuthSchema(app)
-    // -> No @fastify/session in this unit test: the session is a plain object this suite controls
-    //    directly, swapped out per test, standing in for what the real plugin decorates onto the request.
-    app.addHook('onRequest', async (req) => {
-      ;(req as any).session = session
-    })
-    await registerParamsSchemas(app)
-    await app.register(authenticationRoutes)
-    await app.ready()
   })
 
   after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
+    await closeTestApp(app)
+    wikiHandle.restore()
   })
 
   test('round-trips a matching RelayState into a login and redirects where it resolved', async () => {
@@ -296,7 +306,7 @@ describe('GET /auth/:strategyId/authorize (open redirect on the redirect query p
   let session: Record<string, any>
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: { security: { authRateLimitEnabled: false } },
       models: {
         flags: { authDebug: () => {} },
@@ -316,27 +326,18 @@ describe('GET /auth/:strategyId/authorize (open redirect on the redirect query p
         }
       },
       sitesMappings: {}
-    }
+    })
 
-    app = fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
+    app = await buildTestApp({
+      routes: authenticationRoutes,
+      ajv: true,
+      session: () => session
     })
-    await app.register(fastifySensible)
-    await registerErrorSchema(app)
-    await registerAuthSchema(app)
-    app.addHook('onRequest', async (req) => {
-      ;(req as any).session = session
-    })
-    await registerParamsSchemas(app)
-    await app.register(authenticationRoutes)
-    await app.ready()
   })
 
   after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
+    await closeTestApp(app)
+    wikiHandle.restore()
   })
 
   beforeEach(() => {
@@ -412,7 +413,7 @@ describe('GET /auth/:strategyId/authorize — redirect query validation', () => 
       const polyfill = await import('@js-temporal/polyfill')
       ;(globalThis as any).Temporal = polyfill.Temporal
     }
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: { security: { disallowOpenRedirect: true, authRateLimitEnabled: false } },
       sitesMappings: {},
       models: {
@@ -430,27 +431,18 @@ describe('GET /auth/:strategyId/authorize — redirect query validation', () => 
           }
         }
       }
-    }
+    })
 
-    app = fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
+    app = await buildTestApp({
+      routes: authenticationRoutes,
+      ajv: true,
+      session: () => session
     })
-    await app.register(fastifySensible)
-    await registerErrorSchema(app)
-    await registerAuthSchema(app)
-    app.addHook('onRequest', async (req) => {
-      ;(req as any).session = session
-    })
-    await registerParamsSchemas(app)
-    await app.register(authenticationRoutes)
-    await app.ready()
   })
 
   after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
+    await closeTestApp(app)
+    wikiHandle.restore()
   })
 
   beforeEach(() => {
@@ -533,7 +525,7 @@ describe('GET/POST /auth/:strategyId/callback — result.redirect validation', (
       const polyfill = await import('@js-temporal/polyfill')
       ;(globalThis as any).Temporal = polyfill.Temporal
     }
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: { security: { disallowOpenRedirect: true, authRateLimitEnabled: false } },
       models: {
         flags: { authDebug: () => {} },
@@ -555,28 +547,18 @@ describe('GET/POST /auth/:strategyId/callback — result.redirect validation', (
           }
         }
       }
-    }
+    })
 
-    app = fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
+    app = await buildTestApp({
+      routes: withFormBody,
+      ajv: true,
+      session: () => session
     })
-    await app.register(fastifySensible)
-    await app.register(fastifyFormBody)
-    await registerErrorSchema(app)
-    await registerAuthSchema(app)
-    app.addHook('onRequest', async (req) => {
-      ;(req as any).session = session
-    })
-    await registerParamsSchemas(app)
-    await app.register(authenticationRoutes)
-    await app.ready()
   })
 
   after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
+    await closeTestApp(app)
+    wikiHandle.restore()
   })
 
   beforeEach(() => {
@@ -653,7 +635,7 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
   let resetPasswordMock: ReturnType<typeof mock.fn>
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       models: {
         users: {
           updateUser: (...args: any[]) => updateUserMock(...args)
@@ -686,27 +668,20 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
         info: mock.fn(),
         debug: mock.fn()
       }
-    }
-
-    app = fastify()
-    await app.register(fastifySensible)
-    // -> Stand-in for `@fastify/session` (registered app-wide in `index.ts`, not here): the
-    //    resetPassword route writes `req.session.authenticated` on success the same way
-    //    `changePassword` does, so `req.session` needs to be a real mutable object per request.
-    app.decorateRequest('session', null as any)
-    app.addHook('onRequest', async (req) => {
-      req.session = {} as any
     })
-    await registerErrorSchema(app)
-    await registerAuthSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(authenticationRoutes)
-    await app.ready()
+
+    app = await buildTestApp({
+      routes: authenticationRoutes,
+      // -> Stand-in for `@fastify/session`: the resetPassword route writes
+      //    `req.session.authenticated` on success the same way `changePassword` does, so
+      //    `req.session` has to be a real, mutable, per-request object.
+      session: () => ({})
+    })
   })
 
   after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
+    await closeTestApp(app)
+    wikiHandle.restore()
   })
 
   beforeEach(() => {
@@ -1038,7 +1013,7 @@ describe('POST /sites/:siteId/auth/logout — clearCookie attributes', () => {
   let destroyMock: ReturnType<typeof mock.fn>
 
   async function buildApp(cookieSecure: boolean) {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: { security: { cookieSecure } },
       models: {
         flags: { authDebug: () => {} },
@@ -1049,24 +1024,14 @@ describe('POST /sites/:siteId/auth/logout — clearCookie attributes', () => {
           emit: async () => 0
         }
       }
-    }
-
-    const built = fastify()
-    await built.register(fastifyCookie)
-    await built.register(fastifySensible)
-    await registerErrorSchema(built)
-    await registerAuthSchema(built)
-    // -> Stand-in for `@fastify/session`: a plain mutable session object with a `destroy()` spy,
-    //    same pattern as the "local account lifecycle" describe above.
-    built.addHook('onRequest', async (req) => {
-      ;(req as any).session = {
-        authenticated: false,
-        destroy: destroyMock
-      }
     })
-    await registerParamsSchemas(built)
-    await built.register(authenticationRoutes)
-    await built.ready()
+
+    const built = await buildTestApp({
+      routes: withCookies,
+      // -> Stand-in for `@fastify/session`: a plain mutable session object with a `destroy()` spy,
+      //    same pattern as the "local account lifecycle" describe above.
+      session: () => ({ authenticated: false, destroy: destroyMock })
+    })
     return built
   }
 
@@ -1075,8 +1040,8 @@ describe('POST /sites/:siteId/auth/logout — clearCookie attributes', () => {
   })
 
   after(async () => {
-    if (app) await app.close()
-    delete (globalThis as any).WIKI
+    await closeTestApp(app)
+    wikiHandle.restore()
   })
 
   test('secure deployment (default): Set-Cookie clears the __Host- cookie with Path=/, Secure, SameSite=Lax', async () => {
@@ -1128,37 +1093,20 @@ describe('POST /authentication/strategies (unknown module)', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       models: {
         authentication: {
           getModule: () => null
         }
       }
-    }
-
-    app = fastify()
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.badRequest()` is a thrown
-    //    `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that shapes
-    //    it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
     })
-    await registerErrorSchema(app)
-    await registerAuthSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(authenticationRoutes)
-    await app.ready()
+
+    app = await buildTestApp({ routes: authenticationRoutes })
   })
 
   after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
+    await closeTestApp(app)
+    wikiHandle.restore()
   })
 
   test('POST /authentication/strategies rejects an unknown module with a coded error', async () => {
@@ -1187,7 +1135,7 @@ describe('GET /sites/:siteId/auth/strategies', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       data: {
         authentication: [
           {
@@ -1243,24 +1191,14 @@ describe('GET /sites/:siteId/auth/strategies', () => {
           ]
         }
       }
-    }
-
-    app = fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
     })
-    await app.register(fastifySensible)
-    await registerErrorSchema(app)
-    await registerAuthSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(authenticationRoutes)
-    await app.ready()
+
+    app = await buildTestApp({ routes: authenticationRoutes, ajv: true })
   })
 
   after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
+    await closeTestApp(app)
+    wikiHandle.restore()
   })
 
   test('carries selfRegistration for a form-based strategy but omits it entirely for a redirect-based one', async () => {
@@ -1292,7 +1230,7 @@ describe('GET /sites/:siteId/auth/strategies (unknown siteId)', () => {
   const KNOWN_SITE_ID = '33333333-3333-3333-3333-333333333333'
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       sites: { [KNOWN_SITE_ID]: { id: KNOWN_SITE_ID, config: { authStrategies: [] } } },
       models: {
         authentication: {
@@ -1302,36 +1240,14 @@ describe('GET /sites/:siteId/auth/strategies (unknown siteId)', () => {
       data: {
         authentication: []
       }
-    }
+    })
 
-    app = fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
-    })
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()` is a thrown
-    //    `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that shapes it
-    //    into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerErrorSchema(app)
-    await registerAuthSchema(app)
-    app.addHook('preHandler', siteEnabledPreHandler)
-    await registerParamsSchemas(app)
-    await app.register(authenticationRoutes)
-    await app.ready()
+    app = await buildTestApp({ routes: withSiteGuard, ajv: true })
   })
 
   after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
+    await closeTestApp(app)
+    wikiHandle.restore()
   })
 
   test('answers 404, not 400, for an unknown siteId', async () => {
@@ -1368,7 +1284,7 @@ describe('PUT login: password is required by the route schema', () => {
   let loginMock: ReturnType<typeof mock.fn>
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
+    wikiHandle = installTestWiki({
       config: { security: { authRateLimitEnabled: false } },
       models: {
         login: {
@@ -1384,41 +1300,21 @@ describe('PUT login: password is required by the route schema', () => {
         info: mock.fn(),
         debug: mock.fn()
       }
-    }
+    })
 
-    app = fastify()
-    await app.register(fastifySensible)
-    app.decorateRequest('session', null as any)
-    app.addHook('onRequest', async (req) => {
-      req.session = {} as any
-    })
-    // -> Mirrors `index.ts`'s real `setErrorHandler`, and — unlike the `local account lifecycle`
-    //    block above, whose routes declare no `400` response schema — must be registered before the
-    //    schemas/routes below: this route's `400` response is `$ref: 'ApiError#'`, which requires an
-    //    `ok` field, and Fastify only applies a custom error handler ahead of response-schema
+    // -> `buildTestApp` installs the real error handler BEFORE the schemas and routes, which this
+    //    block needs: this route's `400` response is `$ref: 'ApiError#'`, which requires an `ok`
+    //    field, and Fastify only applies a custom error handler ahead of response-schema
     //    serialization when it is set before the schema that serialization would run against is
-    //    compiled in. Left unset (or registered too late), Fastify's own validation-error body
+    //    compiled in. Registered too late, Fastify's own validation-error body
     //    (`{statusCode, code, error, message}`, no `ok`) fails ApiError serialization and comes back
-    //    as a 500 -- a test-harness ordering artifact this app never hits in production, where
-    //    `index.ts` always shapes `/_api/` errors this way first.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerErrorSchema(app)
-    await registerAuthSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(authenticationRoutes)
-    await app.ready()
+    //    as a 500 -- a harness ordering artifact the real app never hits.
+    app = await buildTestApp({ routes: authenticationRoutes, session: () => ({}) })
   })
 
   after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
+    await closeTestApp(app)
+    wikiHandle.restore()
   })
 
   beforeEach(() => {
@@ -1525,31 +1421,13 @@ describe(
         .returning({ id: authenticationTable.id })
       strategyId = strategy!.id
 
-      app = fastify({
-        ajv: {
-          plugins: [[ajvFormats.default, {}] as any]
-        }
+      app = await buildTestApp({
+        routes: authenticationRoutes,
+        ajv: true,
+        // -> Stand-in for `@fastify/session` + the real login-established `req.session.user`: what
+        //    `actorFromRequest()` (`models/auditLog.ts`) reads to name the actor.
+        session: () => ({ user: { id: fixtures.userId, name: 'Fixture User' } })
       })
-      await app.register(fastifySensible)
-      app.setErrorHandler((error: any, req, reply) => {
-        reply.code(error.statusCode ?? 500).send({
-          ok: false,
-          error: error.name,
-          statusCode: error.statusCode ?? 500,
-          message: error.message
-        })
-      })
-      await registerErrorSchema(app)
-      await registerAuthSchema(app)
-      // -> Stand-in for `@fastify/session` + the real login-established `req.session.user`: what
-      //    `actorFromRequest()` (`models/auditLog.ts`) reads to name the actor.
-      app.decorateRequest('session', null as any)
-      app.addHook('onRequest', async (req) => {
-        req.session = { user: { id: fixtures.userId, name: 'Fixture User' } } as any
-      })
-      await registerParamsSchemas(app)
-      await app.register(authenticationRoutes)
-      await app.ready()
     })
 
     after(async () => {
