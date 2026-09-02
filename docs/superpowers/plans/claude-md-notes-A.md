@@ -435,3 +435,46 @@ sentences are now incomplete rather than wrong.
   differ per engine and tests assert on the exact indexed document, so pointing them all at
   `makeIndexablePage` would change what is asserted, not just where the fixture lives. Unifying them
   is TEST-F6's shared contract runner, not this task.
+
+## Task A14 (helpers/common.ts split; core/http/server.ts; two search hand-offs)
+
+- **`helpers/common.ts` is no longer the home of site resolution, locale routing or module props.**
+  CLAUDE.md names `helpers/common.ts` in its `backend/` Layout bullet for `helpers/` and, more
+  concretely, throughout the Permissions and Backend-patterns sections. Three sibling modules now
+  own those clusters and CLAUDE.md should name them where it names `common.ts`:
+  - `helpers/siteResolution.ts` — `resolveRequestSite`, `RequestSiteResolution`,
+    `normalizeHostname`, `siteIdForHostname`, `siteForHostname`, `resolveSiteParam`,
+    `guardSiteEnabled`, `siteEnabledPreHandler`, `SITE_DISABLED_MESSAGE`, `SITE_MISSING_MESSAGE`.
+  - `helpers/localeRouting.ts` — `LocaleRoutingConfig`, `defaultLocale`, `assertLocaleActive`,
+    `assertPathNotReservedLocale`, `matchLocaleCode`, `stripLocalePrefix`,
+    `localePrefixRedirectTarget`, `localePrefixStripTarget`, `shouldPrefixLocale`,
+    `localizedPagePath`.
+  - `helpers/moduleProps.ts` — `ModuleProp`/`ModulePropDefinition`/`ModulePropDeclaration`,
+    `parseModuleProps`, `SENSITIVE_CONFIG_MASK`, `mask`/`unmaskSensitiveConfig`.
+  `common.ts` keeps the tree-path codec, `normalizePagePath`, `stripPageExtension`,
+  `requestOrigin`, `isSameOriginWebSocketHandshake`, `isHashedAssetFilename`, the hash/uuid
+  helpers, `durationToSeconds`, `replyWithFile`, `isUniqueViolation`, `escapeLikePattern`,
+  `BCRYPT_ROUNDS`, `CustomError` and `rethrowAsBadRequest`. There is no re-export shim: an import
+  of a moved symbol from `common.ts` is a type error, which is deliberate.
+- **`core/http/server.ts` is the last piece of the `index.ts` split.** CLAUDE.md's `core/` bullet
+  should list it alongside the other `core/http/*` modules: `createHttpApp()` builds the Fastify
+  instance (options block, `gracefulServer` + its shutdown handlers, `sensible`/`compress`/
+  `websocket`) and assigns `WIKI.app`/`WIKI.server`; `registerStaticAssets(app)` mounts the favicon,
+  `/_assets/` and `/_blocks/`. `index.ts` is now purely the boot script — the `WIKI` literal,
+  `preBoot`/`initHTTPServer`/`postBoot`, `app.listen()` and `WIKI.server.setReady()`.
+- **`registerStaticAssets(app)` must stay between `registerSecurity(app)` and
+  `registerSession(app)`.** Fastify registers plugins in call order, so that slot is behaviour. The
+  comment above `initHTTPServer()` already says this about `register*` calls generally; it now also
+  covers a static mount.
+- **`helpers/timeout.ts#withTimeout` has eight callers, not seven.** Its own doc comment says
+  "the seven places that hand-rolled this"; `models/search.ts#initActiveEngines` was the eighth and
+  is now converted. (Left as-is by this task since the sentence is historical, but worth a pass if
+  CLAUDE.md or that comment is ever revised.)
+- **A `LIKE` filter is escaped with `helpers/common.ts#escapeLikePattern`, everywhere.**
+  `modules/search/db/search.ts` carried a byte-identical private `escapeLikePrefix`; it is gone. A
+  new prefix filter writes `` `${escapeLikePattern(value)}%` `` at the call site.
+- **Doc-comment prose still points at `helpers/common.ts` for moved symbols.** Roughly twenty
+  `helpers/common.ts#<symbol>` references in comments across `api/`, `controllers/`, `models/`,
+  `mcp/` and `index.ts` now name the wrong file. They were deliberately left alone by this task
+  (its concurrency rule limited edits in existing files to import specifier lines); a follow-up
+  sweep should repoint them.
