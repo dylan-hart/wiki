@@ -26,9 +26,9 @@
 </template>
 
 <script setup>
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { POPUP_CLOSE } from '@/composables/popup'
-import { anchoredPosition } from '@/composables/anchoredPosition'
+import { useAnchoredFloat } from '@/composables/anchoredFloat'
 
 /*
   The root is a fragment -- an inline placeholder that marks the trigger, plus a teleported popup --
@@ -145,15 +145,34 @@ const emit = defineEmits(['update:modelValue', 'show', 'hide'])
 const shown = ref(false)
 const floatEl = ref(null)
 const placeholderEl = ref(null)
-// -> `left`/`top` here are raw viewport pixels from `anchoredPosition()`'s own bounding-rect math
-//    (below), not a CSS gutter -- reviewed under OpenProject #1590's physical-positioning triage
-//    and left physical: making the `anchor`/`self` corner keywords ("top left", "bottom right", …)
-//    direction-aware is a redesign of that whole API, not a mechanical swap.
-const floatStyle = ref({ left: '0px', top: '0px' })
 
-let triggerEl = null
 /** Set for a context menu, where the anchor is the pointer rather than the trigger element. */
 let pointerRect = null
+
+/*
+  Trigger discovery and placement are shared with WTooltip; what is this menu's own is the sizing it
+  does before measuring (fit-to-trigger width, a height that keeps a long menu on screen) and the
+  pointer rect a context menu opens against, both of which `beforeMeasure` owns.
+*/
+const { triggerEl, floatStyle, reposition } = useAnchoredFloat({
+  placeholderEl,
+  floatEl,
+  closest: 'button, a, .w-btn, .w-item',
+  anchor: () => props.anchor,
+  self: () => props.self,
+  offset: () => props.offset,
+  beforeMeasure: (panel, trigger) => {
+    if (props.fit) {
+      panel.style.minWidth = `${trigger.offsetWidth}px`
+    }
+    // -> Never let a long menu run off the bottom; it scrolls internally instead
+    panel.style.maxHeight = `${window.innerHeight - 32}px`
+    if (props.maxWidth) {
+      panel.style.maxWidth = props.maxWidth
+    }
+    return pointerRect ?? undefined
+  }
+})
 
 /*
   Focus management for the teleported panel: it renders at the end of `<body>`, nowhere near its
@@ -187,30 +206,6 @@ function restoreFocus() {
 
 // -> `modelValue` is opt-in: null means uncontrolled, so only mirror it when actually provided
 const isControlled = () => props.modelValue !== null
-
-async function reposition() {
-  await nextTick()
-  if (!floatEl.value || !triggerEl) {
-    return
-  }
-
-  const rect = pointerRect ?? triggerEl.getBoundingClientRect()
-  if (props.fit) {
-    floatEl.value.style.minWidth = `${triggerEl.offsetWidth}px`
-  }
-  // -> Never let a long menu run off the bottom; it scrolls internally instead
-  floatEl.value.style.maxHeight = `${window.innerHeight - 32}px`
-  if (props.maxWidth) {
-    floatEl.value.style.maxWidth = props.maxWidth
-  }
-
-  const { left, top } = anchoredPosition(
-    rect,
-    { width: floatEl.value.offsetWidth, height: floatEl.value.offsetHeight },
-    { anchor: props.anchor, self: props.self, offset: props.offset }
-  )
-  floatStyle.value = { left: `${left}px`, top: `${top}px` }
-}
 
 async function show() {
   focusReturnEl = document.activeElement
@@ -351,14 +346,8 @@ watch(
 )
 
 onMounted(() => {
-  /*
-    Climb to the real control rather than stopping at the immediate parent. WBtn wraps its slot in
-    an inner <span> (so the label can be hidden while loading), so the naive parent would be that
-    span -- and clicking the button's padding, which is outside it, would do nothing.
-  */
-  const host = placeholderEl.value?.parentElement ?? null
-  triggerEl = host?.closest('button, a, .w-btn, .w-item') ?? host
-  if (!triggerEl) {
+  // -> `useAnchoredFloat`'s own `onMounted` has already resolved the trigger by this point
+  if (!triggerEl.value) {
     return
   }
   /*
@@ -366,8 +355,8 @@ onMounted(() => {
     the same click, and binding here too would toggle twice -- opening and immediately closing.
   */
   if (!isControlled()) {
-    triggerEl.addEventListener('click', onTriggerClick)
-    triggerEl.addEventListener('contextmenu', onTriggerContextMenu)
+    triggerEl.value.addEventListener('click', onTriggerClick)
+    triggerEl.value.addEventListener('contextmenu', onTriggerContextMenu)
   }
   document.addEventListener('keydown', onKeydown)
   window.addEventListener('resize', hide)
@@ -378,9 +367,9 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (triggerEl) {
-    triggerEl.removeEventListener('click', onTriggerClick)
-    triggerEl.removeEventListener('contextmenu', onTriggerContextMenu)
+  if (triggerEl.value) {
+    triggerEl.value.removeEventListener('click', onTriggerClick)
+    triggerEl.value.removeEventListener('contextmenu', onTriggerContextMenu)
   }
   document.removeEventListener('keydown', onKeydown)
   window.removeEventListener('resize', hide)

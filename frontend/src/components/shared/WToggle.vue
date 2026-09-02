@@ -48,6 +48,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { useToggleModel } from '@/composables/toggleModel'
 
 /**
  * On/off switch.
@@ -115,11 +116,8 @@ const emit = defineEmits(['update:modelValue'])
 
 // COMPUTED
 
-const isArrayModel = computed(() => Array.isArray(props.modelValue))
-
-const isOn = computed(() =>
-  isArrayModel.value ? props.modelValue.includes(props.val) : props.modelValue === true
-)
+// -> The boolean-or-array model is shared with WCheckbox; see `composables/toggleModel.js`
+const { isOn, toggle } = useToggleModel(props, emit)
 
 const isDisabled = computed(() => props.disabled || props.loading)
 
@@ -130,19 +128,6 @@ const knobOffset = computed(() => {
   }
   return props.dense ? 'translate-x-5.5' : 'translate-x-6.5'
 })
-
-// METHODS
-
-function toggle() {
-  if (isArrayModel.value) {
-    const next = isOn.value
-      ? props.modelValue.filter((v) => v !== props.val)
-      : [...props.modelValue, props.val]
-    emit('update:modelValue', next)
-  } else {
-    emit('update:modelValue', !isOn.value)
-  }
-}
 </script>
 
 <style scoped>

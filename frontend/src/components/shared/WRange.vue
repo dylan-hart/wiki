@@ -66,6 +66,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import { trackPointerDrag } from '@/helpers/pointerDrag'
 
 /**
  * Two-handle range selector over a small integer scale.
@@ -173,19 +174,6 @@ function valueAt(clientX) {
   return props.min + ratio * (props.max - props.min)
 }
 
-/**
- * Routes the rest of the gesture to this element.
- *
- * Guarded because capture throws when the event did not come from a real pointer -- which is the
- * case for a synthetic `PointerEvent`. The drag itself works either way, so a failure here must
- * not abort it.
- */
-function capturePointer(ev) {
-  try {
-    ev.currentTarget.setPointerCapture(ev.pointerId)
-  } catch {}
-}
-
 function onPointerDown(ev) {
   const value = valueAt(ev.clientX)
   // -> Grab whichever handle is nearer to the press, so a click anywhere on the rail works
@@ -193,24 +181,20 @@ function onPointerDown(ev) {
     Math.abs(value - model.value.min) <= Math.abs(value - model.value.max) ? 'min' : 'max'
   update(dragging.value, value)
 
-  capturePointer(ev)
-  ev.currentTarget.addEventListener('pointermove', onPointerMove)
-  ev.currentTarget.addEventListener('pointerup', onPointerUp, { once: true })
-  ev.currentTarget.addEventListener('pointercancel', onPointerUp, { once: true })
+  // -> Pointer capture, the move listener and its teardown are shared with WColorPicker; the handle
+  //    this gesture grabbed is the one thing that is this control's own, so it is released here
+  const el = ev.currentTarget
+  trackPointerDrag(ev, el, (e) => {
+    if (dragging.value) {
+      update(dragging.value, valueAt(e.clientX))
+    }
+  })
+  el.addEventListener('pointerup', releaseHandle, { once: true })
+  el.addEventListener('pointercancel', releaseHandle, { once: true })
 }
 
-function onPointerMove(ev) {
-  if (dragging.value) {
-    update(dragging.value, valueAt(ev.clientX))
-  }
-}
-
-function onPointerUp(ev) {
+function releaseHandle() {
   dragging.value = null
-  try {
-    ev.currentTarget.releasePointerCapture(ev.pointerId)
-  } catch {}
-  ev.currentTarget.removeEventListener('pointermove', onPointerMove)
 }
 
 const KEY_STEPS = {

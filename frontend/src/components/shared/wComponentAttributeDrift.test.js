@@ -129,6 +129,16 @@ function topLevelKeys(body) {
       continue
     }
     if (depth === 0) {
+      // -> `...fieldProps` names an object of props to merge in, not a prop; kept distinguishable
+      //    from a key so `parsePropsAndEmits` can expand it (see `parsePropMixins`)
+      if (body.startsWith('...', i)) {
+        const spread = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(body.slice(i + 3))
+        if (spread) {
+          keys.push(`...${spread[0]}`)
+          i += 3 + spread[0].length
+          continue
+        }
+      }
       const m = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(body.slice(i))
       if (m) {
         keys.push(m[0])
@@ -141,8 +151,29 @@ function topLevelKeys(body) {
   return keys
 }
 
-/** Extracts a component's declared prop names and emit event names from its full SFC source. */
-function parsePropsAndEmits(source) {
+/**
+ * The prop objects a component may spread into its own `defineProps` -- `composables/fieldFrame.js`'s
+ * `fieldProps`, which `WInput` and `WSelect` both merge in. Read out of the source rather than
+ * imported, so this stays one parser over text like everything else here.
+ */
+function parsePropMixins() {
+  const source = readFileSync(join(SRC_ROOT, 'composables/fieldFrame.js'), 'utf-8')
+  const mixins = new Map()
+  for (const m of source.matchAll(/export const ([A-Za-z_$][A-Za-z0-9_$]*) = \{/g)) {
+    const objBody = extractBalanced(source, m.index + m[0].length - 1)
+    mixins.set(m[1], new Set(topLevelKeys(objBody)))
+  }
+  return mixins
+}
+
+/**
+ * Extracts a component's declared prop names and emit event names from its full SFC source.
+ *
+ * @param {Map<string, Set<string>>} [propMixins] Named prop objects a `...spread` in `defineProps`
+ *   may refer to; a spread naming one contributes its props, and a spread naming anything else
+ *   contributes none -- rather than the identifier itself, which is not a prop.
+ */
+function parsePropsAndEmits(source, propMixins = new Map()) {
   const props = new Set()
   const emits = new Set()
 
@@ -152,7 +183,13 @@ function parsePropsAndEmits(source) {
     const trimmed = argsBody.trim()
     if (trimmed.startsWith('{')) {
       const objBody = extractBalanced(argsBody, argsBody.indexOf('{'))
-      for (const k of topLevelKeys(objBody)) props.add(k)
+      for (const k of topLevelKeys(objBody)) {
+        if (k.startsWith('...')) {
+          for (const p of propMixins.get(k.slice(3)) ?? []) props.add(p)
+          continue
+        }
+        props.add(k)
+      }
     } else if (trimmed.startsWith('[')) {
       const arrBody = extractBalanced(argsBody, argsBody.indexOf('['))
       for (const m of arrBody.matchAll(/['"]([^'"]+)['"]/g)) props.add(m[1])
@@ -253,6 +290,19 @@ describe('parser', () => {
       const { props, emits } = parsePropsAndEmits(source)
       expect([...props].sort()).toEqual(['items', 'label', 'validated'])
       expect([...emits].sort()).toEqual(['click', 'update:modelValue'])
+    })
+
+    it('expands a spread naming a known shared prop object, and drops one naming anything else', () => {
+      const mixins = new Map([['fieldProps', new Set(['label', 'hint'])]])
+      const source = `defineProps({\n  ...fieldProps,\n  own: { type: String }\n})`
+      expect([...parsePropsAndEmits(source, mixins).props].sort()).toEqual(['hint', 'label', 'own'])
+      expect([...parsePropsAndEmits(source).props]).toEqual(['own'])
+    })
+
+    it('finds the shared prop objects the real tree declares', () => {
+      const mixins = parsePropMixins()
+      expect(mixins.get('fieldProps')?.has('label')).toBe(true)
+      expect(mixins.get('fieldProps')?.size).toBe(12)
     })
 
     it('extracts names from an array-form defineProps', () => {
@@ -375,11 +425,12 @@ describe('parser', () => {
 
 describe('frontend/src component call sites', () => {
   const sharedFiles = readdirSync(SHARED_DIR).filter((f) => f.endsWith('.vue'))
+  const propMixins = parsePropMixins()
   const registry = new Map()
   for (const file of sharedFiles) {
     const tag = componentNameToTag(file.replace(/\.vue$/, ''))
     const source = readFileSync(join(SHARED_DIR, file), 'utf-8')
-    registry.set(tag, parsePropsAndEmits(source))
+    registry.set(tag, parsePropsAndEmits(source, propMixins))
   }
 
   it('built a non-trivial registry from components/shared/', () => {

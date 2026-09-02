@@ -7,6 +7,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { resolveSize } from './metrics'
 
 /**
  * Indeterminate spinner.
@@ -32,17 +33,8 @@ const props = defineProps({
   }
 })
 
-/** The named sizes the icon components use, so `size="sm"` means the same thing everywhere. */
-const NAMED_SIZES = {
-  xs: '18px',
-  sm: '24px',
-  md: '32px',
-  lg: '38px',
-  xl: '46px'
-}
-
 const style = computed(() => {
-  const size = NAMED_SIZES[props.size] ?? props.size
+  const size = resolveSize(props.size)
   return {
     width: size,
     height: size,

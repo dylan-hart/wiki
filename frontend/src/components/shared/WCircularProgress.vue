@@ -28,6 +28,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { resolveSize } from './metrics'
 
 /**
  * Indeterminate circular progress ring.
@@ -58,16 +59,8 @@ const props = defineProps({
   }
 })
 
-const NAMED_SIZES = {
-  xs: '18px',
-  sm: '24px',
-  md: '32px',
-  lg: '38px',
-  xl: '46px'
-}
-
 const sizeStyle = computed(() => {
-  const size = NAMED_SIZES[props.size] ?? props.size
+  const size = resolveSize(props.size)
   return { width: size, height: size }
 })
 

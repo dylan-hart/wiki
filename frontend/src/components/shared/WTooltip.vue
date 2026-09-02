@@ -21,8 +21,8 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, useId } from 'vue'
-import { anchoredPosition } from '@/composables/anchoredPosition'
+import { onBeforeUnmount, onMounted, ref, useId } from 'vue'
+import { useAnchoredFloat } from '@/composables/anchoredFloat'
 
 /**
  * Hover/focus tooltip, written as the last child of whatever it describes:
@@ -71,12 +71,24 @@ const tooltipId = useId()
 const shown = ref(false)
 const floatEl = ref(null)
 const placeholderEl = ref(null)
-// -> `left`/`top` here are raw viewport pixels from `anchoredPosition()`'s own bounding-rect math
-//    (below), not a CSS gutter -- reviewed under OpenProject #1590's physical-positioning triage
-//    and left physical, same reasoning as `WMenu`'s identical pattern.
-const floatStyle = ref({ left: '0px', top: '0px' })
 
-let triggerEl = null
+/*
+  Trigger discovery and placement are shared with WMenu; see `composables/anchoredFloat.js`.
+
+  `.w-badge` is in the selector to STOP the climb, not to continue it: `closest` tests the element
+  itself first, so a tooltip written inside a badge resolves to that badge. Without it the climb ran
+  on to the enclosing `.w-item`, and the tooltip for a 12px indicator dot was measured against the
+  whole settings row -- appearing under the middle of the row rather than under the dot.
+*/
+const { triggerEl, floatStyle, reposition } = useAnchoredFloat({
+  placeholderEl,
+  floatEl,
+  closest: 'button, a, .w-btn, .w-item, .w-badge',
+  anchor: () => props.anchor,
+  self: () => props.self,
+  offset: () => props.offset
+})
+
 let timer = null
 // The aria-* attribute currently applied to triggerEl (null when not associated), and whatever
 // value it held before -- so hiding restores a pre-existing attribute instead of clobbering it.
@@ -84,38 +96,25 @@ let associatedAttr = null
 let previousAttrValue = null
 
 function associateTrigger() {
-  if (!triggerEl || associatedAttr) {
+  if (!triggerEl.value || associatedAttr) {
     return
   }
   associatedAttr = props.labels ? 'aria-labelledby' : 'aria-describedby'
-  previousAttrValue = triggerEl.getAttribute(associatedAttr)
-  triggerEl.setAttribute(associatedAttr, tooltipId)
+  previousAttrValue = triggerEl.value.getAttribute(associatedAttr)
+  triggerEl.value.setAttribute(associatedAttr, tooltipId)
 }
 
 function disassociateTrigger() {
-  if (!triggerEl || !associatedAttr) {
+  if (!triggerEl.value || !associatedAttr) {
     return
   }
   if (previousAttrValue === null) {
-    triggerEl.removeAttribute(associatedAttr)
+    triggerEl.value.removeAttribute(associatedAttr)
   } else {
-    triggerEl.setAttribute(associatedAttr, previousAttrValue)
+    triggerEl.value.setAttribute(associatedAttr, previousAttrValue)
   }
   associatedAttr = null
   previousAttrValue = null
-}
-
-async function reposition() {
-  await nextTick()
-  if (!floatEl.value || !triggerEl) {
-    return
-  }
-  const { left, top } = anchoredPosition(
-    triggerEl.getBoundingClientRect(),
-    { width: floatEl.value.offsetWidth, height: floatEl.value.offsetHeight },
-    { anchor: props.anchor, self: props.self, offset: props.offset }
-  )
-  floatStyle.value = { left: `${left}px`, top: `${top}px` }
 }
 
 function show() {
@@ -140,28 +139,17 @@ function onKeydown(ev) {
 }
 
 onMounted(() => {
-  /*
-    Climb to the real control rather than stopping at the immediate parent. WBtn wraps its slot in
-    an inner <span> (so the label can be hidden while loading), so the naive parent would be that
-    span -- and clicking the button's padding, which is outside it, would do nothing.
-
-    `.w-badge` is in the list to STOP the climb, not to continue it: `closest` tests the element
-    itself first, so a tooltip written inside a badge resolves to that badge. Without it the climb
-    ran on to the enclosing `.w-item`, and the tooltip for a 12px indicator dot was measured against
-    the whole settings row -- appearing under the middle of the row rather than under the dot.
-  */
-  const host = placeholderEl.value?.parentElement ?? null
-  triggerEl = host?.closest('button, a, .w-btn, .w-item, .w-badge') ?? host
-  if (!triggerEl) {
+  // -> `useAnchoredFloat`'s own `onMounted` has already resolved the trigger by this point
+  if (!triggerEl.value) {
     return
   }
 
-  triggerEl.addEventListener('mouseenter', show)
-  triggerEl.addEventListener('mouseleave', hide)
+  triggerEl.value.addEventListener('mouseenter', show)
+  triggerEl.value.addEventListener('mouseleave', hide)
   // -> Keyboard users get the same information, and Escape dismisses it (WAI-ARIA tooltip practice)
-  triggerEl.addEventListener('focusin', show)
-  triggerEl.addEventListener('focusout', hide)
-  triggerEl.addEventListener('keydown', onKeydown)
+  triggerEl.value.addEventListener('focusin', show)
+  triggerEl.value.addEventListener('focusout', hide)
+  triggerEl.value.addEventListener('keydown', onKeydown)
   // -> Capture phase, so scrolling any ancestor container dismisses rather than leaving it detached
   window.addEventListener('scroll', hide, true)
 })
@@ -169,12 +157,12 @@ onMounted(() => {
 onBeforeUnmount(() => {
   clearTimeout(timer)
   disassociateTrigger()
-  if (triggerEl) {
-    triggerEl.removeEventListener('mouseenter', show)
-    triggerEl.removeEventListener('mouseleave', hide)
-    triggerEl.removeEventListener('focusin', show)
-    triggerEl.removeEventListener('focusout', hide)
-    triggerEl.removeEventListener('keydown', onKeydown)
+  if (triggerEl.value) {
+    triggerEl.value.removeEventListener('mouseenter', show)
+    triggerEl.value.removeEventListener('mouseleave', hide)
+    triggerEl.value.removeEventListener('focusin', show)
+    triggerEl.value.removeEventListener('focusout', hide)
+    triggerEl.value.removeEventListener('keydown', onKeydown)
   }
   window.removeEventListener('scroll', hide, true)
 })
