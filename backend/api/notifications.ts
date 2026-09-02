@@ -1,5 +1,5 @@
-import { actorFrom } from './pages.ts'
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { requireActorId } from '../helpers/pageAccess.ts'
+import type { FastifyInstance } from 'fastify'
 
 /**
  * In-App Notification Inbox API Routes (task 535)
@@ -20,17 +20,6 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
  * asked again. See that method's own comment for how a page since deleted (where there is no longer a
  * live row to check permissions against) is handled.
  */
-
-/** The caller, or a 401. Identical to `watching.ts#watcherOf` — kept local rather than exported there
- *  to avoid coupling two otherwise-independent route files over one three-line helper. */
-function callerOf(req: FastifyRequest, reply: FastifyReply): string | null {
-  const actor = actorFrom(req)
-  if (!actor) {
-    reply.unauthorized('This requires a logged in user.')
-    return null
-  }
-  return actor.id
-}
 
 const siteIdParam = {
   type: 'object',
@@ -63,7 +52,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const userId = callerOf(req, reply)
+      const userId = requireActorId(req, reply)
       if (!userId) {
         return reply
       }
@@ -123,7 +112,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const userId = callerOf(req, reply)
+      const userId = requireActorId(req, reply)
       if (!userId) {
         return reply
       }
@@ -163,7 +152,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const userId = callerOf(req, reply)
+      const userId = requireActorId(req, reply)
       if (!userId) {
         return reply
       }

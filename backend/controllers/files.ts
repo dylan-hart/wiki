@@ -1,4 +1,5 @@
 import { dispositionFor } from '../models/assets.ts'
+import { mayOnAsset } from '../helpers/pageAccess.ts'
 import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
 import { guardSiteEnabled } from '../helpers/common.ts'
 import { needsSvgCsp, SVG_CSP } from '../helpers/security.ts'
@@ -58,17 +59,7 @@ async function routes(app: FastifyInstance) {
     //    here anyway, one layer down: `actorForRequest()` carries the pin onto `checkAccess()`'s
     //    actor, which refuses a `siteId` other than the pin before any rule is even consulted
     //    (OpenProject #2189/#2199/#2201). No separate `enforceApiKeySite()` call needed.
-    if (
-      !asset ||
-      !WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), 'read:assets', {
-        path: asset.folderPath ? `${asset.folderPath}/${asset.fileName}` : asset.fileName,
-        siteId: site.id,
-        locale: asset.locale,
-        // -> An asset carries no classification of its own -- same treatment as `mayOnAsset` in
-        //    `api/assets.ts`.
-        classification: null
-      })
-    ) {
+    if (!asset || !mayOnAsset(req, 'read:assets', site.id, asset)) {
       return reply.notFound('File not found')
     }
 

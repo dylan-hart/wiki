@@ -613,7 +613,7 @@ class Navigation {
    * into it.
    *
    * `actor` (OpenProject #2155): each candidate is also checked against `read:pages` — a page with its
-   * own tags/classification, a folder with neither (same treatment `api/tree.ts#mayOnFolder` gives a
+   * own tags/classification, a folder with neither (same treatment `helpers/pageAccess.ts#mayOnFolder` gives a
    * folder) — the same permission a direct tree browse or page read already enforces, which this walk
    * had never asked before. A denied row is dropped outright rather than merely hidden from its own
    * subtree, so a DENY over a branch hides the branch without ever querying below it — the recursive
@@ -675,7 +675,7 @@ class Navigation {
         holdsVisiblePages: sql<boolean>`${holdsVisiblePages}`.mapWith(Boolean),
         // -> Only ever populated for a page row (the left-join's page-side columns), which is all
         //    `read:pages`'s tag/classification axes ever need -- a folder carries neither of its own,
-        //    same treatment `api/tree.ts#mayOnFolder` gives it.
+        //    same treatment `helpers/pageAccess.ts#mayOnFolder` gives it.
         tags: pagesTable.tags,
         classification: pagesTable.classification
       })
@@ -705,7 +705,7 @@ class Navigation {
       .filter((row) => !(['hide', 'hideExact'] as NavigationMode[]).includes(row.navigationMode))
       // -> OpenProject #2155: the `read:pages` gate itself. `null` (an `unfiltered` read) skips it
       //    entirely, same as the `visibilityGroups` pass in `getNav` does for that read. A folder
-      //    carries no tags/classification of its own -- same treatment `api/tree.ts#mayOnFolder`
+      //    carries no tags/classification of its own -- same treatment `helpers/pageAccess.ts#mayOnFolder`
       //    gives it -- so only a page row's real values narrow a TAG/TAGALL/CLASSIFICATION rule.
       .filter((row) => {
         if (!actor) {

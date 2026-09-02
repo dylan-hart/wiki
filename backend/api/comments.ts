@@ -1,4 +1,4 @@
-import { actorFrom, loadReadablePage, mayOnPage } from './pages.ts'
+import { actorFrom, mayOnPage, requireReadablePage } from '../helpers/pageAccess.ts'
 import { limitGuestComments } from '../helpers/rateLimit.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { AccessActor } from '../models/groups.ts'
@@ -496,15 +496,12 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
+        permission: 'read:comments',
+        forbiddenMessage: 'You are not allowed to read comments on this page.'
+      })
       if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      if (!mayOnPage(req, 'read:comments', req.params.siteId, page)) {
-        return reply.forbidden('You are not allowed to read comments on this page.')
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
+        return reply
       }
       const thread = await WIKI.models.comments.listForPage(page.id)
       return thread.map((comment) => toPublicComment(comment))
@@ -560,15 +557,12 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const actor = actorFrom(req)
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
+        permission: 'write:comments',
+        forbiddenMessage: 'You are not allowed to comment on this page.'
+      })
       if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      if (!mayOnPage(req, 'write:comments', req.params.siteId, page)) {
-        return reply.forbidden('You are not allowed to comment on this page.')
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
+        return reply
       }
       // -> Both flags only ever hid the form client-side (`PageComments.vue` gates its own mount on
       //    `siteStore.features.comments && pageStore.allowComments`) -- neither was checked here, so
@@ -690,15 +684,12 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const actor = actorFrom(req)
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
+        permission: 'read:comments',
+        forbiddenMessage: 'You are not allowed to read comments on this page.'
+      })
       if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      if (!mayOnPage(req, 'read:comments', req.params.siteId, page)) {
-        return reply.forbidden('You are not allowed to read comments on this page.')
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
+        return reply
       }
 
       // -> Existence is checked only after the page-level read gate above, so a comment's presence
@@ -772,15 +763,12 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const actor = actorFrom(req)
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
+        permission: 'read:comments',
+        forbiddenMessage: 'You are not allowed to read comments on this page.'
+      })
       if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      if (!mayOnPage(req, 'read:comments', req.params.siteId, page)) {
-        return reply.forbidden('You are not allowed to read comments on this page.')
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
+        return reply
       }
 
       // -> Same ordering as PATCH: existence is only checked past the page-level read gate.

@@ -44,7 +44,8 @@ function toResult(payload: unknown): CallToolResult {
  * `read:source` gates the raw source on top of that, a password-protected page comes back with
  * `isLocked: true` and no body unless the key holds `write:pages`/`manage:pages` on it, and
  * `publicOnly` is derived from `pageActorFor(ctx)` exactly as the REST route derives it from
- * `actorFrom(req)` — an admin-issued key (no `ctx.userId`) is therefore a `publicOnly` reader over
+ * `actorFrom(req)` (`helpers/pageAccess.ts`) — an admin-issued key (no `ctx.userId`) is therefore a
+ * `publicOnly` reader over
  * MCP too, not a full-publish-state one; see `pageActorFor()`'s doc comment for why that mirrors
  * `actorFrom()` deliberately.
  *
@@ -80,7 +81,8 @@ export async function handleGetPage(
   if (!page) {
     throw new McpToolError('This page does not exist.')
   }
-  // -> Not readable is indistinguishable from not there, same as `loadReadablePage()` in `api/pages.ts`
+  // -> Not readable is indistinguishable from not there, same as `loadReadablePage()` in
+  //    `helpers/pageAccess.ts`
   if (!WIKI.models.groups.checkAccess(actor, 'read:pages', { ...page, siteId: site.id })) {
     throw new McpToolError('This page does not exist.')
   }

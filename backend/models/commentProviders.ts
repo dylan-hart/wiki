@@ -84,7 +84,7 @@ export interface CommentProvider {
  * Disqus/Commento/Artalk have no server-side code of their own to gate.
  *
  * The `default` provider's comments are read through `models/comments.ts` calls a route makes, and
- * any such route checks `mayOnPage(req, 'read:comments', page)` (`api/pages.ts`) before returning
+ * any such route checks `mayOnPage(req, 'read:comments', page)` (`helpers/pageAccess.ts`) before returning
  * anything — the same page-rule boundary every other page-scoped permission in this codebase goes
  * through (see CLAUDE.md's "Permissions" section: `read:comments` is a **page rule** permission,
  * bound to path/locale/tags via a group's rules, not a global one — it cannot be enforced by

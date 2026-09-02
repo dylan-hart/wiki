@@ -11,7 +11,7 @@ import { registerSchemas } from './schemas/page.ts'
 import { registerSchemas as registerApprovalSchemas } from './schemas/approval.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
-import pagesRoutes, { mayOnPage, pagePermissionsFor } from './pages.ts'
+import pagesRoutes from './pages.ts'
 import { MAX_IMPORT_BATCH_BYTES, MAX_IMPORT_SIZE } from '../models/import.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { CustomError, siteEnabledPreHandler } from '../helpers/common.ts'
@@ -2195,58 +2195,10 @@ describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)',
    * Regression tests for task 673: `mayOnPage` and `pagePermissionsFor` take an explicit `siteId`
    * and thread it into the `RulePageRef` given to `checkAccess`, so a page rule scoped to one site
    * (task 671) is actually enforced from these two call sites rather than silently matching every
-   * site's rules. Exercised directly rather than through a route, since both are plain functions
-   * exported for exactly this reason. Sharing this describe's app/WIKI setup rather than standing up
-   * its own, since both cover the same siteId-scoped page routes.
+   * site's rules. The two functions themselves are covered directly in `helpers/pageAccess.test.ts`
+   * (where they now live); what stays here is the ROUTE half — that each route passes its own
+   * `req.params.siteId` down into them rather than something else.
    */
-
-  test('mayOnPage: threads siteId into the RulePageRef passed to checkAccess', () => {
-    const calls: any[] = []
-    const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
-      _actor: any,
-      _permission: string,
-      page: any
-    ) => {
-      calls.push(page)
-      return true
-    }
-    try {
-      const result = mayOnPage({} as any, 'read:pages', ENABLED_SITE_ID, {
-        path: 'foo/bar',
-        locale: 'en'
-      })
-      assert.equal(result, true)
-      assert.equal(calls.length, 1)
-      assert.equal(calls[0].siteId, ENABLED_SITE_ID)
-      assert.equal(calls[0].path, 'foo/bar')
-    } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
-    }
-  })
-
-  test('pagePermissionsFor: threads siteId into every RulePageRef it checks', () => {
-    const calls: any[] = []
-    const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
-      _actor: any,
-      _permission: string,
-      page: any
-    ) => {
-      calls.push(page)
-      return false
-    }
-    try {
-      pagePermissionsFor({} as any, ENABLED_SITE_ID, { path: 'foo/bar', locale: 'en' })
-      assert.ok(calls.length > 0)
-      for (const page of calls) {
-        assert.equal(page.siteId, ENABLED_SITE_ID)
-        assert.equal(page.path, 'foo/bar')
-      }
-    } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
-    }
-  })
 
   test('PAGE USER PERMISSIONS route: passes the route siteId through to pagePermissionsFor', async () => {
     const calls: any[] = []

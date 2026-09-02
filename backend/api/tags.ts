@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { mayOnPage } from './pages.ts'
+import { mayOnPage } from '../helpers/pageAccess.ts'
 
 const siteIdTagParam = {
   type: 'object',

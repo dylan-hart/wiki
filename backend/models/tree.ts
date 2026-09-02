@@ -57,7 +57,7 @@ export interface TreeItem {
   editor?: string
   description?: string
   /** Pages only — classification level id (OpenProject #1079), for the permission filter layered on
-   *  top of this listing (see `visibleTreeItems` in `api/tree.ts`). Never returned to the client: no
+   *  top of this listing (see `visibleTreeItems` in `helpers/pageAccess.ts`). Never returned to the client: no
    *  API schema declares this field, so Fastify's response serialization drops it. */
   classification?: string | null
 }
@@ -148,7 +148,7 @@ export interface DescendantAsset {
   /** Slash-separated path of the asset, built from its tree row's `folderPath`/`fileName` -- what an
    *  asset `read:assets`/`manage:assets` ref is built from. */
   path: string
-  /** Slash-separated, without the file name. Empty at the site root -- what `mayOnAsset` (`api/assets.ts`)
+  /** Slash-separated, without the file name. Empty at the site root -- what `mayOnAsset` (`helpers/pageAccess.ts`)
    *  takes alongside `fileName` to build the same ref, rather than the combined `path` above. */
   folderPath: string
   fileName: string
@@ -1301,7 +1301,7 @@ class Tree {
    * carries its real `tags` and `classification` (joined from `pages`, since `tree` carries no
    * classification column of its own -- the same root cause as OpenProject #1128); each descendant
    * asset carries both its combined `path` and the separate `folderPath`/`fileName` pair `mayOnAsset`
-   * (`api/assets.ts`) builds its own ref from.
+   * (`helpers/pageAccess.ts`) builds its own ref from.
    *
    * @param folderId UUID of the folder whose descendants to list.
    * @param siteId The site the folder must belong to (OpenProject #2131) -- passed straight to

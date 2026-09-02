@@ -1,42 +1,15 @@
-import { actorFrom, mayOnPage, unlockedFor } from './pages.ts'
+import { loadReadablePage, requireActorId } from '../helpers/pageAccess.ts'
 import type { WatchNotifyPreference } from '../models/pageWatching.ts'
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 
 /**
- * The page being watched, as this requester is allowed to see it.
- *
- * Watching a page is a thing done TO a page, so it goes through the same gate as reading one: an
- * anonymous requester never gets here at all, and a page somebody may not read is answered as though
- * it were not there. A password is not part of it — the watcher is asking to be told when the page
- * changes, not to read what it says.
- */
-async function loadWatchablePage(req: FastifyRequest, siteId: string, pageId: string) {
-  const page = await WIKI.models.pages.getPage({
-    siteId,
-    id: pageId,
-    unlocked: (page) => unlockedFor(req, siteId, page)
-  })
-  if (!page || !mayOnPage(req, 'read:pages', siteId, page)) {
-    return null
-  }
-  return page
-}
-
-/**
- * The user doing the watching, or a refusal.
+ * How `requireActorId` (`helpers/pageAccess.ts`) refuses an anonymous caller here.
  *
  * Watching belongs to an account: it is a list somebody comes back to, and a row has to point at a
  * person for a notification to ever have a recipient. There is no permission for it beyond being
  * logged in — anybody who may read a page may ask to hear about it.
  */
-function watcherOf(req: FastifyRequest, reply: FastifyReply): string | null {
-  const actor = actorFrom(req)
-  if (!actor) {
-    reply.unauthorized('Watching a page requires a logged in user.')
-    return null
-  }
-  return actor.id
-}
+const WATCHER_REQUIRED = 'Watching a page requires a logged in user.'
 
 const pageParams = {
   type: 'object',
@@ -87,11 +60,18 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const userId = watcherOf(req, reply)
+      const userId = requireActorId(req, reply, WATCHER_REQUIRED)
       if (!userId) {
         return reply
       }
-      const page = await loadWatchablePage(req, req.params.siteId, req.params.pageId)
+      /*
+        Watching a page is a thing done TO a page, so it goes through the same gate as reading one: an
+        anonymous requester never gets here at all (refused just above), and a page somebody may not
+        read is answered as though it were not there. A password is not part of it — the watcher is
+        asking to be told when the page changes, not to read what it says — so `isLocked` goes
+        unchecked here on purpose.
+      */
+      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
@@ -133,7 +113,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const userId = watcherOf(req, reply)
+      const userId = requireActorId(req, reply, WATCHER_REQUIRED)
       if (!userId) {
         return reply
       }
@@ -177,7 +157,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const userId = watcherOf(req, reply)
+      const userId = requireActorId(req, reply, WATCHER_REQUIRED)
       if (!userId) {
         return reply
       }
@@ -221,7 +201,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const userId = watcherOf(req, reply)
+      const userId = requireActorId(req, reply, WATCHER_REQUIRED)
       if (!userId) {
         return reply
       }

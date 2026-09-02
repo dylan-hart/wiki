@@ -1,8 +1,9 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 
 import { decodeTreePath, normalizePagePath } from '../helpers/common.ts'
 import { needsSvgCsp, SVG_CSP } from '../helpers/security.ts'
 import { dispositionFor } from '../models/assets.ts'
+import { mayOnAsset } from '../helpers/pageAccess.ts'
 
 const assetIdParam = {
   type: 'object',
@@ -22,31 +23,6 @@ const assetIdParam = {
 /**
  * Assets API Routes
  */
-/**
- * Whether the caller holds an asset permission on an asset, judged on where it sits.
- *
- * Assets live in the same tree as pages and are addressed by the same rules — a rule over a branch
- * covers the files in it as well as the pages, which is why the asset permissions are offered
- * alongside the page ones in the group editor.
- */
-export function mayOnAsset(
-  req: FastifyRequest,
-  permission: string,
-  siteId: string,
-  asset: { folderPath?: string | null; fileName: string; locale: string }
-): boolean {
-  const folder = asset.folderPath ?? ''
-  return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
-    path: folder ? `${folder}/${asset.fileName}` : asset.fileName,
-    siteId,
-    locale: asset.locale,
-    // -> An asset carries no classification of its own (OpenProject #1079 is a page metadata
-    //    field) — a CLASSIFICATION rule never matches an asset, the same as any other unknown
-    //    classification fails closed.
-    classification: null
-  })
-}
-
 async function routes(app: FastifyInstance) {
   // -> An upload is the raw file rather than a multipart form: one file per request, with the name and
   //    the destination in the query string. The catch-all only claims content types nothing else

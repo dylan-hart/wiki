@@ -83,7 +83,7 @@ export function isBearerAuthenticatedPath(url: string): boolean {
  * every resource file (`pages.ts`, `assets.ts`, `sites.ts`, `tree.ts`, ...) under `/_api`, and each one
  * writes its own path starting with either `/sites/:siteId/...` or (`sites.ts` itself, whose file
  * writes bare `/:siteId/...` under an `{ prefix: '/sites' }` registration) the same thing once the
- * prefix is applied. `test/apiKeySitePinCoverage.test.ts` asserts, against the real registered route
+ * prefix is applied. `helpers/apiKeySite.coverage.test.ts` asserts, against the real registered route
  * table, that this really is every route carrying a `:siteId` param — so a route added under some
  * other prefix that still happens to read a `:siteId` param (paths OUTSIDE this prefix that also
  * happen to have a same-named parameter — `controllers/site.ts`'s `/:siteId/:resource`, whose

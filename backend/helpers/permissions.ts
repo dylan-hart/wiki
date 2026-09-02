@@ -24,7 +24,7 @@ export const GLOBAL_PERMISSIONS: string[] = [
 
 /**
  * Page rule permissions: bound to paths (and to locales and sites) through a group's rules. Mirrors
- * the page rules offered in the group editor, and is what `pagePermissionsFor` (`api/pages.ts`)
+ * the page rules offered in the group editor, and is what `pagePermissionsFor` (`helpers/pageAccess.ts`)
  * resolves per path.
  */
 export const PAGE_PERMISSIONS: string[] = [

@@ -1,4 +1,4 @@
-import { mayOnPage } from '../api/pages.ts'
+import { mayOnPage } from '../helpers/pageAccess.ts'
 import { isValidUuid } from '../helpers/common.ts'
 
 import type { FastifyInstance, FastifyRequest } from 'fastify'

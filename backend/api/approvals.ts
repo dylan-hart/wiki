@@ -1,37 +1,7 @@
 import { CustomError } from '../helpers/common.ts'
-import { actorFrom, mayBypassPassword, mayOnPage, unlockedFor } from './pages.ts'
+import { actorFrom, loadReadablePage } from '../helpers/pageAccess.ts'
 import type { ApprovalPageRef, ApprovalRulePatch, ReviewerScope } from '../models/approvals.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-
-/**
- * The page a suggestion is about, with the source it would be edited from.
- *
- * Loaded the way the public page route loads it — an anonymous reader sees published pages only, and a
- * password still has to have been entered — so eligibility to suggest an edit never becomes a way to
- * read something that was not readable. The source itself is fetched regardless of who is asking,
- * because the caller has to be able to edit what they are looking at; the routes below only hand it
- * over once a rule says this actor may suggest edits to this page.
- */
-async function loadSuggestablePage(req: FastifyRequest, siteId: string, pageId: string) {
-  const actor = actorFrom(req)
-  const page = await WIKI.models.pages.getPage({
-    siteId,
-    id: pageId,
-    withContent: true,
-    publicOnly: !actor,
-    unlocked: (page) => unlockedFor(req, siteId, page),
-    withPassword: (page) => mayBypassPassword(req, siteId, page)
-  })
-  /*
-    Reading the page comes first, for suggesting an edit to it and for reviewing one alike: neither is
-    something to be done to a page the caller may not see, and answering as though it were not there
-    is how every other page-scoped route treats that.
-  */
-  if (!page || !mayOnPage(req, 'read:pages', siteId, page)) {
-    return null
-  }
-  return page
-}
 
 /**
  * Who is reviewing, as the approval rules see them: the groups on their session, plus whether they
@@ -797,7 +767,22 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       reply.preventCache()
-      const page = await loadSuggestablePage(req, req.params.siteId, req.params.pageId)
+      /*
+        The page a suggestion is about, with the source it would be edited from. Loaded the way the
+        public page route loads it — an anonymous reader sees published pages only, and a password
+        still has to have been entered — so eligibility to suggest an edit never becomes a way to read
+        something that was not readable. `withContent` fetches the source regardless of who is asking,
+        because the caller has to be able to edit what they are looking at; the checks below only hand
+        it over once a rule says this actor may suggest edits to this page.
+
+        Reading the page comes first, for suggesting an edit to it and for reviewing one alike: neither
+        is something to be done to a page the caller may not see, and answering as though it were not
+        there is how every other page-scoped route treats that.
+      */
+      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId, {
+        withContent: true,
+        withPassword: true
+      })
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
@@ -882,7 +867,22 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const page = await loadSuggestablePage(req, req.params.siteId, req.params.pageId)
+      /*
+        The page a suggestion is about, with the source it would be edited from. Loaded the way the
+        public page route loads it — an anonymous reader sees published pages only, and a password
+        still has to have been entered — so eligibility to suggest an edit never becomes a way to read
+        something that was not readable. `withContent` fetches the source regardless of who is asking,
+        because the caller has to be able to edit what they are looking at; the checks below only hand
+        it over once a rule says this actor may suggest edits to this page.
+
+        Reading the page comes first, for suggesting an edit to it and for reviewing one alike: neither
+        is something to be done to a page the caller may not see, and answering as though it were not
+        there is how every other page-scoped route treats that.
+      */
+      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId, {
+        withContent: true,
+        withPassword: true
+      })
       if (!page) {
         return reply.notFound('This page does not exist.')
       }

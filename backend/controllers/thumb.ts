@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import { guardSiteEnabled, isValidUuid } from '../helpers/common.ts'
+import { mayOnAsset } from '../helpers/pageAccess.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -47,18 +48,7 @@ async function routes(app: FastifyInstance) {
       return
     }
 
-    if (
-      !WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), 'read:assets', {
-        path: thumbnail.folderPath
-          ? `${thumbnail.folderPath}/${thumbnail.fileName}`
-          : thumbnail.fileName,
-        siteId: site.id,
-        locale: thumbnail.locale,
-        // -> An asset carries no classification of its own — same treatment as `mayOnAsset` in
-        //    `api/assets.ts` and the `/_files/` route above it.
-        classification: null
-      })
-    ) {
+    if (!mayOnAsset(req, 'read:assets', site.id, thumbnail)) {
       return reply.notFound('Thumbnail not found')
     }
 

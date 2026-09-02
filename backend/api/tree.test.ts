@@ -4,7 +4,8 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import ajvFormats from 'ajv-formats'
-import treeRoutes, { mayOnFolder, visibleTreeItems } from './tree.ts'
+import treeRoutes from './tree.ts'
+import { mayOnFolder, visibleTreeItems } from '../helpers/pageAccess.ts'
 import { registerSchemas as registerTreeSchema } from './schemas/tree.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 
@@ -57,7 +58,7 @@ before(async () => {
       },
       groups: {
         actorForRequest: () => ({ permissions: [] }),
-        // -> `actorFrom(req)` (DELETE FOLDER's session-to-actor resolution, `api/pages.ts`) reads this
+        // -> `actorFrom(req)` (DELETE FOLDER's session-to-actor resolution, `helpers/pageAccess.ts`) reads this
         //    for a session-backed request.
         groupIdsForRequest: () => []
       },

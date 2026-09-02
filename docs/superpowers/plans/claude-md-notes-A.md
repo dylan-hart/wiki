@@ -67,3 +67,29 @@
   "Testing (backend)" section's existing co-location rule doing its job (a root-level test for a
   co-located source file, folded into `backend/locales/en.test.ts`), not evidence that rule needs
   restating or amending.
+
+- **Task A6 (`helpers/pageAccess.ts`, API-F1/F6/F8).** Three things CLAUDE.md must now say:
+  - **The page/asset/folder access helpers live in `backend/helpers/pageAccess.ts`, not in route
+    files.** `actorFrom`, `mayBypassPassword`, `unlockedFor`, `mayOnPage`, `pagePermissionsFor`,
+    `loadReadablePage`, `requireReadablePage`, `requireActorId`, `mayOnAsset`, `mayOnFolder`,
+    `visibleTreeItems` and `splitList` all moved out of `api/pages.ts` / `api/assets.ts` /
+    `api/tree.ts`. Two lines in the **Permissions** section point at the old home and are now wrong:
+    `:413` ("`PAGE_PERMISSIONS`, declared in `helpers/permissions.ts` and imported by
+    `api/pages.ts`" → imported by `helpers/pageAccess.ts`) and `:418` ("or `mayOnPage(req,
+    permission, page)` in `api/pages.ts`" → in `helpers/pageAccess.ts`, and its real signature is
+    `mayOnPage(req, permission, siteId, page)`). `:437`'s "`No route-level permissions:` comment, as
+    `api/pages.ts`, `api/assets.ts`, …" is still correct — that names route files, not helpers.
+  - **A page-scoped route's 404/403 preamble is `requireReadablePage`, not hand-written.** The
+    check order is fixed and load-bearing: missing-or-unreadable → 404 `'This page does not
+    exist.'`, then the route's own second permission → 403 with its own message, then still-locked →
+    403 `'This page is password protected.'`. A route needing a different order calls it without
+    `permission` and checks afterwards (`api/checklists.ts`'s check-off route is the worked
+    example); a route that deliberately tolerates a locked page passes `allowLocked: true`
+    (`api/pages.ts`'s backlinks listing). The `null`-once-a-reply-is-sent convention (`if (!page) {
+    return reply }`) is shared with `requireActorId`.
+  - **A route file must never import another route file.** That was the only reason
+    `api/comments.ts`, `api/checklists.ts`, `api/watching.ts`, `api/approvals.ts`, `api/tags.ts`,
+    `api/notifications.ts`, `api/tree.ts` and `controllers/collab.ts` reached into `api/pages.ts` /
+    `api/assets.ts`; shared logic goes in `helpers/`. This also keeps `api/*.ts` uniformly
+    "everything here is a Fastify route plugin", which `api/routeTags.test.ts`,
+    `api/responseErrors.test.ts` and `api/index.test.ts` structurally depend on.

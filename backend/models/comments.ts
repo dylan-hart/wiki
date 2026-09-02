@@ -166,7 +166,7 @@ const DEFAULT_GUEST_PII_RETENTION_DAYS = 90
  * - **No permission checks.** Neither `models/pages.ts` nor `models/pageWatching.ts` calls
  *   `WIKI.models.groups.checkAccess()` from inside the model — that happens one layer up, in the API
  *   route handler, which is where `FastifyRequest` and the session/actor legitimately live
- *   (`mayOnPage` in `api/pages.ts`, `api/watching.ts` calling `pageWatching.watch()`). This file
+ *   (`mayOnPage` in `helpers/pageAccess.ts`, `api/watching.ts` calling `pageWatching.watch()`). This file
  *   follows the same layering: no `FastifyRequest` import, no embedded access check.
  * - **No `render` population.** This codebase's page-rendering pipeline is a headless-browser render
  *   queue (`models/rendering.ts`) — far too heavy to hold a request open for a short synchronous

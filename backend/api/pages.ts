@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import fastifyMultipart from '@fastify/multipart'
-import type { PageActor, PageInput } from '../models/pages.ts'
+import type { PageInput } from '../models/pages.ts'
 import {
   detectImportFormat,
   MAX_IMPORT_BATCH_BYTES,
@@ -17,7 +17,15 @@ import {
   normalizePagePath
 } from '../helpers/common.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
-import { PAGE_PERMISSIONS } from '../helpers/permissions.ts'
+import {
+  actorFrom,
+  mayBypassPassword,
+  mayOnPage,
+  pagePermissionsFor,
+  requireReadablePage,
+  splitList,
+  unlockedFor
+} from '../helpers/pageAccess.ts'
 import { sessionCookieName } from '../helpers/security.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 
@@ -57,16 +65,6 @@ function replyForRenderRefusal(err: any, reply: FastifyReply): FastifyReply | nu
   return null
 }
 
-/** Comma-separated query lists, which is how the browser sends a multi-valued filter here. */
-function splitList(value?: string): string[] {
-  return (
-    value
-      ?.split(',')
-      .map((v) => v.trim())
-      .filter(Boolean) ?? []
-  )
-}
-
 const siteIdParam = {
   type: 'object',
   properties: {
@@ -91,42 +89,6 @@ const pageIdParam = {
     }
   },
   required: ['siteId', 'pageId']
-}
-
-/**
- * Who is saving, and what they may embed.
- *
- * A page records an author, so this takes a real user — a session, or a personal access token
- * (`req.apiKey.userId` set), which acts as its owner for exactly this reason (see the design decision
- * in `models/apiKeys.ts`'s doc comment). An admin-issued key has no user behind it to attribute a page
- * to, so it still resolves to `null` here exactly as before — unchanged, not a regression: minting one
- * never granted page-saving either, since this returned `null` for every API key until personal
- * tokens existed to fill it with something real. `write:scripts`/`write:styles` are page-rule-scoped
- * (see CLAUDE.md's Permissions section), so `groupIds` travels along too — it is what
- * `models/pages.ts`'s `hasPermission()` resolves a page rule against, the same way `mayOnPage()` does
- * here. `siteId` travels along for the same reason (OpenProject #2189): a personal token pinned to
- * one site must not gain a `write:scripts`/`write:styles` grant on another's page through this path.
- */
-export function actorFrom(req: FastifyRequest): PageActor | null {
-  if (req.apiKey?.userId) {
-    return {
-      id: req.apiKey.userId,
-      permissions: req.apiKey.permissions,
-      groupIds: req.apiKey.groupIds,
-      scope: req.apiKey.scope,
-      allowedClassifications: req.apiKey.allowedClassifications,
-      siteId: req.apiKey.siteId
-    }
-  }
-  if (!req.session?.authenticated || !req.session.user?.id) {
-    return null
-  }
-  return {
-    id: req.session.user.id,
-    permissions: req.session.permissions ?? [],
-    groupIds: WIKI.models.groups.groupIdsForRequest(req),
-    scope: null
-  }
 }
 
 /**
@@ -179,71 +141,11 @@ function recordPageview(req: FastifyRequest, siteId: string, pageId: string): vo
  *
  * Used only by search, which spans many pages that may each carry a different rule, so there is no
  * single page here to ask `mayOnPage()` about. This is deliberately coarser than `mayBypassPassword()`
- * below: search either hides every protected excerpt from this searcher or none of them, rather than
- * deciding page by page. (`manage:system` needs no entry here — `mayHoldPermissionSomewhere()` already
- * short-circuits on it.)
+ * (`helpers/pageAccess.ts`): search either hides every protected excerpt from this searcher or none of
+ * them, rather than deciding page by page. (`manage:system` needs no entry here —
+ * `mayHoldPermissionSomewhere()` already short-circuits on it.)
  */
 const PAGE_PASSWORD_BYPASS_ROLES = ['write:pages', 'manage:pages']
-
-export function mayBypassPassword(
-  req: FastifyRequest,
-  siteId: string,
-  page: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
-): boolean {
-  return mayOnPage(req, 'write:pages', siteId, page) || mayOnPage(req, 'manage:pages', siteId, page)
-}
-
-/**
- * Whether the password on a page has already been satisfied for this request.
- *
- * The unlock is recorded on the session — server side, by page id — so that reading a page the reader
- * unlocked a moment ago does not ask again, and so that nothing the browser can set decides this.
- */
-export function unlockedFor(
-  req: FastifyRequest,
-  siteId: string,
-  page: {
-    id: string
-    path: string
-    locale: string | null
-    tags?: string[]
-    classification?: string | null
-  }
-): boolean {
-  return (
-    mayBypassPassword(req, siteId, page) || Boolean(req.session?.unlockedPages?.includes(page.id))
-  )
-}
-
-/**
- * Whether this requester holds a page permission ON THIS PAGE.
- *
- * Page permissions are granted by a group's rules, not by the group-wide permission list, so this is
- * a different question from the one the route-level `config.permissions` hook answers — and the only
- * correct one for anything page-scoped. `helpers/pageRules.ts` sets out how a rule is chosen.
- *
- * `siteId` is a separate parameter rather than a field the caller sets on `page`, so that a rule
- * scoped to one site (see `RulePageRef` in `helpers/pageRules.ts`) is enforced even from a call site
- * that builds its page ref inline instead of passing along an already-fetched page.
- */
-export function mayOnPage(
-  req: FastifyRequest,
-  permission: string,
-  siteId: string,
-  page: {
-    path: string
-    locale: string | null
-    tags?: string[]
-    /** Absent for a page that does not exist yet (a create-permission check) -- see `RulePageRef`. */
-    classification?: string | null
-  }
-): boolean {
-  return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
-    ...page,
-    classification: page.classification ?? null,
-    siteId
-  })
-}
 
 /**
  * Records a `page.classificationChanged` audit log entry (OpenProject #1081) -- called from every
@@ -296,76 +198,6 @@ async function recordClassificationChanges(
       siteId
     }))
   await WIKI.models.auditLog.recordMany(entries)
-}
-
-/**
- * Every page permission this requester holds at a path.
- *
- * What the interface hides its controls by, and the reason it is a list rather than a question: each
- * permission may be decided by a different rule — a branch can be readable but not writable, and one
- * page within it neither — so they are resolved one at a time.
- *
- * Anonymous included: the guests group has rules of its own, and what the public may do is exactly
- * what they say. Answering an empty list for a reader without a session would hide controls a wiki had
- * deliberately opened to everyone.
- *
- * `siteId` is a separate parameter for the same reason as in `mayOnPage`: not every caller has a
- * fetched page with a `siteId` field on hand.
- */
-export function pagePermissionsFor(
-  req: FastifyRequest,
-  siteId: string,
-  page: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
-): string[] {
-  const actor = WIKI.models.groups.actorForRequest(req)
-  /*
-    An administrator holds all of them, and holds them here too. Deriving the list from their
-    permissions instead would answer `manage:system` → nothing ending in `:pages` → that an
-    administrator has no rights over any page, which is the opposite of true.
-  */
-  if (actor.permissions.includes('manage:system')) {
-    return PAGE_PERMISSIONS
-  }
-  return PAGE_PERMISSIONS.filter((permission) =>
-    WIKI.models.groups.checkAccess(actor, permission, {
-      ...page,
-      classification: page.classification ?? null,
-      siteId
-    })
-  )
-}
-
-/**
- * A page, as this requester is allowed to see it — or null when they are not allowed to see it at all.
- *
- * The gate for anything that hangs off a page but is not the page itself. An anonymous requester only
- * ever reaches a published page, and a password-protected one comes back with `isLocked` set until the
- * session has satisfied the unlock, which the caller is expected to refuse on.
- *
- * `withContent` asks the model to also load raw `content` — off by default, since most callers only
- * need `render` (already loaded either way). Loading it does not by itself grant anything: a caller
- * that turns it on is still responsible for checking `read:source` before handing `content` back, the
- * same way the GET route above does.
- */
-export async function loadReadablePage(
-  req: FastifyRequest,
-  siteId: string,
-  pageId: string,
-  { withContent = false }: { withContent?: boolean } = {}
-) {
-  const actor = actorFrom(req)
-  const page = await WIKI.models.pages.getPage({
-    siteId,
-    id: pageId,
-    withContent,
-    publicOnly: !actor,
-    unlocked: (page) => unlockedFor(req, siteId, page)
-  })
-  // -> Not readable is indistinguishable from not there, for anything hanging off the page
-  if (!page || !mayOnPage(req, 'read:pages', siteId, page)) {
-    return null
-  }
-  return page
 }
 
 /**
@@ -2197,12 +2029,9 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized('Exporting a page as PDF requires a logged in user.')
       }
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId)
       if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
+        return reply
       }
 
       const pdf = await WIKI.models.pdfExport.exportPdf({
@@ -2316,15 +2145,12 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
+        permission: 'read:history',
+        forbiddenMessage: "You are not allowed to read this page's history."
+      })
       if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      if (!mayOnPage(req, 'read:history', req.params.siteId, page)) {
-        return reply.forbidden("You are not allowed to read this page's history.")
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
+        return reply
       }
       return WIKI.models.pageHistory.list(req.params.siteId, req.params.pageId, {
         limit: req.query.limit,
@@ -2371,15 +2197,12 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
+        permission: 'read:history',
+        forbiddenMessage: "You are not allowed to read this page's history."
+      })
       if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      if (!mayOnPage(req, 'read:history', req.params.siteId, page)) {
-        return reply.forbidden("You are not allowed to read this page's history.")
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
+        return reply
       }
       const version = await WIKI.models.pageHistory.getVersion(
         req.params.siteId,
@@ -2422,9 +2245,13 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      // -> `allowLocked`: a backlinks listing reveals no part of this page's body, so a password
+      //    still standing between the caller and the text is not a reason to refuse it.
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
+        allowLocked: true
+      })
       if (!page) {
-        return reply.notFound('This page does not exist.')
+        return reply
       }
       const rows = await WIKI.models.pages.listBacklinks(req.params.siteId, page.path)
       return rows
@@ -2486,18 +2313,15 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const wantsMarkdown = req.query.format === 'markdown'
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId, {
-        withContent: wantsMarkdown
+      const page = await requireReadablePage(req, reply, req.params.siteId, req.params.pageId, {
+        withContent: wantsMarkdown,
+        // -> A separate permission from `read:pages`, exactly as it is on the GET route above --
+        //    and only for `format=markdown`, which is the format that hands back the raw source
+        permission: wantsMarkdown ? 'read:source' : undefined,
+        forbiddenMessage: "You are not allowed to read this page's source."
       })
       if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      // -> A separate permission from `read:pages`, exactly as it is on the GET route above
-      if (wantsMarkdown && !mayOnPage(req, 'read:source', req.params.siteId, page)) {
-        return reply.forbidden("You are not allowed to read this page's source.")
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
+        return reply
       }
       const stem = exportFilenameStem(page.path)
       if (wantsMarkdown) {

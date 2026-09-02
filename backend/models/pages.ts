@@ -310,7 +310,7 @@ export interface PageActor {
  *
  * `write:scripts`/`write:styles` are granted by a group's page rules, not by the group-wide
  * permission list (`PageActor.permissions` alone), so this asks `WIKI.models.groups.checkAccess()` —
- * the same per-page decision `mayOnPage()` makes in `api/pages.ts` — rather than scanning
+ * the same per-page decision `mayOnPage()` makes in `helpers/pageAccess.ts` — rather than scanning
  * `actor.permissions`, which a page-rule-only grant would never appear in.
  */
 export function hasPermission(actor: PageActor, permission: string, page: RulePageRef): boolean {
@@ -490,7 +490,7 @@ class Pages {
    * are exactly two: the `GET` route, and `unlockPage` below.
    *
    * @param unlocked Whether the password has been satisfied for this requester. Route-level concern:
-   *                 see `unlockedFor` in `api/pages.ts`. A function is called with the row's path,
+   *                 see `unlockedFor` in `helpers/pageAccess.ts`. A function is called with the row's path,
    *                 locale and tags once it is in hand — not just the id — because `unlockedFor` needs
    *                 them to ask `mayOnPage()` whether a page RULE bypasses the password, and the row is
    *                 the only place that has them when the caller only knew a path hash going in.

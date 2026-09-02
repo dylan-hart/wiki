@@ -97,7 +97,7 @@ function maySaveSiteImage(req: FastifyRequest, siteId: string, kind: SiteAssetKi
 /**
  * Every `site:*` permission (see `helpers/siteRules.ts`) this requester holds on this site.
  *
- * The site-scoped counterpart to `pagePermissionsFor` in `api/pages.ts`: what the interface hides
+ * The site-scoped counterpart to `pagePermissionsFor` in `helpers/pageAccess.ts`: what the interface hides
  * `AdminGeneral.vue`, `AdminTheme.vue` and the rest of the nine site-scoped admin pages by, asked the
  * same way that route's own handlers decide it (`checkSiteAccess`) rather than a broader question.
  *

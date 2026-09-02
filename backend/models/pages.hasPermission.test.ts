@@ -5,7 +5,7 @@ import { hasPermission } from './pages.ts'
 /**
  * Regression test for task 548: `hasPermission()` in `models/pages.ts` used to check
  * `actor.permissions.includes(permission)` — the group-WIDE permission list built by `actorFrom()`
- * in `api/pages.ts` — but `write:scripts`/`write:styles` are page-rule-scoped permissions (same
+ * in `helpers/pageAccess.ts` — but `write:scripts`/`write:styles` are page-rule-scoped permissions (same
  * `PAGE_PERMISSIONS` list `mayBypassPassword()` misused before task 547; see CLAUDE.md's Permissions
  * section). A page-rule grant of either was therefore silently ignored at all three call sites that
  * gate `postProcess()` — `write:scripts`/`write:styles` decide whether an author's raw `<script>`/
@@ -13,7 +13,7 @@ import { hasPermission } from './pages.ts'
  * `queueRerender`.
  *
  * `hasPermission()` now takes the page in question and asks `WIKI.models.groups.checkAccess()` — the
- * same per-page decision `mayOnPage()` makes in `api/pages.ts` — via the actor's new `groupIds` field
+ * same per-page decision `mayOnPage()` makes in `helpers/pageAccess.ts` — via the actor's new `groupIds` field
  * (populated by `actorFrom()` from `WIKI.models.groups.groupIdsForRequest(req)`). This stubs
  * `checkAccess` to behave like a real page rule: it grants `write:scripts` only to a specific group,
  * only under a specific path prefix, and ignores the actor's global `permissions` list entirely —

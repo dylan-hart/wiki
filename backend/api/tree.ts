@@ -1,8 +1,14 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import { TREE_ORDER_BY, type TreeItemType, type TreeOrderBy } from '../models/tree.ts'
 import { decodeTreePath, defaultLocale, normalizePagePath } from '../helpers/common.ts'
-import { actorFrom, mayOnPage } from './pages.ts'
-import { mayOnAsset } from './assets.ts'
+import {
+  actorFrom,
+  mayOnAsset,
+  mayOnFolder,
+  mayOnPage,
+  splitList,
+  visibleTreeItems
+} from '../helpers/pageAccess.ts'
 
 interface TreeQuery {
   parentId?: string
@@ -25,15 +31,6 @@ interface FolderBody {
   pathName: string
   title: string
   locale?: string
-}
-
-/** Comma-separated query lists, which is how the browser sends a multi-valued filter here. */
-function splitList(value?: string): string[] | null {
-  const items = value
-    ?.split(',')
-    .map((v) => v.trim())
-    .filter(Boolean)
-  return items && items.length > 0 ? items : null
 }
 
 const siteIdParam = {
@@ -62,50 +59,6 @@ const folderIdParam = {
   required: ['siteId', 'folderId']
 }
 
-/**
- * Tree API Routes
- *
- * The tree is what the file manager and the navigation browse: one listing that interleaves folders,
- * pages and assets. Folders are the only kind created here — a page or an asset gets its tree entry
- * from whatever created it.
- */
-/**
- * The entries of a tree listing this caller may see, and the folders leading to them.
- *
- * Filtered here rather than in the query for the same reason as everywhere else: a page rule can be a
- * regular expression or a set of tags, so which rule decides an entry is only knowable per entry.
- *
- * A folder is judged on its own path, so a DENY over a branch hides the branch itself rather than
- * leaving an empty folder to walk into. The consequence worth knowing is the other way round: a
- * folder stays listed when the rules deny everything inside it but say nothing about the folder, and
- * a reader opening it finds it empty. Hiding those would mean resolving every descendant of every
- * folder on every listing, which is not worth what it costs.
- */
-export function visibleTreeItems<
-  T extends {
-    type?: string
-    folderPath?: string
-    fileName?: string
-    classification?: string | null
-  }
->(req: FastifyRequest, siteId: string, locale: string, items: T[]): T[] {
-  const actor = WIKI.models.groups.actorForRequest(req)
-  return items.filter((item) => {
-    const path = item.folderPath ? `${item.folderPath}/${item.fileName}` : (item.fileName ?? '')
-    const permission = item.type === 'asset' ? 'read:assets' : 'read:pages'
-    return WIKI.models.groups.checkAccess(actor, permission, {
-      path,
-      siteId,
-      locale,
-      tags: (item as any).tags ?? [],
-      // -> `getTree()` (OpenProject #1128) joins `pages.classification` in for a page-type item;
-      //    a folder or asset carries none, the same "no CLASSIFICATION rule matches" null it always
-      //    had.
-      classification: item.classification ?? null
-    })
-  })
-}
-
 /** A folder's own slash-separated path, which is what a rule over that branch addresses. */
 function folderPathOf(folder: { folderPath?: string | null; fileName: string }): string {
   const parent = decodeTreePath(folder.folderPath ?? '') ?? ''
@@ -113,29 +66,12 @@ function folderPathOf(folder: { folderPath?: string | null; fileName: string }):
 }
 
 /**
- * Whether the caller holds a page permission over a folder, judged on the folder's own path.
+ * Tree API Routes
  *
- * A folder is not a page and has no permissions of its own, so what governs it is what governs the
- * branch it opens: a rule denying `read:pages` under `geography` hides the folder as well as the
- * pages in it, and only somebody who may reorganise pages there may rename or remove it.
+ * The tree is what the file manager and the navigation browse: one listing that interleaves folders,
+ * pages and assets. Folders are the only kind created here — a page or an asset gets its tree entry
+ * from whatever created it.
  */
-export function mayOnFolder(
-  req: FastifyRequest,
-  permission: string,
-  siteId: string,
-  path: string,
-  locale: string
-): boolean {
-  return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
-    path,
-    siteId,
-    locale,
-    // -> A folder is not a page and carries no classification of its own -- same treatment as
-    //    `mayOnAsset` in `api/assets.ts`.
-    classification: null
-  })
-}
-
 async function routes(app: FastifyInstance) {
   /**
    * BROWSE THE TREE
@@ -230,13 +166,17 @@ async function routes(app: FastifyInstance) {
     async (req) => {
       const q = req.query
       const locale = q.locale ?? defaultLocale(req.params.siteId)
+      // -> `null` rather than `[]` for an absent filter: the model reads an empty array as "match
+      //    nothing", so the two are not interchangeable here the way they are in `api/pages.ts`.
+      const types = splitList(q.types)
+      const tags = splitList(q.tags)
       const items = await WIKI.models.tree.getTree({
         siteId: req.params.siteId,
         parentId: q.parentId,
         parentPath: q.parentPath,
         locale,
-        types: splitList(q.types) as TreeItemType[] | null,
-        tags: splitList(q.tags),
+        types: (types.length ? types : null) as TreeItemType[] | null,
+        tags: tags.length ? tags : null,
         limit: q.limit,
         offset: q.offset,
         orderBy: q.orderBy,
@@ -428,11 +368,13 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('This site does not exist.')
       }
       const locale = req.query.locale ?? defaultLocale(req.params.siteId)
+      // -> `null` rather than `[]` for an absent filter, same as BROWSE THE TREE above
+      const tags = splitList(req.query.tags)
       const pages = await WIKI.models.tree.listPages({
         siteId: req.params.siteId,
         path: req.query.path,
         locale,
-        tags: splitList(req.query.tags),
+        tags: tags.length ? tags : null,
         limit: req.query.limit,
         orderBy: req.query.orderBy,
         orderByDirection: req.query.orderByDirection,

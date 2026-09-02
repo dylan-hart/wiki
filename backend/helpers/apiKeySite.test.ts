@@ -315,7 +315,7 @@ describe('apiKeySitePinHook — real page and asset routes', () => {
     deletePageCalls = []
   })
 
-  /** An API key with a `userId` acts as its own actor (`actorFrom` in `api/pages.ts`) -- no session needed. */
+  /** An API key with a `userId` acts as its own actor (`actorFrom` in `helpers/pageAccess.ts`) -- no session needed. */
   function apiKeyHeader(siteId: string | null) {
     return {
       'x-test-api-key': JSON.stringify({
