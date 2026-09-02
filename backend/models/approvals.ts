@@ -235,15 +235,15 @@ class Approvals {
    * Two different kinds of rule meet here. An APPROVAL rule says which pages take suggestions and who
    * reviews them; a group's PAGE rules say what a member may do to a page, `review:pages` among them.
    * Holding that permission is the second way of being a reviewer, because reviewing is the entire
-   * content of it - a group granted it and named in no approval rule could otherwise review nothing.
+   * content of it — a group granted it and named in no approval rule could otherwise review nothing.
    *
    * Page permissions are per page, so `reviewsAll` is answered for a page when there is one. Without
-   * one - the site-wide queue in the inbox - it is answered at the site root, which is the only thing
+   * one — the site-wide queue in the inbox — it is answered at the site root, which is the only thing
    * a queue spanning every page could ask about; the per-page check then still applies to each entry
    * through the approval rules that produced it.
    *
    * Nobody reviews anything without an account. A guest is treated as a member of the guests group,
-   * which is right for SUBMITTING - anonymous suggestions are a feature - but a review is an act with
+   * which is right for SUBMITTING — anonymous suggestions are a feature — but a review is an act with
    * an author: accepting one writes the page and records who accepted it. So a rule that named the
    * guests group among its reviewers, or a page rule granting them `review:pages`, would otherwise hand
    * the queue to the public. An empty scope reviews nothing, whatever the rules say.
@@ -513,27 +513,6 @@ class Approvals {
       createdAt: stored.createdAt,
       updatedAt: stored.updatedAt
     }
-  }
-
-  /**
-   * The reviewer group ids of every enabled rule that matches this page, unioned across rules.
-   *
-   * The same rules `getReviewableSubmissions` filters by, read from the other direction: that method
-   * starts from a reviewer's own groups and asks which submissions they cover; this starts from a page
-   * and asks which groups cover it, so their members can be resolved and told. `getRules` is the same
-   * in-memory cache either way, so this costs nothing beyond the loop.
-   */
-  async reviewerGroupIdsForPage(siteId: string, page: ApprovalPageMatch): Promise<string[]> {
-    const rules = await WIKI.models.approvalRules.getRules(siteId)
-    const groupIds = new Set<string>()
-    for (const rule of rules) {
-      if (rule.isEnabled && WIKI.models.approvalRules.matchesPage(rule, page)) {
-        for (const id of rule.reviewerGroups) {
-          groupIds.add(id)
-        }
-      }
-    }
-    return [...groupIds]
   }
 
   /**

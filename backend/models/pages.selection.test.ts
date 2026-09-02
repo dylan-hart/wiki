@@ -1,6 +1,7 @@
-import { describe, test, mock, beforeEach, afterEach } from 'node:test'
+import { afterEach, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { pages as pagesTable } from '../db/schema.ts'
+import { installTestWiki } from '../test/mocks.ts'
 
 /**
  * OpenProject #1834: `getPage`'s `.select()` used to be `{ page: pagesTable, ... }`, which Drizzle
@@ -12,7 +13,7 @@ import { pages as pagesTable } from '../db/schema.ts'
  * builds rather than re-describing it.
  */
 describe('getPage selection (pure unit, OpenProject #1834)', () => {
-  let previousWiki: typeof globalThis.WIKI
+  let wiki: { restore(): void }
 
   /** A `WIKI.db.select`-shaped spy: records the selection config, then returns a chain ending in
    *  `.limit()`, which resolves to `[row]` (or `[]` when `row` is omitted). */
@@ -69,17 +70,17 @@ describe('getPage selection (pure unit, OpenProject #1834)', () => {
     }
   }
 
+  // -> Rebuilt per test rather than per file: each test installs its own `db.select` spy over the
+  //    stub, and one test's recorded calls must not be visible to the next.
   beforeEach(() => {
-    previousWiki = globalThis.WIKI
+    wiki = installTestWiki()
   })
 
-  afterEach(() => {
-    globalThis.WIKI = previousWiki
-  })
+  afterEach(() => wiki.restore())
 
   test('the emitted selection omits searchContent/ts/historyData/links', async () => {
     const { select, calls } = stubSelect(fakeRow())
-    globalThis.WIKI = { db: { select } } as unknown as typeof globalThis.WIKI
+    WIKI.db = { select } as unknown as typeof WIKI.db
     const { pages: pagesModel } = await import('./pages.ts')
 
     await pagesModel.getPage({ siteId: 'site-1', id: 'page-1' })
@@ -100,7 +101,7 @@ describe('getPage selection (pure unit, OpenProject #1834)', () => {
 
   test('without withContent, a non-redirect page comes back with no content key', async () => {
     const { select } = stubSelect(fakeRow({ editor: 'markdown', content: null }))
-    globalThis.WIKI = { db: { select } } as unknown as typeof globalThis.WIKI
+    WIKI.db = { select } as unknown as typeof WIKI.db
     const { pages: pagesModel } = await import('./pages.ts')
 
     const page = await pagesModel.getPage({ siteId: 'site-1', id: 'page-1' })
@@ -111,7 +112,7 @@ describe('getPage selection (pure unit, OpenProject #1834)', () => {
 
   test('with withContent, content comes back and the selection asks the column for it directly', async () => {
     const { select, calls } = stubSelect(fakeRow({ content: '# Hello' }))
-    globalThis.WIKI = { db: { select } } as unknown as typeof globalThis.WIKI
+    WIKI.db = { select } as unknown as typeof WIKI.db
     const { pages: pagesModel } = await import('./pages.ts')
 
     const page = await pagesModel.getPage({ siteId: 'site-1', id: 'page-1', withContent: true })
@@ -123,7 +124,7 @@ describe('getPage selection (pure unit, OpenProject #1834)', () => {
 
   test('a redirect-editor page still comes back with content when withContent is off', async () => {
     const { select } = stubSelect(fakeRow({ editor: 'redirect', content: '/elsewhere' }))
-    globalThis.WIKI = { db: { select } } as unknown as typeof globalThis.WIKI
+    WIKI.db = { select } as unknown as typeof WIKI.db
     const { pages: pagesModel } = await import('./pages.ts')
 
     const page = await pagesModel.getPage({ siteId: 'site-1', id: 'page-1' })

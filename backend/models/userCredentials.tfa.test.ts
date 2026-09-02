@@ -12,14 +12,25 @@ import { ensureTemporal } from '../test/temporal.ts'
  * One schema for the whole file rather than one per describe (TEST-F14): every `setupTestDb()` call
  * is a `CREATE SCHEMA`, the full migration set and a seed, and each describe below wants the same
  * fixture. Anything a describe needs on top of that stays in its own `before()`.
+ *
+ * The `hasTestDatabase()` guard below is what a per-describe `{ skip }` cannot do for a FILE-level
+ * hook: `describe(..., { skip })` skips the describe's own hooks and tests, but a root `before()`
+ * runs regardless, so without this an unset `DATABASE_URL` would report every describe skipped AND
+ * still throw out of the hook. Same shape as `models/contentSync.test.ts`'s own file-level fixture.
  */
 let fixtures: TestFixtures
 
 before(async () => {
+  if (!hasTestDatabase()) {
+    return
+  }
   fixtures = await setupTestDb()
 })
 
 after(async () => {
+  if (!hasTestDatabase()) {
+    return
+  }
   await teardownTestDb()
 })
 
@@ -417,8 +428,9 @@ describe('userCredentials recovery codes (DB-backed)', { skip: !hasTestDatabase(
 })
 
 /**
- * The lost-update case #2149 closes: every whole-blob `auth` write in `models/users.ts` now reads,
- * mutates and writes while holding a `user-auth:<id>` advisory lock (`helpers/advisoryLock.ts`), so
+ * The lost-update case #2149 closes: every whole-blob `auth` write in `models/userCredentials.ts`
+ * (they lived on `models/users.ts` until that model was split) now reads, mutates and writes while
+ * holding a `user-auth:<id>` advisory lock (`helpers/advisoryLock.ts`), so
  * two of these calls racing the same user's row can no longer have the second writer's stale copy of
  * the blob clobber the first writer's change. Before this, `adminInvalidateTfa()` blanking
  * `tfaSecret`/`tfaIsActive`/`recoveryCodes` was observed being undone by a concurrent

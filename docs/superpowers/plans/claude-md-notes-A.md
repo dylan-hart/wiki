@@ -496,7 +496,7 @@ sentences are now incomplete rather than wrong.
 
 ## Task A18 — the five long-model splits
 
-- **`WIKI.models` gained six members** (`renderQueue`, `userCredentials`, `login`, `approvalRules`,
+- **`WIKI.models` gained seven members** (`renderQueue`, `userCredentials`, `login`, `approvalRules`,
   `approvalNotifications`, `assetServing`, `pageClassification`) and the `backend/` layout table's
   `models/` bullet, which describes `models/index.ts` as the aggregator, stays accurate — but the
   CLAUDE.md prose that names a specific model for a specific job does not:
@@ -514,7 +514,9 @@ sentences are now incomplete rather than wrong.
     `WIKI.models.userCredentials`; `users` keeps the account itself (CRUD, profile, avatar, groups,
     `updateSession`).
   - **`api/approvals.ts` no longer rebuilds a reviewer scope.** `approvals.reviewerScopeFor(req,
-    siteId, page?)` is the one place that shape is built.
+    siteId, page?)` is the one place that shape is built. Rules, their cache and everything answered
+    from them — `matchesPage`, `reviewerGroupIdsForPage` — are `WIKI.models.approvalRules`; the mail
+    is `WIKI.models.approvalNotifications`.
 - **`verifyTfaCode` returns `false` for an account deleted mid-verification.** Not new behaviour
   introduced here — it falls out of task A10's `patchStrategyAuth` extraction, which re-reads the
   row inside the per-user advisory lock and declines the write when there is no row — but it was

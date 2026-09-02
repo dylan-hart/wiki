@@ -23,7 +23,7 @@ class ApprovalNotifications {
    * entry.
    */
   async resolveReviewers(siteId: string, page: ApprovalPageMatch): Promise<string[]> {
-    const groupIds = await WIKI.models.approvals.reviewerGroupIdsForPage(siteId, page)
+    const groupIds = await WIKI.models.approvalRules.reviewerGroupIdsForPage(siteId, page)
     if (groupIds.length < 1) {
       return []
     }

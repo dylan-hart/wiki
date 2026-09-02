@@ -243,6 +243,27 @@ class ApprovalRules extends ClusterReloaded {
   }
 
   /**
+   * The reviewer group ids of every enabled rule that matches this page, unioned across rules.
+   *
+   * The same rules `getReviewableSubmissions` filters by, read from the other direction: that method
+   * starts from a reviewer's own groups and asks which submissions they cover; this starts from a page
+   * and asks which groups cover it, so their members can be resolved and told. `getRules` is the same
+   * in-memory cache either way, so this costs nothing beyond the loop.
+   */
+  async reviewerGroupIdsForPage(siteId: string, page: ApprovalPageMatch): Promise<string[]> {
+    const rules = await this.getRules(siteId)
+    const groupIds = new Set<string>()
+    for (const rule of rules) {
+      if (rule.isEnabled && this.matchesPage(rule, page)) {
+        for (const id of rule.reviewerGroups) {
+          groupIds.add(id)
+        }
+      }
+    }
+    return [...groupIds]
+  }
+
+  /**
    * Delete a rule.
    *
    * @returns Whether a rule was deleted

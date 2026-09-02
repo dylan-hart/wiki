@@ -15,10 +15,18 @@ import { userAvatars as userAvatarsTable, users as usersTable } from '../db/sche
  * One schema for the whole file rather than one per describe (TEST-F14): every `setupTestDb()` call
  * is a `CREATE SCHEMA`, the full migration set and a seed, and each describe below wants the same
  * fixture. Anything a describe needs on top of that stays in its own `before()`.
+ *
+ * The `hasTestDatabase()` guard below is what a per-describe `{ skip }` cannot do for a FILE-level
+ * hook: `describe(..., { skip })` skips the describe's own hooks and tests, but a root `before()`
+ * runs regardless, so without this an unset `DATABASE_URL` would report every describe skipped AND
+ * still throw out of the hook. Same shape as `models/contentSync.test.ts`'s own file-level fixture.
  */
 let fixtures: TestFixtures
 
 before(async () => {
+  if (!hasTestDatabase()) {
+    return
+  }
   fixtures = await setupTestDb()
   // -> Both locale describes below want these installed; seeded once here rather than by each of
   //    them, which now share the one schema.
@@ -27,6 +35,9 @@ before(async () => {
 })
 
 after(async () => {
+  if (!hasTestDatabase()) {
+    return
+  }
   await teardownTestDb()
 })
 
