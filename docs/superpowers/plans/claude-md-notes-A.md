@@ -275,3 +275,54 @@ return reply }`) is shared with `requireActorId`.
   A13's workspace and were deliberately left alone: `models/search.ts#initActiveEngines`'s timeout
   race (should become a `withTimeout` call) and `modules/search/db/search.ts`'s `escapeLikePrefix`
   (byte-identical to `helpers/common.ts#escapeLikePattern`).
+
+- **A19 — `backend/migration/` layout and shared helpers.** CLAUDE.md's `migration/` bullet is now
+  stale in three ways:
+  - **Every importer lives under `migration/importers/`.** `page-import.ts`,
+    `page-history-import.ts` and `navigation-import.ts` moved there from the `migration/` root;
+    `content-staging.ts` and `path-normalization.ts` stay at the root because they only read/compute.
+  - **`migration/report.ts` is the one report module**: the `PhaseReport`/`UnmappableEntry` shapes,
+    `classifyUserAuthProvider`/`KNOWN_3_0_AUTH_MODULES` (was `unmappable.ts`) and
+    `formatReportTable`/`reportsToJson` (was `render.ts`). Its co-located suite is `report.test.ts`.
+    `importers/user-converters.ts` folded into `importers/users-groups.ts`, which now owns every
+    `GroupConverter`/`UserConverter` in the engine.
+  - **"recording provenance" is gone** — `migration/provenance.ts` was deleted by task A2; each phase
+    decides its own `wouldSkipExisting` instead. The sentence should say "recording a dry-run report
+    along the way".
+- **A19 — three shared migration helpers new code must use, not re-derive.**
+  - **`migration/phases/route.ts#routeOutcome(recorder, identifier, outcome, log?)`** is the only
+    place a phase turns an already-attempted per-record import into a `WriteRecorder` call. A phase
+    maps its own importer's outcome type onto `RecordOutcome` (`created` + optional pre-formatted
+    `notes` / `skipped` / `conflicted` + `detail`) in a local `toRecordOutcome()` and calls it.
+    **The write always happens before routing, never as `recorder.create()`'s `write` callback** — an
+    importer that reports failure by returning it would otherwise be counted as a create, and one
+    that throws would take down the whole phase's report.
+  - **`migration/phases/dry-run.ts`** holds `writeUnlessDryRun(dryRun, placeholder, write)` and
+    `placeholderRow()`. Every injected write model in `phases/{content,assets}.ts` uses them; do not
+    hand-roll another `if (ctx.dryRun) return { id: crypto.randomUUID() }`.
+  - **`migration/mappers/shared.ts`** holds `isPlainObject`, `transformConfig(transforms, module,
+    raw)`, `unwrapKnexValue` and **two** picks: `pickDefined` (drops an explicit `undefined` — what a
+    module-config mapper wants, since an `undefined` would override `buildConfig`'s declared default)
+    and `pickPresent` (bare `in` — what `site-settings.ts` wants, so an operator's explicit
+    `false`/`0`/`''` survives the deep merge). **Do not swap any of these for `es-toolkit`'s**: its
+    `isPlainObject` rejects class instances, which a `pg` row object is.
+- **A19 — `define-phase.ts` no longer reclassifies a successful read as `not_implemented`.**
+  `trackWriteCapability` and the "no entity supplied a `write` callback, so call the whole phase
+  not-implemented" pass are deleted: every phase has a real write path, so the only thing that
+  produces `status: 'not_implemented'` now is an entity generator throwing `NotYetImplementedError`
+  (which today means an `ExportBundleSourceConnector` source's
+  `users`/`groups`/`settings`/`comments`/`assets`). A no-op `recorder.create(id, async () => {})`
+  sentinel therefore has no reason to exist — write `recorder.create(id)`.
+- **A19 — `NavigationWriteModel` mirrors the real model.** `importers/navigation-import.ts` now
+  declares `ensureSiteNav(siteId, locale): Promise<string>` and `setNavItems(siteId, navId, items)`,
+  the exact `WIKI.models.navigation` signatures; the adapter that used to reconcile the old
+  siteId-only shape inside `phases/content.ts` is gone.
+- **A19 — deliberately NOT done, and why.** The plan's file list also called for merging
+  `migration/orchestrator.ts` into `tasks/migrate.ts`. Skipped: `tasks/migrate.ts` calls `main()` at
+  module load, so importing it to reach `runMigration` would boot the CLI, and the merge would have
+  cost `orchestrator.test.ts`'s 101 lines of real coverage for no structural gain.
+- **A19 — one stale path left in another lane's file.** `backend/models/pages.ts` (task A13's
+  workspace) still names `backend/migration/page-import.ts` in a doc comment; it is now
+  `backend/migration/importers/page-import.ts`. `docs/variances.md`'s TFA-drop entry likewise still
+  names the deleted `backend/migration/importers/user-converters.ts#createLocalUserConverter` (that
+  function now lives in `importers/users-groups.ts`) — left alone per the no-variances-edits rule.
