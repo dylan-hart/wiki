@@ -46,6 +46,10 @@ export const TEST_SITE_ID = 'site-1'
  * @returns {Promise<Element>} the mounted element
  */
 export async function mountBlock(tag, { pre, text, html, props, attrs, parent, settle = 0 } = {}) {
+  if ([pre, text, html].filter((body) => body !== undefined).length > 1) {
+    throw new Error('mountBlock: pass at most one of pre, text or html')
+  }
+
   const el = document.createElement(tag)
 
   for (const [name, value] of Object.entries(attrs ?? {})) {

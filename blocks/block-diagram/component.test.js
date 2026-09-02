@@ -93,7 +93,7 @@ describe('block-diagram', () => {
 
   describe('dark mode', () => {
     /*
-     * `block-gallery/component.test.js`'s dark-mode suite is the template for the mechanics (the
+     * `blocks/test/darkMode.js`'s `describeDarkMode` is the template for the mechanics (the
      * `DarkMode` controller reacts through a `MutationObserver` callback, a microtask away). What is
      * specific to this block is the assertion: unlike every other block, dark mode is not just a CSS
      * attribute here — mermaid bakes its colours into the SVG it draws, so a theme of `auto` has to

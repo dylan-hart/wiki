@@ -91,6 +91,12 @@ describe('shared/video-embed.js: playerStyles', () => {
 describe('shared/video-embed.js: VideoEmbedElement', () => {
   afterEach(resetBlockDom)
 
+  it('mountBlock refuses more than one of pre, text or html', async () => {
+    await expect(mountBlock('test-video-embed', { pre: 'a', text: 'b' })).rejects.toThrow(
+      'mountBlock: pass at most one of pre, text or html'
+    )
+  })
+
   it('adopts the shared error box alongside the player styles', () => {
     const cssText = VideoEmbedElement.styles.map((sheet) => sheet.cssText).join('\n')
     expect(cssText).toContain('color: var(--q-negative, #c10015)')

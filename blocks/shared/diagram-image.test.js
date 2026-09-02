@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { diagramStyles, DiagramImageElement } from './diagram-image.js'
 import { MAX_DIAGRAM_URL_LENGTH } from './url-limit.js'
+import { mountBlock } from '../test/mount.js'
 
 /**
  * The smallest possible subclass: the one hook a remote-image diagram block has to write.
@@ -38,21 +39,11 @@ class TestHeaderDiagramElement extends TestDiagramElement {
 }
 customElements.define('test-diagram-image-header', TestHeaderDiagramElement)
 
-async function mount(tag, body, props = {}) {
-  const el = document.createElement(tag)
-  if (body !== undefined) {
-    const fence = document.createElement('pre')
-    fence.textContent = body
-    el.appendChild(fence)
-  }
-  Object.assign(el, props)
-  document.body.appendChild(el)
-  await el.updateComplete
-  // -> firstUpdated() kicks off _draw() without awaiting it: encoding a source is asynchronous
-  await el._ready
-  await el.updateComplete
-  return el
-}
+// -> The `settle` hook: firstUpdated() kicks off _draw() without awaiting it (encoding a source is
+//    asynchronous), so the state change it produces lands after the first update cycle — `_ready`
+//    is the handle `DiagramImageElement` keeps on that work for exactly this.
+const mount = (tag, body, props = {}) =>
+  mountBlock(tag, { pre: body, props, settle: (el) => el._ready })
 
 describe('shared/diagram-image.js: diagramStyles', () => {
   it('carries the sheet the drawing sits on, in both themes', () => {
