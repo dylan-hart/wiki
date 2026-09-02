@@ -1,17 +1,12 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Readable } from 'node:stream'
-import fastify from 'fastify'
-import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
-import { registerSchemas } from './schemas/asset.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import routes from './assets.ts'
 import { mayOnAsset } from '../helpers/pageAccess.ts'
 import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 import { SVG_CSP } from '../helpers/security.ts'
-import { registerParamsSchemas } from './schemas/params.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 describe('download route: byte-serving behavior', () => {
   /**
@@ -52,45 +47,28 @@ describe('download route: byte-serving behavior', () => {
    * here too, since this stub bypasses the base.yml merge entirely.
    */
   async function buildApp(security: Record<string, unknown> = { forceAssetDownload: true }) {
-    global.WIKI = {
-      config: { security },
-      sites: {
-        [siteId]: { id: siteId, isEnabled: true }
-      },
-      models: {
-        groups: {
-          actorForRequest: () => ({ permissions: [] }),
-          checkAccess: () => true
+    return buildTestApp({
+      routes,
+      wiki: {
+        config: { security },
+        sites: {
+          [siteId]: { id: siteId, isEnabled: true }
         },
-        assets: {
-          getAsset: async () => resolvedAsset ?? asset,
-          readContent: async (a: any, sId: string) => {
-            readContentCalledWith = { a, sId }
-            return readContentResult
+        models: {
+          groups: {
+            actorForRequest: () => ({ permissions: [] }),
+            checkAccess: () => true
+          },
+          assets: {
+            getAsset: async () => resolvedAsset ?? asset,
+            readContent: async (a: any, sId: string) => {
+              readContentCalledWith = { a, sId }
+              return readContentResult
+            }
           }
         }
       }
-    } as unknown as WikiGlobal
-
-    const app = fastify()
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/etc. is a thrown
-    //    `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that shapes it
-    //    into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
     })
-    await registerSchemas(app)
-    await registerErrorSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(routes)
-    await app.ready()
-    return app
   }
 
   test('serves the buffer path with Content-Disposition and X-Content-Type-Options set, and passes siteId through', async () => {
@@ -106,7 +84,7 @@ describe('download route: byte-serving behavior', () => {
     assert.equal(res.headers['content-length'], '9')
     assert.equal(res.body, 'the bytes')
     assert.equal(readContentCalledWith.sId, siteId)
-    await app.close()
+    await closeTestApp(app)
   })
 
   test('serves the stream path with the exact same headers as the buffer path', async () => {
@@ -121,7 +99,7 @@ describe('download route: byte-serving behavior', () => {
     assert.equal(res.headers['x-content-type-options'], 'nosniff')
     assert.equal(res.headers['content-length'], '9')
     assert.equal(res.body, 'the bytes')
-    await app.close()
+    await closeTestApp(app)
   })
 
   test('issues a 302 to the direct-access URL when readContent supplies one, instead of serving bytes', async () => {
@@ -133,7 +111,7 @@ describe('download route: byte-serving behavior', () => {
     })
     assert.equal(res.statusCode, 302)
     assert.equal(res.headers.location, 'https://cdn.example.com/asset-1')
-    await app.close()
+    await closeTestApp(app)
   })
 
   test('answers 404 when readContent finds no content', async () => {
@@ -144,7 +122,7 @@ describe('download route: byte-serving behavior', () => {
       url: `/sites/${siteId}/assets/${assetId}/content`
     })
     assert.equal(res.statusCode, 404)
-    await app.close()
+    await closeTestApp(app)
   })
 
   /**
@@ -165,7 +143,7 @@ describe('download route: byte-serving behavior', () => {
     assert.equal(res.statusCode, 200)
     assert.equal(res.headers['content-disposition'], undefined)
     resolvedAsset = undefined
-    await app.close()
+    await closeTestApp(app)
   })
 
   test('does not force a non-inline extension to download when forceAssetDownload is off, matching /_files/ (dispositionFor, OpenProject #2164)', async () => {
@@ -177,7 +155,7 @@ describe('download route: byte-serving behavior', () => {
     })
     assert.equal(res.statusCode, 200)
     assert.equal(res.headers['content-disposition'], undefined)
-    await app.close()
+    await closeTestApp(app)
   })
 
   test('attaches SVG_CSP for an image/svg+xml asset, with and without forceAssetDownload (OpenProject #2157)', async () => {
@@ -207,7 +185,7 @@ describe('download route: byte-serving behavior', () => {
     assert.equal(res.statusCode, 200)
     assert.equal(res.headers['content-security-policy'], SVG_CSP)
     resolvedAsset = undefined
-    await app.close()
+    await closeTestApp(app)
   })
 
   test('sets no Content-Security-Policy for an ordinary, non-active-document asset', async () => {
@@ -218,7 +196,7 @@ describe('download route: byte-serving behavior', () => {
       url: `/sites/${siteId}/assets/${assetId}/content`
     })
     assert.equal(res.headers['content-security-policy'], undefined)
-    await app.close()
+    await closeTestApp(app)
   })
 })
 
@@ -252,67 +230,49 @@ describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      sites,
-      config: { security: {} },
-      models: {
-        assets: {
-          getAsset: async () => {
-            getAssetCalls++
-            return null
-          },
-          upload: async () => {
-            uploadCalls++
-            return {}
-          },
-          renameAsset: async () => {
-            renameAssetCalls++
-            return {}
-          },
-          deleteAsset: async () => {
-            deleteAssetCalls++
-            return true
-          }
-        },
-        groups: {
-          actorForRequest: () => ({ permissions: [] }),
-          checkAccess: () => true
-        }
-      }
-    }
-
-    app = fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
-    })
-    await app.register(fastifySensible)
     // -> Mirrors `api/index.ts`'s own registration order: the guard is a plugin-level hook, added
     //    before the route file it covers is registered — `assets.ts` no longer calls
     //    `guardSiteEnabled` itself (OpenProject #1593).
-    app.addHook('preHandler', siteEnabledPreHandler)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/etc. is a thrown
-    //    `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that shapes it
-    //    into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
+    const guardedRoutes: FastifyPluginAsync = async (instance) => {
+      instance.addHook('preHandler', siteEnabledPreHandler)
+      await instance.register(routes)
+    }
+
+    app = await buildTestApp({
+      routes: guardedRoutes,
+      ajv: true,
+      wiki: {
+        sites,
+        config: { security: {} },
+        models: {
+          assets: {
+            getAsset: async () => {
+              getAssetCalls++
+              return null
+            },
+            upload: async () => {
+              uploadCalls++
+              return {}
+            },
+            renameAsset: async () => {
+              renameAssetCalls++
+              return {}
+            },
+            deleteAsset: async () => {
+              deleteAssetCalls++
+              return true
+            }
+          },
+          groups: {
+            actorForRequest: () => ({ permissions: [] }),
+            checkAccess: () => true
+          }
+        }
+      }
     })
-    await registerSchemas(app)
-    await registerErrorSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(routes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   test('GET asset metadata: answers 403 for a disabled site, without ever calling getAsset', async () => {
     getAssetCalls = 0
@@ -543,70 +503,53 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
     uploadCalls = []
     checkAccessResult = true
 
-    ;(globalThis as any).WIKI = {
-      sites: {
-        [SITE_ID]: { id: SITE_ID, isEnabled: true, config: { locales: { primary: 'en' } } }
-      },
-      config: { security: {} },
-      models: {
-        groups: {
-          actorForRequest: () => ({ permissions: [] }),
-          checkAccess: (_actor: any, _permission: string, page: any) => {
-            checkAccessCalls.push(page)
-            return checkAccessResult
-          }
+    app = await buildTestApp({
+      routes,
+      session: 'header',
+      wiki: {
+        sites: {
+          [SITE_ID]: { id: SITE_ID, isEnabled: true, config: { locales: { primary: 'en' } } }
         },
-        tree: {
-          // -> Echoes back a resolved-in-this-site folder for the given id (OpenProject #2127:
-          //    getFolderById is now siteId-scoped, and the upload route trusts its resolved `.id`
-          //    rather than the raw query param) -- a foreign/unknown id is exercised in its own
-          //    dedicated test below with a `null`-returning override.
-          getFolderById: async (id: string, _siteId: string) => {
-            getFolderByIdCalls.push(id)
-            return { id, folderPath: '', fileName: '' }
+        config: { security: {} },
+        models: {
+          groups: {
+            actorForRequest: () => ({ permissions: [] }),
+            checkAccess: (_actor: any, _permission: string, page: any) => {
+              checkAccessCalls.push(page)
+              return checkAccessResult
+            }
           },
-          getFolder: async (opts: any) => {
-            getFolderCalls.push(opts)
-            return { id: RESOLVED_FOLDER_ID, folderPath: 'guides', fileName: 'setup', locale: 'en' }
-          }
-        },
-        assets: {
-          upload: async (opts: any) => {
-            uploadCalls.push(opts)
-            return uploadedAsset
+          tree: {
+            // -> Echoes back a resolved-in-this-site folder for the given id (OpenProject #2127:
+            //    getFolderById is now siteId-scoped, and the upload route trusts its resolved `.id`
+            //    rather than the raw query param) -- a foreign/unknown id is exercised in its own
+            //    dedicated test below with a `null`-returning override.
+            getFolderById: async (id: string, _siteId: string) => {
+              getFolderByIdCalls.push(id)
+              return { id, folderPath: '', fileName: '' }
+            },
+            getFolder: async (opts: any) => {
+              getFolderCalls.push(opts)
+              return {
+                id: RESOLVED_FOLDER_ID,
+                folderPath: 'guides',
+                fileName: 'setup',
+                locale: 'en'
+              }
+            }
+          },
+          assets: {
+            upload: async (opts: any) => {
+              uploadCalls.push(opts)
+              return uploadedAsset
+            }
           }
         }
       }
-    }
-
-    app = fastify()
-    await app.register(fastifySensible)
-    app.addHook('preHandler', (req, _reply, done) => {
-      const raw = req.headers['x-test-session']
-      if (typeof raw === 'string') {
-        ;(req as any).session = JSON.parse(raw)
-      }
-      done()
     })
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerSchemas(app)
-    await registerErrorSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(routes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   function sessionHeader() {
     return {

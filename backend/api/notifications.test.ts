@@ -1,11 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, mock, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
 import notificationRoutes from './notifications.ts'
-import { registerSchemas as registerNotificationSchemas } from './schemas/notification.ts'
-import { registerParamsSchemas } from './schemas/params.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Task 535's API surface: `GET /sites/:siteId/notifications`, `GET
@@ -40,39 +37,30 @@ const ROW = {
 }
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
-    models: {
-      pageWatchEvents: {
-        listForUser: (...args: any[]) => listForUserMock(...args),
-        unreadCount: (...args: any[]) => unreadCountMock(...args),
-        markRead: (...args: any[]) => markReadMock(...args)
-      },
-      users: {
-        getById: (...args: any[]) => getByIdMock(...args)
-      },
-      groups: {
-        groupIdsForRequest: () => []
+  app = await buildTestApp({
+    routes: notificationRoutes,
+    // -> Stand-in for `@fastify/session`, same pattern `api/watching.test.ts` uses: mutable per test
+    //    through the `session` module variable.
+    session: () => session,
+    wiki: {
+      models: {
+        pageWatchEvents: {
+          listForUser: (...args: any[]) => listForUserMock(...args),
+          unreadCount: (...args: any[]) => unreadCountMock(...args),
+          markRead: (...args: any[]) => markReadMock(...args)
+        },
+        users: {
+          getById: (...args: any[]) => getByIdMock(...args)
+        },
+        groups: {
+          groupIdsForRequest: () => []
+        }
       }
     }
-  }
-
-  app = fastify()
-  await app.register(fastifySensible)
-  // -> Stand-in for `@fastify/session`, same pattern `api/watching.test.ts` uses.
-  app.decorateRequest('session', null as any)
-  app.addHook('onRequest', async (req) => {
-    req.session = session
   })
-  await registerNotificationSchemas(app)
-  await registerParamsSchemas(app)
-  await app.register(notificationRoutes)
-  await app.ready()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 beforeEach(() => {
   session = { authenticated: true, user: { id: USER_ID }, permissions: [] }

@@ -1,15 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
-import Fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import { registerSchemas } from './schemas/page.ts'
-import { registerSchemas as registerApprovalSchemas } from './schemas/approval.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
-import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
 import pagesRoutes from './pages.ts'
 import { ensureTemporal } from '../test/temporal.ts'
-import { registerParamsSchemas } from './schemas/params.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * OpenProject #1080: the PATCH route's declassification guardrail (lowering a page's classification
@@ -91,7 +85,7 @@ describe('pages API — classification (OpenProject #1080)', () => {
     // -> The PATCH handler calls `page.updatedAt.toTemporalInstant()` for the collab-save
     //    notification regardless of whether this test's own assertions care about the timestamp.
     await ensureTemporal()
-    ;(globalThis as any).WIKI = {
+    const wiki = {
       models: {
         pages: {
           getPage: async ({ id }: { id: string }) =>
@@ -187,35 +181,10 @@ describe('pages API — classification (OpenProject #1080)', () => {
       collab: { pageSaved: () => {} }
     }
 
-    app = Fastify()
-    await app.register(fastifySensible)
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    app.addHook('onRequest', async (req) => {
-      const rawSession = req.headers['x-test-session']
-      if (typeof rawSession === 'string') {
-        ;(req as any).session = JSON.parse(rawSession)
-      }
-    })
-    await registerApprovalSchemas(app)
-    await registerSchemas(app)
-    await registerErrorSchema(app)
-    await registerPageImportSchema(app)
-    await registerParamsSchemas(app)
-    await app.register(pagesRoutes)
-    await app.ready()
+    app = await buildTestApp({ routes: pagesRoutes, wiki, session: 'header' })
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     updatePageCalls = []

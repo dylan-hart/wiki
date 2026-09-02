@@ -1,15 +1,11 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, describe, test } from 'node:test'
-import fastify from 'fastify'
-import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
+import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 import { createSiteAdminAccessStub } from '../test/mocks.ts'
 import blocksRoutes from './blocks.ts'
-import { registerSchemas as registerBlockSchema } from './schemas/block.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
-import { registerParamsSchemas } from './schemas/params.ts'
+import { installTestWiki } from '../test/mocks.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 describe('POST /sites/:siteId/blocks (custom block upload)', () => {
   /**
@@ -44,48 +40,44 @@ customElements.define('block-widget', BlockWidget)
   let isTagTakenResult = false
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      config: { security: { uploadMaxFileSize: 10485760 } },
-      sites: { [SITE_ID]: { id: SITE_ID } },
-      models: {
-        blocks: {
-          isTagTaken: async () => isTagTakenResult,
-          createCustomBlock: async (siteId: string, definition: any, code: Buffer) => {
-            createCustomBlockCalls.push({ siteId, definition, code })
-            return {
-              id: 'new-block-id',
-              block: definition.block,
-              name: definition.name,
-              description: definition.description,
-              icon: definition.icon,
-              isEnabled: true,
-              isCustom: true,
-              config: {},
-              props: definition.props ?? [],
-              template: definition.template ?? '',
-              elementTag: `block-${definition.block}`
+    // -> The unknown-site 404 lives in one hook now (spec D1), not in each route handler, so a
+    //    plugin-only app has to register it to answer that case the way the real app does.
+    const guardedRoutes: FastifyPluginAsync = async (instance) => {
+      instance.addHook('preHandler', siteEnabledPreHandler)
+      await instance.register(blocksRoutes)
+    }
+
+    app = await buildTestApp({
+      routes: guardedRoutes,
+      wiki: {
+        config: { security: { uploadMaxFileSize: 10485760 } },
+        sites: { [SITE_ID]: { id: SITE_ID } },
+        models: {
+          blocks: {
+            isTagTaken: async () => isTagTakenResult,
+            createCustomBlock: async (siteId: string, definition: any, code: Buffer) => {
+              createCustomBlockCalls.push({ siteId, definition, code })
+              return {
+                id: 'new-block-id',
+                block: definition.block,
+                name: definition.name,
+                description: definition.description,
+                icon: definition.icon,
+                isEnabled: true,
+                isCustom: true,
+                config: {},
+                props: definition.props ?? [],
+                template: definition.template ?? '',
+                elementTag: `block-${definition.block}`
+              }
             }
           }
         }
       }
-    }
-
-    app = fastify()
-    await app.register(fastifySensible)
-    await registerErrorSchema(app)
-    await registerBlockSchema(app)
-    // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
-    //    plugin-only app has to register it to answer that case the way the real app does.
-    app.addHook('preHandler', siteEnabledPreHandler)
-    await registerParamsSchemas(app)
-    await app.register(blocksRoutes)
-    await app.ready()
+    })
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     createCustomBlockCalls = []
@@ -233,14 +225,10 @@ export class BlockWidget extends HTMLElement {
    * buffer.
    */
   test('rejects a payload larger than the configured upload size cap with 413', async () => {
-    ;(globalThis as any).WIKI.config.security.uploadMaxFileSize = 16
-    const smallApp = fastify()
-    await smallApp.register(fastifySensible)
-    await registerBlockSchema(smallApp)
-    await registerErrorSchema(smallApp)
-    await registerParamsSchemas(smallApp)
-    await smallApp.register(blocksRoutes)
-    await smallApp.ready()
+    WIKI.config.security.uploadMaxFileSize = 16
+    // -> No `wiki`: this app has to be built against the SAME global the enclosing describe
+    //    installed, with only the cap above changed.
+    const smallApp = await buildTestApp({ routes: blocksRoutes })
     try {
       const res = await smallApp.inject({
         method: 'POST',
@@ -251,8 +239,8 @@ export class BlockWidget extends HTMLElement {
       assert.equal(res.statusCode, 413)
       assert.equal(createCustomBlockCalls.length, 0)
     } finally {
-      await smallApp.close()
-      ;(globalThis as any).WIKI.config.security.uploadMaxFileSize = 10485760
+      await closeTestApp(smallApp)
+      WIKI.config.security.uploadMaxFileSize = 10485760
     }
   })
 })
@@ -322,50 +310,36 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
   let app: FastifyInstance
 
   before(async () => {
-    ;(globalThis as any).WIKI = {
-      sites,
-      models: {
-        blocks: { getSiteBlocks, setBlocksState, deleteCustomBlock },
-        groups: { actorForRequest, checkSiteAccess, checkSiteAdminAccess },
-        approvals: {
-          getActorGroupIds: () => [],
-          getRules: async () => []
-        }
-      },
-      config: { security: { uploadMaxFileSize: 10485760 } },
-      logger: { warn: () => {} }
+    // -> See the upload describe above: the unknown-site 404 is this hook's job now (spec D1).
+    const guardedRoutes: FastifyPluginAsync = async (instance) => {
+      instance.addHook('preHandler', siteEnabledPreHandler)
+      await instance.register(blocksRoutes)
     }
 
-    app = fastify()
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
-    //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-    //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
+    app = await buildTestApp({
+      routes: guardedRoutes,
+      // -> The site-permission stub takes no `req`, so it reads this suite's per-test grants off a
+      //    module-level variable, populated once per request.
+      session: (req: any) => {
+        currentSitePermissionHeader = req.headers['x-test-site-permissions']
+        return undefined
+      },
+      wiki: {
+        sites,
+        models: {
+          blocks: { getSiteBlocks, setBlocksState, deleteCustomBlock },
+          groups: { actorForRequest, checkSiteAccess, checkSiteAdminAccess },
+          approvals: {
+            getActorGroupIds: () => [],
+            getRules: async () => []
+          }
+        },
+        config: { security: { uploadMaxFileSize: 10485760 } }
+      }
     })
-    await registerErrorSchema(app)
-    await registerBlockSchema(app)
-    app.addHook('preHandler', (req: any, reply, done) => {
-      currentSitePermissionHeader = req.headers['x-test-site-permissions']
-      done()
-    })
-    // -> See the upload describe above: the unknown-site 404 is this hook's job now (spec D1).
-    app.addHook('preHandler', siteEnabledPreHandler)
-    await registerParamsSchemas(app)
-    await app.register(blocksRoutes)
-    await app.ready()
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     setBlocksStateCalls = []
@@ -454,44 +428,29 @@ describe('PUT /sites/:siteId/blocks (per-block config passthrough)', () => {
 
   let app: FastifyInstance
   let lastCall: { siteId: string; states: any[] } | null
+  let perTestWiki: { restore(): void }
 
   before(async () => {
-    // -> The upload route's addContentTypeParser reads WIKI.config.security.uploadMaxFileSize at
-    //    plugin-registration time, before beforeEach's own (fuller) WIKI stub is in place.
-    ;(globalThis as any).WIKI = { config: { security: { uploadMaxFileSize: 10485760 } } }
-    app = fastify({
-      ajv: {
-        plugins: [[ajvFormats.default, {}] as any]
-      }
-    })
-    await app.register(fastifySensible)
-    // -> Mirrors `index.ts`'s real `setErrorHandler` (same as the describe block above) — needed here
-    //    too now that one of this block's own tests throws a model-level `CustomError`.
-    app.setErrorHandler((error: any, req, reply) => {
-      reply.code(error.statusCode ?? 500).send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode ?? 500,
-        message: error.message
-      })
-    })
-    await registerErrorSchema(app)
-    await registerBlockSchema(app)
     // -> See the upload describe above: the unknown-site 404 is this hook's job now (spec D1).
-    app.addHook('preHandler', siteEnabledPreHandler)
-    await registerParamsSchemas(app)
-    await app.register(blocksRoutes)
-    await app.ready()
+    const guardedRoutes: FastifyPluginAsync = async (instance) => {
+      instance.addHook('preHandler', siteEnabledPreHandler)
+      await instance.register(blocksRoutes)
+    }
+
+    app = await buildTestApp({
+      routes: guardedRoutes,
+      ajv: true,
+      // -> The upload route's `addContentTypeParser` reads `WIKI.config.security.uploadMaxFileSize`
+      //    at plugin-registration time, before `beforeEach`'s own (fuller) stub is in place.
+      wiki: { config: { security: { uploadMaxFileSize: 10485760 } } }
+    })
   })
 
-  after(async () => {
-    await app.close()
-    delete (globalThis as any).WIKI
-  })
+  after(() => closeTestApp(app))
 
   beforeEach(() => {
     lastCall = null
-    ;(globalThis as any).WIKI = {
+    perTestWiki = installTestWiki({
       config: { security: { uploadMaxFileSize: 10485760 } },
       sites: { [SITE_ID]: { id: SITE_ID } },
       models: {
@@ -510,9 +469,12 @@ describe('PUT /sites/:siteId/blocks (per-block config passthrough)', () => {
           getActorGroupIds: () => [],
           getRules: async () => []
         }
-      },
-      logger: { warn: () => {} }
-    }
+      }
+    })
+  })
+
+  afterEach(() => {
+    perTestWiki.restore()
   })
 
   test('a state entry with a config object passes it straight through to the model', async () => {

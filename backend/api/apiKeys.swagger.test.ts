@@ -1,12 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import fastifySwagger from '@fastify/swagger'
 import apiKeysRoutes from './apiKeys.ts'
-import { registerSchemas as registerApiKeySchema } from './schemas/apiKey.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Task 622: the `siteId` and `scope` fields added to API keys (tasks 612/616) must actually surface
@@ -33,32 +29,20 @@ function schemaByTitle(doc: any, title: string) {
 }
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
-    models: {
-      groups: { hasUnknownGroupIds: async (ids: string[]) => ids.length > 0 },
-      apiKeys: { createKey: async () => ({}) }
-    },
-    data: { systemIds: { guestsGroupId: 'guests-group-id' } },
-    sites: {},
-    version: 'test'
-  }
-
-  app = fastify()
-  await app.register(fastifySensible)
-  await registerErrorSchema(app)
-  await app.register(fastifySwagger, {
-    hideUntagged: true,
-    openapi: { openapi: '3.1.0', info: { title: 'Wiki.js API', version: 'test' } }
+  app = await buildTestApp({
+    routes: apiKeysRoutes,
+    swagger: true,
+    wiki: {
+      models: {
+        groups: { hasUnknownGroupIds: async (ids: string[]) => ids.length > 0 },
+        apiKeys: { createKey: async () => ({}) }
+      },
+      data: { systemIds: { guestsGroupId: 'guests-group-id' } }
+    }
   })
-  await registerApiKeySchema(app)
-  await app.register(apiKeysRoutes)
-  await app.ready()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 test('the ApiKey schema documents siteId and scope', () => {
   const doc: any = app.swagger()

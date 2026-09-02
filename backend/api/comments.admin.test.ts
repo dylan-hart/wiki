@@ -1,8 +1,6 @@
 import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
-import fastify from 'fastify'
-import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import {
@@ -12,12 +10,9 @@ import {
 } from '../db/schema.ts'
 import { siteEnabledPreHandler } from '../helpers/siteResolution.ts'
 import commentsRoutes from './comments.ts'
-import { registerSchemas as registerCommentSchema } from './schemas/comment.ts'
-import { registerSchemas as registerCommentProviderSchema } from './schemas/commentProvider.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import type { GroupRule } from '../models/groups.ts'
 import type { PageActor } from '../models/pages.ts'
-import { registerParamsSchemas } from './schemas/params.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * DB-backed route test for `GET/DELETE /sites/:siteId/comments` (Task 625, Feature 394).
@@ -49,24 +44,19 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
     ;({ comments: commentsModel } = await import('../models/comments.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
 
-    app = fastify()
-    app.addHook('onRequest', async (req) => {
-      ;(req as any).session = testSession
-    })
-    await app.register(fastifySensible)
-    await registerErrorSchema(app)
-    await registerCommentSchema(app)
-    await registerCommentProviderSchema(app)
-    // -> The unknown-site 404 lives in this one hook now (spec D1), not in each route handler, so a
+    // -> The unknown-site 404 lives in one hook now (spec D1), not in each route handler, so a
     //    plugin-only app has to register it to answer that case the way the real app does.
-    app.addHook('preHandler', siteEnabledPreHandler)
-    await registerParamsSchemas(app)
-    await app.register(commentsRoutes)
-    await app.ready()
+    const guardedRoutes: FastifyPluginAsync = async (instance) => {
+      instance.addHook('preHandler', siteEnabledPreHandler)
+      await instance.register(commentsRoutes)
+    }
+
+    // -> No `wiki`: `setupTestDb()` already installed the real one, and these routes run against it.
+    app = await buildTestApp({ routes: guardedRoutes, session: () => testSession })
   })
 
   after(async () => {
-    await app.close()
+    await closeTestApp(app)
     await teardownTestDb()
   })
 

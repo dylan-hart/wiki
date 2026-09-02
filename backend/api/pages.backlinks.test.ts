@@ -1,15 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
 import pagesRoutes from './pages.ts'
-import { registerSchemas as registerPageSchema } from './schemas/page.ts'
-import { registerSchemas as registerApprovalSchema } from './schemas/approval.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
-import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
-import { registerParamsSchemas } from './schemas/params.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Route-wiring tests for `GET /sites/:siteId/pages/:pageId/backlinks` (OpenProject #1914).
@@ -71,7 +64,7 @@ function checkAccess(
 let app: FastifyInstance
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
+  const wiki = {
     models: {
       pages: { getPage, listBacklinks },
       groups: { actorForRequest, checkAccess, groupIdsForRequest: () => [] },
@@ -87,48 +80,15 @@ before(async () => {
     }
   }
 
-  app = fastify({
-    ajv: {
-      plugins: [[ajvFormats.default, {}] as any]
-    }
+  app = await buildTestApp({
+    routes: pagesRoutes,
+    ajv: true,
+    wiki,
+    session: 'header'
   })
-  await app.register(fastifySensible)
-  await registerErrorSchema(app)
-  await registerPageSchema(app)
-  await registerApprovalSchema(app)
-  await registerPageImportSchema(app)
-  app.addHook('onRequest', async (req) => {
-    const raw = req.headers['x-test-session']
-    if (typeof raw === 'string') {
-      ;(req as any).session = JSON.parse(raw)
-    }
-  })
-  app.setErrorHandler((error: any, req, reply) => {
-    if (error.statusCode) {
-      reply.code(error.statusCode).type('application/json').send({
-        ok: false,
-        error: error.name,
-        statusCode: error.statusCode,
-        message: error.message
-      })
-    } else {
-      reply.code(500).type('application/json').send({
-        ok: false,
-        error: 'Internal Server Error',
-        statusCode: 500,
-        message: 'Internal Server error'
-      })
-    }
-  })
-  await registerParamsSchemas(app)
-  await app.register(pagesRoutes)
-  await app.ready()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 beforeEach(() => {
   pageFixture = {

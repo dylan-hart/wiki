@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
 import {
   hasTestDatabase,
   setupTestDb,
@@ -12,10 +9,8 @@ import {
   type TestFixtures
 } from '../test/db.ts'
 import sitesRoutes from './sites.ts'
-import { registerSchemas as registerSiteSchema } from './schemas/site.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import type { PageActor } from '../models/pages.ts'
-import { registerParamsSchemas } from './schemas/params.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * DB-backed route test for `PUT /:siteId`'s locale-deactivation guard (Task 995, decision doc Option
@@ -52,42 +47,14 @@ describe(
       await seedLocale(fixtures.db, { code: 'en' })
       await seedLocale(fixtures.db, { code: 'fr' })
 
-      app = fastify({
-        ajv: {
-          plugins: [[ajvFormats.default, {}] as any],
-          onCreate: (ajv: any) => {
-            ajv.addFormat('hexcolor', (data: unknown) => {
-              return (
-                typeof data === 'string' &&
-                /^#(?:[a-fA-F0-9]{3,4}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8})$/.test(data)
-              )
-            })
-          }
-        }
-      })
-      await app.register(fastifySensible)
-      // -> Mirrors `index.ts`'s real `setErrorHandler`: a thrown `CustomError` is shaped into the
-      //    `{ ok, error, statusCode, message }` body the assertions below read `error`/`message` off.
-      app.setErrorHandler((error: any, _req, reply) => {
-        reply.code(error.statusCode ?? 500).send({
-          ok: false,
-          error: error.name,
-          statusCode: error.statusCode ?? 500,
-          message: error.message
-        })
-      })
-      await registerErrorSchema(app)
-      await registerSiteSchema(app)
-      app.addHook('onRequest', async (req) => {
-        ;(req as any).session = testSession
-      })
-      await registerParamsSchemas(app)
-      await app.register(sitesRoutes)
-      await app.ready()
+      // -> `buildTestApp` brings the REAL error handler, which shapes a thrown `CustomError` into
+      //    the `{ ok, error, statusCode, message }` body the assertions below read `error`/`message`
+      //    off. No `wiki`: `setupTestDb()` already installed the real one.
+      app = await buildTestApp({ routes: sitesRoutes, ajv: true, session: () => testSession })
     })
 
     after(async () => {
-      await app.close()
+      await closeTestApp(app)
       await teardownTestDb()
     })
 

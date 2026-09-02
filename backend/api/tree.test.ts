@@ -1,14 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
 import treeRoutes from './tree.ts'
 import { mayOnFolder, visibleTreeItems } from '../helpers/pageAccess.ts'
-import { registerSchemas as registerTreeSchema } from './schemas/tree.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
-import { registerParamsSchemas } from './schemas/params.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Regression tests for task 676: `visibleTreeItems` and `mayOnFolder` take an explicit `siteId` and
@@ -25,7 +20,7 @@ const FOLDER_ID = '55555555-5555-4555-8555-555555555555'
 let app: FastifyInstance
 
 before(async () => {
-  ;(globalThis as any).WIKI = {
+  const wiki = {
     sites: { [ENABLED_SITE_ID]: { id: ENABLED_SITE_ID, isEnabled: true, config: {} } },
     models: {
       tree: {
@@ -72,47 +67,24 @@ before(async () => {
     }
   }
 
-  app = fastify({
-    ajv: {
-      plugins: [[ajvFormats.default, {}] as any]
+  app = await buildTestApp({
+    routes: treeRoutes,
+    ajv: true,
+    wiki,
+    // -> Stands in for the real session plugin: a request carrying `x-test-session` gets the session
+    //    it names, exactly the shape `!req.session?.authenticated` in BROWSE THE TREE's handler
+    //    reads, and what DELETE FOLDER's `actorFrom(req)` needs to get past its own 401 -- tests
+    //    exercising that route send the header explicitly (`sessionHeader()`), so the default here
+    //    stays unauthenticated, matching the existing "publicOnly: true for an unauthenticated
+    //    request" coverage below.
+    session: (req: any) => {
+      const raw = req.headers['x-test-session']
+      return typeof raw === 'string' ? JSON.parse(raw) : {}
     }
   })
-  await app.register(fastifySensible)
-  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/`unauthorized()`
-  //    is a thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-  //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError#` response schema every
-  //    route's 4xx entries reference requires. Needed here because DELETE FOLDER's #2100 tests are the
-  //    first in this file to actually exercise a 4xx response.
-  app.setErrorHandler((error: any, _req, reply) => {
-    reply.code(error.statusCode ?? 500).send({
-      ok: false,
-      error: error.name,
-      statusCode: error.statusCode ?? 500,
-      message: error.message
-    })
-  })
-  // -> Stands in for the real session plugin (`@fastify/session`, wired in `index.ts`): a request
-  //    carrying this header gets the session it names, exactly the shape
-  //    `!req.session?.authenticated` in BROWSE THE TREE's handler reads, and what DELETE FOLDER's
-  //    `actorFrom(req)` needs to get past its own 401 -- tests exercising that route send the header
-  //    explicitly (`sessionHeader()`), so the default here stays unauthenticated, matching the
-  //    existing "publicOnly: true for an unauthenticated request" coverage below.
-  app.decorateRequest('session', null as any)
-  app.addHook('onRequest', async (req) => {
-    const raw = req.headers['x-test-session']
-    ;(req as any).session = typeof raw === 'string' ? JSON.parse(raw) : {}
-  })
-  await registerTreeSchema(app)
-  await registerErrorSchema(app)
-  await registerParamsSchemas(app)
-  await app.register(treeRoutes)
-  await app.ready()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 test('visibleTreeItems: threads siteId into every filtered item, not just the first', () => {
   const calls: any[] = []

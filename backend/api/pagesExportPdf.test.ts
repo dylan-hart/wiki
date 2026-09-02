@@ -1,16 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, mock, test } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import ajvFormats from 'ajv-formats'
 import pagesRoutes from './pages.ts'
-import { registerSchemas as registerApprovalSchema } from './schemas/approval.ts'
-import { registerSchemas as registerPageSchema } from './schemas/page.ts'
-import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
-import { registerParamsSchemas } from './schemas/params.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * Route-level test for `GET /sites/:siteId/pages/:pageId/export/pdf` — OpenProject #2258/#2262.
@@ -41,7 +34,7 @@ before(async () => {
   getPage = mock.fn(async () => ({ id: PAGE_ID, path: 'getting-started', isLocked: false }))
   exportPdf = mock.fn(async () => Buffer.from('%PDF-fake'))
 
-  ;(globalThis as any).WIKI = {
+  const wiki = {
     config: { port: 3000 },
     models: {
       groups: {
@@ -66,48 +59,24 @@ before(async () => {
     }
   }
 
-  app = fastify({
-    ajv: {
-      plugins: [[ajvFormats.default, {}] as any]
+  app = await buildTestApp({
+    routes: pagesRoutes,
+    ajv: true,
+    wiki,
+    // -> Stands in for the real `@fastify/session` and `@fastify/cookie` plugins: every request is
+    //    an authenticated user carrying whatever `x-test-cookie` sends as its session cookie, unless
+    //    it opts out with `x-test-anon`.
+    session: (req: any) => {
+      const cookie = req.headers['x-test-cookie']
+      req.cookies = typeof cookie === 'string' ? { [SESSION_COOKIE_NAME]: cookie } : {}
+      return req.headers['x-test-anon'] === 'true'
+        ? undefined
+        : { authenticated: true, user: { id: 'user-1' }, permissions: [] }
     }
   })
-  await app.register(fastifySensible)
-  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.unauthorized()`/`notFound()`/`forbidden()`
-  //    etc. is a thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default --
-  //    that shapes it into the `{ ok, error, statusCode, message }` the route's `ApiError` responses
-  //    (401/403/404) expect.
-  app.setErrorHandler((error: any, _req, reply) => {
-    reply.code(error.statusCode ?? 500).send({
-      ok: false,
-      error: error.name,
-      statusCode: error.statusCode ?? 500,
-      message: error.message
-    })
-  })
-  // -> Stands in for the real `@fastify/session` and `@fastify/cookie` plugins: every request is an
-  //    authenticated user carrying whatever `x-test-cookie` sends as its session cookie, unless it
-  //    opts out with `x-test-anon`.
-  app.addHook('onRequest', (req, _reply, done) => {
-    if (req.headers['x-test-anon'] !== 'true') {
-      ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
-    }
-    const cookie = req.headers['x-test-cookie']
-    ;(req as any).cookies = typeof cookie === 'string' ? { [SESSION_COOKIE_NAME]: cookie } : {}
-    done()
-  })
-  await registerErrorSchema(app)
-  await registerApprovalSchema(app)
-  await registerPageSchema(app)
-  await registerPageImportSchema(app)
-  await registerParamsSchemas(app)
-  await app.register(pagesRoutes)
-  await app.ready()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 beforeEach(() => {
   checkAccess.mock.resetCalls()

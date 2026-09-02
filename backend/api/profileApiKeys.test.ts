@@ -1,14 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, afterEach, before, test } from 'node:test'
 import { mock } from 'node:test'
-import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
-import fastifySensible from '@fastify/sensible'
-import fastifySwagger from '@fastify/swagger'
 import usersRoutes from './users.ts'
-import { registerSchemas as registerApiKeySchema } from './schemas/apiKey.ts'
-import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
-import { registerSchemas as registerUserSchema } from './schemas/user.ts'
+import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 
 /**
  * OpenProject #788: the self-service `/users/profile/api-keys*` routes — list/create/revoke a
@@ -43,55 +38,27 @@ before(async () => {
   getKeyByIdMock = mock.fn(async () => null)
   revokeKeyForUserMock = mock.fn(async () => true)
   auditLogRecordMock = mock.fn(async () => {})
-  ;(globalThis as any).WIKI = {
-    models: {
-      apiKeys: {
-        listKeysForUser: listKeysForUserMock,
-        createKey: createKeyMock,
-        getKeyById: getKeyByIdMock,
-        revokeKeyForUser: revokeKeyForUserMock
-      },
-      auditLog: {
-        record: auditLogRecordMock
+  app = await buildTestApp({
+    routes: usersRoutes,
+    swagger: true,
+    session: 'header',
+    wiki: {
+      models: {
+        apiKeys: {
+          listKeysForUser: listKeysForUserMock,
+          createKey: createKeyMock,
+          getKeyById: getKeyByIdMock,
+          revokeKeyForUser: revokeKeyForUserMock
+        },
+        auditLog: {
+          record: auditLogRecordMock
+        }
       }
-    },
-    sites: {}
-  }
-
-  app = fastify()
-  await app.register(fastifySensible)
-  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.unauthorized()`/`notFound()`/`conflict()`
-  //    is a thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-  //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects. Without
-  //    it, every non-2xx response here fails to serialize against `ApiError#` and comes back 500.
-  app.setErrorHandler((error: any, req, reply) => {
-    reply.code(error.statusCode ?? 500).send({
-      ok: false,
-      error: error.name,
-      statusCode: error.statusCode ?? 500,
-      message: error.message
-    })
+    }
   })
-  await app.register(fastifySwagger, {
-    hideUntagged: true,
-    openapi: { openapi: '3.1.0', info: { title: 'test', version: '0.0.0' } }
-  })
-  app.addHook('onRequest', async (req) => {
-    const raw = req.headers['x-test-session']
-    ;(req as any).session = raw ? JSON.parse(raw as string) : undefined
-  })
-
-  await registerErrorSchema(app)
-  await registerApiKeySchema(app)
-  await registerUserSchema(app)
-  await app.register(usersRoutes)
-  await app.ready()
 })
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+after(() => closeTestApp(app))
 
 afterEach(() => {
   listKeysForUserMock.mock.resetCalls()
