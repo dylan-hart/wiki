@@ -183,6 +183,80 @@ const profilePrefsKeys = [
 const avatarSize = 180
 
 /**
+ * One local-provider user row, as an insert value.
+ *
+ * The same literal — a six-key local auth entry, the three `meta` fields, the five `prefs` fields —
+ * was written out three times: `createUser()`, `importLocalUser()` and `init()`'s seeded
+ * administrator. They cannot call each other (`importLocalUser`'s doc comment explains why reusing
+ * `createUser` would double-hash an already-hashed password, and `init` runs before
+ * `WIKI.data.systemIds` exists), but they can share the shape they all write.
+ *
+ * `meta`/`prefs` fall back through the caller's value, then the instance-wide user defaults an
+ * administrator can change, then a literal — the chain `createUser` and `importLocalUser` already
+ * used, and the values `base.yml` seeds those defaults with, which is what `init()` wrote by hand.
+ * `createdAt`/`updatedAt`/`lastLoginAt` left undefined are omitted by drizzle, so the columns take
+ * their own defaults rather than being written as a literal.
+ */
+function localUserRow(input: {
+  id?: string
+  strategyId: string
+  email: string
+  name: string
+  /** Already hashed — nothing here calls `bcrypt.hash()`; every caller hashes (or carries) its own. */
+  passwordHash: string
+  mustChangePassword: boolean
+  isActive: boolean
+  isVerified: boolean
+  meta?: { location?: string; jobTitle?: string; pronouns?: string }
+  prefs?: {
+    timezone?: string
+    dateFormat?: string
+    timeFormat?: string
+    appearance?: string
+    cvd?: string
+  }
+  createdAt?: Date
+  updatedAt?: Date
+  lastLoginAt?: Date
+}): typeof usersTable.$inferInsert {
+  const meta = input.meta ?? {}
+  const prefs = input.prefs ?? {}
+  return {
+    id: input.id,
+    email: input.email.toLowerCase(),
+    name: input.name,
+    auth: {
+      [input.strategyId]: {
+        password: input.passwordHash,
+        mustChangePwd: input.mustChangePassword,
+        restrictLogin: false,
+        tfaIsActive: false,
+        tfaRequired: false,
+        tfaSecret: ''
+      }
+    },
+    isSystem: false,
+    isActive: input.isActive,
+    isVerified: input.isVerified,
+    meta: {
+      location: meta.location ?? '',
+      jobTitle: meta.jobTitle ?? '',
+      pronouns: meta.pronouns ?? ''
+    },
+    prefs: {
+      timezone: prefs.timezone ?? WIKI.config.userDefaults?.timezone ?? 'America/New_York',
+      dateFormat: prefs.dateFormat ?? WIKI.config.userDefaults?.dateFormat ?? 'YYYY-MM-DD',
+      timeFormat: prefs.timeFormat ?? WIKI.config.userDefaults?.timeFormat ?? '12h',
+      appearance: prefs.appearance ?? 'site',
+      cvd: prefs.cvd ?? 'none'
+    },
+    createdAt: input.createdAt,
+    updatedAt: input.updatedAt,
+    lastLoginAt: input.lastLoginAt
+  }
+}
+
+/**
  * Advisory-lock key for serializing writes to one user's whole-blob `auth` column.
  *
  * Every read-modify-write against `users.auth` -- a password change, a TFA toggle, a recovery-code
@@ -198,6 +272,18 @@ const avatarSize = 180
 function authLockKey(userId: string): string {
   return `wiki:user-auth:${userId}`
 }
+
+/**
+ * What a strategy's auth entry is patched with when 2FA is turned off: inactive, secret forgotten,
+ * recovery codes thrown away — so setting it up again starts from a genuinely new secret rather than
+ * silently re-arming the old one.
+ *
+ * Shared by `disableTfa()` (the user's own choice, refused when enforcement is on) and
+ * `adminInvalidateTfa()` (an administrator overriding exactly that enforcement). The two methods stay
+ * separate for the reason `adminInvalidateTfa`'s own doc comment gives — that is about who may ask,
+ * not about what gets written, and what gets written is this.
+ */
+const CLEARED_TFA = { tfaIsActive: false, tfaSecret: '', recoveryCodes: [] }
 
 /**
  * Count a wrong 2FA code against a continuation token, destroying the token once `maxTfaAttempts`
@@ -484,35 +570,7 @@ class Users {
     }
 
     const groups = await this.getUserGroups(id)
-
-    const strategies = await WIKI.db.select().from(authenticationTable)
-    const auth: UserAuthProvider[] = []
-    for (const [strategyId, rawConfig] of Object.entries(
-      (user.auth ?? {}) as Record<string, any>
-    )) {
-      const strategy = strategies.find((s: any) => s.id === strategyId)
-      const definition = WIKI.data.authentication?.find((d: any) => d.key === strategy?.module)
-      const { password, tfaSecret, tfaIsActive, tfaRequired, recoveryCodes, ...config } =
-        rawConfig ?? {}
-      auth.push({
-        authId: strategyId,
-        authName: strategy?.displayName || definition?.title || strategy?.module || 'Unknown',
-        strategyKey: strategy?.module ?? 'unknown',
-        strategyIcon: definition?.icon ?? '',
-        config: {
-          ...config,
-          isPasswordSet: Boolean(password),
-          // -> Named as the profile page's own view names them, so one piece of state is not called two
-          //    things across the API. Whether 2FA is set up is `tfaIsActive` and a stored secret both:
-          //    a secret that was generated but never confirmed is not 2FA being on.
-          isTfaSetup: Boolean(tfaIsActive && tfaSecret),
-          isTfaRequired: Boolean(tfaRequired),
-          recoveryCodesRemaining: tfaIsActive
-            ? ((recoveryCodes ?? []) as RecoveryCodeEntry[]).filter((entry) => !entry.usedAt).length
-            : 0
-        }
-      })
-    }
+    const auth = await this.describeLinkedProviders(user)
 
     return {
       id: user.id,
@@ -568,36 +626,19 @@ class Users {
     const userId = await WIKI.db.transaction(async (tx) => {
       const result = await tx
         .insert(usersTable)
-        .values({
-          email: email.toLowerCase(),
-          name,
-          auth: {
-            [localStrategyId]: {
-              password: passwordHash,
-              mustChangePwd: mustChangePassword,
-              restrictLogin: false,
-              tfaIsActive: false,
-              tfaRequired: false,
-              tfaSecret: ''
-            }
-          },
-          isSystem: false,
-          isActive: true,
-          isVerified,
-          meta: {
-            location: '',
-            jobTitle: '',
-            pronouns: ''
-          },
-          prefs: {
-            // -> Seeded from the instance-wide user defaults, which an administrator can change
-            timezone: WIKI.config.userDefaults?.timezone ?? 'America/New_York',
-            dateFormat: WIKI.config.userDefaults?.dateFormat ?? 'YYYY-MM-DD',
-            timeFormat: WIKI.config.userDefaults?.timeFormat ?? '12h',
-            appearance: 'site',
-            cvd: 'none'
-          }
-        })
+        // -> `meta`/`prefs` left to `localUserRow`, which seeds them from the instance-wide user
+        //    defaults an administrator can change
+        .values(
+          localUserRow({
+            strategyId: localStrategyId,
+            email,
+            name,
+            passwordHash,
+            mustChangePassword,
+            isActive: true,
+            isVerified
+          })
+        )
         .returning({ id: usersTable.id })
 
       const newUserId = result[0].id
@@ -730,38 +771,22 @@ class Users {
     try {
       result = await WIKI.db
         .insert(usersTable)
-        .values({
-          email: normalizedEmail,
-          name,
-          auth: {
-            [localStrategyId]: {
-              password: passwordHash,
-              mustChangePwd: mustChangePassword,
-              restrictLogin: false,
-              tfaIsActive: false,
-              tfaRequired: false,
-              tfaSecret: ''
-            }
-          },
-          isSystem: false,
-          isActive,
-          isVerified,
-          meta: {
-            location: meta.location ?? '',
-            jobTitle: meta.jobTitle ?? '',
-            pronouns: meta.pronouns ?? ''
-          },
-          prefs: {
-            timezone: prefs.timezone ?? WIKI.config.userDefaults?.timezone ?? 'America/New_York',
-            dateFormat: prefs.dateFormat ?? WIKI.config.userDefaults?.dateFormat ?? 'YYYY-MM-DD',
-            timeFormat: prefs.timeFormat ?? WIKI.config.userDefaults?.timeFormat ?? '12h',
-            appearance: prefs.appearance ?? 'site',
-            cvd: prefs.cvd ?? 'none'
-          },
-          createdAt,
-          updatedAt,
-          lastLoginAt
-        })
+        .values(
+          localUserRow({
+            strategyId: localStrategyId,
+            email: normalizedEmail,
+            name,
+            passwordHash,
+            mustChangePassword,
+            isActive,
+            isVerified,
+            meta,
+            prefs,
+            createdAt,
+            updatedAt,
+            lastLoginAt
+          })
+        )
         .returning({ id: usersTable.id })
     } catch (err: any) {
       // -> See the collision-policy note above: a race between the pre-check and this insert still
@@ -1111,6 +1136,84 @@ class Users {
   }
 
   /**
+   * The read-modify-write every `users.auth` change is made of, in one place.
+   *
+   * Fourteen methods — a password set or change, each 2FA transition, a recovery-code redemption, the
+   * TOTP replay counter, a provider link written on login — each wrote out the same five moves:
+   * take {@link authLockKey}'s per-user advisory lock, re-read the row INSIDE it (never trusting a
+   * `user` the caller loaded earlier, which is the whole point of the lock — see `authLockKey`'s own
+   * doc comment on the lost update this prevents), merge a patch into that strategy's entry, and
+   * write the whole `auth` blob back with a bumped `updatedAt`.
+   *
+   * @param mutate Given this strategy's CURRENT entry (undefined when the user has none), returns the
+   *   fields to merge into it — or `null` to make the whole call a no-op, which is how a redemption
+   *   that finds nothing to redeem, or a replayed TOTP code, declines to write anything at all
+   * @param opts.db Runs the read and the write on this handle rather than `WIKI.db`, so a caller
+   *   already inside a transaction is joined rather than raced
+   * @param opts.mirrorInto Copies the freshly-written blob onto a caller's own stale `user` object, so
+   *   a login flow holding a row from before this write keeps reading its own change back
+   * @returns Whether a write actually happened: false when the user is gone, or `mutate` declined
+   */
+  private async patchStrategyAuth(
+    userId: string,
+    strategyId: string,
+    mutate: (
+      entry: Record<string, any> | undefined
+    ) => Record<string, any> | null | Promise<Record<string, any> | null>,
+    opts: { db?: WikiDbOrTx; mirrorInto?: { auth: unknown } } = {}
+  ): Promise<boolean> {
+    const db = opts.db ?? WIKI.db
+    return withAdvisoryLock(authLockKey(userId), async () => {
+      const current = await this.getById(userId, db)
+      if (!current) {
+        return false
+      }
+      const currentAuth = (current.auth ?? {}) as Record<string, any>
+      const patch = await mutate(currentAuth[strategyId])
+      if (patch === null) {
+        return false
+      }
+      currentAuth[strategyId] = { ...currentAuth[strategyId], ...patch }
+      if (opts.mirrorInto) {
+        opts.mirrorInto.auth = currentAuth
+      }
+      await db
+        .update(usersTable)
+        .set({ auth: currentAuth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, userId))
+      return true
+    })
+  }
+
+  /**
+   * The pre-flight every 2FA and password-login method makes before touching a strategy's auth entry:
+   * the user exists, it actually has an entry for this strategy, and (where the caller asks) 2FA is
+   * currently active on it. Six methods each wrote out the same two or three guards.
+   *
+   * @param opts.tfaActive Also require `tfaIsActive` on the entry
+   * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY` or `ERR_TFA_NOT_ACTIVE`
+   */
+  private async requireStrategyAuth(
+    userId: string,
+    strategyId: string,
+    opts: { tfaActive?: boolean } = {}
+  ): Promise<{ user: any; auth: Record<string, any>; entry: Record<string, any> }> {
+    const user = await this.getById(userId)
+    if (!user) {
+      throw new Error('ERR_INVALID_USER')
+    }
+    const auth = (user.auth ?? {}) as Record<string, any>
+    const entry = auth[strategyId]
+    if (!entry) {
+      throw new Error('ERR_INVALID_STRATEGY')
+    }
+    if (opts.tfaActive && !entry.tfaIsActive) {
+      throw new Error('ERR_TFA_NOT_ACTIVE')
+    }
+    return { user, auth, entry }
+  }
+
+  /**
    * Update the local-strategy behaviour flags for a user, leaving secrets and any other linked
    * provider untouched.
    *
@@ -1122,33 +1225,24 @@ class Users {
     flags: Record<string, any>,
     db: WikiDbOrTx = WIKI.db
   ): Promise<boolean> {
-    return withAdvisoryLock(authLockKey(id), async () => {
-      const user = await this.getById(id, db)
-      if (!user) {
-        return false
-      }
-
-      const localStrategyId = WIKI.data.systemIds.localAuthId
-      const auth = (user.auth ?? {}) as Record<string, any>
-      const current = auth[localStrategyId]
-      if (!current) {
-        // -> The user does not use local authentication, so there are no local flags to set
-        return false
-      }
-
-      for (const key of ['mustChangePwd', 'restrictLogin', 'tfaRequired'] as const) {
-        if (flags[key] !== undefined) {
-          current[key] = Boolean(flags[key])
+    return this.patchStrategyAuth(
+      id,
+      WIKI.data.systemIds.localAuthId,
+      (entry) => {
+        if (!entry) {
+          // -> The user does not use local authentication, so there are no local flags to set
+          return null
         }
-      }
-      auth[localStrategyId] = current
-
-      await db
-        .update(usersTable)
-        .set({ auth, updatedAt: sql`now()` })
-        .where(eq(usersTable.id, id))
-      return true
-    })
+        const patch: Record<string, any> = {}
+        for (const key of ['mustChangePwd', 'restrictLogin', 'tfaRequired'] as const) {
+          if (flags[key] !== undefined) {
+            patch[key] = Boolean(flags[key])
+          }
+        }
+        return patch
+      },
+      { db }
+    )
   }
 
   /**
@@ -1220,26 +1314,10 @@ class Users {
     mustChangePassword?: boolean
   }): Promise<boolean> {
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS)
-    return withAdvisoryLock(authLockKey(id), async () => {
-      const user = await this.getById(id)
-      if (!user) {
-        return false
-      }
-
-      const localStrategyId = WIKI.data.systemIds.localAuthId
-      const auth = (user.auth ?? {}) as Record<string, any>
-      auth[localStrategyId] = {
-        ...auth[localStrategyId],
-        password: passwordHash,
-        mustChangePwd: mustChangePassword
-      }
-
-      await WIKI.db
-        .update(usersTable)
-        .set({ auth, updatedAt: sql`now()` })
-        .where(eq(usersTable.id, id))
-      return true
-    })
+    return this.patchStrategyAuth(id, WIKI.data.systemIds.localAuthId, () => ({
+      password: passwordHash,
+      mustChangePwd: mustChangePassword
+    }))
   }
 
   /**
@@ -1254,36 +1332,71 @@ class Users {
     if (!user) {
       return []
     }
+    return this.describeLinkedProviders(user, { forProfile: true })
+  }
 
+  /**
+   * Reshape a user's stored `auth` blob into the linked-provider list an API response carries —
+   * resolving each strategy id to its row and module definition for the display name and icon, and
+   * deriving only state from the entry, never a secret.
+   *
+   * The two views this serves differ in what they say about each provider, not in how they find it:
+   * the administrator's (`getUserDetail`) passes through whatever provider-specific keys the entry
+   * carries alongside the derived flags, while the user's own (`getProfileAuthMethods`) reports a
+   * fixed set and adds the two things only the account holder acts on — whether password login is on,
+   * and whether there is another way in to allow turning it off. `isTfaRequired` differs with it: the
+   * profile view greys the "turn off 2FA" button out for a strategy that enforces 2FA on everyone, so
+   * it ORs the strategy's own `enforceTfa` in; the admin view reports this user's own flag.
+   */
+  private async describeLinkedProviders(
+    user: any,
+    opts: { forProfile: true }
+  ): Promise<UserProfileAuthMethod[]>
+  private async describeLinkedProviders(
+    user: any,
+    opts?: { forProfile?: false }
+  ): Promise<UserAuthProvider[]>
+  private async describeLinkedProviders(
+    user: any,
+    opts: { forProfile?: boolean } = {}
+  ): Promise<UserAuthProvider[]> {
     const strategies = await WIKI.db.select().from(authenticationTable)
-    const methods: UserProfileAuthMethod[] = []
+    const providers: UserAuthProvider[] = []
     for (const [strategyId, rawConfig] of Object.entries(
       (user.auth ?? {}) as Record<string, any>
     )) {
       const strategy = strategies.find((s: any) => s.id === strategyId)
       const definition = WIKI.data.authentication?.find((d: any) => d.key === strategy?.module)
-      const config = rawConfig ?? {}
-      methods.push({
+      const { password, tfaSecret, tfaIsActive, tfaRequired, recoveryCodes, ...rest } =
+        rawConfig ?? {}
+      const shared = {
+        isPasswordSet: Boolean(password),
+        // -> Named as the profile page's own view names them, so one piece of state is not called two
+        //    things across the API. Whether 2FA is set up is `tfaIsActive` and a stored secret both:
+        //    a secret that was generated but never confirmed is not 2FA being on.
+        isTfaSetup: Boolean(tfaIsActive && tfaSecret),
+        recoveryCodesRemaining: tfaIsActive
+          ? ((recoveryCodes ?? []) as RecoveryCodeEntry[]).filter((entry) => !entry.usedAt).length
+          : 0
+      }
+      providers.push({
         authId: strategyId,
         authName: strategy?.displayName || definition?.title || strategy?.module || 'Unknown',
         strategyKey: strategy?.module ?? 'unknown',
         strategyIcon: definition?.icon ?? '',
-        config: {
-          isPasswordSet: Boolean(config.password),
-          isTfaSetup: Boolean(config.tfaIsActive && config.tfaSecret),
-          isTfaRequired: Boolean(
-            config.tfaRequired || (strategy?.config as Record<string, any>)?.enforceTfa
-          ),
-          isPasswordLoginEnabled: !config.restrictLogin,
-          canDisablePasswordLogin: countAlternativeLogins(user, strategyId) > 0,
-          recoveryCodesRemaining: config.tfaIsActive
-            ? ((config.recoveryCodes ?? []) as RecoveryCodeEntry[]).filter((entry) => !entry.usedAt)
-                .length
-            : 0
-        }
+        config: opts.forProfile
+          ? {
+              ...shared,
+              isTfaRequired: Boolean(
+                tfaRequired || (strategy?.config as Record<string, any>)?.enforceTfa
+              ),
+              isPasswordLoginEnabled: !rawConfig?.restrictLogin,
+              canDisablePasswordLogin: countAlternativeLogins(user, strategyId) > 0
+            }
+          : { ...rest, ...shared, isTfaRequired: Boolean(tfaRequired) }
       })
     }
-    return methods
+    return providers
   }
 
   /**
@@ -1329,19 +1442,10 @@ class Users {
     }
 
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS)
-    await withAdvisoryLock(authLockKey(userId), async () => {
-      const current = await this.getById(userId)
-      const currentAuth = (current?.auth ?? {}) as Record<string, any>
-      currentAuth[strategyId] = {
-        ...currentAuth[strategyId],
-        password: passwordHash,
-        mustChangePwd: false
-      }
-      await WIKI.db
-        .update(usersTable)
-        .set({ auth: currentAuth, updatedAt: sql`now()` })
-        .where(eq(usersTable.id, userId))
-    })
+    await this.patchStrategyAuth(userId, strategyId, () => ({
+      password: passwordHash,
+      mustChangePwd: false
+    }))
   }
 
   /**
@@ -1365,19 +1469,12 @@ class Users {
     strategyId: string
     isEnabled: boolean
   }): Promise<void> {
-    const user = await this.getById(userId)
-    if (!user) {
-      throw new Error('ERR_INVALID_USER')
-    }
-    const auth = (user.auth ?? {}) as Record<string, any>
-    if (!auth[strategyId]) {
-      throw new Error('ERR_INVALID_STRATEGY')
-    }
+    const { user, entry } = await this.requireStrategyAuth(userId, strategyId)
 
     // -> The flag is only ever read by the local module's `authenticate()`, so setting it on a provider
     //    that authenticates elsewhere would be a switch connected to nothing
     const strategy = await WIKI.models.authentication.getStrategyById(strategyId)
-    if (strategy?.module !== 'local' || !auth[strategyId].password) {
+    if (strategy?.module !== 'local' || !entry.password) {
       throw new Error('ERR_PASSWORD_LOGIN_NOT_APPLICABLE')
     }
 
@@ -1385,15 +1482,7 @@ class Users {
       throw new Error('ERR_NO_OTHER_LOGIN_METHOD')
     }
 
-    await withAdvisoryLock(authLockKey(userId), async () => {
-      const current = await this.getById(userId)
-      const currentAuth = (current?.auth ?? {}) as Record<string, any>
-      currentAuth[strategyId] = { ...currentAuth[strategyId], restrictLogin: !isEnabled }
-      await WIKI.db
-        .update(usersTable)
-        .set({ auth: currentAuth, updatedAt: sql`now()` })
-        .where(eq(usersTable.id, userId))
-    })
+    await this.patchStrategyAuth(userId, strategyId, () => ({ restrictLogin: !isEnabled }))
 
     WIKI.models.flags.authDebug(
       `User ${userId} <${user.email}> turned password login ${isEnabled ? 'on' : 'off'}`
@@ -1425,20 +1514,12 @@ class Users {
     const issuer = (site as any)?.config?.title || 'Wiki'
 
     const secret = generateTotpSecret()
-    await withAdvisoryLock(authLockKey(user.id), async () => {
-      const current = await this.getById(user.id)
-      const currentAuth = (current?.auth ?? {}) as Record<string, any>
-      currentAuth[strategyId] = {
-        ...currentAuth[strategyId],
-        tfaSecret: secret,
-        tfaIsActive: false
-      }
-      user.auth = currentAuth
-      await WIKI.db
-        .update(usersTable)
-        .set({ auth: currentAuth, updatedAt: sql`now()` })
-        .where(eq(usersTable.id, user.id))
-    })
+    await this.patchStrategyAuth(
+      user.id,
+      strategyId,
+      () => ({ tfaSecret: secret, tfaIsActive: false }),
+      { mirrorInto: user }
+    )
 
     return {
       secret,
@@ -1461,20 +1542,12 @@ class Users {
    */
   async enableTfa(user: any, strategyId: string): Promise<string[]> {
     const { plaintext, entries } = await issueRecoveryCodes()
-    await withAdvisoryLock(authLockKey(user.id), async () => {
-      const current = await this.getById(user.id)
-      const currentAuth = (current?.auth ?? {}) as Record<string, any>
-      currentAuth[strategyId] = {
-        ...currentAuth[strategyId],
-        tfaIsActive: true,
-        recoveryCodes: entries
-      }
-      user.auth = currentAuth
-      await WIKI.db
-        .update(usersTable)
-        .set({ auth: currentAuth, updatedAt: sql`now()` })
-        .where(eq(usersTable.id, user.id))
-    })
+    await this.patchStrategyAuth(
+      user.id,
+      strategyId,
+      () => ({ tfaIsActive: true, recoveryCodes: entries }),
+      { mirrorInto: user }
+    )
     WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> enabled 2FA`)
     return plaintext
   }
@@ -1485,39 +1558,16 @@ class Users {
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY`, `ERR_TFA_NOT_ACTIVE` or `ERR_TFA_ENFORCED`
    */
   async disableTfa(userId: string, strategyId: string): Promise<void> {
-    const user = await this.getById(userId)
-    if (!user) {
-      throw new Error('ERR_INVALID_USER')
-    }
-    const auth = (user.auth ?? {}) as Record<string, any>
-    if (!auth[strategyId]) {
-      throw new Error('ERR_INVALID_STRATEGY')
-    }
-    if (!auth[strategyId].tfaIsActive) {
-      throw new Error('ERR_TFA_NOT_ACTIVE')
-    }
+    const { user, entry } = await this.requireStrategyAuth(userId, strategyId, { tfaActive: true })
 
     // -> Turning it off would be undone at the next login, which is worth an error rather than a
     //    confusing round trip. The client greys the button out, but that is a client.
     const strategy = await WIKI.models.authentication.getStrategyById(strategyId)
-    if (auth[strategyId].tfaRequired || (strategy?.config as Record<string, any>)?.enforceTfa) {
+    if (entry.tfaRequired || (strategy?.config as Record<string, any>)?.enforceTfa) {
       throw new Error('ERR_TFA_ENFORCED')
     }
 
-    await withAdvisoryLock(authLockKey(userId), async () => {
-      const current = await this.getById(userId)
-      const currentAuth = (current?.auth ?? {}) as Record<string, any>
-      currentAuth[strategyId] = {
-        ...currentAuth[strategyId],
-        tfaIsActive: false,
-        tfaSecret: '',
-        recoveryCodes: []
-      }
-      await WIKI.db
-        .update(usersTable)
-        .set({ auth: currentAuth, updatedAt: sql`now()` })
-        .where(eq(usersTable.id, userId))
-    })
+    await this.patchStrategyAuth(userId, strategyId, () => CLEARED_TFA)
     WIKI.models.flags.authDebug(`User ${userId} <${user.email}> disabled 2FA`)
   }
 
@@ -1536,32 +1586,9 @@ class Users {
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY` or `ERR_TFA_NOT_ACTIVE`
    */
   async adminInvalidateTfa(userId: string, strategyId: string): Promise<void> {
-    const user = await this.getById(userId)
-    if (!user) {
-      throw new Error('ERR_INVALID_USER')
-    }
-    const auth = (user.auth ?? {}) as Record<string, any>
-    if (!auth[strategyId]) {
-      throw new Error('ERR_INVALID_STRATEGY')
-    }
-    if (!auth[strategyId].tfaIsActive) {
-      throw new Error('ERR_TFA_NOT_ACTIVE')
-    }
+    const { user } = await this.requireStrategyAuth(userId, strategyId, { tfaActive: true })
 
-    await withAdvisoryLock(authLockKey(userId), async () => {
-      const current = await this.getById(userId)
-      const currentAuth = (current?.auth ?? {}) as Record<string, any>
-      currentAuth[strategyId] = {
-        ...currentAuth[strategyId],
-        tfaIsActive: false,
-        tfaSecret: '',
-        recoveryCodes: []
-      }
-      await WIKI.db
-        .update(usersTable)
-        .set({ auth: currentAuth, updatedAt: sql`now()` })
-        .where(eq(usersTable.id, userId))
-    })
+    await this.patchStrategyAuth(userId, strategyId, () => CLEARED_TFA)
     WIKI.models.flags.authDebug(
       `User ${userId} <${user.email}> had 2FA invalidated by an administrator`
     )
@@ -1591,23 +1618,20 @@ class Users {
       return false
     }
 
-    return withAdvisoryLock(authLockKey(user.id), async () => {
-      const current = await this.getById(user.id)
-      const currentAuth = (current?.auth ?? {}) as Record<string, any>
-      const lastCounter = currentAuth[strategyId]?.tfaLastCounter ?? -1
-      if (matchedCounter <= lastCounter) {
-        // -> A code for this counter (or an earlier one) has already been accepted -- reject the
-        //    replay rather than sign in a second time on the strength of the same code.
-        return false
-      }
-      currentAuth[strategyId] = { ...currentAuth[strategyId], tfaLastCounter: matchedCounter }
-      user.auth = currentAuth
-      await WIKI.db
-        .update(usersTable)
-        .set({ auth: currentAuth, updatedAt: sql`now()` })
-        .where(eq(usersTable.id, user.id))
-      return true
-    })
+    return this.patchStrategyAuth(
+      user.id,
+      strategyId,
+      (entry) => {
+        const lastCounter = entry?.tfaLastCounter ?? -1
+        if (matchedCounter <= lastCounter) {
+          // -> A code for this counter (or an earlier one) has already been accepted -- reject the
+          //    replay rather than sign in a second time on the strength of the same code.
+          return null
+        }
+        return { tfaLastCounter: matchedCounter }
+      },
+      { mirrorInto: user }
+    )
   }
 
   /**
@@ -1629,29 +1653,32 @@ class Users {
     code: string
   ): Promise<boolean> {
     const normalizedCode = normalizeRecoveryCode(code)
-    return withAdvisoryLock(authLockKey(user.id), async () => {
-      const current = await this.getById(user.id)
-      const currentAuth = (current?.auth ?? {}) as Record<string, any>
-      const entries = (currentAuth[strategyId]?.recoveryCodes ?? []) as RecoveryCodeEntry[]
-      const matchedIndex = await matchRecoveryCode(entries, normalizedCode)
-      if (matchedIndex < 0) {
-        return false
-      }
-
-      const updatedEntries = entries.map((entry, i) =>
-        i === matchedIndex
-          ? { ...entry, usedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' }) }
-          : entry
-      )
-      currentAuth[strategyId] = { ...currentAuth[strategyId], recoveryCodes: updatedEntries }
-      user.auth = currentAuth
-      await WIKI.db
-        .update(usersTable)
-        .set({ auth: currentAuth, updatedAt: sql`now()` })
-        .where(eq(usersTable.id, user.id))
+    const consumed = await this.patchStrategyAuth(
+      user.id,
+      strategyId,
+      async (stored) => {
+        const entries = (stored?.recoveryCodes ?? []) as RecoveryCodeEntry[]
+        const matchedIndex = await matchRecoveryCode(entries, normalizedCode)
+        if (matchedIndex < 0) {
+          return null
+        }
+        return {
+          recoveryCodes: entries.map((entry, i) =>
+            i === matchedIndex
+              ? {
+                  ...entry,
+                  usedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
+                }
+              : entry
+          )
+        }
+      },
+      { mirrorInto: user }
+    )
+    if (consumed) {
       WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> consumed a 2FA recovery code`)
-      return true
-    })
+    }
+    return consumed
   }
 
   /**
@@ -1663,21 +1690,11 @@ class Users {
     userId: string,
     strategyId: string
   ): Promise<{ total: number; remaining: number }> {
-    const user = await this.getById(userId)
-    if (!user) {
-      throw new Error('ERR_INVALID_USER')
-    }
-    const auth = (user.auth ?? {}) as Record<string, any>
-    if (!auth[strategyId]) {
-      throw new Error('ERR_INVALID_STRATEGY')
-    }
     // -> No 2FA, no codes: rather than answering `{ total: 0, remaining: 0 }` for an account that
     //    was never set up for recovery codes in the first place, this is treated the same as any
     //    other 2FA-inactive request.
-    if (!auth[strategyId].tfaIsActive) {
-      throw new Error('ERR_TFA_NOT_ACTIVE')
-    }
-    const entries = (auth[strategyId].recoveryCodes ?? []) as RecoveryCodeEntry[]
+    const { entry } = await this.requireStrategyAuth(userId, strategyId, { tfaActive: true })
+    const entries = (entry.recoveryCodes ?? []) as RecoveryCodeEntry[]
     return {
       total: entries.length,
       remaining: entries.filter((entry) => !entry.usedAt).length
@@ -1698,31 +1715,15 @@ class Users {
     userId: string,
     strategyId: string
   ): Promise<{ recoveryCodes: string[]; hadUnusedCodes: boolean }> {
-    const user = await this.getById(userId)
-    if (!user) {
-      throw new Error('ERR_INVALID_USER')
-    }
-    const auth = (user.auth ?? {}) as Record<string, any>
-    if (!auth[strategyId]) {
-      throw new Error('ERR_INVALID_STRATEGY')
-    }
-    if (!auth[strategyId].tfaIsActive) {
-      throw new Error('ERR_TFA_NOT_ACTIVE')
-    }
+    const { user, entry: stored } = await this.requireStrategyAuth(userId, strategyId, {
+      tfaActive: true
+    })
 
-    const previousEntries = (auth[strategyId].recoveryCodes ?? []) as RecoveryCodeEntry[]
+    const previousEntries = (stored.recoveryCodes ?? []) as RecoveryCodeEntry[]
     const hadUnusedCodes = previousEntries.some((entry) => !entry.usedAt)
 
     const { plaintext, entries } = await issueRecoveryCodes()
-    await withAdvisoryLock(authLockKey(userId), async () => {
-      const current = await this.getById(userId)
-      const currentAuth = (current?.auth ?? {}) as Record<string, any>
-      currentAuth[strategyId] = { ...currentAuth[strategyId], recoveryCodes: entries }
-      await WIKI.db
-        .update(usersTable)
-        .set({ auth: currentAuth, updatedAt: sql`now()` })
-        .where(eq(usersTable.id, userId))
-    })
+    await this.patchStrategyAuth(userId, strategyId, () => ({ recoveryCodes: entries }))
     WIKI.models.flags.authDebug(
       `User ${userId} <${user.email}> regenerated their 2FA recovery codes`
     )
@@ -1836,36 +1837,18 @@ class Users {
     WIKI.logger.info('Inserting default users...')
 
     await WIKI.db.insert(usersTable).values([
-      {
+      localUserRow({
         id: ids.userAdminId,
+        // -> `WIKI.data.systemIds` is not populated yet at seeding time, so the local strategy's id
+        //    comes from the ids being seeded rather than from that global
+        strategyId: ids.authModuleId,
         email: process.env.ADMIN_EMAIL ?? 'admin@example.com',
-        auth: {
-          [ids.authModuleId]: {
-            password: await bcrypt.hash(process.env.ADMIN_PASS || '12345678', BCRYPT_ROUNDS),
-            mustChangePwd: !process.env.ADMIN_PASS,
-            restrictLogin: false,
-            tfaIsActive: false,
-            tfaRequired: false,
-            tfaSecret: ''
-          }
-        },
         name: 'Administrator',
-        isSystem: false,
+        passwordHash: await bcrypt.hash(process.env.ADMIN_PASS || '12345678', BCRYPT_ROUNDS),
+        mustChangePassword: !process.env.ADMIN_PASS,
         isActive: true,
-        isVerified: true,
-        meta: {
-          location: '',
-          jobTitle: '',
-          pronouns: ''
-        },
-        prefs: {
-          timezone: 'America/New_York',
-          dateFormat: 'YYYY-MM-DD',
-          timeFormat: '12h',
-          appearance: 'site',
-          cvd: 'none'
-        }
-      },
+        isVerified: true
+      }),
       {
         id: ids.userGuestId,
         email: 'guest@example.com',
@@ -2142,19 +2125,8 @@ class Users {
       account at the provider this is, and it is what tells the profile page that this user signs in
       through this strategy.
     */
-    await withAdvisoryLock(authLockKey(user.id), async () => {
-      const current = await this.getById(user.id)
-      const currentAuth = (current?.auth ?? {}) as Record<string, any>
-      currentAuth[strategy.id] = {
-        ...currentAuth[strategy.id],
-        id: profile.id,
-        email
-      }
-      user.auth = currentAuth
-      await WIKI.db
-        .update(usersTable)
-        .set({ auth: currentAuth, updatedAt: sql`now()` })
-        .where(eq(usersTable.id, user.id))
+    await this.patchStrategyAuth(user.id, strategy.id, () => ({ id: profile.id, email }), {
+      mirrorInto: user
     })
 
     // -> Every login, not only the one that created the account: a group added or removed at the
@@ -2400,20 +2372,7 @@ class Users {
       return { nextAction: 'verify' }
     }
 
-    if (strategy.allowedEmailRegex) {
-      let allowed = false
-      try {
-        allowed = new RegExp(strategy.allowedEmailRegex).test(normalizedEmail)
-      } catch (err: any) {
-        // -> A pattern that will not compile allows nobody, rather than everybody
-        WIKI.logger.warn(
-          `Strategy ${strategy.id} has an invalid email pattern, refusing: ${err.message}`
-        )
-      }
-      if (!allowed) {
-        throw new Error('ERR_EMAIL_NOT_ALLOWED')
-      }
-    }
+    this.assertAllowedProviderEmail(strategy, normalizedEmail)
 
     const userId = await this.createUser({
       name,
@@ -2774,17 +2733,10 @@ class Users {
     strategyId: string
     siteId?: string
   }): Promise<{ continuationToken: string; tfaQRImage: string; tfaSecret: string }> {
-    const user = await this.getById(userId)
-    if (!user) {
-      throw new Error('ERR_INVALID_USER')
-    }
-    const auth = (user.auth ?? {}) as Record<string, any>
-    if (!auth[strategyId]) {
-      throw new Error('ERR_INVALID_STRATEGY')
-    }
+    const { user, entry } = await this.requireStrategyAuth(userId, strategyId)
     // -> Replacing a working secret would silently invalidate the app entry the user already has;
     //    turning 2FA off first is the way to start again
-    if (auth[strategyId].tfaIsActive) {
+    if (entry.tfaIsActive) {
       throw new Error('ERR_TFA_ALREADY_ACTIVE')
     }
 
@@ -2915,20 +2867,12 @@ class Users {
 
     if (user) {
       const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS)
-      await withAdvisoryLock(authLockKey(user.id), async () => {
-        const current = await this.getById(user.id)
-        const currentAuth = (current?.auth ?? {}) as Record<string, any>
-        currentAuth[strategyId] = {
-          ...currentAuth[strategyId],
-          password: passwordHash,
-          mustChangePwd: false
-        }
-        user.auth = currentAuth
-        await WIKI.db
-          .update(usersTable)
-          .set({ auth: currentAuth, updatedAt: sql`now()` })
-          .where(eq(usersTable.id, user.id))
-      })
+      await this.patchStrategyAuth(
+        user.id,
+        strategyId,
+        () => ({ password: passwordHash, mustChangePwd: false }),
+        { mirrorInto: user }
+      )
 
       return this.afterLoginChecks(
         user,
@@ -3045,20 +2989,12 @@ class Users {
     }
 
     const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS)
-    await withAdvisoryLock(authLockKey(user.id), async () => {
-      const current = await this.getById(user.id)
-      const currentAuth = (current?.auth ?? {}) as Record<string, any>
-      currentAuth[strategyId] = {
-        ...currentAuth[strategyId],
-        password: passwordHash,
-        mustChangePwd: false
-      }
-      user.auth = currentAuth
-      await WIKI.db
-        .update(usersTable)
-        .set({ auth: currentAuth, updatedAt: sql`now()` })
-        .where(eq(usersTable.id, user.id))
-    })
+    await this.patchStrategyAuth(
+      user.id,
+      strategyId,
+      () => ({ password: passwordHash, mustChangePwd: false }),
+      { mirrorInto: user }
+    )
 
     try {
       await WIKI.models.mail.sendPasswordResetConfirmed({
