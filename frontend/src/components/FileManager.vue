@@ -557,6 +557,7 @@ import Fuse from 'fuse.js/basic'
 import NewMenu from './PageNewMenu.vue'
 import Tree from './TreeNav.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { fetchTreeEntries, mergeFolderEntries } from '@/helpers/treeNodes'
 import { assetUrl } from '@/helpers/assets'
 import { humanizeDate } from '@/helpers/datetime'
 import fileTypes from '@/helpers/fileTypes'
@@ -712,7 +713,7 @@ const isTreeOverlay = computed(() => !isAtLeastMd.value)
  * there is simply no room for it -- which is also why the Insert button it holds needs a second home; see
  * the toolbar.
  */
-const detailsPaneShown = computed(() => screen.gt.md)
+const detailsPaneShown = computed(() => screen.gte.lg)
 
 /**
  * The tree drawer's open state: always open where it has a column of its own, and the reader's to decide
@@ -910,51 +911,20 @@ async function loadTree({ parentId = null, parentPath = null, types, initLoad = 
     state.fileList = []
   }
   try {
-    const items = await API_CLIENT.get(`sites/${siteStore.id}/tree`, {
-      searchParams: {
-        ...(parentId ? { parentId } : {}),
-        ...(parentPath ? { parentPath } : {}),
-        ...(types?.length > 0 ? { types: types.join(',') } : {}),
-        locale: state.locale,
-        includeAncestors: initLoad,
-        includeRootFolders: initLoad
-      }
-    }).json()
+    const items = await fetchTreeEntries(siteStore.id, {
+      parentId,
+      parentPath,
+      types,
+      locale: state.locale,
+      initLoad
+    })
     if (items?.length > 0) {
-      const newTreeRoots = []
+      // -> The folder half of the response is the tree, and is merged the same way in all three
+      //    browsers; what each does with the entries is its own list projection, below
+      const { roots: newTreeRoots } = mergeFolderEntries(state.treeNodes, items, parentId)
       for (const item of items) {
         switch (item.type) {
           case 'folder': {
-            // -> Tree Nodes
-            state.treeNodes[item.id] = {
-              folderPath: item.folderPath,
-              fileName: item.fileName,
-              title: item.title,
-              children: state.treeNodes[item.id]?.children ?? []
-            }
-
-            // -> Set Ancestors / Tree Roots
-            if (item.folderPath) {
-              let folderParentId = parentId
-              if (!folderParentId) {
-                const parentFolderParts = item.folderPath.split('/')
-                const parentFolder = items.find(
-                  (i) =>
-                    i.folderPath === parentFolderParts.slice(0, -1).join('/') &&
-                    i.fileName === parentFolderParts.at(-1)
-                )
-                folderParentId = parentFolder?.id
-              }
-              if (
-                item.id !== folderParentId &&
-                !state.treeNodes[folderParentId]?.children?.includes(item.id)
-              ) {
-                state.treeNodes[folderParentId]?.children?.push(item.id)
-              }
-            } else {
-              newTreeRoots.push(item.id)
-            }
-
             // -> File List
             if (parentId === state.currentFolderId && !item.isAncestor) {
               state.fileList.push({

@@ -209,9 +209,7 @@ onMounted(() => {
   // -> Handle content change: the raw source goes to both `content` and `render` -- see the component
   //    doc comment for why there is no rendering step in between.
   debouncedContentChange = debounce(() => {
-    editorStore.$patch({
-      lastChangeTimestamp: Temporal.Now.instant()
-    })
+    editorStore.markDirty()
     // -> What the author has typed IS the source, whatever the load did or did not deliver; see
     //    the guard in `pageSave`
     pageStore.contentLoaded = true

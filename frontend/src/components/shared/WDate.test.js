@@ -64,9 +64,15 @@ describe('WDate: locale-aware calendar chrome (OpenProject #1604)', () => {
 
 /**
  * OpenProject #1589/#1604: this was the last holdout of the `toLocaleString` + explicit-`undefined`-
- * locale pattern outside the one legitimate site (`stores/user.js`'s `formatDatePart` default branch,
- * where the user explicitly chose "whatever this locale does"). Land the repo-wide guard here, next to
- * the fix that closed the last other gap.
+ * locale pattern outside the one legitimate site in `stores/user.js`, where the reader's own locale
+ * IS the answer -- `formatTimePart`'s zone-labelled branch, which has to format a zoned value
+ * directly because the pre-built formatters have no zone to name. Land the repo-wide guard here,
+ * next to the fix that closed the last other gap.
+ *
+ * Asserted by file rather than by `file:line`, so an edit anywhere above it does not fail a guard
+ * about where the pattern is used. `*.test.js` is skipped: a test asserting that the app does NOT
+ * render the browser default has to build that default to compare against, which is the opposite of
+ * the defect this looks for (`stores/user.test.js` does exactly that).
  *
  * The needle is assembled at runtime rather than written as one literal: this file's own source is
  * inside the directory the scan walks, so a literal copy of the pattern here would flag itself.
@@ -78,18 +84,18 @@ describe('toLocaleString called with an undefined locale -- source-scan guard', 
     const hits = []
 
     for (const file of walk(srcDir)) {
-      if (!file.endsWith('.js') && !file.endsWith('.vue')) {
+      if ((!file.endsWith('.js') && !file.endsWith('.vue')) || file.endsWith('.test.js')) {
         continue
       }
       const lines = readFileSync(file, 'utf8').split('\n')
       lines.forEach((line, i) => {
         if (line.includes(needle)) {
-          hits.push(`${relative(srcDir, file)}:${i + 1}`)
+          hits.push(relative(srcDir, file))
         }
       })
     }
 
-    expect(hits).toEqual(['stores/user.js:29'])
+    expect(hits).toEqual(['stores/user.js'])
   })
 })
 

@@ -132,3 +132,57 @@ in one pass at the end of the consolidation (agents must not edit `CLAUDE.md` mi
   `admin.mail.templates` admin section as the unwired UI for an unbuilt template system. Both are now
   deleted (D6), so that sentence needs trimming — but `backend/` is Lane A's workspace, so B1 left it
   alone.
+
+## B4 (tree loader, API-key surfaces, W* library composables, stores)
+
+### CLAUDE.md must now say
+
+- **"Frontend patterns" / "UI components come from `components/shared/`"**: the library now has one
+  *unregistered* member. `components/shared/WFieldFrame.vue` is internal to `WInput` and `WSelect` —
+  it draws the shared Material field chrome (label above / notched outline / floated label /
+  hint-error line) around whichever control its caller renders, and is deliberately absent from
+  `components/shared/index.js`, so there is no `<w-field-frame>` to write in app markup. Its sibling
+  is `composables/fieldFrame.js` (`fieldProps` + `useFieldFrame`), which owns the twelve props both
+  fields declare, `validate()`, and the frame's computed colours/classes. A third field type uses
+  both; nothing else should reach for either.
+- **`composables/screen.js` no longer exposes `gt`.** `useScreen()` returns `gte` only (`gte.sm` /
+  `.md` / `.lg` / `.xl`); the old `gt.*` shorthand resolved to exactly the same four refs one
+  breakpoint along and is gone. `gt.md` is `gte.lg`, and so on.
+- **`userStore` has one date-time formatter, not four.** `formatDateTime(t, date, { seconds, zone })`
+  — `formatDateTimeWithSeconds`, `formatDateTimeWithZone` and `formatDateTimeSeconds` are deleted.
+  `formatDate(date)` (date alone, no `t`) stays.
+- **"dirty" and "clean" are editor-store actions, not raw timestamp writes.** `editorStore.markDirty()`
+  is what a component calls when the reader changed something (eight call sites used to assign
+  `lastChangeTimestamp` by hand); `editorStore.markClean(extra?)` equalizes both timestamps and merges
+  `extra` into the same `$patch`; `editorStore.ensureConfigs()` fetches the editor configs unless they
+  are already loaded. New editor code should use these rather than touching the two timestamps.
+
+### Notes for whoever writes the section
+
+- New shared frontend utilities worth listing beside `apiError`/`datetime`/`pagePaths`:
+  `helpers/treeNodes.js` (`mergeFolderEntries`, `fetchTreeEntries` — the folder tree behind
+  `FileManager`, `TreeBrowserDialog` and `LinkPickerDialog`), `helpers/apiKeyState.js` (what a key's
+  row says about itself, shared by `AdminApi` and `ProfileApi`), `helpers/markdownFences.js`
+  (`linesOutsideFences`), `helpers/pointerDrag.js` (`trackPointerDrag`),
+  `composables/apiKeyCreateForm.js`, `composables/anchoredFloat.js` (`useAnchoredFloat`, over the
+  existing `anchoredPosition`), `composables/toggleModel.js`, `components/shared/metrics.js`
+  (`NAMED_SIZES`/`resolveSize`/`CELL_ALIGN`), and `helpers/injectCss.js`'s new `replaceHeadStyle`
+  plus `helpers/datetime.js`'s new `isPast(iso)`.
+- **`wComponentAttributeDrift.test.js`'s parser now follows a `...spread` in `defineProps`**, resolving
+  it against the prop objects exported from `composables/fieldFrame.js`. A future shared prop object
+  that a `W*` component spreads has to live there too, or its props will read as undeclared at every
+  call site.
+
+### Observed but out of scope for B4
+
+- Pre-existing red in `frontend/`, unchanged by B4 and confirmed by an old-vs-new probe of `WInput`:
+  `AdminMail.test.js` (3), `AdminAnalytics.test.js` (1) and `AdminSearch.test.js` (3) all fail on the
+  `[aria-label="X"] input` selector B1 already flagged above — the label is on the `<input>` itself,
+  so no ancestor carries it; `pageTitles.test.js` (2) and `pageTitleHeadings.test.js` (1) fail on
+  `pages/AdminPages.vue`, which is also the source of four of the seven standing
+  `wComponentAttributeDrift` violations; and `stores/flags.test.js` (1) fails on `i18n.global` being
+  undefined under test. None is in B4's file list.
+- `components/shared/WDate.test.js`'s `toLocaleString(undefined` source-scan guard WAS failing at base
+  (it expected `stores/user.js:29`; the one legitimate site had moved to `formatTimePart`, and
+  `stores/user.test.js` had grown two deliberate uses). B4 fixed it, since it scans files B4 rewrites:
+  it now asserts by file rather than `file:line` and skips `*.test.js`.

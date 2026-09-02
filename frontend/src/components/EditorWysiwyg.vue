@@ -792,9 +792,7 @@ function buildExtensions(collab) {
  * behave identically here.
  */
 function handleEditorUpdate({ editor }) {
-  editorStore.$patch({
-    lastChangeTimestamp: Temporal.Now.instant()
-  })
+  editorStore.markDirty()
   pageStore.$patch({
     content: JSON.stringify(editor.getJSON()),
     // -> What the author has typed IS the source, whatever the load did or did not deliver; see

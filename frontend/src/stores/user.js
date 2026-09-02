@@ -327,32 +327,24 @@ export const useUserStore = defineStore('user', {
      * @param date A `Temporal.Instant`, a `Date`, or a string one can be parsed from — what the API
      *             returns. Nullable columns like `lastLoginAt` are common, so nothing at all formats as
      *             an empty string rather than blowing up mid-render.
-     * @param seconds Include seconds in the time part — for a log-style timestamp (webhook delivery,
-     *             scheduler run, security scan) where sub-minute precision is the point, rather than an
-     *             everyday "last modified" line.
+     * @param seconds Include seconds in the time part — for a log-style timestamp (a job's timing, a
+     *             webhook delivery attempt, a security scan) where sub-minute precision is the point,
+     *             rather than an everyday "last modified" line.
+     * @param zone Append the zone's short label (`GMT+9`, `JST`, ...) — for an account-scoped
+     *             timestamp (a session, an API key, an audit entry) where the reader needs to know
+     *             which zone they are looking at, not just what it reads.
      */
-    formatDateTime(t, date, { seconds = false } = {}) {
+    formatDateTime(t, date, { seconds = false, zone = false } = {}) {
       if (!date) {
         return ''
       }
       const zoned = toUserZone(date, this.timezone)
       return t('common.datetime', {
         date: formatDatePart(zoned, this.dateFormat),
-        time: formatTimePart(zoned, this.timeFormat, { seconds })
-      })
-    },
-    /**
-     * Same as `formatDateTime`, with seconds shown -- for the couple of screens (job timing, webhook
-     * delivery attempts) where sub-minute precision is the point rather than incidental.
-     */
-    formatDateTimeWithSeconds(t, date) {
-      if (!date) {
-        return ''
-      }
-      const zoned = toUserZone(date, this.timezone)
-      return t('common.datetime', {
-        date: formatDatePart(zoned, this.dateFormat),
-        time: formatTimePart(zoned, this.timeFormat, { seconds: true })
+        time: formatTimePart(zoned, this.timeFormat, {
+          seconds,
+          timeZoneName: zone ? 'short' : undefined
+        })
       })
     },
     /**
@@ -366,36 +358,6 @@ export const useUserStore = defineStore('user', {
         return ''
       }
       return formatDatePart(toUserZone(date, this.timezone), this.dateFormat)
-    },
-    /**
-     * Same as `formatDateTime`, but with the zone's short label (`GMT+9`, `JST`, ...) appended to the
-     * time -- for a screen displaying an account-scoped timestamp (a session, an API key, an audit
-     * entry) where the reader needs to know which zone they are looking at, not just what it reads.
-     */
-    formatDateTimeWithZone(t, date) {
-      if (!date) {
-        return ''
-      }
-      const zoned = toUserZone(date, this.timezone)
-      return t('common.datetime', {
-        date: formatDatePart(zoned, this.dateFormat),
-        time: formatTimePart(zoned, this.timeFormat, { timeZoneName: 'short' })
-      })
-    },
-    /**
-     * Same as `formatDateTime`, but at seconds precision with the zone's short label appended -- for
-     * a screen tracking events that can happen more than once a minute (a scheduled job run, a
-     * webhook delivery, a scan timestamp).
-     */
-    formatDateTimeSeconds(t, date) {
-      if (!date) {
-        return ''
-      }
-      const zoned = toUserZone(date, this.timezone)
-      return t('common.datetime', {
-        date: formatDatePart(zoned, this.dateFormat),
-        time: formatTimePart(zoned, this.timeFormat, { seconds: true, timeZoneName: 'short' })
-      })
     }
   }
 })

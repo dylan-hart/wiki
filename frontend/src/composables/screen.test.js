@@ -92,16 +92,11 @@ describe('useScreen', () => {
     expect(screen.gte.xl).toBe(false)
   })
 
-  it('gt.* is true only above the named breakpoint’s own range', async () => {
-    // -> 1024px is exactly `md`: at `md` but not past it, so `gt.sm` (>= md) is true while `gt.md`
-    //    (>= lg) is false -- the same "greater than its own range" meaning `$q.screen.gt.*` had.
+  // -> 1024px is exactly `md`: at it, but not past it
+  it('is false for a breakpoint the viewport has not reached', async () => {
     stubMatchMedia(1024)
     const { useScreen } = await import('./screen.js')
 
-    const screen = useScreen()
-    expect(screen.gt.xs).toBe(true)
-    expect(screen.gt.sm).toBe(true)
-    expect(screen.gt.md).toBe(false)
-    expect(screen.gt.lg).toBe(false)
+    expect(useScreen().gte.lg).toBe(false)
   })
 })

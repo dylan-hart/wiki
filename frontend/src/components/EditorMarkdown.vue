@@ -1995,9 +1995,7 @@ onMounted(async () => {
 
   // -> Handle content change
   debouncedContentChange = debounce((ev) => {
-    editorStore.$patch({
-      lastChangeTimestamp: Temporal.Now.instant()
-    })
+    editorStore.markDirty()
     // -> What the author has typed IS the source, whatever the load did or did not deliver; see
     //    the guard in `pageSave`
     pageStore.contentLoaded = true

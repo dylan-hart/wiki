@@ -451,17 +451,17 @@ describe('user store: formatDateTime()', () => {
   })
 })
 
-describe('user store: formatDateTimeWithSeconds()', () => {
+describe('user store: formatDateTime({ seconds })', () => {
   const fakeT = (key, params) => `${params.date} at ${params.time}`
 
-  it('renders the same moment as formatDateTime, with a seconds field added', () => {
+  it('renders the same moment as the default, with a seconds field added', () => {
     const store = useUserStore()
     store.dateFormat = 'YYYY-MM-DD'
     store.timeFormat = '24h'
     store.timezone = 'UTC'
 
     expect(store.formatDateTime(fakeT, '2026-03-04T12:34:56Z')).toBe('2026-03-04 at 12:34')
-    expect(store.formatDateTimeWithSeconds(fakeT, '2026-03-04T12:34:56Z')).toBe(
+    expect(store.formatDateTime(fakeT, '2026-03-04T12:34:56Z', { seconds: true })).toBe(
       '2026-03-04 at 12:34:56'
     )
   })
@@ -469,11 +469,11 @@ describe('user store: formatDateTimeWithSeconds()', () => {
   it('returns an empty string for a nullish date rather than throwing', () => {
     const store = useUserStore()
 
-    expect(store.formatDateTimeWithSeconds(fakeT, null)).toBe('')
+    expect(store.formatDateTime(fakeT, null, { seconds: true })).toBe('')
   })
 })
 
-describe('user store: formatDateTimeWithZone() / formatDateTimeSeconds()', () => {
+describe('user store: formatDateTime({ zone }) / formatDateTime({ seconds, zone })', () => {
   // -> Kiritimati (UTC+14) so the assertion holds regardless of the test runner's own zone: no real
   //    CI/dev machine is configured to it, so "the stored zone" and "the browser default" can never
   //    coincidentally match here the way e.g. UTC sometimes does.
@@ -481,13 +481,13 @@ describe('user store: formatDateTimeWithZone() / formatDateTimeSeconds()', () =>
   const INSTANT = '2026-03-04T12:00:00Z'
   const t = (key, params) => `${params.date} at ${params.time}`
 
-  it('formatDateTimeWithZone renders the stored 24h wall-clock time and appends the zone label', () => {
+  it('{ zone } renders the stored 24h wall-clock time and appends the zone label', () => {
     const store = useUserStore()
     store.dateFormat = 'YYYY-MM-DD'
     store.timeFormat = '24h'
     store.timezone = STORED_ZONE
 
-    const result = store.formatDateTimeWithZone(t, INSTANT)
+    const result = store.formatDateTime(t, INSTANT, { zone: true })
     const browserDefault = Temporal.Instant.from(INSTANT)
       .toZonedDateTimeISO(Temporal.Now.timeZoneId())
       .toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
@@ -497,13 +497,13 @@ describe('user store: formatDateTimeWithZone() / formatDateTimeSeconds()', () =>
     expect(result).not.toContain(browserDefault)
   })
 
-  it('formatDateTimeSeconds renders the stored 24h wall-clock time at seconds precision with the zone label', () => {
+  it('{ seconds, zone } renders it at seconds precision with the zone label', () => {
     const store = useUserStore()
     store.dateFormat = 'YYYY-MM-DD'
     store.timeFormat = '24h'
     store.timezone = STORED_ZONE
 
-    const result = store.formatDateTimeSeconds(t, '2026-03-04T12:00:30Z')
+    const result = store.formatDateTime(t, '2026-03-04T12:00:30Z', { seconds: true, zone: true })
     const browserDefault = Temporal.Instant.from('2026-03-04T12:00:30Z')
       .toZonedDateTimeISO(Temporal.Now.timeZoneId())
       .toLocaleString(undefined, {
@@ -520,7 +520,7 @@ describe('user store: formatDateTimeWithZone() / formatDateTimeSeconds()', () =>
   it('both return an empty string for a nullish date rather than throwing', () => {
     const store = useUserStore()
 
-    expect(store.formatDateTimeWithZone(t, null)).toBe('')
-    expect(store.formatDateTimeSeconds(t, null)).toBe('')
+    expect(store.formatDateTime(t, null, { zone: true })).toBe('')
+    expect(store.formatDateTime(t, null, { seconds: true, zone: true })).toBe('')
   })
 })

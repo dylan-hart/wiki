@@ -581,7 +581,7 @@ async function seedEditables() {
  */
 function setIcon(icon) {
   pageStore.icon = icon
-  editorStore.lastChangeTimestamp = Temporal.Now.instant()
+  editorStore.markDirty()
 }
 
 function onEditableInput(field, event) {
@@ -593,7 +593,7 @@ function onEditableInput(field, event) {
   pageStore[field] = event.target.textContent
   // -> What the tag editor and the properties panel do for their own edits: the header is a place a
   //    page gets changed, so it owes the same "unsaved changes" signal
-  editorStore.lastChangeTimestamp = Temporal.Now.instant()
+  editorStore.markDirty()
 }
 
 /*
@@ -604,7 +604,7 @@ function onEditableBlur(field, event) {
   const tidied = event.target.textContent.replace(/\s+/g, ' ').trim()
   if (tidied !== pageStore[field]) {
     pageStore[field] = tidied
-    editorStore.lastChangeTimestamp = Temporal.Now.instant()
+    editorStore.markDirty()
   }
   syncEditable(event.target, tidied)
 }

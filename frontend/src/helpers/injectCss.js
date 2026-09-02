@@ -1,12 +1,29 @@
 /**
- * Live application of Admin → Theme's raw CSS injection (`siteStore.theme.injectCSS`).
+ * Replace the `<style>` element carrying `id`, or remove it outright when there is nothing to show.
  *
- * Mirrors the create-and-remove pattern `App.vue`'s `applyCodeBlocksTheme()` uses for the
- * highlight.js theme: the previous `#theme-inject-css` element is always removed first, and a
- * fresh one is appended only when there is CSS to show. Calling this repeatedly — from the
- * `applyTheme` EVENT_BUS event, or from a watcher that re-runs `applyTheme()` — replaces the
- * element rather than stacking duplicates, and an empty string leaves no `<style>` tag behind at
- * all rather than an empty one.
+ * Three theme surfaces write a `<style>` into the head this way -- the raw CSS injection below, the
+ * content font (`helpers/fonts.js`) and the code-block theme (`App.vue`) -- and each is re-applied
+ * whenever the theme changes. Removing first is what makes that a replacement rather than a stack of
+ * duplicates, and passing nothing leaves no empty `<style>` tag behind at all.
+ *
+ * @param {string} id The element's `id`, without the `#`.
+ * @param {string|null} css The stylesheet's text, or nothing to leave the head with no such element.
+ */
+export function replaceHeadStyle(id, css) {
+  document.querySelector(`#${id}`)?.remove()
+
+  if (!css) {
+    return
+  }
+
+  const styleEl = document.createElement('style')
+  styleEl.id = id
+  styleEl.textContent = css
+  document.head.appendChild(styleEl)
+}
+
+/**
+ * Live application of Admin → Theme's raw CSS injection (`siteStore.theme.injectCSS`).
  *
  * The CSS is applied verbatim: raw, unscoped, unsandboxed. This matches upstream 2.5.x semantics
  * (site-wide CSS applied after system defaults) and sits behind the same `manage:sites` trust
@@ -15,14 +32,5 @@
  * @param {string} css Raw CSS from `siteStore.theme.injectCSS`.
  */
 export function applyInjectCss(css) {
-  document.querySelector('#theme-inject-css')?.remove()
-
-  if (!css) {
-    return
-  }
-
-  const styleEl = document.createElement('style')
-  styleEl.id = 'theme-inject-css'
-  styleEl.textContent = css
-  document.head.appendChild(styleEl)
+  replaceHeadStyle('theme-inject-css', css)
 }

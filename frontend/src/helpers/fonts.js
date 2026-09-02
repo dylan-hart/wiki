@@ -26,6 +26,8 @@
  * var(--font-sans))` fallback — in effect. Nothing ever requests a font literally named "user".
  */
 
+import { replaceHeadStyle } from '@/helpers/injectCss'
+
 /**
  * Every self-hosted font the admin area's font pickers offer, keyed by the value stored in
  * `theme.baseFont` / `theme.contentFont`. Mirrors the `fonts` options array in `AdminTheme.vue`
@@ -86,17 +88,11 @@ function applyBaseFont(baseFont) {
  * the same nested-`<style>` pattern `applyCodeBlocksTheme()` uses.
  */
 function applyContentFont(contentFont) {
-  document.querySelector('#theme-content-font')?.remove()
-
   const font = FONT_CATALOG[contentFont]
-  if (!font) {
-    return
-  }
-
-  const styleEl = document.createElement('style')
-  styleEl.id = 'theme-content-font'
-  styleEl.textContent = `.page-contents {\n  --font-content: ${fontFamilyValue(font)};\n}`
-  document.head.appendChild(styleEl)
+  replaceHeadStyle(
+    'theme-content-font',
+    font && `.page-contents {\n  --font-content: ${fontFamilyValue(font)};\n}`
+  )
 }
 
 /**

@@ -91,9 +91,7 @@ const state = reactive({
 
 pageStore.$subscribe(() => {
   if (props.edit) {
-    editorStore.$patch({
-      lastChangeTimestamp: Temporal.Now.instant()
-    })
+    editorStore.markDirty()
   }
 })
 

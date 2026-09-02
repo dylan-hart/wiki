@@ -150,13 +150,11 @@
 <script setup>
 import { useI18n } from 'vue-i18n'
 
-import { dialog, dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
-import { notify } from '@/composables/notify'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
+import { ref } from 'vue'
 
-import ApiKeyCopyDialog from './ApiKeyCopyDialog.vue'
 import ApiKeyScopePicker from './ApiKeyScopePicker.vue'
-import { apiErrorMessage } from '@/helpers/apiError'
+import { useApiKeyCreateForm } from '@/composables/apiKeyCreateForm'
 import { useAdminStore } from '@/stores/admin'
 
 // EMITS
@@ -177,142 +175,29 @@ const { t } = useI18n()
 
 const adminStore = useAdminStore()
 
-// DATA
-
-const state = reactive({
-  keyName: '',
-  keyExpiration: '90d',
-  // -> Empty means unscoped (null on the wire): the token carries the full extent of the creator's
-  //    own current permissions. Anything picked here narrows it -- see the field's own comment above.
-  keyScope: [],
-  // -> null is the "All Sites" entry -- instance-wide, exactly like the admin-issued form's default.
-  keySiteId: null,
-  sites: [],
-  loadingSites: false,
-  // -> The checked ids of the classification checkbox grid, initialized to every level once
-  //    `adminStore.classificationLevels` loads (see `onMounted`) -- all-checked, same as "No Limit"
-  //    was before this existed. See `allowedClassifications` below for what actually gets sent.
-  keyClassifications: [],
-  loading: 0
-})
-
-const expirations = [
-  { value: '30d', text: t('profile.api.expiration30d') },
-  { value: '90d', text: t('profile.api.expiration90d') },
-  { value: '180d', text: t('profile.api.expiration180d') },
-  { value: '1y', text: t('profile.api.expiration1y') },
-  { value: '3y', text: t('profile.api.expiration3y') }
-]
-
 // REFS
 
 const createKeyForm = ref(null)
 const iptName = ref(null)
 
-// COMPUTED
+// FORM
 
-/** The site select's own "All Sites" entry (`id: null`) is prepended -- see the field's template comment. */
-const siteOptions = computed(() => {
-  return [{ id: null, title: t('profile.api.newKeySiteAllSites') }, ...state.sites]
-})
-
-/**
- * What actually reaches the API (OpenProject #1205): `null` when every currently known level is
- * checked -- equivalent to the old "No Limit" default, and it stays that way against a level added
- * later too, exactly like a token created before this feature existed. Anything less than every
- * level checked is sent as the explicit array of checked ids, which only narrows.
- */
-const allowedClassifications = computed(() => {
-  const allIds = adminStore.classificationLevels.map((level) => level.id)
-  const isEveryLevelChecked = allIds.every((id) => state.keyClassifications.includes(id))
-  return isEveryLevelChecked ? null : state.keyClassifications
-})
-
-// VALIDATION RULES
-
-const keyNameValidation = [
-  (val) => val.length > 0 || t('profile.api.nameMissing'),
-  (val) => /^[^<>"]+$/.test(val) || t('profile.api.nameInvalidChars')
-]
-
-// METHODS
-
-async function loadSites() {
-  state.loading++
-  state.loadingSites = true
-  try {
-    // -> `GET /sites` needs `read:sites`/`access:admin`, which an ordinary self-service user does not
-    //    hold -- this is the expected, common case for this dialog's actual audience, not an error
-    //    worth alarming them with. Degrade silently to an empty list, which leaves the site picker
-    //    showing only "All Sites" (siteId: null) -- the token is still fully creatable.
-    const resp = await API_CLIENT.get('sites').json()
-    state.sites = resp ?? []
-  } catch {
-    state.sites = []
-  }
-  state.loadingSites = false
-  state.loading--
-}
-
-async function create() {
-  state.loading++
-  try {
-    const isFormValid = await createKeyForm.value.validate(true)
-    if (!isFormValid) {
-      throw new Error(t('profile.api.createInvalidData'))
-    }
-    const resp = await API_CLIENT.post('users/profile/api-keys', {
-      json: {
-        name: state.keyName,
-        expiration: state.keyExpiration,
-        scope: state.keyScope.length > 0 ? state.keyScope : null,
-        allowedClassifications: allowedClassifications.value,
-        siteId: state.keySiteId
-      }
-    }).json()
-    if (!resp?.key) {
-      throw new Error(t('common.error.unexpected'))
-    }
-    notify({
-      type: 'positive',
-      message: t('profile.api.createSuccess')
-    })
-    // -> The token exists only in this response, so hand it straight to the copy dialog -- same
-    //    generic dialog the admin form reuses, only with the `profile.api.*` vocabulary so it calls
-    //    this an "Access Token" rather than the admin flow's "API Key".
-    dialog({
-      component: ApiKeyCopyDialog,
-      componentProps: {
-        keyValue: resp.key,
-        labelPrefix: 'profile.api'
-      }
-    }).onDismiss(() => {
-      onDialogOK()
-    })
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: apiErrorMessage(err)
-    })
-  }
-  state.loading--
-}
-
-// MOUNTED
-
-onMounted(async () => {
-  loadSites()
-  state.loading++
-  try {
-    await adminStore.fetchClassificationLevels()
-  } catch {
-    // -> Same read-access-blind-eye treatment as `loadSites()` above -- the level list is
-    //    public-access (`GET /classification-levels` needs no permission), but this stays defensive
-    //    either way, leaving the checkbox grid empty rather than surfacing an error.
-  }
-  // -> All-checked default (OpenProject #1205), equivalent to the old "No Limit" -- set only after
-  //    the levels are known, since the checkbox grid above has nothing to check before then.
-  state.keyClassifications = adminStore.classificationLevels.map((level) => level.id)
-  state.loading--
+/*
+  Everything below the template is shared with the admin-issued form
+  (`ApiKeyCreateDialog.vue`) -- see `composables/apiKeyCreateForm.js`. `silentLoadErrors` is the one
+  difference that is not vocabulary: `GET /sites` needs `read:sites`/`access:admin`, which an
+  ordinary self-service user does not hold, so failing there is the expected common case for this
+  dialog's actual audience. It degrades to a site picker showing only "All Sites", which still
+  creates a perfectly good token, rather than an error worth alarming them with. The classification
+  levels are public-access and should always load, but ride the same blind eye rather than taking the
+  form down.
+*/
+const { state, expirations, siteOptions, keyNameValidation, create } = useApiKeyCreateForm({
+  endpoint: 'users/profile/api-keys',
+  i18nPrefix: 'profile.api',
+  form: () => createKeyForm.value,
+  onOk: onDialogOK,
+  t,
+  silentLoadErrors: true
 })
 </script>

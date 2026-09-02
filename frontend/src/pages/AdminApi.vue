@@ -199,6 +199,13 @@ import { useAdminStore } from '@/stores/admin'
 import ApiKeyCreateDialog from '../components/ApiKeyCreateDialog.vue'
 import ApiKeyRevokeDialog from '../components/ApiKeyRevokeDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import {
+  classificationLevelNames as keyClassificationLevelNames,
+  isUsable,
+  keyState,
+  siteName as keySiteName,
+  stateHint as keyStateHint
+} from '@/helpers/apiKeyState'
 import { humanizeDate } from '@/helpers/datetime'
 
 // COMPOSABLES
@@ -266,44 +273,24 @@ const { state, load, refresh } = useAdminSettings({
 
 // METHODS
 
-/** A key past its expiration still authenticates nothing, even though it was never revoked. */
-function isExpired(key) {
-  return (
-    Temporal.Instant.compare(Temporal.Instant.from(key.expiration), Temporal.Now.instant()) <= 0
-  )
-}
-
-/**
- * Why a key does not work, or null when it does.
- *
- * A key can be in more than one of these at once — revoked *and* long expired, say — so they are
- * ordered by how much each explains: what somebody did to this one key, then what the certificates
- * did to all of them, then time running out. `isInvalidated` comes from the server, which is the
- * side holding the date the keypair was generated.
- */
-function keyState(key) {
-  if (key.isRevoked) {
-    return 'revoked'
-  }
-  if (key.isInvalidated) {
-    return 'invalidated'
-  }
-  return isExpired(key) ? 'expired' : null
-}
-
-/** The sentence under a key's state: what it means, and what to do about it. */
+/*
+  What a key's row says about itself is shared with the self-service token list
+  (`pages/ProfileApi.vue`) -- see `helpers/apiKeyState.js`. Each of these is that helper bound to
+  this screen's own vocabulary and to the lists it managed to load.
+*/
 function stateHint(key) {
-  const status = keyState(key)
-  if (!status) {
-    return ''
-  }
-  return status === 'invalidated'
-    ? t('admin.api.invalidatedHint', { date: humanizeDate(t, state.certificatesGeneratedAt) })
-    : t(`admin.api.${status}Hint`)
+  return keyStateHint(key, t, {
+    i18nPrefix: 'admin.api',
+    certificatesGeneratedAt: state.certificatesGeneratedAt
+  })
 }
 
-function isUsable(key) {
-  return keyState(key) === null
+function siteName(key) {
+  return keySiteName(key, state.sites, { t, i18nPrefix: 'admin.api' })
+}
+
+function classificationLevelNames(key) {
+  return keyClassificationLevelNames(key, state.classificationLevels)
 }
 
 /** Group names rather than IDs, falling back to the ID for a group that has since been deleted. */
@@ -313,34 +300,9 @@ function groupNames(key) {
     .join(', ')
 }
 
-/**
- * The site a key is pinned to, by title -- `null` is instance-wide ("All Sites"), and a site that
- * has since been deleted falls back to its ID the same way `groupNames` does above.
- */
-function siteName(key) {
-  if (key.siteId === null) {
-    return t('admin.api.newKeySiteAllSites')
-  }
-  return state.sites.find((s) => s.id === key.siteId)?.title ?? key.siteId
-}
-
 /** A personal token's owner, by name -- falling back to the ID for an account since deleted. */
 function ownerName(key) {
   return state.users.find((u) => u.id === key.userId)?.name ?? key.userId
-}
-
-/** A classification level's name, by id -- falling back to the id for a level since deleted. */
-function classificationLevelName(id) {
-  return state.classificationLevels.find((l) => l.id === id)?.name ?? id
-}
-
-/**
- * A key's `allowedClassifications` (OpenProject #1205), joined by name for display -- `null` is
- * unrestricted, the same as every key before this existed, so that state renders no line at all
- * (see the template) rather than an empty list.
- */
-function classificationLevelNames(key) {
-  return key.allowedClassifications.map((id) => classificationLevelName(id)).join(', ')
 }
 
 async function globalSwitch() {

@@ -17,6 +17,8 @@
  * on by default; the editor's preview pane is where an author would see it if it were not.
  */
 
+import { linesOutsideFences } from '@/helpers/markdownFences'
+
 /** Narrowest a delimiter cell can be and still show its colons: `:-:`. */
 const MIN_WIDTH = 3
 
@@ -25,9 +27,6 @@ export const ALIGNMENTS = ['left', 'center', 'right']
 
 /** A delimiter row's cell, and nothing else: dashes, with a colon at either end or both. */
 const DELIMITER_CELL = /^:?-+:?$/
-
-/** The opening or closing line of a fenced block, indented up to the three spaces markdown allows. */
-const FENCE = /^ {0,3}(`{3,}|~{3,})/
 
 /**
  * A `markdown-it-attrs` line: `{.some-class}` under a block, which is how a table carries the classes
@@ -249,33 +248,20 @@ function continuesBelow(lines, last, columns) {
 export function findEditableTables(text) {
   const lines = text.split('\n')
   const tables = []
-  let fence = null
 
-  for (let index = 0; index < lines.length; index++) {
-    const edge = FENCE.exec(lines[index])
-    if (fence) {
-      if (edge && edge[1][0] === fence[0] && edge[1].length >= fence.length) {
-        fence = null
-      }
-      continue
-    }
-    if (edge) {
-      fence = edge[1]
-      continue
-    }
-
-    if (!lines[index].includes('|')) {
-      continue
+  linesOutsideFences(lines, (line, index) => {
+    if (!line.includes('|')) {
+      return
     }
     /*
       Two ways a table starts: a delimiter row on its own, which is a headerless table, or a header row
       with the delimiter row under it. The delimiter row of an ordinary table is never mistaken for the
-      first kind, because the loop skips past every line of a block it has already been through.
+      first kind, because the walk skips past every line of a block it has already been through.
     */
-    const headerless = Boolean(parseDelimiters(lines[index]))
-    const align = headerless ? parseDelimiters(lines[index]) : parseDelimiters(lines[index + 1])
+    const headerless = Boolean(parseDelimiters(line))
+    const align = headerless ? parseDelimiters(line) : parseDelimiters(lines[index + 1])
     if (!align) {
-      continue
+      return
     }
 
     const start = index
@@ -292,18 +278,17 @@ export function findEditableTables(text) {
     if (ATTRS_LINE.test(lines[last + 1] ?? '')) {
       last++
     }
-    // -> Whatever this block turns out to be, no line of it starts another table
-    index = last
 
     const body = lines.slice(headerless ? start + 1 : start + 2, bodyEnd + 1)
     if (
       // -> A lone delimiter row is not a headerless table, it is a line of dashes and pipes
       (headerless && body.length === 0) ||
-      body.some((line) => line.trimEnd().endsWith('\\')) ||
-      body.some((line) => splitRow(line).includes('^^')) ||
+      body.some((row) => row.trimEnd().endsWith('\\')) ||
+      body.some((row) => splitRow(row).includes('^^')) ||
       continuesBelow(lines, last, align.length)
     ) {
-      continue
+      // -> Whatever this block turns out to be, no line of it starts another table
+      return last
     }
 
     tables.push({
@@ -311,7 +296,8 @@ export function findEditableTables(text) {
       endLine: last + 1,
       source: lines.slice(start, last + 1).join('\n')
     })
-  }
+    return last
+  })
 
   return tables
 }

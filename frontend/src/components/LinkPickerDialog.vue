@@ -130,6 +130,7 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 
 import { apiErrorMessage } from '@/helpers/apiError'
+import { fetchTreeEntries, mergeFolderEntries } from '@/helpers/treeNodes'
 import fileTypes from '@/helpers/fileTypes'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
@@ -270,37 +271,23 @@ async function loadTree({ parentId = null, parentPath = null, initLoad = false }
     state.items = []
   }
   try {
-    const entries = await API_CLIENT.get(`sites/${siteStore.id}/tree`, {
-      searchParams: {
-        ...(parentId ? { parentId } : {}),
-        ...(parentPath ? { parentPath } : {}),
-        types: 'folder,page',
-        locale: pageStore.locale,
-        includeAncestors: initLoad,
-        includeRootFolders: initLoad
+    const entries = await fetchTreeEntries(siteStore.id, {
+      parentId,
+      parentPath,
+      types: ['folder', 'page'],
+      locale: pageStore.locale,
+      initLoad
+    })
+    // -> The folder half of the response is the tree, merged the same way the File Manager and the
+    //    save dialog merge it; the sorted list below is this picker's own projection
+    const { roots } = mergeFolderEntries(state.treeNodes, entries, parentId)
+    for (const id of roots) {
+      if (!state.treeRoots.includes(id)) {
+        state.treeRoots.push(id)
       }
-    }).json()
+    }
     for (const entry of entries ?? []) {
       const path = entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName
-      if (entry.type === 'folder') {
-        state.treeNodes[entry.id] = {
-          folderPath: entry.folderPath,
-          fileName: entry.fileName,
-          title: entry.title,
-          children: state.treeNodes[entry.id]?.children ?? []
-        }
-        if (entry.folderPath) {
-          const parentOfEntry = parentId ?? findFolderIdByPath(entry.folderPath)
-          if (
-            entry.id !== parentOfEntry &&
-            !state.treeNodes[parentOfEntry]?.children?.includes(entry.id)
-          ) {
-            state.treeNodes[parentOfEntry]?.children?.push(entry.id)
-          }
-        } else if (!state.treeRoots.includes(entry.id)) {
-          state.treeRoots.push(entry.id)
-        }
-      }
       // -> An ancestor is drawn in the tree to give the branch its shape; it is not IN this folder
       if (isCurrentFolder && !entry.isAncestor) {
         state.items.push({
