@@ -41,7 +41,7 @@ function mountDialog(props) {
   })
   currentWrapper = mount(AssetRenameDialog, {
     props: { assetId: 'asset-1', ...props },
-    global: { plugins: [i18n], stubs: { BlueprintIcon: true } }
+    global: { plugins: [i18n] }
   })
   return currentWrapper
 }

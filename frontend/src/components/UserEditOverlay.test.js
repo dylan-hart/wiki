@@ -6,7 +6,6 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import UserEditOverlay from './UserEditOverlay.vue'
 import UserDeleteDialog from './UserDeleteDialog.vue'
-import BlueprintIcon from './BlueprintIcon.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
 import { openDialogs } from '@/composables/dialog'
@@ -87,8 +86,7 @@ async function mountOverlay({ canManage = true } = {}) {
 
   const wrapper = mount(UserEditOverlay, {
     global: {
-      plugins: [router, i18n],
-      stubs: { BlueprintIcon: true }
+      plugins: [router, i18n]
     }
   })
   await flushPromises()
@@ -137,8 +135,7 @@ async function mountWithUser(groups) {
 
   const wrapper = mount(UserEditOverlay, {
     global: {
-      plugins: [router, i18n],
-      components: { BlueprintIcon }
+      plugins: [router, i18n]
     }
   })
 
@@ -343,8 +340,7 @@ describe('UserEditOverlay operations panel delete user', () => {
 
     const wrapper = mount(UserEditOverlay, {
       global: {
-        plugins: [router, i18n],
-        stubs: { BlueprintIcon: true }
+        plugins: [router, i18n]
       }
     })
     await flushPromises()
@@ -427,8 +423,7 @@ describe('UserEditOverlay dates honour the stored profile timezone (OpenProject 
 
     const wrapper = mount(UserEditOverlay, {
       global: {
-        plugins: [router, i18n],
-        stubs: { BlueprintIcon: true }
+        plugins: [router, i18n]
       }
     })
     await flushPromises()

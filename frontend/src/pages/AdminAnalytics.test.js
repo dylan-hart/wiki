@@ -140,7 +140,7 @@ describe('AdminAnalytics provider load/save round-trip', () => {
     expect(enabledToggle.exists()).toBe(true)
     await enabledToggle.trigger('click')
 
-    const trackingInput = wrapper.find('[aria-label="Property Tracking ID"] input')
+    const trackingInput = wrapper.find('input[aria-label="Property Tracking ID"]')
     expect(trackingInput.exists()).toBe(true)
     await trackingInput.setValue('G-NEW-VALUE')
 

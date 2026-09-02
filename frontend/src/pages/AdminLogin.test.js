@@ -39,8 +39,7 @@ async function mountPage(extensionsResponse) {
 
   const wrapper = mount(AdminLogin, {
     global: {
-      plugins: [router, i18n],
-      components: { BlueprintIcon }
+      plugins: [router, i18n]
     }
   })
   await flushPromises()

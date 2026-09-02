@@ -694,11 +694,6 @@ const state = reactive({
   // -> Per-target, refetched on selection change -- see `loadSyncStatus()`. Null while loading or for
   //    a target whose module has nothing to schedule (the Synchronization section is hidden then).
   syncStatus: null,
-  setupCfg: {
-    action: '',
-    manifest: '',
-    loading: false
-  },
   deliveryNodes: {},
   deliveryEdges: {},
   deliveryLayouts: {

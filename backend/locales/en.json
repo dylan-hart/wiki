@@ -1172,8 +1172,6 @@
   "admin.storage.deliveryPathsPushToOrigin": "Push to Origin",
   "admin.storage.deliveryPathsUser": "User",
   "admin.storage.deliveryPathsUserRequest": "User Request",
-  "admin.storage.destroyConfirm": "Confirm Setup Reset",
-  "admin.storage.destroyConfirmInfo": "Are you sure you want to reset the storage target setup configuration? Note that this action cannot be undone and you will need to start the setup process over.",
   "admin.storage.enabled": "Enabled",
   "admin.storage.enabledForced": "Cannot be disabled on the database target.",
   "admin.storage.enabledHint": "Should this storage target be used for storing and accessing assets.",

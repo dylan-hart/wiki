@@ -21,7 +21,7 @@ function mountDialog({ siteId = 'site-1', term = null } = {}) {
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
   currentWrapper = mount(GlossaryTermDialog, {
     props: { siteId, term },
-    global: { plugins: [i18n], stubs: { BlueprintIcon: true } }
+    global: { plugins: [i18n] }
   })
   return currentWrapper
 }

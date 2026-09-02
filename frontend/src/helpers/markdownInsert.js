@@ -102,7 +102,7 @@ export function insertTableClb(editor, { markdown, replace = null }) {
  * notes sharing a name would collapse into one. Anything the author named themselves is left alone
  * and simply counted past.
  */
-export function nextFootnoteLabel(text) {
+function nextFootnoteLabel(text) {
   let highest = 0
   for (const [, label] of text.matchAll(/\[\^([^\]\s]+)\]/g)) {
     if (/^\d+$/.test(label)) {
@@ -252,7 +252,7 @@ const TASK_LIST_MARKER_RE = /^(\s*)-\s\[([ xX])\]\s/
 const ORDERED_LIST_MARKER_RE = /^(\s*)(\d+)([.)])\s/
 const UNORDERED_LIST_MARKER_RE = /^(\s*)([-*+])\s/
 
-export function detectListMarker(lineContent) {
+function detectListMarker(lineContent) {
   let match = lineContent.match(TASK_LIST_MARKER_RE)
   if (match) {
     return { type: 'task', indent: match[1], markerLength: match[0].length }
@@ -274,7 +274,7 @@ export function detectListMarker(lineContent) {
   return null
 }
 
-export function nextMarkerText(detected) {
+function nextMarkerText(detected) {
   switch (detected.type) {
     case 'task':
       return '- [ ] '

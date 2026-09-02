@@ -197,3 +197,43 @@ in one pass at the end of the consolidation (agents must not edit `CLAUDE.md` mi
   (it expected `stores/user.js:29`; the one legitimate site had moved to `formatTimePart`, and
   `stores/user.test.js` had grown two deliberate uses). B4 fixed it, since it scans files B4 rewrites:
   it now asserts by file rather than `file:line` and skips `*.test.js`.
+
+## B6 — the shared frontend test harness
+
+### CLAUDE.md must now say (Testing (frontend))
+
+- **A suite does not build its own i18n, router, pinia or mount.** `frontend/test/` is now a real
+  harness, not just `setup.js` + `mocks.js`:
+  - `test/i18n.js` — `createTestI18n(messages)` (nests under `en`, takes flat-dotted or nested keys,
+    `missingWarn`/`fallbackWarn` off). Replaces the hand-written `createI18n({ legacy: false, locale:
+    'en', … })` call sites.
+  - `test/router.js` — `await createTestRouter(routes, initialPath)` (bare strings become stub routes,
+    route objects pass through; does the `push` + `isReady()` coda ~90 sites wrote by hand) and
+    `buildTestRouter(routes)` for the synchronous case.
+  - `test/mount.js` — `mountWithApp(Component, { props, messages, routes|router, initialPath, stores,
+    stubs, components, attachTo, …mountOptions })` → `{ wrapper, router, i18n, siteStore, userStore,
+    pageStore, adminStore, editorStore, flagsStore }`. Fresh pinia per call, `stubs: { teleport: true }`
+    by default. Replaces the per-file `mountDialog`/`mountPage`/`mountOverlay`/`mountEditor` helpers.
+  - `test/fixtures.js` — `seedSite/seedUser/seedPage/seedAdmin(overrides)` and `stubRouter(overrides)`
+    (carries both `push` and `replace`).
+  - `test/mocks.js` — `stubApi(routes, { method, fallback })`, a URL→payload table (plain object for
+    exact keys, a `Map` when a route needs a `RegExp`; a function value is called per request) that
+    returns `{ calls }`. Replaces the hand-rolled `API_CLIENT.get.mockImplementation((url) => …)`
+    switches.
+  - `test/sourceFiles.js` — `listSourceFiles(root, { ext, skip })`, the one recursive walker for the
+    source-scanning suites (seven copies before).
+- **Store seeding stays opt-in at the mount call.** `test/setup.js` still seeds nothing, and
+  `mountWithApp` writes to a store only when `stores` names it — several suites (`ProfileInfo.test.js`
+  among them) assert against an untouched store.
+- **`vitest.config.js`'s `include` now also covers `test/**/*.test.js`** — the harness has its own
+  co-located coverage, so a break in it fails as its own named test rather than as a hundred unrelated
+  component failures.
+- **`test/setup.js` registers `BlueprintIcon`, `LoadingGeneric` and `StatusLight` globally**, from the
+  same imports `boot/components.js` uses, alongside the `w-*` library. A suite must not re-register or
+  stub them: 12 files used to register `BlueprintIcon` by hand and 7 replaced it with
+  `stubs: { BlueprintIcon: true }`, so the same component rendered two different ways depending on the
+  file. Consequence: a `.w-item-section` index inside a list row now counts the icon's own avatar
+  section first (`AdminGlossary.test.js` is the one assertion that had to shift).
+- **`WInput` puts `aria-label` on the `<input>` itself**, so a test selects it as
+  `input[aria-label="X"]`, never `[aria-label="X"] input`. The seven assertions using the ancestor form
+  (`AdminAnalytics` 1, `AdminMail` 3, `AdminSearch` 3, flagged as pre-existing red by B1–B4) are fixed.

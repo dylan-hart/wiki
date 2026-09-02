@@ -51,8 +51,7 @@ function mountAdminGlossary(terms = EXPORT_TERMS) {
 
   const wrapper = mount(AdminGlossary, {
     global: {
-      plugins: [i18n],
-      stubs: { BlueprintIcon: true }
+      plugins: [i18n]
     }
   })
   return wrapper
@@ -93,7 +92,10 @@ describe('AdminGlossary: load()', () => {
     await flushPromises()
 
     const row = wrapper.find('.w-item')
-    const [termSection, definitionSection] = row.findAll('.w-item-section')
+    // -> The first section is `BlueprintIcon`'s own `<w-item-section avatar>` (registered globally
+    //    by `test/setup.js`, exactly as `boot/components.js` registers it in the app); the term and
+    //    its definition are the two after it.
+    const [, termSection, definitionSection] = row.findAll('.w-item-section')
 
     expect(termSection.text()).not.toContain('Application Programming Interface.')
     expect(definitionSection.text()).toBe('Application Programming Interface.')

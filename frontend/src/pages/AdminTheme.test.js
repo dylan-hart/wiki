@@ -5,7 +5,6 @@ import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminTheme from './AdminTheme.vue'
-import BlueprintIcon from '@/components/BlueprintIcon.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
 import { contrastRatio, getAccessibleColor } from '@/helpers/accessibility'
@@ -60,8 +59,7 @@ async function mountPage(theme, cvd = 'none') {
 
   const wrapper = mount(AdminTheme, {
     global: {
-      plugins: [router, i18n],
-      components: { BlueprintIcon }
+      plugins: [router, i18n]
     }
   })
   await flushPromises()

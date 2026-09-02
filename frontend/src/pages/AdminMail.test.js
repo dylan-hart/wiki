@@ -45,11 +45,10 @@ async function mountAdminMail() {
   //    here reads `state.config`, so it is left alone rather than stubbed.
   const wrapper = mount(AdminMail, {
     global: {
-      plugins: [router, i18n],
+      plugins: [router, i18n]
       // -> Registered globally by `boot/components.js`, not by the `sharedComponents` map
       //    `test/setup.js` installs -- stubbed here rather than widening the shared harness for a
       //    component this test never asserts against.
-      stubs: { BlueprintIcon: true }
     }
   })
   await wrapper.vm.$nextTick()
@@ -59,7 +58,7 @@ async function mountAdminMail() {
   //    own action produced.
   notifyQueue.splice(0, notifyQueue.length)
 
-  const recipientField = wrapper.get('[aria-label="Recipient Email Address"] input')
+  const recipientField = wrapper.get('input[aria-label="Recipient Email Address"]')
   const sendButton = wrapper.findAll('button').find((btn) => btn.text().includes('Send Email'))
 
   return { wrapper, recipientField, sendButton }

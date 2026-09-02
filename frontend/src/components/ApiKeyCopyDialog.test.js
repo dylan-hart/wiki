@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 
-import BlueprintIcon from './BlueprintIcon.vue'
 import ApiKeyCopyDialog from './ApiKeyCopyDialog.vue'
 import { queue as notifyQueue } from '@/composables/notify'
 
@@ -26,8 +25,7 @@ function mountDialog(props = {}) {
   return mount(ApiKeyCopyDialog, {
     props: { keyValue: 'wiki_abc123.def456', ...props },
     global: {
-      plugins: [i18n],
-      components: { BlueprintIcon }
+      plugins: [i18n]
     }
   })
 }
@@ -118,8 +116,7 @@ function mountWithPrefix(props) {
   return mount(ApiKeyCopyDialog, {
     props: { keyValue: 'wiki_abc123.def456', ...props },
     global: {
-      plugins: [i18n],
-      components: { BlueprintIcon }
+      plugins: [i18n]
     }
   })
 }

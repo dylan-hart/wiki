@@ -84,10 +84,14 @@ export default defineConfig({
     // tools (icon/emoji generation, the locales check, the notify()-err.message drift check) with
     // the same co-located `*.test.js` convention as `src/` -- these need no `test/setup.js` fixtures
     // (no API_CLIENT, EVENT_BUS, or w-* components to stand in for), but do need to be picked up by
-    // `npm run test`. `index.html` sits at the workspace root (co-located per this repo's test
-    // convention means `index.test.js` alongside it), so it's named explicitly rather than widened
-    // with a root-level wildcard that would also sweep in any future stray root-level test file.
-    include: ['src/**/*.test.js', 'scripts/**/*.test.js', 'index.test.js'],
+    // `npm run test`. `test/**/*.test.js` is the shared harness's own coverage -- `test/i18n.js`,
+    // `router.js`, `mount.js`, `fixtures.js`, `mocks.js` and `sourceFiles.js` are imported by most of
+    // the suite, so a break in one of them should fail as its own named test rather than as a
+    // hundred unrelated component failures. `index.html` sits at the workspace root (co-located per
+    // this repo's test convention means `index.test.js` alongside it), so it's named explicitly
+    // rather than widened with a root-level wildcard that would also sweep in any future stray
+    // root-level test file.
+    include: ['src/**/*.test.js', 'scripts/**/*.test.js', 'test/**/*.test.js', 'index.test.js'],
     css: true,
     server: {
       deps: {

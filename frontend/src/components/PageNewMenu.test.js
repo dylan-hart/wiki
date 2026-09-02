@@ -4,7 +4,6 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import PageNewMenu from './PageNewMenu.vue'
-import BlueprintIcon from './BlueprintIcon.vue'
 import { useFlagsStore } from '@/stores/flags'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -50,7 +49,6 @@ function mountMenu({ editors = {}, experimental = false } = {}) {
   const wrapper = mount(PageNewMenu, {
     global: {
       plugins: [i18n],
-      components: { BlueprintIcon },
       // -> `w-menu` only renders its slot once opened by whatever `w-btn` wraps it in the real app
       //    (`HeaderNav.vue`); this test cares about which `<w-item>`s the menu holds, not the
       //    open/close mechanics `WMenu.vue` already owns, so the gating is bypassed here.

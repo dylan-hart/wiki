@@ -10,7 +10,6 @@ vi.mock('browser-fs-access', () => ({
 
 import { fileSave } from 'browser-fs-access'
 import AdminUtilities from './AdminUtilities.vue'
-import BlueprintIcon from '@/components/BlueprintIcon.vue'
 import { useSiteStore } from '@/stores/site'
 import { closeDialog, openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
@@ -75,8 +74,7 @@ async function mountUtilities() {
 
   return mount(AdminUtilities, {
     global: {
-      plugins: [router, i18n],
-      components: { BlueprintIcon }
+      plugins: [router, i18n]
     }
   })
 }

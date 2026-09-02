@@ -4,7 +4,6 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import AdminSystem from './AdminSystem.vue'
-import BlueprintIcon from '@/components/BlueprintIcon.vue'
 import { isActive as loadingIsActive } from '@/composables/loading'
 import { queue } from '@/composables/notify'
 
@@ -39,7 +38,6 @@ function mountPage() {
   return mount(AdminSystem, {
     global: {
       plugins: [i18n],
-      components: { BlueprintIcon },
       stubs: { transition: false }
     },
     attachTo: document.body

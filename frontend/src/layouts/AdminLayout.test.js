@@ -8,7 +8,6 @@ import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminLayout from './AdminLayout.vue'
-import StatusLight from '@/components/StatusLight.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useFlagsStore } from '@/stores/flags'
 import { useUserStore } from '@/stores/user'
@@ -78,7 +77,7 @@ describe('AdminLayout sidebar nav', () => {
     const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
 
     const wrapper = mount(AdminLayout, {
-      global: { plugins: [router, i18n], components: { StatusLight } }
+      global: { plugins: [router, i18n] }
     })
     await flushPromises()
 

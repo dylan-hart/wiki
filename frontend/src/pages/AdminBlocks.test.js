@@ -89,7 +89,6 @@ async function mountAdminBlocks(blocks, credentials = [], siteId = 'site-1') {
       plugins: [router, i18n],
       // -> Registered by `boot/components.js` in the real app, not by the shared-component map
       //    `test/setup.js` installs; stubbed so mounting the page does not warn about it
-      stubs: { BlueprintIcon: true }
     }
   })
   await flushPromises()

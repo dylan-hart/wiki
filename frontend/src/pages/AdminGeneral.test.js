@@ -46,11 +46,7 @@ async function mountPage(extensionsResponse) {
 
   const wrapper = mount(AdminGeneral, {
     global: {
-      plugins: [router, i18n],
-      // -> `BlueprintIcon` is registered globally by `boot/components.js` in the real app, not
-      //    imported per-file — this test needs the same registration for `<blueprint-icon>` to
-      //    resolve.
-      components: { BlueprintIcon }
+      plugins: [router, i18n]
     }
   })
   await flushPromises()
@@ -218,7 +214,7 @@ describe('AdminGeneral — preview toolbar across a site switch', () => {
     })
 
     const wrapper = mount(AdminGeneral, {
-      global: { plugins: [router, i18n], components: { BlueprintIcon } }
+      global: { plugins: [router, i18n] }
     })
     await flushPromises()
 

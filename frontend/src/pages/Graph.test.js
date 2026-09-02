@@ -626,6 +626,28 @@ describe('Graph.vue (OpenProject #891)', () => {
     expect(Number(atMaxZoomPx) * 8).toBeLessThanOrEqual(24)
   })
 
+  it('paintGraph feeds the live zoom scale into drawLabels, not a fixed 1', async () => {
+    const wrapper = await mountGraph()
+
+    // -> The two drawLabels tests above call it directly with a scale. This one goes through
+    //    `repaint()` -> `paintGraph({ transform: zoomTransform })`, which is the only caller in the
+    //    app: `paintGraph` passes `transform?.k` down as the label scale, so a zoom below the
+    //    visibility threshold must silence the label layer and a zoom past the font cap must shrink
+    //    the drawn font. A `paintGraph` that hardcoded `1` would draw labels at 10px in both cases.
+    wrapper.vm.zoomTransform = { k: 0.5, x: 0, y: 0 }
+    wrapper.vm.ctx.fillText.mockClear()
+    wrapper.vm.repaint()
+    expect(wrapper.vm.ctx.fillText).not.toHaveBeenCalled()
+
+    wrapper.vm.zoomTransform = { k: 4, x: 0, y: 0 }
+    wrapper.vm.ctx.fillText.mockClear()
+    wrapper.vm.repaint()
+    expect(wrapper.vm.ctx.fillText).toHaveBeenCalled()
+    const [drawnFontPx] = wrapper.vm.ctx.font.match(/[\d.]+/)
+    expect(Number(drawnFontPx)).toBeLessThan(10)
+    expect(Number(drawnFontPx) * 4).toBeLessThanOrEqual(24)
+  })
+
   it('resolves every control-rail caption, aria-label and option label through t(), not a hardcoded English literal (OpenProject #1690)', async () => {
     const wrapper = await mountGraph({
       messageOverrides: {

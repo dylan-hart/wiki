@@ -65,7 +65,6 @@ async function mountWithExtensions(extensions) {
     global: {
       plugins: [i18n],
       stubs: {
-        BlueprintIcon: true,
         WTooltip: { template: '<div class="stub-tooltip"><slot /></div>' }
       }
     }

@@ -5,7 +5,6 @@ import { createI18n } from 'vue-i18n'
 
 import NavEditOverlay from './NavEditOverlay.vue'
 import NavItemEditor from './NavItemEditor.vue'
-import BlueprintIcon from './BlueprintIcon.vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
@@ -58,7 +57,7 @@ function mountOverlay({ isHome = false, navId = null, mode = null, menuMode = nu
 
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
   const wrapper = mount(NavEditOverlay, {
-    global: { plugins: [i18n], components: { BlueprintIcon } }
+    global: { plugins: [i18n] }
   })
 
   return { wrapper, siteStore, pageStore }

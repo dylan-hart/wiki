@@ -3,7 +3,6 @@ import { DOMWrapper, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
-import BlueprintIcon from './BlueprintIcon.vue'
 import ApiKeyCreateDialog from './ApiKeyCreateDialog.vue'
 import { chromium, hasChromium, measureClassificationGrid } from '../../test/realGridLayout.js'
 
@@ -32,8 +31,7 @@ function mountDialog() {
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
   return mount(ApiKeyCreateDialog, {
     global: {
-      plugins: [i18n],
-      components: { BlueprintIcon }
+      plugins: [i18n]
     }
   })
 }

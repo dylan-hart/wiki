@@ -4,7 +4,6 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import AdminSecurity from './AdminSecurity.vue'
-import BlueprintIcon from '@/components/BlueprintIcon.vue'
 
 /**
  * Regression coverage for task 636: the admin security view must round-trip the
@@ -24,7 +23,6 @@ function mountSecurity() {
       plugins: [i18n],
       // -> Registered globally by `boot/components.js` in the real app; not part of the
       //    `sharedComponents` map `test/setup.js` wires up, so it needs registering here.
-      components: { BlueprintIcon }
     }
   })
 }
@@ -112,8 +110,7 @@ function mountPage() {
 
   return mount(AdminSecurity, {
     global: {
-      plugins: [i18n],
-      components: { BlueprintIcon }
+      plugins: [i18n]
     }
   })
 }
