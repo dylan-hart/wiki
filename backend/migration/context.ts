@@ -60,9 +60,10 @@ export interface MigrationContext {
    * install. */
   localStrategyId: string
   /** This install's real target Administrators/Guests group ids, resolved once by
-   * `bootstrap.ts#resolveUsersImportContext()` — see `importers/users-groups.ts`'s module doc (Task
-   * 731) for why the `userGroups` entity needs these: a membership pointing at the *source's* system
-   * group (skipped, not imported) remaps onto these instead of being dropped. */
+   * `bootstrap.ts#resolveUsersImportContext()` — see `SystemGroupIds`' own doc comment
+   * (`importers/users-groups.ts`) for why the `userGroups` entity needs these, and for where each id
+   * actually lives at runtime: a membership pointing at the *source's* system group (skipped, not
+   * imported) remaps onto these instead of being dropped. */
   systemGroupIds: SystemGroupIds
   /** This install's root admin user id (`WIKI.config.auth.rootAdminUserId`), resolved once by
    * `bootstrap.ts#resolveUsersImportContext()`. Not read by the `users` phase itself — carried here so

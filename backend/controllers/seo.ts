@@ -162,9 +162,10 @@ export function paginateSitemap(
  * `/robots.txt` and `/sitemap.xml`, per site.
  *
  * Registered at the root, with no prefix: these are conventional root-level file paths, not part of
- * `_`-prefixed server namespace the other controllers occupy. `index.ts`'s `RESERVED_ROOT_FILES` /
- * `isPageUrl()` already keep both paths out of the SPA-shell fallback and the page-extension redirect
- * hook, so registering real handlers here is the whole of what is needed — see the comment there.
+ * `_`-prefixed server namespace the other controllers occupy. `core/http/siteRouting.ts`'s
+ * `RESERVED_ROOT_FILES` / `isPageUrl()` already keep both paths out of the SPA-shell fallback and
+ * the page-extension redirect hook, so registering real handlers here is the whole of what is
+ * needed — see the comment there.
  *
  * The site is resolved per request the same way `controllers/site.ts` resolves it for a logo or
  * favicon: `getSiteByHostname` against the cached site mappings, never a route param, since a root
@@ -202,7 +203,8 @@ async function routes(app: FastifyInstance) {
     // -> Past the per-file cap, this route doubles as a sitemap index over `SITEMAP_URL_LIMIT`-sized
     //    child sitemaps, addressed by a `?page=` query string rather than a new root-level filename
     //    (`/sitemap-1.xml`) — `.xml` is a page extension on a default site (see `RESERVED_ROOT_FILES`
-    //    in `index.ts`), so any root path but the one literal `sitemap.xml` already reserved there
+    //    in `core/http/siteRouting.ts`), so any root path but the one literal `sitemap.xml` already
+    //    reserved there
     //    would be redirected away by the extension-stripping hook before ever reaching a route
     //    registered here. See `paginateSitemap` for the full decision.
     const page = req.query.page === undefined ? undefined : Number.parseInt(req.query.page, 10)

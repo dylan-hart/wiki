@@ -93,7 +93,7 @@ export function emptyPhaseReport(phase: MigrationPhaseId): PhaseReport {
 
 /**
  * 3.0's real authentication module directory (`ls backend/modules/authentication/`), cross-checked
- * live against disk by `unmappable.test.ts` the same way `mappers/storage.ts`'s
+ * live against disk by `report.test.ts` the same way `mappers/storage.ts`'s
  * `KNOWN_3_0_STORAGE_MODULES` is checked against `backend/modules/storage/` — so this list drifting
  * from what's actually on disk fails a test rather than silently going stale again.
  */

@@ -9,12 +9,12 @@ import crypto from 'node:crypto'
  * fallback, navigation item mapping) still runs identically in both modes — only the
  * destination-touching half is swapped out.
  */
-export function writeUnlessDryRun<T>(
+export async function writeUnlessDryRun<T>(
   dryRun: boolean,
   placeholder: () => T,
   write: () => Promise<T>
 ): Promise<T> {
-  return dryRun ? Promise.resolve(placeholder()) : write()
+  return dryRun ? placeholder() : write()
 }
 
 /**

@@ -36,7 +36,6 @@ const PACKAGE_JSON_PATH = join(REPO_ROOT, 'backend', 'package.json')
 const DECISION_DOC_PATH = join(MIGRATION_DOCS_DIR, 'decision-source-scope.md')
 
 const doc = readFileSync(DOC_PATH, 'utf8')
-const unmappableSrc = readFileSync(REPORT_PATH, 'utf8')
 const reportSrc = readFileSync(REPORT_PATH, 'utf8')
 const settingsPhaseSrc = readFileSync(SETTINGS_PHASE_PATH, 'utf8')
 const cliSrc = readFileSync(CLI_PATH, 'utf8')
@@ -129,7 +128,7 @@ describe('docs/migration/migration-runbook.md', () => {
     // report.ts's UnmappableReason type is the one place both reasons are declared together, and it
     // declares exactly those two: every reason the type names is one some phase really emits.
     assert.ok(
-      unmappableSrc.includes("'unsupported-auth-provider'"),
+      reportSrc.includes("'unsupported-auth-provider'"),
       'fixture assumption broken: report.ts no longer emits "unsupported-auth-provider"'
     )
     assert.ok(
@@ -149,7 +148,7 @@ describe('docs/migration/migration-runbook.md', () => {
     // and must NOT be described as unsupported).
     for (const provider of ['azure', 'dropbox', 'facebook', 'firebase', 'rocketchat']) {
       assert.ok(
-        unmappableSrc.toLowerCase().includes(provider),
+        reportSrc.toLowerCase().includes(provider),
         `fixture assumption broken: report.ts no longer names ${provider}`
       )
       assert.ok(
@@ -160,7 +159,7 @@ describe('docs/migration/migration-runbook.md', () => {
     // Providers 3.0 now DOES ship a module for must not be described as unsupported any more.
     for (const provider of ['ldap', 'saml', 'cas', 'auth0', 'okta']) {
       assert.ok(
-        unmappableSrc.toLowerCase().includes(provider),
+        reportSrc.toLowerCase().includes(provider),
         `fixture assumption broken: report.ts's KNOWN_3_0_AUTH_MODULES no longer lists ${provider}`
       )
     }
