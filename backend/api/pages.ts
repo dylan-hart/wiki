@@ -1223,7 +1223,7 @@ async function routes(app: FastifyInstance) {
         req.body.classification !== undefined &&
         req.body.classification !== target.classification &&
         WIKI.models.classificationLevels.isLowerThan(target.classification, req.body.classification)
-          ? await WIKI.models.pages.descendantsBelowFloor(
+          ? await WIKI.models.pageClassification.descendantsBelowFloor(
               req.params.siteId,
               page.locale,
               page.path,
@@ -1318,7 +1318,7 @@ async function routes(app: FastifyInstance) {
       const orderedTargets = pageIds.map((pageId) => pageMap.get(pageId)!)
       // -> ONE batched parent-classification lookup instead of one `parentClassification` call per
       //    target, over the distinct (locale, parent path) pairs among them.
-      const floorByTarget = await WIKI.models.pages.parentClassifications(
+      const floorByTarget = await WIKI.models.pageClassification.parentClassifications(
         req.params.siteId,
         orderedTargets.map((target) => ({ locale: target.locale, path: target.path }))
       )
@@ -1355,7 +1355,7 @@ async function routes(app: FastifyInstance) {
         }
         targets.push(target)
       }
-      const updated = await WIKI.models.pages.bulkSetClassification(
+      const updated = await WIKI.models.pageClassification.bulkSetClassification(
         req.params.siteId,
         pageIds,
         req.body.classification
@@ -1417,7 +1417,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.pages.classificationReport(req.query.siteId)
+      return WIKI.models.pageClassification.classificationReport(req.query.siteId)
     }
   )
 
@@ -1476,7 +1476,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.pages.listByClassification(req.params.levelId, {
+      return WIKI.models.pageClassification.listByClassification(req.params.levelId, {
         siteId: req.query.siteId,
         limit: req.query.limit,
         offset: req.query.offset

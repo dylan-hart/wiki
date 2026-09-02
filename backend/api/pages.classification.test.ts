@@ -76,7 +76,7 @@ describe('pages API — classification (OpenProject #1080)', () => {
   let auditLogCalls: any[] = []
   let getPagesByIdsCalls: any[] = []
   let parentClassificationsCalls: any[] = []
-  /** `WIKI.models.pages.parentClassification`'s stubbed return -- null (no parent) by default. */
+  /** `WIKI.models.pageClassification.parentClassification`'s stubbed return -- null (no parent) by default. */
   let parentClassificationFloor: string | null = null
 
   let app: FastifyInstance
@@ -104,6 +104,21 @@ describe('pages API — classification (OpenProject #1080)', () => {
             }
             return map
           },
+          updatePage: async (siteId: string, id: string, patch: any) => {
+            updatePageCalls.push({ siteId, id, patch })
+            return {
+              id,
+              path: 'engineering/onboarding',
+              locale: 'en',
+              classification: patch.classification ?? INTERNAL_ID,
+              updatedAt: new Date(),
+              authorName: ''
+            }
+          }
+        },
+        // -> The classification cluster moved to `models/pageClassification.ts` when
+        //    `models/pages.ts` was split; the resolve route reaches it there now.
+        pageClassification: {
           // -> OpenProject #1902: the batched parent-classification lookup, one call per request
           //    regardless of how many targets it covers. `parentClassificationFloor` stands in for
           //    every target's floor uniformly, the same way the single-target stub did.
@@ -117,17 +132,6 @@ describe('pages API — classification (OpenProject #1080)', () => {
               map.set(`${locale}\0${path}`, parentClassificationFloor)
             }
             return map
-          },
-          updatePage: async (siteId: string, id: string, patch: any) => {
-            updatePageCalls.push({ siteId, id, patch })
-            return {
-              id,
-              path: 'engineering/onboarding',
-              locale: 'en',
-              classification: patch.classification ?? INTERNAL_ID,
-              updatedAt: new Date(),
-              authorName: ''
-            }
           },
           descendantsBelowFloor: async () => [
             {

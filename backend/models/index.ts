@@ -32,6 +32,7 @@ import { mail } from './mail.ts'
 import { navigation } from './navigation.ts'
 import { pageHistory } from './pageHistory.ts'
 import { pageProblems } from './pageProblems.ts'
+import { pageClassification } from './pageClassification.ts'
 import { pages } from './pages.ts'
 import { pageWatchEvents } from './pageWatchEvents.ts'
 import { pageWatching } from './pageWatching.ts'
@@ -86,6 +87,7 @@ export default {
   mail,
   navigation,
   pageHistory,
+  pageClassification,
   pageProblems,
   pages,
   pageWatchEvents,

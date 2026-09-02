@@ -44,6 +44,7 @@ async function readTreeRow(id: string) {
 describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let pagesModel: typeof import('./pages.ts').pages
+  let pageClassificationModel: typeof import('./pageClassification.ts').pageClassification
   let actor: PageActor
   // -> A single wrap for the whole describe block, its implementation swapped per-test via
   //    `.mock.mockImplementation()` rather than re-mocking with `mock.method()` again: node:test's
@@ -61,6 +62,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     await seedLocale(fixtures.db, { code: 'en' })
     await seedLocale(fixtures.db, { code: 'fr' })
     ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ pageClassification: pageClassificationModel } = await import('./pageClassification.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
     // -> Puppeteer is never installed in this test environment, so a real `ensureCanRender()` would
     //    refuse every renderless create/update below -- and almost none of these SQL-orchestration
@@ -1598,91 +1600,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * OpenProject #1702: a bare `UPDATE` here left external search modules indexing the pre-raise
-   * classification (they decide `read:pages` visibility per-hit off the indexed copy — see
-   * `modules/search/algolia/search.ts`), and left `glossary.ts#getRawCachedTerms`'s cached
-   * `pageClassification` stale for any term canonically linked to one of these pages. This asserts
-   * both post-write effects: one `search.updated` call per id in the batch, and exactly one
-   * `glossary.invalidateCache` for the site, not one per page.
-   */
-  test('bulkSetClassification calls search.updated per page and invalidates the glossary cache once for the whole batch', async () => {
-    const { classificationLevels } = await import('./classificationLevels.ts')
-    const restrictedId = classificationLevels.list().find((l) => l.name === 'Restricted')!.id
-
-    const updatedIds: string[] = []
-    let invalidateCalls = 0
-    const searchModel = (globalThis as any).WIKI.models.search
-    const glossaryModel = (globalThis as any).WIKI.models.glossary
-    searchModel.updated = async (page: any) => {
-      updatedIds.push(page.id)
-    }
-    const originalInvalidateCache = glossaryModel.invalidateCache
-    glossaryModel.invalidateCache = (siteId: string) => {
-      assert.equal(siteId, fixtures.siteId)
-      invalidateCalls++
-    }
-
-    try {
-      const pageA = await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({ path: 'docs/bulk-classify-one' }),
-        actor
-      )
-      const pageB = await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({ path: 'docs/bulk-classify-two', title: 'Two' }),
-        actor
-      )
-
-      const updatedCount = await pagesModel.bulkSetClassification(
-        fixtures.siteId,
-        [pageA.id, pageB.id],
-        restrictedId
-      )
-
-      assert.equal(updatedCount, 2)
-      assert.deepEqual(new Set(updatedIds), new Set([pageA.id, pageB.id]))
-      assert.equal(invalidateCalls, 1)
-
-      const fetchedA = await pagesModel.getPage({ siteId: fixtures.siteId, id: pageA.id })
-      const fetchedB = await pagesModel.getPage({ siteId: fixtures.siteId, id: pageB.id })
-      assert.equal(fetchedA!.classification, restrictedId)
-      assert.equal(fetchedB!.classification, restrictedId)
-    } finally {
-      delete searchModel.updated
-      glossaryModel.invalidateCache = originalInvalidateCache
-    }
-  })
-
-  test('bulkSetClassification calls neither the search dispatcher nor the glossary cache for an empty id list', async () => {
-    let searchCalls = 0
-    let invalidateCalls = 0
-    const searchModel = (globalThis as any).WIKI.models.search
-    const glossaryModel = (globalThis as any).WIKI.models.glossary
-    searchModel.updated = async () => {
-      searchCalls++
-    }
-    const originalInvalidateCache = glossaryModel.invalidateCache
-    glossaryModel.invalidateCache = () => {
-      invalidateCalls++
-    }
-
-    try {
-      const updatedCount = await pagesModel.bulkSetClassification(
-        fixtures.siteId,
-        [],
-        fixtures.classificationId
-      )
-      assert.equal(updatedCount, 0)
-      assert.equal(searchCalls, 0)
-      assert.equal(invalidateCalls, 0)
-    } finally {
-      delete searchModel.updated
-      glossaryModel.invalidateCache = originalInvalidateCache
-    }
-  })
-
-  /**
    * OpenProject #1716: `createPage()`/`updatePage()` used to leave `render`/`toc`/`searchContent`/
    * `links` untouched (update) or blank forever (create) for a write that carried `content` with no
    * `render` — no refusal, and no path back to a correct render short of a human re-saving the page
@@ -2000,200 +1917,6 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * OpenProject #1080: the floor invariant itself, exercised through `createPage`/`updatePage`/
-   * `movePage` against a real parent/child hierarchy -- `models/classificationLevels.test.ts` only
-   * covers the pure `meetsFloor`/`stricterOf` math, and `api/pages.classification.test.ts` stubs the
-   * model entirely, so nothing else proves `resolveCreateClassification`'s parent lookup or
-   * `moveOnePageInTx`'s auto-bump actually run against real rows.
-   */
-  describe('classification floor invariant (OpenProject #1080)', () => {
-    let internalId: string
-    let restrictedId: string
-
-    before(async () => {
-      const { classificationLevels } = await import('./classificationLevels.ts')
-      const levels = classificationLevels.list()
-      internalId = levels.find((l) => l.name === 'Internal')!.id
-      restrictedId = levels.find((l) => l.name === 'Restricted')!.id
-    })
-
-    test('a root-level page with no explicit classification defaults to the most-open level', async () => {
-      const page = await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({ path: 'floor/root-default' }),
-        actor
-      )
-      assert.equal(page.classification, fixtures.classificationId)
-    })
-
-    test('a child page with no explicit classification inherits its immediate parent', async () => {
-      const parent = await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({ path: 'floor/inherit-parent', classification: restrictedId }),
-        actor
-      )
-      const child = await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({ path: `${parent.path}/child` }),
-        actor
-      )
-      assert.equal(child.classification, restrictedId)
-    })
-
-    test('an explicit classification more open than the parent is rejected', async () => {
-      await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({ path: 'floor/reject-parent', classification: restrictedId }),
-        actor
-      )
-      await assert.rejects(
-        pagesModel.createPage(
-          fixtures.siteId,
-          pageInput({
-            path: 'floor/reject-parent/child',
-            classification: fixtures.classificationId
-          }),
-          actor
-        ),
-        /classificationBelowFloor/
-      )
-    })
-
-    test('an explicit classification at or above the parent floor succeeds', async () => {
-      await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({ path: 'floor/accept-parent', classification: internalId }),
-        actor
-      )
-      const child = await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({ path: 'floor/accept-parent/child', classification: restrictedId }),
-        actor
-      )
-      assert.equal(child.classification, restrictedId)
-    })
-
-    test('updatePage rejects lowering below the immediate parent floor', async () => {
-      await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({ path: 'floor/update-parent', classification: restrictedId }),
-        actor
-      )
-      const child = await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({ path: 'floor/update-parent/child', classification: restrictedId }),
-        actor
-      )
-      await assert.rejects(
-        pagesModel.updatePage(
-          fixtures.siteId,
-          child.id,
-          { classification: fixtures.classificationId },
-          actor
-        ),
-        /classificationBelowFloor/
-      )
-    })
-
-    test('movePage auto-bumps a page onto a new, stricter parent floor', async () => {
-      const strictParent = await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({ path: 'floor/move-strict-parent', classification: restrictedId }),
-        actor
-      )
-      const openPage = await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({
-          path: 'floor/move-open-page',
-          classification: fixtures.classificationId
-        }),
-        actor
-      )
-      const moved = await pagesModel.movePage(
-        fixtures.siteId,
-        openPage.id,
-        { path: `${strictParent.path}/moved-in` },
-        actor
-      )
-      assert.equal(moved!.classification, restrictedId)
-    })
-
-    /**
-     * OpenProject #1935: `page:classification-changed` must fire on a real level change and stay
-     * silent on a patch that merely restates the current level -- the editor sends every field on
-     * every save, so `patch.classification !== undefined` alone is not the right guard. Spies on
-     * `WIKI.models.hooks.emit` the same way this file already spies on `WIKI.models.search` above
-     * (own-property shadow, restored via `delete` in `finally`).
-     */
-    test('updatePage emits page:classification-changed only when the level actually changes', async () => {
-      const page = await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({ path: 'floor/hook-classification', classification: internalId }),
-        actor
-      )
-
-      const hooksModel = (globalThis as any).WIKI.models.hooks
-      const emitted: { event: string; siteId: string | null; data: any }[] = []
-      hooksModel.emit = async (event: string, siteId: string | null, data: any) => {
-        emitted.push({ event, siteId, data })
-        return 0
-      }
-
-      try {
-        // -> Restates the current level: must fire nothing
-        await pagesModel.updatePage(fixtures.siteId, page.id, { classification: internalId }, actor)
-        assert.equal(
-          emitted.filter((e) => e.event === 'page:classification-changed').length,
-          0,
-          'a no-op classification restate must not emit page:classification-changed'
-        )
-
-        // -> An actual change: must fire exactly once, carrying the old and new level
-        await pagesModel.updatePage(
-          fixtures.siteId,
-          page.id,
-          { classification: restrictedId },
-          actor
-        )
-        const changeEvents = emitted.filter((e) => e.event === 'page:classification-changed')
-        assert.equal(changeEvents.length, 1, 'a real classification change must emit exactly once')
-        const [{ siteId, data }] = changeEvents
-        assert.equal(siteId, fixtures.siteId)
-        assert.equal(data.id, page.id)
-        assert.equal(data.path, page.path)
-        assert.equal(data.siteId, fixtures.siteId)
-        assert.equal(data.previousClassification, internalId)
-        assert.equal(data.classification, restrictedId)
-      } finally {
-        delete hooksModel.emit
-      }
-    })
-
-    test('movePage never lowers a page already at or above the new floor', async () => {
-      const openParent = await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({
-          path: 'floor/move-open-parent',
-          classification: fixtures.classificationId
-        }),
-        actor
-      )
-      const strictPage = await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({ path: 'floor/move-strict-page', classification: restrictedId }),
-        actor
-      )
-      const moved = await pagesModel.movePage(
-        fixtures.siteId,
-        strictPage.id,
-        { path: `${openParent.path}/moved-in` },
-        actor
-      )
-      assert.equal(moved!.classification, restrictedId)
-    })
-  })
-
-  /**
    * OpenProject #1897/#1902: the batched reads the classification-conflicts resolve route uses
    * instead of a per-id `getPage`/`parentClassification` loop -- `api/pages.classification.test.ts`
    * stubs the model entirely, so this is what proves each one actually resolves the right rows.
@@ -2274,16 +1997,24 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       }
 
       const [expectedChild, expectedRoot, expectedEmptyFolder] = await Promise.all([
-        pagesModel.parentClassification(fixtures.siteId, strictChild.locale, strictChild.path),
-        pagesModel.parentClassification(fixtures.siteId, rootLevel.locale, rootLevel.path),
-        pagesModel.parentClassification(
+        pageClassificationModel.parentClassification(
+          fixtures.siteId,
+          strictChild.locale,
+          strictChild.path
+        ),
+        pageClassificationModel.parentClassification(
+          fixtures.siteId,
+          rootLevel.locale,
+          rootLevel.path
+        ),
+        pageClassificationModel.parentClassification(
           fixtures.siteId,
           emptyFolderChild.locale,
           emptyFolderChild.path
         )
       ])
 
-      const map = await pagesModel.parentClassifications(fixtures.siteId, [
+      const map = await pageClassificationModel.parentClassifications(fixtures.siteId, [
         { locale: strictChild.locale, path: strictChild.path },
         { locale: rootLevel.locale, path: rootLevel.path },
         emptyFolderChild
@@ -2328,10 +2059,10 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       // -> Each locale queried on its own, against the single-page method, so a distinct map key
       //    per locale never masks a cross-locale mismatch the way batching both together under one
       //    path-only key could.
-      const enBatched = await pagesModel.parentClassifications(fixtures.siteId, [
+      const enBatched = await pageClassificationModel.parentClassifications(fixtures.siteId, [
         { locale: 'en', path: 'batch-locale/parent/child' }
       ])
-      const enSingle = await pagesModel.parentClassification(
+      const enSingle = await pageClassificationModel.parentClassification(
         fixtures.siteId,
         'en',
         'batch-locale/parent/child'
@@ -2339,85 +2070,16 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       assert.equal(enBatched.get('en\0batch-locale/parent/child'), restrictedId)
       assert.equal(enBatched.get('en\0batch-locale/parent/child'), enSingle)
 
-      const frBatched = await pagesModel.parentClassifications(fixtures.siteId, [
+      const frBatched = await pageClassificationModel.parentClassifications(fixtures.siteId, [
         { locale: 'fr', path: 'batch-locale/parent/child' }
       ])
-      const frSingle = await pagesModel.parentClassification(
+      const frSingle = await pageClassificationModel.parentClassification(
         fixtures.siteId,
         'fr',
         'batch-locale/parent/child'
       )
       assert.equal(frBatched.get('fr\0batch-locale/parent/child'), internalId)
       assert.equal(frBatched.get('fr\0batch-locale/parent/child'), frSingle)
-    })
-  })
-
-  /**
-   * OpenProject #1081: "everything currently classified as X" -- `classificationReport()`'s per-level
-   * counts and `listByClassification()`'s drill-down, both instance-wide by default and narrowable to
-   * one site.
-   */
-  describe('classificationReport / listByClassification (OpenProject #1081)', () => {
-    test('every configured level is included, even at zero, in level order', async () => {
-      const report = await pagesModel.classificationReport()
-      assert.equal(report.length, 3)
-      assert.deepEqual(
-        report.map((r) => r.sortOrder),
-        [0, 1, 2]
-      )
-      assert.ok(report.every((r) => typeof r.count === 'number'))
-    })
-
-    test('counts and drill-down entries reflect what was actually created', async () => {
-      const { classificationLevels } = await import('./classificationLevels.ts')
-      const levels = classificationLevels.list()
-      const restricted = levels[levels.length - 1]!
-
-      const before = await pagesModel.classificationReport(fixtures.siteId)
-      const beforeCount = before.find((r) => r.levelId === restricted.id)!.count
-
-      await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({ path: 'classification-report/one', classification: restricted.id }),
-        actor
-      )
-      await pagesModel.createPage(
-        fixtures.siteId,
-        pageInput({ path: 'classification-report/two', classification: restricted.id }),
-        actor
-      )
-
-      const after = await pagesModel.classificationReport(fixtures.siteId)
-      assert.equal(after.find((r) => r.levelId === restricted.id)!.count, beforeCount + 2)
-
-      const drillDown = await pagesModel.listByClassification(restricted.id, {
-        siteId: fixtures.siteId
-      })
-      assert.equal(drillDown.total, beforeCount + 2)
-      const paths = drillDown.entries.map((e) => e.path)
-      assert.ok(paths.includes('classification-report/one'))
-      assert.ok(paths.includes('classification-report/two'))
-    })
-
-    test('listByClassification paginates with limit/offset', async () => {
-      const { classificationLevels } = await import('./classificationLevels.ts')
-      const publicLevel = classificationLevels.defaultLevel()
-
-      for (let i = 0; i < 3; i++) {
-        await pagesModel.createPage(
-          fixtures.siteId,
-          pageInput({ path: `classification-page/${i}`, classification: publicLevel.id }),
-          actor
-        )
-      }
-
-      const firstPage = await pagesModel.listByClassification(publicLevel.id, {
-        siteId: fixtures.siteId,
-        limit: 2,
-        offset: 0
-      })
-      assert.equal(firstPage.entries.length, 2)
-      assert.ok(firstPage.total >= 3)
     })
   })
 
@@ -2847,135 +2509,5 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
     assert.equal(events[0]!.action, 'moved')
     assert.equal(events[0]!.pageLocale, 'fr')
     assert.ok(events[0]!.changedFields.includes('locale'))
-  })
-})
-
-/**
- * OpenProject #1834: `getPage`'s `.select()` used to be `{ page: pagesTable, ... }`, which Drizzle
- * expands to every column of `pages` -- `content`, `searchContent`, the `ts` tsvector, `links`,
- * `historyData` and the generated `isSearchableComputed` included, none of which `toPage` reads
- * unconditionally. A real Postgres connection would only prove the query still returns the right
- * data, not that the column list sent to it actually shrank -- so this spies on `WIKI.db.select`
- * instead of standing up `setupTestDb()`, asserting directly on the selection object `getPage`
- * builds rather than re-describing it.
- */
-describe('getPage selection (pure unit, OpenProject #1834)', () => {
-  let previousWiki: typeof globalThis.WIKI
-
-  /** A `WIKI.db.select`-shaped spy: records the selection config, then returns a chain ending in
-   *  `.limit()`, which resolves to `[row]` (or `[]` when `row` is omitted). */
-  function stubSelect(row?: Record<string, unknown>) {
-    const calls: Record<string, unknown>[] = []
-    const chain: any = {}
-    chain.from = mock.fn(() => chain)
-    chain.leftJoin = mock.fn(() => chain)
-    chain.where = mock.fn(() => chain)
-    chain.limit = mock.fn(async () => (row ? [row] : []))
-    const select = mock.fn((config: Record<string, unknown>) => {
-      calls.push(config)
-      return chain
-    })
-    return { select, calls }
-  }
-
-  /** A row shaped like what the real query returns post-narrowing -- one key per selected column,
-   *  `content` following the same CASE-in-SQL rule `getPage` builds (redirect editor only, unless
-   *  `withContent`). */
-  function fakeRow(overrides: Record<string, unknown> = {}) {
-    return {
-      id: 'page-1',
-      path: 'docs/example',
-      hash: 'hash-1',
-      alias: null,
-      title: 'Example',
-      description: null,
-      icon: null,
-      locale: 'en',
-      editor: 'markdown',
-      contentType: 'markdown',
-      publishState: 'published',
-      publishStartDate: null,
-      publishEndDate: null,
-      isBrowsable: true,
-      isSearchable: true,
-      password: null,
-      relations: [],
-      tags: [],
-      toc: [],
-      render: '<p>hi</p>',
-      content: null,
-      config: {},
-      scripts: {},
-      authorId: 'user-1',
-      createdAt: new Date('2026-01-01T00:00:00.000Z'),
-      updatedAt: new Date('2026-01-02T00:00:00.000Z'),
-      classification: 'classification-1',
-      authorName: 'Author',
-      navigationId: null,
-      navigationMode: 'inherit',
-      ...overrides
-    }
-  }
-
-  beforeEach(() => {
-    previousWiki = globalThis.WIKI
-  })
-
-  afterEach(() => {
-    globalThis.WIKI = previousWiki
-  })
-
-  test('the emitted selection omits searchContent/ts/historyData/links', async () => {
-    const { select, calls } = stubSelect(fakeRow())
-    globalThis.WIKI = { db: { select } } as unknown as typeof globalThis.WIKI
-    const { pages: pagesModel } = await import('./pages.ts')
-
-    await pagesModel.getPage({ siteId: 'site-1', id: 'page-1' })
-
-    assert.equal(calls.length, 1)
-    const selectedKeys = Object.keys(calls[0]!)
-    for (const excluded of ['searchContent', 'ts', 'historyData', 'links']) {
-      assert.ok(!selectedKeys.includes(excluded), `selection should omit ${excluded}`)
-    }
-    // -> Still selects everything toPage actually reads, plus password for the locked check.
-    for (const included of ['render', 'toc', 'relations', 'tags', 'password', 'classification']) {
-      assert.ok(selectedKeys.includes(included), `selection should include ${included}`)
-    }
-    // -> Without withContent, `content` is a CASE expression (redirect editor only), not the raw
-    //    column -- an ordinary page view never asks the database for the full body.
-    assert.notEqual(calls[0]!.content, pagesTable.content)
-  })
-
-  test('without withContent, a non-redirect page comes back with no content key', async () => {
-    const { select } = stubSelect(fakeRow({ editor: 'markdown', content: null }))
-    globalThis.WIKI = { db: { select } } as unknown as typeof globalThis.WIKI
-    const { pages: pagesModel } = await import('./pages.ts')
-
-    const page = await pagesModel.getPage({ siteId: 'site-1', id: 'page-1' })
-
-    assert.ok(page)
-    assert.equal(Object.hasOwn(page!, 'content'), false)
-  })
-
-  test('with withContent, content comes back and the selection asks the column for it directly', async () => {
-    const { select, calls } = stubSelect(fakeRow({ content: '# Hello' }))
-    globalThis.WIKI = { db: { select } } as unknown as typeof globalThis.WIKI
-    const { pages: pagesModel } = await import('./pages.ts')
-
-    const page = await pagesModel.getPage({ siteId: 'site-1', id: 'page-1', withContent: true })
-
-    assert.equal(page?.content, '# Hello')
-    // -> With withContent on, the column is selected directly rather than through the redirect CASE.
-    assert.equal((calls[0] as any).content, pagesTable.content)
-  })
-
-  test('a redirect-editor page still comes back with content when withContent is off', async () => {
-    const { select } = stubSelect(fakeRow({ editor: 'redirect', content: '/elsewhere' }))
-    globalThis.WIKI = { db: { select } } as unknown as typeof globalThis.WIKI
-    const { pages: pagesModel } = await import('./pages.ts')
-
-    const page = await pagesModel.getPage({ siteId: 'site-1', id: 'page-1' })
-
-    assert.equal(page?.content, '/elsewhere')
   })
 })
