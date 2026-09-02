@@ -4,7 +4,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ensureTemporal } from '../../../test/temporal.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
-import { stubPageStreamDb } from '../../../test/builders.ts'
+import { makeIndexablePage, stubPageStreamDb } from '../../../test/builders.ts'
+import { runSearchModuleContract } from '../../../test/searchModuleContract.ts'
 import { search } from '../../../models/search.ts'
 import {
   AlgoliaSearchModule,
@@ -16,33 +17,17 @@ import {
   type AlgoliaPageDocument
 } from './search.ts'
 import { MAX_INDEXING_COUNT } from '../shared.ts'
-import type { AccessActor } from '../../../models/groups.ts'
-import type { SearchIndexablePage, SearchPagesParams } from '../../../models/search.ts'
+import type { SearchPagesParams } from '../../../models/search.ts'
 
 const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 
+/** The engine config both this file's own suite and the shared contract run against. */
+const ALGOLIA_CONFIG = { appId: 'app123', apiKey: 'key456', indexName: 'wiki-test' }
+
 before(() => ensureTemporal())
 
-function fakePage(overrides: Partial<Record<string, any>> = {}): SearchIndexablePage {
-  return {
-    id: 'page-1',
-    siteId: 'site-1',
-    locale: 'en',
-    path: 'docs/getting-started',
-    title: 'Getting Started',
-    description: 'How to get started',
-    icon: null,
-    tags: ['guide'],
-    editor: 'markdown',
-    publishState: 'published',
-    isSearchable: true,
-    classification: 'classification-1',
-    password: null,
-    searchContent: 'Some page content about getting started.',
-    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-    ...overrides
-  } as unknown as SearchIndexablePage
-}
+/** The 28-field superset lives in `test/builders.ts` — see `makeIndexablePage`'s own doc. */
+const fakePage = makeIndexablePage
 
 /** A fake Algolia client: every method a test needs, recording every call it received. */
 function fakeAlgoliaClient() {
@@ -195,24 +180,24 @@ describe('buildFilters()', () => {
 describe('pageToDocument()', () => {
   test('carries the searchable/faceted fields, including pathAncestors', () => {
     const doc = pageToDocument(fakePage())
-    assert.equal(doc.objectID, 'page-1')
-    assert.equal(doc.path, 'docs/getting-started')
-    assert.deepEqual(doc.pathAncestors, ['docs', 'docs/getting-started'])
-    assert.equal(doc.title, 'Getting Started')
-    assert.deepEqual(doc.tags, ['guide'])
+    assert.equal(doc.objectID, 'p1')
+    assert.equal(doc.path, 'docs/kangaroo')
+    assert.deepEqual(doc.pathAncestors, ['docs', 'docs/kangaroo'])
+    assert.equal(doc.title, 'The Wandering Kangaroo')
+    assert.deepEqual(doc.tags, ['animals'])
     assert.equal(doc.editor, 'markdown')
     assert.equal(doc.publishState, 'published')
     assert.equal(doc.isSearchable, true)
     assert.equal(doc.classification, 'classification-1')
-    assert.equal(doc.content, 'Some page content about getting started.')
+    assert.equal(doc.content, 'Hello kangaroo content')
   })
 
   test('never sends content for a password-protected page', () => {
     const doc = pageToDocument(fakePage({ password: 'letmein' }))
     assert.equal('content' in doc, false)
     // -> Everything a reader sees without the password is still there
-    assert.equal(doc.title, 'Getting Started')
-    assert.equal(doc.description, 'How to get started')
+    assert.equal(doc.title, 'The Wandering Kangaroo')
+    assert.equal(doc.description, 'A page about kangaroos')
   })
 
   test('formats a Date updatedAt as an ISO string', () => {
@@ -343,12 +328,7 @@ describe('AlgoliaSearchModule', () => {
       SERVERPATH: backendDir,
       sites: {
         [siteId]: {
-          config: {
-            search: {
-              engine: 'algolia',
-              engines: { algolia: { appId: 'app123', apiKey: 'key456', indexName: 'wiki-test' } }
-            }
-          }
+          config: { search: { engine: 'algolia', engines: { algolia: ALGOLIA_CONFIG } } }
         }
       },
       models: {
@@ -366,7 +346,7 @@ describe('AlgoliaSearchModule', () => {
 
   test('init() pushes searchableAttributes and the facet attributes to Algolia', async () => {
     const { mod, calls } = moduleWithFakeClient()
-    await mod.init(siteId, { appId: 'app123', apiKey: 'key456', indexName: 'wiki-test' })
+    await mod.init(siteId, ALGOLIA_CONFIG)
 
     assert.equal(calls.setSettings!.length, 1)
     const [{ indexName, indexSettings }] = calls.setSettings!
@@ -395,209 +375,6 @@ describe('AlgoliaSearchModule', () => {
     assert.equal(calls.setSettings![0].indexName, 'wiki')
   })
 
-  test('created() saves the page as an Algolia object', async () => {
-    const { mod, calls } = moduleWithFakeClient()
-    await mod.created(fakePage())
-
-    assert.equal(calls.saveObject!.length, 1)
-    const [{ indexName, body }] = calls.saveObject!
-    assert.equal(indexName, 'wiki-test')
-    assert.equal(body.objectID, 'page-1')
-    assert.equal(body.title, 'Getting Started')
-  })
-
-  test('updated() also saves via saveObject, keeping the object fully in sync', async () => {
-    const { mod, calls } = moduleWithFakeClient()
-    await mod.updated(fakePage({ title: 'Renamed Title' }))
-
-    assert.equal(calls.saveObject!.length, 1)
-    assert.equal(calls.saveObject![0].body.title, 'Renamed Title')
-  })
-
-  test('deleted() removes the object by id', async () => {
-    const { mod, calls } = moduleWithFakeClient()
-    await mod.deleted(siteId, 'page-1')
-
-    assert.equal(calls.deleteObject!.length, 1)
-    assert.deepEqual(calls.deleteObject![0], { indexName: 'wiki-test', objectID: 'page-1' })
-  })
-
-  test('renamed() updates the same object in place rather than delete+add', async () => {
-    const { mod, calls } = moduleWithFakeClient()
-    await mod.renamed(siteId, fakePage({ path: 'docs/new-path' }), 'docs/old-path')
-
-    assert.equal(calls.deleteObject!.length, 0)
-    assert.equal(calls.saveObject!.length, 1)
-    assert.equal(calls.saveObject![0].body.path, 'docs/new-path')
-    assert.equal(calls.saveObject![0].body.objectID, 'page-1')
-  })
-
-  test('created() never throws when Algolia fails -- a page save must not fail because of it', async () => {
-    const { mod } = moduleWithFakeClient()
-    ;(mod as any).createClient = () => ({
-      setSettings: async () => {
-        throw new Error('boom')
-      }
-    })
-    await assert.doesNotReject(mod.created(fakePage()))
-  })
-
-  /**
-   * OpenProject #2156: `offset`/`limit` are no longer sent straight through as Algolia's own
-   * `offset`/`length` -- page-rule filtering happens after the query, so the module now always
-   * scans a bounded window from the start and applies the caller's own pagination in JS, over the
-   * filtered set. See `query()`'s own comment for the full reasoning.
-   */
-  test('query() always scans from the start with a bounded length, regardless of the caller’s own offset/limit', async () => {
-    const { mod, calls } = moduleWithFakeClient()
-    await mod.query({ siteId, query: 'kangaroo', tags: ['guide'], offset: 10, limit: 5 })
-
-    assert.equal(calls.searchSingleIndex!.length, 1)
-    const [{ indexName, searchParams }] = calls.searchSingleIndex!
-    assert.equal(indexName, 'wiki-test')
-    assert.equal(searchParams.query, 'kangaroo')
-    assert.equal(searchParams.offset, 0)
-    assert.ok(
-      searchParams.length > 5,
-      'expected a bounded scan window larger than the requested page size'
-    )
-    assert.match(searchParams.filters, /isSearchable:true/)
-    assert.match(searchParams.filters, /tags:"guide"/)
-  })
-
-  test('query() applies the caller’s offset/limit in JS, over the filtered (visible) set', async () => {
-    const { mod, calls, setSearchResponse } = moduleWithFakeClient()
-    setSearchResponse({
-      hits: [
-        { objectID: 'p1', path: 'a', locale: 'en', title: 'A', tags: [], updatedAt: 'x' },
-        { objectID: 'p2', path: 'b', locale: 'en', title: 'B', tags: [], updatedAt: 'x' },
-        { objectID: 'p3', path: 'c', locale: 'en', title: 'C', tags: [], updatedAt: 'x' }
-      ],
-      nbHits: 3
-    })
-
-    const result = await mod.query({ siteId, query: 'x', offset: 1, limit: 1 })
-    assert.equal(result.results.length, 1)
-    assert.equal(result.results[0]!.path, 'b')
-    assert.equal(result.totalHits, 3)
-    assert.equal(calls.searchSingleIndex!.length, 1)
-  })
-
-  test('query() applies actor-based checkAccess filtering to the hits Algolia returned', async () => {
-    const { mod, calls, setSearchResponse } = moduleWithFakeClient()
-    setSearchResponse({
-      hits: [
-        { objectID: 'p1', path: 'open', locale: 'en', title: 'Open', tags: [], updatedAt: 'x' },
-        { objectID: 'p2', path: 'secret', locale: 'en', title: 'Secret', tags: [], updatedAt: 'x' }
-      ],
-      nbHits: 2
-    })
-    const denyForSecret = (_actor: AccessActor, _permission: string, page: { path: string }) =>
-      page.path !== 'secret'
-    const previousCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-    ;(globalThis as any).WIKI.models.groups.checkAccess = denyForSecret
-
-    try {
-      const result = await mod.query({
-        siteId,
-        query: '',
-        actor: { groupIds: [], permissions: [] }
-      })
-      assert.equal(result.results.length, 1)
-      assert.equal(result.results[0]!.path, 'open')
-      // -> totalHits is derived from the whole filtered scan window, never Algolia's own nbHits
-      assert.equal(result.totalHits, 1)
-    } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = previousCheckAccess
-    }
-    assert.equal(calls.searchSingleIndex!.length, 1)
-  })
-
-  test('totalHits never reflects nbHits when it exceeds what this page can vouch for', async () => {
-    const { mod, setSearchResponse } = moduleWithFakeClient()
-    setSearchResponse({
-      hits: [
-        { objectID: 'p1', path: 'open-1', locale: 'en', title: 'Open 1', tags: [], updatedAt: 'x' },
-        {
-          objectID: 'p2',
-          path: 'secret-1',
-          locale: 'en',
-          title: 'Secret 1',
-          tags: [],
-          updatedAt: 'x'
-        },
-        { objectID: 'p3', path: 'open-2', locale: 'en', title: 'Open 2', tags: [], updatedAt: 'x' }
-      ],
-      // -> Algolia reports 100 total matches across many pages this call never fetched -- the old
-      //    arithmetic (nbHits - hits.length + visible.length) would have leaked most of that into
-      //    totalHits even though only this one page was ever checked against checkAccess.
-      nbHits: 100
-    })
-    const denySecret = (_actor: AccessActor, _permission: string, page: { path: string }) =>
-      !page.path.startsWith('secret')
-    const previousCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-    ;(globalThis as any).WIKI.models.groups.checkAccess = denySecret
-
-    try {
-      const result = await mod.query({
-        siteId,
-        query: 'x',
-        offset: 0,
-        actor: { groupIds: [], permissions: [] }
-      })
-      assert.equal(result.results.length, 2)
-      // -> Exactly the readable count within the scanned window (2 visible), never Algolia's 100
-      assert.equal(result.totalHits, 2)
-    } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = previousCheckAccess
-    }
-  })
-
-  test('query() passes each hit’s own indexed classification to checkAccess, not a hardcoded null (OpenProject #1125)', async () => {
-    const { mod, setSearchResponse } = moduleWithFakeClient()
-    setSearchResponse({
-      hits: [
-        {
-          objectID: 'p1',
-          path: 'restricted',
-          locale: 'en',
-          title: 'Restricted',
-          tags: [],
-          classification: 'classification-restricted',
-          updatedAt: 'x'
-        }
-      ],
-      nbHits: 1
-    })
-    const seen: any[] = []
-    const previousCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
-      _actor: AccessActor,
-      _permission: string,
-      page: any
-    ) => {
-      seen.push(page.classification)
-      return true
-    }
-
-    try {
-      await mod.query({ siteId, query: '', actor: { groupIds: [], permissions: [] } })
-      assert.deepEqual(seen, ['classification-restricted'])
-    } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = previousCheckAccess
-    }
-  })
-
-  test('query() with no actor returns every hit unfiltered', async () => {
-    const { mod, setSearchResponse } = moduleWithFakeClient()
-    setSearchResponse({
-      hits: [{ objectID: 'p1', path: 'a', locale: 'en', title: 'A', tags: [], updatedAt: 'x' }],
-      nbHits: 1
-    })
-    const result = await mod.query({ siteId, query: '' })
-    assert.equal(result.results.length, 1)
-  })
-
   describe('rebuild()', () => {
     let previousDb: any
 
@@ -609,7 +386,13 @@ describe('AlgoliaSearchModule', () => {
       ;(globalThis as any).WIKI.db = previousDb
     })
 
-    test('purges only this site’s records, then batches and sends every page found', async () => {
+    /**
+     * The batching and per-locale tally are `test/searchModuleContract.ts`'s to assert, once for
+     * every engine. What is Algolia's alone: the purge goes out as a `deleteBy` scoped to this site
+     * against the configured index, each request is an `addObject`, and each locale entry reports
+     * `dictionary: 'n/a'` — this engine has no per-locale analyzer to name.
+     */
+    test('purges this site’s records with a scoped deleteBy, and sends addObject requests', async () => {
       const { mod, calls } = moduleWithFakeClient()
       ;(globalThis as any).WIKI.db = stubPageStreamDb([
         fakePage({ id: 'p1', locale: 'en' }),
@@ -622,10 +405,7 @@ describe('AlgoliaSearchModule', () => {
       assert.equal(calls.deleteBy!.length, 1)
       assert.equal(calls.deleteBy![0].indexName, 'wiki-test')
       assert.equal(calls.deleteBy![0].deleteByParams.filters, `siteId:"${siteId}"`)
-      assert.equal(calls.batch!.length, 1)
-      assert.equal(calls.batch![0].batchWriteParams.requests.length, 3)
       assert.equal(calls.batch![0].batchWriteParams.requests[0].action, 'addObject')
-      assert.equal(result.pages, 3)
       assert.deepEqual(
         result.locales.sort((a: any, b: any) => a.locale.localeCompare(b.locale)),
         [
@@ -688,15 +468,14 @@ describe('AlgoliaSearchModule', () => {
       assert.ok(result.warnings![0]!.includes('docs/huge-page'))
     })
 
-    test('an empty site still purges its own records and sends no batches', async () => {
+    /** That an empty site sends no batches is the contract's; that it still purges is Algolia's. */
+    test('an empty site still purges its own records', async () => {
       const { mod, calls } = moduleWithFakeClient()
       ;(globalThis as any).WIKI.db = stubPageStreamDb([])
 
       const result = await mod.rebuild(siteId)
 
       assert.equal(calls.deleteBy!.length, 1)
-      assert.equal(calls.batch!.length, 0)
-      assert.equal(result.pages, 0)
       assert.deepEqual(result.locales, [])
     })
 
@@ -720,4 +499,57 @@ describe('AlgoliaSearchModule', () => {
       assert.equal(typeof calls.clearObjects, 'undefined')
     })
   })
+})
+
+/**
+ * The thirteen claims every external engine owes `models/search.ts`, translated into Algolia's own
+ * request and response shapes — see `test/searchModuleContract.ts` for what they are and why they
+ * live in one place. Everything above this line is Algolia's alone.
+ */
+runSearchModuleContract('algolia', {
+  config: ALGOLIA_CONFIG,
+  siteConfig: { search: { engine: 'algolia', engines: { algolia: ALGOLIA_CONFIG } } },
+  makeModule: () => {
+    const { mod, calls, setSearchResponse } = moduleWithFakeClient()
+    return {
+      mod,
+      breakClient() {
+        ;(mod as any).createClient = () => ({
+          setSettings: async () => {
+            throw new Error('boom')
+          }
+        })
+      },
+      setHits(hits, reportedTotal) {
+        setSearchResponse({
+          hits: hits.map((hit) => ({
+            objectID: hit.id,
+            path: hit.path,
+            locale: hit.locale ?? 'en',
+            title: hit.title ?? hit.path,
+            tags: hit.tags ?? [],
+            updatedAt: 'x',
+            ...(hit.classification === undefined ? {} : { classification: hit.classification })
+          })),
+          nbHits: reportedTotal ?? hits.length
+        })
+      },
+      windows: () =>
+        calls.searchSingleIndex!.map(({ searchParams }: any) => ({
+          offset: searchParams.offset,
+          size: searchParams.length
+        })),
+      indexedIds: () => calls.saveObject!.map((call: any) => call.body.objectID),
+      lastIndexedPath: () => calls.saveObject!.at(-1)?.body.path,
+      removedIds: () => calls.deleteObject!.map((call: any) => call.objectID),
+      setPages(pages) {
+        ;(globalThis as any).WIKI.db = stubPageStreamDb(pages)
+      },
+      rebuiltIds: () =>
+        calls.batch!.flatMap((call: any) =>
+          call.batchWriteParams.requests.map((request: any) => request.body.objectID)
+        ),
+      uploadCalls: () => calls.batch!.length
+    }
+  }
 })

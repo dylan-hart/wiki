@@ -6,7 +6,8 @@ import { mock } from 'node:test'
 import { ensureTemporal } from '../../../test/temporal.ts'
 import { createSilentLogger, installTestWiki } from '../../../test/mocks.ts'
 import { search } from '../../../models/search.ts'
-import { makeRebuildPageSource } from '../../../test/builders.ts'
+import { makeIndexablePage, makeRebuildPageSource } from '../../../test/builders.ts'
+import { runSearchModuleContract } from '../../../test/searchModuleContract.ts'
 import {
   AwsCloudSearchModule,
   batchDocuments,
@@ -28,9 +29,8 @@ import {
   type DescribedSuggester,
   type SdfDocument
 } from './search.ts'
-import { REBUILD_BATCH_SIZE } from '../shared.ts'
+import { REBUILD_BATCH_SIZE, type RebuildPageSource } from '../shared.ts'
 import defaultAwsCloudSearchModule from './search.ts'
-import type { SearchIndexablePage } from '../../../models/search.ts'
 
 /**
  * `toIndexDocument` calls `Date.prototype.toTemporalInstant()` to build the document's `updatedAt`
@@ -40,6 +40,16 @@ import type { SearchIndexablePage } from '../../../models/search.ts'
  * v25.9.0, which doesn't expose it yet (same environment gap `core/scheduler.test.ts` stubs around).
  */
 const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../..')
+
+/** The engine config this file's own suite, the WIKI stub and the shared contract all run against. */
+const BASE_CONFIG = {
+  domain: 'wiki-demo',
+  endpoint: 'https://doc-wiki-demo.us-east-1.cloudsearch.amazonaws.com',
+  region: 'us-east-1',
+  accessKeyId: 'AKIA...',
+  secretAccessKey: 'secret',
+  analysisSchemeLang: 'en'
+}
 
 before(() => ensureTemporal())
 
@@ -60,14 +70,7 @@ installTestWiki({
       config: {
         search: {
           engines: {
-            'aws-cloudsearch': {
-              domain: 'wiki-demo',
-              endpoint: 'https://doc-wiki-demo.us-east-1.cloudsearch.amazonaws.com',
-              region: 'us-east-1',
-              accessKeyId: 'AKIA...',
-              secretAccessKey: 'secret',
-              analysisSchemeLang: 'en'
-            }
+            'aws-cloudsearch': BASE_CONFIG
           }
         }
       }
@@ -137,15 +140,6 @@ function fakeClient(
     }
   }
   return client
-}
-
-const BASE_CONFIG = {
-  domain: 'wiki-demo',
-  endpoint: 'https://doc-wiki-demo.us-east-1.cloudsearch.amazonaws.com',
-  region: 'us-east-1',
-  accessKeyId: 'AKIA...',
-  secretAccessKey: 'secret',
-  analysisSchemeLang: 'en'
 }
 
 describe('aws-cloudsearch module: buildIndexFields', () => {
@@ -442,44 +436,26 @@ describe('aws-cloudsearch module: init()', () => {
   })
 })
 
-/** A page row with every field `toIndexDocument`/the lifecycle hooks read. */
-function basePage(overrides: Partial<SearchIndexablePage> = {}): SearchIndexablePage {
-  return {
-    id: 'page-1',
-    siteId: 'site-1',
-    locale: 'en',
-    path: 'en/getting-started',
-    title: 'Getting Started',
-    description: 'How to get started',
-    searchContent: 'Full body text goes here',
-    tags: ['guide', 'intro'],
-    editor: 'markdown',
-    publishState: 'published',
-    icon: 'mdi:file',
-    classification: 'classification-1',
-    password: null,
-    updatedAt: new Date('2026-01-15T12:30:00.123Z'),
-    ...overrides
-  } as any as SearchIndexablePage
-}
+/** The 28-field superset lives in `test/builders.ts` — see `makeIndexablePage`'s own doc. */
+const basePage = makeIndexablePage
 
 describe('aws-cloudsearch module: toIndexDocument', () => {
   test('maps a page row to an SDF add document', () => {
     const doc = toIndexDocument(basePage())
     assert.equal(doc.type, 'add')
-    assert.equal(doc.id, 'page-1')
+    assert.equal(doc.id, 'p1')
     assert.equal(doc.fields.siteId, 'site-1')
-    assert.equal(doc.fields.path, 'en/getting-started')
+    assert.equal(doc.fields.path, 'docs/kangaroo')
     assert.equal(doc.fields.locale, 'en')
-    assert.equal(doc.fields.title, 'Getting Started')
-    assert.equal(doc.fields.description, 'How to get started')
-    assert.equal(doc.fields.content, 'Full body text goes here')
-    assert.deepEqual(doc.fields.tags, ['guide', 'intro'])
+    assert.equal(doc.fields.title, 'The Wandering Kangaroo')
+    assert.equal(doc.fields.description, 'A page about kangaroos')
+    assert.equal(doc.fields.content, 'Hello kangaroo content')
+    assert.deepEqual(doc.fields.tags, ['animals'])
     assert.equal(doc.fields.editor, 'markdown')
     assert.equal(doc.fields.publishState, 'published')
     assert.equal(doc.fields.icon, 'mdi:file')
     assert.equal(doc.fields.classification, 'classification-1')
-    assert.equal(doc.fields.updatedAt, '2026-01-15T12:30:00.123Z')
+    assert.equal(doc.fields.updatedAt, '2024-01-02T03:04:05.678Z')
     // -> OpenProject #2108/#2113
     assert.equal(doc.fields.siteId, 'site-1')
   })
@@ -742,60 +718,6 @@ function hit(overrides: Partial<CloudSearchHit> & { id: string }): CloudSearchHi
   }
 }
 
-describe('aws-cloudsearch module: page lifecycle hooks', () => {
-  test('created uploads a single add document', async () => {
-    const client = fakeQueryClient()
-    const module = new AwsCloudSearchModule(undefined, () => client)
-    await module.created(basePage())
-
-    assert.equal(client.uploaded.length, 1)
-    assert.equal(client.uploaded[0].length, 1)
-    assert.equal(client.uploaded[0][0].type, 'add')
-    assert.equal(client.uploaded[0][0].id, 'page-1')
-  })
-
-  test('updated uploads a single add document', async () => {
-    const client = fakeQueryClient()
-    const module = new AwsCloudSearchModule(undefined, () => client)
-    await module.updated(basePage({ title: 'Updated Title' }))
-
-    assert.equal((client.uploaded[0][0] as any).fields.title, 'Updated Title')
-  })
-
-  test('deleted uploads a single delete document, by id only', async () => {
-    const client = fakeQueryClient()
-    const module = new AwsCloudSearchModule(undefined, () => client)
-    await module.deleted('site-1', 'page-1')
-
-    assert.deepEqual(client.uploaded, [[{ type: 'delete', id: 'page-1' }]])
-  })
-
-  test('renamed re-uploads the page as an add, ignoring previousPath', async () => {
-    const client = fakeQueryClient()
-    const module = new AwsCloudSearchModule(undefined, () => client)
-    await module.renamed('site-1', basePage({ path: 'en/new-path' }), 'en/old-path')
-
-    assert.equal(client.uploaded[0][0].type, 'add')
-    assert.equal((client.uploaded[0][0] as any).fields.path, 'en/new-path')
-  })
-
-  test('a failed upload is swallowed and logged, not thrown', async () => {
-    const client: CloudSearchQueryClient = {
-      async uploadDocuments() {
-        throw new Error('boom')
-      },
-      async search() {
-        return { hits: { found: 0, hit: [] } }
-      }
-    }
-    const module = new AwsCloudSearchModule(undefined, () => client)
-    await module.created(basePage())
-    await module.deleted('site-1', 'page-1')
-    // -> Neither call threw
-    assert.ok(true)
-  })
-})
-
 /**
  * OpenProject #922: the query client used to be cached by siteId alone, so changing
  * `region`/`accessKeyId`/`secretAccessKey`/`endpoint`/`domain` in the admin area had no effect until a
@@ -860,81 +782,6 @@ describe('aws-cloudsearch module: query()', () => {
    * bounded window from the start and applies the caller's own pagination in JS, over the filtered
    * set.
    */
-  test('always scans from the start with a bounded size, regardless of the caller’s own offset/limit', async () => {
-    const client = fakeQueryClient([{ found: 1, hit: [hit({ id: 'page-1' })] }])
-    const module = new AwsCloudSearchModule(undefined, () => client)
-    await module.query({ siteId: 'site-1', hideProtectedContent: false, offset: 10, limit: 5 })
-
-    assert.equal(client.searches.length, 1)
-    assert.equal(client.searches[0].start, 0)
-    assert.ok(
-      client.searches[0].size > 5,
-      'expected a bounded scan window larger than the requested page size'
-    )
-  })
-
-  test('applies the caller’s offset/limit in JS, over the filtered (visible) set', async () => {
-    const client = fakeQueryClient([
-      {
-        found: 3,
-        hit: [
-          hit({ id: 'a', fields: { path: ['en/a'] } }),
-          hit({ id: 'b', fields: { path: ['en/b'] } }),
-          hit({ id: 'c', fields: { path: ['en/c'] } })
-        ]
-      }
-    ])
-    const module = new AwsCloudSearchModule(undefined, () => client)
-    const result = await module.query({
-      siteId: 'site-1',
-      hideProtectedContent: false,
-      offset: 1,
-      limit: 1
-    })
-
-    assert.equal(result.results.length, 1)
-    assert.equal(result.results[0].id, 'b')
-    assert.equal(result.totalHits, 3)
-  })
-
-  /**
-   * OpenProject #2151/#2156: totalHits used to be the count CloudSearch reported adjusted only by
-   * what was dropped from the SINGLE fetched page, so a denied match elsewhere in the result set
-   * still inflated it -- the audit's own repro shape. Covered for both the plain path and the
-   * hideProtectedContent split path, since each used to compute the same leaky arithmetic
-   * separately.
-   */
-  test('totalHits never exceeds the number of readable matches, at limit=1, on the plain path', async () => {
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
-      _actor: any,
-      _perm: string,
-      page: { path: string }
-    ) => page.path !== 'en/secret'
-    try {
-      const client = fakeQueryClient([
-        {
-          found: 2,
-          hit: [
-            hit({ id: 'visible', fields: { path: ['en/visible'] } }),
-            hit({ id: 'hidden', fields: { path: ['en/secret'] } })
-          ]
-        }
-      ])
-      const module = new AwsCloudSearchModule(undefined, () => client)
-      const result = await module.query({
-        siteId: 'site-1',
-        hideProtectedContent: false,
-        actor: {} as any,
-        limit: 1
-      })
-      assert.equal(result.totalHits, 1)
-      assert.equal(result.results.length, 1)
-      assert.equal(result.results[0].id, 'visible')
-    } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
-    }
-  })
-
   test('totalHits never exceeds the number of readable matches, at limit=1, on the split (hideProtectedContent) path', async () => {
     ;(globalThis as any).WIKI.models.groups.checkAccess = (
       _actor: any,
@@ -1006,92 +853,6 @@ describe('aws-cloudsearch module: query()', () => {
     assert.equal(result.totalHits, 2)
   })
 
-  test('rows a page rule denies are filtered out, and totalHits accounts for it', async () => {
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
-      _actor: any,
-      _perm: string,
-      page: { path: string }
-    ) => page.path !== 'en/secret'
-    try {
-      const client = fakeQueryClient([
-        {
-          found: 2,
-          hit: [
-            hit({ id: 'visible', fields: { path: ['en/visible'] } }),
-            hit({ id: 'hidden', fields: { path: ['en/secret'] } })
-          ]
-        }
-      ])
-      const module = new AwsCloudSearchModule(undefined, () => client)
-      const result = await module.query({ siteId: 'site-1', actor: {} as any })
-
-      assert.equal(result.results.length, 1)
-      assert.equal(result.results[0].id, 'visible')
-      // -> offset (0) plus how many of this page's rows survived checkAccess, never CloudSearch's own
-      //    `found`
-      assert.equal(result.totalHits, 1)
-    } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
-    }
-  })
-
-  test('totalHits never reflects CloudSearch’s own found when it exceeds what this page can vouch for', async () => {
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
-      _actor: any,
-      _perm: string,
-      page: { path: string }
-    ) => page.path !== 'en/secret'
-    try {
-      const client = fakeQueryClient([
-        {
-          // -> CloudSearch reports 100 total matches across many pages this call never fetched -- the
-          //    old arithmetic (found - rows.length + visible.length) would have leaked most of that
-          //    into totalHits even though only this one page was ever checked against checkAccess.
-          found: 100,
-          hit: [
-            hit({ id: 'visible-1', fields: { path: ['en/visible-1'] } }),
-            hit({ id: 'hidden', fields: { path: ['en/secret'] } }),
-            hit({ id: 'visible-2', fields: { path: ['en/visible-2'] } })
-          ]
-        }
-      ])
-      const module = new AwsCloudSearchModule(undefined, () => client)
-      const result = await module.query({ siteId: 'site-1', offset: 0, actor: {} as any })
-
-      assert.equal(result.results.length, 2)
-      // -> Exactly the readable count of this page (offset 0 + 2 visible), never CloudSearch's 100
-      assert.equal(result.totalHits, 2)
-    } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
-    }
-  })
-
-  test('passes each hit’s own indexed classification to checkAccess, not a hardcoded null (OpenProject #1125)', async () => {
-    const seen: any[] = []
-    ;(globalThis as any).WIKI.models.groups.checkAccess = (
-      _actor: any,
-      _perm: string,
-      page: any
-    ) => {
-      seen.push(page.classification)
-      return true
-    }
-    try {
-      const client = fakeQueryClient([
-        {
-          found: 1,
-          hit: [hit({ id: 'p1', fields: { classification: ['classification-restricted'] } })]
-        }
-      ])
-      const module = new AwsCloudSearchModule(undefined, () => client)
-      await module.query({ siteId: 'site-1', actor: {} as any })
-
-      assert.deepEqual(seen, ['classification-restricted'])
-    } finally {
-      ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
-    }
-  })
-
   test('reuses one query client per site across repeated query() calls', async () => {
     let factoryCalls = 0
     const client = fakeQueryClient([
@@ -1110,7 +871,13 @@ describe('aws-cloudsearch module: query()', () => {
 })
 
 describe('aws-cloudsearch module: rebuild()', () => {
-  test('streams every locale through uploadBatch and reports a per-locale RebuildResult', async () => {
+  /**
+   * The batching and per-locale tally are `test/searchModuleContract.ts`'s to assert, once for every
+   * engine. What stays here is the one thing that is this engine's: no `dictionary` on any locale
+   * entry — CloudSearch has no such concept (see `RebuildResult`'s own doc comment in
+   * `models/search.ts`), unlike `algolia`/`elasticsearch`, which report `'n/a'`.
+   */
+  test('names no per-locale dictionary in its RebuildResult', async () => {
     const client = fakeQueryClient()
     const source = makeRebuildPageSource({
       en: [basePage({ id: 'en-1' }), basePage({ id: 'en-2' })],
@@ -1120,11 +887,6 @@ describe('aws-cloudsearch module: rebuild()', () => {
 
     const result = await module.rebuild('site-1')
 
-    assert.equal(result.pages, 3)
-    assert.deepEqual(result.locales, [
-      { locale: 'en', pages: 2 },
-      { locale: 'fr', pages: 1 }
-    ])
     // -> No `dictionary` on either entry: this engine has no such concept (see `RebuildResult`'s own
     //    doc comment in `models/search.ts`).
     assert.ok(result.locales.every((l) => !('dictionary' in l)))
@@ -1247,4 +1009,93 @@ describe('aws-cloudsearch module: default export', () => {
   test('is a singleton AwsCloudSearchModule instance', () => {
     assert.ok(defaultAwsCloudSearchModule instanceof AwsCloudSearchModule)
   })
+})
+
+/**
+ * The thirteen claims every external engine owes `models/search.ts`, translated into CloudSearch's
+ * own SDF and search-request shapes — see `test/searchModuleContract.ts` for what they are and why
+ * they live in one place. Everything above this line is this engine's alone, the domain
+ * provisioning, the protected-content split query and the ghost-document purge included.
+ */
+runSearchModuleContract('aws-cloudsearch', {
+  config: BASE_CONFIG,
+  siteConfig: {
+    search: { engine: 'aws-cloudsearch', engines: { 'aws-cloudsearch': BASE_CONFIG } }
+  },
+  makeModule: () => {
+    let response: { found: number; hit: CloudSearchHit[] } = { found: 0, hit: [] }
+    let broken = false
+    const uploaded: SdfDocument[][] = []
+    const searches: CloudSearchSearchRequest[] = []
+    const client: CloudSearchQueryClient = {
+      async uploadDocuments(batch) {
+        if (broken) {
+          throw new Error('boom')
+        }
+        uploaded.push(batch)
+      },
+      async search(request) {
+        searches.push(request)
+        return { hits: response }
+      }
+    }
+    // -> `pageSource` is a constructor argument, so the contract's `setPages` swaps what this
+    //    indirection delegates to rather than rebuilding the module around a new source.
+    let pages = makeRebuildPageSource({})
+    const source: RebuildPageSource = {
+      locales: (siteId) => pages.locales(siteId),
+      pageBatch: (siteId, locale, offset, limit) => pages.pageBatch(siteId, locale, offset, limit)
+    }
+    const adds = () =>
+      uploaded
+        .flat()
+        .filter((document): document is SdfDocument & { type: 'add' } => document.type === 'add')
+
+    return {
+      mod: new AwsCloudSearchModule(undefined, () => client, source),
+      // -> This engine defaults `hideProtectedContent` on, whose two-query split has its own suite
+      //    above; the contract is about the single-query path every engine shares.
+      baseQuery: { hideProtectedContent: false },
+      breakClient() {
+        broken = true
+      },
+      setHits(hits, reportedTotal) {
+        response = {
+          found: reportedTotal ?? hits.length,
+          hit: hits.map((entry, index) => ({
+            id: entry.id,
+            fields: {
+              path: [entry.path],
+              locale: [entry.locale ?? 'en'],
+              title: [entry.title ?? entry.path],
+              description: [''],
+              tags: entry.tags ?? [],
+              updatedAt: ['2024-01-02T03:04:05.678Z'],
+              _score: [String(hits.length - index)],
+              ...(entry.classification === undefined
+                ? {}
+                : { classification: [entry.classification] })
+            }
+          }))
+        }
+      },
+      windows: () => searches.map((request) => ({ offset: request.start!, size: request.size! })),
+      indexedIds: () => adds().map((document) => document.id),
+      lastIndexedPath: () => adds().at(-1)?.fields.path as string | undefined,
+      removedIds: () =>
+        uploaded
+          .flat()
+          .filter((document) => document.type === 'delete')
+          .map((document) => document.id),
+      setPages(sitePages) {
+        const byLocale: Record<string, typeof sitePages> = {}
+        for (const sitePage of sitePages) {
+          ;(byLocale[sitePage.locale] ??= []).push(sitePage)
+        }
+        pages = makeRebuildPageSource(byLocale)
+      },
+      rebuiltIds: () => adds().map((document) => document.id),
+      uploadCalls: () => uploaded.length
+    }
+  }
 })
