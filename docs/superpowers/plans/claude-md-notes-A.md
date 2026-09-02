@@ -162,6 +162,14 @@
     delegation is additive rather than a migration, and the site half is `checkSiteAccess()`
     unchanged (site pin, API-key scope boundary, `manage:system` bypass all still apply) — is
     written once, on the method.
+  - **Route call sites reach it through `helpers/siteRules.ts#maySiteAdmin`**, a four-argument
+    shorthand with no logic of its own that resolves `WIKI.models.groups` at CALL time. It exists
+    only so a one-line permission gate stays one line: spelled out in full the check is 107 columns
+    inside an `if (!…)` and oxfmt breaks it across five. It is the one `WIKI` touch in an otherwise
+    WIKI-free file — the rule-resolution algorithm above it stays a pure function.
   - **A test suite stubbing `WIKI.models.groups` for a site-scoped admin route must stub
-    `checkSiteAdminAccess` too**, composed from its own `actorForRequest`/`checkSiteAccess` stubs
-    the same way the real method composes the real pair. Six suites do this now.
+    `checkSiteAdminAccess` too**, built with `backend/test/mocks.ts`'s
+    `createSiteAdminAccessStub(actorForRequest, checkSiteAccess)`, which composes that suite's own
+    two stubs exactly as the real method composes the real pair. Five suites do this now. This is
+    the same "build the smallest object satisfying what the code path calls" convention the
+    `cache`/`events` stubs already follow, extended to a `WIKI.models` member.

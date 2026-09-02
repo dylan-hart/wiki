@@ -358,9 +358,15 @@ export function guardSiteEnabled(
  * and a route file added later inherits that the moment it registers under `api/index.ts`, exactly
  * as it already inherits the disabled-site 403.
  *
- * Order matters and is deliberate: `index.ts`'s global permission `preHandler` is registered on the
- * root app, so it runs BEFORE this encapsulated one — an unauthorized caller still gets 401/403 for
- * an unknown site rather than being told, unauthenticated, which site ids do not exist.
+ * Hook ORDER decides which of the two answers a caller sees, and only for one class of route.
+ * `index.ts`'s global permission `preHandler` is registered on the root app, so it runs BEFORE this
+ * encapsulated one: a route declaring `config.permissions` still answers 401/403 first, and an
+ * unauthorized caller learns nothing about which site ids exist. A route that declares none —
+ * anything public, and every route that checks a page or `site:*` permission IN ITS HANDLER (which
+ * that hook cannot express) — now answers this 404 BEFORE its own authorization runs, where it used
+ * to 403 first or fall through to "page does not exist". That reordering is D1, not an oversight:
+ * these routes are readable by an anonymous caller in the first place, so a site id's existence was
+ * already discoverable through them.
  *
  * `req.params.siteId` reads as `undefined` on a route with no such param, which is neither a missing
  * site nor a disabled one — nothing to answer, so the request passes straight through.

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { ORIGIN_PATTERN_SOURCE } from '../helpers/network.ts'
+import { maySiteAdmin } from '../helpers/siteRules.ts'
 
 /*
   Credential management is gated by the same `manage:sites` / `site:blocks` pair `api/blocks.ts`'s own
@@ -44,14 +45,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:sites',
-          'site:blocks',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
       return WIKI.models.blockCredentials.getSiteCredentials(req.params.siteId)
@@ -102,14 +96,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:sites',
-          'site:blocks',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
       return WIKI.models.blockCredentials.createCredential(
@@ -158,14 +145,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:sites',
-          'site:blocks',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
       const rotated = await WIKI.models.blockCredentials.rotateSecret(
@@ -227,14 +207,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:sites',
-          'site:blocks',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
       const updated = await WIKI.models.blockCredentials.updateAllowedOrigins(
@@ -276,14 +249,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:sites',
-          'site:blocks',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
       const deleted = await WIKI.models.blockCredentials.deleteCredential(

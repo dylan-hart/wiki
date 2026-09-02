@@ -715,9 +715,10 @@ describe('trustProxy gates X-Forwarded-Host trust for site resolution', () => {
  * and — for the first time — covering the dozen-plus `:siteId` routes across `pages.ts`, `tree.ts`,
  * `assets.ts`, `comments.ts`, `navigation.ts`, `liveData.ts` and `glossary.ts` that never had a guard
  * at all. Spec D1 folded the unknown-site 404 in here too, replacing 36 hand-written per-route
- * preambles that answered it in two different spellings. Tested as the plain function it is, against a synthetic `req`/`reply`/`done` rather than a
- * booted Fastify app — see `api/index.test.ts` for the companion structural test that calls this same
- * function against every `:siteId` route the API actually declares.
+ * preambles that answered it in two different spellings. Tested as the plain function it is, against
+ * a synthetic `req`/`reply`/`done` rather than a booted Fastify app — see `api/index.test.ts` for the
+ * companion structural test that calls this same function against every `:siteId` route the API
+ * actually declares.
  */
 describe('siteEnabledPreHandler', () => {
   let previousWiki: any

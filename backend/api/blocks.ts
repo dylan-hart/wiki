@@ -1,5 +1,6 @@
 import { extractBlockDefinition, extractDefinedElementTag } from '../helpers/blockDefinition.ts'
 import { CustomError } from '../helpers/common.ts'
+import { maySiteAdmin } from '../helpers/siteRules.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 /**
@@ -288,14 +289,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:sites',
-          'site:blocks',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
 
@@ -358,14 +352,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:sites',
-          'site:blocks',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:blocks', req.params.siteId)) {
         return reply.forbidden()
       }
 

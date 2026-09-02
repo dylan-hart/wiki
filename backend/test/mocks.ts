@@ -77,3 +77,30 @@ export function createSchedulerStub(): any {
     addJob: mock.fn(async () => ({ id: 'test-job' }))
   }
 }
+
+/**
+ * A `WIKI.models.groups.checkSiteAdminAccess`-shaped stub, composed from a suite's OWN
+ * `actorForRequest` and `checkSiteAccess` stubs exactly as the real method composes the real pair
+ * (`models/groups.ts`): the global permission, site-blind, OR the delegated `site:*` one.
+ *
+ * Five route suites (`api/approvals`, `api/blockCredentials`, `api/blocks`, `api/navigation`,
+ * `api/sites`) drive a site-scoped admin gate through their routes and each already stubs those two
+ * pieces off its own `x-test-permissions` / `x-test-site-permissions` headers. Composing here rather
+ * than in each of them keeps the one thing that must not drift — WHICH of the two answers wins, and
+ * in which order — single-sourced against the real method, while leaving each suite's own grant
+ * semantics exactly where they were.
+ *
+ * @param actorForRequest The suite's own `WIKI.models.groups.actorForRequest` stand-in
+ * @param checkSiteAccess The suite's own `WIKI.models.groups.checkSiteAccess` stand-in
+ */
+export function createSiteAdminAccessStub(
+  actorForRequest: (req: any) => { permissions: string[] },
+  checkSiteAccess: (actor: any, permission: string, siteId: string) => boolean
+) {
+  return (req: any, globalPermission: string, sitePermission: string, siteId: string): boolean => {
+    const actor = actorForRequest(req)
+    return (
+      actor.permissions.includes(globalPermission) || checkSiteAccess(actor, sitePermission, siteId)
+    )
+  }
+}

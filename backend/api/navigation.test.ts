@@ -7,6 +7,7 @@ import navigationRoutes from './navigation.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { registerSchemas as registerNavigationSchema } from './schemas/navigation.ts'
 import { registerParamsSchemas } from './schemas/params.ts'
+import { createSiteAdminAccessStub } from '../test/mocks.ts'
 
 /**
  * Task #683: `GET .../navigation/pages/:pageId/inherited` and `PUT .../navigation/pages/:pageId`
@@ -54,22 +55,7 @@ function actorForRequest(req: any) {
   return { groupIds: [], permissions }
 }
 
-/**
- * Stand-in for `models/groups.ts#checkSiteAdminAccess`, composed from the two stubs above exactly
- * as the real method composes the real pair — so what each test grants through the two headers
- * still decides the answer.
- */
-function checkSiteAdminAccess(
-  req: any,
-  globalPermission: string,
-  sitePermission: string,
-  siteId: string
-) {
-  const actor = actorForRequest(req)
-  return (
-    actor.permissions.includes(globalPermission) || checkSiteAccess(actor, sitePermission, siteId)
-  )
-}
+const checkSiteAdminAccess = createSiteAdminAccessStub(actorForRequest, checkSiteAccess)
 
 let app: FastifyInstance
 

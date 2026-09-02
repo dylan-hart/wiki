@@ -3,7 +3,7 @@ import { pages as pagesTable } from '../db/schema.ts'
 import { CustomError, isValidUuid } from '../helpers/common.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
 import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
-import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
+import { maySiteAdmin, SITE_PERMISSIONS } from '../helpers/siteRules.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 import { siteAssetKinds } from '../models/sites.ts'
 import type { SiteAssetKind } from '../models/sites.ts'
@@ -851,14 +851,8 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:sites',
-          SITE_IMAGE_KIND_PERMISSIONS[req.params.kind],
-          req.params.siteId
-        )
-      ) {
+      const kindPermission = SITE_IMAGE_KIND_PERMISSIONS[req.params.kind]
+      if (!maySiteAdmin(req, 'manage:sites', kindPermission, req.params.siteId)) {
         return reply.forbidden()
       }
 
@@ -938,14 +932,8 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:sites',
-          SITE_IMAGE_KIND_PERMISSIONS[req.params.kind],
-          req.params.siteId
-        )
-      ) {
+      const kindPermission = SITE_IMAGE_KIND_PERMISSIONS[req.params.kind]
+      if (!maySiteAdmin(req, 'manage:sites', kindPermission, req.params.siteId)) {
         return reply.forbidden()
       }
 

@@ -9,6 +9,7 @@ import { registerSchemas as registerSiteSchema } from './schemas/site.ts'
 import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { registerParamsSchemas } from './schemas/params.ts'
+import { createSiteAdminAccessStub } from '../test/mocks.ts'
 
 /**
  * Regression test for `GET /_api/sites/:siteIdorHostname`'s `strict` querystring flag: the handler
@@ -122,22 +123,7 @@ function checkSiteAccess(actor: { permissions: string[] }, permission: string, s
 }
 let currentSitePermissionHeader: string | undefined
 
-/**
- * Stand-in for `models/groups.ts#checkSiteAdminAccess`, composed from `actorForRequest` and the
- * `checkSiteAccess` stub above exactly as the real method composes the real pair — so what a test
- * grants through the two headers still decides the answer.
- */
-function checkSiteAdminAccess(
-  req: any,
-  globalPermission: string,
-  sitePermission: string,
-  siteId: string
-) {
-  const actor = actorForRequest(req)
-  return (
-    actor.permissions.includes(globalPermission) || checkSiteAccess(actor, sitePermission, siteId)
-  )
-}
+const checkSiteAdminAccess = createSiteAdminAccessStub(actorForRequest, checkSiteAccess)
 
 /**
  * Regression test for `POST /_api/sites`'s hand-rolled hostname check: the handler validated

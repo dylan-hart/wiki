@@ -1,5 +1,6 @@
 import { CustomError } from '../helpers/common.ts'
 import { actorFrom, loadReadablePage } from '../helpers/pageAccess.ts'
+import { maySiteAdmin } from '../helpers/siteRules.ts'
 import type { ApprovalPageRef, ApprovalRulePatch, ReviewerScope } from '../models/approvals.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
@@ -185,14 +186,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:sites',
-          'site:approvals',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:approvals', req.params.siteId)) {
         return reply.forbidden()
       }
       return WIKI.models.approvals.getRules(req.params.siteId)
@@ -238,14 +232,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:sites',
-          'site:approvals',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:approvals', req.params.siteId)) {
         return reply.forbidden()
       }
 
@@ -319,14 +306,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:sites',
-          'site:approvals',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:approvals', req.params.siteId)) {
         return reply.forbidden()
       }
       const current = await WIKI.models.approvals.getRule(req.params.siteId, req.params.ruleId)
@@ -410,14 +390,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:sites',
-          'site:approvals',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:sites', 'site:approvals', req.params.siteId)) {
         return reply.forbidden()
       }
       if (!(await WIKI.models.approvals.deleteRule(req.params.siteId, req.params.ruleId))) {

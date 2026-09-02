@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { maySiteAdmin } from '../helpers/siteRules.ts'
 import {
   assertValidNavItems,
   NAV_COPY_MODES,
@@ -68,12 +69,7 @@ async function routes(app: FastifyInstance) {
       const unfiltered = Boolean(req.query.full)
       if (
         unfiltered &&
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:navigation',
-          'site:navigation',
-          req.params.siteId
-        )
+        !maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)
       ) {
         return reply.forbidden(
           'Reading a menu in full requires manage:navigation, or site:navigation on this site.'
@@ -125,14 +121,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:navigation',
-          'site:navigation',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
       return { mode: await WIKI.models.navigation.getMode(req.params.siteId, req.params.navId) }
@@ -173,14 +162,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:navigation',
-          'site:navigation',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
       return {
@@ -229,14 +211,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:navigation',
-          'site:navigation',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
       return {
@@ -282,14 +257,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:navigation',
-          'site:navigation',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
       return WIKI.models.navigation.siteRoots(req.params.siteId)
@@ -343,14 +311,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:navigation',
-          'site:navigation',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
       return WIKI.models.navigation.listOverrides(req.params.siteId, {
@@ -411,14 +372,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:navigation',
-          'site:navigation',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
       assertValidNavItems(req.body.items)
@@ -493,25 +447,13 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:navigation',
-          'site:navigation',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
       const sourceSiteId = req.body.sourceSiteId ?? req.params.siteId
       if (
         sourceSiteId !== req.params.siteId &&
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:navigation',
-          'site:navigation',
-          sourceSiteId
-        )
+        !maySiteAdmin(req, 'manage:navigation', 'site:navigation', sourceSiteId)
       ) {
         return reply.forbidden()
       }
@@ -596,14 +538,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      if (
-        !WIKI.models.groups.checkSiteAdminAccess(
-          req,
-          'manage:navigation',
-          'site:navigation',
-          req.params.siteId
-        )
-      ) {
+      if (!maySiteAdmin(req, 'manage:navigation', 'site:navigation', req.params.siteId)) {
         return reply.forbidden()
       }
       if (req.body.items) {

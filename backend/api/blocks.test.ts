@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import ajvFormats from 'ajv-formats'
 import { siteEnabledPreHandler } from '../helpers/common.ts'
+import { createSiteAdminAccessStub } from '../test/mocks.ts'
 import blocksRoutes from './blocks.ts'
 import { registerSchemas as registerBlockSchema } from './schemas/block.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
@@ -316,22 +317,7 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
     return { groupIds: [], permissions }
   }
 
-  /**
-   * Stand-in for `models/groups.ts#checkSiteAdminAccess`, composed from the two stubs above exactly
-   * as the real method composes the real pair — so what each test grants through the two headers
-   * still decides the answer.
-   */
-  function checkSiteAdminAccess(
-    req: any,
-    globalPermission: string,
-    sitePermission: string,
-    siteId: string
-  ) {
-    const actor = actorForRequest(req)
-    return (
-      actor.permissions.includes(globalPermission) || checkSiteAccess(actor, sitePermission, siteId)
-    )
-  }
+  const checkSiteAdminAccess = createSiteAdminAccessStub(actorForRequest, checkSiteAccess)
 
   let app: FastifyInstance
 
