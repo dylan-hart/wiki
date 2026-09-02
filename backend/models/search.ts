@@ -7,6 +7,7 @@ import {
   readModuleDefinitions,
   validateModuleConfig
 } from '../helpers/moduleRegistry.ts'
+import { withTimeout } from '../helpers/timeout.ts'
 import type { AccessActor } from './groups.ts'
 import type { ModuleProp } from '../helpers/moduleProps.ts'
 import type { pages as pagesTable } from '../db/schema.ts'
@@ -527,27 +528,20 @@ class Search {
         if (!module) {
           return
         }
-        let timer: NodeJS.Timeout | undefined
         try {
-          await Promise.race([
+          await withTimeout(
             module.init(siteId, this.getEngineConfig(siteId, key)),
-            new Promise<never>((_resolve, reject) => {
-              timer = setTimeout(() => {
-                reject(
-                  new Error(
-                    `Timed out after ${ENGINE_INIT_TIMEOUT_MS / 1000}s waiting for "${key}" to initialize.`
-                  )
-                )
-              }, ENGINE_INIT_TIMEOUT_MS)
-            })
-          ])
+            ENGINE_INIT_TIMEOUT_MS,
+            () =>
+              new Error(
+                `Timed out after ${ENGINE_INIT_TIMEOUT_MS / 1000}s waiting for "${key}" to initialize.`
+              )
+          )
         } catch (err: any) {
           WIKI.logger.warn(
             `(SEARCH) Failed to initialize search engine "${key}" for site ${siteId} [ FAILED ]`
           )
           WIKI.logger.warn(err.message)
-        } finally {
-          clearTimeout(timer)
         }
       })
     )

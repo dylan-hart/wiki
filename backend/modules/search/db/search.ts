@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import { escapeLikePattern } from '../../../helpers/common.ts'
 import {
   search,
   SUGGEST_TITLE_CANDIDATES,
@@ -79,11 +80,6 @@ const OVERFETCH_GROWTH_FACTOR = 4
  * the site.
  */
 const OVERFETCH_HARD_CAP = 5000
-
-/** Escape the LIKE wildcards, so that a path filter is a prefix rather than a pattern. */
-function escapeLikePrefix(value: string): string {
-  return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
-}
 
 /**
  * The `db` search module: postgres full-text search against the wiki's own database.
@@ -271,7 +267,9 @@ class DbSearchModule implements SearchModule {
       conditions.push(sql`p."publishState" = ${publishState}`)
     }
     if (path) {
-      conditions.push(sql`p.path LIKE ${`${escapeLikePrefix(path)}%`}`)
+      // -> `escapeLikePattern` makes the filter literal; the trailing `%` is what turns it into a
+      //    prefix match rather than an exact one.
+      conditions.push(sql`p.path LIKE ${`${escapeLikePattern(path)}%`}`)
     }
     if (locales.length > 0) {
       // -> `sql.param`, because a bare array is expanded into a list of placeholders rather than
