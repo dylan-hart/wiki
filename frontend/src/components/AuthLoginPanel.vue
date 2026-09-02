@@ -217,101 +217,14 @@
         @click="switchTo(`login`)" />
     </template>
     <!-- ----------------------------------------------------- -->
-    <!-- REGISTER SCREEN -->
+    <!-- REGISTER SCREENS -->
     <!-- ----------------------------------------------------- -->
-    <template v-else-if="state.screen === `register`">
-      <p>{{ t('auth.registerSubTitle') }}</p>
-      <w-form ref="registerForm" @submit="register">
-        <w-input
-          ref="registerNameIpt"
-          v-model="state.newName"
-          outlined
-          :rules="userNameValidation"
-          lazy-rules="ondemand"
-          hide-bottom-space
-          :label="t(`auth.fields.name`)"
-          autocomplete="name">
-          <template #prepend><w-icon name="la:user-circle" /></template>
-        </w-input>
-        <w-input
-          class="mt-2"
-          type="email"
-          v-model="state.newEmail"
-          outlined
-          :rules="userEmailValidation"
-          lazy-rules="ondemand"
-          hide-bottom-space
-          :label="t(`auth.fields.email`)"
-          autocomplete="email">
-          <template #prepend><w-icon name="la:envelope" /></template>
-        </w-input>
-        <w-input
-          class="mt-2"
-          v-model="state.newPassword"
-          outlined
-          :label="t(`auth.fields.password`)"
-          type="password"
-          autocomplete="new-password"
-          :rules="userPasswordValidation"
-          hide-bottom-space
-          lazy-rules="ondemand">
-          <template #append>
-            <w-badge
-              v-show="state.newPassword"
-              :color="passwordStrength.color"
-              :label="passwordStrength.label" />
-          </template>
-          <template #prepend><w-icon name="la:key" /></template>
-        </w-input>
-        <w-input
-          class="mt-2"
-          v-model="state.newPasswordVerify"
-          outlined
-          :label="t(`auth.fields.verifyPassword`)"
-          type="password"
-          autocomplete="new-password"
-          :rules="userPasswordVerifyValidation"
-          hide-bottom-space
-          lazy-rules="ondemand">
-          <template #prepend><w-icon name="la:key" /></template>
-        </w-input>
-        <w-btn
-          class="w-full mt-2"
-          type="submit"
-          push
-          color="primary"
-          :label="t(`auth.actions.register`)"
-          no-caps
-          icon="la:user-plus" />
-      </w-form>
-      <w-separator class="my-4" />
-      <w-btn
-        class="acrylic-btn w-full"
-        flat
-        color="primary"
-        :label="t(`auth.switchToLogin.link`)"
-        no-caps
-        icon="la:arrow-circle-left"
-        @click="switchTo(`login`)" />
-    </template>
-    <!-- ----------------------------------------------------- -->
-    <!-- REGISTER CHECK EMAIL SCREEN -->
-    <!-- ----------------------------------------------------- -->
-    <template v-else-if="state.screen === `registerCheckEmail`">
-      <div class="flex flex-col items-center text-center">
-        <w-icon name="la:envelope-open-text" size="48px" color="primary" class="mb-4" />
-        <p>{{ t('auth.registerCheckEmail') }}</p>
-      </div>
-      <w-separator class="my-4" />
-      <w-btn
-        class="acrylic-btn w-full"
-        flat
-        color="primary"
-        :label="t(`auth.switchToLogin.link`)"
-        no-caps
-        icon="la:arrow-circle-left"
-        @click="switchTo(`login`)" />
-    </template>
+    <auth-register-screen
+      v-else-if="[`register`, `registerCheckEmail`].includes(state.screen)"
+      :screen="state.screen"
+      :strategy-id="state.selectedStrategyId"
+      @registered="finishRegistration"
+      @back-to-login="switchTo(`login`)" />
     <!-- ----------------------------------------------------- -->
     <!-- CHANGE PASSWORD SCREEN -->
     <!-- ----------------------------------------------------- -->
@@ -373,73 +286,21 @@
       </w-form>
     </template>
     <!-- ----------------------------------------------------- -->
-    <!-- TFA SCREEN -->
+    <!-- TWO-FACTOR SCREENS -->
     <!-- ----------------------------------------------------- -->
-    <template v-else-if="state.screen === `tfa`">
-      <p>{{ t('auth.tfa.subtitle') }}</p>
-      <v-otp-input
-        v-if="!state.useRecoveryCode"
-        v-model:value="state.securityCode"
-        :num-inputs="6"
-        :should-auto-focus="true"
-        input-classes="otp-input"
-        input-type="number"
-        separator=""
-        @on-complete="verifyTFA" />
-      <w-input
-        v-else
-        v-model="recoveryCodeInput"
-        outlined
-        autofocus
-        class="mt-2"
-        :label="t(`auth.tfa.recoveryCodeLabel`)"
-        :hint="t(`auth.tfa.recoveryCodeHint`)"
-        placeholder="XXXX-XXXX-XXXX-XXXX"
-        @keyup:enter="verifyTFA" />
-      <w-btn
-        class="w-full mt-4"
-        push
-        color="primary"
-        :label="t(`auth.tfa.verifyToken`)"
-        no-caps
-        icon="la:sign-in-alt"
-        @click="verifyTFA" />
-      <w-btn
-        class="w-full mt-2"
-        flat
-        no-caps
-        color="grey"
-        :label="
-          state.useRecoveryCode ? t('auth.tfa.useSecurityCode') : t('auth.tfa.useRecoveryCode')
-        "
-        @click="toggleRecoveryCodeMode" />
-    </template>
-    <!-- ----------------------------------------------------- -->
-    <!-- TFA SETUP SCREEN -->
-    <!-- ----------------------------------------------------- -->
-    <template v-else-if="state.screen === `tfasetup`">
-      <p>{{ t('auth.tfaSetupTitle') }}</p>
-      <p>{{ t('auth.tfaSetupInstrFirst') }}</p>
-      <div style="justify-content: center; display: flex">
-        <div v-html="state.tfaQRImage" style="width: 200px" />
-      </div>
-      <p class="mt-2">{{ t('auth.tfaSetupInstrSecond') }}</p>
-      <v-otp-input
-        v-model:value="state.securityCode"
-        :num-inputs="6"
-        :should-auto-focus="true"
-        input-classes="otp-input"
-        input-type="number"
-        separator="" />
-      <w-btn
-        class="w-full mt-4"
-        push
-        color="primary"
-        :label="t(`auth.tfa.verifyToken`)"
-        no-caps
-        icon="la:sign-in-alt"
-        @click="finishSetupTFA" />
-    </template>
+    <!--
+      Keyed on the screen so that moving between the two remounts it with empty fields -- which is
+      what this panel used to clear by hand in `handleLoginResponse` before the screens moved out.
+    -->
+    <auth-tfa-screens
+      v-else-if="[`tfa`, `tfasetup`].includes(state.screen)"
+      :key="state.screen"
+      :screen="state.screen"
+      :strategy-id="state.selectedStrategyId"
+      :continuation-token="state.continuationToken"
+      :qr-image="state.tfaQRImage"
+      @login-response="handleLoginResponse"
+      @restart="restartAfterTfa" />
   </div>
 </template>
 
@@ -451,8 +312,8 @@ import { loading } from '@/composables/loading'
 import { notify } from '@/composables/notify'
 import { useDark } from '@/composables/dark'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { emailRules, passwordRules, passwordVerifyRules } from '@/helpers/authValidation'
 import { localizeError } from '@/helpers/localization'
-import { formatRecoveryCodeInput, isValidTfaCode } from '@/helpers/tfaCode'
 import { passwordStrengthBadge } from '@/helpers/passwordStrength'
 
 import { useSiteStore } from '@/stores/site'
@@ -460,7 +321,9 @@ import { useUserStore } from '@/stores/user'
 
 import { isFollowableRedirectTarget } from '@/helpers/pageRedirect'
 import { browserSupportsWebAuthn, startAuthentication } from '@simplewebauthn/browser'
-import VOtpInput from 'vue3-otp-input'
+
+import AuthRegisterScreen from '@/components/AuthRegisterScreen.vue'
+import AuthTfaScreens from '@/components/AuthTfaScreens.vue'
 
 // COMPOSABLES
 
@@ -483,12 +346,7 @@ const state = reactive({
   screen: 'login',
   username: '',
   password: '',
-  securityCode: '',
-  useRecoveryCode: false,
-  recoveryCode: '',
   continuationToken: '',
-  newName: '',
-  newEmail: '',
   newPassword: '',
   newPasswordVerify: '',
   forgotEmail: '',
@@ -502,13 +360,11 @@ const state = reactive({
 
 const loginEmailIpt = ref(null)
 const forgotEmailIpt = ref(null)
-const registerNameIpt = ref(null)
 const changePwdCurrentIpt = ref(null)
 const changePwdNewPwdIpt = ref(null)
 const resetNewPwdIpt = ref(null)
 const loginForm = ref(null)
 const forgotForm = ref(null)
-const registerForm = ref(null)
 const changePwdForm = ref(null)
 const resetPasswordForm = ref(null)
 
@@ -541,39 +397,17 @@ const canUsePasskeys = computed(() => {
   return browserSupportsWebAuthn()
 })
 
-/** Reformats the recovery code field as the user types, matching the server's display shape. */
-const recoveryCodeInput = computed({
-  get: () => state.recoveryCode,
-  set: (val) => {
-    state.recoveryCode = formatRecoveryCodeInput(val)
-  }
-})
-
 // VALIDATION RULES
 
 const loginUsernameValidation = [(val) => val.length > 0 || t('auth.errors.missingUsername')]
 
 const loginPasswordValidation = [(val) => val.length > 0 || t('auth.errors.missingPassword')]
 
-const userNameValidation = [
-  (val) => val.length > 0 || t('auth.errors.missingName'),
-  (val) => /^[^<>"]+$/.test(val) || t('auth.errors.invalidName')
-]
+const userEmailValidation = emailRules(t)
 
-const userEmailValidation = [
-  (val) => val.length > 0 || t('auth.errors.missingEmail'),
-  (val) => /^.+@.+\..+$/.test(val) || t('auth.errors.invalidEmail')
-]
+const userPasswordValidation = passwordRules(t)
 
-const userPasswordValidation = [
-  (val) => val.length > 0 || t('auth.errors.missingPassword'),
-  (val) => val.length >= 8 || t('auth.errors.passwordTooShort')
-]
-
-const userPasswordVerifyValidation = [
-  (val) => val.length > 0 || t('auth.errors.missingVerifyPassword'),
-  (val) => val === state.newPassword || t('auth.errors.passwordsNotMatch')
-]
+const userPasswordVerifyValidation = passwordVerifyRules(t, () => state.newPassword)
 
 // METHODS
 
@@ -594,10 +428,9 @@ function switchTo(screen) {
       break
     }
     case 'register': {
+      // -> No focus call: `AuthRegisterScreen` mounts with this screen and focuses its own first
+      //    field, which is the same moment this used to reach for it on.
       state.screen = 'register'
-      nextTick(() => {
-        registerNameIpt.value.focus()
-      })
       break
     }
     case 'reset': {
@@ -657,17 +490,11 @@ async function handleLoginResponse(resp) {
       break
     }
     case 'provideTfa': {
-      state.securityCode = ''
-      state.useRecoveryCode = false
-      state.recoveryCode = ''
       state.screen = 'tfa'
       loading.hide()
       break
     }
     case 'setupTfa': {
-      state.securityCode = ''
-      state.useRecoveryCode = false
-      state.recoveryCode = ''
       state.screen = 'tfasetup'
       state.tfaQRImage = resp.tfaQRImage
       loading.hide()
@@ -830,50 +657,19 @@ async function forgotPassword() {
 }
 
 /**
- * REGISTER
- *
- * `nextAction: 'verify'` means the strategy requires email validation: the account was created
- * unverified and a link was mailed to it, so this shows a "check your email" screen instead of
- * calling `handleLoginResponse()` -- there is no session to establish yet. Any other `nextAction`
- * (validation off) is a login exactly like every other successful auth attempt, so it's handed to
- * the same response handler the rest of this panel uses.
+ * A registration the server accepted. Where it goes next is the same question every other successful
+ * auth attempt asks -- either the account still has to be activated from an emailed link, in which
+ * case there is no session to establish yet, or it is a login like any other and goes to the same
+ * response handler. The login form's own password field is cleared here because it belongs to that
+ * form, not to the one that just registered.
  */
-async function register() {
-  loading.show({
-    message: t('auth.registering')
-  })
-  try {
-    const isFormValid = await registerForm.value.validate(true)
-    if (!isFormValid) {
-      throw new Error(t('auth.errors.register'))
-    }
-    const resp = await API_CLIENT.post(`sites/${siteStore.id}/auth/register`, {
-      json: {
-        strategyId: state.selectedStrategyId,
-        name: state.newName,
-        email: state.newEmail,
-        password: state.newPassword
-      }
-    }).json()
-    if (resp.ok) {
-      state.password = ''
-      state.newPassword = ''
-      state.newPasswordVerify = ''
-      if (resp.nextAction === 'verify') {
-        state.screen = 'registerCheckEmail'
-        loading.hide()
-      } else {
-        await handleLoginResponse(resp)
-      }
-    } else {
-      throw new Error(resp.message || 'ERR_REGISTRATION_FAILED')
-    }
-  } catch (err) {
+function finishRegistration(resp) {
+  state.password = ''
+  if (resp.nextAction === 'verify') {
+    state.screen = 'registerCheckEmail'
     loading.hide()
-    notify({
-      type: 'negative',
-      message: localizeError(apiErrorMessage(err), t)
-    })
+  } else {
+    handleLoginResponse(resp)
   }
 }
 
@@ -954,100 +750,13 @@ async function resetPassword() {
 }
 
 /**
- * Send the security code for the login this panel is in the middle of.
- *
- * The continuation token is only cleared once the code is accepted: a mistyped one can be entered
- * again, up to the handful of attempts the server allows before it discards the token -- and the
- * same counter (`countTfaFailure` on the backend) applies whether the wrong entry was a 6-digit
- * TOTP code or a recovery code, since both go through this one call.
- *
- * `setup` never combines with a recovery code -- the toggle only renders on the `tfa` screen, never
- * `tfasetup` -- matching the backend, which refuses a recovery code mid-setup since none exist yet
- * for a secret that has not been activated.
- *
- * @param setup True on the setup screen, where a correct code also activates the new secret
- * @returns The login response, to be handed to `handleLoginResponse()`
+ * 2FA could not continue: an expired continuation token, or one the server discarded after too many
+ * wrong codes. Nothing is left to go on with, so the login starts over from this panel's own screen.
  */
-async function submitTFA(setup) {
-  const isRecoveryCode = !setup && state.useRecoveryCode
-  const code = isRecoveryCode ? state.recoveryCode : state.securityCode
-  if (!isValidTfaCode(code, isRecoveryCode)) {
-    throw new Error(t('auth.errors.tfaMissing'))
-  }
-  const resp = await API_CLIENT.put(`sites/${siteStore.id}/auth/tfa`, {
-    json: {
-      strategyId: state.selectedStrategyId,
-      continuationToken: state.continuationToken,
-      securityCode: code,
-      setup
-    }
-  }).json()
-  if (!resp?.ok) {
-    throw new Error(resp?.message || 'ERR_LOGIN_FAILED')
-  }
+function restartAfterTfa() {
   state.continuationToken = ''
-  state.securityCode = ''
-  state.recoveryCode = ''
-  return resp
-}
-
-/** Switches the `tfa` screen between the 6-digit authenticator field and the recovery code field. */
-function toggleRecoveryCodeMode() {
-  state.useRecoveryCode = !state.useRecoveryCode
-  state.securityCode = ''
-  state.recoveryCode = ''
-}
-
-/**
- * Report a failed 2FA attempt, and start the login over when there is nothing left to continue: an
- * expired token, or one the server has discarded after too many wrong codes, leaves this screen with
- * no way forward.
- */
-async function handleTFAError(err) {
-  const code = apiErrorMessage(err)
-  loading.hide()
-  notify({
-    type: 'negative',
-    message: localizeError(code, t)
-  })
-  if (code === 'ERR_INVALID_VALIDATION_TOKEN' || code === 'ERR_EXPIRED_VALIDATION_TOKEN') {
-    state.continuationToken = ''
-    state.securityCode = ''
-    state.useRecoveryCode = false
-    state.recoveryCode = ''
-    state.password = ''
-    switchTo('login')
-  }
-}
-
-async function verifyTFA() {
-  loading.show({
-    message: t('auth.signingIn')
-  })
-  try {
-    await handleLoginResponse(await submitTFA(false))
-  } catch (err) {
-    await handleTFAError(err)
-  }
-}
-
-/**
- * FINISH TFA SETUP
- */
-async function finishSetupTFA() {
-  loading.show({
-    message: t('auth.tfaSetupVerifying')
-  })
-  try {
-    const resp = await submitTFA(true)
-    notify({
-      type: 'positive',
-      message: t('auth.tfaSetupSuccess')
-    })
-    await handleLoginResponse(resp)
-  } catch (err) {
-    await handleTFAError(err)
-  }
+  state.password = ''
+  switchTo('login')
 }
 
 // MOUNTED
