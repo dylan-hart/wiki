@@ -539,3 +539,19 @@ sentences are now incomplete rather than wrong.
   to `models/rendering.ts` navigating the headless browser, now `models/renderQueue.ts`) was left
   alone to stay out of task A16's declared workspace; so was `migration/`'s. Both need a follow-up
   sweep.
+- **A route resource may be a DIRECTORY, registered through its own `index.ts`.** `api/pages/`,
+  `api/users/`, `api/system/` and `api/auth/` are each one resource split into sub-plugins by
+  responsibility; the aggregate `index.ts` registers them unprefixed, so the mounted route table is
+  identical to the single file it replaced. CLAUDE.md's `backend/api/` bullet currently says "one
+  file per resource" and lists `pages.ts` / `users.ts` / `system.ts` / `authentication.ts` by name —
+  that sentence needs to become "one file *or directory* per resource", and the named examples
+  updated (`authentication.ts` is now `auth/`). Two consequences worth stating with it: a body
+  parser or `@fastify/multipart` registered inside a sub-plugin is scoped to that sub-plugin alone
+  (`register()` is a real encapsulation boundary — `pages/import.ts` owns the `'*'` buffer parser,
+  `system/transfer.ts` the gzip one), and a sub-plugin must NOT be registered with a prefix of its
+  own, since its routes declare whole paths.
+- **`test/routeRecorder.ts`'s recording stub now REPLAYS a registered sub-plugin.** A no-op
+  `register` would have made every route in a split resource invisible to `api/routeTags.test.ts` /
+  `api/responseErrors.test.ts` / `api/index.test.ts` while those scans still passed. A
+  `fastify-plugin`-wrapped third-party plugin (`skip-override`) is skipped instead of run. This is
+  the second half of "a directory's `index.ts` is its plugin" and belongs next to it.

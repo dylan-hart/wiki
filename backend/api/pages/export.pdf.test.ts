@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, mock, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
-import pagesRoutes from './pages.ts'
-import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
-import { buildTestApp, closeTestApp } from '../test/fastify.ts'
+import pagesRoutes from './index.ts'
+import { SESSION_COOKIE_NAME } from '../../helpers/security.ts'
+import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
 /**
  * Route-level test for `GET /sites/:siteId/pages/:pageId/export/pdf` — OpenProject #2258/#2262.

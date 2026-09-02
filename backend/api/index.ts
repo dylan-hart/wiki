@@ -100,7 +100,7 @@ async function routes(app: FastifyInstance) {
     contentApp.register(import('./mail.ts'), { prefix: '/mail' })
     contentApp.register(import('./navigation.ts'))
     contentApp.register(import('./notifications.ts'))
-    contentApp.register(import('./pages.ts'))
+    contentApp.register(import('./pages/index.ts'))
     contentApp.register(import('./scheduler.ts'), { prefix: '/scheduler' })
     contentApp.register(import('./search.ts'))
     contentApp.register(import('./storage.ts'))

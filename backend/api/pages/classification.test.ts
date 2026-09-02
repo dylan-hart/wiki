@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import type { FastifyInstance } from 'fastify'
-import pagesRoutes from './pages.ts'
-import { ensureTemporal } from '../test/temporal.ts'
-import { buildTestApp, closeTestApp } from '../test/fastify.ts'
+import pagesRoutes from './index.ts'
+import { ensureTemporal } from '../../test/temporal.ts'
+import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
 /**
  * OpenProject #1080: the PATCH route's declassification guardrail (lowering a page's classification

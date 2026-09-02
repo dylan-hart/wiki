@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, test } from 'node:test'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import pagesRoutes from './pages.ts'
-import { buildTestApp, closeTestApp } from '../test/fastify.ts'
+import pagesRoutes from './index.ts'
+import { buildTestApp, closeTestApp } from '../../test/fastify.ts'
 
 /**
  * Route-wiring tests for `GET /sites/:siteId/pages/:pageId/export?format=markdown|html` (task 498).

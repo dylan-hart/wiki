@@ -4,7 +4,7 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import { apiKeySitePinHook, enforceApiKeySite, isBearerAuthenticatedPath } from './apiKeySite.ts'
-import pagesRoutes from '../api/pages.ts'
+import pagesRoutes from '../api/pages/index.ts'
 import assetsRoutes from '../api/assets.ts'
 import { buildTestApp, closeTestApp } from '../test/fastify.ts'
 

@@ -35,7 +35,30 @@ export function createRecordingApp(): { app: any; routes: RecordedRoute[] } {
     addContentTypeParser: () => {},
     addHook: () => {},
     addSchema: () => {},
-    register: () => app
+    /**
+     * A route resource that is a DIRECTORY registers its sub-plugins here (`api/pages/index.ts`
+     * registering `./read.ts`, `./write.ts`, …), so this has to REPLAY them — a no-op `register`
+     * would make every route in a split resource invisible to a scan while the scan itself still
+     * passed, which is precisely the silent-coverage-loss the recursion in `listApiRouteFiles`
+     * exists to avoid.
+     *
+     * A `fastify-plugin`-wrapped third-party plugin (`@fastify/multipart`, which `api/pages/import.ts`
+     * registers) is skipped instead: `skip-override` is the marker that says so, those plugins add
+     * decorators and body parsers rather than routes a scan reads, and running one against this stub
+     * would only throw on the Fastify internals it expects to find.
+     *
+     * No `prefix` handling on purpose: every sub-plugin in this repo declares whole paths and is
+     * registered unprefixed, so a recorded path is the mounted one. A prefixed sub-plugin would need
+     * this to prepend it before that stayed true.
+     */
+    register: async (plugin: any, opts?: any) => {
+      const resolved = await plugin
+      const fn = typeof resolved === 'function' ? resolved : resolved?.default
+      if (typeof fn === 'function' && !fn[Symbol.for('skip-override')]) {
+        await fn(app, opts ?? {})
+      }
+      return app
+    }
   }
   for (const method of HTTP_METHODS) {
     app[method] = (routePath: string, options?: any) => {

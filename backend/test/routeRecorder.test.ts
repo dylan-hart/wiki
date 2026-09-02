@@ -31,6 +31,33 @@ describe('createRecordingApp', () => {
     )
     assert.deepEqual(routes[0]!.options.schema.tags, ['A'])
   })
+
+  test('replays a sub-plugin registered by an aggregator, so a split route resource stays visible', async () => {
+    const { app, routes } = createRecordingApp()
+    const sub = async (instance: any) => {
+      instance.get('/sub', { schema: { tags: ['Sub'] } })
+    }
+    await app.register(async (aggregate: any) => {
+      await aggregate.register(sub)
+      aggregate.get('/own', { schema: { tags: ['Own'] } })
+    })
+    assert.deepEqual(
+      routes.map((r) => `${r.method} ${r.path}`),
+      ['get /sub', 'get /own']
+    )
+  })
+
+  test('skips a fastify-plugin-wrapped third-party plugin rather than running it against the stub', async () => {
+    const { app, routes } = createRecordingApp()
+    let ran = false
+    const thirdParty: any = () => {
+      ran = true
+    }
+    thirdParty[Symbol.for('skip-override')] = true
+    await app.register(thirdParty, { limits: {} })
+    assert.equal(ran, false)
+    assert.deepEqual(routes, [])
+  })
 })
 
 describe('listApiRouteFiles', () => {
@@ -38,7 +65,9 @@ describe('listApiRouteFiles', () => {
 
   test('finds every route file, and none of the ones that are not routes', () => {
     assert.ok(files.length >= 20, `expected at least 20 route files, found ${files.length}`)
-    assert.ok(files.includes('pages.ts'))
+    // -> `api/pages/` is a directory resource: one entry, its `index.ts` (A17's split).
+    assert.ok(files.includes('pages/index.ts'))
+    assert.ok(!files.some((f) => f === 'pages/read.ts'))
     assert.ok(!files.includes('index.ts'))
     assert.ok(!files.some((f) => f.endsWith('.test.ts')))
     assert.ok(!files.some((f) => f.startsWith('schemas/')))
