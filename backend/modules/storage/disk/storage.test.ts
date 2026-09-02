@@ -16,7 +16,6 @@ import diskStorageModule, {
 import type { StorageTarget } from '../../../models/storage.ts'
 import { ensureTemporal } from '../../../test/temporal.ts'
 import { installTestWiki } from '../../../test/mocks.ts'
-import { makeStorageTarget } from '../../../test/builders.ts'
 
 /**
  * Exercises `validateConfig`, `dump` and `backup` entirely against the real filesystem (temp
@@ -36,7 +35,12 @@ async function makeTempDir(): Promise<string> {
 
 /** A minimal target for `site-1` configured to write to `dir` -- all `dump`/`backup` read from it. */
 function makeTarget(dir: string): StorageTarget {
-  return makeStorageTarget('disk', { siteId: 'site-1', config: { path: dir } })
+  // -> Deliberately NOT `test/builders.ts#makeStorageTarget`: that builder fills in the whole
+  //    blob-module capability superset, and the whole point of this suite's fixture is that `disk`
+  //    reads nothing beyond `siteId` and `config.path` — a target carrying `contentTypes`,
+  //    `assetDelivery`, `versioning` and `sync` could not fail if the module started reaching for
+  //    one of them.
+  return { siteId: 'site-1', config: { path: dir } } as unknown as StorageTarget
 }
 
 /** Points `WIKI` at fakes answering exactly what `dump()` calls: the tree query, pages, assets. */

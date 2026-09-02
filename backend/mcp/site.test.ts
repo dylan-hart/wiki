@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { after, test } from 'node:test'
 import { McpToolError } from './auth.ts'
 import { resolveDefaultSiteId, resolveRequestedSite, resolveSite } from './site.ts'
 import { installTestWiki } from '../test/mocks.ts'
@@ -13,8 +13,6 @@ let wikiHandle: { restore(): void }
 function installSites(sites: Record<string, any>) {
   wikiHandle = installTestWiki({ sites })
 }
-
-before(() => {})
 
 after(() => {
   wikiHandle.restore()

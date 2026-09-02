@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, mock, test } from 'node:test'
 import { ClusterReloaded } from './clusterCache.ts'
-import { createEventsStub } from '../test/mocks.ts'
+import { createEventsStub, installTestWiki } from '../test/mocks.ts'
 
 /**
  * A minimal subclass standing in for the five models that extend `ClusterReloaded`: it declares an
@@ -13,15 +13,21 @@ class FakeCachedModel extends ClusterReloaded {
   reloadCache = mock.fn(async () => {})
 }
 
-/** Installs just the `WIKI.events` member `ClusterReloaded` reads, and hands the stub back. */
+let wikiHandle: { restore(): void }
+
+/**
+ * Installs just the `WIKI.events` member `ClusterReloaded` reads, and hands back the INSTALLED
+ * stub — not the local one: `createWikiStub` merges an `events` override into its own default rather
+ * than replacing it, so a test that later swaps one of these mock functions has to swap it on the
+ * object the code under test actually reads.
+ */
 function installEvents() {
-  const events = createEventsStub()
-  globalThis.WIKI = { events } as any
-  return events
+  wikiHandle = installTestWiki({ events: createEventsStub() })
+  return WIKI.events as unknown as ReturnType<typeof createEventsStub>
 }
 
 afterEach(() => {
-  delete (globalThis as any).WIKI
+  wikiHandle.restore()
 })
 
 describe('ClusterReloaded', () => {

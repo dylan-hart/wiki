@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { after, before, beforeEach, describe, test } from 'node:test'
+import { after, beforeEach, describe, test } from 'node:test'
 import { connectListener, createListenerPool, createNotifier } from './pubsub.ts'
 import { installTestWiki } from '../test/mocks.ts'
 
@@ -59,8 +59,6 @@ class FakePool {
 
 let wikiHandle: { restore(): void }
 let warnings: string[]
-
-before(() => {})
 
 beforeEach(() => {
   warnings = []

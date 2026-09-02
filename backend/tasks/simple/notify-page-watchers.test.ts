@@ -1,4 +1,4 @@
-import { describe, test, before, after, beforeEach, mock } from 'node:test'
+import { describe, test, after, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { task as notifyPageWatchers } from './notify-page-watchers.ts'
 import type { NotifyPageWatchersPayload, QueuedWatcher } from './notify-page-watchers.ts'
@@ -40,8 +40,6 @@ function payload(overrides: Partial<NotifyPageWatchersPayload> = {}): NotifyPage
     ...overrides
   }
 }
-
-before(() => {})
 
 after(() => {
   wikiHandle.restore()

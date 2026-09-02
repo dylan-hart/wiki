@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { after, test } from 'node:test'
 import { McpToolError } from '../auth.ts'
 import { handleListNavigation } from './listNavigation.ts'
 import { installTestWiki } from '../../test/mocks.ts'
@@ -78,8 +78,6 @@ function install({
     }
   })
 }
-
-before(() => {})
 
 after(() => {
   wikiHandle.restore()

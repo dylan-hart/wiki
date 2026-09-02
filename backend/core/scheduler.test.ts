@@ -68,7 +68,6 @@ describe('addScheduled (fake WIKI)', () => {
     wikiHandle = installTestWiki({
       INSTANCE_ID: 'test-instance',
       config: { scheduler: { maxRetries: 3 } },
-      logger: { info: () => {}, warn: () => {}, debug: () => {} },
       db: {
         transaction: async (fn: any) =>
           fn({
@@ -269,7 +268,6 @@ describe('processJob claim ordering (fake WIKI)', () => {
   before(() => {
     wikiHandle = installTestWiki({
       INSTANCE_ID: 'test-instance',
-      logger: { info: () => {}, warn: () => {}, debug: () => {} },
       db: {
         transaction: async (fn: any) =>
           fn({
@@ -434,8 +432,6 @@ describe('runJob log level on failure (fake WIKI)', () => {
 describe('expireCompletionPromises (fake WIKI)', () => {
   let wikiHandle: { restore(): void }
 
-  before(() => {})
-
   after(() => {
     wikiHandle.restore()
   })
@@ -550,7 +546,6 @@ describe('addJob (fake WIKI, rejecting insert)', () => {
     wikiHandle = installTestWiki({
       INSTANCE_ID: 'test-instance',
       config: { scheduler: { maxRetries: 3 } },
-      logger: { info: () => {}, warn: () => {}, debug: () => {} },
       db: {
         insert: (_table: any) => ({
           values: async () => {
@@ -690,8 +685,7 @@ describe('executeOnWorker (real worker pool)', () => {
       INSTANCE_ID: 'test-instance',
       // -> 1s: short enough to keep the suite fast, long enough that the two ceilings (taskTimeout
       //    alone vs. taskTimeout + the fixed 5s TASK_TIMEOUT_GRACE) land clearly apart in wall time.
-      config: { scheduler: { taskTimeout: 1 } },
-      logger: { info: () => {}, warn: () => {}, debug: () => {} }
+      config: { scheduler: { taskTimeout: 1 } }
     })
   })
 
@@ -758,8 +752,7 @@ describe('executeInProcess (fake WIKI)', () => {
     wikiHandle = installTestWiki({
       INSTANCE_ID: 'test-instance',
       // -> Short enough to keep the suite fast.
-      config: { scheduler: { taskTimeout: 0.05 } },
-      logger: { info: () => {}, warn: () => {}, debug: () => {} }
+      config: { scheduler: { taskTimeout: 0.05 } }
     })
   })
 
@@ -849,16 +842,13 @@ describe('stop (fake WIKI)', () => {
   let wikiHandle: { restore(): void }
   let destroyCalls: number
 
-  before(() => {})
-
   beforeEach(() => {
     destroyCalls = 0
     wikiHandle = installTestWiki({
       // -> 0.05s taskTimeout + the fixed 1s SHUTDOWN_DRAIN_GRACE = a ~1.05s bound: short enough to
       //    keep this suite fast, long enough to clearly separate "waited out the bound" from
       //    "resolved immediately".
-      config: { scheduler: { taskTimeout: 0.05 } },
-      logger: { info: () => {}, warn: () => {}, debug: () => {} }
+      config: { scheduler: { taskTimeout: 0.05 } }
     })
     scheduler.pollingRef = setInterval(() => {}, 1_000_000)
     scheduler.scheduledRef = setInterval(() => {}, 1_000_000)

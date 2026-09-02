@@ -28,10 +28,7 @@ const noopLock = async (_key: string, fn: () => Promise<any>) => fn()
  * not the models it calls, which have their own tests. See `task()`'s `deps` parameter.
  */
 before(() => {
-  installTestWiki({
-    ensureDb: async () => true,
-    logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
-  })
+  installTestWiki({ ensureDb: async () => true })
 })
 
 const target = { id: 'target-1', module: 'git', title: 'Git' } as unknown as StorageTarget

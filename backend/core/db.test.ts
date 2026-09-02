@@ -110,8 +110,6 @@ let localesReloadCacheMock: any
 let glossaryDropLocalCacheMock: any
 let classificationLevelsReloadCacheMock: any
 
-before(() => {})
-
 beforeEach(() => {
   loadFromDbMock = mock.fn(async () => true)
   flushCachesMock = mock.fn(async () => {})
@@ -145,7 +143,6 @@ beforeEach(() => {
 
   wikiHandle = installTestWiki({
     INSTANCE_ID: 'instance-a',
-    logger: { warn: () => {}, info: () => {}, debug: () => {}, error: () => {} },
     events: { inbound: new Emittery(), outbound: new Emittery() },
     configSvc,
     dbManager,
@@ -328,8 +325,6 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
 describe('queryLogger.logQuery() — bound-parameter redaction', () => {
   let wikiHandle: { restore(): void }
   let infoCalls: string[]
-
-  before(() => {})
 
   after(() => {
     wikiHandle.restore()
@@ -767,8 +762,7 @@ describe('syncSchemas() — advisory lock across DDL and migrate() (task 2041)',
     dbManager.pool = pool
     wikiHandle = installTestWiki({
       config: { db: { schema } },
-      SERVERPATH: path.join(import.meta.dirname, '..'),
-      logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }
+      SERVERPATH: path.join(import.meta.dirname, '..')
     })
   })
 

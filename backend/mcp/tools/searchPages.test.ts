@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { after, test } from 'node:test'
 import { McpToolError } from '../auth.ts'
 import { handleSearchPages } from './searchPages.ts'
 import { installTestWiki } from '../../test/mocks.ts'
@@ -9,8 +9,6 @@ const GROUP_ID = 'group-a'
 
 let wikiHandle: { restore(): void }
 let queryCalls: any[]
-
-before(() => {})
 
 function install({ permissions = [] as string[] } = {}) {
   queryCalls = []

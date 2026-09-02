@@ -153,8 +153,7 @@ describe('API-key population hook wiring (index.ts)', () => {
         rateLimits: {
           consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })
         }
-      },
-      logger: { debug: () => {} }
+      }
     })
 
     app = fastify()

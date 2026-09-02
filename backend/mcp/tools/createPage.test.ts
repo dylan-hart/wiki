@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { after, test } from 'node:test'
 import { McpToolError } from '../auth.ts'
 import { CustomError } from '../../helpers/common.ts'
 import { handleCreatePage } from './createPage.ts'
@@ -66,8 +66,6 @@ function ctx({
     scope: null as string[] | null
   }
 }
-
-before(() => {})
 
 after(() => {
   wikiHandle.restore()

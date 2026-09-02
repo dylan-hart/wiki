@@ -1,4 +1,4 @@
-import { describe, test, before, after, beforeEach, mock } from 'node:test'
+import { describe, test, after, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { task as sendWatchDigests } from './send-watch-digests.ts'
 import type { PendingDigestEvent } from '../../models/pageWatchEvents.ts'
@@ -35,8 +35,6 @@ function pendingEvent(overrides: Partial<PendingDigestEvent> = {}): PendingDiges
     ...overrides
   }
 }
-
-before(() => {})
 
 after(() => {
   wikiHandle.restore()

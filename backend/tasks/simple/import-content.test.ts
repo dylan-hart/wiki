@@ -1,4 +1,4 @@
-import { describe, test, before, after, beforeEach, mock } from 'node:test'
+import { describe, test, after, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { task } from './import-content.ts'
 import { installTestWiki } from '../../test/mocks.ts'
@@ -11,8 +11,6 @@ import { installTestWiki } from '../../test/mocks.ts'
  */
 
 let wikiHandle: { restore(): void }
-
-before(() => {})
 
 after(() => {
   wikiHandle.restore()

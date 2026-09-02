@@ -32,7 +32,6 @@ function installWikiStub({
     INSTANCE_ID: 'test-instance',
     ROOTPATH: rootPath,
     sitesMappings: {},
-    logger: { info() {}, warn() {}, error() {} },
     config: {
       bodyParserLimit: 0,
       logFormat: 'text',

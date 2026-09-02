@@ -3459,7 +3459,6 @@ describe('POST /sites/:siteId/pages/bulk', () => {
   before(async () => {
     const wiki = {
       config: { port: 3000 },
-      logger: { debug: () => {} },
       models: {
         rateLimits: {
           consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 })

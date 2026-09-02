@@ -63,7 +63,6 @@ describe('mcp/http', () => {
         [SITE_X]: { id: SITE_X, hostname: 'x.example.com', isEnabled: true, config: {} },
         [SITE_Y]: { id: SITE_Y, hostname: 'y.example.com', isEnabled: true, config: {} }
       },
-      logger: { debug: () => {} },
       models: {
         apiKeys: {
           verify: async (token: string) => {
@@ -386,7 +385,6 @@ describe('mcp/http session eviction (OpenProject #2207)', () => {
   beforeEach(async () => {
     wikiHandle = installTestWiki({
       version: '3.0.0-test',
-      logger: { debug: () => {} },
       models: {
         apiKeys: {
           verify: async () => ({

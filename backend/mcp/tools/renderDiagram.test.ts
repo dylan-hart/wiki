@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { after, test } from 'node:test'
 import { CustomError } from '../../helpers/common.ts'
 import { McpToolError } from '../auth.ts'
 import { handleRenderDiagram } from './renderDiagram.ts'
@@ -15,8 +15,6 @@ const CTX = {
 }
 
 let wikiHandle: { restore(): void }
-
-before(() => {})
 
 after(() => {
   wikiHandle.restore()

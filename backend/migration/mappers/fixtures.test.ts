@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { before, describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import { mapSiteSettings, type SiteSettingsSourceRow } from './site-settings.ts'
 import { mapAuthenticationRows, type SourceAuthenticationRow } from './authentication.ts'
 import { mapStorageRow, type SourceStorageRow } from './storage.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 /**
  * Task 768 — "Fixture tests and docs/variances.md entries for the confirmed gaps".
@@ -43,19 +44,21 @@ async function loadFixture<T>(name: string): Promise<T> {
   return JSON.parse(raw) as T
 }
 
+let wikiHandle: { restore(): void }
+
 before(async () => {
   await ensureTemporal()
-  ;(globalThis as any).WIKI = {
-    SERVERPATH: path.join(import.meta.dirname, '..', '..'),
-    data: {},
-    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
-  }
+  wikiHandle = installTestWiki({ SERVERPATH: path.join(import.meta.dirname, '..', '..') })
   const { authentication } = await import('../../models/authentication.ts')
   await authentication.refreshStrategiesFromDisk()
   const { storage } = await import('../../models/storage.ts')
   await storage.refreshFromDisk()
-  assert.ok((globalThis as any).WIKI.data.authentication?.length > 0)
+  assert.ok(WIKI.data.authentication?.length > 0)
   assert.ok(storage.definitions.length > 0)
+})
+
+after(() => {
+  wikiHandle.restore()
 })
 
 // ---------------------------------------------------------------------------

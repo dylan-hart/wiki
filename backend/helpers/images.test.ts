@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { after, before, describe, mock, test } from 'node:test'
+import { after, describe, mock, test } from 'node:test'
 import {
   detectImageMime,
   detectSvg,
@@ -198,8 +198,6 @@ describe('sanitizeSvg', () => {
  */
 describe('normalizeImage / resizeImageToSquareJpeg / makeImageThumbnail — Sharp unavailable', () => {
   let wikiHandle: { restore(): void }
-
-  before(() => {})
 
   after(() => {
     wikiHandle.restore()

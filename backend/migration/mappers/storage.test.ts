@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { before, describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import {
   KNOWN_3_0_STORAGE_MODULES,
   mapStorageRow,
@@ -9,6 +9,7 @@ import {
   type SourceStorageRow
 } from './storage.ts'
 import { ensureTemporal } from '../../test/temporal.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 /**
  * `mapStorageRow(s)` (task 767) tests.
@@ -21,18 +22,21 @@ import { ensureTemporal } from '../../test/temporal.ts'
  * this mapper calls touches `WIKI.db`, so this needs no database.
  */
 
+let wikiHandle: { restore(): void }
+
 before(async () => {
   await ensureTemporal()
-  ;(globalThis as any).WIKI = {
-    SERVERPATH: path.join(import.meta.dirname, '..', '..'),
-    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
-  }
+  wikiHandle = installTestWiki({ SERVERPATH: path.join(import.meta.dirname, '..', '..') })
   const { storage } = await import('../../models/storage.ts')
   await storage.refreshFromDisk()
   assert.ok(
     storage.definitions.length > 0,
     'refreshFromDisk should have loaded the real on-disk module definitions'
   )
+})
+
+after(() => {
+  wikiHandle.restore()
 })
 
 async function resolver() {

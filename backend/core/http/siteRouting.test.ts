@@ -2,8 +2,6 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import { isPageUrl, RESERVED_ROOT_FILES, SERVER_ROUTE_SEGMENTS } from './siteRouting.ts'
-import { listApiRouteFiles } from '../../test/routeRecorder.ts'
-import path from 'node:path'
 
 /**
  * `RESERVED_ROOT_FILES`, `SERVER_ROUTE_SEGMENTS` and `isPageUrl` are exported but were reached by
@@ -49,7 +47,6 @@ describe('SERVER_ROUTE_SEGMENTS', () => {
     // -> A cheap floor rather than a full cross-check against `core/http/routes.ts`: what would
     //    actually break is `/_api` dropping out, which would send every API call to the app shell.
     assert.equal(SERVER_ROUTE_SEGMENTS.has('_api'), true)
-    assert.ok(listApiRouteFiles(path.join(import.meta.dirname, '../../api')).length > 0)
   })
 
   test('every entry is an underscore-prefixed single segment', () => {

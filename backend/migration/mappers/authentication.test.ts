@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import path from 'node:path'
-import { before, describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import {
   buildAllowedEmailRegex,
   mapAuthenticationRow,
   type SourceAuthenticationRow
 } from './authentication.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 /**
  * `mapAuthenticationRow(s)` (task 765) tests.
@@ -20,18 +21,20 @@ import {
  * minimal-`WIKI` pattern for the precedent this mirrors.
  */
 
+let wikiHandle: { restore(): void }
+
 before(async () => {
-  ;(globalThis as any).WIKI = {
-    SERVERPATH: path.join(import.meta.dirname, '..', '..'),
-    data: {},
-    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
-  }
+  wikiHandle = installTestWiki({ SERVERPATH: path.join(import.meta.dirname, '..', '..') })
   const { authentication } = await import('../../models/authentication.ts')
   await authentication.refreshStrategiesFromDisk()
   assert.ok(
-    (globalThis as any).WIKI.data.authentication?.length > 0,
+    WIKI.data.authentication?.length > 0,
     'refreshStrategiesFromDisk should have loaded the real on-disk module definitions'
   )
+})
+
+after(() => {
+  wikiHandle.restore()
 })
 
 function baseRow(overrides: Partial<SourceAuthenticationRow> = {}): SourceAuthenticationRow {

@@ -23,6 +23,7 @@ import {
 } from './users-groups.ts'
 import type { SourceRecord } from '../connector.ts'
 import { iterate as iter } from '../../test/migrationFixtures.ts'
+import { installTestWiki } from '../../test/mocks.ts'
 
 const TARGET_ADMIN_GROUP_ID = 'target-admin-group-uuid'
 const TARGET_GUEST_GROUP_ID = 'target-guest-group-uuid'
@@ -686,9 +687,8 @@ describe('createDrizzleWriter insertGroup', () => {
   })
 
   test('delegates to WIKI.models.groups.createGroupFromImport rather than inserting the row directly', async () => {
-    const previous = (globalThis as any).WIKI
     const calls: any[] = []
-    ;(globalThis as any).WIKI = {
+    const handle = installTestWiki({
       models: {
         groups: {
           async createGroupFromImport(input: any) {
@@ -697,10 +697,8 @@ describe('createDrizzleWriter insertGroup', () => {
           }
         }
       }
-    }
-    restoreWiki = () => {
-      ;(globalThis as any).WIKI = previous
-    }
+    })
+    restoreWiki = () => handle.restore()
 
     // `db` is never touched by insertGroup on this task's writer, so a stub that throws on any use
     // proves the raw-insert path is genuinely gone rather than merely unused by this particular row.
@@ -907,9 +905,8 @@ describe('system-row exclusion (Task 731)', () => {
   })
 
   test('createDrizzleWriter.assignUserToSystemGroup delegates to Groups.assignUserToGroup(groupId, userId)', async () => {
-    const previous = (globalThis as any).WIKI
     const calls: any[] = []
-    ;(globalThis as any).WIKI = {
+    const handle = installTestWiki({
       models: {
         groups: {
           async assignUserToGroup(groupId: string, userId: string) {
@@ -918,7 +915,7 @@ describe('system-row exclusion (Task 731)', () => {
           }
         }
       }
-    }
+    })
     try {
       const explodingDb = {
         insert() {
@@ -931,7 +928,7 @@ describe('system-row exclusion (Task 731)', () => {
 
       assert.deepEqual(calls, [{ groupId: 'group-uuid', userId: 'user-uuid' }])
     } finally {
-      ;(globalThis as any).WIKI = previous
+      handle.restore()
     }
   })
 })

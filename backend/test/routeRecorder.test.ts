@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import path from 'node:path'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { describe, test } from 'node:test'
 
 import {
@@ -49,6 +51,34 @@ describe('listApiRouteFiles', () => {
 
   test('extra exclusions are honoured', () => {
     assert.ok(!listApiRouteFiles(apiDir, { exclude: ['sites.ts'] }).includes('sites.ts'))
+  })
+
+  test('a directory with an index.ts is ONE route resource, its siblings are that plugin internals', async () => {
+    // -> The branch A17's `api/pages/` split depends on, asserted against a tree built here rather
+    //    than against `api/`'s current shape, which has no such directory yet.
+    const root = await mkdtemp(path.join(tmpdir(), 'wiki-route-scan-'))
+    try {
+      await mkdir(path.join(root, 'foo'))
+      await writeFile(path.join(root, 'foo/index.ts'), 'export default async () => {}\n')
+      await writeFile(path.join(root, 'foo/helper.ts'), 'export const helper = 1\n')
+      await mkdir(path.join(root, 'bar'))
+      await writeFile(path.join(root, 'bar/a.ts'), 'export default async () => {}\n')
+      assert.deepEqual(listApiRouteFiles(root), ['bar/a.ts', 'foo/index.ts'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  test('a directory WITHOUT an index.ts is walked into, since it names no plugin of its own', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'wiki-route-scan-'))
+    try {
+      await mkdir(path.join(root, 'nested'))
+      await writeFile(path.join(root, 'nested/a.ts'), 'export default async () => {}\n')
+      await writeFile(path.join(root, 'nested/b.test.ts'), 'export const skipped = 1\n')
+      assert.deepEqual(listApiRouteFiles(root), ['nested/a.ts'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })
 

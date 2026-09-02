@@ -318,13 +318,10 @@ async function openRoom(inst: any, page: { id: string; siteId: string }): Promis
   return room
 }
 
-before(() => {})
-
 beforeEach(() => {
   getPageMock = mock.fn(async () => ({ ...STORED_PAGE }))
   wikiHandle = installTestWiki({
     INSTANCE_ID: 'unset',
-    logger: { warn: () => {}, info: () => {}, debug: () => {} },
     models: { pages: { getPage: getPageMock } }
   })
   createdRooms = []
