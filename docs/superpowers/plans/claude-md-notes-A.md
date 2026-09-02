@@ -478,3 +478,47 @@ sentences are now incomplete rather than wrong.
   `mcp/` and `index.ts` now name the wrong file. They were deliberately left alone by this task
   (its concurrency rule limited edits in existing files to import specifier lines); a follow-up
   sweep should repoint them.
+
+## Task A18 — the five long-model splits
+
+- **`WIKI.models` gained six members** (`renderQueue`, `userCredentials`, `login`, `approvalRules`,
+  `approvalNotifications`, `assetServing`, `pageClassification`) and the `backend/` layout table's
+  `models/` bullet, which describes `models/index.ts` as the aggregator, stays accurate — but the
+  CLAUDE.md prose that names a specific model for a specific job does not:
+  - **Server-side rendering is two models, not one.** `models/rendering.ts` is the post-process
+    pipeline a save runs through (`postProcess`); `models/renderQueue.ts` is the headless-browser
+    queue (`isAvailable`, `ensureCanRender`, `queuePage`, `drainQueue`). The sanitizer policy those
+    share — the tag/attribute/style allowlists, `blockAllowances`, `sanitizeOptions`,
+    `unwrapOrphanedChildBlocks` and the `RenderPermissions` type — is
+    `helpers/htmlSanitizePolicy.ts`. Anywhere CLAUDE.md says "rendering" for the queue half (it does
+    not today, but `docs/` and several source doc comments did) should say `renderQueue`.
+  - **`WIKI.models.users` no longer holds login.** `login`/`register`/`loginTFA`/`forgotPassword`/
+    `resetPassword`/`loginWithProvider`/`afterLoginChecks`/`getLogoutRedirect` are
+    `WIKI.models.login`; passwords, 2FA, recovery codes and the `userKeys` token pair
+    (`generateToken`/`validateToken`/`destroyToken`/`purgeExpiredKeys`) are
+    `WIKI.models.userCredentials`; `users` keeps the account itself (CRUD, profile, avatar, groups,
+    `updateSession`).
+  - **`api/approvals.ts` no longer rebuilds a reviewer scope.** `approvals.reviewerScopeFor(req,
+    siteId, page?)` is the one place that shape is built.
+- **`verifyTfaCode` returns `false` for an account deleted mid-verification.** Not new behaviour
+  introduced here — it falls out of task A10's `patchStrategyAuth` extraction, which re-reads the
+  row inside the per-user advisory lock and declines the write when there is no row — but it was
+  never written down, and it is the difference between "the code was wrong" and "the account went".
+  Pinned by `models/userCredentials.tfa.test.ts`'s "declines a code for a user that vanished between
+  the read and the write". If CLAUDE.md ever describes the 2FA path, this is the sentence: a correct
+  code for a vanished account is refused, not accepted.
+- **`helpers/pagination.ts#paginate`'s `total` column alias is load-bearing.** Now stated in the
+  helper's own doc comment: `paginate` reads `totals[0]?.total`, so a count query that aliases the
+  column anything else silently paginates as `total: 0`.
+- **Test files: a model's suite is now `<model>.<subject>.test.ts`, and DB-backed vs. pure is a
+  filename property.** `models/users.test.ts` is pure; `models/users.crud.test.ts` and
+  `models/users.profile.test.ts` are DB-backed, and each carries exactly one file-level
+  `setupTestDb()` shared by its describes rather than one per describe. The "Testing (backend)"
+  section's co-location rule is unchanged (a test still lives next to what it covers) — what is new
+  is that one source file's tests may be several sibling files, split by subject, and that a
+  DB-backed file opens one schema for the whole file. Worth a sentence next to the `test/db.ts`
+  paragraph.
+- **Doc-comment prose repointed, with two deliberate gaps.** `controllers/render.ts` (2 references
+  to `models/rendering.ts` navigating the headless browser, now `models/renderQueue.ts`) was left
+  alone to stay out of task A16's declared workspace; so was `migration/`'s. Both need a follow-up
+  sweep.
