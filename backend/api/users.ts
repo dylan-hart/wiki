@@ -169,7 +169,10 @@ async function routes(app: FastifyInstance) {
   )
 
   app.get<{
-    Querystring: { page?: number; limit?: number; filter?: string; assignableToGroupId?: string }
+    // -> `page`/`limit` are non-optional: the querystring schema declares a `default` for each, and
+    //    fastify's AJV runs with `useDefaults`, so a missing param is filled in before the handler
+    //    sees it.
+    Querystring: { page: number; limit: number; filter?: string; assignableToGroupId?: string }
   }>(
     '/',
     {
@@ -217,8 +220,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      const page = req.query.page ?? 1
-      const limit = req.query.limit ?? 20
+      const { page, limit } = req.query
       const { total, users } = await WIKI.models.users.getUsers({
         filter: req.query.filter ?? '',
         assignableToGroupId: req.query.assignableToGroupId ?? '',
@@ -232,7 +234,9 @@ async function routes(app: FastifyInstance) {
   /**
    * RECENT LOGINS
    */
-  app.get<{ Querystring: { limit?: number } }>(
+  // -> `limit` is non-optional: the querystring schema declares a `default` for it, and fastify's
+  //    AJV runs with `useDefaults`, so a missing param is filled in before the handler sees it.
+  app.get<{ Querystring: { limit: number } }>(
     '/recent-logins',
     {
       config: {
@@ -277,7 +281,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return WIKI.models.users.getRecentLogins({ limit: req.query.limit ?? 10 })
+      return WIKI.models.users.getRecentLogins({ limit: req.query.limit })
     }
   )
 

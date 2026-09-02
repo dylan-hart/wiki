@@ -137,10 +137,9 @@ export function toSniffIntervalMs(sniffInterval: unknown): number | false {
  * travels on every document despite not being one of `SearchPagesParams`' own filters.
  */
 export function pageToDocument(page: SearchIndexablePage): ElasticsearchPageDocument {
-  const updatedAt =
-    page.updatedAt instanceof Date
-      ? page.updatedAt.toISOString()
-      : (page.updatedAt as unknown as string)
+  // -> Same conversion `api/pages.ts` uses for a `Date` column headed into an ISO string: an exact
+  //    instant, so millisecond precision (what the rest of the codebase emits) is enough.
+  const updatedAt = page.updatedAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
   return {
     siteId: page.siteId,
     locale: page.locale,

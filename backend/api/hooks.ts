@@ -166,7 +166,9 @@ async function routes(app: FastifyInstance) {
   /**
    * LIST WEBHOOK DELIVERY HISTORY
    */
-  app.get<{ Params: { hookId: string }; Querystring: { limit?: number } }>(
+  // -> `limit` is non-optional: the querystring schema declares a `default` for it, and fastify's
+  //    AJV runs with `useDefaults`, so a missing param is filled in before the handler sees it.
+  app.get<{ Params: { hookId: string }; Querystring: { limit: number } }>(
     '/:hookId/deliveries',
     {
       config: {
@@ -221,7 +223,7 @@ async function routes(app: FastifyInstance) {
       if (!(await WIKI.models.hooks.getHookById(req.params.hookId))) {
         return reply.notFound('Webhook does not exist.')
       }
-      const limit = req.query.limit ?? 100
+      const { limit } = req.query
       const { total, deliveries } = await WIKI.models.hooks.getDeliveryHistory(req.params.hookId, {
         limit
       })

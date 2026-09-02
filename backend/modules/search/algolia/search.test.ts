@@ -2,6 +2,7 @@ import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { ensureTemporal } from '../../../test/temporal.ts'
 import { search } from '../../../models/search.ts'
 import {
   AlgoliaSearchModule,
@@ -17,6 +18,8 @@ import type { AccessActor } from '../../../models/groups.ts'
 import type { SearchIndexablePage, SearchPagesParams } from '../../../models/search.ts'
 
 const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../..')
+
+before(() => ensureTemporal())
 
 function fakePage(overrides: Partial<Record<string, any>> = {}): SearchIndexablePage {
   return {

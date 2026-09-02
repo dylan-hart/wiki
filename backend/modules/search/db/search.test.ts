@@ -183,7 +183,7 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const vectorOf = async (id: string): Promise<string> => {
       const rows = await fixtures.db.execute(sql`SELECT ts::text AS ts FROM pages WHERE id = ${id}`)
-      return ((rows as any).rows ?? rows)[0].ts
+      return (rows as any).rows[0].ts
     }
 
     assert.notEqual(await vectorOf(moved.id), await vectorOf(reference.id))

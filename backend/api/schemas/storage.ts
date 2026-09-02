@@ -123,28 +123,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           }
         }
       },
-      setup: {
-        type: 'object',
-        description:
-          'Only present for a module that has a setup process and an implementation to run it.',
-        properties: {
-          handler: {
-            type: 'string',
-            description: 'Which setup flow the admin area should walk through, e.g. `github`.'
-          },
-          state: {
-            type: 'string',
-            enum: ['notconfigured', 'pendinginstall', 'configured']
-          },
-          // Deliberately loose: `handler`-specific starting values for a setup wizard implemented
-          // per storage module (e.g. the GitHub OAuth flow).
-          values: {
-            type: 'object',
-            additionalProperties: true,
-            description: 'Values the setup form starts from.'
-          }
-        }
-      },
       // Deliberately loose: keys and value types come from each storage module's own
       // `definition.yml` on disk, so the shape genuinely differs per module (db, git, s3, …).
       props: {
@@ -230,8 +208,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       isEnabled: {
         type: 'boolean',
-        description:
-          'The database target cannot be disabled, and a target with a pending setup cannot be enabled.'
+        description: 'The database target cannot be disabled.'
       },
       contentTypes: {
         type: 'object',

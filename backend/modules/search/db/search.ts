@@ -20,7 +20,7 @@ import type {
  *
  * An operator can override or extend this from the admin area, which is what `dictOverrides` is for.
  */
-export const DEFAULT_DICTIONARIES: Record<string, string> = {
+const DEFAULT_DICTIONARIES: Record<string, string> = {
   ar: 'arabic',
   ca: 'catalan',
   da: 'danish',
@@ -53,7 +53,7 @@ export const DEFAULT_DICTIONARIES: Record<string, string> = {
 }
 
 /** The dictionary used when a locale has no mapping, or when its mapping is not installed. */
-export const FALLBACK_DICTIONARY = 'simple'
+const FALLBACK_DICTIONARY = 'simple'
 
 /** This module's own key, i.e. the directory name of its `definition.yml`. */
 const MODULE_KEY = 'db'
@@ -164,7 +164,7 @@ class DbSearchModule implements SearchModule {
    */
   async getAvailableDictionaries(): Promise<string[]> {
     const rows = await WIKI.db.execute(sql`SELECT cfgname FROM pg_ts_config ORDER BY cfgname`)
-    return (rows.rows ?? rows).map((r: any) => r.cfgname as string)
+    return rows.rows.map((r: any) => r.cfgname as string)
   }
 
   /**
@@ -408,7 +408,7 @@ class DbSearchModule implements SearchModule {
       let candidateLimit = Math.min(needed + OVERFETCH_MARGIN, OVERFETCH_HARD_CAP)
       for (;;) {
         const fetched = await WIKI.db.execute(rowsQuery(candidateLimit, 0))
-        rawRows = (fetched.rows ?? fetched) as any[]
+        rawRows = fetched.rows as any[]
         visibleRows = filterVisible(rawRows)
         const exhausted = rawRows.length < candidateLimit
         if (visibleRows.length >= needed || exhausted || candidateLimit >= OVERFETCH_HARD_CAP) {
@@ -418,7 +418,7 @@ class DbSearchModule implements SearchModule {
       }
     } else {
       const fetched = await WIKI.db.execute(rowsQuery(limit, offset))
-      rawRows = (fetched.rows ?? fetched) as any[]
+      rawRows = fetched.rows as any[]
       visibleRows = rawRows
     }
 
@@ -511,7 +511,7 @@ class DbSearchModule implements SearchModule {
     // -> Same reasoning as `query`: which rule covers a candidate can depend on a regular
     //    expression or its tags, neither of which the query above could express.
     const visible = actor
-      ? ((rows.rows ?? rows) as any[]).filter((row) =>
+      ? (rows.rows as any[]).filter((row) =>
           WIKI.models.groups.checkAccess(actor, 'read:pages', {
             path: row.path as string,
             locale: row.locale as string,
@@ -520,7 +520,7 @@ class DbSearchModule implements SearchModule {
             classification: (row.classification as string | null) ?? null
           })
         )
-      : ((rows.rows ?? rows) as any[])
+      : (rows.rows as any[])
 
     return (visible[0]?.title as string | undefined) ?? null
   }
@@ -543,7 +543,7 @@ class DbSearchModule implements SearchModule {
     const localeRows = await WIKI.db.execute(
       sql`SELECT DISTINCT locale FROM pages WHERE "siteId" = ${siteId} ORDER BY locale`
     )
-    const locales = ((localeRows.rows ?? localeRows) as any[]).map((r) => r.locale as string)
+    const locales = (localeRows.rows as any[]).map((r) => r.locale as string)
 
     WIKI.logger.info(`Rebuilding the search index for ${locales.length} locale(s)...`)
     const result: RebuildResult = { pages: 0, locales: [] }

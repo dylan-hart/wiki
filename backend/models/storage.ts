@@ -136,19 +136,14 @@ export interface StorageDefinition {
    * module that only ever acts on write — nothing to schedule.
    */
   schedule: string | false
-  /** Declared by modules that cannot be configured by hand, e.g. an app installed on a provider. */
-  setup?: {
-    handler: string
-    defaultValues: Record<string, any>
-  }
   props: Record<string, ModuleProp>
   actions: StorageAction[]
   /**
    * Whether a `storage.ts` sits next to the definition.
    *
    * No module ships one yet, so every target is configuration-only for now: nothing reads or writes
-   * content through a module. Actions and setup are gated on this, so that the admin area never
-   * offers to run something that has no implementation behind it.
+   * content through a module. Actions are gated on this, so that the admin area never offers to run
+   * something that has no implementation behind it.
    */
   hasImplementation: boolean
   /**
@@ -205,11 +200,6 @@ export interface StorageTarget {
     /** See `StorageDefinition.supportsContentSync` — surfaced per-target for the admin area. */
     supportsContentSync: boolean
   }
-  setup?: {
-    handler: string
-    state: string
-    values: Record<string, any>
-  }
   props: Record<string, ModuleProp>
   config: Record<string, any>
   actions: StorageAction[]
@@ -240,12 +230,11 @@ export interface StorageTargetInput {
 /**
  * What a module implementation is expected to export, once any of them do.
  *
- * Every handler here — `setup`, `setupDestroy`, the content-dispatch handlers, and any custom
- * `[handler]` an action names — receives the *full* `StorageTarget`, never a bare id. That target
- * includes `siteId`, which is therefore the one reliable way for a handler to learn which site's
- * pages/assets/tree rows it is scoped to: nothing else is passed alongside it. `executeAction()`,
- * `runSetup()` and `destroySetup()` all already fetch the target via `getSiteTargetById()` before
- * calling in, so a handler never has to ask the model for it again.
+ * Every handler here — the content-dispatch handlers, and any custom `[handler]` an action names —
+ * receives the *full* `StorageTarget`, never a bare id. That target includes `siteId`, which is
+ * therefore the one reliable way for a handler to learn which site's pages/assets/tree rows it is
+ * scoped to: nothing else is passed alongside it. `executeAction()` already fetches the target via
+ * `getSiteTargetById()` before calling in, so a handler never has to ask the model for it again.
  *
  * The content-dispatch handlers below are called by the `dispatchStorage` task — never directly —
  * one per write-path event this target's `contentTypes.activeTypes` covers; see `Storage.dispatch()`
@@ -267,10 +256,6 @@ export interface StorageModule {
    * @returns The reason it is invalid, or null when it is fine
    */
   validateConfig?: (config: Record<string, any>, target: StorageTarget) => Promise<string | null>
-  /** Advance a multi-step setup process, returning what the admin area should do next. */
-  setup?: (target: StorageTarget, state: Record<string, any>) => Promise<Record<string, any>>
-  /** Undo whatever `setup` configured, so that it can be started over. */
-  setupDestroy?: (target: StorageTarget) => Promise<void>
   /** A page was created. */
   created?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
   /** A page's content, title or metadata changed. */
@@ -468,8 +453,7 @@ class Storage {
           enabled: definition.versioning.isForceEnabled || definition.versioning.defaultEnabled
         },
         syncMode: definition.defaultMode,
-        config: this.buildConfig(definition.key),
-        state: definition.setup ? { setup: 'notconfigured' } : {}
+        config: this.buildConfig(definition.key)
       })
     }
 
@@ -520,8 +504,8 @@ class Storage {
    * @param opts.mask When true, a `sensitive` prop's stored value (an S3 secret key, an sftp
    *   password, ...) is replaced with a mask before being returned -- see
    *   `helpers/common.ts#maskSensitiveConfig`. Defaults to false: this is the *only* place a
-   *   target's config is assembled, so `dispatch()`, `executeAction()`, `runDailyBackups()` and the
-   *   setup handlers all call this with the default and need the real values to actually connect.
+   *   target's config is assembled, so `dispatch()`, `executeAction()` and `runDailyBackups()` all
+   *   call this with the default and need the real values to actually connect.
    *   Only an admin-facing read that serializes `config` straight into an HTTP response should ever
    *   pass `{ mask: true }`.
    */
@@ -575,18 +559,9 @@ class Storage {
           scheduleOverride: row.scheduleOverride,
           supportsContentSync: definition.supportsContentSync
         },
-        // -> Only offered for a module that can actually run its setup process
-        ...(definition.setup &&
-          definition.hasImplementation && {
-            setup: {
-              handler: definition.setup.handler,
-              state: ((row.state ?? {}) as Record<string, any>).setup ?? 'notconfigured',
-              values: this.buildSetupValues(definition, row.config as Record<string, any>)
-            }
-          }),
         props: definition.props,
         config: mask ? maskSensitiveConfig(definition.props, config) : config,
-        // -> Same reasoning as setup: an action with nothing behind it cannot be run
+        // -> An action with nothing behind it cannot be run
         actions: definition.hasImplementation ? definition.actions : []
       })
     }
@@ -602,20 +577,6 @@ class Storage {
     opts?: { mask?: boolean }
   ): Promise<StorageTarget | null> {
     return (await this.getSiteTargets(siteId, opts)).find((t) => t.id === id) ?? null
-  }
-
-  /**
-   * The values the setup form starts from: whatever the module stored, else its declared defaults.
-   */
-  buildSetupValues(
-    definition: StorageDefinition,
-    stored: Record<string, any> = {}
-  ): Record<string, any> {
-    const values: Record<string, any> = {}
-    for (const [key, value] of Object.entries(definition.setup?.defaultValues ?? {})) {
-      values[key] = stored[key] ?? value
-    }
-    return values
   }
 
   /**
@@ -703,9 +664,6 @@ class Storage {
     const definition = this.getDefinition(target.module)!
     if (patch.isEnabled === false && target.module === DB_MODULE) {
       return 'The database storage target cannot be disabled, as content would have nowhere to live.'
-    }
-    if (patch.isEnabled === true && target.setup && target.setup.state !== 'configured') {
-      return `${definition.title} cannot be enabled until its setup process is completed.`
     }
     const activeTypes = patch.contentTypes?.activeTypes
     if (activeTypes) {
@@ -1094,33 +1052,6 @@ class Storage {
       throw new Error(`The ${target.title} storage module does not implement "${handler}".`)
     }
     await mod[handler](target)
-  }
-
-  /**
-   * Advance a module's setup process.
-   *
-   * @returns What the admin area should do next, as decided by the module
-   * @throws When the module cannot be loaded or has no setup process
-   */
-  async runSetup(target: StorageTarget, state: Record<string, any>): Promise<Record<string, any>> {
-    const mod = await this.ensureModule(target.module)
-    if (!mod?.setup) {
-      throw new Error(`The ${target.title} storage module has no setup process.`)
-    }
-    return mod.setup(target, state)
-  }
-
-  /**
-   * Undo a module's setup, so that it can be started over.
-   *
-   * @throws When the module cannot be loaded or has no setup process
-   */
-  async destroySetup(target: StorageTarget): Promise<void> {
-    const mod = await this.ensureModule(target.module)
-    if (!mod?.setupDestroy) {
-      throw new Error(`The ${target.title} storage module has no setup process.`)
-    }
-    await mod.setupDestroy(target)
   }
 }
 

@@ -92,13 +92,3 @@ export function resolveSiteRule(
 
   return winner
 }
-
-/**
- * Whether the caller's rules grant a site-admin permission on a site.
- *
- * @returns False when no rule addresses it, which is the default for everything.
- */
-export function rulesAllowSite(rules: GroupRule[], permission: string, siteId: string): boolean {
-  const rule = resolveSiteRule(rules, permission, siteId)
-  return rule ? rule.mode !== 'DENY' : false
-}

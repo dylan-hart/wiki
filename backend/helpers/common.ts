@@ -615,7 +615,7 @@ export function durationToSeconds(value: unknown, fallback: number): number {
  * @param type primitive type name
  * @returns Default value
  */
-export function getTypeDefaultValue(type: string): string | number | boolean | undefined {
+function getTypeDefaultValue(type: string): string | number | boolean | undefined {
   switch (type.toLowerCase()) {
     case 'string':
       return ''

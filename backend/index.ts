@@ -170,23 +170,6 @@ if (WIKI.IS_DEBUG) {
   })
 }
 
-// -> No handler existed anywhere in `backend/` before this: an unhandled rejection is Node's default
-//    "print a warning and keep running" outside of `--unhandled-rejections=strict`, which for this
-//    process means silently continuing in a state some in-flight operation already gave up on rather
-//    than the app crashing cleanly. `@gquittet/graceful-server`'s own `uncaughtException` handler
-//    already treats a *synchronous* throw as fatal (`stop({ value: 2 })`); this closes the same gap on
-//    the async side rather than leaving it to whichever rejection happens to be the one that finally
-//    corrupts something visibly.
-process.on('unhandledRejection', (reason) => {
-  if (WIKI.logger) {
-    WIKI.logger.error('Unhandled promise rejection:')
-    WIKI.logger.error(reason as any)
-  } else {
-    console.error('Unhandled promise rejection:', reason)
-  }
-  process.exit(1)
-})
-
 await WIKI.configSvc.init()
 
 // ----------------------------------------
@@ -196,8 +179,12 @@ await WIKI.configSvc.init()
 WIKI.logger = logger.init()
 
 // -> Registered as early as `WIKI.logger` exists, so nothing between here and the end of boot can
-//    crash the process unlogged via a rejection nobody's `.catch` caught.
-registerUnhandledRejectionHandler(WIKI.logger, { debug: WIKI.IS_DEBUG })
+//    crash the process unlogged via a rejection nobody's `.catch` caught. Exits deliberately rather
+//    than carrying on in a state some in-flight operation already gave up on.
+registerUnhandledRejectionHandler(WIKI.logger, {
+  debug: WIKI.IS_DEBUG,
+  exit: (code) => process.exit(code)
+})
 
 // ----------------------------------------
 // Init Server
@@ -307,14 +294,6 @@ async function postBoot() {
 // ----------------------------------------
 
 async function initHTTPServer() {
-  // ----------------------------------------
-  // Load core modules
-  // ----------------------------------------
-
-  // WIKI.auth = auth.init()
-  // WIKI.mail = mail.init()
-  // WIKI.system = system.init()
-
   // ----------------------------------------
   // Initialize Fastify App
   // ----------------------------------------
@@ -1175,19 +1154,6 @@ async function initHTTPServer() {
     process.exit(1)
   }
 }
-
-// ----------------------------------------
-// Register exit handler
-// ----------------------------------------
-
-// process.on('SIGINT', () => {
-//   WIKI.kernel.shutdown()
-// })
-// process.on('message', (msg) => {
-//   if (msg === 'shutdown') {
-//     WIKI.kernel.shutdown()
-//   }
-// })
 
 // ----------------------------------------
 // Initialization Sequence

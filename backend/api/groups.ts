@@ -474,7 +474,10 @@ async function routes(app: FastifyInstance) {
    */
   app.get<{
     Params: { groupId: string }
-    Querystring: { filter?: string; page?: number; limit?: number }
+    // -> `page`/`limit` are non-optional: the querystring schema declares a `default` for each, and
+    //    fastify's AJV runs with `useDefaults`, so a missing param is filled in before the handler
+    //    sees it.
+    Querystring: { filter?: string; page: number; limit: number }
   }>(
     '/:groupId/users',
     {
@@ -533,8 +536,7 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('Group does not exist.')
       }
 
-      const page = req.query.page ?? 1
-      const limit = req.query.limit ?? 20
+      const { page, limit } = req.query
       const { total, users } = await WIKI.models.groups.getGroupUsers(group.id, {
         filter: req.query.filter,
         page,

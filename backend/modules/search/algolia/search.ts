@@ -151,10 +151,9 @@ export function buildFilters(params: SearchPagesParams): string {
  * depending on that restriction being re-checked correctly on every read.
  */
 export function pageToDocument(page: SearchIndexablePage): AlgoliaPageDocument {
-  const updatedAt =
-    page.updatedAt instanceof Date
-      ? page.updatedAt.toISOString()
-      : (page.updatedAt as unknown as string)
+  // -> Same conversion `api/pages.ts` uses for a `Date` column headed into an ISO string: an exact
+  //    instant, so millisecond precision (what the rest of the codebase emits) is enough.
+  const updatedAt = page.updatedAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
   return {
     objectID: page.id,
     siteId: page.siteId,
@@ -175,14 +174,14 @@ export function pageToDocument(page: SearchIndexablePage): AlgoliaPageDocument {
 }
 
 /** One page dropped from a batch by `batchDocuments()` for exceeding `MAX_DOCUMENT_BYTES` on its own. */
-export interface OversizedDocument {
+interface OversizedDocument {
   objectID: string
   path: string
   bytes: number
 }
 
 /** `batchDocuments()`'s return: the batches to send, plus what could not be. */
-export interface BatchDocumentsResult {
+interface BatchDocumentsResult {
   batches: AlgoliaPageDocument[][]
   skipped: OversizedDocument[]
 }

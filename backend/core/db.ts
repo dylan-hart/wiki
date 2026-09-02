@@ -20,7 +20,6 @@ import {
 } from '../helpers/pubsub.ts'
 import { acquireAdvisoryLock, type AdvisoryLockHandle } from '../helpers/advisoryLock.ts'
 import maintenance from './maintenance.ts'
-// import migrationSource from '../db/migrator-source.js'
 
 /**
  * Sends the event bus's cross-instance notifications, one at a time.

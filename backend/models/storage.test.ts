@@ -759,8 +759,7 @@ describe('storage / validateConfig, validateTarget (pure, real s3 definition rea
       siteId: 'site-1',
       module: 's3',
       title: definition.title,
-      contentTypes: { activeTypes: [], largeThreshold: '5MB' },
-      setup: undefined
+      contentTypes: { activeTypes: [], largeThreshold: '5MB' }
     } as any
     const invalid = await storage.validateTarget(target, {
       id: 't1',
@@ -775,8 +774,7 @@ describe('storage / validateConfig, validateTarget (pure, real s3 definition rea
       siteId: 'site-1',
       module: 's3',
       title: 'S3',
-      contentTypes: { activeTypes: [], largeThreshold: '5MB' },
-      setup: undefined
+      contentTypes: { activeTypes: [], largeThreshold: '5MB' }
     } as any
     const invalid = await storage.validateTarget(target, {
       id: 't1',
@@ -785,14 +783,13 @@ describe('storage / validateConfig, validateTarget (pure, real s3 definition rea
     assert.match(invalid ?? '', /"huge" is not a valid size threshold/)
   })
 
-  test('validateTarget accepts enabling an s3 target directly — it declares no setup process to gate on', async () => {
+  test('validateTarget accepts enabling an s3 target directly', async () => {
     const target = {
       id: 't1',
       siteId: 'site-1',
       module: 's3',
       title: 'S3',
-      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' },
-      setup: undefined
+      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
     } as any
     assert.equal(await storage.validateTarget(target, { id: 't1', isEnabled: true }), null)
   })
@@ -900,7 +897,7 @@ describe(
         true
       )
 
-      // -> Default (unmasked): every internal caller (dispatch/executeAction/backups/setup) needs
+      // -> Default (unmasked): every internal caller (dispatch/executeAction/backups) needs
       //    the real value, so it must still be there.
       targets = await storage.getSiteTargets(fixtures.siteId)
       assert.equal(

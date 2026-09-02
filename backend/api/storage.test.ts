@@ -143,31 +143,6 @@ test('an action the target does not declare is refused before executeAction is e
   assert.equal(executeAction.mock.calls.length, 0)
 })
 
-// -> #1616: `POST/DELETE .../setup` used to answer a module with no `setup` process the same
-//    hardcoded `<target> has no setup process.` English sentence on both routes. Assert the coded
-//    `ERR_*` shape, not any particular wording. `ENABLED_TARGET` declares no `setup`, so both
-//    routes are refused before ever reaching a module.
-test('POST .../setup is refused with a coded error for a target with no setup process', async () => {
-  const res = await app.inject({
-    method: 'POST',
-    url: `/sites/${SITE_ID}/storage/targets/${ENABLED_TARGET.id}/setup`,
-    payload: { step: 'start' }
-  })
-
-  assert.equal(res.statusCode, 400)
-  assert.equal(res.json().message, 'ERR_STORAGE_NO_SETUP')
-})
-
-test('DELETE .../setup is refused with a coded error for a target with no setup process', async () => {
-  const res = await app.inject({
-    method: 'DELETE',
-    url: `/sites/${SITE_ID}/storage/targets/${ENABLED_TARGET.id}/setup`
-  })
-
-  assert.equal(res.statusCode, 400)
-  assert.equal(res.json().message, 'ERR_STORAGE_NO_SETUP')
-})
-
 test('a nonexistent target 404s', async () => {
   const res = await app.inject({
     method: 'POST',

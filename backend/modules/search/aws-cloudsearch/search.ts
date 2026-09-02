@@ -47,7 +47,7 @@ const ANALYSIS_SCHEME_NAME = 'wiki_analysis_scheme'
 const SUGGESTER_NAME = 'wiki_title_suggester'
 
 /** A CloudSearch index field type this module ever declares. */
-export type CloudSearchFieldType = 'literal' | 'text' | 'literal-array'
+type CloudSearchFieldType = 'literal' | 'text' | 'literal-array'
 
 /** Narrowed field options this module ever sets — a subset of the SDK's own per-type `*Options`. */
 export interface CloudSearchFieldOptions {
@@ -102,9 +102,7 @@ export function buildIndexFields(analysisScheme: string): CloudSearchFieldSpec[]
       //    point at the same domain. Same treatment as `hasPassword`/`classification` above: a literal
       //    field is filterable via a `term` clause regardless of `searchEnabled`/`facetEnabled`, so
       //    neither is needed here, and the value is never surfaced to a caller — `SearchResult` has no
-      //    `siteId` of its own — so it is not returned either. `hasUnbackfilledDocuments` below also
-      //    depends on this being a real provisioned field: it queries for its *absence* to gate
-      //    `rebuild()`'s purge.
+      //    `siteId` of its own — so it is not returned either.
       options: { searchEnabled: false, facetEnabled: false, returnEnabled: false }
     },
     { name: 'path', type: 'text', options: { returnEnabled: true, analysisScheme } },
@@ -362,7 +360,7 @@ export interface SdfAddDocument {
 }
 
 /** One SDF entry removing a document. */
-export interface SdfDeleteDocument {
+interface SdfDeleteDocument {
   type: 'delete'
   id: string
 }
@@ -682,7 +680,7 @@ export interface CloudSearchHit {
 }
 
 /** The subset of a `SearchCommand` response this module reads. */
-export interface CloudSearchSearchResponse {
+interface CloudSearchSearchResponse {
   hits: { found: number; hit: CloudSearchHit[] }
 }
 
@@ -1015,9 +1013,7 @@ export class AwsCloudSearchModule implements SearchModule {
    * site's ids too. `rebuild()`'s purge step (OpenProject #922) diffs this against what it just
    * re-uploaded for this site to find what should no longer be there — scoped to `siteId` so that diff
    * can never include a document belonging to a different site sharing the same domain
-   * (`buildFilterQuery`'s own doc comment explains why that is no longer a can't-happen case). See
-   * `hasUnbackfilledDocuments` below for why `rebuild()` only trusts this result once every document in
-   * the domain carries the field this filters on.
+   * (`buildFilterQuery`'s own doc comment explains why that is no longer a can't-happen case).
    */
   private async fetchAllIds(client: CloudSearchQueryClient, siteId: string): Promise<string[]> {
     const PAGE_SIZE = 1000
@@ -1041,31 +1037,6 @@ export class AwsCloudSearchModule implements SearchModule {
       }
     }
     return ids
-  }
-
-  /**
-   * True when the domain still holds at least one document with no `siteId` value at all -- i.e. a
-   * document indexed before this module started stamping documents with their site (OpenProject
-   * #2108). A `siteId`-scoped `fetchAllIds()` can only be trusted as the *complete* list of what
-   * belongs to this site once every document in the domain -- this site's and any sibling site's
-   * sharing it -- carries the field: until then, an untagged document might be this site's own
-   * now-deleted page (a real ghost, invisible to the scoped list) or a sibling site's still-live page
-   * (which an unscoped list would wrongly purge), and there is no way to tell the two apart from the
-   * domain alone. `rebuild()` gates its purge step on this being `false` rather than guess, and skips
-   * the purge entirely (loudly, not silently) until it comes back clean.
-   *
-   * `(range field=siteId {,})` is CloudSearch's idiom for "this field has any value" (an unbounded
-   * range matches every document that set it, and there is no direct `IS NULL` operator); negating it
-   * finds the ones that didn't.
-   */
-  private async hasUnbackfilledDocuments(client: CloudSearchQueryClient): Promise<boolean> {
-    const { count } = await this.runQuery(client, {
-      query: 'matchall',
-      filterQuery: '(not (range field=siteId {,}))',
-      start: 0,
-      size: 1
-    })
-    return count > 0
   }
 
   /**
@@ -1277,14 +1248,9 @@ export class AwsCloudSearchModule implements SearchModule {
    * page deleted while this engine was unreachable -- the exact scenario `indexPage`'s own doc comment
    * names as what a later rebuild is supposed to put right -- stayed in the domain forever. Every id
    * belonging to this site currently in the domain (`fetchAllIds`, `siteId`-scoped since OpenProject
-   * #2108) that was not just re-uploaded is stale and gets removed with an SDF `delete` entry -- but
-   * only once `hasUnbackfilledDocuments` confirms every document in the domain already carries a
-   * `siteId` value, checked *after* this loop has re-uploaded every one of this site's own current
-   * pages: checking before it would count this site's own not-yet-backfilled pages as reason to skip,
-   * forcing a second rebuild before the purge could ever run. Checked after, the very first rebuild
-   * following this field's release can purge in the same pass it finishes backfilling, while still
-   * correctly deferring for as long as any neighbour site sharing the domain has pages of its own not
-   * yet reindexed.
+   * #2108) that was not just re-uploaded is stale and gets removed with an SDF `delete` entry. The
+   * purge runs *after* this loop has re-uploaded every one of this site's own current pages, so
+   * nothing it just wrote is ever mistaken for a ghost.
    */
   async rebuild(siteId: string): Promise<RebuildResult> {
     const locales = await this.pageSource.locales(siteId)
@@ -1314,22 +1280,16 @@ export class AwsCloudSearchModule implements SearchModule {
       WIKI.logger.info(`Reindexed ${localePages} page(s) in ${locale}.`)
     }
 
-    if (await this.hasUnbackfilledDocuments(client)) {
-      WIKI.logger.info(
-        'Skipping stale-document purge for the AWS CloudSearch domain: some indexed documents predate the siteId field and have not yet been backfilled by a rebuild.'
+    const existingIds = await this.fetchAllIds(client, siteId)
+    const staleIds = existingIds.filter((id) => !uploadedIds.has(id))
+    if (staleIds.length > 0) {
+      await this.uploadBatch(
+        siteId,
+        staleIds.map((id) => ({ type: 'delete' as const, id }))
       )
-    } else {
-      const existingIds = await this.fetchAllIds(client, siteId)
-      const staleIds = existingIds.filter((id) => !uploadedIds.has(id))
-      if (staleIds.length > 0) {
-        await this.uploadBatch(
-          siteId,
-          staleIds.map((id) => ({ type: 'delete' as const, id }))
-        )
-        WIKI.logger.info(
-          `Purged ${staleIds.length} stale document(s) from the AWS CloudSearch domain.`
-        )
-      }
+      WIKI.logger.info(
+        `Purged ${staleIds.length} stale document(s) from the AWS CloudSearch domain.`
+      )
     }
 
     WIKI.logger.info(`AWS CloudSearch domain rebuild completed: ${result.pages} page(s) [ OK ]`)
