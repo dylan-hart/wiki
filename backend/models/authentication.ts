@@ -1,8 +1,11 @@
-import fs from 'node:fs/promises'
 import path from 'node:path'
-import { load } from 'js-yaml'
 import { asc, eq } from 'drizzle-orm'
-import { maskSensitiveConfig, parseModuleProps, unmaskSensitiveConfig } from '../helpers/common.ts'
+import { maskSensitiveConfig } from '../helpers/common.ts'
+import {
+  mergeModuleConfig,
+  readModuleDefinitions,
+  validateModuleConfig
+} from '../helpers/moduleRegistry.ts'
 import { authentication as authenticationTable, groups as groupsTable } from '../db/schema.ts'
 import type { ModuleProp } from '../helpers/common.ts'
 import type { SystemIds } from './types.ts'
@@ -240,73 +243,26 @@ class Authentication {
   }
 
   /**
-   * Merge incoming config values onto the ones already stored, keeping only what the module declares.
-   *
-   * Read-only props are never taken from the client: they are declarations of something the server
-   * does not support changing, so the stored value (or the module default) always wins.
+   * Merge incoming config values onto the ones already stored, keeping only what the module declares
+   * — see `helpers/moduleRegistry.ts#mergeModuleConfig`.
    */
   buildConfig(
     moduleKey: string,
     incoming: Record<string, any> = {},
     existing: Record<string, any> = {}
   ): Record<string, any> {
-    const props = this.getModule(moduleKey)?.props ?? {}
-    // -> Drops a `sensitive` value that is just the mask being echoed back unchanged, so it falls
-    //    through to `current` below instead of overwriting the real stored secret with the mask
-    //    string itself. See `helpers/common.ts#unmaskSensitiveConfig`.
-    const cleanedIncoming = unmaskSensitiveConfig(props, incoming)
-    const config: Record<string, any> = {}
-    for (const [key, prop] of Object.entries(props)) {
-      const current = existing[key] !== undefined ? existing[key] : prop.default
-      config[key] =
-        prop.readOnly || cleanedIncoming[key] === undefined ? current : cleanedIncoming[key]
-    }
-    return config
+    return mergeModuleConfig(this.getModule(moduleKey)?.props ?? {}, incoming, existing)
   }
 
   /**
-   * Check incoming config values against what the module declares.
-   *
-   * The props are a runtime declaration read from a YAML file, so no JSON Schema can cover them —
-   * without this, a boolean prop would happily store the string `"maybe"`.
+   * Check incoming config values against what the module declares — see
+   * `helpers/moduleRegistry.ts#validateModuleConfig`. An unknown key is dropped by `buildConfig`
+   * rather than refused here, so a module losing a prop can never make the admin area unable to save.
    *
    * @returns The reason it is invalid, or null when it is fine
    */
   validateConfig(moduleKey: string, incoming: Record<string, any> = {}): string | null {
-    const props = this.getModule(moduleKey)?.props ?? {}
-    for (const [key, value] of Object.entries(incoming)) {
-      const prop = props[key]
-      // -> Unknown keys are dropped by buildConfig rather than refused: a module losing a prop must
-      //    not make the admin area unable to save
-      if (!prop || prop.readOnly || value === undefined) {
-        continue
-      }
-      if (prop.enum) {
-        // -> Enum entries are declared as `value` or `value|label`
-        const allowed = prop.enum.map((entry) => entry.split('|')[0])
-        if (!allowed.includes(`${value}`)) {
-          return `"${value}" is not a valid value for ${prop.title}.`
-        }
-        continue
-      }
-      switch (prop.type) {
-        case 'boolean':
-          if (typeof value !== 'boolean') {
-            return `${prop.title} must be true or false.`
-          }
-          break
-        case 'number':
-          if (typeof value !== 'number' || !Number.isFinite(value)) {
-            return `${prop.title} must be a number.`
-          }
-          break
-        default:
-          if (typeof value !== 'string') {
-            return `${prop.title} must be a string.`
-          }
-      }
-    }
-    return null
+    return validateModuleConfig(this.getModule(moduleKey)?.props ?? {}, incoming)
   }
 
   /**
@@ -504,31 +460,17 @@ class Authentication {
 
   async refreshStrategiesFromDisk(): Promise<void> {
     try {
-      // -> Fetch definitions from disk. Filtered to directories only: this listing also contains
-      //    loose per-module test files (e.g. `presetAssets.test.ts`) sitting alongside the module
-      //    directories, which have no `definition.yml` of their own to read.
-      const authenticationEntries = await fs.readdir(
+      // -> Only a module declaring `isAvailable` is loaded: a definition on disk that this build does
+      //    not actually ship an implementation for must not reach the admin area's picker.
+      WIKI.data.authentication = await readModuleDefinitions<AuthModule>(
         path.join(WIKI.SERVERPATH, 'modules/authentication'),
-        { withFileTypes: true }
-      )
-      const authenticationDirs = authenticationEntries
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-      WIKI.data.authentication = []
-      for (const dir of authenticationDirs) {
-        const def = await fs.readFile(
-          path.join(WIKI.SERVERPATH, 'modules/authentication', dir, 'definition.yml'),
-          'utf8'
-        )
-        const defParsed = load(def) as Record<string, any>
-        if (!defParsed.isAvailable) {
-          continue
+        {
+          label: 'authentication module',
+          parseProps: true,
+          skipUnavailable: true,
+          logEach: true
         }
-        defParsed.key = dir
-        defParsed.props = parseModuleProps(defParsed.props)
-        WIKI.data.authentication.push(defParsed)
-        WIKI.logger.debug(`Loaded authentication module definition ${dir} [ OK ]`)
-      }
+      )
 
       WIKI.logger.info(
         `Loaded ${WIKI.data.authentication.length} authentication module definitions [ OK ]`

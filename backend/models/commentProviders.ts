@@ -1,8 +1,13 @@
-import fs from 'node:fs/promises'
 import path from 'node:path'
-import { load } from 'js-yaml'
-import { and, eq, inArray } from 'drizzle-orm'
-import { maskSensitiveConfig, parseModuleProps, unmaskSensitiveConfig } from '../helpers/common.ts'
+import { and, eq } from 'drizzle-orm'
+import { maskSensitiveConfig } from '../helpers/common.ts'
+import {
+  mergeModuleConfig,
+  moduleHasFile,
+  readModuleDefinitions,
+  syncSiteModuleRows,
+  validateModuleConfig
+} from '../helpers/moduleRegistry.ts'
 import { commentProviders as commentProvidersTable, sites as sitesTable } from '../db/schema.ts'
 import type { ModuleProp } from '../helpers/common.ts'
 
@@ -133,12 +138,7 @@ class CommentProviders {
 
   /** Whether the module has any server-side code to run, as opposed to only a definition. */
   async hasImplementation(key: string, modulesPath: string): Promise<boolean> {
-    try {
-      await fs.access(path.join(modulesPath, key, 'comments.ts'))
-      return true
-    } catch {
-      return false
-    }
+    return moduleHasFile(modulesPath, key, 'comments.ts')
   }
 
   /**
@@ -167,33 +167,19 @@ class CommentProviders {
   async refreshFromDisk(
     modulesPath: string = path.join(WIKI.SERVERPATH, 'modules/comments')
   ): Promise<void> {
-    const definitions: CommentProviderDefinition[] = []
     try {
-      // -> Filtered to directories only: a loose per-module test file sitting alongside the module
-      //    directories has no `definition.yml` of its own, and this loop has no per-entry try/catch
-      //    -- one such file would abort the whole scan and silently lose every real provider.
-      const commentEntries = await fs.readdir(modulesPath, { withFileTypes: true })
-      const commentDirs = commentEntries
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-      for (const dir of commentDirs) {
-        const raw = await fs.readFile(path.join(modulesPath, dir, 'definition.yml'), 'utf8')
-        const parsed = load(raw) as Record<string, any>
-        // -> The directory name is the key, as it is for every other module type
-        parsed.key = dir
-        // -> Absent in YAML means "not a client-side embed", i.e. false — only ever `true` when the
-        //    module says so explicitly
-        parsed.codeTemplate = parsed.codeTemplate === true
-        parsed.hasImplementation = await this.hasImplementation(dir, modulesPath)
-        // -> Props carry a display `order`, applied once here so that every consumer — the admin
-        //    area included — reads them in the order the module meant them to be shown in
-        parsed.props = Object.fromEntries(
-          Object.entries(parseModuleProps(parsed.props ?? {})).sort(
-            ([, a], [, b]) => a.order - b.order
-          )
-        )
-        definitions.push(parsed as CommentProviderDefinition)
-      }
+      const definitions = await readModuleDefinitions<CommentProviderDefinition>(modulesPath, {
+        label: 'comment provider module',
+        parseProps: true,
+        sortPropsByOrder: true,
+        decorate: async (parsed, key) => {
+          // -> Absent in YAML means "not a client-side embed", i.e. false — only ever `true` when the
+          //    module says so explicitly
+          parsed.codeTemplate = parsed.codeTemplate === true
+          parsed.hasImplementation = await this.hasImplementation(key, modulesPath)
+          return parsed as CommentProviderDefinition
+        }
+      })
       this.definitions = definitions.sort((a, b) => a.title.localeCompare(b.title))
       WIKI.logger.info(`Found ${this.definitions.length} comment provider modules [ OK ]`)
     } catch (err: any) {
@@ -217,37 +203,15 @@ class CommentProviders {
    * definition declares is read from disk on every request rather than copied into the row.
    */
   async syncSite(siteId: string): Promise<void> {
-    const existing = await WIKI.db
-      .select({ module: commentProvidersTable.module })
-      .from(commentProvidersTable)
-      .where(eq(commentProvidersTable.siteId, siteId))
-    const existingKeys = existing.map((t) => t.module)
-    const definedKeys = this.definitions.map((d) => d.key)
-
-    for (const definition of this.definitions) {
-      if (existingKeys.includes(definition.key)) {
-        continue
-      }
-      await WIKI.db.insert(commentProvidersTable).values({
-        siteId,
-        module: definition.key,
+    await syncSiteModuleRows(
+      commentProvidersTable,
+      siteId,
+      this.definitions,
+      (definition): Omit<typeof commentProvidersTable.$inferInsert, 'siteId' | 'module'> => ({
         isEnabled: false,
         config: this.buildConfig(definition.key)
       })
-    }
-
-    // -> A module removed from disk should not linger in the admin list
-    const orphaned = existingKeys.filter((key) => !definedKeys.includes(key))
-    if (orphaned.length > 0) {
-      await WIKI.db
-        .delete(commentProvidersTable)
-        .where(
-          and(
-            eq(commentProvidersTable.siteId, siteId),
-            inArray(commentProvidersTable.module, orphaned)
-          )
-        )
-    }
+    )
   }
 
   /** Register the installed comment provider modules for every site. Called at boot, after storage. */
@@ -321,73 +285,26 @@ class CommentProviders {
   }
 
   /**
-   * Merge incoming config values onto the ones already stored, keeping only what the module declares.
-   *
-   * Read-only props are never taken from the client: they are declarations of something the server
-   * does not support changing, so the stored value (or the module default) always wins.
+   * Merge incoming config values onto the ones already stored, keeping only what the module declares
+   * — see `helpers/moduleRegistry.ts#mergeModuleConfig`.
    */
   buildConfig(
     moduleKey: string,
     incoming: Record<string, any> = {},
     existing: Record<string, any> = {}
   ): Record<string, any> {
-    const props = this.getDefinition(moduleKey)?.props ?? {}
-    // -> Drops a `sensitive` value that is just the mask being echoed back unchanged, so it falls
-    //    through to `current` below instead of overwriting the real stored secret with the mask
-    //    string itself. See `helpers/common.ts#unmaskSensitiveConfig`.
-    const cleanedIncoming = unmaskSensitiveConfig(props, incoming)
-    const config: Record<string, any> = {}
-    for (const [key, prop] of Object.entries(props)) {
-      const current = existing[key] !== undefined ? existing[key] : prop.default
-      config[key] =
-        prop.readOnly || cleanedIncoming[key] === undefined ? current : cleanedIncoming[key]
-    }
-    return config
+    return mergeModuleConfig(this.getDefinition(moduleKey)?.props ?? {}, incoming, existing)
   }
 
   /**
-   * Check incoming config values against what the module declares.
-   *
-   * The props are a runtime declaration read from a YAML file, so no JSON Schema can cover them —
-   * without this, a boolean prop would happily store the string `"maybe"`.
+   * Check incoming config values against what the module declares — see
+   * `helpers/moduleRegistry.ts#validateModuleConfig`. An unknown key is dropped by `buildConfig`
+   * rather than refused here, so a module losing a prop can never make the admin area unable to save.
    *
    * @returns The reason it is invalid, or null when it is fine
    */
   validateConfig(moduleKey: string, incoming: Record<string, any> = {}): string | null {
-    const props = this.getDefinition(moduleKey)?.props ?? {}
-    for (const [key, value] of Object.entries(incoming)) {
-      const prop = props[key]
-      // -> Unknown keys are dropped by buildConfig rather than refused: a module losing a prop must
-      //    not make the admin area unable to save
-      if (!prop || prop.readOnly || value === undefined) {
-        continue
-      }
-      if (prop.enum) {
-        // -> Enum entries are declared as `value` or `value|label`
-        const allowed = prop.enum.map((entry) => entry.split('|')[0])
-        if (!allowed.includes(`${value}`)) {
-          return `"${value}" is not a valid value for ${prop.title}.`
-        }
-        continue
-      }
-      switch (prop.type) {
-        case 'boolean':
-          if (typeof value !== 'boolean') {
-            return `${prop.title} must be true or false.`
-          }
-          break
-        case 'number':
-          if (typeof value !== 'number' || !Number.isFinite(value)) {
-            return `${prop.title} must be a number.`
-          }
-          break
-        default:
-          if (typeof value !== 'string') {
-            return `${prop.title} must be a string.`
-          }
-      }
-    }
-    return null
+    return validateModuleConfig(this.getDefinition(moduleKey)?.props ?? {}, incoming)
   }
 
   /**
